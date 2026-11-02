@@ -220,7 +220,8 @@ def job_create(cfg, task_paths, opts, parallel):
                                "and threads on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        refusal = taskfile.launch_refusal(info["meta"], info["cmds"])
+        refusal = taskfile.launch_refusal(info["meta"], info["cmds"],
+                                          run.launch_policy(info["path"])["rounds"])
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         gitcall.repo_line(info["meta"], info["path"])
@@ -683,7 +684,8 @@ def job_start_task(cfg, job_dir, task, opts, log):
     task_path = Path(task["task_file"])
     meta, body, title = taskfile.parse_task(task_path)
     # the file as it reads now, which may have changed since the job began
-    refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path))
+    refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path),
+                                      run.launch_policy(task_path)["rounds"])
     if refusal:
         raise RefusedTask(refusal)
     run_dir = job_allocate_run_dir(title)
@@ -1494,13 +1496,11 @@ def cmd_job_resume(argv):
     argv = [arg for arg in argv if arg != "--bg"]
     # `--rounds` is a single-run option; a job keeps each task's own budget, and one over
     # the rule is refused here exactly as a run's is
+    asked = None
     if len(argv) >= 3 and argv[1] == "--rounds":
         if not (len(argv) == 3 and argv[2].isdigit() and int(argv[2]) > 0):
             raise config.Error("usage: ak run resume ID [--rounds N] [--bg]")
-        refusal = taskfile.rounds_refusal(argv[2], "--rounds")
-        if refusal:
-            raise config.Error(refusal)
-        argv = [argv[0]]
+        asked, argv = argv[2], [argv[0]]
     if len(argv) != 1 or Path(argv[0]).name != argv[0] or argv[0] in (".", ".."):
         raise config.Error("usage: ak run resume ID [--rounds N] [--bg]")
     job_dir = config.JOBS / argv[0]
@@ -1513,6 +1513,9 @@ def cmd_job_resume(argv):
         job = read_job(job_dir)
     if not job or not isinstance(job.get("tasks"), list):
         raise config.Error(f"no resumable job: {argv[0]} (looked in {config.JOBS})")
+    refusal = asked and taskfile.rounds_refusal(asked, "--rounds", config.policy(job.get("cwd"))["rounds"])
+    if refusal:
+        raise config.Error(refusal)
     box.check()
     try:
         launcher_alive = not job.get("finished_at") and bool(record.process_active(job))

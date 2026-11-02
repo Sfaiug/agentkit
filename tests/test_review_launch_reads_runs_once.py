@@ -87,7 +87,7 @@ class ReviewLaunchReadsRunsOnce(Sandbox):
             reads[run_dir.name] += 1
             return read_state(run_dir)
         with patch.object(transitions.run_record, "read_state", counting_read):
-            failed = transitions.budget_failed_reviews(self.repo, exclude=launching)
+            failed = transitions.budget_failed_reviews(self.repo, 3, exclude=launching)
         self.assertEqual(sorted(failed), sorted((URL.format(number), self.base, heads[number])
                                                 for number in (1, 2, 3, 8)))
         self.assertEqual(len(reads), 59)
@@ -100,7 +100,7 @@ class ReviewLaunchReadsRunsOnce(Sandbox):
             return reviewed_lines(repo, base, head)
         mine = self.head("replacement")
         with patch.object(transitions, "reviewed_lines", counting_diff):
-            refusal = transitions.replacement_refusal(self.repo, self.base, mine, 9, 40,
+            refusal = transitions.replacement_refusal(self.repo, self.base, mine, 9, 40, 3,
                                                       exclude=launching)
         self.assertIn("PR #9 re-adds 40 of its 40 lines", refusal)
         self.assertEqual(diffs, Counter({(self.base, head): 1

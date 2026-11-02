@@ -70,7 +70,7 @@ class ReplacementRounds(Sandbox):
     def refusal(self, head, number=9):
         counted = (transitions.diff_lines(self.repo, self.base, head, added_only=True)
                    - transitions.carried_lines(self.repo, self.base, head))
-        return transitions.replacement_refusal(self.repo, self.base, head, number, counted)
+        return transitions.replacement_refusal(self.repo, self.base, head, number, counted, 3)
 
     def test_a_pull_request_mostly_made_of_a_failed_ones_lines_inherits_its_rounds(self):
         theirs = [f"def f{n}(): return {n}" for n in range(40)]
@@ -149,7 +149,7 @@ class ReplacementRounds(Sandbox):
         self.assertIsNotNone(self.refusal(again))
         # the run under review counts for nothing against itself
         self.assertIsNone(transitions.replacement_refusal(
-            self.repo, self.base, again, 9, 35, exclude=config.RUNS / "20260101-0500-last-round"))
+            self.repo, self.base, again, 9, 35, 3, exclude=config.RUNS / "20260101-0500-last-round"))
         # a pull request one of whose runs merged is no failure: a task run, which keeps it in `pr`
         merged = self.failed_review("20260101-0900-merged", failed, merged=True, rounds=0)
         record.save_state(merged, {key: value for key, value in record.read_state(merged).items()

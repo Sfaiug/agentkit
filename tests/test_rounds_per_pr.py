@@ -62,7 +62,7 @@ class RoundsPerPr(Sandbox):
         self.assertEqual(transitions.rounds_spent_elsewhere(pr=OTHER), (3, 1))
         # every run of a change carries its id, however far down the relaunches go
         self.assertEqual(transitions.rounds_spent_elsewhere(change=first), (4, 3))
-        self.assertEqual(run.round_budget(3, change=first, what="branch ak/first-3")[0], 0)
+        self.assertEqual(run.round_budget(3, 3, change=first, what="branch ak/first-3")[0], 0)
         self.assertEqual(transitions.rounds_spent_elsewhere(change="20260101-0000-nothing"), (0, 0))
         self.assertEqual(transitions.rounds_spent_elsewhere(), (0, 0))
         # a pull request is one name however its URL is spelled
@@ -83,7 +83,7 @@ class RoundsPerPr(Sandbox):
         # a run in the repository itself is on whatever branch was checked out and owns none
         self.earlier("20260101-0400-plain", 3, branch="ak/fix-parser", repo=str(repo), worktree=str(repo))
         self.assertIsNone(run.change_on("ak/fix-parser", repo))
-        self.assertEqual(run.round_budget(3, change=None, what="x"), (3, None))
+        self.assertEqual(run.round_budget(3, 3, change=None, what="x"), (3, None))
         self.earlier("20260101-0500-kept", 1, branch="ak/fix-parser", **self.own(repo, 5),
                      state="stopped", stop_kept=True)
         self.assertEqual(run.change_on("ak/fix-parser", repo), "20260101-0500-kept")
@@ -91,7 +91,7 @@ class RoundsPerPr(Sandbox):
         self.earlier("20260101-0600-again", 1, branch="ak/fix-parser-2", **self.own(repo, 6),
                      change="20260101-0500-kept", **{"from": "ak/fix-parser"})
         self.assertEqual(run.change_on("ak/fix-parser-2", repo), "20260101-0500-kept")
-        self.assertEqual(run.round_budget(3, change="20260101-0500-kept", what="x"), (1, None))
+        self.assertEqual(run.round_budget(3, 3, change="20260101-0500-kept", what="x"), (1, None))
         # ... and only in its repository: the same name elsewhere is another change
         other = self.root / "widget"
         other.mkdir()
@@ -130,7 +130,7 @@ class RoundsPerPr(Sandbox):
         self.assertEqual(transitions.allowed_rounds(lp), 0)
         with self.assertRaisesRegex(run.Blocked, "3 review rounds spent on this change across 1 run:"):
             transitions.round_allowed(lp)
-        self.assertEqual(run.round_budget(3, change="20260101-0600-a", what="x")[0], 0)   # a launch sees it too
+        self.assertEqual(run.round_budget(3, 3, change="20260101-0600-a", what="x")[0], 0)   # a launch sees it too
         self.earlier("20260101-0600-a", 2, branch="ak/a", **self.own(repo, 1), state="running",
                      review_pending={"round": 3, "summary": ""})
         self.assertEqual(transitions.allowed_rounds(lp), 0)
@@ -139,12 +139,12 @@ class RoundsPerPr(Sandbox):
         self.assertEqual(transitions.allowed_rounds(lp), 1)
 
     def test_the_budget_is_what_earlier_runs_left_of_three(self):
-        self.assertEqual(run.round_budget(3, pr=URL, what="PR #7"), (3, None))
+        self.assertEqual(run.round_budget(3, 3, pr=URL, what="PR #7"), (3, None))
         self.earlier("20260101-0900-review-pr-widget-7", 1, review_pr=URL, pr=URL)
-        self.assertEqual(run.round_budget(3, pr=URL, what="PR #7"), (2, None))
-        self.assertEqual(run.round_budget(1, pr=URL, what="PR #7"), (1, None))
+        self.assertEqual(run.round_budget(3, 3, pr=URL, what="PR #7"), (2, None))
+        self.assertEqual(run.round_budget(1, 3, pr=URL, what="PR #7"), (1, None))
         self.earlier("20260101-0800-review-pr-widget-7", 2, review_pr=URL, pr=URL)
-        left, why = run.round_budget(3, pr=URL, what="PR #7")
+        left, why = run.round_budget(3, 3, pr=URL, what="PR #7")
         self.assertEqual(left, 0)
         self.assertEqual(why, "3 review rounds spent on PR #7 across 2 runs: "
                               f"{config.policy()['rounds']} per pull request is the budget; "
@@ -266,7 +266,7 @@ class RoundsPerPr(Sandbox):
         self.assertEqual([p.name for p in config.WT.iterdir()] if config.WT.exists() else [], [])
         # a task that names no `from:` is a new change, whatever the branch a slug lands on
         self.earlier("20260101-0700-fix-parser", 3, branch="ak/fix-the-parser", **self.own(repo, 3))
-        self.assertEqual(run.round_budget(3, exclude=launch, what="x"), (3, None))
+        self.assertEqual(run.round_budget(3, 3, exclude=launch, what="x"), (3, None))
         # with a round left on the change, the launch records the change it continues and
         # takes only that round
         self.earlier("20260101-0800-fix-parser", 0, branch="ak/fix-parser-2", **self.own(repo, 2),

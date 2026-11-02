@@ -336,6 +336,22 @@ func TestALookWritesOnlyAChangeAndTellsTheBar(t *testing.T) {
 	}
 }
 
+// A seat whose last answer ran on another model closes on that model, and its bar names it.
+func TestALookFollowsTheLastAnswersModel(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	transcript(t, home, "acme", `{"type":"assistant","message":{"model":"claude-fable"}}`+"\n")
+	pane := paneDied(t, "acme")
+	looked(t, pane, "acme")
+	got, _ := run.ReadJSON(filepath.Join(home, ".agentkit", "state", "session-acme.json"))
+	if got == nil || got.Str("orchestrator") != "fable" {
+		t.Fatalf("%v", got)
+	}
+	if said, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", "=acme:", barTop); !strings.Contains(said, "claude-fable") {
+		t.Fatalf("its bar: %q", said)
+	}
+}
+
 func TestABarIsToldOnlyWhereThisProcessPublishes(t *testing.T) {
 	home := sandbox(t)
 	record(t, home, "acme", nil)

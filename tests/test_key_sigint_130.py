@@ -9,15 +9,17 @@ tests/fixtures/akbin.py, signalled as a terminal's Ctrl-C signals its foreground
 and this test fails against `/bin/false`.
 """
 
+import fcntl
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import Home
+from fixtures.akbin import AK, Home
 
 MAC_FILE = "/Users/acme/report.pdf"   # a path on the Mac, which this host does not have
 
@@ -71,6 +73,22 @@ class SigintExits130(unittest.TestCase):
         self.assertEqual(code, 130, err)
         self.assertEqual(out, f"{here}\n")
         self.assertEqual(err, "\nak fetch: interrupted\n")
+
+    def test_an_output_nobody_reads_does_not_outlast_the_interrupt(self):
+        here = self.home.write("notes.txt", "kept\n")
+        read_end, write_end = os.pipe()
+        self.addCleanup(os.close, read_end)
+        os.write(write_end, b"x" * fcntl.fcntl(write_end, fcntl.F_GETPIPE_SZ))
+        proc = subprocess.Popen([AK, "fetch", "", str(here)], stdin=subprocess.DEVNULL,
+                                stdout=write_end, stderr=subprocess.PIPE, cwd=self.home.path,
+                                env=self.home.env, start_new_session=True)
+        os.close(write_end)
+        self.addCleanup(proc.communicate)
+        self.addCleanup(proc.kill)
+        # The refused empty path comes first: past its line, the next write is the one that stalls.
+        proc.stderr.readline()
+        os.killpg(proc.pid, signal.SIGINT)
+        self.assertIn(proc.wait(timeout=30), (130, -signal.SIGINT))
 
 
 if __name__ == "__main__":

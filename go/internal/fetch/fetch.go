@@ -3,6 +3,7 @@
 package fetch
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/signal"
 	"path"
 	"path/filepath"
 	"regexp"
@@ -22,6 +24,10 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 )
+
+// errInterrupted is a Ctrl-C.  It returns through ask, so its request is taken back like any other
+// ending's.
+var errInterrupted = errors.New("interrupted")
 
 var decimal = regexp.MustCompile(`^[+-]?(?:[0-9](?:_?[0-9])*(?:\.(?:[0-9](?:_?[0-9])*)?)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?$`)
 
@@ -74,6 +80,10 @@ func Main(args []string, out, errOut io.Writer) int {
 	code := 0
 	for _, arg := range args {
 		found, err := one(arg, wait)
+		if errors.Is(err, errInterrupted) {
+			fmt.Fprintln(errOut, "\nak fetch: interrupted")
+			return 130
+		}
 		if err != nil {
 			fmt.Fprintln(errOut, "ak fetch: "+err.Error())
 			code = 1
@@ -184,6 +194,10 @@ func ask(mac string, wait float64) (string, error) {
 	ready := filepath.Join(inbox, "."+ident+".ready")
 	failed := filepath.Join(inbox, "."+ident+".error")
 	delivered := ""
+	// Only this wait catches Ctrl-C, as only it can stop early: everywhere else, a write to a
+	// stalled pipe above all, the signal has to go on ending the program.
+	interrupt, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	defer func() {
 		for _, leftover := range []string{temp, request, ready, failed} {
 			os.Remove(leftover)
@@ -225,6 +239,10 @@ func ask(mac string, wait float64) (string, error) {
 		if remaining <= 0 {
 			return "", fmt.Errorf("%s: no answer from the Mac bridge in %.6gs; the Mac may be asleep or offline, or ak macbridge is not running there (open ak on the Mac)", mac, wait)
 		}
-		time.Sleep(time.Duration(math.Min(poll.Seconds(), remaining) * float64(time.Second)))
+		select {
+		case <-interrupt.Done():
+			return "", errInterrupted
+		case <-time.After(time.Duration(math.Min(poll.Seconds(), remaining) * float64(time.Second))):
+		}
 	}
 }

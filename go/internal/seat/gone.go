@@ -51,6 +51,8 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	if !crewed || failed(name, own) || notify.Standing(name) || loggedOut(state, own) || record.Truthy(harness.Receipt(own)) {
 		return Seat{}, nil, false
 	}
+	// the follow moves the seat from the model this record names, so both come from one reading
+	seat.Orchestrator = record.Str("orchestrator")
 	if complaint == "" { // a record Python cannot read moves nothing
 		if seat.follow, known = follows(record, models, offered); !known {
 			return Seat{}, nil, false
