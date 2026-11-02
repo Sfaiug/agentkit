@@ -27,7 +27,7 @@ func historyless() bool {
 }
 
 // cardless is whether no seat's card waits to be retired.
-func cardless() bool { return len(config.Glob(statePath(""), "card-*.json")) == 0 }
+func cardless() bool { return len(config.SeatRecords("card")) == 0 }
 
 // outageless is whether no outage is kept for the alive pass to forget.
 func outageless() bool { return missing(statePath("alive.json")) }
