@@ -60,6 +60,7 @@ class GateHome(unittest.TestCase):
                                                {**os.environ, "HOME": str(home)}, out,
                                                cwd=workspace) as (cmd, turn_env, spawn):
             spawn.pop("stop")
+            spawn.pop("began")
             turn = subprocess.run(cmd, env=turn_env, cwd=workspace, capture_output=True,
                                   text=True, timeout=60, **spawn)
         self.assertEqual(box.returncode(out, turn.returncode), 0,

@@ -2343,13 +2343,14 @@ def run_records(*, cache=True, rest_may_lag=False):
     memory at the next pass.
 
     Unattended runs and tasks or repos resolving under ~/.agentkit/tmp/smoke-* are left out.
-    Paths are resolved on every pass that looks at the run: a symlink can move without a run.json
+    Paths are resolved on every pass that looks at every run: a symlink can move without a run.json
     changing. Bad run files are skipped, never repaired.
 
     With `rest_may_lag`, the main screen's read all day, only the open runs are looked at and a
     run at rest is as the last full read found it (`open_runs`), on the rows and in what a look
-    decides from them; the list comes back the same object while nothing changed.  Every other
-    caller decides on what it reads, and looks at every run.
+    decides from them; an open run's paths are resolved only once its record changed, so a symlink
+    that moved shows by the next full read; the list comes back the same object while nothing
+    changed.  Every other caller decides on what it reads, and looks at every run.
     """
     global _RUN_RECORDS
     with _RUN_RECORDS_LOCK:

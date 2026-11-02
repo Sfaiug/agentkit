@@ -21,6 +21,7 @@ type plugin struct {
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
 	fresh   string
+	receipt string
 	answer  func(conversation, cwd string) (model, effort any, found bool)
 	turnEnv map[string]string
 	auth    func(login config.Login, seat bool) Answer
@@ -50,6 +51,12 @@ func Identity(name, text string, argv []string) (string, bool) {
 // where Go does not follow that harness's seats yet.
 func Reopens(name string) (string, bool) {
 	return plugins[name].fresh, plugins[name].seats
+}
+
+// Receipt is the key of a seat's record that names that harness's evidence of the conversation it
+// owns, which Go does not verify yet; "" where the record alone says.
+func Receipt(name string) string {
+	return plugins[name].receipt
 }
 
 // Opens is whether a launch of that harness's seat writes down its title, as Python's plugin
