@@ -85,7 +85,7 @@ class RulebookNews(unittest.TestCase):
         self.launched()
         akconfig.write(self.home, ["opus"], settings={"review_lines": 150})
         self.assertIn("at most 150 added lines", self.told())
-        template = self.home.path / ".agentkit/tasks/task.md"
+        template = self.home.path / ".agentkit/state/task-template.md"
         self.assertIn("at most 150 added lines", template.read_text())
 
     def test_with_no_record_of_the_rulebook_held_the_whole_one_is_pointed_to(self):

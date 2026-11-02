@@ -2794,14 +2794,14 @@ def fetched(repo):
 
 
 def hand_task_template():
-    """Put templates/task.md, saying this host's numbers, where a seat's rulebook files its tasks:
-    ~/.agentkit/tasks/task.md.  A seat that cannot get it still has its rules, so a failed write
-    stops nothing, and the next launch or changed rulebook tries again."""
-    folder = config.HOME / "tasks"
+    """Put templates/task.md, saying this host's numbers, beside the seats' rulebooks: in ak's
+    state, since each writing replaces it and the tasks folder holds what people wrote.  A seat
+    that cannot get it still has its rules, so a failed write stops nothing, and the next launch
+    or changed rulebook tries again."""
     try:
-        folder.mkdir(parents=True, exist_ok=True)
+        config.STATE.mkdir(parents=True, exist_ok=True)
         written = (config.REPO / "templates" / "task.md").read_text()
-        replace_file(folder / "task.md", config.in_force(written).encode())
+        replace_file(config.STATE / "task-template.md", config.in_force(written).encode())
     except OSError:
         pass
 

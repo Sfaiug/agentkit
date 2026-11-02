@@ -1,8 +1,8 @@
 """What ak tells a seat of `rounds`, `review_lines` and `seat_lines` is what this host set.
 
-The rulebook a seat opens on, the task template in the folder that rulebook files tasks in and
-`ak run --help` say the numbers in force, whole sentences reading right at any of them; with no
-setting they say ak's defaults, and a `$` the owner wrote in `rules.md` stays as written.  A config.toml ak cannot use stops a command, never its help.
+The rulebook a seat opens on, the task template written beside it and `ak run --help` say the
+numbers in force, whole sentences reading right at any of them; with no
+setting they say ak's defaults, and a `$` the owner wrote in `rules.md` stays as written, as does a task a person left in the tasks folder.  A config.toml ak cannot use stops a command, never its help.
 Black-box: the program `AK_BIN` names, judged by the file it writes for a seat and what it prints.
 This test fails against `/bin/false`.
 """
@@ -19,6 +19,7 @@ from fixtures.akbin import REAL_TMUX, REPO, Home
 ECHO = {"one": {"harness": "echo", "model": "echo-1", "provider": "test"},
         "two": {"harness": "echo", "model": "echo-2", "provider": "test"}}
 OWN = "Acme's own rule: a seat costs $5, and $rounds, $Rounds and $s mean nothing here.\n"
+DRAFT = "# Acme's own draft\n"
 DEFAULTS = ("at most 300 added lines with its tests", "Under 50 added lines you build",
             "ak refuses your own PR from 50 lines", "Three review rounds per change is the budget",
             "ak refuses a fourth.")
@@ -68,13 +69,15 @@ class Rulebook(unittest.TestCase):
             shutil.copytree(REPO / "tests/fixtures/adapters", adapters)
             akconfig.write(home, ECHO, settings=settings)
             home.write(".agentkit/rules.md", OWN)
+            task = home.write(".agentkit/tasks/task.md", DRAFT)
             cwd = home.path / "code" / "acme"
             cwd.mkdir(parents=True)
             done = home.ak("orch", "acme", "--model", "one", "--workers", "two", tty=True,
                            cwd=cwd, env={"AGENTKIT_ADAPTER_DIR": str(adapters)})
             self.assertEqual(done.code, 0, done.err)
+            self.assertEqual(task.read_text(), DRAFT)
             return ((home.path / ".agentkit/state/rulebook-acme.md").read_text(),
-                    (home.path / ".agentkit/tasks/task.md").read_text())
+                    (home.path / ".agentkit/state/task-template.md").read_text())
 
     def test_says_the_numbers_in_force(self):
         book, template = self.book(review_lines=150, rounds=4, seat_lines=20)
