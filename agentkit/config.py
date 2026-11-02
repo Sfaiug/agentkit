@@ -23,6 +23,20 @@ from . import host, look, parsed
 
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
+
+
+def code_written():
+    """The newest write among the modules next to this one, in nanoseconds."""
+    newest = 0
+    for path in Path(__file__).resolve().parent.glob("*.py"):
+        try:
+            newest = max(newest, path.stat().st_mtime_ns)
+        except OSError:
+            pass
+    return newest
+
+
+CODE_WRITTEN = code_written()   # of the code this process read (`update.code_moved`)
 HOME = Path.home() / ".agentkit"
 PLACES = {"RUNS": "runs", "WT": "wt", "STATE": "state", "SECRETS": "secrets", "TMP": "tmp",
           "ENV": "env", "WORK": "work", "JOBS": "jobs"}

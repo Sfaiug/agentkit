@@ -35,6 +35,7 @@ AT_FDCWD = -100                 # Linux's, for renameat2
 RENAME_EXCHANGE = 2             # renameat2's flag on Linux
 RENAME_SWAP = 2                 # renamex_np's flag on macOS
 LOCKED = "a version of ak's"   # why each version's record is locked, kept from any prune
+NOT_RUN = (":!go", ":!tests", ":!docs", ":!*.md")   # what no running process holds
 
 
 def repository():
@@ -159,6 +160,19 @@ def tidy(live):
             remove(path)
 
 
+def keep_times(live, new, commit):
+    """A landing that brings nothing a process runs keeps the modules' times, so no process open
+    on them finds its code moved (`update.code_moved`) and restarts for nothing."""
+    if git(live, "diff", "--quiet", "HEAD", commit, "--", ".", *NOT_RUN)[0]:
+        return
+    try:
+        for path in (new / "agentkit").glob("*.py"):
+            old = (live / "agentkit" / path.name).stat()
+            os.utime(path, ns=(old.st_atime_ns, old.st_mtime_ns))
+    except OSError:
+        pass            # a time not kept costs one restart
+
+
 def switch(live, commit):
     """Put `commit` live at `live`, swapped in whole: "" once it is or there is nothing to move,
     else why not, `live` then as it was.  Forward only, as a fast-forward went: a commit `live`
@@ -181,6 +195,7 @@ def switch(live, commit):
         return f"{commit[:12]} could not be checked out in {new}: {said}"
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
+        keep_times(live, new, commit)
         exchange(live, new)
     except OSError as exc:
         remove(new)

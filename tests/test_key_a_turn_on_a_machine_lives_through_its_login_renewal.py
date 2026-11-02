@@ -1,6 +1,7 @@
 """While a turn runs on a machine, a renewal of its account's login here replaces its copy there, by
-rename, sending only a change and trying a failed send again; no process's command line holds it, a
-send landing after the turn ended leaves nothing, and the following ends before the results come.
+rename, sending only a change down the turn's own connection and trying a failed replacement again;
+no process's command line holds it, a send landing after the turn ended leaves nothing, and the
+following ends before the results come.
 
 Black-box, as tests/test_key_a_turn_runs_on_a_machine.py: the executor's stand-in harness (FOLLOWS)
 watches its lent file while it changes the login here, saying on `never` what never came; ssh logs
@@ -48,12 +49,6 @@ renew() {{ cp "{dir}/$1" "{dir}/part"; mv "{dir}/part" "{dir}/second.login"; }}
 case $verb in
 prepare)    # the first turn's: renewed after the lend its parcel holds
   [ ! -e "{dir}/at-prepare" ] || {{ rm "{dir}/at-prepare"; renew one; }} ;;
-relend)
-  [ ! -e "{dir}/fail" ] || {{ rm "{dir}/fail"; exit 255; }}
-  # A send late for the turn: it lands once the turn's end has removed what it would replace.
-  [ ! -e "{dir}/hold" ] || {{
-    rm "{dir}/hold"; : >"{dir}/held"
-    while [ -n "$(find "{tree}" -path "*/home/{lent}" 2>/dev/null)" ]; do sleep 0.05; done; }} ;;
 collect|finish)
   find "{tree}" -path "{tree}/*/home/*" -type f 2>/dev/null >>"{seen}"
   # Renewed as results come home, with time for a follower still looking to send it.
@@ -81,19 +76,17 @@ exec 3<"$mine"
 renew two second
 until_ holds two
 cmp -s "$here/one" /dev/fd/3 || echo "the old file changed" >>"$said/never"
-# The same bytes touched, then another account's login changing: each is lent, neither is sent.
+# The same bytes touched, then another account's login changing: each is lent, neither is sent, so
+# the file stays the one it was, as it does when there is nothing to lend.
+same=$(stat -c %i "$mine")
 counted touch "$here/second.login"
 counted renew three usual
-# Nothing to lend, then a renewal whose first send fails.
 : >"$here/empty"
 counted renew empty second
-: >"$here/fail"
+sleep 1
+[ "$(stat -c %i "$mine")" = "$same" ] || echo "an unchanged copy was sent" >>"$said/never"
 renew three second
 until_ holds three
-# A renewal whose send lands only once this turn has ended.
-: >"$here/hold"
-renew four second
-until_ test -e "$here/held"
 """
 
 
@@ -139,10 +132,6 @@ class ATurnLivesThroughItsLoginRenewal(unittest.TestCase):
         self.assertTrue(json.loads((run / "run.json").read_text())["merged"])
         self.assertEqual([path.read_text() for path in run.rglob("never")], [])
         self.assertEqual([path.read_text() for path in run.rglob("on-a-command-line")], [""])
-        # one, two, three's failed send and its next, four's late one; none once results start home
-        verbs = logs["verbs"].read_text().split()
-        self.assertEqual(verbs.count("relend"), 5, verbs)
-        self.assertNotIn("relend", verbs[verbs.index("collect"):])
         self.assertNotIn(TOKEN, logs["args"].read_text())
         for path in run.rglob("*"):
             if path.is_file():
@@ -172,25 +161,34 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         return subprocess.run(["bash", "-c", script, "mac.sh", *argv], input=sent, env=self.env,
                               capture_output=True)
 
-    def relend(self):
-        return self.verb("relend", "turn", sent=b"".join(
-            base64.b64encode(f"{TOKEN}\n".encode()) + f" {path}\n".encode()
-            for path in (HELD, ".fake/gone.json", f"{HELD}.part")))
+    def machine(self, call):
+        script = (TOOLS / "linux.sh").read_text() + (TOOLS / "mac.sh").read_text()
+        return subprocess.run(
+            ["bash", "-c", script[:script.index('\ncase "$1" in')] + f"\n{call}"],
+            env=self.env, capture_output=True, input=b"".join(
+                base64.b64encode(f"{TOKEN}\n".encode()) + f" {path}\n".encode()
+                for path in (HELD, ".fake/gone.json", f"{HELD}.part")))
+
+    def renewals(self):
+        return self.machine('renewals "$ROOT/turn"')
+
+    def relend(self):    # one try, whose failure is what `renewals` tries again on
+        return self.machine('locked "$ROOT/lent.lock" replace_lent "$ROOT/turn"')
 
     def test_it_writes_only_what_the_turn_s_list_names_and_it_still_holds_until_finish(self):
-        self.assertEqual(self.relend().returncode, 0)
+        self.assertEqual(self.renewals().returncode, 0)
         self.assertEqual(self.held.read_text(), f"{TOKEN}\n")
         self.assertEqual(self.held.stat().st_mode & 0o777, 0o600)
         self.assertEqual(self.other.read_text(), "old\n")
         self.assertEqual(self.beside(), [HELD.name, self.other.name])
         self.held.unlink()
-        self.assertEqual(self.relend().returncode, 0)
+        self.assertEqual(self.renewals().returncode, 0)
         self.assertEqual(self.beside(), [self.other.name])
         self.assertEqual(self.verb("finish", "turn").returncode, 0)
-        self.relend()
+        self.renewals()
         self.assertEqual([path.name for path in self.tree.iterdir()], ["lent.lock"])
 
-    def test_a_failed_rename_leaves_no_part_and_tells_the_sender(self):
+    def test_a_failed_rename_leaves_no_part(self):
         marks = self.home / "marks"
         marks.mkdir()
         (marks / "mv").write_text("#!/bin/sh\nexit 1\n")
@@ -198,6 +196,20 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         self.env["PATH"] = f"{marks}:{self.env['PATH']}"
         self.assertEqual(self.relend().returncode, 253)
         self.assertEqual(self.held.read_text(), "old\n")
+        self.assertEqual(self.beside(), [HELD.name, self.other.name])
+
+    def test_a_failed_rename_lands_on_the_next_try_on_the_same_connection(self):
+        marks = self.home / "marks"
+        marks.mkdir()
+        fail = self.home / "fail"
+        fail.touch()
+        (marks / "mv").write_text(f'#!/bin/sh\nrm "{fail}" 2>/dev/null && exit 1\n'
+                                  f'exec "{shutil.which("mv")}" "$@"\n')
+        (marks / "mv").chmod(0o755)
+        self.env["PATH"] = f"{marks}:{self.env['PATH']}"
+        self.assertEqual(self.renewals().returncode, 0)
+        self.assertFalse(fail.exists())
+        self.assertEqual(self.held.read_text(), f"{TOKEN}\n")
         self.assertEqual(self.beside(), [HELD.name, self.other.name])
 
     def test_the_turn_s_end_removes_its_login_and_a_killed_send_s_part_and_nothing_else(self):
@@ -219,7 +231,7 @@ class TheVerbLeavesNothingBehind(unittest.TestCase):
         self.env["PATH"] = f"{marks}:{self.env['PATH']}"
         with open(self.tree / "lent.lock", "w") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            sending = threading.Thread(target=self.relend)
+            sending = threading.Thread(target=self.renewals)
             sending.start()
             while sending.is_alive() and not (marks / "args").exists():
                 time.sleep(0.02)

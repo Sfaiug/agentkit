@@ -37,7 +37,8 @@ LENT_FOR = 3600
 # holds the turn at most this long more.
 KEPT = 60
 # Seconds between a follower's looks at the login files: a renewal revokes the turn's copy, and a
-# real harness re-read its file for only about 2 s of refusals (2 Nov 2026), `lend` and ssh within.
+# real harness re-read its file for only 1.7 s of refusals (2 Nov 2026), `lend` and sending within,
+# where a new ssh to a far machine took 3.7 s and the turn died of the refusals.
 LOOK = 0.25
 
 
@@ -95,13 +96,13 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     volumes = [f"home:{env['HOME']}", f"work:{cwd}", f"out:{out_dir}",
                *(f"ak/{name}:{config.REPO / name}:ro" for name in AK)]
     try:
-        with _following(entry, cmd[0], env, away, logins, seen, lent), \
+        with _following(entry, cmd[0], env, logins, seen, lent) as renewals, \
                 (out_dir / "events.jsonl").open("ab") as events, \
                 (out_dir / "stderr.log").open("ab") as err:
             code, _, killed = watch(helper._remote(
                 away.alias, "turn", away.key, away.image, away.memory_mb, away.repo, *volumes,
                 "--", cwd, config.REPO, away.branch, away.default, *cmd),
-                declared=_declared(away), stdout=events, stderr=err)
+                declared=_declared(away), stdin=renewals, stdout=events, stderr=err)
         if code == helper.FULL:    # its room went to another before it started: it runs here
             return None
         if not killed:    # the turn's own exit and conversation come home with its results
@@ -174,37 +175,41 @@ def _stamp(path):
 
 
 @contextmanager
-def _following(entry, adapter, env, away, logins, seen, sent):
-    """While inside it, a change of the files `logins` from their stamps `seen` asks the adapter
-    for a new copy, and one differing from the copy `sent` replaces that on the machine, tried again
-    at each look until it lands or another is lent, none lent leaving nothing to send. Its thread's
-    failures reach nothing, and leaving stops it, a send under way ending first."""
+def _following(entry, adapter, env, logins, seen, sent):
+    """Gives the stdin for the turn's ssh. While inside it, a change of the files `logins` from their
+    stamps `seen` asks the adapter for a new copy, and one differing from the copy `sent` goes down
+    that connection to replace it on the machine (mac.sh's `renewals`): there at once, and what the
+    connection loses the turn loses too. None lent leaves nothing to send. Its thread's failures
+    reach nothing, and leaving stops it."""
     stop = threading.Event()
+    stdin, renewals = os.pipe()
 
     def follow(seen, sent):
-        unsent = {}
         while not stop.wait(LOOK):
             try:
                 if (stamps := [*map(_stamp, logins)]) != seen:
                     seen = stamps
                     with tempfile.TemporaryDirectory() as home:
                         fresh = _lend(entry, adapter, env, home, 0)    # any beats a revoked one
-                    unsent = fresh if fresh != sent else {}
-                if unsent and not helper._remote(
-                        away.alias, "relend", away.key, timeout=30, input=b"".join(
+                    if fresh and fresh != sent:
+                        sent = fresh
+                        lines = memoryview(b"".join(
                             base64.b64encode(data) + b" " + path.encode() + b"\n"
-                            for path, data in unsent.items())).returncode:
-                    sent, unsent = unsent, {}
+                            for path, data in fresh.items()))
+                        while lines:
+                            lines = lines[os.write(renewals, lines):]
             except (OSError, subprocess.SubprocessError, config.Error):
                 pass
 
     follower = threading.Thread(target=follow, args=(seen, sent), daemon=True)
     follower.start()
     try:
-        yield
+        yield stdin
     finally:
+        os.close(stdin)    # with the ssh gone, a write it left waiting fails
         stop.set()
         follower.join()
+        os.close(renewals)
 
 
 def _lend(entry, adapter, env, home, lasting=LENT_FOR):

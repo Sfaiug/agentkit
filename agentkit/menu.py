@@ -5815,7 +5815,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 clock.forget()            # and the menu it comes back to replays nothing
                 pointing = False
             # new code under an open menu, the tick's above all, draws it from here on, once
-            # the menu's own update, which stamps the install too, has said how it went; over a
+            # the menu's own update, whose install follows its swap, has said how it went; over a
             # frame the terminal holds till the next one, so back from a seat or a notice the
             # list comes up first, and no key is cut short
             if (framed and not messages and newborn is None

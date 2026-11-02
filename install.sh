@@ -713,7 +713,7 @@ fi
 
 # Existing Claude sessions retain the settings they started with. `ak orch list` shows which
 # seats predate this install; stopping one remains an explicit, exact-name operation.
-[ "$ROLE" != server ] || date +%s >"$AK/state/installed-at"
+[ "$ROLE" != server ] || [ -e "$AK/state/installed-at" ] || date +%s >"$AK/state/installed-at"
 
 # --- (g2) the two tmux options the sessions already running want -------------
 # `ak orch` writes them into agentkit's own tmux config, which a tmux server reads when it

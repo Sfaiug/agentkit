@@ -48,6 +48,9 @@ class FreshServer(unittest.TestCase):
             (cls.bin / name).symlink_to(target)
         cls.before = int(time.time())
         cls.first = installer.run(home)
+        cls.stamp = cls.ak_dir / "state" / "installed-at"
+        cls.stamped = cls.stamp.read_text()
+        cls.stamp.write_text("1000\n")         # what no second run's clock could write
         cls.shipped = (cls.ak_dir / "config.toml").read_text()
         cls.shipped_mode = (cls.ak_dir / "config.toml").stat().st_mode & 0o777
         (cls.ak_dir / "config.toml").write_text("# the owner's own\nmax_runs = 2\n")
@@ -100,10 +103,12 @@ class FreshServer(unittest.TestCase):
         self.assertEqual(profile.count("$HOME/.local/bin"), 1, profile)
 
     def test_a_server_records_when_it_was_installed(self):
-        stamp = (self.ak_dir / "state" / "installed-at").read_text()
-        self.assertRegex(stamp, r"^\d+\n$")
-        self.assertLessEqual(self.before, int(stamp))
+        self.assertRegex(self.stamped, r"^\d+\n$")
+        self.assertLessEqual(self.before, int(self.stamped))
         self.assertTrue((self.home.path / "code").is_dir())
+
+    def test_a_second_install_leaves_the_stamp_as_it_was(self):
+        self.assertEqual(self.stamp.read_text(), "1000\n")
 
 
 class Roles(unittest.TestCase):
