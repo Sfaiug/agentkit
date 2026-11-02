@@ -160,19 +160,22 @@ def error(record, cwd, conversation):
     ends it, or None where it has no transcript.
 
     A request that failed ends in an entry of its own, `isApiErrorMessage`, holding the text
-    the seat showed; a prompt or an answer after it is the conversation going on.  Its other
-    entries -- titles, modes, queue operations -- are bookkeeping and say neither.
+    the seat showed and, on a line of its own after it, the typed kind it records apart from
+    those words (`apiError`), which change between releases; a prompt or an answer after it is
+    the conversation going on.  Its other entries -- titles, modes, queue operations -- are
+    bookkeeping and say neither.
     """
     from . import last_entry
     path = transcript(record, cwd, conversation)
     if not path:
         return None
     entry = last_entry(path, lambda entry: entry.get("type") in ("user", "assistant"))
-    message = entry.get("message") if entry and entry.get("isApiErrorMessage") is True else None
+    failed = entry if entry and entry.get("isApiErrorMessage") is True else {}
+    message = failed.get("message")
     content = message.get("content") if isinstance(message, dict) else None
     parts = content if isinstance(content, list) else [{"text": content}]
-    return "\n".join(part["text"] for part in parts if isinstance(part, dict)
-                     and isinstance(part.get("text"), str)).strip()
+    return "\n".join(part["text"] for part in [*parts, {"text": failed.get("apiError")}]
+                     if isinstance(part, dict) and isinstance(part.get("text"), str)).strip()
 
 
 def interrupted(record, cwd, conversation):

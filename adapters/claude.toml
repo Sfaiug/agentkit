@@ -334,16 +334,18 @@ none = ["esc to interrupt"]
 # carries the transient words beside them -- a 500 the worker answers by typing `continue`,
 # resuming the same session, never by handing the round over.
 [stall]
-# "hit your session limit" is how 2.1.292 refuses a spent window; never "session limit" alone,
-# which its warnings ("You've used 84% of your session limit") say with room left.
+# `usage_limit_reached` is the cause itself, in any words: a transcript's `apiError` (read by
+# `harness.claude.error`), a headless `result` record's `api_error`.  With no typed kind, "You've
+# hit your" begins every window's refusal (session limit, weekly limit, 2.1.314's "5-hour limit")
+# and no warning: "You've used 84% of your weekly limit" has room left.
 signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
-              "Usage limit reached", "hit your session limit", "weekly limit",
+              "Usage limit reached", "usage_limit_reached", "You've hit your",
               "Can't reach the API server"]
 refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
             "500", "502", "503", "504", "Internal server error", "API Error",
             "Can't reach the API server", "at capacity"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit",
-          "hit your session limit", "weekly limit", "429", "insufficient_quota", "insufficient quota"]
+          "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,
 # which is what adapters/claude.sh reads final.md out of, failure or not.
 terminal = "result"

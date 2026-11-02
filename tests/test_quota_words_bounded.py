@@ -155,6 +155,14 @@ class QuotaWordsBounded(unittest.TestCase):
             with self.subTest(word=word):
                 self.assertEqual(harness.load("acme").failure(word), (harness.SPENT, word))
 
+    def test_claude_s_typed_limit_is_spent_in_any_words_and_its_warning_is_no_failure(self):
+        plugin = harness.load("claude")
+        record = json.dumps({"type": "result", "is_error": True, "result": "Back after a rest",
+                             "api_error": "usage_limit_reached"})
+        self.assertEqual(plugin.failure("\n".join(turns.failures(record, "result"))),
+                         (harness.SPENT, "usage_limit_reached"))
+        self.assertEqual(plugin.failure("You've used 84% of your weekly limit"), (None, None))
+
     def test_billing_refusal_skips_smoke_check_three_and_parks_its_snapshot(self):
         out = self.root / "refused"
         out.mkdir()
@@ -483,7 +491,7 @@ class SeatWordsBounded(unittest.TestCase):
             " · ← for agents",
         ])
         self.assertEqual(watch.stalled_on("claude", pane, "fix-api", self.lines.append),
-                         "weekly limit")
+                         "You've hit your")
         self.assertEqual(watch.composer_draft("claude", pane), "")
         self.seat_account("claude", "opus", "anthropic", pane)
         self.now += watch.STALL_WAIT
