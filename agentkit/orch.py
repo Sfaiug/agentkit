@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, owner, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, owner, parsed, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1729,7 +1729,9 @@ def git_dirs(path):
 
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
-    no higher than `path`, so every layout and path it accepts reads the same here.
+    no higher than `path`, so every layout and path it accepts reads the same here.  What it
+    said stands while `.git` reads the same (`parsed`): every read of an open screen looks at
+    every checkout.
     """
     dot = Path(path) / ".git"
     try:
@@ -1737,17 +1739,22 @@ def git_dirs(path):
             return None
         if dot.is_dir() and not dot.is_symlink() and not (dot / "commondir").exists():
             return dot.resolve(), False
+        return parsed.read(dot, _asked_git)
     except OSError:
         return None
+
+
+def _asked_git(dot):
+    """`git_dirs`, from git; an OSError where it says nothing, which nothing keeps."""
     def ask(*flags):
-        code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
+        code, out = git_in(dot.parent, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
     lines = ask("--git-dir", "--git-common-dir")
     if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
         lines = [b"\n".join(answer) if answer is not None else None
                  for answer in (ask("--git-dir"), ask("--git-common-dir"))]
     if lines is None or None in lines:
-        return None
+        raise OSError(f"git says nothing of {dot}")
     gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
     return common, gitdir != common
 
