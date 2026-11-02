@@ -195,6 +195,7 @@ class MuseNativeQuestionAfterNew(unittest.TestCase):
         self.assertNotIn(ASKED, self.reads("idle"))
         self.logs(session, {"kind": "started", "prompt": "Make it round."},
                   {"kind": "terminal", "terminal": "completed"})
+        self.assertEqual(self.home.tick().code, 0)      # sent back once, which moved nothing
         self.reads("needs you")     # its next prompt ended the rest: its plan is owed again
 
         self.show("muse-question-pane.txt")

@@ -917,13 +917,9 @@ def stop_marks(harness, pane, found, previous, at):
     looks is still marked by the words it left behind.
 
     A seat that has said the same thing since it was first seen, and was never once caught
-    working, has ended no turn anything here watched: its screen is the harness's own banner
-    and not an answer.  That seat has no mark, and stop_nudge leaves it alone, as the hook
-    leaves alone a stop it has no turn for.
-    Only a harness the rule is typed at pays for any of this.
+    working, has ended no turn anything here watched: it has no `turn_began`, and stop_nudge
+    leaves it alone unless its plan owes a line.
     """
-    if not stop_enforced(harness):
-        return {}
     if found["state"] == "working":
         return {} if previous.get("state") == "working" else {"turn_began": found["began"]}
     if found["state"] != "at_prompt":
@@ -948,10 +944,11 @@ def stop_marks(harness, pane, found, previous, at):
 
 
 def stop_enforced(harness):
-    """Does the end-of-turn rule have to be typed at this harness, for want of a hook?
+    """Does the whole end-of-turn rule have to be typed at this harness, for want of a hook?
 
     A harness with no blocking end-of-turn hook says `[stop] enforce = "nudge"`
-    and its completion look applies the same test to its screen.
+    and its completion look applies the same test to its screen.  On any other, its hook judges
+    the stops it sees and the tick only sends back a seat owing a line (`stop_nudge`).
     """
     block = config.manifest(harness).get("stop")
     return bool(isinstance(block, dict) and block.get("enforce") == "nudge")
@@ -2570,7 +2567,8 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
       where its plan is finished;
     * otherwise it is at its prompt with nothing running: the owner's again where a watcher's
       alert or a question on its screen says so, or where something of its own is still theirs
-      (`still_owed`: work its plan owes, a question kept back); with nothing asked or owed it
+      (`still_owed`: work its plan owes, a question kept back), a line owed being working until
+      the tick has sent it back (`goes_back`); with nothing asked or owed it
       is `done` where its plan is finished and no run of its own sits undecided, else `idle`.
 
     An ended run is its orchestrator's business: the run hands its ending back to the seat
@@ -2779,9 +2777,9 @@ def start_look(launched, ending=False):
 
 def still_owed(name, stopped):
     """Why a seat with nothing running and nothing asked on its screen or in its notices is
-    still the owner's, or None where it rests.  Work its plan owes is a turn the stop hook let
-    stand on its third stop, or one a harness it cannot send back left: the stop hook's own test
-    says which (`stop.owed_line`), so this word and the turn's end never disagree -- except after
+    still the owner's, or None where it rests.  Work its plan owes is a stop that going back did
+    not move (`goes_back`): the stop hook's own test says which (`stop.owed_line`), so this word
+    and the turn's end never disagree -- except after
     a turn the owner `stopped`: they are in the seat and know (owner, 14 Oct 2026).  So does a
     question it kept back for its turn's end.  Any ending of its runs is typed into the seat at
     its next quiet prompt, so it is the seat's to act on, not theirs."""
@@ -2790,6 +2788,21 @@ def still_owed(name, stopped):
     if line is not None or seat_read(name).get("unasked"):
         return f"stopped with work open: {line}" if line else "stopped with work open"
     return None
+
+
+def goes_back(name, harness, found, session, stalls):
+    """Whether the tick has yet to send that seat, owing a line at its prompt, back to it
+    (`stop_nudge`): nobody but ak can move it until that has been tried on the words it shows.
+    Not where the tick's own passes keep it from that rule: an account pass past a refusal
+    (`usage_refusal`), a stall it holds (`stalls`).  A draft is the owner's, and a screen nothing
+    reads takes no line."""
+    marks = seat_read(name)
+    said = marks.get("stop_said")
+    if (not harness or not said or found.get("state") != "at_prompt" or not found.get("authority")
+            or marks.get("unasked") or marks.get("usage_refusal") or stalls.get(name)
+            or session.get("legacy")):
+        return False
+    return marks.get("stop_nudged") != stop_episode(harness, _stamp(marks.get("turn_began")), said)
 
 
 def news_owed(name, mine, read=True):
@@ -3225,6 +3238,10 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
     # the owner's to do -- a new seat, a conversation, a turn the owner stopped.
     owed = still_owed(name, found.get("interrupted"))
     if owed is not None:
+        line = owed.partition(": ")[2]
+        if line and goes_back(name, harness, found, session, stalls):
+            return {"word": "working", "since": found.get("began"),
+                    "reason": f"going back to its open work: {line}"}
         return {"word": "needs you", "since": found.get("began"), "reason": owed}
     finished = plan_mod.finished(name)
     if finished:
@@ -4824,11 +4841,16 @@ def window_ends(cfg, provider, name):
 
 
 def stop_nudge(session, harness, pane, notice, records, dry_run, log):
-    """The end-of-turn rule where no hook can hold it: a turn ends with a question asked through
+    """The end-of-turn rule at a seat's prompt: a turn ends with a question asked through
     `ak notify needs`, a finished plan or a run or live job to wait on, and a seat that stopped on none
     of the three is told to get on with it.  A question mark on the screen asks nobody anything.
     An unnamed seat is told to name itself instead (`config.name_owed`), and one whose turn
     reached the live host with no open line in its plan to write that down (`stop.live_unrecorded`).
+
+    A harness whose hook judges its stops is here only for a seat whose plan owes a line: a stop
+    its hook never saw, as a reopened conversation has, or let stand on a reason since gone, as a
+    run going that has merged.  What else the rule holds a seat to stays that hook's, and so does
+    the turn a line ak still has to type it opens (`news_owed`).
 
     An unanswered question of this seat's own keeps it stopped once its closing message holds
     it, one left out sent the Stop hook's reminder (`questions.unseen`). Otherwise the decision
@@ -4845,12 +4867,11 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     so runs taking turns buy no more; only a newer notice for the seat, answered or not, starts
     every count again.
 
-    The episode is `turn_began` and the output that turn stopped on, both of them stop_marks'
-    to say, so a footer that repainted is the same episode and the same words after another
-    turn are a new one.  A seat with no turn marked at
+    The episode is `stop_episode`'s, read from stop_marks' marks, so a footer that repainted is
+    the same episode.  A seat with no turn marked at
     all has ended none where anything could see it -- it is sitting at the prompt its harness
-    opened on, showing a banner and not an answer -- and the rule has nothing to hold it to,
-    just as the hook has nothing to judge a stop by before the first prompt of a session.
+    opened on, showing a banner and not an answer -- and, owing nothing, the rule has nothing to
+    hold it to, as the hook has nothing to judge a stop by before the first prompt of a session.
 
     A composer typed into and cleared again begins no turn and ends none, so neither mark
     moves for it: the seat is at its prompt with the same words it finished on, and what the
@@ -4864,10 +4885,16 @@ def stop_nudge(session, harness, pane, notice, records, dry_run, log):
     A turn the owner stopped (`interrupted`) is no stop at all: no hook runs on an Esc, and the
     seat rests until their next prompt (owner, 14 Oct 2026).
     """
-    if not stop_enforced(harness):
-        return
-    with announcing(session["name"]):
+    with nullcontext() if dry_run else announcing(session["name"]):
         return _stop_nudge(session, harness, pane, notice, records, dry_run, log)
+
+
+def stop_episode(harness, began, said):
+    """What one going back answers for.  Where no hook judges a stop, the turn and the words it
+    stopped on: the same words after another turn are a new stop.  Where one does, the words
+    alone: a `continue` that left them as they were was refused and is not typed again, and any
+    real turn is that hook's to judge."""
+    return [began, said] if stop_enforced(harness) else said
 
 
 def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
@@ -4878,6 +4905,9 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
             or live.get("closed_by_owner") or any(session.get(key) for key in orch.CLOSED)
             or session.get("legacy")):
         return          # a failed pass over run.json is no evidence that nothing is running
+    owing = stop.owed(name)
+    if not stop_enforced(harness) and (not owing or news_owed(name, own_runs(name, records))):
+        return
     stood = _stamp(live.get("stop_said_at"))
     if stood is None:
         return
@@ -4888,18 +4918,20 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
         return
     began = _stamp(live.get("turn_began"))
     said = progress_output(harness, pane_tail(pane))
-    if not said or live.get("stop_nudged") == [began, said]:
+    episode = stop_episode(harness, began, said)
+    if not said or live.get("stop_nudged") == episode:
         return
     # a question left out of the chat goes back, past one standing and with no turn watched to
     # its end; a reply of the owner's answers it first, the tick's typed-answer pass being later
-    notify.answer_written(name)
+    if not dry_run:
+        notify.answer_written(name)
     unseen = questions.unseen(name, harness, live)
-    if began is None and not unseen:
+    if began is None and not unseen and not owing:
         return          # nothing has watched this seat finish a turn; there is none to judge
     if not unseen and owner_question(notice):
         return
     question = bool(unseen or notice and notice.get("kind") == "needs"
-                    and (_stamp(notice.get("time")) or 0) >= began)
+                    and (_stamp(notice.get("time")) or 0) >= (began or 0))
     wait = live.get("wait")
     if not question and isinstance(wait, dict) and wait.get("over") and not wait.get("told"):
         return      # its wait is over: wait_over says so, and why, before any continue
@@ -4916,7 +4948,10 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
                 kept.get("runs"), dict):
             nudged = kept["runs"]
         if all(nudged.get(run, 0) >= PARKED_NUDGES for run in parked):
-            return      # it has had its nudges for every run parked: this stop stands
+            # it has had its nudges for every run parked: this stop stands, as `goes_back` reads
+            if not dry_run:
+                seat_write(name, stop_nudged=episode)
+            return
         nudged = {"notice": since,
                   "runs": {**nudged, **{run: nudged.get(run, 0) + 1 for run in parked}}}
     tail = pane_tail(pane)
@@ -4933,7 +4968,7 @@ def _stop_nudge(session, harness, pane, notice, records, dry_run, log):
             or progress_output(harness, pane_tail(current)) != said):
         return          # it moved, or the seat is the user's again: neither is this rule's
     if type_into(session, keys, log, asked=bool(unseen)):
-        seat_write(name, stop_nudged=[began, said], **({"parked_nudged": nudged} if nudged else {}))
+        seat_write(name, stop_nudged=episode, **({"parked_nudged": nudged} if nudged else {}))
         log(f"{name}: {why}; typed {keys!r}")
         return True
 

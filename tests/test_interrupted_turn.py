@@ -160,7 +160,7 @@ class InterruptedTurn(Sandbox):
                         SEAT, 10000, session={"name": SEAT, "attached": True}, cfg=self.cfg,
                         records=[], live=live, harness=name, auth_out={}, gh_out={},
                         token_out={}, previous={})["word"]
-                self.assertEqual(word("Stop"), "needs you")
+                self.assertEqual(word("Stop"), "working")     # going back to its open line
                 self.assertEqual(word("Interrupt"), "idle")
 
     def test_the_tick_types_nothing_into_a_muse_turn_the_owner_stopped(self):

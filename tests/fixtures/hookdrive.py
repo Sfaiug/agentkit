@@ -107,6 +107,16 @@ class Hooks:
         """The owner submits `text` in a Claude Code seat of tests/fixtures/akseat.py: Claude
         writes it into the seat's conversation, under ~/.claude/projects, and fires
         UserPromptSubmit in the seat's pane."""
+        self._written(seat, text)
+        return self.fire("UserPromptSubmit", {"prompt": text}, seat=seat.name, pane=seat)
+
+    def interrupt(self, seat):
+        """The owner presses Esc in a Claude Code seat of tests/fixtures/akseat.py: Claude writes
+        that into the seat's conversation and fires no hook."""
+        self._written(seat, "[Request interrupted by user]")
+
+    def _written(self, seat, text):
+        """A line of the owner's in the seat's conversation, under ~/.claude/projects."""
         assert self.harness == "claude", f"{self.harness} keeps no conversation here"
         # Claude Code files a directory's conversations under it with each character not an
         # ASCII letter or digit a hyphen; past 200 it adds a hash, which no Home path needs.
@@ -119,7 +129,6 @@ class Hooks:
         with path.open("a") as conversation:
             conversation.write(json.dumps({"type": "user", "timestamp": at, "message": {
                 "role": "user", "content": text}}) + "\n")
-        return self.fire("UserPromptSubmit", {"prompt": text}, seat=seat.name, pane=seat)
 
 
 def adapter(home, harness, *args, payload=None, seat="acme", pane=None, env=None):
