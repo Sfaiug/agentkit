@@ -26,10 +26,10 @@ const ask = "Your last message ends in a question, but it went through no questi
 // orchestratorStop judges a seat's Stop as hooks/orchestrator-stop.sh does.  One sent back gets
 // its reason on out (`sentBack`); one that stands marks ended the questions the seat kept back
 // for it.  Either way a Stop listing the harness's background tasks is written down, under the
-// name the seat goes by now: only this hook knows whether the turn ended there.  A worker, a
-// harness outside any seat, a path-like name and a sub-agent's Stop decide nothing, and so for
-// now does the PreToolUse before a question card, whose refusal is not Go's yet.
-func orchestratorStop(payload []byte, out io.Writer) {
+// name the seat goes by now: only this hook knows whether the turn ended there.  The PreToolUse
+// before a question card is `questionCard`'s.  A worker, a harness outside any seat, a path-like
+// name and a sub-agent's event decide nothing.  What Go cannot read leaves it all to Python.
+func orchestratorStop(payload []byte, out io.Writer) int {
 	// when the Stop was heard, before anything that may wait on a lock: a prompt heard while this
 	// judges is the newer fact
 	heard, launched := float64(time.Now().UnixNano())/1e9, os.Getenv("AGENTKIT_SESSION")
@@ -39,15 +39,21 @@ func orchestratorStop(payload []byte, out io.Writer) {
 		event = run.NewObject() // what it was handed says nothing of the turn
 	}
 	if _, err := config.SessionPath(launched); err != nil || os.Getenv("AK_RUN_ROLE") == "worker" ||
-		first(event, subAgent...) != nil || event.Str("hook_event_name") == "PreToolUse" {
-		return
+		first(event, subAgent...) != nil {
+		return 0
 	}
 	name, record, err := config.ResolveSession(launched)
 	if err != nil {
 		name, record = launched, nil
 	}
+	if event.Str("hook_event_name") == "PreToolUse" {
+		return questionCard(name, event, out)
+	}
 	harness := config.SeatHarness(name)
-	back := sentBack(launched, name, record, harness, event)
+	back, err := sentBack(launched, name, record, harness, event)
+	if err != nil {
+		return leftToPython
+	}
 	if back == "" {
 		seat.TurnEnded(name)
 	}
@@ -61,39 +67,42 @@ func orchestratorStop(payload []byte, out io.Writer) {
 		reply.Set("reason", back)
 		fmt.Fprintln(out, run.Line(reply))
 	}
+	return 0
 }
 
 // sentBack is the reason the Stop goes back with, "" where it stands (the stop hook's `held`).
 // Go judges a turn whose plan owes nothing: a last message ending in a question that nothing
 // asked goes back once, and the turn's latch remembers it.  The Stop stands with no turn
 // written down, on work the seat waits on, with no last message read, after a question card
-// still unanswered or `ak notify needs`, and where the plan is done with nothing from the owner
-// since (stop.question_refused), as the question would hold only them.  What an open plan line,
-// an unnamed seat or a reach of the live host would decide stands too, until Go judges those.
-func sentBack(launched, name string, record map[string]any, harness string, event *run.Object) string {
+// still unanswered or `ak notify needs`, and where a question would be refused
+// (`seat.QuestionRefused`), which holds only the owner; the error is that read Go cannot make.
+// What an open plan line, an unnamed seat or a reach of the live host would decide stands too,
+// until Go judges those.
+func sentBack(launched, name string, record map[string]any, harness string, event *run.Object) (string, error) {
 	turned, _ := run.ReadJSON(latch(launched))
 	if turned == nil {
-		return ""
+		return "", nil
 	}
 	turn, ok := turned.Num("turn")
 	if !ok || turned.Truthy("asked_back") || lifecycle.WaitsOn(event) {
-		return ""
+		return "", nil
 	}
 	end := transcript.Read(harness, event.Str("transcript_path"))
 	said := lastSaid(event, end.Said)
 	if said == "" || end.Asking || notify.NeededSince(name, turn) || seat.Kept(name) || record["unnamed"] == true {
-		return ""
+		return "", nil
 	}
-	owed, done := plan.Owes(name)
-	if owed || !turned.Truthy("live_back") && plan.ReachedLive(name) || !trailsQuestion(said) ||
-		!done.IsZero() && end.Prompted <= float64(done.UnixNano())/1e9 {
-		return ""
+	if plan.Owes(name) || !turned.Truthy("live_back") && plan.ReachedLive(name) || !trailsQuestion(said) {
+		return "", nil
+	}
+	if refused, err := seat.QuestionRefused(name); refused != "" || err != nil {
+		return "", err
 	}
 	turned.Set("asked_back", true)
 	if relatch(launched, run.Line(turned)) != nil {
-		return ""
+		return "", nil
 	}
-	return ask
+	return ask, nil
 }
 
 // lastSaid is what the model said last: the message the Stop hands over, in either spelling a

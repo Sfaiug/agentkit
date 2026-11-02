@@ -195,6 +195,12 @@ func NewIndex(records []*Object) Index {
 // superseded is whether a later run replaced this one: a merged run of its title, or a run
 // relaunched from its branch.
 func (index Index) superseded(record *Object) bool {
+	return index.replaced(record, "from")
+}
+
+// replaced is whether a merged run of its title, or a later run under that key of its branch,
+// came after this one.
+func (index Index) replaced(record *Object, relaunched string) bool {
 	title, branch := record.Str("title"), record.Str("branch")
 	if (title == "" && branch == "") || record.Truthy("merged") {
 		return false
@@ -203,7 +209,7 @@ func (index Index) superseded(record *Object) bool {
 	if !ok {
 		mine = 0
 	}
-	for _, entry := range append(index[title], index[indexKey("from", record.Get("repo"), branch)]...) {
+	for _, entry := range append(index[title], index[indexKey(relaunched, record.Get("repo"), branch)]...) {
 		if !Equal(entry.id, record.Get("run_id")) && entry.when > mine {
 			return true
 		}

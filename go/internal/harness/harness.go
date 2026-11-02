@@ -23,9 +23,11 @@ type plugin struct {
 	fresh   string
 	receipt string
 	answer  func(conversation, cwd string) (model, effort any, found bool)
-	turnEnv map[string]string
-	auth    func(login config.Login, seat bool) Answer
-	lend    func(login config.Login) Loan
+	// conversation is the file a seat's record says its conversation is kept in, "" for none.
+	conversation func(record map[string]any) string
+	turnEnv      map[string]string
+	auth         func(login config.Login, seat bool) Answer
+	lend         func(login config.Login) Loan
 	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).
