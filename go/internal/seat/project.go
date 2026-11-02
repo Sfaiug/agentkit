@@ -7,6 +7,11 @@ import (
 	"agentkit/internal/config"
 )
 
+// CheckoutOf is the project a repository path is, Python's orch.checkout_of; "" for none.
+func CheckoutOf(repo string) string {
+	return checkoutOf(repo, sync.OnceValue(listed))
+}
+
 // Project is the project a seat opened in cwd is filed under, as orch.cwd_project files it: that
 // of the first checkout cwd, or a folder above it, is; "" for none.
 func Project(cwd string) string {

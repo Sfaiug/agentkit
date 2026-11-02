@@ -49,19 +49,17 @@ func save(dir, text string) error {
 	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(text), 0o666)
 }
 
-// report is the full result.md, Python's handback.write_result on a scratch run.  A run that ends
-// well lists the checks its rounds ran, without their `# once` marks; any other lists the task's.
+// report is the full result.md, Python's handback.write_result, its opening the workplace's.  A run
+// that ends well lists the checks its rounds ran, without their `# once` marks; any other lists the
+// task's.
 func report(dir string, record *run.Object, cmds []string) string {
 	outcome := run.Delivery(record, run.Models())
 	if record.Str("state") == "blocked" {
 		outcome = "BLOCKED"
 	}
-	workspace := record.Str("worktree")
 	spent := record.List("round_summaries")
-	parts := []string{"# " + outcome + " — " + record.Str("title"), "", "VERDICT: " + run.Field(record, "verdict", "None"),
-		"rounds: " + strconv.Itoa(len(spent)) + " of " + run.Field(record, "rounds", "None"), "workspace: " + workspace,
-		"executor: " + run.Field(record, "executor", "None") + "   reviewer: " + run.Field(record, "reviewer", "None"),
-		"", "## Deliverables", links(workspace)}
+	parts := append([]string{"# " + outcome + " — " + record.Str("title"), "", "VERDICT: " + run.Field(record, "verdict", "None"),
+		"rounds: " + strconv.Itoa(len(spent)) + " of " + run.Field(record, "rounds", "None")}, placeOf(record).head(dir, record)...)
 	if record.Truthy("blocked") {
 		parts = append(parts, "", record.Str("blocked"), "")
 	}
@@ -83,6 +81,9 @@ func report(dir string, record *run.Object, cmds []string) string {
 		final = "final check: not run"
 	}
 	parts = append(parts, "", "## Done-when", "```", strings.Join(shown, "\n"), "```", "", final, "")
+	if line := baseProofLine(record); line != "" {
+		parts = append(parts, line, "")
+	}
 	if log, err := os.ReadFile(filepath.Join(dir, "log.txt")); err == nil {
 		var stopped []string
 		for _, line := range config.SplitLines(decoded(log)) {

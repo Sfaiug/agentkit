@@ -52,7 +52,7 @@ func rig(t *testing.T, silence time.Duration) *loop {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTKIT_RUN", dir)
-	return &loop{ctx: context.Background(), dir: dir, id: "acme", workspace: workspace, silence: silence, ceiling: time.Hour}
+	return &loop{ctx: context.Background(), dir: dir, id: "acme", workspace: workspace, place: scratch{}, silence: silence, ceiling: time.Hour}
 }
 
 func (l *loop) checked(t *testing.T, cmds ...string) (bool, string) {

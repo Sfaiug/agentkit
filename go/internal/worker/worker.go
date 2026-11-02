@@ -91,7 +91,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		return 0, "", err
 	}
 	prompt := filepath.Join(out, "prompt.md")
-	if err := os.WriteFile(prompt, []byte(Prompt(role, workspace)+"\n\n"+body), 0o666); err != nil {
+	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given)+"\n\n"+body), 0o666); err != nil {
 		return 0, "", err
 	}
 	argv := []string{adapter, "run", model.ID, model.TurnEffort(strings.HasPrefix(role, "reviewer")), workspace, prompt, out}

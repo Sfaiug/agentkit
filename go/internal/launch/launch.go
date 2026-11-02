@@ -1,9 +1,10 @@
 // Package launch starts a run from a task file as Python ak's `ak run <task.md>` does, up to
 // its loop: the run's id and directory, the task's copy, the receipt, the gate's admission,
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
-// path of Python's launch that Go has, which preflight refuses or which a scratch task's run
-// passes, and that run goes on in package loop.  Any other it leaves to Python (ErrPython),
-// deciding so before it writes anything, so preflight is settled first.
+// path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
+// scratch task's or a repository's with --no-merge or --no-worktree, and that run goes on in
+// package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
+// anything, so preflight is settled first.
 package launch
 
 import (
@@ -14,10 +15,8 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -27,6 +26,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
@@ -44,15 +44,6 @@ var ErrStopped = errors.New("a launch a stop ended")
 var (
 	Values   = []string{"--rounds", "--exec", "--review", "--review-pr", "--parallel"}
 	Switches = []string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first"}
-)
-
-// toolCap is how many seconds a git may take.
-const toolCap = 120
-
-var (
-	unslug = regexp.MustCompile(`[^a-z0-9]+`)
-	// a git that refused to prompt, which Python's git stops on in its own words
-	prompted = regexp.MustCompile(`(?i)terminal prompts disabled|could not read (?:Username|Password)|prompts (?:are )?disabled|askpass`)
 )
 
 // Task launches the task file at the absolute path with the options given, saying on out what
@@ -73,7 +64,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
 		stem = stem[:dot]
 	}
-	id := time.Now().Format("20060102-1504-") + slug(task.Title(text, stem))
+	id := time.Now().Format("20060102-1504-") + task.Slug(task.Title(text, stem))
 	dir := filepath.Join(run.Runs(), id)
 	taken, err := exists(dir)
 	for n := 2; taken && err == nil; n++ {
@@ -84,7 +75,11 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		return 0, "", err
 	}
 	copied := filepath.Join(dir, "task.md")
-	reason, warning, err := preflight(meta, cmds, path, copied, values, flags)
+	reason, warning, place, err := preflight(meta, cmds, path, copied, values, flags)
+	var outright *refusedOutright
+	if errors.As(err, &outright) {
+		return 2, outright.why, nil
+	}
 	if err != nil {
 		return 0, "", err
 	}
@@ -126,7 +121,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		}
 	}
 	if reason == "" {
-		code, err := drive(dir, meta, cmds, flags, unstopped, log, out, errOut)
+		code, err := drive(dir, meta, place, warning, flags, unstopped, log, out, errOut)
 		return code, "", err
 	}
 	var ended *run.Object // the record as the refusal leaves it
@@ -203,169 +198,163 @@ func runDepth() (int, bool) {
 	return depth, err == nil
 }
 
-// preflight is why Python's preflight refuses the task, run from its copy, and the warning its
-// log says first: a repository that is no git repository, a base git cannot read, more than 3
-// checks a round runs, or a `from:` the run cannot start from: no reason for a scratch task it
-// passes.  It leaves to Python a repository's task it passes and a run that would land.
-func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, error) {
-	repo := ""
+// A place is what preflight settled of where a run it passes works: the repository, "" for a
+// scratch task, its base, target and numbers, and the checks a round runs.
+type place struct {
+	repo, base, target string
+	numbers            config.Numbers
+	every, once        []string
+}
+
+// preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
+// first, and where a run it passes works: a repository that is no git repository, a base git cannot
+// read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
+// Python a run that would land from a checkout of its own, and one `from:` a branch.
+func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
+	var at place
+	refuse := func(reason, warning string, err error) (string, string, place, error) {
+		return reason, warning, at, err
+	}
 	switch named := meta["repo"]; {
 	case strings.ToLower(named) == "none":
 	case named != "":
 		if account, _, _ := strings.Cut(named, "/"); account != "~" && strings.HasPrefix(account, "~") {
-			return "", "", ErrPython // a `~user`: that account's home is Python's to find
+			return refuse("", "", ErrPython) // a `~user`: that account's home is Python's to find
 		}
-		repo = config.Absolute(named)
-		if !readable(repo) {
-			return "", "", ErrPython
+		at.repo = config.Absolute(named)
+		if !readable(at.repo) {
+			return refuse("", "", ErrPython)
 		}
-		found, err := exists(filepath.Join(repo, ".git"))
+		found, err := exists(filepath.Join(at.repo, ".git"))
 		if err != nil || !found {
-			return fmt.Sprintf("%s: repo %s is not a git repository", copied, repo), "", err
+			return refuse(fmt.Sprintf("%s: repo %s is not a git repository", copied, at.repo), "", err)
 		}
 	default:
 		top, _, found, err := git("", "rev-parse", "--show-toplevel")
 		if err != nil || !found && filed(path) {
-			return "", "", ErrPython // the checkout a task folder is named for is Python's to find
+			return refuse("", "", ErrPython) // the checkout a task folder is named for is Python's to find
 		}
 		if found {
-			repo = config.Resolve(top)
+			at.repo = config.Resolve(top)
 		}
-		if !readable(repo) {
-			return "", "", ErrPython
+		if !readable(at.repo) {
+			return refuse("", "", ErrPython)
 		}
 	}
-	if repo != "" && !flags["--no-merge"] {
-		return "", "", ErrPython
+	landing := at.repo != "" && !flags["--no-merge"]
+	if landing && !flags["--no-worktree"] {
+		return refuse("", "", ErrPython)
+	}
+	at.target = cmp.Or(meta["target"], meta["base"])
+	suite := ""
+	if landing {
+		spelled := at.target
+		if spelled == "" {
+			if head, _, ok, err := git(at.repo, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err != nil {
+				return refuse("", "", err)
+			} else if ok {
+				spelled = head
+			}
+		}
+		suite = run.DeclaredSuite(at.repo, spelled)
+		if namesChanged.MatchString(suite) {
+			return refuse("", "", ErrPython) // its suite runs every round, narrowed: Python's
+		}
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
-	var every []string
-	for _, cmd := range cmds {
-		cmd, _ = task.SplitOnce(cmd)
-		if _, once := task.SplitOnce(cmd); !once {
-			every = append(every, cmd)
-		}
-	}
-	later := task.ChecksRefusal(every)
+	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
+	later := task.ChecksRefusal(at.every)
+	branched := false
 	switch from := meta["from"]; {
 	case later != "" || from == "":
-	case repo == "":
+	case at.repo == "":
 		later = copied + ": from: needs a repository; a scratch run has no branch to start from"
 	case flags["--no-worktree"]:
 		later = copied + ": from: needs a worktree; drop --no-worktree so the run gets its own checkout"
 	default:
-		branch, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+from)
+		branch, _, _, err := git(at.repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+from)
 		if err != nil {
-			return "", "", err
+			return refuse("", "", err)
 		}
 		if branch == "" {
 			later = fmt.Sprintf("%s: from: %s is not a local branch", copied, commandhelp.Quote(from))
 		}
-	}
-	if repo != "" && meta["base"] == "" {
-		reason, warning, err := defaultBase(repo, later != "")
-		if reason != "" || err != nil {
-			return reason, "", err
-		}
-		if later != "" {
-			return later, warning, nil
-		}
+		branched = branch != ""
 	}
 	if later == "" {
-		if repo != "" {
-			return "", "", ErrPython
+		// all that leaves a launch to Python is settled before anything is written
+		if branched {
+			return refuse("", "", ErrPython)
 		}
-		return "", "", drivable(every, path, values)
+		if err := drivable(at.every, path, values); err != nil {
+			return refuse("", "", err)
+		}
+		// a helper takes a repository's checks in Python, and Go has none
+		if at.repo != "" && (len(config.MachineNames()) > 0 || config.MayRent()) {
+			return refuse("", "", ErrPython)
+		}
 	}
-	return later, "", nil
+	if at.repo == "" {
+		return refuse(later, "", nil)
+	}
+	warning := ""
+	at.base = meta["base"]
+	if at.base == "" {
+		var err error
+		if at.base, warning, err = gitcall.DefaultBase(at.repo); err != nil {
+			return refuse(err.Error(), "", asPython(err))
+		}
+	}
+	at.target = cmp.Or(meta["target"], at.base)
+	if later != "" {
+		return refuse(later, warning, nil)
+	}
+	var err error
+	if at.numbers, err = numbers(at.repo); err != nil {
+		return refuse("", "", &refusedOutright{err.Error()})
+	}
+	for _, asked := range [][2]string{{values["--rounds"], "--rounds"}, {meta["rounds"], "rounds:"}} {
+		if why := task.RoundsOver(asked[0], asked[1], at.numbers.Rounds); why != "" {
+			return refuse("", "", &refusedOutright{why})
+		}
+	}
+	return refuse("", warning, nil)
 }
 
-// defaultBase is why Python's default_base cannot name the repository's default branch, or "",
-// and the warning its log says where it falls back to the current branch.  Asking origin for
-// its HEAD writes origin/HEAD where a branch of origin's is tracked, so only a launch already
-// refused asks then; any other is Python's.
-func defaultBase(repo string, refused bool) (string, string, error) {
-	ask := []string{"symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"}
-	if head, _, _, err := git(repo, ask...); err != nil || head != "" {
-		return "", "", err
+// A refusedOutright is a launch Python refuses before it makes a run directory.
+type refusedOutright struct{ why string }
+
+func (r *refusedOutright) Error() string { return r.why }
+
+// asPython is ErrPython for a git that stopped, which Python says in its own words; a git that
+// said no is the launch's refusal.
+func asPython(err error) error {
+	var stopped *gitcall.Stopped
+	if errors.As(err, &stopped) {
+		return ErrPython
 	}
-	if tracked, _, _, err := git(repo, "for-each-ref", "--count=1", "refs/remotes/origin/"); err != nil || tracked != "" && !refused {
-		return "", "", cmp.Or(err, ErrPython)
+	return nil
+}
+
+// numbers is the numbers in force for a repository's run: the front matter of AGENTS.md on the
+// default branch of its checkout, one commit for all of them, else the host's.
+func numbers(repo string) (config.Numbers, error) {
+	commit, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD")
+	if err != nil || commit == "" {
+		return config.HostNumbers()
 	}
-	// a clone made before origin had a HEAD: asked once
-	if _, _, _, err := git(repo, "remote", "set-head", "origin", "--auto"); err != nil {
-		return "", "", err
-	}
-	if head, _, _, err := git(repo, ask...); err != nil || head != "" {
-		return "", "", err
-	}
-	current, why, ok, err := git(repo, "rev-parse", "--abbrev-ref", "HEAD")
-	if err != nil || !ok {
-		return fmt.Sprintf("git rev-parse --abbrev-ref HEAD failed in %s: %s", repo, why), "", err
-	}
-	return "", fmt.Sprintf("WARN %s has no origin/HEAD; basing this run on the current branch %s", repo, current), nil
+	return config.ProjectNumbers(repo, func(key string) string { return gitcall.DeclaredAt(repo, commit, key) })
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it
-// exited 0, as Python's tool_run reads them; ErrPython where Python says what happened in its
-// own words: a git that never answered or refused to prompt.  Bytes that are no UTF-8 decode
-// as Python's do, so what a git that wrote said, set-head's included, is still read.
+// exited 0; ErrPython where Python says what happened in its own words: a git that never answered
+// or refused to prompt.
 func git(repo string, args ...string) (string, string, bool, error) {
-	if repo != "" {
-		args = append([]string{"-C", repo}, args...)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), toolCap*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, "git", args...)
-	command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
-	var stdout, stderr strings.Builder
-	command.Stdout, command.Stderr = &stdout, &stderr
-	err := command.Run()
-	var exit *exec.ExitError
-	said := replaced(stderr.String())
-	if ctx.Err() != nil || err != nil && (!errors.As(err, &exit) || prompted.MatchString(said)) {
+	code, stdout, stderr, err := gitcall.Git{Repo: repo}.Run(args...)
+	if err != nil || gitcall.Halted(code, stderr) {
 		return "", "", false, ErrPython
 	}
-	strip := func(text string) string { return strings.TrimFunc(task.Text([]byte(text)), config.Space) }
-	return strip(replaced(stdout.String())), strip(said), err == nil, nil
-}
-
-// replaced is text as Python decodes it with errors="replace": one U+FFFD for each byte that
-// starts no character, and for each longest start of one that never finishes.
-func replaced(text string) string {
-	var decoded strings.Builder
-	for len(text) > 0 {
-		r, n := utf8.DecodeRuneInString(text)
-		if r != utf8.RuneError || n > 1 {
-			decoded.WriteString(text[:n])
-			text = text[n:]
-			continue
-		}
-		// the bytes UTF-8 lets follow the lead byte, the second of them narrowed by some leads
-		lo, hi, want := byte(0x80), byte(0xBF), 0
-		switch lead := text[0]; {
-		case lead >= 0xC2 && lead <= 0xDF:
-			want = 1
-		case lead == 0xE0:
-			lo, want = 0xA0, 2
-		case lead == 0xED:
-			hi, want = 0x9F, 2
-		case lead >= 0xE1 && lead <= 0xEF:
-			want = 2
-		case lead == 0xF0:
-			lo, want = 0x90, 3
-		case lead == 0xF4:
-			hi, want = 0x8F, 3
-		case lead >= 0xF1 && lead <= 0xF3:
-			want = 3
-		}
-		for n <= want && n < len(text) && lo <= text[n] && text[n] <= hi {
-			n, lo, hi = n+1, 0x80, 0xBF
-		}
-		decoded.WriteRune(utf8.RuneError)
-		text = text[n:]
-	}
-	return decoded.String()
+	return gitcall.Strip(stdout), gitcall.Strip(stderr), code == 0, nil
 }
 
 // holdSlots waits for the lock every run's admission changes under.
@@ -420,13 +409,6 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 		receipt = append(receipt, "first", true)
 	}
 	return run.Create(dir, run.Fields(append(receipt, "slot_started_at", now())...))
-}
-
-// slug is Python's slugify: Python lowers İ to i and a combining dot, Go to i alone.
-func slug(title string) string {
-	slug := unslug.ReplaceAllString(strings.ToLower(strings.ReplaceAll(title, "İ", "i̇")), "-")
-	slug = strings.Trim(slug, "-")
-	return cmp.Or(strings.Trim(slug[:min(len(slug), 40)], "-"), "task")
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

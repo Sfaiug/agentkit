@@ -135,11 +135,16 @@ func ChecksRefusal(every []string) string {
 // RoundsRefusal is the sentence for a round budget over three, or "": three rounds is the
 // budget, never a default to raise. A value that is no number is left to the check that says so.
 func RoundsRefusal(value, what string) string {
+	return RoundsOver(value, what, 3)
+}
+
+// RoundsOver is that for the budget in force.
+func RoundsOver(value, what string, budget int) string {
 	rounds := config.Int(value)
-	if rounds == nil || rounds.Cmp(big.NewInt(3)) <= 0 {
+	if rounds == nil || rounds.Cmp(big.NewInt(int64(budget))) <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s %s is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope", what, rounds)
+	return fmt.Sprintf("%s %s is over the budget: %d rounds, then a run goes back to its orchestrator to split or re-scope", what, rounds, budget)
 }
 
 // opensHeredoc is whether bash's own parser, reading the command as a whole script, meets a

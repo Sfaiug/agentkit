@@ -24,4 +24,7 @@ type Given struct {
 	Efforts map[string]string
 	Env     []string
 	Silence time.Duration
+	// UsersAt is the ref a review's `users:` is read at, ReviewLines the first review's ceiling.
+	UsersAt     string
+	ReviewLines int
 }
