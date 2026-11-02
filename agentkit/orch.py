@@ -980,8 +980,9 @@ def run_slice_cgroup():
     return slice_cgroup() / run_slice_name()
 
 
-def slice_ceiling():
-    """The task ceiling the drop-ins set, or None where nothing sets one.
+def slice_ceiling(name=None):
+    """The task ceiling the drop-ins set for a slice, ak's unless named, or None where nothing
+    sets one.
 
     The live task ceiling appears with the slice's first process, and is real before
     that: it is in the drop-in `install.sh` wrote, or in the one `systemctl --user
@@ -991,7 +992,7 @@ def slice_ceiling():
     config_home = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     found = None
     for base in ("systemd/user", "systemd/user.control"):
-        for path in sorted((config_home / base / f"{slice_name()}.d").glob("*.conf")):
+        for path in sorted((config_home / base / f"{name or slice_name()}.d").glob("*.conf")):
             try:
                 lines = path.read_text().splitlines()
             except OSError:

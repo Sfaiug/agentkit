@@ -187,6 +187,16 @@ def cgroup_tasks(cgroup):
     return tuple(numbers)
 
 
+def children_tasks_peak(cgroup, leaving_out):
+    """The most tasks each directory under a cgroup but one has held, added up.
+
+    Its first level alone: a cgroup's peak already counts what is under it.  A `pids.peak` missing
+    or unreadable counts as 0, as on a kernel without it.
+    """
+    return sum(int(_read_number(peak) or 0) for peak in Path(cgroup).glob("*/pids.peak")
+               if peak.parent != leaving_out)
+
+
 def _number(value):
     return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
