@@ -65,13 +65,17 @@ class ARentAsksForTheQuotaItLacks(unittest.TestCase):
         self.assertEqual(lines[1:], [
             ASKED_NL, "CPUS_ALL_REGIONS: 168 vCPUs asked of Google, the limit now 164"])
 
-    def test_a_region_limit_is_asked_under_its_own_id(self):
+    def test_a_region_limit_is_asked_under_its_own_id_and_found_there_again(self):
+        where = {"region": "europe-west4"}
         for quotas, quota_id in (({"C4A_CPUS": 8}, "C4A-CPUS-per-project-region"),
                                  ({"CPUS": 8}, "CPUS-per-project-region")):
             with self.subTest(quota_id):
                 self.rent({("us-central1", "C4A"): 24}, {"europe-west4": quotas})
                 self.assertEqual(self.google.asks[0][2]["quotaId"], quota_id)
-                self.assertEqual(self.google.asks[0][2]["dimensions"], {"region": "europe-west4"})
+                self.assertEqual(self.google.asks[0][2]["dimensions"], where)
+                asks = self.rent({("us-central1", "C4A"): 24}, {"europe-west4": quotas},
+                                 [kept(quota_id, where, 86400)])[0]
+                self.assertEqual(asks[0][:2], ("PATCH", quota_id))
 
     def test_one_asked_under_a_day_ago_passes_the_ask_to_the_next_skipped(self):
         asks, made, _ = self.rent({("europe-west4", "C4A"): 150, ("us-central1", "C4A"): 8},
@@ -120,6 +124,11 @@ class ARentAsksForTheQuotaItLacks(unittest.TestCase):
                 lines = self.rent(preferences=[kept(FAMILY, NL, 3600, "216", granted)])[2]
                 self.assertEqual(lines[1:], [
                     f"C4A in europe-west4: Google granted {numbers} vCPUs asked"])
+
+    def test_a_preference_granted_short_of_a_quota_not_skipped_is_a_line_too(self):
+        lines = self.rent(preferences=[kept(FAMILY, US, 3600, "216", "24")])[2]
+        self.assertEqual(lines[1:], ["C4A in us-central1: Google granted 24 of the 216 vCPUs asked",
+                                     ASKED_NL])
 
     def test_a_preference_reconciling_or_granted_in_full_is_no_line(self):
         for one in (kept(FAMILY, NL, 3600, "216", "150", True), kept(FAMILY, NL, 3600, "150")):

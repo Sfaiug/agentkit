@@ -374,8 +374,8 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken, skipped):
 def _ask(skipped, limits, now):
     """Lines for what Google is asked, its answer never awaited, on the first of `_rent`'s `skipped`
     with a quota whose preference, Google's own record of the last ask, is over a day old or
-    missing; and for any of their preferences Google has finished granting short.  A failure is
-    its line and nothing more."""
+    missing; and for any of Compute's preferences Google has finished granting short.  A failure
+    is its line and nothing more."""
     if not skipped:
         return []
     unanswered = len(UNANSWERED)
@@ -384,21 +384,18 @@ def _ask(skipped, limits, now):
         key = json.loads((config.SECRETS / KEY).read_text())
         url = _url("cloudquotas",
                    f"/v1/projects/{key['project_id']}/locations/global/quotaPreferences")
-        listed = list(_pages(token, url, "quotaPreferences"))
-        kept = {quota: next((one for one in listed if (
-            one.get("service"), one.get("quotaId"), one.get("dimensions") or {}) == (
-                COMPUTE, *_preference(quota))), None)
-                for lacking in skipped for quota in lacking}
+        kept = {_named(one): one for one in _pages(token, url, "quotaPreferences")
+                if one.get("service") == COMPUTE}
         said = []
         for quota, one in kept.items():
-            if one and not one.get("reconciling"):
+            if not one.get("reconciling"):
                 # a value of 0 is left out, as `_limits` finds
                 asked, granted = (int(one["quotaConfig"].get(field, 0))
                                   for field in ("preferredValue", "grantedValue"))
                 if granted < asked:
                     said.append(f"{quota}: Google granted {granted} of the {asked} vCPUs asked")
         for lacking in skipped:
-            if due := {quota: vcpus for quota, vcpus in lacking.items() if not kept[quota]
+            if due := {quota: vcpus for quota, vcpus in lacking.items() if quota not in kept
                        or now - datetime.fromisoformat(kept[quota]["updateTime"]).timestamp()
                        >= ASK_EVERY}:
                 break
@@ -412,7 +409,7 @@ def _ask(skipped, limits, now):
                "contactEmail": key.get("client_email"), "justification": WHY}
         words = f"{quota}: {vcpus} vCPUs asked of Google, the limit now {limits[quota]:g}"
         try:
-            if one := kept[quota]:
+            if one := kept.get(quota):
                 _call(_url("cloudquotas", f"/v1/{one.get('name')}?updateMask=quotaConfig."
                            "preferredValue,contactEmail,justification"), token,
                       {**ask, "name": one.get("name"), "etag": one.get("etag")}, "PATCH")
@@ -433,6 +430,14 @@ def _preference(quota):
     if metric.endswith("CPUS"):     # CPUS, N2_CPUS
         return f"{metric.replace('_', '-')}-per-project-region", {"region": region}
     return "CPUS-PER-VM-FAMILY-per-project-region", {"region": region, "vm_family": metric}
+
+
+def _named(preference):
+    """A preference's quota as `_quotas` names it: `_preference` turned round."""
+    where = preference.get("dimensions") or {}
+    metric = where.get("vm_family") or preference.get("quotaId", "").removesuffix(
+        "-per-project-region").removesuffix("-per-project").replace("-", "_")
+    return f"{metric} in {where['region']}" if "region" in where else metric
 
 
 def _limits(regions):
