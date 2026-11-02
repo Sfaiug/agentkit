@@ -447,6 +447,20 @@ class Matrix(unittest.TestCase):
         screen.saw("<left>")
         self.assertEqual(screen.proc.wait(15), 0)
 
+    def test_a_click_on_a_folded_role_acts_on_that_role(self):
+        screen = Screen(self, rows=70, cols=32)
+        lines = screen.frame()
+        self.assertTrue(all(terminal.cells(line) <= 32 for line in lines), lines)
+        number, _ = row(lines, "opus")
+        orch, builds, reviews = lines[number:number + 3]    # the lines under the label, from 0
+        self.assertEqual(builds.split()[0], "builds")
+        lines = screen.click(builds.index("xhigh") + 1, number + 2,
+                             lambda lines: "max" in lines[row(lines, "opus")[0] + 1])
+        number, _ = row(lines, "opus")
+        self.assertEqual(screen.record()["efforts"]["opus"]["exec_effort"], "max")
+        self.assertEqual((lines[number], lines[number + 2]), (orch, reviews))
+        self.assertIn("Opus 5.5", highlighted(lines))
+
     def test_enter_on_discord_runs_its_step_and_version_is_no_stop(self):
         screen = Screen(self)
         lines = screen.frame()

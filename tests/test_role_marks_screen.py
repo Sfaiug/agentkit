@@ -123,6 +123,47 @@ class RoleMarks(Sandbox):
         self.assertIn("[.]", next(lines[line] for line, (row, _) in places.items()
                                   if row == second))
 
+    def test_roles_the_label_cannot_make_fit_fold_under_it_on_every_narrow_width(self):
+        selected = {"orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"]}
+        here = ("model", "opus")
+        shapes = {}
+        for room in range(16, 41):
+            for chosen in (selected, None):
+                moves = []
+                with patch.object(terminal, "layout_width", return_value=room), \
+                        patch.object(terminal, "utf8", return_value=True):
+                    lines, places = menu.config_body(self.cfg, here, -1, chosen, moves=moves,
+                                                     scope="fix-api", rows=())
+                self.assertTrue(all(terminal.cells(line) <= room for line in lines), (room, lines))
+                for line, (_, cells) in places.items():     # each cell is where a click reads it
+                    drawn = terminal.plain(lines[line], True)
+                    for first, last, number in cells:
+                        text = drawn[first - 1:last]
+                        if number >= 3:
+                            self.assertIn(text.split()[-1], menu.EFFORT_RANK, (room, drawn))
+                        elif number >= 0:
+                            self.assertIn(text.strip(), list("●○■□"), (room, drawn))
+                for line, key, *_ in moves:                 # and each move finds its cell's line
+                    if key[0] in ("mark", "effort"):
+                        self.assertEqual(places[line][0], ("model", key[1]))
+                        self.assertIn(key[2], [cell[2] for cell in places[line][1]])
+                mine = [line for line, (row, _) in places.items() if row == here]
+                shapes[room, chosen is None] = [terminal.plain(lines[line], True) for line in mine]
+        folds = [room for room in range(16, 41) if len(shapes[room, False]) > 1]
+        self.assertEqual(folds, list(range(16, folds[-1] + 1)))     # every width under the first
+        above = shapes[folds[-1] + 1, False]
+        self.assertEqual(len(above), 1)                 # one column more: the label still gives way
+        self.assertTrue(above[0].split()[1].endswith("…"), above)
+        last = shapes[folds[-1], False]
+        self.assertEqual(last[0].split()[1:], ["Opus", "5.5"])      # folded, the name is whole
+        self.assertEqual([part.split()[:2] for part in last[1:]],
+                         [["orch", "●"], ["builds", "■"], ["reviews", "□"]])
+        self.assertEqual([part[0] for part in last], ["›", " ", " ", " "])    # one row, one mark
+        bare = [room for room in range(16, 41) if len(shapes[room, True]) > 1]      # no marks
+        self.assertEqual(bare, list(range(16, bare[-1] + 1)))
+        self.assertEqual([part.split()[0] for part in shapes[bare[-1], True][1:]],
+                         ["orch", "builds", "reviews"])
+
     def test_new_session_and_config_share_model_names_and_harness_headings(self):
         self.cfg["models"]["gpt-sol"] = {**self.cfg["models"]["astra"], "model": "gpt-6.1-sol"}
         self.cfg["providers"]["acme-cloud"] = {}
