@@ -2044,7 +2044,7 @@ def tmux_conf():
             + "".join(f"set -gq {option} {tmux_word(value)}\n"
                       for option, value in ended_options().items()) +
             "set -g allow-passthrough on\n"
-            'set -as terminal-features ",*:RGB:hyperlinks"\n'
+            'set -as terminal-features ",*:RGB:hyperlinks:sync"\n'
             f"bind-key {POPUP_KEY} if-shell -F {tmux_word(SMALL_CLIENT)} "
             f"{tmux_word(small)} {tmux_word(large)}\n")
     try:
