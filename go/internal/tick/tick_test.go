@@ -7,12 +7,16 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"agentkit/internal/lock"
 )
+
+// stamped is a log's line beginning with its date and time.
+var stamped = regexp.MustCompile(`^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d `)
 
 // tickHome is a home holding ak's state and tmp folders, and where the tick's lock, log and kept
 // log go in them.
@@ -167,7 +171,7 @@ func TestARollMovesTheLogAndBothStreamsRejoinIt(t *testing.T) {
 		t.Fatalf("the kept log: %v %v", info, err)
 	}
 	errOut.WriteString("said on stderr\n")
-	if got := read(t, live); !strings.HasPrefix(got, "tick already running") || !strings.HasSuffix(got, "\nsaid on stderr\n") {
+	if got := read(t, live); !stamped.MatchString(got) || !strings.Contains(got, "tick already running") || !strings.HasSuffix(got, "\nsaid on stderr\n") {
 		t.Fatalf("the new log holds %q", got)
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(lockFile), logName+".lock")); err != nil {
@@ -189,7 +193,7 @@ func TestAStreamOneRollBehindRejoinsTheLiveLog(t *testing.T) {
 	if got := read(t, kept); got != "" {
 		t.Errorf("the kept log took %q", got)
 	}
-	if got := read(t, live); !strings.HasPrefix(got, "tick already running") {
+	if got := read(t, live); !stamped.MatchString(got) || !strings.Contains(got, "tick already running") {
 		t.Errorf("the live log holds %q", got)
 	}
 }
@@ -223,7 +227,7 @@ func TestAStreamElsewhereStaysThere(t *testing.T) {
 	if got := read(t, live); got != "said on stderr\n" {
 		t.Errorf("the new log holds %q", got)
 	}
-	if got := read(t, elsewhere); strings.Count(got, "tick already running") != 2 {
+	if got := read(t, elsewhere); strings.Count(got, "tick already running") != 2 || !strings.HasPrefix(got, "tick already running") {
 		t.Errorf("elsewhere holds %q", got)
 	}
 }

@@ -76,7 +76,7 @@ func upgradeAll(env []string, repo string, plans []plan, before map[string]strin
 		return 0
 	}
 	if err != nil {
-		fmt.Fprintf(errOut, "update: %s\n", pyError(err))
+		fmt.Fprintf(errOut, "update: %s\n", config.PyError(err))
 		return 1
 	}
 	defer held.Close()
@@ -84,13 +84,13 @@ func upgradeAll(env []string, repo string, plans []plan, before map[string]strin
 	// for this upgrade to end (moveAgentkit)
 	move, err := lock.Wait(context.Background(), filepath.Join(tmp, moving))
 	if err != nil {
-		fmt.Fprintf(errOut, "update: %s\n", pyError(err))
+		fmt.Fprintf(errOut, "update: %s\n", config.PyError(err))
 		return 1
 	}
 	move.Close()
 	log, err := os.CreateTemp(tmp, "update-"+time.Now().Format("20060102-150405")+"-*.log")
 	if err != nil {
-		fmt.Fprintf(errOut, "update: %s\n", pyError(err))
+		fmt.Fprintf(errOut, "update: %s\n", config.PyError(err))
 		return 1
 	}
 	defer log.Close()
@@ -303,7 +303,7 @@ func (u *upgrade) revert(plans []plan, now map[string]string) map[string][2]stri
 			swapping(name, func() bool { err = u.snapshot.restore(); return err == nil })
 			landed[name] = [2]string{"reverted", "back on " + old}
 			if err != nil {
-				landed[name] = [2]string{"cannot revert", pyError(err) + "; snapshot retained at " + u.snapshot.path}
+				landed[name] = [2]string{"cannot revert", config.PyError(err) + "; snapshot retained at " + u.snapshot.path}
 			} else {
 				u.snapshot = nil // what it saved is installed again, and an upgrade after takes another
 			}
@@ -443,7 +443,7 @@ func (u *upgrade) step(argv, extra []string, limit time.Duration) bool {
 	case errors.As(err, &exited):
 		code = fmt.Sprint(returncode(exited))
 	case err != nil:
-		fmt.Fprintf(u.log, "[%s]\n", pyError(err))
+		fmt.Fprintf(u.log, "[%s]\n", config.PyError(err))
 		code = "could not start"
 	}
 	fmt.Fprintf(u.log, "[exit %s]\n", code)

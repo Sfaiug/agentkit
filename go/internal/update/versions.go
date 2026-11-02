@@ -40,7 +40,7 @@ func swap(env []string, live, commit string) string {
 	os.MkdirAll(versions, 0o777)
 	next, err := os.MkdirTemp(versions, short(commit)+".")
 	if err != nil {
-		return pyError(err)
+		return config.PyError(err)
 	}
 	if said, ok := versionGit(env, repository(), "worktree", "add", "--quiet", "--detach", "--lock",
 		"--reason", locked, next, commit); !ok {
@@ -56,7 +56,7 @@ func swap(env []string, live, commit string) string {
 	}
 	if err != nil {
 		remove(env, next)
-		return fmt.Sprintf("%s could not be swapped in for %s: %s", next, live, pyError(err))
+		return fmt.Sprintf("%s could not be swapped in for %s: %s", next, live, config.PyError(err))
 	}
 	repair(env, live, next)
 	return ""
@@ -87,7 +87,7 @@ func adopt(live string) string {
 			return dot + " is no repository of its own"
 		}
 		if err := os.Rename(dot, repo); err != nil {
-			return fmt.Sprintf("%s could not move to %s: %s", dot, repo, pyError(err))
+			return fmt.Sprintf("%s could not move to %s: %s", dot, repo, config.PyError(err))
 		}
 	}
 	finish(live)

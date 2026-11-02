@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -39,8 +40,8 @@ func LoggedOut(why string) bool {
 	return loggedOut.MatchString(why)
 }
 
-// JSON is the JSON value `gh args...` prints, run from dir, else from ak's checkout; or, where
-// gh fails, why, in at most 300 characters.
+// JSON is the JSON value `gh args...` prints, a list of its pages with --paginate, run from dir,
+// else from ak's checkout; or, where gh fails, why, in at most 300 characters.
 func JSON(dir string, args ...string) (any, string, error) {
 	env, err := config.ChildEnv()
 	if err != nil {
@@ -73,7 +74,11 @@ func JSON(dir string, args ...string) (any, string, error) {
 		said := []rune(strings.TrimFunc(out+task.Text(stderr.Bytes()), config.Space))
 		return nil, string(said[:min(len(said), 300)]), nil
 	}
-	value, err := run.Decode([]byte(out))
+	decode := run.Decode
+	if slices.Contains(args, "--paginate") {
+		decode = run.Pages
+	}
+	value, err := decode([]byte(out))
 	if err != nil {
 		return nil, "gh printed no JSON (" + err.Error() + ")", nil
 	}

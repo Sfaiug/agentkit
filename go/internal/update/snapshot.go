@@ -158,7 +158,7 @@ func take(each plan, identity string, env []string) (s *snapshot, err error) {
 			if s.path != "" {
 				os.RemoveAll(s.path)
 			}
-			s, err = nil, fmt.Errorf("cannot assure a complete %s snapshot and safe restore: %s", each.name, pyError(err))
+			s, err = nil, fmt.Errorf("cannot assure a complete %s snapshot and safe restore: %s", each.name, config.PyError(err))
 		}
 	}()
 	var paths []string

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"slices"
 	"strings"
 )
@@ -21,4 +22,10 @@ func SeatFileOwner(file string) (string, bool) {
 	}
 	kind, seat, _ := strings.Cut(file[:at], "-")
 	return seat, seat != "" && slices.Contains(seatKinds, kind)
+}
+
+// SeatRecords is the paths of one kind's `<kind>-<seat>.json` files in name order, as Python's
+// config.seat_files lists a kind it keeps as JSON.
+func SeatRecords(kind string) []string {
+	return Glob(filepath.Join(Home(), "state"), kind+"-*.json")
 }
