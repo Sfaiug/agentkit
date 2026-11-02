@@ -5046,7 +5046,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     if done_unprompted(name, cfg=cfg, harness=harness, found=live):
         if waiting and not dry_run:
             seat_write(name, usage_wait=None)
-        return bool(waiting or refusal or spent(current))
+        if waiting or refusal or spent(current):
+            return True
+        # Nothing to continue and no wait to suppress: the between-turns move
+        # home below still applies, and starts no turn.
     observed = live.get("usage_refusal") or {}
     until = turns.try_again_at(line) if refusal else None
     handled = observed.get("line") == line and observed.get("handled")
