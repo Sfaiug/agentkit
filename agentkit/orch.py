@@ -368,16 +368,18 @@ def fresh_command(cfg, name, seat=None, account=None, line=None):
 
 
 def socket_name():
-    """The tmux server agentkit's seats live on.  Its own, and never the user's default one.
+    """The tmux server agentkit's seats live on.  Its own, and never the user's default one."""
+    return os.environ.get(SOCKET_ENV) or home_socket()
+
+
+def home_socket():
+    """The server this HOME names when no caller names one.
 
     `SOCKET` belongs to the account's own home; any other HOME gets a server of that home's own,
     as config.py promises of ~/.agentkit.  An `ak` opened under a scratch HOME to try a screen
     once reached the seats' server, found no record of the seat whose side session it listed,
     took that for a forgotten seat (`forgotten`) and closed the session (`sweep_finished`).
     """
-    named = os.environ.get(SOCKET_ENV)
-    if named:
-        return named
     try:
         account = Path(pwd.getpwuid(os.getuid()).pw_dir).resolve()
     except KeyError:    # a uid with no passwd entry, as in a container, has no home of its own
@@ -2165,9 +2167,13 @@ def seat_command(name, cmd, socket=None):
 def seat_env(name, server):
     """A seat gets the caller's state and delivery boundary, not its server's old one, and no
     `ak`'s mark (`owner`) or seat's tag, whatever its server holds: it outlives the `ak` that
-    opens it, and is no seat's side session."""
+    opens it, and is no seat's side session.
+
+    It names its server only where its HOME would not: a seat carrying `agentkit` took an `ak`
+    opened inside it under a scratch HOME to the seats' server, past that HOME's own."""
     from . import notify
-    values = {"HOME": str(Path.home()), config.SESSION_ENV: name, SOCKET_ENV: server,
+    values = {"HOME": str(Path.home()), config.SESSION_ENV: name,
+              SOCKET_ENV: None if server == home_socket() else server,
               owner.MARK: None, guard.TMUX_OWNER: None}
     for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
