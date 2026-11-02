@@ -12,6 +12,7 @@ by checkout, the last night a run started for.  Whatever starts no run leaves no
 read tries again.
 """
 
+import hashlib
 import json
 import shlex
 import time
@@ -79,11 +80,13 @@ def _read(checkout, handled, log):
 def _write_task(checkout, started, names, tests):
     """The fix run's task and the file of names its done-when exports as `AK_ONLY`, the contract
     a red piece's retry uses (`worker.boxed`); the task's path.  Its title is every night's, so
-    `ak run` refuses a night's run while another night's is under way."""
-    task = config.HOME / "tasks" / checkout.name / f"night-{gitcall.slugify(started)}.md"
+    `ak run` refuses a night's run while another night's is under way.  Their names hash what the
+    night says, so a read writing them, refused or not, never changes a running fix's list."""
+    held = hashlib.sha256(json.dumps([started, names]).encode()).hexdigest()[:16]
+    task = config.HOME / "tasks" / checkout.name / f"night-{held}.md"
     task.parent.mkdir(parents=True, exist_ok=True)
     only = task.with_suffix(".names")
-    only.write_text("".join(f"{name}\n" for name in names[:FIRST]))
+    orch.replace_file(only, "".join(f"{name}\n" for name in names[:FIRST]).encode())
     listed = "".join(f"- {name}\n" for name in names)
     task.write_text(f"---\nrepo: {checkout}\n---\n"
                     f"# Fix the tests {checkout.name}'s last night failed\n\n"

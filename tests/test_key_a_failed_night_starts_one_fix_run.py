@@ -21,6 +21,7 @@ from fixtures.sink import Sink
 
 SAYS_ONLY = 'cat "$AK_ONLY"'
 NAMES = [f"tests/a.py::t{number}" for number in range(101)]
+LONG = "nightly-integration-suite-of-the-main-branch-on-"     # past where a name would be cut
 
 
 def failed(started="night-1", names=NAMES[:2]):
@@ -49,6 +50,14 @@ class Project:
     def runs(self):
         return [run for run in taskfile.runs(self.home)
                 if f"repo: {self.rig.path}\n" in (run / "task.md").read_text()]
+
+    def check(self, run):
+        """What running that run's done-when in this project prints, word by word."""
+        task = (run / "task.md").read_text()
+        line = task.partition("## Done when\n```bash\n")[2].partition("\n")[0]
+        done = self.home.run("bash", "-c", line, cwd=self.rig.path)
+        assert done.code == 0, done.err
+        return done.out.split()
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -85,10 +94,11 @@ class FailedNights(unittest.TestCase):
         release = fakes["claude"].dir / "release"
         fakes["claude"].behave({"sh": f"until [ -e {release} ]; do sleep 0.1; done",
                                 "hand_in": [["not-needed", "the night is gone"]]})
-        api.says(failed("night-1"))
+        api.says(failed(LONG + "1", names=["tests/a.py::first"]))
         cls.tick(hour_on=True, seen=True)
-        api.says(failed("night-2"))
+        api.says(failed(LONG + "2", names=["tests/b.py::second"]))
         cls.under_way = cls.tick(hour_on=True, seen=True)
+        cls.kept = api.check(api.runs()[0])
         release.write_text("")
         cls.ended()
         cls.after_it = cls.tick(hour_on=True, seen=True)
@@ -122,9 +132,7 @@ class FailedNights(unittest.TestCase):
             self.assertIn(f"- {name}\n", task)
         self.assertEqual(Path(record_of(run)["task_file"]).parent,
                          self.home.path / ".agentkit" / "tasks" / "acme")
-        line = task.partition("## Done when\n```bash\n")[2].partition("\n")[0]
-        done = self.home.run("bash", "-c", line, cwd=self.acme.rig.path)
-        self.assertEqual((done.code, done.out.split()), (0, NAMES[:100]), done.err)
+        self.assertEqual(self.acme.check(run), NAMES[:100])
 
     def test_a_night_starts_one_run_the_next_hour_none_a_later_night_past_the_hour_another(self):
         self.assertEqual(self.first["acme"], (1, 0))
@@ -149,6 +157,10 @@ class FailedNights(unittest.TestCase):
     def test_a_later_night_while_a_run_is_under_way_starts_once_that_run_ended(self):
         self.assertEqual(self.under_way["api"], (1, 1))
         self.assertEqual(self.after_it["api"], (2, 0))
+
+    def test_a_later_night_refused_leaves_the_running_fix_its_own_failures(self):
+        self.assertEqual(self.kept, ["tests/a.py::first"])
+        self.assertEqual(self.api.check(self.api.runs()[1]), ["tests/b.py::second"])
 
     def test_no_seat_is_opened_and_no_card_reaches_the_owner(self):
         self.assertEqual(self.sink.requests, [])
