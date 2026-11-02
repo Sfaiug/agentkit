@@ -310,6 +310,9 @@ class Live:
     def _look(self, found, records):
         try:
             with look.one_look():      # a pass of its own, off the read's thread (`rows`)
+                held = _RUN_RECORDS    # the read's, as `records` are: a look reads no runs itself
+                if held is not None and held.root[:3] == (config.RUNS, config.STATE, os.getpid()):
+                    held.reader.lend()
                 v5o_groups(self.cfg, found, records)
         except (config.Error, OSError, ValueError, TypeError, KeyError):
             pass    # a seat that cannot be looked at keeps what its record says

@@ -64,6 +64,27 @@ class SeatLookReadsTheRunsOnce(OpenScreen):
         self.assertLess(listings(self.home.path / ".agentkit/runs", MINUTE),
                         endings * len(owing))
 
+    def test_a_still_minute_opens_no_unchanged_notice_and_a_changed_one_shows(self):
+        def notice(name, **fields):
+            return self.home.write(f".agentkit/state/notify-{name}.json",
+                                   {"session": name, "kind": "needs", "text": "Which one?",
+                                    "time": time.time(), **fields})
+
+        seat, notices = SEATS[-1], [notice(name) for name in SEATS]
+        self.menu.wait(row(seat, "needs you"), bound=BOUND)
+        self.quiet(self.held())
+        libc = ctypes.CDLL(None, use_errno=True)
+        queue = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
+        self.addCleanup(os.close, queue)
+        for path in notices:
+            self.assertGreaterEqual(libc.inotify_add_watch(queue, os.fsencode(path), IN_OPEN), 0)
+        time.sleep(MINUTE)
+        with self.assertRaises(BlockingIOError):      # nothing in the queue: nothing was opened
+            os.read(queue, 1 << 16)
+        notice(seat, seen=True)
+        self.menu.wait(lambda screen: row(seat)(screen) and not row(seat, "needs you")(screen),
+                       bound=BOUND)
+
 
 if __name__ == "__main__":
     unittest.main()

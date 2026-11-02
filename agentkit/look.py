@@ -23,6 +23,17 @@ def one_look():
         del _FOUND.by
 
 
+@contextmanager
+def aside():
+    """Out of this thread's pass meanwhile: a writer under a lock decides on the disk as it is."""
+    found = _FOUND.__dict__.pop("by", None)
+    try:
+        yield
+    finally:
+        if found is not None:
+            _FOUND.by = found
+
+
 def once(key, compute):
     """`compute()`; in a pass, what its first ask for `key` on this thread computed, so only
     read."""

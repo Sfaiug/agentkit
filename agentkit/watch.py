@@ -47,8 +47,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, front, gc, gitcall, handback, history,
-               host, login_refusals, notify, orch, owner, parsed, questions, seat_tokens, staffing,
-               statusbar, transitions, turns, update, usage, worker)
+               host, login_refusals, look, notify, orch, owner, parsed, questions, seat_tokens,
+               staffing, statusbar, transitions, turns, update, usage, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -2604,7 +2604,7 @@ def session_state(name, now=None, session=None, cfg=None, records=None, number=N
     if live is None:
         live = seat_read(name)
     if auth_out is None or gh_out is None or token_out is None or stalls is None:
-        saved = load_state()
+        saved = look.once("watch state", load_state)    # one read a pass, so only read
         auth_out = (saved.get("auth_out") or {}) if auth_out is None else auth_out
         gh_out = (saved.get("gh_out") or {}) if gh_out is None else gh_out
         token_out = saved.get("worker_tokens") if token_out is None else token_out
