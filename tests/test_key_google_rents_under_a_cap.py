@@ -72,6 +72,11 @@ class GoogleRentsUnderACap(unittest.TestCase):
             "onHostMaintenance": "TERMINATE"}, [f"{made[-1]['name']} rented: c4a-standard-8 in "
                                                 "europe-west4-a"]))
 
+    def test_its_sshd_closes_this_host_out_for_no_burst_of_connections(self):
+        setup = next(item["value"] for item in self.rent[1][-1]["metadata"]["items"]
+                     if item["key"] == "startup-script")
+        self.assertIn("PerSourcePenalties no", setup)
+
     def test_none_while_one_comes_up_or_off_or_past_the_cap_where_one_cut_short_counts(self):
         for asked, _, lines in [*self.coming, self.off, self.dropped]:
             self.assertFalse([one for one in asked if one.endswith("/instances")], asked)
