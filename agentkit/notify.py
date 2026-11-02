@@ -1010,23 +1010,24 @@ def _card_write(session, data):
     _sync_dir(config.STATE)
 
 
+def install_stamp():
+    """What install.sh's first run on this server stamped, or 0 where there is none."""
+    try:
+        return float((config.STATE / "installed-at").read_text())
+    except (OSError, ValueError):
+        return 0
+
+
 def installed_at():
     """When the agentkit running now was put in place, or 0 where no install says so.
 
-    install.sh stamps `installed-at` on a server; a move of the checkout it installed
-    stamps nothing, so there the newest write among these modules counts too.  A home no
-    install stamped -- a test's sandbox -- has no install to be older than.
+    install.sh stamps `installed-at` once, where there is none, and a landing stamps nothing, so
+    the newest write among the modules counts too: a landing that keeps them (`versions.keep_times`)
+    moves neither.  A home no install stamped -- a test's sandbox -- has no install to be older
+    than.
     """
-    try:
-        stamps = [float((config.STATE / "installed-at").read_text())]
-    except (OSError, ValueError):
-        return 0
-    for path in Path(__file__).resolve().parent.glob("*.py"):
-        try:
-            stamps.append(path.stat().st_mtime)
-        except OSError:
-            pass
-    return max(stamps)
+    stamp = install_stamp()
+    return stamp and max(stamp, config.code_written() / 1e9)
 
 
 def _last_input(session, seat):
