@@ -896,7 +896,7 @@ def resume_failed(out_dir, killed, text, lost=False):
 
     A silence kill ran and was stopped; this one never started. The Codex session that
     exited before its first byte after a host freeze is the case, and retrying that id
-    spends the transport attempts on a conversation that will not come back; Claude Code's
+    spends the transport attempts on a conversation that will not come back; a harness's
     closing event for a conversation it cannot find retried one for hours (2 Nov 2026).
     """
     if killed or (text or "").strip():
@@ -1077,8 +1077,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if swapped(code, killed, sid or session):
             session, calls = sid or session, calls + 1
             continue
-        if asked and resume_failed(target, killed, text,
-                                   machine_turn.lost(entry["harness"], asked)):
+        if asked and resume_failed(target, killed, text, machine_turn.lost(
+                entry["harness"], asked, {**os.environ, **config.account_env(account)})):
             # One empty exit abandons the id. The role continues in a new conversation,
             # and the dead id is not retried and does not spend the transport attempts.
             log(f"resume of {asked} failed; fresh conversation")

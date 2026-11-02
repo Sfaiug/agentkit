@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -299,14 +300,25 @@ class ResumeMidturn(unittest.TestCase):
         out = directory / "round-1" / "executor"
         out.mkdir(parents=True)
         (out / "session_id").write_text("lost-sid")
-        with patch.object(machine_turn, "_sessions", return_value=["held/{id}*"]):
+        with patch.object(machine_turn, "_places", return_value=["~/held/{id}*"]):
             run.execute(self.loop(directory.name), "executor", "original task text", "executor")
-            self.assertEqual([call["sid"] for call in self.calls()], ["lost-sid", ""])
-            self.assertEqual(record.read_state(directory)["exec_session"], "fresh-session")
-            (self.root / "held").mkdir()
-            (self.root / "held/lost-sid.jsonl").touch()
-            self.assertFalse(machine_turn.lost("claude", "lost-sid"))
-        self.assertFalse(machine_turn.lost("claude", "other-sid"))    # it cannot say: no `sessions`
+        self.assertEqual([call["sid"] for call in self.calls()], ["lost-sid", ""])
+        self.assertEqual(record.read_state(directory)["exec_session"], "fresh-session")
+
+    def test_a_conversation_is_held_in_any_home_its_harness_may_keep_it(self):
+        shipped = tomllib.loads((REPO / "adapters/claude.toml").read_text())["worker"]["sessions"]
+        odd = self.root / "state[1]"
+        env = {"HOME": str(self.root), "CLAUDE_CONFIG_DIR": str(odd), "AGENTKIT_ACCOUNT": "acme"}
+        with patch.object(machine_turn, "_places", return_value=shipped):
+            self.assertTrue(machine_turn.lost("claude", "sid", env))
+            for home in (self.root / ".claude", odd, self.root / ".claude-acme"):
+                held = home / "projects/acme/sid.jsonl"
+                held.parent.mkdir(parents=True)
+                held.touch()
+                self.assertFalse(machine_turn.lost("claude", "sid", env), home)
+                held.unlink()
+            self.assertEqual(machine_turn._sessions("claude"), [".claude/projects/*/{id}*"])
+        self.assertFalse(machine_turn.lost("claude", "sid", env))    # it cannot say: no `sessions`
 
     def test_reviewer_resume_counts_its_verdict_for_the_round(self):
         os.environ["RESUME_FINAL"] = "VERDICT: PASS\n## Findings\n- none\n"

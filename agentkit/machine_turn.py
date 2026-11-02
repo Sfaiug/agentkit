@@ -41,25 +41,37 @@ KEPT = 60
 LOOK = 0.25
 
 
+def _places(harness):
+    """Where the harness keeps a conversation, `[worker] sessions`: `config.manifest_paths` globs
+    with `{id}`."""
+    return config.manifest(harness).get("worker", {}).get("sessions", ())
+
+
 def _sessions(harness):
-    """Where the harness keeps a conversation, `[worker] sessions`: globs under HOME with `{id}`."""
-    return [place.removeprefix("~/") for place in
-            config.manifest(harness).get("worker", {}).get("sessions", ())]
+    """Those of `_places` that name no variable, under HOME: all a machine's HOME holds."""
+    return [place.removeprefix("~/") for place in _places(harness) if "$" not in place]
+
+
+def _named(places, session):
+    """The globs `places` of the conversation `session`: it is what they match and all under that.
+    An id with a `/` names no file, so an id a turn reported reaches nowhere else."""
+    if not session or "/" in session:
+        return []
+    return [place.replace("{id}", glob.escape(session)) for place in places]
 
 
 def _conversation(harness, session):
-    """The globs under HOME of the conversation `session`: it is what they match and all under
-    that. An id with a `/` names no file, so an id a turn reported reaches nowhere else."""
-    if not session or "/" in session:
-        return []
-    return [place.replace("{id}", glob.escape(session)) for place in _sessions(harness)]
+    """The globs under HOME of the conversation `session`."""
+    return _named(_sessions(harness), session)
 
 
-def lost(harness, session):
-    """Whether the conversation `session` is nowhere on this host, so no resume can open it: a turn
-    on a lost machine leaves its id in what it streamed. A harness with no `sessions` cannot say."""
-    places = _conversation(harness, session)
-    return bool(places) and not any(glob.glob(place, root_dir=Path.home()) for place in places)
+def lost(harness, session, env):
+    """Whether the conversation `session` is nowhere a harness in the environment `env` keeps one,
+    so no resume can open it: a turn on a lost machine leaves its id in what it streamed. A harness
+    with no `sessions` cannot say."""
+    literal = {key: glob.escape(value) for key, value in env.items()}
+    places = _named(map(str, config.manifest_paths(_places(harness), literal)), session)
+    return bool(places) and not any(map(glob.glob, places))
 
 
 def call(entry, cmd, cwd, out_dir, env, places, session, watch):
