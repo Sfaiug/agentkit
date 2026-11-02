@@ -1,13 +1,12 @@
 """An open menu looks at every checkout under ~/code at every read, and asks git about a worktree
-only once while its `.git` and what that leads to read the same: a worktree costs no process per
-read, and still stays under its project when the repository moves and `.git` is linked anew.
+only once while its `.git` leads where it led: a worktree costs no process per read, and still
+stays under its project when the repository moves and `.git` is linked anew.
 Black-box: the program `AK_BIN` names runs in a person's terminal (tests/fixtures/akterm.py), with
 a `git` first on its PATH that notes where it runs, and is judged by the headings it draws.
 """
 
 import shutil
 import sys
-import time
 from pathlib import Path
 import unittest
 
@@ -17,7 +16,6 @@ from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
 GIT = shutil.which("git", path=":".join(SYSTEM))
-SETTLED = 1.5      # s: a `.git` changed within the last second vouches for no answer
 OPENS = 60         # the first draw looks at every seat, which a loaded host makes slow
 
 
@@ -66,7 +64,6 @@ class AskedOnce(unittest.TestCase):
         return lines.count(str(path.resolve()))
 
     def test_reads_with_nothing_changed_ask_git_nothing_about_a_worktree(self):
-        time.sleep(SETTLED)
         self.read_again("atoll-two")
         asked = self.asked_in(self.web)
         self.read_again("atoll-three")
@@ -75,14 +72,12 @@ class AskedOnce(unittest.TestCase):
 
     def test_a_repository_moved_and_linked_anew_keeps_its_worktree_under_it(self):
         self.assertEqual(headings(self.read_again("atoll-two")), ["acme"])
-        time.sleep(SETTLED)
-        self.read_again("atoll-three")      # the worktree's answer is kept by now
         self.first.rename(self.second)
         (self.acme / ".git").write_text(f"gitdir: {self.second / 'acme.git'}\n")
         (self.fix / ".git").unlink()
         (self.fix / ".git").symlink_to(self.second / self.private.relative_to(self.first),
                                        target_is_directory=True)
-        self.assertEqual(headings(self.read_again("atoll-four")), ["acme"])
+        self.assertEqual(headings(self.read_again("atoll-three")), ["acme"])
 
 
 if __name__ == "__main__":

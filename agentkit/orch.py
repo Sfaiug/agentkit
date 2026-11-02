@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, owner, parsed, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, owner, plan, retention, staffing, terminal, transitions, update, usage
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -1723,6 +1723,9 @@ def git_in(path, *args, env=None):
     return proc.returncode, proc.stdout
 
 
+_GIT_SAID = {}      # a checkout's .git: (`_git_follows` when git was asked, what `git_dirs` said)
+
+
 def git_dirs(path):
     """(the repository's common git directory, whether `path` is a worktree added from
     another checkout) of the checkout at `path`, or None when it is none.
@@ -1730,8 +1733,8 @@ def git_dirs(path):
     A plain `.git` directory with no `commondir` is a repository's own checkout; for anything
     else -- a `.git` file, a link, a worktree's git directory -- git itself is asked, looking
     no higher than `path`, so every layout and path it accepts reads the same here.  What it
-    said stands while `.git` reads the same (`parsed`) and `_git_rested_on` too: every read of
-    an open screen looks at every checkout.
+    said stands while `.git` leads where it led (`_git_follows`), since every read of an open
+    screen looks at every checkout; when it says nothing, nothing is kept.
     """
     dot = Path(path) / ".git"
     try:
@@ -1739,39 +1742,52 @@ def git_dirs(path):
             return None
         if dot.is_dir() and not dot.is_symlink() and not (dot / "commondir").exists():
             return dot.resolve(), False
-        rested_on, gitdir, common = parsed.read(dot, _asked_git)
-        if rested_on != _git_rested_on(dot, gitdir, common):
-            parsed.forget(dot, _asked_git)
-            _, gitdir, common = parsed.read(dot, _asked_git)
     except OSError:
         return None
-    return common, gitdir != common
+    follows = _git_follows(dot)     # before git: a change meanwhile is asked about again
+    kept = _GIT_SAID.get(dot)
+    if kept is not None and kept[0] == follows:
+        return kept[1]
+    said = _asked_git(path)
+    if said is None:
+        _GIT_SAID.pop(dot, None)
+    else:
+        _GIT_SAID[dot] = follows, said
+    return said
 
 
-def _git_rested_on(dot, gitdir, common):
-    """What git's answer rests on and `.git`'s stat misses: a directory moved keeps its stat, and
-    a `commondir` written in place leaves its directory's."""
-    try:
-        named = (gitdir / "commondir").read_bytes()
-    except OSError:
-        named = None
-    return os.path.realpath(dot), gitdir.is_dir(), common.is_dir(), named
+def _git_follows(dot):
+    """Where git goes from `.git`, read as git reads it with no process to start: its git
+    directory and common directory, every link on the way resolved, and whether what makes
+    them a repository is there.  Whether it is one stays git's to judge."""
+    def text(path):     # to its first NUL, as git's C strings: no path holds one
+        try:
+            return (os.fsdecode(Path(path).read_bytes()).partition("\0")[0].rstrip("\r\n")
+                    if os.path.isfile(path) else "")
+        except OSError:
+            return ""
+    gitdir = os.path.realpath(dot)
+    if os.path.isfile(gitdir):
+        gitdir = os.path.realpath(os.path.join(os.path.realpath(dot.parent),
+                                               text(gitdir).removeprefix("gitdir: ")))
+    common = os.path.realpath(os.path.join(gitdir, text(os.path.join(gitdir, "commondir"))))
+    return gitdir, common, [os.path.exists(os.path.join(*part)) for part in
+                            ((gitdir, "HEAD"), (common, "objects"), (common, "refs"))]
 
 
-def _asked_git(dot):
-    """(`_git_rested_on`, git directory, common directory), from git; an OSError where it says
-    nothing, which nothing keeps."""
+def _asked_git(path):
+    """`git_dirs`, from git."""
     def ask(*flags):
-        code, out = git_in(dot.parent, "rev-parse", "--path-format=absolute", *flags)
+        code, out = git_in(path, "rev-parse", "--path-format=absolute", *flags)
         return None if code != 0 else out.removesuffix(b"\n").split(b"\n")
     lines = ask("--git-dir", "--git-common-dir")
     if lines is not None and len(lines) != 2:   # a path holding a newline: one at a time
         lines = [b"\n".join(answer) if answer is not None else None
                  for answer in (ask("--git-dir"), ask("--git-common-dir"))]
     if lines is None or None in lines:
-        raise OSError(f"git says nothing of {dot}")
+        return None
     gitdir, common = (Path(os.fsdecode(line)).resolve() for line in lines)
-    return _git_rested_on(dot, gitdir, common), gitdir, common
+    return common, gitdir != common
 
 
 def checkout_of(repo, stands=None):
