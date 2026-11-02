@@ -32,7 +32,8 @@ class GoneSeat(Sandbox):
         if args[:2] == ("list-sessions", "-F"):
             out = "\n".join(re.sub(r"#\{[^}]*\}", lambda field: {
                 "#{session_id}": sid, "#{session_name}": name, f"#{{{orch.MARK}}}": mark,
-                "#{HOME}": str(self.root)}[field[0]],
+                "#{HOME}": str(self.root), f"#{{{statusbar.TOLD}}}": "",
+                f"#{{{statusbar.TOLD_END}}}": ""}[field[0]],
                 args[2]) for name, (sid, mark) in self.sessions.items())
             return 0, out if self.utf8 or utf8 else re.sub(r"[\x00-\x1f]", "_", out)
         if args[0] == "list-panes":

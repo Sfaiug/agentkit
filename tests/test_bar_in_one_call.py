@@ -25,17 +25,17 @@ class BarInOneCall(Sandbox):
     def tmux(self, *args, **_kw):
         self.calls.append(args)
         if args[0] == "list-sessions":
-            return 0, "\n".join(f"${n}:{name}:1" for n, name in enumerate(self.seats))
+            return 0, "\n".join(f"${n}:{name}:1::" for n, name in enumerate(self.seats))
         return 0, ""
 
-    def test_a_seats_bar_is_one_call_with_its_title_last(self):
+    def test_a_seats_bar_is_one_call_with_its_title_then_its_digest_last(self):
         statusbar.dress("acme", "opus")
         bar = [args for args in self.calls if "status-format[0]" in args]
         self.assertEqual(len(bar), 1)
         options = [command[3] for command in commands(bar[0]) if command[0] == "set-option"]
         self.assertTrue(all(command[:3] == ["set-option", "-t", "=acme:"]
                             for command in commands(bar[0]) if command[0] == "set-option"))
-        self.assertEqual(options[-1], "set-titles-string")
+        self.assertEqual(options[-2:], ["set-titles-string", statusbar.TOLD])
         for option in (*(option for option, _ in statusbar.LAYOUT), *statusbar.TOPS,
                        *statusbar.WHYS, statusbar.KEY):
             self.assertIn(option, options)

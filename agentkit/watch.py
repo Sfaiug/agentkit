@@ -2624,10 +2624,10 @@ def announce_state(session, cfg=None, look=False, **facts):
 
     Every screen that draws a row does this, and the watch tick does it too, so a word that
     turns over between ticks still has one beginning and not one per draw.  Only a change is
-    written; the bar itself is set every time, because publishing is the whole of it -- a set
-    that failed, a seat that was closed and a seat given the same name again all come right on
-    the next screen rather than waiting for the word to change.  The bar is the row's own
-    values, written through the one writer, and a changed word reaches every other seat's bar
+    written, the bar's too: what it last told is named on its own session (`statusbar._tell`), so
+    a set that failed, a seat that was closed and a seat given the same name again all come
+    right on the next screen rather than waiting for the word to change.  The bar is the row's
+    own values, written through the one writer, and a changed word reaches every other seat's bar
     at once, since each counts this one; the desktop notice is the card's own, sent where the
     card is queued, never here.
 
