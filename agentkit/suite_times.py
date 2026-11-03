@@ -43,13 +43,12 @@ def read(text):
             if type(seconds) in (int, float) and seconds >= 0} if isinstance(times, dict) else {}
 
 
-def keep(cwd, log):
-    """Add the times the check whose whole output is the file `log` printed to the record of
-    `cwd`, the checkout it ran on, the latest of a file's winning; a file that checkout no
-    longer has leaves it."""
+def measured(log, offset=0):
+    """The file times in this command's whole output, before the gate caps it."""
     found, start = {}, True
     try:
         with open(log, "rb") as lines:
+            lines.seek(offset)
             while part := lines.readline(LINE):
                 # Only a line read whole, from its start, is one `passed` printed.
                 whole = part.endswith(b"\n") or len(part) < LINE
@@ -57,7 +56,35 @@ def keep(cwd, log):
                     found[match[1]] = float(match[2])
                 start = whole
     except OSError:
-        return
+        pass
+    return found
+
+
+def refusal(cwd, base, command, timings):
+    """Added files owe each declared suite's own passing piece target, never earlier times."""
+    added, failures = None, []
+    # A rewritten declaration runs beside the target's; neither pass answers for the other.
+    for command in dict.fromkeys((command, gitcall.declared(cwd, "tests"))):
+        times, pieces = timings.get(command, ({}, 1))
+        if not times:
+            continue
+        if added is None:
+            added = set(gitcall.git(cwd, "diff", "--diff-filter=A", "--name-only", "-z",
+                                    f"{base}...HEAD").split("\0"))
+        # Many pieces must not turn an ordinary file of less than a minute into a refusal.
+        target = max(60, sum(times.values()) / pieces)
+        slow = [f"FAIL  {name}: {seconds:g}s exceeds the piece target {target:g}s; split the test file."
+                for name, seconds in sorted(times.items()) if name in added and seconds > target]
+        if slow:
+            failures.append(f"$ {command}\n[test file over piece target]\n" + "\n".join(slow))
+    return "\n\n".join(failures)
+
+
+def keep(cwd, log):
+    """Add the times the check whose whole output is the file `log` printed to the record of
+    `cwd`, the checkout it ran on, the latest of a file's winning; a file that checkout no
+    longer has leaves it."""
+    found = measured(log)
     if not found:
         return
     from . import watch

@@ -2234,7 +2234,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None, checked=None, exits=None):
+                  confirmed=None, changed=None, flaky=None, checked=None, exits=None, timings=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2283,7 +2283,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     tree)`, has each run of a command, or of a piece of one, leave its row in history
     (`history.check`), a re-run one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
-    until then, takes `text`, its capped form.
+    until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
+    ({file: seconds}, piece count) from this pass alone, before that cap.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2320,7 +2321,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
             rest = silence - (window or 0)
             how = "failed"
-            raw = {} if exits is not None else None
+            raw = {} if exits is not None or timings is not None else None
             while True:
                 run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2372,6 +2373,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     marks.append(None)
                 break
             ok &= code == 0
+            if timings is not None and code == 0 and not killed:
+                timings[cmd] = suite_times.measured(log_path, offset), max(1, len(raw))
             if marks is not None:
                 marks.append(None if killed else code)
             if split(cmd):
