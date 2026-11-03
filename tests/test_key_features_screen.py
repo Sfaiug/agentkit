@@ -128,6 +128,8 @@ class FeaturesScreen(unittest.TestCase):
         term.keys("Escape")
         self.assertEqual(term.exit_code(), 0)
 
+    # The features screen has only `you` and `everyone`; grants for specific users live on the
+    # project's own owner page, never in ak. [23 Sep]
     def test_enter_on_the_heading_opens_its_switches_under_you_and_everyone(self):
         term, screen = self.switches()
         lines = screen.split("\n")

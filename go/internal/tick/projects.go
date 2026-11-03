@@ -42,13 +42,13 @@ func declares(checkout, key string) bool {
 // a seat is filed under, every branch fetched and origin/HEAD set again to origin's default branch,
 // which the later rows read. One that fails is named, after every other is fetched.
 func fetchProjects() error {
-	lives, err := lives()
+	repos, err := seatProjects()
 	if err != nil {
 		return err
 	}
 	checkouts, _ := seat.Checkouts()
-	for _, live := range lives {
-		if repo := live.Record.Str("repo"); repo != "" && !slices.Contains(checkouts, filepath.Clean(repo)) {
+	for _, repo := range repos {
+		if !slices.Contains(checkouts, filepath.Clean(repo)) {
 			checkouts = append(checkouts, filepath.Clean(repo))
 		}
 	}

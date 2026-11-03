@@ -704,15 +704,23 @@ def seat_runs(name):
     return found
 
 
-def launched_session(state, resolved=None):
-    """The seat this run was launched from, by its name now, or None: it was launched from none.
+def launched_name(state):
+    """The name of the seat this run was launched from as it recorded it, or None: from none.
 
-    `session` is what a run.json written before the field was renamed calls the same thing.  A
-    pass over many runs hands each call the same `resolved`, so a seat many runs name is
-    resolved once: following a rename reads the seat's record.
+    `session` is what a run.json written before the field was renamed calls the same thing.
     """
     name = state.get("launched_session") or state.get("session")
-    if not isinstance(name, str) or not name:
+    return name if isinstance(name, str) and name else None
+
+
+def launched_session(state, resolved=None):
+    """The seat this run was launched from, by its name now (`launched_name`), or None.
+
+    A pass over many runs hands each call the same `resolved`, so a seat many runs name is
+    resolved once: following a rename reads the seat's record.
+    """
+    name = launched_name(state)
+    if name is None:
         return None
     if resolved is None:
         return config.resolve_session(name)
@@ -730,7 +738,7 @@ def runs_by_seat(records):
         try:
             seat = launched_session(state, resolved)
         except config.Error:
-            seat = resolved[state.get("launched_session") or state.get("session")] = None
+            seat = resolved[launched_name(state)] = None
         if seat is not None:
             mine.setdefault(seat, []).append((run_dir, state))
     return mine
