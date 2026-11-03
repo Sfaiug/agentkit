@@ -71,7 +71,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	}
 	// These commands read configuration before their first operation. Help and
 	// argument refusals above must remain usable even when that file is broken.
-	if command == "usage" || command == "models" || command == "attach" {
+	if command == "usage" || command == "models" {
 		if err := config.Check(); err != nil {
 			fmt.Fprintf(errOut, "ak %s: %s\n", command, err)
 			return 2
