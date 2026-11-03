@@ -2,18 +2,17 @@ package loop
 
 import (
 	"cmp"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
-	"agentkit/internal/worker"
 )
 
 // foreground is what every turn is told of its commands, Python's turns.shell_foreground_note.
@@ -46,55 +45,128 @@ func (l *loop) model(name string) (config.Model, error) {
 
 // execute is one turn of the round's executor under the name given (executor or fixer, word its
 // rules, name its directory), resuming its conversation, handed the findings file if any: its
-// summary once it closed.  One that says the task cannot be done as written ends the run blocked,
-// with nothing to judge.
+// summary once it closed, Python's execute.  A provider that fails or cannot run mid-round does not
+// end the round: the turn goes to a model on a provider that refused nothing yet, in a fresh
+// directory on a fresh session.  A turn with no closing is asked once more on its own conversation,
+// and a second silence goes on as if done.  One that says the task cannot be done as written ends
+// the run blocked, with nothing to judge.
 func (l *loop) execute(word, name, body, findings string) (string, error) {
-	model, err := l.model(l.executor)
+	turn, err := l.goOn(name, word, body, l.execSession)
 	if err != nil {
 		return "", err
 	}
-	ask, err := l.goOn(name, word, body, l.execSession)
-	if err != nil {
-		return "", err
-	}
-	l.execSession = ask.session
-	if ask.cut != "" {
-		if err := l.keepDisputes(ask.cut); err != nil {
+	l.execSession = turn.session
+	if turn.cut != "" {
+		if err := l.keepDisputes(turn.cut); err != nil {
 			return "", err
 		}
 	}
-	if err := l.step("executor", "verdict", nil, "review", nil, "exec_session", none(l.execSession), "review_session", none(l.reviewSession),
-		"executor_effort", model.TurnEffort(false)); err != nil {
+	if err := l.step("executor", "verdict", nil, "review", nil, "exec_session", none(l.execSession), "review_session", none(l.reviewSession)); err != nil {
 		return "", err
 	}
-	if err := l.notice(ask); err != nil {
+	if err := l.notice(turn); err != nil {
 		return "", err
 	}
 	l.place.beforeTurn(l)
-	session, failed := l.turn(l.workspace, l.executor, model, word, l.place.role(word), ask.body, ask.out, ask.session, findings, ask.previous)
-	out := ask.out
-	if err := l.keepDisputes(out); failed == nil {
-		failed = err
+	told, out, previous := turn.body, turn.out, turn.previous
+	fresh, shown := "", (*run.Object)(nil)
+	if previous != "" { // only a turn whose body was replaced has a conversation that can be refused
+		fresh, shown = body, turn.shown
 	}
-	if failed != nil {
-		return "", failed
+	asked := false
+	dry := map[string]bool{}
+	handover := func(detail string) (string, error) { return l.handExecutor("transient", detail, dry) }
+	for {
+		model, err := l.model(l.executor)
+		if err != nil {
+			return "", err
+		}
+		if err := l.save(func(record *run.Object) { record.Set("executor_effort", model.TurnEffort(false)) }); err != nil {
+			return "", err
+		}
+		c := &call{l: l, name: l.executor, role: l.place.role(word), model: model, body: told, fresh: fresh, out: out, session: l.execSession,
+			findings: findings, previous: previous, notice: shown, handover: handover}
+		done, err := c.run()
+		var broken *cannotRun
+		var refused *ranDry
+		var handed *handedOver
+		switch {
+		case errors.As(err, &handed):
+			told = fmt.Sprintf(handoverNote, handed.before) + "\n\n" + body
+		case errors.As(err, &broken):
+			next, err2 := l.handExecutor("cannot run", broken.detail(), dry)
+			if err2 != nil {
+				return "", err2
+			}
+			if next == "" {
+				return "", err
+			}
+			told = body
+		case errors.As(err, &refused):
+			before := l.executor
+			if err := l.saveSession(&l.execSession, c.session, "exec_session"); err != nil {
+				return "", err
+			}
+			next, err2 := l.handExecutor("ran dry", refused.Error(), dry)
+			if err2 != nil {
+				return "", err2
+			}
+			if next == "" {
+				return "", &exhausted{fmt.Sprintf("%s %s ran dry on %s: %s; no other provider can execute; resume when a meter refills. See %s*/stderr.log", word, before, quoted(refused.mark), refused.Error(), out), true}
+			}
+			told = fmt.Sprintf(handoverNote, before) + "\n\n" + body
+		case err != nil:
+			// the parked or killed conversation is on the record before the run parks
+			if saved := l.saveSession(&l.execSession, c.session, "exec_session"); saved != nil {
+				return "", saved
+			}
+			return "", err
+		default:
+			if done.code != 0 {
+				l.say(fmt.Sprintf("WARN %s %s; see %s", word, cmp.Or(killedWord(done.code), fmt.Sprintf("exited %d", done.code)), filepath.Join(out, "stderr.log")))
+			}
+			if err := l.saveSession(&l.execSession, c.session, "exec_session"); err != nil {
+				return "", err
+			}
+			submitted, _ := handin.Read(filepath.Join(done.out, handin.File))
+			if (submitted == nil || submitted.Closing() == nil) && !asked && !c.foreground {
+				l.say(fmt.Sprintf("%s %s gave no closing; asking once more", word, l.executor))
+				told, asked, previous = noClosingAsk, true, filepath.Join(done.out, handin.File)
+				out = freeDir(l.roundDir(), filepath.Base(done.out)+"-retry-hand-in")
+				continue
+			}
+			return workerResult(done, submitted)
+		}
+		asked = false
+		out = freeDir(l.roundDir(), name+"-"+l.executor)
 	}
-	if session != "" {
-		l.execSession = session
-	}
-	if err := l.save(func(record *run.Object) { record.Set("exec_session", none(l.execSession)) }); err != nil {
-		return "", err
-	}
-	submitted, _ := handin.Read(filepath.Join(out, handin.File))
-	if submitted == nil || submitted.Closing() == nil {
-		return "", notYet(fmt.Sprintf("%s %s gave no closing; see %s", word, l.executor, filepath.Join(out, "stderr.log")), "a silent turn")
-	}
-	if closing := submitted.Closing(); closing.Str("kind") == "blocked" {
-		why := closing.Str("why")
+}
+
+// workerResult is the summary a turn that closed leaves, Python's worker_result: a closing reply may
+// be only an acknowledgement, so the work's own prose stays beside it.
+func workerResult(done *try, submitted *handin.Review) (string, error) {
+	if submitted != nil && submitted.Closing() != nil && submitted.Closing().Str("kind") == "blocked" {
+		why := submitted.Closing().Str("why")
 		return "", &blocked{why, "## Blocked\n\n" + why}
 	}
-	return handin.Answer(filepath.Join(out, "final.md")), nil
+	first := filepath.Base(done.out)
+	if at := askedTurn.FindStringIndex(first); at != nil {
+		first = first[:at[0]]
+	}
+	if work := handin.Answer(filepath.Join(filepath.Dir(done.out), first, "final.md")); work != "" && work != done.text {
+		return work + "\n\n" + done.text, nil
+	}
+	return done.text, nil
 }
+
+// saveSession puts the conversation a call left on the loop and the record.
+func (l *loop) saveSession(held *string, session, key string) error {
+	*held = session
+	return l.save(func(record *run.Object) { record.Set(key, none(session)) })
+}
+
+// askedTurn is what a turn asked once more adds to the name of the one it asks.
+var askedTurn = regexp.MustCompile(`-retry-(?:hand-in|foreground)`)
 
 // none is a conversation as the record holds it, null before there is one.
 func none(session string) any {
@@ -102,55 +174,6 @@ func none(session string) any {
 		return nil
 	}
 	return session
-}
-
-// An exited is a turn whose harness exited non-zero, which only a reviewer's verdict outlives.
-type exited struct {
-	code int
-	err  error
-}
-
-func (e *exited) Error() string { return e.err.Error() }
-
-// turn runs one turn of the model from cwd in its out directory on that conversation, the
-// conversation it leaves once it ended well enough to read: any other ending is a road Go does not
-// carry out.
-func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out, session, findings, previous string) (string, error) {
-	if err := l.stopCheck(); err != nil {
-		return "", err
-	}
-	if !strings.Contains(body, foreground) {
-		body = foreground + "\n\n" + body
-	}
-	if err := os.MkdirAll(out, 0o777); err != nil {
-		return "", err
-	}
-	// its time is when a worker last went, which Python's tick reads
-	if file, err := os.Create(filepath.Join(l.dir, "launched")); err == nil {
-		file.Close()
-	}
-	who := word + " " + name
-	code, left, err := worker.Turn(name, role, body, cwd, out, session, worker.Given{
-		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines, Findings: findings, Previous: previous,
-		Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
-	}, stampedLog{l.dir})
-	stderr := filepath.Join(out, "stderr.log")
-	var login *worker.LoginExpired
-	switch {
-	case errors.Is(err, worker.ErrInterrupted):
-		return "", cmp.Or(context.Cause(l.ctx), err)
-	case errors.Is(err, worker.ErrSilent):
-		return "", notYet(fmt.Sprintf("%s emitted no event for %g min and was stopped; see %s", who, l.silence.Minutes(), stderr), "a silent turn")
-	case errors.As(err, &login):
-		return "", notYet(login.Error(), "a login to renew")
-	case err != nil:
-		return "", notYet(who+": "+err.Error(), "a failed turn")
-	case code != 0:
-		return left, &exited{code, notYet(fmt.Sprintf("%s exited %d; see %s", who, code, stderr), "a failed or exhausted turn")}
-	case unfinished(out):
-		return "", notYet(who+" ended its turn with a command still in the background", "finishing it in the foreground")
-	}
-	return left, nil
 }
 
 // unfinished is whether a turn ended with a command still running, Python's worker.turn and
@@ -169,8 +192,8 @@ func unfinished(out string) bool {
 	tasks := false
 	for _, line := range strings.Split(handin.Answer(filepath.Join(out, "events.jsonl")), "\n") {
 		value, _ := run.Decode([]byte(line))
-		if event, _ := value.(*run.Object); event != nil && event.Str("subtype") == "background_tasks_changed" {
-			tasks = len(event.List("tasks")) > 0
+		if event, _ := value.(*run.Object); event != nil && (event.Str("type") == "background_tasks_changed" || event.Str("subtype") == "background_tasks_changed") {
+			tasks = len(event.List("tasks")) > 0 || !event.Has("tasks") && len(event.List("background_tasks")) > 0
 		}
 	}
 	return tasks

@@ -14,7 +14,6 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
-	"agentkit/internal/usage"
 )
 
 // listCap is how many files a reviewer is shown before it is told the count.
@@ -91,60 +90,104 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 	if j.whole != "" {
 		whole = body(j.whole + "\n\n" + work)
 	}
-	ask, err := l.goOn(name, "reviewer", whole, l.reviewSession)
-	if err != nil {
-		return false, err
-	}
-	if ask.body == whole && ask.session != "" {
-		ask.body = body(work)
-	}
-	if ask.previous == "" && ask.cut == "" {
-		// a turn that handed in before the driver died hands on what it found: its `done` alone is no verdict
-		if turn := reviewTurn(l.roundDir(), ask.session, since); turn != "" {
-			ask.previous = filepath.Join(turn, handin.File)
+	var (
+		submitted *handin.Review
+		reviewed  config.Model
+		done      *try
+		asking    string // the record file of the answer that gave no verdict, for the call asking once more
+	)
+	for {
+		asked := asking != ""
+		turn := ask{body: noVerdictAsk, out: freeDir(l.roundDir(), name), session: l.reviewSession, previous: asking}
+		asking = ""
+		if !asked {
+			if turn, err = l.goOn(name, "reviewer", whole, l.reviewSession); err != nil {
+				return false, err
+			}
+			if turn.body == whole && turn.session != "" {
+				turn.body = body(work)
+			}
+			if turn.previous == "" && turn.cut == "" {
+				// a turn that handed in before the driver died hands on what it found: its `done` alone is no verdict
+				if prior := reviewTurn(l.roundDir(), turn.session, since); prior != "" {
+					turn.previous = filepath.Join(prior, handin.File)
+				}
+			}
 		}
-	}
-	l.reviewSession = ask.session
-	if err := l.notice(ask); err != nil {
-		return false, err
-	}
-	model, err := l.model(l.reviewer)
-	if err != nil {
-		return false, err
-	}
-	out := ask.out
-	var session string
-	err = l.place.inCopy(l, out, func(cwd string) error {
-		told, at := ask.body, l.workspace
-		if cwd != "" {
-			told, at = strings.ReplaceAll(told, config.Resolve(l.workspace), cwd), cwd
-		}
-		var failed error
-		session, failed = l.turn(at, l.reviewer, model, "reviewer", l.place.role("reviewer"), told, out, ask.session, j.listed, ask.previous)
-		return failed
-	})
-	var failed *exited
-	if err != nil && !errors.As(err, &failed) {
-		return false, err
-	}
-	if session != "" {
-		l.reviewSession = session
-	}
-	if err := l.save(func(record *run.Object) { record.Set("review_session", none(l.reviewSession)) }); err != nil {
-		return false, err
-	}
-	submitted, _ := handin.Read(filepath.Join(out, handin.File))
-	code := 0
-	if failed != nil {
-		code = failed.code
-		// one killed, or with nothing handed in, gave no verdict; one that exited with its verdict did
-		if code < 0 || submitted == nil || !submitted.Done() {
+		l.reviewSession = turn.session
+		if err := l.notice(turn); err != nil {
 			return false, err
 		}
-		l.say(fmt.Sprintf("WARN reviewer exited %d; see %s", code, filepath.Join(out, "stderr.log")))
-	}
-	if submitted == nil || !submitted.Done() {
-		return false, notYet(fmt.Sprintf("reviewer %s gave no verdict; see %s", l.reviewer, filepath.Join(out, "stderr.log")), "a silent turn")
+		if reviewed, err = l.model(l.reviewer); err != nil {
+			return false, err
+		}
+		c := &call{l: l, name: l.reviewer, role: l.place.role("reviewer"), model: reviewed, body: turn.body, fresh: whole, out: turn.out, session: turn.session,
+			findings: j.listed, previous: turn.previous, notice: turn.shown, copied: true, handover: l.reviewerHandover(turn.out)}
+		var failed error
+		done, failed = c.run()
+		var broken *cannotRun
+		var refused *ranDry
+		var handed *handedOver
+		switch {
+		case errors.As(failed, &handed):
+			name = handed.next
+			continue
+		case errors.As(failed, &broken):
+			// the fallback road; with no reviewer left, the run is blocked on the harness's own line
+			next, err := l.fallBack(broken.detail(), turn.out, true, false)
+			if tired := (*exhausted)(nil); errors.As(err, &tired) {
+				return false, failed
+			}
+			if err != nil {
+				return false, err
+			}
+			name = next
+			continue
+		case errors.As(failed, &refused):
+			// a spent window takes the same road out: the next marked reviewer, as the meters stand now
+			if refused.code != 0 {
+				l.say(fmt.Sprintf("WARN reviewer %s; see %s", cmp.Or(killedWord(refused.code), fmt.Sprintf("exited %d", refused.code)), filepath.Join(turn.out, "stderr.log")))
+			}
+			if err := l.saveSession(&l.reviewSession, c.session, "review_session"); err != nil {
+				return false, err
+			}
+			if err := l.giveUp(turn.out); err != nil {
+				return false, err
+			}
+			if name, err = l.fallBack("ran dry", turn.out, true, true); err != nil {
+				return false, err
+			}
+			continue
+		case failed != nil:
+			// the parked or killed conversation is on the record before the run parks
+			if err := l.saveSession(&l.reviewSession, c.session, "review_session"); err != nil {
+				return false, err
+			}
+			return false, failed
+		}
+		if done.code != 0 {
+			l.say(fmt.Sprintf("WARN reviewer %s; see %s", cmp.Or(killedWord(done.code), fmt.Sprintf("exited %d", done.code)), filepath.Join(turn.out, "stderr.log")))
+		}
+		if err := l.saveSession(&l.reviewSession, c.session, "review_session"); err != nil {
+			return false, err
+		}
+		submitted, _ = handin.Read(filepath.Join(done.out, handin.File))
+		if submitted != nil && submitted.Done() {
+			break
+		}
+		// a missing verdict is a reviewer that has not answered, never an answer: its session is
+		// asked once more, unless the turn spent its one extra call in the foreground, which asked too
+		if asked || c.foreground {
+			if err := l.giveUp(done.out); err != nil {
+				return false, err
+			}
+			if name, err = l.fallBack("gave no verdict twice", turn.out, true, false); err != nil {
+				return false, err
+			}
+			continue
+		}
+		l.say(fmt.Sprintf("reviewer %s gave no verdict; asking once more", l.reviewer))
+		asking = filepath.Join(done.out, handin.File)
 	}
 	weighed, err := l.weigh(submitted, j)
 	if err != nil {
@@ -154,21 +197,34 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 	if err != nil {
 		return false, err
 	}
-	return l.record(summary, out, model, weighed, code, ok, checked, dropped)
+	return l.record(summary, done.out, reviewed, weighed, done.code, ok, checked, dropped)
+}
+
+// giveUp keeps what a reviewer that gave no verdict said, on the record for whoever reads it next.
+func (l *loop) giveUp(out string) error {
+	submitted, _ := handin.Read(filepath.Join(out, handin.File))
+	if submitted == nil {
+		submitted = &handin.Review{}
+	}
+	kept, err := l.keepFindings(out, submitted)
+	if err != nil {
+		return err
+	}
+	return l.save(func(record *run.Object) { run.SetAll(record, kept...) })
 }
 
 // another is the marked reviewer to take over from a writer about to review its own work: one
 // reviews itself only while no other has room, and that is read as the meters stand now.
 func (l *loop) another() string {
+	record, _ := run.Read(l.dir)
 	rules, ok := l.rules()
-	if !ok || !rules.Same(l.executor, l.reviewer) {
+	if record == nil || !ok || !rules.Wrote(l.reviewer, headWriters(record)) {
 		return ""
 	}
-	readings, err := usage.Read()
-	if err != nil {
-		return ""
+	if _, offered, _ := l.readyReviewers(nil); len(offered) > 0 {
+		return offered[0]
 	}
-	return rules.Independent(withRoom(readings), l.executor)
+	return ""
 }
 
 // weigh is the review as ak holds it, Python's weigh_review: the reviewer's copy cannot decide what
@@ -218,21 +274,9 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 	if err != nil {
 		return false, err
 	}
-	text := submitted.Text()
-	report := filepath.Join(out, "review.md")
-	if err := os.WriteFile(report, []byte(text), 0o666); err != nil {
+	said, err := l.keepFindings(out, submitted)
+	if err != nil {
 		return false, err
-	}
-	findings := make([]any, 0)
-	for _, row := range submitted.Of("finding") {
-		findings = append(findings, row)
-	}
-	if err := os.WriteFile(filepath.Join(out, "findings.json"), []byte(run.Line(findings)), 0o666); err != nil {
-		return false, err
-	}
-	records := make([]any, 0, len(submitted.Records))
-	for _, row := range submitted.Records {
-		records = append(records, row)
 	}
 	// a review of somebody else's PR has no executor, nor its provider
 	var executedOn any
@@ -243,8 +287,7 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		}
 		executedOn = executed.Provider
 	}
-	tail := []rune(strings.TrimFunc(text, config.Space))
-	entry := run.Fields("round", l.rnd, "verdict", verdict, "done_when", ok, "finding_count", len(findings),
+	entry := run.Fields("round", l.rnd, "verdict", verdict, "done_when", ok, "finding_count", len(submitted.Of("finding")),
 		"summary", strings.TrimFunc(summary, config.Space))
 	review := run.Fields("executor", none(l.executor), "executor_provider", executedOn, "reviewer", l.reviewer,
 		"reviewer_provider", reviewed.Provider, "returncode", code, "verdict", verdict, "done_when", ok)
@@ -257,8 +300,8 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 	checks, commits, defects := submitted.FollowupRecords()
 	err = l.save(func(record *run.Object) {
 		record.Set("round_summaries", append(record.List("round_summaries"), entry))
-		run.SetAll(record, "findings", string(tail[max(0, len(tail)-8000):]), "findings_file", report,
-			"review_records", records, "notes", submitted.Notes())
+		run.SetAll(record, said...)
+		record.Set("notes", submitted.Notes())
 		keepFollowups(record, checks, commits, defects)
 		run.SetAll(record, "verdict", verdict, "review", review)
 		if verdict == "PASS" {
@@ -286,7 +329,6 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 	if err != nil {
 		return false, err
 	}
-	l.findings, l.findingsFile = text, report
 	l.say(fmt.Sprintf("round %d verdict: %s", l.rnd, verdict))
 	return verdict == "PASS", nil
 }

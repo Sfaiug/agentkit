@@ -116,7 +116,7 @@ func report(dir string, record *run.Object, cmds []string) string {
 		}
 		parts = append(parts, fmt.Sprintf("## Round %s (%s, %s)", run.Text(entry.Get("round")), entry.Str("verdict"), checked), "", entry.Str("summary"), "")
 	}
-	why := record.Str("error")
+	why := cmp.Or(record.Str("error"), record.Str("interruption_reason"))
 	if why == "" && record.Str("verdict") != "PASS" {
 		why = failedCheck(record)
 	}

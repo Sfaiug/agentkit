@@ -308,16 +308,16 @@ func TestALandingRunEndsWhereItsLandingStartsItsReviewStanding(t *testing.T) {
 	}
 }
 
-func TestAGitThatStoppedEndsNamingThatRoad(t *testing.T) {
+func TestAGitThatStoppedParksTheRunExhausted(t *testing.T) {
 	l, _ := repoRig(t)
 	if err := run.Change(l.dir, func(record *run.Object) error { record.Set("state", "running"); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if code := l.finish(&gitcall.Stopped{Why: "git fetch stopped"}); code != 2 {
+	if code := l.finish(&gitcall.Stopped{Why: "git fetch stopped"}); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
 	record, _ := run.Read(l.dir)
-	if record.Str("error") != "git fetch stopped: a git that stopped is not Go's yet" {
+	if record.Str("state") != "exhausted" || record.Str("error") != "git fetch stopped" || record.Has("quota_dry") {
 		t.Fatalf("record %s", run.Line(record))
 	}
 }
