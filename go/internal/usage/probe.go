@@ -154,7 +154,7 @@ func (src source) resets() any {
 	cmd := exec.CommandContext(ctx, adapter, "reset-status")
 	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+src.Name)
 	cmd.WaitDelay = time.Second
-	host.Group(cmd)
+	host.AdapterCall(cmd)
 	said, err := cmd.Output()
 	if err != nil {
 		return nil
@@ -183,7 +183,7 @@ func answer(adapter, name, provider string, limit time.Duration) (*run.Object, b
 	cmd := exec.CommandContext(ctx, adapter, "usage")
 	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+provider)
 	cmd.WaitDelay = time.Second
-	host.Group(cmd)
+	host.AdapterCall(cmd)
 	out, err := cmd.Output()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return failed(fmt.Sprintf("timed out after %ds", int(limit.Seconds())))

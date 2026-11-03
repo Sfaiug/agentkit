@@ -43,10 +43,11 @@ func Carry(out, errOut io.Writer) bool {
 	if runtime.GOOS == "windows" || !idle(false) {
 		return false
 	}
-	// asked before any pass, where Python asks after them: whether Go carries the tick hangs on it
-	asking := time.Now()
+	// asked before any pass, where Python asks after them: whether Go carries the tick hangs on it,
+	// and the tick begins with the asking
+	began := time.Now()
 	user, why, failed := gh.JSON(run.Runs(), "api", "user")
-	asked := time.Since(asking)
+	asked := time.Since(began)
 	if checkouts, _ := seat.Checkouts(); failed != nil || login(user) != "" && len(checkouts) > 0 || config.EnsureDirs() != nil {
 		return false
 	}
@@ -70,7 +71,6 @@ func Carry(out, errOut io.Writer) bool {
 		return false
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
-	began := t.clock()
 	t.through(table(t))
 	carried := t.github(user, why, asked)
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up

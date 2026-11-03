@@ -26,6 +26,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
@@ -281,27 +282,36 @@ func Budget(path string) (int, error) {
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
-// Python a run that would land from a checkout of its own.
+// Python a run that would land from a checkout of its own, unless gh says this account may only
+// read the repository.
 func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		return reason, warning, at, err
 	}
 	repo, refused, err := checkout(meta, path, copied)
-	if refused != "" || err != nil {
-		return refuse(refused, "", err)
+	if err != nil {
+		return refuse("", "", err)
 	}
-	at.repo = repo
-	if at.numbers, err = numbers(at.repo); err != nil {
+	// a refused checkout is none (repo ""), so the host's numbers are in force, as in Budget
+	if at.numbers, err = numbers(repo); err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
-	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged here
+	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged
+	// here, before any refusal a run records, as Python's launch_refusal is
 	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
 		return refuse("", "", &refusedOutright{why})
 	}
+	if refused != "" {
+		return refuse(refused, "", nil)
+	}
+	at.repo = repo
 	landing := at.repo != "" && !flags["--no-merge"]
 	if landing && !flags["--no-worktree"] {
-		return refuse("", "", ErrPython)
+		// Go lands only for an account that may only read: its delivery is a fork's PR
+		if repo, permission, _, err := gh.Rights(at.repo); err != nil || repo == "" || gh.Writable(permission) {
+			return refuse("", "", ErrPython)
+		}
 	}
 	at.target = cmp.Or(meta["target"], meta["base"])
 	suite := ""

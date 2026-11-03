@@ -10,6 +10,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
+	"agentkit/internal/leftover"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -75,7 +76,7 @@ func table(t *ticking) []pass {
 		{"exit clocks", false, seatless, nil},
 		{"seat sweep", false, all(runless, seatless), nil},
 		{"ended logins", false, noLoginsToEnd, nil},
-		{"leftover sweep", false, noLeftovers, nil},
+		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"project rules", false, all(seatless, checkoutsSeen), fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},

@@ -27,7 +27,7 @@ import (
 
 const (
 	rulesRef = "refs/remotes/origin/HEAD"
-	nameLine = "This seat is unnamed. Before your turn ends, name it with `ak orch rename --auto " +
+	NameLine = "This seat is unnamed. Before your turn ends, name it with `ak orch rename --auto " +
 		"<name>`: the shortest possible name, at most three words, saying what the work is."
 	// ackWords stand between a change's file and the command only that file gives.
 	ackWords     = "Once you have read all of the above, run this to say so:"
@@ -95,7 +95,7 @@ func Rulebook(name string) (string, error) {
 
 // namingItself is a rulebook with an unnamed seat's instruction to name itself.
 func namingItself(body string) string {
-	return rstrip(body) + "\n\n" + nameLine + "\n"
+	return rstrip(body) + "\n\n" + NameLine + "\n"
 }
 
 // PromptNews is the context a seat's prompt carries (orch.prompt_news), "" for none: only for its

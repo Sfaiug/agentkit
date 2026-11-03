@@ -88,7 +88,7 @@ func goneWord(seat Seat, name string, place int) (string, string) {
 	if seat.closed {
 		return "idle", reason
 	}
-	if plan.Owes(name) {
+	if owes, _ := plan.Owes(name); owes {
 		return "needs you", reason
 	}
 	done := config.Fold(plan.LastDone(name))
@@ -190,7 +190,7 @@ func settled(name string, now time.Time) (int, bool) {
 		if record == nil || run.SmokeRun(record) || run.Seat(record) != name {
 			continue
 		}
-		if record.Str("state") != "pass" || !record.Truthy("merged") || awaitingLive(record, now) {
+		if record.Str("state") != "pass" || !record.Truthy("merged") || AwaitingLive(record, now) {
 			return 0, false
 		}
 		if record.Truthy("handback_pending") {
@@ -200,12 +200,12 @@ func settled(name string, now time.Time) (int, bool) {
 	return waiting, true
 }
 
-// awaitingLive is whether a merged run's project has yet to prove itself live (watch.awaiting_live).
-func awaitingLive(record *run.Object, now time.Time) bool {
+// AwaitingLive is whether a merged run's project has yet to prove itself live (watch.awaiting_live).
+func AwaitingLive(record *run.Object, now time.Time) bool {
 	finished, dated := record.Num("finished_at")
 	age := seconds(now) - finished
 	health := record.Dict("health")
-	return !record.Truthy("live_at") && record.Truthy("repo") && dated && 0 <= age && age <= afterMerge &&
+	return record.Truthy("merged") && !record.Truthy("live_at") && record.Truthy("repo") && dated && 0 <= age && age <= afterMerge &&
 		health != nil && health.Truthy("command")
 }
 
