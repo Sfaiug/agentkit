@@ -118,6 +118,17 @@ def stands_on_dependency(state):
             f"waits for; once that has merged, relaunch with `from: {branch}`")
 
 
+def run_kind(state):
+    """The launch origin a history row keeps after its run record is collected."""
+    for field, kind in (("repair", "repair"), ("split_suite", "split"),
+                        ("followup", "follow-up"), ("night", "night")):
+        if state.get(field):
+            return kind
+    if state.get("review_pr"):
+        return "seat PR" if state.get("own_pr") else "PR"
+    return "task"
+
+
 def history_start(state, log=None):
     """Publish the launch receipt without making SQLite part of run correctness.
 
@@ -137,7 +148,7 @@ def history_start(state, log=None):
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
                       orchestrator=record.get("orchestrator") if record else None,
-                      change=change_name(state), log=log)
+                      change=change_name(state), kind=run_kind(state), log=log)
 
 
 def changed_files(state):

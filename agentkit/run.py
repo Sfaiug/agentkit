@@ -45,7 +45,7 @@ from .transitions import (carried_lines, change_budget, change_on, replacement_r
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, runs_on, settled, stands_on_dependency)
+    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, settled, stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
@@ -1376,6 +1376,7 @@ def preflight(run_dir, opts, log):
         state.setdefault("own_orchestrator", orch if is_own else None)
         state.setdefault("own_orchestrator_effort", effort if is_own else None)
         run_record.save_state(run_dir, state)
+        history.update_run(state.get("run_id"), kind=run_kind(state), log=log)
         if is_own and not orch:
             raise Refused(f"no session record names the writer of this PR; "
                           f"review of the seat's own PR needs its orchestrator")
