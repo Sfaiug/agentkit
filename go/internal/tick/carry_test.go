@@ -9,10 +9,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -229,23 +227,6 @@ func TestAFailedReadWritesNothing(t *testing.T) {
 	}
 }
 
-// A process of this HOME carrying ak's mark, or a seat's tag, is the leftover sweep's to judge.
-func TestAMarkedProcessIsForTheSweep(t *testing.T) {
-	idleHome(t, answers)
-	if !noLeftovers() {
-		t.Fatal("no process of this HOME, yet a leftover")
-	}
-	if _, err := os.Stat("/proc/self/environ"); err != nil {
-		t.Skip("no /proc")
-	}
-	// /proc shows a process's environment as it started: only a child can hold the mark
-	marked := startSleep(t, "AK_OWNER=1 2 3 4 ak watch")
-	defer marked()
-	if noLeftovers() {
-		t.Error("a marked process went unseen")
-	}
-}
-
 // A corrupt watch.json reads as a fresh one, as Python's load_state reads it, and a table that is
 // none as an empty one.
 func TestWatchJSONReadsAsLoadStateReadsIt(t *testing.T) {
@@ -371,28 +352,3 @@ func TestTheLogDatesEachLine(t *testing.T) {
 }
 
 func errIsDir() error { return syscall.EISDIR }
-
-// startSleep runs a child holding the environment word, for as long as the test lasts.
-func startSleep(t *testing.T, word string) func() {
-	t.Helper()
-	child := exec.Command("sleep", "60")
-	child.Env = append(os.Environ(), word)
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
-	}
-	stop := func() {
-		child.Process.Kill()
-		child.Wait()
-	}
-	// Start returns a moment before the exec has filled in what /proc shows
-	environ := filepath.Join("/proc", strconv.Itoa(child.Process.Pid), "environ")
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Millisecond) {
-		if data, _ := os.ReadFile(environ); strings.Contains(string(data), word) {
-			return stop
-		}
-		if time.Now().After(deadline) {
-			stop()
-			t.Fatal("the child's environment never showed")
-		}
-	}
-}

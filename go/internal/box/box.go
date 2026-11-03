@@ -43,12 +43,13 @@ import (
 // Supported is whether this system has bubblewrap's box.
 const Supported = true
 
-// exeFD is the descriptor bubblewrap inherits this program by, and exe how the box starts it
-// there, so its first process runs wherever the binary lives, a place the box hides included.
-// Nobody types exe, so it also tells the first process from any `ak` command.
+// exeFD is the descriptor bubblewrap inherits this program by, and exe where the box shows it,
+// so its first process runs wherever the binary lives, a place the box hides included, and in a
+// box with no /proc to name a descriptor by.  Nobody types exe, so it also tells the first process
+// from any `ak` command.
 const (
 	exeFD = 3
-	exe   = "/proc/self/fd/3"
+	exe   = "/run/.ak-first-process"
 )
 
 // transient are the places the box keeps its own: what the host keeps there stays out, and what
@@ -168,7 +169,11 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 		return nil, nil, err
 	}
 	args := append([]string{"--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session"}, walls()...)
-	args = append(append(append(args, mounts...), masks(hidden)...), "--")
+	args = append(append(args, mounts...), masks(hidden)...)
+	if argv[0] == exe {
+		args = append(args, "--ro-bind", fmt.Sprintf("/proc/self/fd/%d", exeFD), exe)
+	}
+	args = append(args, "--")
 	env["TMPDIR"] = "/var/tmp"
 	cmd := exec.Command("bwrap", append(args, argv...)...)
 	for key, value := range env {

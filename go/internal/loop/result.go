@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -28,16 +29,21 @@ var (
 // reason and the relaunch.
 func WriteResult(dir string, record *run.Object) error {
 	suffix := ""
-	if record.Truthy("worktree") && record.Has("round_summaries") {
+	if fullResult(record) {
 		_, cmds, err := task.Read(filepath.Join(dir, "task.md"))
 		if err == nil {
-			return save(dir, report(dir, record, cmds))
+			return save(dir, report(dir, record, declaredChecks(record, cmds)))
 		}
 		suffix = "\n\n(the full result could not be written: " + err.Error() + ")"
 	}
-	return save(dir, fmt.Sprintf("# %s — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: ak run %s%s\n\n",
+	return save(dir, fmt.Sprintf("# %s — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s%s\n\n",
 		run.Delivery(record, nil), cmp.Or(record.Str("title"), filepath.Base(dir)), cmp.Or(record.Str("verdict"), "none"),
-		cmp.Or(record.Str("error"), "no reason was recorded"), filepath.Join(dir, "task.md"), suffix))
+		cmp.Or(record.Str("error"), "no reason was recorded"), run.Relaunch(dir, record), suffix))
+}
+
+// fullResult is whether a run has a workspace to report on, and a review a verdict.
+func fullResult(record *run.Object) bool {
+	return record.Truthy("worktree") && record.Has("round_summaries") && (!record.Truthy("review_pr") || record.Truthy("verdict"))
 }
 
 func save(dir, text string) error {
@@ -101,10 +107,24 @@ func report(dir string, record *run.Object, cmds []string) string {
 		if entry == nil {
 			continue
 		}
-		parts = append(parts, fmt.Sprintf("## Round %s (%s, done-when passed)", run.Text(entry.Get("round")), entry.Str("verdict")), "", entry.Str("summary"), "")
+		checked := "done-when not run"
+		switch entry.Get("done_when") {
+		case true:
+			checked = "done-when passed"
+		case false:
+			checked = "done-when failed"
+		}
+		parts = append(parts, fmt.Sprintf("## Round %s (%s, %s)", run.Text(entry.Get("round")), entry.Str("verdict"), checked), "", entry.Str("summary"), "")
 	}
-	if record.Truthy("error") {
-		parts = append(parts, "## Why this run stopped", "", record.Str("error"), "")
+	why := cmp.Or(record.Str("error"), record.Str("interruption_reason"))
+	if why == "" && record.Str("verdict") != "PASS" {
+		why = failedCheck(record)
+	}
+	if why != "" {
+		parts = append(parts, "## Why this run stopped", "", why, "")
+	}
+	if review := record.Dict("review"); review != nil && review.Truthy("overridden") && record.Str("verdict") != "PASS" {
+		parts = append(parts, "## Overridden to FAIL\n"+review.Str("overridden")+"\n\n")
 	}
 	if record.Str("verdict") != "PASS" && record.Truthy("findings") {
 		parts = append(parts, "## Reviewer findings", "", withoutAsides(record.Str("findings")), "")
@@ -112,16 +132,33 @@ func report(dir string, record *run.Object, cmds []string) string {
 			parts = append(parts, "Every one in full: "+record.Str("findings_file"), "")
 		}
 	}
-	for _, section := range [][2]string{{"followups", "Follow-ups"}, {"notes", "Notes"}} {
+	for _, section := range [][2]string{{"followups", "Follow-ups"}, {"notes", "Notes"}, {"disputes", "Disputes"}} {
 		if items := record.List(section[0]); len(items) > 0 {
 			parts = append(parts, "## "+section[1], "")
 			for _, item := range items {
 				parts = append(parts, "- "+strings.ReplaceAll(run.Text(item), "\n", "\n  "))
 			}
 			parts = append(parts, "")
+			if section[0] == "followups" {
+				parts = append(parts, "") // Python's followup_report closes its own block too
+			}
 		}
 	}
+	if onward := run.ContinueLine(record, dir, time.Now()); onward != "" {
+		parts = append(parts, onward, "")
+	}
 	return strings.Join(parts, "\n")
+}
+
+// failedCheck is the check a FAIL still has failing, "" for none, as Python's failed_check says it
+// of a round's own done-when.
+func failedCheck(record *run.Object) string {
+	if history := record.Dict("done_when_failure"); history != nil {
+		if failing := history.List("every"); len(failing) > 0 {
+			return "the done-when failed: " + checkLine(failing[0])
+		}
+	}
+	return ""
 }
 
 // withoutAsides is a review without its follow-ups and notes, Python's prompts.without_followups:

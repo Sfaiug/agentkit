@@ -11,6 +11,21 @@ import (
 // acquire opens path, a directory to read and a file to append to, and takes its flock, waiting
 // for it or not.
 func acquire(path string, wait bool) (*os.File, error) {
+	how := syscall.LOCK_EX
+	if !wait {
+		how |= syscall.LOCK_NB
+	}
+	return opened(path, how)
+}
+
+// Shared takes path's lock beside any other shared holder, once no exclusive one holds it, as
+// Python's fcntl.LOCK_SH; a missing file is made, and the lock lasts until the file closes.
+func Shared(path string) (*os.File, error) {
+	return opened(path, syscall.LOCK_SH)
+}
+
+// opened opens path, a directory to read and a file to append to, and takes its flock as how says.
+func opened(path string, how int) (*os.File, error) {
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if errors.Is(err, syscall.EISDIR) {
 		file, err = os.Open(path)
@@ -18,7 +33,7 @@ func acquire(path string, wait bool) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return take(file, wait)
+	return take(file, how)
 }
 
 // Edit opens path's file, which it never makes, to read and write once its flock is free; the
@@ -28,15 +43,11 @@ func Edit(path string) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return take(file, true)
+	return take(file, syscall.LOCK_EX)
 }
 
-// take takes the open file's flock, waiting for it or not; the file is closed without it.
-func take(file *os.File, wait bool) (*os.File, error) {
-	how := syscall.LOCK_EX
-	if !wait {
-		how |= syscall.LOCK_NB
-	}
+// take takes the open file's flock as how says; the file is closed without it.
+func take(file *os.File, how int) (*os.File, error) {
 	var err error
 	for err = syscall.EINTR; errors.Is(err, syscall.EINTR); {
 		err = syscall.Flock(int(file.Fd()), how)

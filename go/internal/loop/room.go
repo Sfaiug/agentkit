@@ -29,12 +29,12 @@ func (r ready) Spent(name string) string {
 // which ends a run with no meter read and no turn, in whatever home.
 func Unstaffed() bool {
 	rules, ok := pick.Load()
-	return ok && rules.Unstaffed(cannotRun()) != ""
+	return ok && rules.Unstaffed(unable()) != ""
 }
 
-// cannotRun is why each model cannot run a turn here, each harness asked once for each provider it
+// unable is why each model cannot run a turn here, each harness asked once for each provider it
 // runs.
-func cannotRun() map[string]string {
+func unable() map[string]string {
 	found := map[string]string{}
 	models, err := config.Models()
 	if err != nil {

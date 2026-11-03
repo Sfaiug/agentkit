@@ -184,21 +184,16 @@ func (l *loop) proved(cwd, command, path, label string) (int, string, bool, erro
 	return outcome.code, output, outcome.stopped != "", nil
 }
 
-// inHunks is whether the line is inside the new side of the diff of path from base to head: a pure
-// removal leaves an anchor between the two surviving neighbouring lines.
-func (r *repoPlace) changedLine(row *run.Object, head string) (bool, error) {
-	diff, err := r.git().Must("diff", "--no-ext-diff", "--no-textconv", "--no-color", "--no-renames", "--unified=0", r.baseSHA, head, "--", ":(literal)"+row.Str("path"))
+// changedLine is whether the line is inside the new side of the diff of its path to head from since:
+// a pure removal leaves an anchor between the two surviving neighbouring lines.
+func (r *repoPlace) changedLine(row *run.Object, head, since string) (bool, error) {
+	found, err := r.hunks(row.Str("path"), since, head)
 	if err != nil {
 		return false, err
 	}
-	line, _ := row.Int("line")
-	for _, hunk := range hunkHeader.FindAllStringSubmatch(diff, -1) {
-		start, _ := strconv.Atoi(hunk[3])
-		count := 1
-		if hunk[4] != "" {
-			count, _ = strconv.Atoi(hunk[4])
-		}
-		if count > 0 && start <= line && line < start+count || count == 0 && (line == start || line == start+1) {
+	line := lineOf(row)
+	for _, each := range found {
+		if each.nowCount > 0 && each.now <= line && line < each.now+each.nowCount || each.nowCount == 0 && (line == each.now || line == each.now+1) {
 			return true, nil
 		}
 	}
@@ -240,11 +235,13 @@ func merged(evidence, proof *run.Object) *run.Object {
 	return evidence
 }
 
-// weigh is Python's weigh_review in a run's first round: a quote shows where to look; only a
-// failing command decides what must be fixed.  A finding's command runs on this commit and on the
-// base with the changed tests laid over: a defect elsewhere that fails on base too is a follow-up.
-// A follow-up from before the task is proven on base; one of this change on this commit too.
-func (r *repoPlace) weigh(l *loop, row *run.Object, index int) (*run.Object, error) {
+// weigh is Python's weigh_review: a quote shows where to look; only a failing command decides what
+// must be fixed.  A finding's command runs on this commit and on the base with the changed tests
+// laid over: a defect elsewhere that fails on base too is a follow-up.  A follow-up from before the
+// task is proven on base; one of this change on this commit too.  In a later round a new finding
+// blocks only inside the fix delta, or with a proof that passes on the commit the last review
+// judged; one at an earlier finding's site upholds it.
+func (r *repoPlace) weigh(l *loop, row *run.Object, index int, j *judging) (*run.Object, error) {
 	head, err := r.git().Must("rev-parse", "HEAD")
 	if err != nil {
 		return nil, err
@@ -253,7 +250,7 @@ func (r *repoPlace) weigh(l *loop, row *run.Object, index int) (*run.Object, err
 	kind := row.Str("kind")
 	deferred := kind == "follow-up" && !row.Has("before")
 	logOf := func(side string) string {
-		return filepath.Join(l.dir, roundName, fmt.Sprintf("proof-%d-%s.log", index+1, side))
+		return filepath.Join(l.roundDir(), fmt.Sprintf("proof-%d-%s.log", index+1, side))
 	}
 	command := evidence.Str("run")
 	switch {
@@ -289,7 +286,7 @@ func (r *repoPlace) weigh(l *loop, row *run.Object, index int) (*run.Object, err
 		if !handin.ProofFailed(evidence) {
 			kind = "note"
 		} else {
-			changed, err := r.changedLine(row, head)
+			changed, err := r.changedLine(row, head, r.baseSHA)
 			if err != nil {
 				return nil, err
 			}
@@ -303,9 +300,18 @@ func (r *repoPlace) weigh(l *loop, row *run.Object, index int) (*run.Object, err
 			}
 		}
 	}
+	outside, err := r.outsideDelta(l, row, kind, evidence, head, logOf("since"), j)
+	if err != nil {
+		return nil, err
+	}
 	weighed := row.Copy()
 	weighed.Set("kind", kind)
 	weighed.Set("evidence", evidence)
+	if outside {
+		weighed.Set("kind", "note")
+		weighed.Set("outside", fmt.Sprintf("the fix delta since %s; judged in an earlier round", j.since[:min(len(j.since), 12)]))
+		l.say(fmt.Sprintf("Kept as a note %s:%d: outside the fix delta", row.Str("path"), lineOf(row)))
+	}
 	if kind == "follow-up" {
 		if !weighed.Has("before") && !deferred {
 			weighed.Set("before", "base "+r.baseSHA+": the proof fails there too")
@@ -321,6 +327,25 @@ func (r *repoPlace) weigh(l *loop, row *run.Object, index int) (*run.Object, err
 		}
 	}
 	return weighed, nil
+}
+
+// outsideDelta is whether a finding is new, outside what the fix changed, and shows no break by a
+// proof that passes on the commit the last review judged: one that cannot run or finish there shows
+// none, as on base.
+func (r *repoPlace) outsideDelta(l *loop, row *run.Object, kind string, evidence *run.Object, head, path string, j *judging) (bool, error) {
+	if kind != "finding" || j.since == "" || j.sites[siteKey(row.Str("path"), lineOf(row))] {
+		return false, nil
+	}
+	changed, err := r.changedLine(row, head, j.since)
+	if err != nil || changed {
+		return false, err
+	}
+	onSince, err := r.proofOn(l, evidence.Str("run"), path, j.since, head)
+	if err != nil {
+		return false, err
+	}
+	code, _ := onSince.Int("returncode")
+	return code != 0 || onSince.Truthy("killed"), nil
 }
 
 // dropReason is why a follow-up does not stand, "" where it does.

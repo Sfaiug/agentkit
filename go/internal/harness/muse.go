@@ -9,7 +9,9 @@ import (
 	"agentkit/internal/config"
 )
 
-func init() { plugins["muse"] = plugin{identity: museIdentity} }
+func init() {
+	plugins["muse"] = plugin{identity: museIdentity, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn}
+}
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher
 // records beside itself: the label alone cannot tell a frozen installed release from the next.

@@ -8,17 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
-	"agentkit/internal/box"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/host"
 	"agentkit/internal/loop"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
+	"agentkit/internal/task"
 	"agentkit/internal/usage"
 )
 
@@ -34,9 +32,8 @@ var (
 // the checkout a task folder is named for, or a run under way that Python's rival check would read.
 func drivable(every []string, path string, values map[string]string) error {
 	_, rules := pick.Load()
-	if values["--exec"] != "" || values["--review"] != "" || !rules || !box.Supported || host.UserManager() ||
-		filed(path) || going() || usage.Check() != nil && !loop.Unstaffed() ||
-		slices.ContainsFunc(every, func(cmd string) bool { return namesShard.MatchString(cmd) }) {
+	if values["--exec"] != "" || values["--review"] != "" || !rules || !placed(every) ||
+		usage.Check() != nil && !loop.Unstaffed() || filed(path) || going() {
 		return ErrPython
 	}
 	return nil
@@ -44,10 +41,12 @@ func drivable(every []string, path string, values map[string]string) error {
 
 // drive is the rest of a launch: the receipt says what it will deliver, the log what Python's
 // preflight says, and the run goes on in a driver of its own, followed here unless told --bg.  Its
-// driver, not this process, is what a stop or a signal ends: a terminal that goes away leaves the
-// run going.
+// driver is what a stop ends; a foreground one shares this process's group, so a terminal that goes
+// away takes the run with it, leaving a dead loop for `ak run resume`.
 func drive(dir string, meta map[string]string, at place, warning string, flags map[string]bool, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
+	title := ""
 	if err := unstopped(func(record *run.Object) {
+		title = record.Str("title")
 		if at.repo == "" {
 			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", nil)
 			return
@@ -62,10 +61,6 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err
-	}
-	record, err := run.Read(dir)
-	if record == nil {
-		return 0, cmp.Or(err, errors.New("run.json cannot be read"))
 	}
 	lines := []string{}
 	if warning != "" {
@@ -89,9 +84,13 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		said, base, target = at.repo, at.base, at.target
 		delivery = "no push or merge; local commits"
 		if !flags["--no-merge"] {
-			branch, _, _, err := git(at.repo, "rev-parse", "--abbrev-ref", "HEAD")
-			if err != nil {
-				return 0, err
+			branch := "new ak/" + task.Slug(title) + " branch (unique suffix if needed)"
+			if flags["--no-worktree"] {
+				head, _, _, err := git(at.repo, "rev-parse", "--abbrev-ref", "HEAD")
+				if err != nil {
+					return 0, err
+				}
+				branch = head
 			}
 			delivery = fmt.Sprintf("push %s to origin (fork if needed); PR into %s; merge after PASS", branch, target)
 		}
@@ -99,6 +98,16 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	lines = append(lines, "--- preflight",
 		fmt.Sprintf("repo: %s | base: %s | target: %s | merge: %s", said, base, target, cmp.Or(meta["merge"], "squash")),
 		"delivery: "+delivery, "done-when: "+commands)
+	return underWay(dir, lines, "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`", flags, log, out, errOut)
+}
+
+// underWay says the rest of what a launch's log says, and the run goes on in a driver of its own,
+// followed here unless told --bg.
+func underWay(dir string, lines []string, notification string, flags map[string]bool, log func(string) error, out, errOut io.Writer) (int, error) {
+	record, err := run.Read(dir)
+	if record == nil {
+		return 0, cmp.Or(err, errors.New("run.json cannot be read"))
+	}
 	for _, role := range []string{"workers", "reviewers"} {
 		if list := record.List(role); list != nil {
 			var names []string
@@ -109,8 +118,7 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		}
 	}
 	lines = append(lines, fmt.Sprintf("limits: silence %dm | done-when ceiling %dh | git/gh %ds", run.SilenceMinutes, run.CeilingHours, gitcall.CapSeconds),
-		"scope: pending", "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"),
-		"notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`")
+		"scope: pending", "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"), notification)
 	for _, line := range lines {
 		if err := log(line); err != nil {
 			return 0, err
@@ -120,7 +128,7 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	if err != nil {
 		return 0, err
 	}
-	if err := start(dir, out); errors.Is(err, loop.ErrStopped) {
+	if err := start(dir, out, flags["--bg"]); errors.Is(err, loop.ErrStopped) {
 		io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
 		return 0, ErrStopped
 	} else if err != nil {
@@ -133,13 +141,13 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 }
 
 // start hands the launched run its driver, a change to its admission like the receipt's.
-func start(dir string, out io.Writer) error {
+func start(dir string, out io.Writer, detached bool) error {
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
-	return loop.Start(dir, out)
+	return loop.Start(dir, out, detached)
 }
 
 // going is whether any run is under way, one Python's rival check may name, or may be.

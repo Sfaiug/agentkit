@@ -1,11 +1,13 @@
 package seat
 
 import (
+	"maps"
 	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/run"
+	script "agentkit/internal/transcript"
 )
 
 // audit is the weekly audit's seat (audit.NAME), whose models run at their entries' efforts.
@@ -19,15 +21,22 @@ const audit = "audit"
 type move struct{ chosen, effort, conversation, cwd string }
 
 // follows is the move of a record's last answer: `/model` or `/effort` typed in the seat moves
-// it as a move on `c` would. False where Python's answer hangs on a configured model or a
-// manifest this reading cannot read.
-func follows(record *run.Object, models map[string]config.Model, offered []string) (move, bool) {
+// it as a move on `c` would. Only an answer made since the harness was launched (`launched`) or
+// a move in place went in (the seat file's `switched`) counts, so the old model's last answer
+// undoes no move. The models run at the efforts the record holds for them. False where Python's
+// answer hangs on a configured model or a manifest this reading cannot read.
+func follows(record, file *run.Object, models map[string]config.Model, offered []string) (move, bool) {
 	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, answered := harness.LastAnswer(own.Harness, conversation, cwd)
-	if own.ID == "" || own.ID == "default" || !answered {
+	model, effort, at, answered := harness.LastAnswer(own.Harness, conversation, cwd, record.Str("account"))
+	var switched any
+	if file != nil {
+		switched = file.Get("switched")
+	}
+	if own.ID == "" || own.ID == "default" || !answered || !since(script.Moment(at), record.Get("launched"), switched) {
 		return move{}, true
 	}
+	models = atEfforts(models, record)
 	var runs []string
 	for _, each := range append([]string{kept}, offered...) {
 		entry, resolved := models[each]
@@ -56,6 +65,41 @@ func follows(record *run.Object, models map[string]config.Model, offered []strin
 		return move{chosen, word, conversation, cwd}, true
 	}
 	return move{chosen, "", conversation, cwd}, true
+}
+
+// since is whether a moment is later than each of those that are moments.
+func since(at float64, bounds ...any) bool {
+	for _, bound := range bounds {
+		if moment, dated := run.Num(bound); dated && !(at > moment) {
+			return false
+		}
+	}
+	return true
+}
+
+// atEfforts is config.at_efforts: the models as the record runs them, each it holds efforts for
+// at those, every other at its entry's own.
+func atEfforts(models map[string]config.Model, record *run.Object) map[string]config.Model {
+	held := record.Dict("efforts")
+	if held == nil {
+		return models
+	}
+	models = maps.Clone(models)
+	for _, name := range held.Keys() {
+		entry, known := models[name]
+		own := held.Dict(name)
+		if !known || own == nil {
+			continue
+		}
+		entry.Efforts = map[string]string{}
+		for _, key := range own.Keys() {
+			if word, named := own.Get(key).(string); named {
+				entry.Efforts[key] = word
+			}
+		}
+		models[name] = entry
+	}
+	return models
 }
 
 // moved writes into the record what its last answer moved: its orchestrator, through

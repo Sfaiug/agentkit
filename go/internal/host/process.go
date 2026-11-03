@@ -37,16 +37,24 @@ type Stat struct {
 	Start   int64
 }
 
-// Exited is a zombie or a dead task: it runs nothing, though it may still answer kill(0).
+// Exited is a zombie, a dead task or one inside exit (PF_EXITING): it runs nothing, though it may
+// still answer kill(0).  The exit drops its memory and closes its files before it turns zombie, so
+// whoever saw its output end may still find it running, its command line empty.
 func (s Stat) Exited() bool {
-	return s.State == "Z" || s.State == "X"
+	return s.State == "Z" || s.State == "X" || s.Flags&0x4 != 0
 }
 
-// ReadStat counts the fields after the last `)`, as the command name may hold spaces or `)`.
-func ReadStat(pid int) (Stat, bool) {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+func ReadStat(pid int) (Stat, bool) { return ReadStatIn("/proc", pid) }
+
+// ReadStatIn is ReadStat of a /proc at proc, so a test can hand one of its own. It counts the
+// fields after the last `)`, as the command name may hold spaces or `)`.
+func ReadStatIn(proc string, pid int) (Stat, bool) {
+	data, err := os.ReadFile(proc + "/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return Stat{}, false
+	}
 	at := bytes.LastIndexByte(data, ')')
-	if err != nil || at < 0 {
+	if at < 0 {
 		return Stat{}, false
 	}
 	fields := strings.Fields(string(data[at+1:]))
@@ -113,8 +121,12 @@ const Marker = "AGENTKIT_RUN"
 
 // Marked are the pids whose environment carries the run's marker, or one below it, except
 // this process and its ancestors: found by environment, so a child that left its process
-// group is still one of the run's.
+// group is still one of the run's.  No marker marks none: every marker is a path, so all of
+// every run's processes would be below an empty one.
 func Marked(marker string) []int {
+	if marker == "" {
+		return nil
+	}
 	want := []byte(Marker + "=" + marker)
 	below := []byte(Marker + "=" + marker + "/")
 	entries, err := os.ReadDir("/proc")

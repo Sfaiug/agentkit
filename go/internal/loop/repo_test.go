@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -147,12 +148,12 @@ func TestARulesRefusalNamesAPythonChangeAndAGrownProseFile(t *testing.T) {
 
 func TestAProofRunsOnItsRevisionAndTheCheckoutComesBack(t *testing.T) {
 	l, r := repoRig(t)
-	if err := os.MkdirAll(filepath.Join(l.dir, roundName), 0o777); err != nil {
+	if err := os.MkdirAll(filepath.Join(l.roundDir()), 0o777); err != nil {
 		t.Fatal(err)
 	}
 	shell(t, r.wt, "echo new > added.txt; git add -A; git commit -qm added; echo left > dirty.txt")
 	head := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
-	proof, err := r.proofOn(l, "test -f added.txt", filepath.Join(l.dir, roundName, "proof.log"), r.baseSHA, head)
+	proof, err := r.proofOn(l, "test -f added.txt", filepath.Join(l.roundDir(), "proof.log"), r.baseSHA, head)
 	if err != nil {
 		t.Skip(err) // no box here
 	}
@@ -175,13 +176,13 @@ func TestAProofRunsOnItsRevisionAndTheCheckoutComesBack(t *testing.T) {
 
 func TestAFindingOutsideTheChangeThatFailsOnBaseIsAFollowUp(t *testing.T) {
 	l, r := repoRig(t)
-	if err := os.MkdirAll(filepath.Join(l.dir, roundName), 0o777); err != nil {
+	if err := os.MkdirAll(filepath.Join(l.roundDir()), 0o777); err != nil {
 		t.Fatal(err)
 	}
 	shell(t, r.wt, "echo new > added.txt; git add -A; git commit -qm added")
 	row := run.Fields("kind", "finding", "path", "widget.txt", "line", 1, "what", "w", "why", "y",
 		"evidence", run.Fields("run", "false", "returncode", 1, "output", ""))
-	weighed, err := r.weigh(l, row, 0)
+	weighed, err := r.weigh(l, row, 0, &judging{})
 	if err != nil {
 		t.Skip(err)
 	}
@@ -190,14 +191,14 @@ func TestAFindingOutsideTheChangeThatFailsOnBaseIsAFollowUp(t *testing.T) {
 	}
 	inside := run.Fields("kind", "finding", "path", "added.txt", "line", 1, "what", "w", "why", "y",
 		"evidence", run.Fields("run", "test ! -f added.txt", "returncode", 1, "output", ""))
-	if weighed, err = r.weigh(l, inside, 1); err != nil || weighed.Str("kind") != "finding" {
+	if weighed, err = r.weigh(l, inside, 1, &judging{}); err != nil || weighed.Str("kind") != "finding" {
 		t.Fatalf("%v %s", err, run.Line(weighed))
 	}
 }
 
 func TestAReviewersEditsLandInThePatchAndNowhereElse(t *testing.T) {
 	l, r := repoRig(t)
-	out := filepath.Join(l.dir, roundName, "reviewer")
+	out := filepath.Join(l.roundDir(), "reviewer")
 	if err := os.MkdirAll(out, 0o777); err != nil {
 		t.Fatal(err)
 	}
@@ -215,11 +216,11 @@ func TestAReviewersEditsLandInThePatchAndNowhereElse(t *testing.T) {
 	if said := shell(t, r.wt, "cat widget.txt"); said != "x = 1\n" {
 		t.Fatalf("the checkout holds %q", said)
 	}
-	patch, _ := os.ReadFile(filepath.Join(l.dir, roundName, "reviewer-changes.patch"))
+	patch, _ := os.ReadFile(filepath.Join(l.roundDir(), "reviewer-changes.patch"))
 	if !strings.Contains(string(patch), "edited") || !strings.Contains(string(patch), "extra.txt") {
 		t.Fatalf("patch %q", patch)
 	}
-	if _, err := os.Stat(filepath.Join(l.dir, roundName, "review-checkout")); err == nil {
+	if _, err := os.Stat(filepath.Join(l.roundDir(), "review-checkout")); err == nil {
 		t.Fatal("the copy stayed")
 	}
 	log, _ := os.ReadFile(filepath.Join(l.dir, "log.txt"))
@@ -289,7 +290,7 @@ func TestStopCheckoutNeverTakesWhatIsUnderCode(t *testing.T) {
 	}
 }
 
-func TestALandingRunEndsWhereItsLandingStartsItsReviewStanding(t *testing.T) {
+func TestADeliveryWithNoReviewBehindItWaitsForOneItsVerdictStanding(t *testing.T) {
 	l, r := repoRig(t)
 	if r.noMerge = true; r.finished(l) != nil {
 		t.Fatal("a --no-merge run has nothing to land")
@@ -298,25 +299,115 @@ func TestALandingRunEndsWhereItsLandingStartsItsReviewStanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.noMerge = false
-	if code := l.finish(r.finished(l)); code != 2 {
+	if code := l.finish(r.finished(l)); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
 	record, _ := run.Read(l.dir)
-	if record.Str("state") != "error" || record.Str("verdict") != "PASS" || record.Str("error") != "the review passed: landing it is not Go's yet" {
+	if record.Str("state") != "exhausted" || record.Str("verdict") != "PASS" || record.Str("error") != "delivery requires a successful reviewer allowed by the model policy; resume the run to obtain review" {
 		t.Fatalf("record %s", run.Line(record))
 	}
 }
 
-func TestAGitThatStoppedEndsNamingThatRoad(t *testing.T) {
+func TestAGitThatStoppedParksTheRunExhausted(t *testing.T) {
 	l, _ := repoRig(t)
 	if err := run.Change(l.dir, func(record *run.Object) error { record.Set("state", "running"); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if code := l.finish(&gitcall.Stopped{Why: "git fetch stopped"}); code != 2 {
+	if code := l.finish(&gitcall.Stopped{Why: "git fetch stopped"}); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
 	record, _ := run.Read(l.dir)
-	if record.Str("error") != "git fetch stopped: a git that stopped is not Go's yet" {
+	if record.Str("state") != "exhausted" || record.Str("error") != "git fetch stopped" || record.Has("quota_dry") {
 		t.Fatalf("record %s", run.Line(record))
+	}
+}
+
+func TestALineStandsWhereTheFixLeftIt(t *testing.T) {
+	_, r := repoRig(t)
+	shell(t, r.wt, `printf 'l1\nl2 old text here\nl3\nl4\nl5\n' > a.txt; git add -A; git commit -qm a`)
+	since := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
+	shell(t, r.wt, `printf 'l0 new\nl1\nother\nl2 new text here\nl4\nl5\n' > a.txt; git add -A; git commit -qm fix`)
+	row := func(line int) *run.Object { return run.Fields("path", "a.txt", "line", line) }
+	for _, each := range []struct {
+		line, at int
+		touched  bool
+		lines    int
+	}{
+		{1, 2, false, 1}, // a line above it was added: it moved
+		{2, 4, true, 2},  // rewritten: it stands at the line that reads most like it
+		{3, 4, true, 2},  // both removed lines fall in one hunk
+		{5, 6, false, 1},
+	} {
+		at, touched, lines, err := r.placed(row(each.line), since)
+		if err != nil || at != each.at || touched != each.touched || len(lines) != each.lines {
+			t.Errorf("line %d: at %d, touched %v, lines %v (%v)", each.line, at, touched, lines, err)
+		}
+	}
+	if lines, touched, err := r.moved("a.txt", 2, ""); err != nil || touched || !slices.Equal(lines, []int{2}) {
+		t.Errorf("no delta: %v %v %v", lines, touched, err)
+	}
+	head := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
+	for line, want := range map[int]bool{1: true, 2: false, 3: true, 4: true, 5: false} {
+		if changed, err := r.changedLine(row(line), head, since); err != nil || changed != want {
+			t.Errorf("line %d changed: %v (%v)", line, changed, err)
+		}
+	}
+}
+
+func TestANewFindingBlocksOnlyInsideTheFixDeltaOrWithABreak(t *testing.T) {
+	l, r := repoRig(t)
+	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	shell(t, r.wt, `printf 'l1\nl2\nl3\n' > a.txt; git add -A; git commit -qm a`)
+	since := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
+	shell(t, r.wt, `printf 'new\nl2\nl3\n' > a.txt; touch fixed.txt; git add -A; git commit -qm fix`)
+	j := &judging{since: since, sites: map[string]bool{"a.txt:3": true}}
+	weigh := func(line int, command string) *run.Object {
+		t.Helper()
+		row := run.Fields("kind", "finding", "path", "a.txt", "line", line, "what", "w", "why", "y", "evidence", run.Fields("run", command, "returncode", 1, "output", ""))
+		weighed, err := r.weigh(l, row, line, j)
+		if err != nil {
+			t.Skip(err) // no box here
+		}
+		return weighed
+	}
+	for _, each := range []struct {
+		line    int
+		command string
+		kind    string
+		outside bool
+	}{
+		{1, "false", "finding", false},               // the fix changed that line
+		{2, "false", "note", true},                   // it fails on the commit judged too
+		{2, "test ! -f fixed.txt", "finding", false}, // it passes there: the fix broke it
+		{3, "false", "finding", false},               // an earlier finding's site upholds it
+	} {
+		if got := weigh(each.line, each.command); got.Str("kind") != each.kind || got.Truthy("outside") != each.outside {
+			t.Errorf("line %d, %q: %s", each.line, each.command, run.Line(got))
+		}
+	}
+}
+
+func TestAReplayOnlyAddsWhatTheReviewerDidNotHandIn(t *testing.T) {
+	l, _ := repoRig(t)
+	failed := run.Fields("run", "false", "returncode", 1, "output", "")
+	passes := run.Fields("run", "true", "returncode", 0, "output", "")
+	at := func(kind string, line int, evidence *run.Object) *run.Object {
+		return run.Fields("kind", kind, "path", "a.txt", "line", line, "what", "w", "why", "y", "evidence", evidence)
+	}
+	j := &judging{replayed: []replay{
+		{at("finding", 1, failed), failed, true, false, []int{1}},
+		{at("finding", 2, failed), failed, true, true, []int{2, 3}},
+		{at("finding", 4, passes), passes, false, false, []int{4}},
+	}}
+	got := l.withReplays([]*run.Object{at("finding", 3, failed), run.Fields("kind", "done")}, j)
+	var said []string
+	for _, row := range got {
+		said = append(said, row.Str("kind")+":"+row.Str("replayed"))
+	}
+	want := []string{"finding:", "finding:still failing; it blocks until its proof passes", "note:fixed; its proof passes now", "done:"}
+	if !slices.Equal(said, want) {
+		t.Fatalf("got %q", said)
 	}
 }

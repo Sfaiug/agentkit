@@ -79,7 +79,7 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 			previous = nil // no question of the seat's: what Python's last reads as none
 		}
 	}
-	notice, readable := said(name, question, previous)
+	notice, readable := said(name, []Kept{{Text: question}}, previous, false)
 	card, cardErr := readObject(seatFile("card", name, "json"))
 	if errors.Is(cardErr, errNotObject) {
 		card, cardErr = nil, nil
@@ -110,19 +110,15 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 
 // standing is whether a client is attached to the seat, and whether Go knows its word, which
 // Python's session_state decides: `needs you`, the question asked now standing, for a name no
-// record and no tmux session holds, and for a seat ak's server holds alive with no turn, run or
-// watch record, on a harness whose chat Python does not read for the question (none `nudge`s).
+// record and no tmux session holds, and for a seat ak's server holds alive with no look, run or
+// watch record, whose word no hook fact or turn's latch decides, on a harness whose chat Python
+// does not read for the question (none `nudge`s).
 func standing(name string, record map[string]any) (attached, known bool) {
 	exists := func(path string) bool { _, err := os.Lstat(path); return !errors.Is(err, fs.ErrNotExist) }
 	if path, _ := config.SessionPath(name); record == nil && exists(path) {
 		return false, false // a record that is no object
 	}
-	for _, kind := range []string{"seat", "hook", "stop"} {
-		if exists(seatFile(kind, name, "json")) {
-			return false, false
-		}
-	}
-	if exists(filepath.Join(state(), "watch.json")) {
+	if exists(seatFile("seat", name, "json")) || exists(filepath.Join(state(), "watch.json")) {
 		return false, false
 	}
 	if runs, err := os.ReadDir(run.Runs()); len(runs) > 0 || err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -156,14 +152,18 @@ func standing(name string, record map[string]any) (attached, known bool) {
 	return false, record == nil && !legacy
 }
 
-// said is the seat's notice once it asks the question, as Python's _said records it, and
-// whether Go reads the notice it replaces as Python does: the question joins those still standing
+// said is the seat's notice once it asks those questions, as Python's _said records it, and
+// whether Go reads the notice it replaces as Python does: each joins those still standing
 // unanswered, each once, in the order asked, and one asked again keeps its first words and is
-// dated anew.  A newer notice carries the answer to the one it replaced.
-func said(name, question string, previous *run.Object) (*run.Object, bool) {
+// dated anew.  `kept` questions were said before their turn's end, which dates them, never before
+// those they are asked beside; a delayed Stop's older copy of one moves nothing it was said at, and
+// the notice keeps the latest moment any question it asks was said.  A newer notice carries the
+// answer to the one it replaced.
+func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Object, bool) {
 	var standing []string
 	dated, dates, ids := run.NewObject(), run.NewObject(), run.NewObject()
-	if previous != nil && previous.Get("watcher") != true && !resolved(previous) {
+	stands := previous != nil && previous.Get("watcher") != true && !resolved(previous)
+	if stands {
 		standing = questions(previous)
 		var read [3]bool
 		dated, read[0] = copied(previous, "asked_at", run.NewObject())
@@ -173,29 +173,58 @@ func said(name, question string, previous *run.Object) (*run.Object, bool) {
 			return nil, false
 		}
 	}
-	asked, key := standing, questionKey(question)
-	if !slices.ContainsFunc(standing, func(q string) bool { return questionKey(q) == key }) {
-		asked = append(slices.Clone(standing), question)
+	now := clock()
+	var saidAt *float64
+	if kept {
+		if end, known := latest(asked, func(question Kept) any { return question.Ended }); known {
+			if stands {
+				end = max(end, number(previous, "time"))
+			}
+			now = end
+		}
+		if spoke, known := latest(asked, func(question Kept) any { return question.At }); known {
+			if stands {
+				spoke = max(spoke, spokenAt(previous))
+			}
+			saidAt = &spoke
+		}
 	}
-	now := run.Float(clock())
-	dated.Set(key, now)
-	dates.Set(key, now)
-	ids.Set(key, nil)
+	when := run.Float(now)
+	listed := slices.Clone(standing)
+	for _, question := range asked {
+		key := questionKey(question.Text)
+		if !slices.ContainsFunc(listed, func(q string) bool { return questionKey(q) == key }) {
+			listed = append(listed, question.Text)
+		}
+		dated.Set(key, when)
+		spoke := any(when)
+		if question.At != nil {
+			spoke = question.At
+		}
+		seen, _ := run.Num(spoke)
+		if have, known := dates.Num(key); !kept || !known || seen > have {
+			dates.Set(key, spoke)
+			ids.Set(key, question.ID)
+		}
+	}
 	notice := run.NewObject()
-	for _, f := range []field{{"session", name}, {"kind", "needs"}, {"text", strings.Join(asked, also)}, {"time", now},
+	for _, f := range []field{{"session", name}, {"kind", "needs"}, {"text", strings.Join(listed, also)}, {"time", when},
 		{"source", nil}, {"watcher", false}} {
 		notice.Set(f.key, f.value)
 	}
-	if len(asked) > 1 {
-		listed := make([]any, len(asked))
-		for i, q := range asked {
-			listed[i] = q
+	if len(listed) > 1 {
+		all := make([]any, len(listed))
+		for i, q := range listed {
+			all[i] = q
 		}
-		notice.Set("questions", listed)
+		notice.Set("questions", all)
 	}
 	notice.Set("asked_at", dated)
 	notice.Set("question_times", dates)
 	notice.Set("question_ids", ids)
+	if saidAt != nil {
+		notice.Set("said_at", run.Float(*saidAt))
+	}
 	if previous != nil {
 		earlier := "earlier_answer_at"
 		if previous.Has("answered_at") {

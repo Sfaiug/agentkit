@@ -53,24 +53,30 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	}
 	// the follow moves the seat from the model this record names, so both come from one reading
 	seat.Orchestrator = record.Str("orchestrator")
-	if complaint == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, models, offered); !known {
-			return Seat{}, nil, false
-		}
-	}
 	file, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || keptBack(file) {
 		return Seat{}, nil, false
+	}
+	if complaint == "" { // a record Python cannot read moves nothing
+		if seat.follow, known = follows(record, file, models, offered); !known {
+			return Seat{}, nil, false
+		}
 	}
 	if seat.handBacks, known = settled(name, now); !known {
 		return Seat{}, nil, false
 	}
 	seat.closed = file != nil && file.Truthy("closed_by_owner")
-	asleep, _ := number(record.Get("asleep"))
-	launched, _ := number(record.Get("launched"))
-	seat.asleep = asleep > launched && (file == nil || !file.Truthy("stopped_at"))
+	seat.asleep = putToSleep(record, file)
 	seat.Word, seat.reason = goneWord(seat, name, at+1)
 	return seat, models, true
+}
+
+// putToSleep is whether the seat was put to sleep since its harness launched, and not closed since
+// (sleep.asleep).
+func putToSleep(record, file *run.Object) bool {
+	asleep, _ := number(record.Get("asleep"))
+	launched, _ := number(record.Get("launched"))
+	return asleep > launched && (file == nil || !file.Truthy("stopped_at"))
 }
 
 // goneWord is the word and reason of a seat nobody is in: one the owner closed rests; one gone on
@@ -82,7 +88,7 @@ func goneWord(seat Seat, name string, place int) (string, string) {
 	if seat.closed {
 		return "idle", reason
 	}
-	if plan.Owes(name) {
+	if owes, _ := plan.Owes(name); owes {
 		return "needs you", reason
 	}
 	done := config.Fold(plan.LastDone(name))
@@ -184,7 +190,7 @@ func settled(name string, now time.Time) (int, bool) {
 		if record == nil || run.SmokeRun(record) || run.Seat(record) != name {
 			continue
 		}
-		if record.Str("state") != "pass" || !record.Truthy("merged") || awaitingLive(record, now) {
+		if record.Str("state") != "pass" || !record.Truthy("merged") || AwaitingLive(record, now) {
 			return 0, false
 		}
 		if record.Truthy("handback_pending") {
@@ -194,12 +200,12 @@ func settled(name string, now time.Time) (int, bool) {
 	return waiting, true
 }
 
-// awaitingLive is whether a merged run's project has yet to prove itself live (watch.awaiting_live).
-func awaitingLive(record *run.Object, now time.Time) bool {
+// AwaitingLive is whether a merged run's project has yet to prove itself live (watch.awaiting_live).
+func AwaitingLive(record *run.Object, now time.Time) bool {
 	finished, dated := record.Num("finished_at")
 	age := seconds(now) - finished
 	health := record.Dict("health")
-	return !record.Truthy("live_at") && record.Truthy("repo") && dated && 0 <= age && age <= afterMerge &&
+	return record.Truthy("merged") && !record.Truthy("live_at") && record.Truthy("repo") && dated && 0 <= age && age <= afterMerge &&
 		health != nil && health.Truthy("command")
 }
 

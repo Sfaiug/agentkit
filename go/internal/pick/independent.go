@@ -1,13 +1,24 @@
 package pick
 
-// Independent is the first reviewer with room who is not the writer's own model, by the place in
-// the owner's order beside that writer, then pick order; "" where there is none.
-func (r *Rules) Independent(room Room, writer string) string {
-	best, found := 2, "" // 2: the writer's own model, which takes nothing over
-	for _, name := range r.Order(room, true, nil) {
-		if tier := r.tier(writer, name); tier < best {
-			best, found = tier, name
+import "slices"
+
+// Beside is the reviewers with room in pick order, by the worst place in the owner's order each
+// takes beside the writers, Python's reviewer_order: a model tends to miss the mistakes it makes, so
+// its own review is the last choice, but only a choice.
+func (r *Rules) Beside(room Room, writers []string) []string {
+	worst := func(name string) int {
+		place := 0
+		for _, writer := range writers {
+			place = max(place, r.tier(writer, name))
 		}
+		return place
 	}
-	return found
+	order := r.Order(room, true, nil)
+	slices.SortStableFunc(order, func(a, b string) int { return worst(a) - worst(b) })
+	return order
+}
+
+// Wrote is whether the model is one of the writers.
+func (r *Rules) Wrote(name string, writers []string) bool {
+	return slices.ContainsFunc(writers, func(writer string) bool { return r.Same(writer, name) })
 }

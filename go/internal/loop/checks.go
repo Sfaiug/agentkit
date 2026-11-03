@@ -19,7 +19,6 @@ import (
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
-	"agentkit/internal/worker"
 )
 
 // outCap is the most of a check's output a model is handed: the rest is in a file its line names.
@@ -174,7 +173,7 @@ func (l *loop) boxed(cwd, cmd string, limit time.Duration, progress *os.File, ac
 		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
 	}
 	var left []string
-	ctx, watched := worker.Watch{Silence: l.silence, Ceiling: limit, Heard: worker.Written(activity), Marker: l.dir,
+	ctx, watched := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Marker: l.dir,
 		Before: func() { left = stillRunning(l.dir) }}.Stop(l.ctx)
 	code, err := box.RunCheck(ctx, []string{"bash", "-c", cmd}, env, cwd, out, progress)
 	stopped := watched()
@@ -303,24 +302,6 @@ func (l *loop) proof(command, path string) (*run.Object, error) {
 		return nil, err
 	}
 	return run.Fields("run", command, "commit", "workspace", "returncode", code, "output", output, "killed", killed), nil
-}
-
-// failing is the first check a done-when log says did not exit 0, for the reason a run ends with.
-func failing(text string) string {
-	for _, record := range strings.Split(text, "\n\n") {
-		lines := strings.SplitN(record, "\n", 3)
-		if len(lines) >= 2 && strings.HasPrefix(lines[0], "$ ") && lines[1] != "[exit 0]" {
-			return "`" + strings.TrimPrefix(lines[0], "$ ") + "` " + lines[1]
-		}
-	}
-	// no command failed: what the loop said of the gate, which a repository's checks add
-	for _, record := range strings.Split(text, "\n\n") {
-		if !strings.HasPrefix(record, "$ ") && !strings.HasPrefix(record, "Commit: ") && !strings.HasPrefix(record, "flaky: ") {
-			first, _, _ := strings.Cut(record, "\n")
-			return first
-		}
-	}
-	return "see donewhen.log"
 }
 
 // asStopped is err where it is a git that stopped, nil otherwise.

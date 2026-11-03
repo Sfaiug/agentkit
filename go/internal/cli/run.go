@@ -7,12 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"agentkit/internal/box"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/gh"
 	"agentkit/internal/job"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
@@ -22,8 +22,6 @@ import (
 
 const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
 const runUsage = "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> | ak run status [<runid>] | ak run resume <runid> | ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc"
-
-var pullURL = regexp.MustCompile(`^https://github\.com/[^/\s]+/[^/\s]+/pull/[0-9]+/?$`)
 
 func init() {
 	commands["run"] = launchRun
@@ -39,18 +37,28 @@ func runClean(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// launchRun is `ak run <task.md>` where Go makes the launch: one task preflight refuses, recorded
-// as a run in error, or a run preflight passes, which it follows unless told --bg.  Any other launch
+// launchRun is `ak run <task.md>` or `ak run --review-pr <url>` where Go makes the launch: one
+// preflight refuses, recorded as a run in error, or a run preflight passes, which it follows unless
+// told --bg.  Any other launch
 // it leaves to Python before it writes anything.  `--drive` is that run's own process.
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {
 		return loop.Drive(args[1])
 	}
 	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)
-	if runSubcommand(args) || problem != "" || len(parsed.words) != 1 {
+	var code int
+	var reason string
+	var err error
+	switch url := parsed.values["--review-pr"]; {
+	case runSubcommand(args) || problem != "":
+		return notImplemented(errOut, "run")
+	case url != "":
+		code, reason, err = launch.Review(url, parsed.values, parsed.flags, out, errOut)
+	case len(parsed.words) == 1:
+		code, reason, err = launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
+	default:
 		return notImplemented(errOut, "run")
 	}
-	code, reason, err := launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return notImplemented(errOut, "run")
@@ -98,7 +106,7 @@ func validateRun(args []string) string {
 		if len(parsed.words) > 0 || parsed.values["--rounds"] != "" || parsed.values["--exec"] != "" || parsed.flags["--no-worktree"] || parallel {
 			return "usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: no task file, no executor, no rounds"
 		}
-		if !pullURL.MatchString(url) {
+		if !gh.PullURL.MatchString(url) {
 			return fmt.Sprintf("--review-pr needs a GitHub PR URL (got %s)", commandhelp.Quote(url))
 		}
 	} else if len(parsed.words) == 0 {
@@ -109,8 +117,18 @@ func validateRun(args []string) string {
 			if !positive(value) {
 				return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
 			}
-			if flag == "--rounds" {
-				if problem := task.RoundsRefusal(value, "--rounds"); problem != "" {
+			// a launch from inside a run is Python's (launch.elsewhere), which judges it
+			for _, word := range parsed.words {
+				if flag != "--rounds" || os.Getenv("AGENTKIT_RUN_DIR") != "" {
+					break
+				}
+				budget, err := launch.Budget(config.Absolute(word))
+				if errors.Is(err, launch.ErrPython) {
+					continue // Python finds its checkout, and judges it at the launch
+				} else if err != nil {
+					return err.Error()
+				}
+				if problem := task.RoundsOver(value, "--rounds", budget); problem != "" {
 					return problem
 				}
 			}
@@ -178,7 +196,7 @@ func validateRunSubcommand(verb string, args []string) string {
 		return ""
 	}
 	usage := "usage: ak run " + verb + " <runid>"
-	budget := ""
+	asked := ""
 	switch verb {
 	case "status", "show":
 		usage = commandhelp.Usage("run status") + " [--pending]"
@@ -196,17 +214,31 @@ func validateRunSubcommand(verb string, args []string) string {
 		usage += " [--rounds N] [--bg]"
 		args = without(args, "--bg")
 		if len(args) == 3 && args[1] == "--rounds" && positive(args[2]) {
-			budget = task.RoundsRefusal(args[2], "--rounds")
+			asked = args[2]
 			args = args[:1]
 		}
 	}
 	if len(args) != 1 || (verb != "status" && verb != "show" && !runID(args[0])) {
 		return usage
 	}
-	if budget != "" {
-		return budget
-	}
 	runs := filepath.Join(config.Home(), "runs")
+	if verb == "resume" && isFile(job.ReceiptPath(args[0])) {
+		return "" // a job's, which Python resumes and judges (runResume)
+	}
+	if asked != "" {
+		// what the run holds to, the host's with no such run, as Python's policy_of
+		held, _ := run.Read(filepath.Join(runs, args[0]))
+		if held == nil { // missing, unreadable or no object
+			held = run.Fields()
+		}
+		budget, err := run.PolicyRounds(held)
+		if err != nil {
+			return err.Error()
+		}
+		if problem := task.RoundsOver(asked, "--rounds", budget); problem != "" {
+			return problem
+		}
+	}
 	if !runID(args[0]) {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 	}

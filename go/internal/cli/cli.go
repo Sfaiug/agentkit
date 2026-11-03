@@ -13,6 +13,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/terminal"
+	"agentkit/internal/tick"
 )
 
 func Main(args []string, out, errOut io.Writer) int {
@@ -28,6 +29,12 @@ func Main(args []string, out, errOut io.Writer) int {
 	}
 	if command == "seat-look" { // unlisted too
 		return seatLook(rest)
+	}
+	if command == "guard" && len(rest) >= 2 { // unlisted too
+		return guardCall(rest, out)
+	}
+	if command == tick.SetupVerb { // unlisted too, and unmarked: the tick starts it to outlive it
+		return tick.SetUp(rest)
 	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))

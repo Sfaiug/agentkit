@@ -27,4 +27,8 @@ type Given struct {
 	// UsersAt is the ref a review's `users:` is read at, ReviewLines the first review's ceiling.
 	UsersAt     string
 	ReviewLines int
+	// Findings is the file of blocking findings handed to the turn, "" for none.
+	Findings string
+	// Previous is the record file of the turn this one resumes, "" for none.
+	Previous string
 }

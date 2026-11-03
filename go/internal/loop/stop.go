@@ -1,0 +1,164 @@
+package loop
+
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"time"
+
+	"agentkit/internal/config"
+	"agentkit/internal/host"
+	"agentkit/internal/run"
+)
+
+// ErrPython is a run whose stop is Python's, decided before anything is written.
+var ErrPython = errors.New("a stop Python ak makes")
+
+// StopRun is `ak run stop <id>`, Python's cmd_stop and end: the record first, under its lock, so a
+// driver that notices its children die finds the stop already there, then the loop and all it
+// started, then the checkout unless kept.  A refusal is an error, in Python's words.
+func StopRun(id string, keep bool, out io.Writer) error {
+	dir := filepath.Join(run.Runs(), id)
+	read, err := run.Read(dir)
+	if errors.Is(err, run.ErrLoneSurrogate) {
+		return ErrPython
+	}
+	if read == nil {
+		return fmt.Errorf("%s: cannot read %s", id, filepath.Join(dir, "run.json"))
+	}
+	var state *run.Object
+	again := false
+	err = run.ChangeThen(dir, func(record *run.Object) error {
+		state = record
+		if err := checkStopOwner(record); err != nil {
+			return err
+		}
+		word := record.Str("state")
+		switch {
+		case word == "stopped" && record.Dict("lease_wait") != nil && !record.Truthy("lease_restarted"):
+			return ErrPython // stopped to wait on an older run's change, whose restart it calls off
+		case word == "stopped":
+			again = true
+			return nil
+		case run.Ended(record) && word != "error":
+			return fmt.Errorf("%s is already %s; only unfinished work can be stopped", id, run.Field(record, "state", "None"))
+		case !goStops(dir, record):
+			return ErrPython
+		}
+		run.MarkStopped(record, time.Now(), keep || !removable(record))
+		return nil
+	}, func() {
+		if !again {
+			recordResult(dir, state)
+		}
+	})
+	if err != nil {
+		return err
+	}
+	if !again {
+		endStopped(dir, state, keep)
+	}
+	fmt.Fprintln(out, stopLine(id, state))
+	return nil
+}
+
+// endStopped is what follows the record of a stop: the loop, all it started and its checkout.
+func endStopped(dir string, state *run.Object, keep bool) {
+	if pid, _ := state.Int("pid"); pid > 0 && pid != os.Getpid() && run.ProcessActive(state) {
+		host.EndTree(pid)
+	}
+	host.EndMarked(dir, io.Discard)
+	// the checkout is still there, a live loop or a git that said no, so its branch stays with it
+	// and the record says kept, as `--keep` does
+	if !keep && !stopCheckout(dir, state, func(line string) { appendLog(dir, stamped(line)) }, false) {
+		state.Set("stop_kept", true)
+		run.Change(dir, func(current *run.Object) error {
+			current.Set("stop_kept", true)
+			return nil
+		})
+	}
+	appendLog(dir, stamped("stopped "+filepath.Base(dir)))
+}
+
+// stopLine is the one line a stop prints: the `from:` is only offered while its branch stands.
+func stopLine(id string, state *run.Object) string {
+	branch := state.Str("branch")
+	switch {
+	case branch == "":
+		return "stopped " + id
+	case !state.Truthy("stop_kept"):
+		return fmt.Sprintf("stopped %s: branch %s removed", id, branch)
+	}
+	return fmt.Sprintf("stopped %s: branch %s kept; relaunch with from: %s", id, branch, branch)
+}
+
+// removable is whether a stop without `--keep` takes the run's checkout and branch, Python's
+// checkout_removable.
+func removable(record *run.Object) bool {
+	return !record.Truthy("scratch") && record.Truthy("repo") && record.Truthy("worktree") &&
+		filepath.Clean(record.Str("worktree")) != filepath.Clean(record.Str("repo"))
+}
+
+// checkStopOwner refuses a seat a run of another's, Python's check_stop_owner; the owner outside a
+// seat may stop anything.
+func checkStopOwner(record *run.Object) error {
+	caller, _, err := config.CurrentSession()
+	if err != nil {
+		return err
+	}
+	owner := record.Str("launched_session")
+	if owner == "" {
+		owner = record.Str("session")
+	}
+	if caller == "" || owner == "" {
+		return nil
+	}
+	if owner, _, err = config.ResolveSession(owner); err != nil {
+		return err
+	}
+	if owner != caller {
+		return fmt.Errorf("owned by seat %s; a seat stops only its own runs", owner)
+	}
+	return nil
+}
+
+// goStops is whether this stop is the record, the result, the process tree and the checkout, all
+// Go does: no process but a Go driver of this run alive, nothing of a seat, a job or a review to
+// tell, no landing line, no history row to close, no browser tab to shut, and no unit that may
+// hold it, as Python stops a unit by its name.
+func goStops(dir string, record *run.Object) bool {
+	for _, key := range []string{"launched_session", "session", "job_id", "review_pr"} {
+		if record.Truthy(key) {
+			return false
+		}
+	}
+	return unitless(record) && !host.UserManager() && !run.Lined(record) && run.Historyless() && !tabbed(filepath.Base(dir)) &&
+		(!run.ProcessActive(record) || driving(record, dir))
+}
+
+// driving is whether the process the record names is Go's driver of this run, by what it was
+// started with: a program that cannot say is taken for Python's.
+func driving(record *run.Object, dir string) bool {
+	pid, _ := record.Int("pid")
+	said, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	args := strings.Split(strings.TrimRight(string(said), "\x00"), "\x00")
+	return err == nil && slices.Equal(args[1:], []string{"run", DriveFlag, dir})
+}
+
+// tabbed is whether a browser tab records that run as its opener: Python's to close.
+func tabbed(id string) bool {
+	tabs, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "browser-tabs.json"))
+	if tabs == nil {
+		return false
+	}
+	for _, key := range tabs.Keys() {
+		if tab, _ := tabs.Get(key).(*run.Object); tab != nil && tab.Dict("opener") != nil && tab.Dict("opener").Str("run") == id {
+			return true
+		}
+	}
+	return false
+}

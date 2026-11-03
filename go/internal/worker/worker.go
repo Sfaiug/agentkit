@@ -86,7 +86,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err := os.MkdirAll(out, 0o777); err != nil {
 		return 0, "", err
 	}
-	handIn, err := handin.Start(out, workspace, role)
+	handIn, err := handin.Start(out, workspace, role, given.Findings, given.Previous)
 	if err != nil {
 		return 0, "", err
 	}
@@ -116,13 +116,14 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	ctx, unwatch := words.watch(interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
-	ctx, watched := Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Marker: env[host.Marker]}.Stop(ctx)
+	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Marker: env[host.Marker]}.Stop(ctx)
 	code, left, err := box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
 	unwatch()
 	stopped := watched() != ""
 	interrupted := interrupt.Err() != nil
 	restore()
 	said.Close()
+	harness.RecordTurn(model.Harness, out, filepath.Join(config.Home(), "state"), env["AGENTKIT_ACCOUNT"])
 	if data, err := os.ReadFile(own); err == nil && os.Remove(own) == nil && len(data) > 0 {
 		if log, err := os.OpenFile(filepath.Join(out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
 			log.Write(data)
@@ -135,7 +136,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err != nil {
 		return 0, "", err
 	}
-	session = conversation(out)
+	session = Conversation(out)
 	if interrupted {
 		return code, session, ErrInterrupted
 	}
@@ -188,10 +189,10 @@ func Login(adapter string, env []string) (answered, yes bool, line string) {
 	return false, false, ""
 }
 
-// conversation is the one the turn leaves: the id its adapter wrote, else the last its events
+// Conversation is the one the turn in out leaves: the id its adapter wrote, else the last its events
 // streamed, for a turn that ended before its adapter wrote one, in each shape Python's
 // recovered_session reads.
-func conversation(out string) string {
+func Conversation(out string) string {
 	if data, err := os.ReadFile(filepath.Join(out, "session_id")); err == nil {
 		if id := strings.TrimFunc(string(data), config.Space); id != "" {
 			return id

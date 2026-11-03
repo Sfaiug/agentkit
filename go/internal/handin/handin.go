@@ -24,9 +24,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// ErrPython leaves a hand-in to Python ak: text Go cannot read as Python does, a failure Python
-// reports in its runtime's own words, and a fixer's done that runs earlier findings' proofs
-// again under the worker's time limits, which come in a later milestone.
+// ErrPython leaves a hand-in to Python ak: text Go cannot read as Python does, and a failure Python
+// reports in its runtime's own words.
 var ErrPython = errors.New("left to Python")
 
 // outputCap is the most of a proof's output a row keeps: past it, its first and last halves.
@@ -44,15 +43,41 @@ type turn struct {
 const variable = "AK_HAND_IN"
 
 // Start opens a turn's record file in its out directory with the turn's row, the workspace and
-// role and the blocking findings handed to it, none: the variable naming that file to the turn.
-func Start(out, workspace, role string) (string, error) {
+// role and the blocking findings handed to it, the list the file findings holds, none for "": the
+// variable naming that file to the turn.  A turn that resumes one cut off gets what that one's
+// record file, previous, holds: a session keeps its records, its completion being this turn's alone.
+func Start(out, workspace, role, findings, previous string) (string, error) {
 	path := filepath.Join(config.Resolve(out), File)
+	handed := any([]any{})
+	var before *Review
+	if previous != "" {
+		if before, _ = Read(previous); before != nil && before.Handed != nil {
+			handed = before.Handed
+		}
+	}
+	if findings != "" {
+		data, err := os.ReadFile(findings)
+		if err != nil {
+			return "", err
+		}
+		if handed, err = run.Decode(data); err != nil {
+			return "", err
+		}
+	}
 	row := run.NewObject()
 	row.Set("kind", "turn")
 	row.Set("workspace", config.Resolve(workspace))
 	row.Set("role", role)
-	row.Set("findings", []any{})
-	return variable + "=" + path, os.WriteFile(path, []byte(run.Line(row)+"\n"), 0o666)
+	row.Set("findings", handed)
+	text := run.Line(row) + "\n"
+	if before != nil {
+		for _, each := range before.Records {
+			if !closing(each.Str("kind")) {
+				text += run.Line(each) + "\n"
+			}
+		}
+	}
+	return variable + "=" + path, os.WriteFile(path, []byte(text), 0o666)
 }
 
 // Hand checks what args hand in against the turn's record file and appends its row.
@@ -81,7 +106,7 @@ func Hand(args []string) error {
 	}
 	row, err := t.checked(args)
 	if err == nil && row.Str("kind") == "done" && strings.HasPrefix(t.role, "fixer") {
-		err = t.rerun()
+		err = t.proofsPass(filepath.Dir(path))
 	}
 	if err != nil {
 		return err
@@ -335,29 +360,6 @@ func named(handed []*run.Object, at string) *run.Object {
 	return nil
 }
 
-// rerun leaves to Python a fixer's done that would run an earlier finding's proof again: one
-// handed in with a command, at a site no dispute of this turn names.
-func (t *turn) rerun() error {
-	disputed := map[string]bool{}
-	for _, record := range t.records {
-		if kind := record.Str("kind"); !record.Has("kind") || kind == "dispute" && !sited(record) {
-			return ErrPython
-		} else if kind == "dispute" {
-			disputed[site(record)] = true
-		}
-	}
-	handed, err := t.handed()
-	if err != nil {
-		return err
-	}
-	for _, finding := range handed {
-		if evidence := finding.Dict("evidence"); evidence == nil || evidence.Truthy("run") && !disputed[site(finding)] {
-			return ErrPython
-		}
-	}
-	return nil
-}
-
 // checkedSite is the site's path relative to root and its line, once it names a line of a file
 // inside root that holds the quote.
 func checkedSite(site, root, quote string, hasQuote bool) (string, int, error) {
@@ -402,8 +404,7 @@ func planCheck(command, root string) bool {
 }
 
 // proof runs a hand-in's command as Python's checked does: bash -c in the checkout, without the
-// turn's variables, its output and errors spooled together in the checkout.  Its exit status is
-// Python's returncode, a signal's number negated where one ended it.
+// turn's variables, its output and errors spooled together in the checkout.
 func proof(command, root string) (int, string, error) {
 	spool, err := os.CreateTemp(root, "")
 	if err != nil {
@@ -413,22 +414,34 @@ func proof(command, root string) (int, string, error) {
 	os.Remove(name) // nameless while it runs, as Python's TemporaryFile; Windows removes it closed
 	defer func() { spool.Close(); os.Remove(name) }()
 	cmd := exec.Command("bash", "-c", command)
-	cmd.Dir, cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr = root, []string{}, os.Stdin, spool, spool
-	for _, pair := range os.Environ() {
-		if key, _, _ := strings.Cut(pair, "="); !slices.Contains([]string{"AK_HAND_IN", "AK_HAND_IN_CONTINUE", "AK_HAND_IN_FINDINGS"}, key) {
-			cmd.Env = append(cmd.Env, pair)
-		}
-	}
+	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = root, os.Stdin, spool, spool
+	cmd.Env = withoutTurn()
 	var exited *exec.ExitError
 	if err := cmd.Run(); err != nil && !errors.As(err, &exited) {
 		return 0, "", ErrPython
 	}
-	code := cmd.ProcessState.ExitCode()
-	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-		code = -int(status.Signal())
-	}
 	output, err := excerpt(spool)
-	return code, output, err
+	return exitOf(cmd), output, err
+}
+
+// exitOf is a finished command's exit status as Python's returncode, a signal's number negated
+// where one ended it.
+func exitOf(cmd *exec.Cmd) int {
+	if status, ok := cmd.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return -int(status.Signal())
+	}
+	return cmd.ProcessState.ExitCode()
+}
+
+// withoutTurn is the environment without the turn's variables.
+func withoutTurn() []string {
+	env := []string{}
+	for _, pair := range os.Environ() {
+		if key, _, _ := strings.Cut(pair, "="); !slices.Contains([]string{"AK_HAND_IN", "AK_HAND_IN_CONTINUE", "AK_HAND_IN_FINDINGS"}, key) {
+			env = append(env, pair)
+		}
+	}
+	return env
 }
 
 // excerpt is a proof's output as Python's output_excerpt cuts it: past outputCap bytes, its

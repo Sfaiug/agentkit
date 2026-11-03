@@ -3,13 +3,12 @@ package seat
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,6 +20,7 @@ import (
 	"agentkit/internal/harness"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
+	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
 )
 
@@ -31,15 +31,15 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 	"set-option", "-g", "remain-on-exit", "on", ";", "set-option", "-g", "allow-passthrough", "on", ";",
 	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks", ";"}
 
-// Open is Python's orch.create and launch of a new seat a person names with both its models,
-// in a home Python's maintenance finds tidy, filed under no project and on a provider listing no
-// accounts: its rulebook, its command from its harness's adapter, its record, [defaults]
-// remembering its models, and its session on ak's server, ak's shims first on its harness's
-// PATH.  False where Python's open does what Go does not yet: a harness whose launch writes down
+// Open is Python's orch.create and launch of a new seat with both its models, unnamed where its
+// orchestrator is to name it, in a home Python's maintenance finds tidy, filed under no project
+// and on a provider listing no accounts: its rulebook, its command from its harness's adapter,
+// its record, [defaults] remembering its models, and its session on ak's server, ak's shims first
+// on its harness's PATH.  False where Python's open does what Go does not yet: a harness whose launch writes down
 // more than the conversation it hands out, a name a gone seat left files under, a folder that is
 // a checkout of its own, whose git ak keeps from collecting, reviewers Go binds otherwise, or an
 // adapter giving no command, where only the rulebook is written.
-func Open(name, orchestrator string, model config.Model, workers []string, cwd string) (bool, error) {
+func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
@@ -50,7 +50,10 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
 	rulebook := filepath.Join(state, "rulebook-"+name+".md")
-	text, err := Rulebook()
+	text, err := Rulebook(name)
+	if unnamed {
+		text = namingItself(text) // what its record will say, kept only once a seat comes of it
+	}
 	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
 		os.Remove(rulebook)
 		return false, nil
@@ -71,6 +74,9 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 		fields = append(fields, field{"reviewers", modelList(reviewers)})
 	}
 	fields = append(fields, field{"cwd", cwd}, field{"repo", nil}, field{"created", created}, field{"account", nil}, field{"home_account", nil})
+	if unnamed {
+		fields = append(fields, field{"unnamed", true})
+	}
 	if conversation != "" {
 		fields = append(fields, field{"conversation", conversation}, field{"id_source", "launcher"})
 	}
@@ -89,14 +95,12 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if err := forgetSeen(state, name, time.Now()); err != nil {
 		return true, err
 	}
-	read, _ := os.ReadFile(rulebook)
-	sum := sha256.Sum256(read)
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
 		// before the harness is up: its first prompt may be offered a newer rulebook already
 		if err := update(state, current, func(data *run.Object) bool {
 			data.Set("resumable", conversation != "")
-			data.Set("rulebook_sha", hex.EncodeToString(sum[:]))
+			data.Set("rulebook_sha", digest([]byte(text)))
 			return true
 		}); err != nil {
 			return err
@@ -127,8 +131,17 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 
 // Attach hands this terminal to the seat's session, as Python's orch.attach does from a
 // person's: tmux run as a terminal this box knows, the seat seen opened, then tmux's client in
-// this process's place.  It answers only where it could not.
+// this process's place.  With no terminal on both ends there is none to hand over, and saying
+// where the seat is is the whole answer.  It answers only where it could not.
 func Attach(name string, out, errOut io.Writer) error {
+	if !terminal.Attachable() {
+		program, err := exec.LookPath("tmux")
+		if err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "session %s is running; attach it with `%s`\n", name, commandhelp.ShellJoin([]string{program, "-L", tmux.Own(), "attach", "-t", name}))
+		return nil
+	}
 	if term := tmux.Term(); term != "" {
 		fmt.Fprintf(out, "note: this box has no terminfo for TERM=%s; tmux is run as %s\n", os.Getenv("TERM"), term)
 		os.Setenv("TERM", term)
@@ -139,24 +152,6 @@ func Attach(name string, out, errOut io.Writer) error {
 		fmt.Fprintf(errOut, "WARN could not record opening %s: %s\n", name, err)
 	}
 	return tmux.Attach(tmux.Own(), name)
-}
-
-// Rulebook is what a seat filed under no project opens on (config.seat_rulebook): ak's rules,
-// then this host's own where it wrote any, each read as Python reads text.
-func Rulebook() (string, error) {
-	body, err := os.ReadFile(filepath.Join(config.Repo(), "orchestrator.md"))
-	if err != nil {
-		return "", err
-	}
-	local, err := os.ReadFile(filepath.Join(config.Home(), "rules.md"))
-	if errors.Is(err, fs.ErrNotExist) {
-		err = nil
-	}
-	text := string(body)
-	if strings.TrimFunc(string(local), config.Space) != "" {
-		text = strings.TrimRightFunc(text, config.Space) + "\n\n" + string(local)
-	}
-	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), err
 }
 
 // start is the seat's session on ak's server, as Python's orch.start opens it: its harness run
@@ -202,7 +197,7 @@ func start(state, name, cwd string, cmd []string) error {
 			args = append(args, ";", "set-environment", "-t", target, "-r", f.key)
 		}
 	}
-	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, "@ak_harness_pane", "#{pane_id}",
+	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, tmux.HarnessPane, "#{pane_id}",
 		";", "set-option", "-t", target, "remain-on-exit", "on")
 	if err := tmux.Spawn(tmux.Own(), shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
 		os.Remove(launch)
@@ -227,32 +222,6 @@ func environment(name, server string) ([]field, error) {
 		}
 	}
 	return values, err
-}
-
-// shims puts each of ak's shims, tools/<name>-shim, in ~/.agentkit/bin as <name>, as Python's
-// guard.install_shim does: a link an older install left at a checkout since moved, or one at
-// another tool, is pointed at this install's again.  Their folder.
-func shims() (string, error) {
-	dir := filepath.Join(config.Home(), "bin")
-	if err := os.MkdirAll(dir, 0o777); err != nil {
-		return "", err
-	}
-	for _, target := range config.Glob(filepath.Join(config.Repo(), "tools"), "*-shim") {
-		name := strings.TrimSuffix(filepath.Base(target), "-shim")
-		link := filepath.Join(dir, name)
-		at, err := filepath.EvalSymlinks(link)
-		if want, _ := filepath.EvalSymlinks(target); err == nil && at == want {
-			continue
-		}
-		tmp := filepath.Join(dir, fmt.Sprintf(".%s.%d", name, os.Getpid()))
-		if err := os.Symlink(target, tmp); err != nil {
-			return "", err
-		}
-		if err := os.Rename(tmp, link); err != nil {
-			return "", err
-		}
-	}
-	return dir, nil
 }
 
 // unclaimed is whether nothing holds the name or the folder that Python's open takes over and

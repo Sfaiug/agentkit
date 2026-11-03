@@ -2,6 +2,7 @@ package seat
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -316,27 +317,37 @@ func TestAWorktreeIsFiledUnderTheCheckoutItWasAddedFrom(t *testing.T) {
 
 // What a seat's last answer ran on moves its record as `/model` and `/effort` typed in it do:
 // to the model an entry runs, its own first, each model it then runs at its entry's efforts,
-// and the answer's effort where that model takes it.
+// and the answer's effort where that model takes it, against the efforts the seat holds.  An
+// answer made before its harness was launched moves nothing.
 func TestAnnounceFollowsTheSeatsLastAnswer(t *testing.T) {
 	entry := map[string]any{"effort": "xhigh"}
+	high := map[string]any{"effort": "high", "exec_effort": "high", "review_effort": "high"}
 	for name, example := range map[string]struct {
 		answer string
 		want   map[string]any
+		held   map[string]any
 	}{
+		"an answer made before its launch": {`{"type":"assistant","timestamp":"1970-01-01T00:00:04Z","message":{"model":"claude-fable"}}`,
+			map[string]any{"orchestrator": "opus"}, map[string]any{"launched": 5}},
+		"another effort than the seat's own": {`{"type":"assistant","effort":"xhigh","message":{"model":"claude-opus"}}`,
+			map[string]any{"orchestrator": "opus", "efforts": map[string]any{"opus": map[string]any{"effort": "xhigh", "exec_effort": "high", "review_effort": "high"}}},
+			map[string]any{"efforts": map[string]any{"opus": high}}},
 		"another model": {`{"type":"assistant","message":{"model":"claude-fable"}}`,
-			map[string]any{"orchestrator": "fable", "efforts": map[string]any{"fable": entry, "opus": entry}}},
+			map[string]any{"orchestrator": "fable", "efforts": map[string]any{"fable": entry, "opus": entry}}, nil},
 		"another effort": {`{"type":"assistant","effort":"low","message":{"model":"claude-opus"}}`,
-			map[string]any{"orchestrator": "opus", "efforts": map[string]any{"opus": map[string]any{"effort": "low", "exec_effort": "xhigh", "review_effort": "xhigh"}}}},
+			map[string]any{"orchestrator": "opus", "efforts": map[string]any{"opus": map[string]any{"effort": "low", "exec_effort": "xhigh", "review_effort": "xhigh"}}}, nil},
 		"another model at an effort it takes": {`{"type":"assistant","effort":"max","message":{"model":"claude-fable"}}`,
-			map[string]any{"orchestrator": "fable", "efforts": map[string]any{"fable": map[string]any{"effort": "max", "exec_effort": "xhigh", "review_effort": "xhigh"}, "opus": entry}}},
+			map[string]any{"orchestrator": "fable", "efforts": map[string]any{"fable": map[string]any{"effort": "max", "exec_effort": "xhigh", "review_effort": "xhigh"}, "opus": entry}}, nil},
 		"an effort the model does not take": {`{"type":"assistant","effort":"ultra","message":{"model":"claude-opus"}}`,
-			map[string]any{"orchestrator": "opus"}},
+			map[string]any{"orchestrator": "opus"}, nil},
 		"the seat's own model and effort": {`{"type":"assistant","effort":"xhigh","message":{"model":"claude-opus"}}`,
-			map[string]any{"orchestrator": "opus"}},
+			map[string]any{"orchestrator": "opus"}, nil},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
-			record(t, home, "acme", map[string]any{"repo": nil})
+			held := map[string]any{"repo": nil}
+			maps.Copy(held, example.held)
+			record(t, home, "acme", held)
 			transcript(t, home, "acme", example.answer+"\n")
 			found, known := Read(moment)
 			if !known {

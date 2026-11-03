@@ -51,6 +51,7 @@ type Seat struct {
 	handBacks                                         int      // its runs' hand-backs waiting on the owner's reopening it
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
+	mine                                              []ran    // its own runs, which its ladder reads
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -70,8 +71,12 @@ var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat
 	"plan": {"md"}}
 
 var (
-	recordFields = []string{"orchestrator", "workers", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo"}
-	seatFields   = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
+	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
+	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
+	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
+		"account", "home_account", "launched", "asleep", "seen", "exited_since", "unnamed", "filed", "owner_words_cursor",
+		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded"}
+	seatFields = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
 	// what Python's look at a seat's screen keeps beside its word, which no seat nobody is in reads
 	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence",
 		"stall", "login", "turn_began", "stop_said", "stop_said_at", "opened_at"}
@@ -109,10 +114,13 @@ func reading(now time.Time, looking bool) (Home, bool) {
 	if len(names) == 0 {
 		return Home{}, seatless()
 	}
+	held, live, gone := onServer(names)
 	var planned []string
 	for _, entry := range entries {
-		// Python's cache of runs/, which Go reads itself, says nothing a word hangs on
+		// Python's cache of runs/, which Go reads itself, the cards on their way and the template every
+		// home is given say nothing a word hangs on
 		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
+			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
@@ -123,7 +131,8 @@ func reading(now time.Time, looking bool) (Home, bool) {
 		if !slices.Contains(names, name) && entry.Type().IsRegular() && (suffix == "lock" || kind == "seat" && suffix == "json") {
 			continue
 		}
-		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name || !slices.Contains(kinds[kind], suffix) {
+		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
+			!slices.Contains(kinds[kind], suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
 			return Home{}, false
 		}
 		if kind == "plan" {
@@ -133,23 +142,23 @@ func reading(now time.Time, looking bool) (Home, bool) {
 	models, err := config.Models()
 	offered, unread := config.Offered()
 	runs, known := readRuns(names, now)
-	held, live, gone := onServer(names)
 	if err != nil || unread != nil || !known || !gone || !looking && len(live) > 0 {
 		return Home{}, false
 	}
 	home := Home{models: models}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
-		seat, ok := read(state, name, models, offered, runs[name], now)
-		if !ok || !seat.closed && slices.Contains(planned, name) {
+		isLive := slices.Contains(live, name)
+		seat, ok := read(state, name, models, offered, runs[name], now, isLive)
+		if !ok || !isLive && !seat.closed && slices.Contains(planned, name) {
 			return Home{}, false
 		}
-		seat.held, seat.live = slices.Contains(held, name), slices.Contains(live, name)
+		seat.held, seat.live = slices.Contains(held, name), isLive
 		if seat.live {
 			if record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json")); record != nil {
 				seat.own = models[record.Str("orchestrator")].Harness
 			}
-			if !seat.looksOn(seat.own) {
+			if !seat.looksOn(seat.own) || !climbingOf(state, seat, sight{}, seconds(now)).readable() {
 				return Home{}, false
 			}
 		}
@@ -211,29 +220,36 @@ func onServer(names []string) (held, live []string, known bool) {
 	return held, live, !marked(tmux.Default)
 }
 
-// read is the seat one record holds, from it, its seat file and its runs.
-func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time) (Seat, bool) {
+// read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its
+// panes run on, whose look reads more of its seat file.
+func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool) (Seat, bool) {
 	record, err := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if err != nil || record == nil {
 		return Seat{}, false
 	}
 	seat, known := recorded(state, name, record, models)
-	if !known {
+	if !known || !only(record, recordFields) {
+		return Seat{}, false
+	}
+	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	fields := seatFields
+	if live {
+		fields = slices.Concat(seatFields, lookFields)
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) || err == nil && (previous == nil || !only(previous, fields)) ||
+		!live && previous != nil && previous.Get("unasked") != nil {
 		return Seat{}, false
 	}
 	if seat.Warning == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, models, offered); !known {
+		if seat.follow, known = follows(record, previous, models, offered); !known {
 			return Seat{}, false
 		}
-	}
-	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	if err != nil && !errors.Is(err, fs.ErrNotExist) || err == nil && (previous == nil || !only(previous, seatFields)) {
-		return Seat{}, false
 	}
 	// Python offers a stopped seat that owns no conversation a fresh start, which Go does not word yet
 	if seat.closed, known = stopped(previous); !known || seat.closed && seat.unowned {
 		return Seat{}, false
 	}
+	seat.asleep, seat.mine = putToSleep(record, previous), mine
 	if seat.Created == 0 {
 		seat.Created = float64(now.Unix())
 	}
@@ -274,9 +290,16 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	created, dated := number(record.Get("created"))
 	// as launched, or as reconcile leaves a record whose harness proves no conversation it names
 	resumable := record.Get("resumable") == true || restart != "" && record.Get("resumable") == false
-	if !only(record, recordFields) || !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
-		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" || !resumable {
+	owned, _ := harness.Owns(models[record.Str("orchestrator")].Harness, record, record.Str("conversation"))
+	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
+		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" && !owned || !resumable {
 		return Seat{}, false
+	}
+	// what a record naming reviewers may hold otherwise is config._validate_session's to judge
+	if record.Has("reviewers") {
+		if _, problem, named := crew(record.Get("reviewers"), models); !named || problem != "" || complaint != "" {
+			return Seat{}, false
+		}
 	}
 	seat := Seat{Name: name, Word: "idle", Tally: "no runs yet", Orchestrator: record.Str("orchestrator"), Workers: workers,
 		Created: created, restart: restart, repo: record.Get("repo"), infer: !record.Has("repo"),
@@ -370,7 +393,15 @@ func (home Home) Announce(now time.Time) error {
 	if err := reconcile(state, home.records, true); err != nil {
 		return err
 	}
-	for _, seat := range home.Seats {
+	for at, seat := range home.Seats {
+		if seat.live { // its look decides its word, which every reader of this home reads
+			looked, err := LookedLive(state, seat.Name)
+			if err != nil {
+				return err
+			}
+			home.Seats[at] = looked
+			continue
+		}
 		if err := seat.announce(state, now, home.models); err != nil {
 			return err
 		}

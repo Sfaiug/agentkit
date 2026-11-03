@@ -23,7 +23,7 @@ func hook(args []string, out io.Writer) (code int) {
 	switch {
 	case len(args) != 1:
 	case args[0] == "seat-state":
-		seatState(payload)
+		return seatState(payload, out)
 	case args[0] == "orchestrator-stop" && err == nil:
 		return orchestratorStop(payload, out)
 	}
@@ -34,21 +34,28 @@ func hook(args []string, out io.Writer) (code int) {
 // reads them: its turn is not the seat's.
 var subAgent = []string{"agent_id", "agentId", "agent_type", "agentType", "subagentType", "subagent_type"}
 
-// seatState is hooks/seat-state.sh's facts: a prompt's turn, kept under the launch name the
-// harness carries, for the stop hook to judge that turn's end against, then the event as what
-// the seat is doing, under the name the seat goes by now, unless the fact standing keeps it
-// (`lifecycle.Keeps`).  A worker, a harness outside any seat, a sub-agent's turn and a
-// SessionStart write nothing.
-func seatState(payload []byte) {
+// seatState is hooks/seat-state.sh: a prompt's turn, kept under the launch name the harness
+// carries, for the stop hook to judge that turn's end against; what that prompt carries, read
+// before the fact below lets a look answer its question; then the event as what the seat is
+// doing, under the name the seat goes by now, unless the fact standing keeps it
+// (`lifecycle.Keeps`).  A worker, a harness outside any seat and a sub-agent's turn write
+// nothing; a SessionStart writes only what a compaction drops.  Each event it writes has the seat
+// looked at again at once, off the harness's path; the answer on a question card a seat's question
+// waits on, which Go does not read for what it answers, is left to Python with nothing written.
+func seatState(payload []byte, out io.Writer) int {
 	seat := os.Getenv("AGENTKIT_SESSION")
 	read, _ := run.Decode(payload)
 	event, _ := read.(*run.Object)
 	if _, err := config.SessionPath(seat); err != nil || os.Getenv("AK_RUN_ROLE") == "worker" || event == nil {
-		return
+		return 0
 	}
 	name := event.Str("hook_event_name")
-	if name == "" || name == "SessionStart" || (name == "UserPromptSubmit" || name == "Stop") && first(event, subAgent...) != nil {
-		return
+	if name == "SessionStart" {
+		compacted(seat, event)
+		return 0
+	}
+	if name == "" || (name == "UserPromptSubmit" || name == "Stop") && first(event, subAgent...) != nil {
+		return 0
 	}
 	at := float64(time.Now().UnixNano()) / 1e9
 	if name == "UserPromptSubmit" {
@@ -58,8 +65,9 @@ func seatState(payload []byte) {
 			Blocks  int     `json:"blocks"`
 		}{seat, at, 0})
 		if relatch(seat, string(data)) != nil {
-			return
+			return 0
 		}
+		tellPrompt(seat, event, out)
 	}
 	// `ak orch rename` leaves a pointer at the old name, and the harness carries its launch
 	// name for its whole life.
@@ -78,6 +86,9 @@ func seatState(payload []byte) {
 		}
 		row = next
 	}
+	if name == "PostToolUse" && questionStands(row) {
+		return leftToPython
+	}
 	kind := first(event, "notification_type", "notificationType", "tool_name", "toolName", "trigger")
 	text := question(event)
 	if text == nil {
@@ -89,11 +100,13 @@ func seatState(payload []byte) {
 	// this and knows whether the turn ended there; a nudged harness runs no such hook.
 	if _, listed := lifecycle.HandedOver(event); name == "Stop" && listed {
 		if nudged, err := lifecycle.Nudged(harness); err != nil || !nudged {
-			return
+			return 0
 		}
 		fact = lifecycle.StopFact(seat, event, at, false)
 	}
 	hookfact.Record(row, fact, lifecycle.Keeps(harness, fact))
+	lookAfter(event, at)
+	return 0
 }
 
 // first is the first of the object's keys whose value is neither null nor false, as jq's `//`

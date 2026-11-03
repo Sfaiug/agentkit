@@ -1,8 +1,10 @@
 // Package loop drives one run of a task from its slot to its result, as Python's drive, loop,
-// rounds, execute, verify_work, review, write_result and finish do on the road a passing run takes.
+// rounds, execute, verify_work, review, write_result and finish do: a PASS, a round budget spent, the
+// same failure twice, and a worker that goes silent, fails on its provider or is blocked.
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
 // terminal what that driver does until it is gone, Drive is that driver, End is its ending in
-// error, and Clean takes a run's checkout.
+// error, Clean takes a run's checkout, StopRun ends a run, and Pickup and Reopen hand a dead one
+// to a new driver.  A review of somebody else's pull request takes the same driver, with no executor.
 //
 // It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
@@ -10,11 +12,12 @@
 //
 // The driver is a process of each run's own, which a foreground `ak run` follows, rather than one
 // process from launch to result: Go cannot fork, so `--bg` needs a process started anew anyway, and
-// with one the two launches are the same road, and a terminal closing leaves the run going.
+// with one the two launches are the same road.  A foreground driver shares its terminal's process
+// group and dies with it, as Python's foreground run does; a `--bg` one has a session of its own.
 //
-// A run's record is Python's, so what Go does not carry out of it is Python's too: a stop, a resume
-// and a driver that died are a run like its own to Python.  Any other road Go does not carry out
-// ends the run in error, with a reason naming that road (notYet).
+// A run's record is Python's, so what Go does not carry out of it is Python's too: a run Go cannot
+// stop or pick up is a run like its own to Python.  Any other road Go does not carry out ends the
+// run in error, with a reason naming that road (notYet).
 package loop
 
 import (
@@ -23,24 +26,22 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 	"agentkit/internal/usage"
+	"agentkit/internal/worker"
 )
 
 // DriveFlag is the `ak run` word a driver process is started with: its cmdline still names
@@ -57,9 +58,6 @@ const followEvery = 200 * time.Millisecond
 // errStop is a run a stop landed on: the record says so, and nothing is written over it.
 var errStop = errors.New("the run was stopped")
 
-// signalNames are the signals that end a driver's turn; the context ends with the one that came.
-var signalNames = map[os.Signal]string{syscall.SIGTERM: "SIGTERM", syscall.SIGINT: "SIGINT", syscall.SIGHUP: "SIGHUP"}
-
 // A blocked is a task that cannot be done as written, as an executor handed it in.
 type blocked struct{ why, section string }
 
@@ -73,23 +71,20 @@ func notYet(what, road string) error {
 // Start gives the launched run at dir a driver process of its own, under the locks the driver
 // waits on, so a record that names it is written before it reads one, as Python's spawn_bg, and
 // says on out where to look.  That transfers the slot the launch's receipt claimed, so the launch
-// calls it under the slots lock.
-func Start(dir string, out io.Writer) error {
+// calls it under the slots lock.  A detached driver outlives its terminal.
+func Start(dir string, out io.Writer, detached bool) error {
 	started := run.Change(dir, func(record *run.Object) error {
 		if record.Str("state") == "stopped" {
 			return ErrStopped
 		}
-		pid, err := spawn(dir)
+		pid, err := spawn(dir, detached)
 		if err != nil {
 			return err
 		}
-		var identity any
-		if born, ok := host.ReadIdentity(pid); ok {
-			identity = run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
-		}
 		run.SetAll(record, "state", "running", "slot_waiting", false, "launch_pending", false, "pid", pid,
-			"process_identity", identity, "scope", "none", "scope_reason", "no user systemd manager")
+			"process_identity", identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
 		record.Delete("reservation_pending")
+		record.Delete("resume_from")
 		return nil
 	})
 	if errors.Is(started, ErrStopped) {
@@ -105,9 +100,17 @@ func Start(dir string, out io.Writer) error {
 	return nil
 }
 
-// spawn starts the run's driver in a session of its own, writing to the run's log, and reaps it
-// when it ends: a zombie still answers as alive.
-func spawn(dir string) (int, error) {
+// identity is a process's birth as a record holds it, nil where it cannot be read.
+func identity(pid int) any {
+	if born, ok := host.ReadIdentity(pid); ok {
+		return run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
+	}
+	return nil
+}
+
+// spawn starts the run's driver, writing to the run's log, and reaps it when it ends: a zombie
+// still answers as alive.
+func spawn(dir string, detached bool) (int, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, err
@@ -118,7 +121,10 @@ func spawn(dir string) (int, error) {
 	}
 	defer log.Close()
 	cmd := exec.Command(self, "run", DriveFlag, dir)
-	cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = log, log, host.Detached()
+	cmd.Stdout, cmd.Stderr = log, log
+	if detached {
+		cmd.SysProcAttr = host.Detached()
+	}
 	if err := cmd.Start(); err != nil {
 		return 0, err
 	}
@@ -181,26 +187,34 @@ func exitStatus(record *run.Object) int {
 
 // A loop is one driver's run.
 type loop struct {
-	ctx         context.Context
-	dir         string
-	id          string
-	body        string
-	every       []string // the done-when lines as a round runs them
-	prompt      string
-	workspace   string
-	place       workplace
-	title       string
-	cmds        []string // the done-when lines a round reads
-	usersAt     string   // the ref a review's `users:` is read at
-	reviewLines int      // the first review's ceiling
-	once        []string // those deferred to landing
-	executor    string
-	reviewer    string
-	workers     []string // the lists the run was launched with, nil where none was bound
-	reviewers   []string
-	efforts     *run.Object
-	silence     time.Duration
-	ceiling     time.Duration
+	ctx           context.Context
+	dir           string
+	id            string
+	body          string
+	every         []string // the done-when lines as a round runs them
+	prompt        string
+	workspace     string
+	place         workplace
+	title         string
+	cmds          []string // the done-when lines a round reads
+	usersAt       string   // the ref a review's `users:` is read at
+	reviewLines   int      // the first review's ceiling
+	once          []string // those deferred to landing
+	executor      string
+	reviewer      string
+	workers       []string // the lists the run was launched with, nil where none was bound
+	reviewers     []string
+	efforts       *run.Object
+	silence       time.Duration
+	ceiling       time.Duration
+	budget        int    // the rounds this run may spend
+	rnd           int    // the round under way, the rounds spent before it
+	execSession   string // the conversation a fixer resumes, "" before any
+	reviewSession string // and a later review
+	findings      string // the last review's whole text, for its fixer
+	findingsFile  string // and where it is
+	prior         bool   // the record already names its workplace: this driver carries the run on
+	pull          string // the pull request this run reviews alone, "" for a run of a task
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
@@ -215,15 +229,22 @@ func Drive(dir string) (code int) {
 	for _, name := range []string{"AK_HAND_IN", "AK_HAND_IN_CONTINUE", "AK_HAND_IN_FINDINGS"} {
 		os.Unsetenv(name)
 	}
-	ctx, cancel := context.WithCancelCause(context.Background())
-	defer cancel(nil)
-	told := make(chan os.Signal, 1)
-	signal.Notify(told, slices.Collect(maps.Keys(signalNames))...)
-	go func() { cancel(fmt.Errorf("the driver got %s", signalNames[<-told])) }()
+	// a signal ends the turn under way before the driver goes
+	ctx, release := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	err := l.adopt()
-	if err == nil {
-		l.say(fmt.Sprintf("run %s: %s", l.id, filepath.Join(dir, "task.md")))
+	switch {
+	case err != nil:
+	case l.pull != "":
+		l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
+		err = l.reviewPull()
+	default:
+		word := "run"
+		if l.prior {
+			word = "resume"
+		}
+		l.say(fmt.Sprintf("%s %s: %s", word, l.id, filepath.Join(dir, "task.md")))
 		err = l.work()
 	}
 	code = l.finish(err)
@@ -252,6 +273,8 @@ func (l *loop) adopt() error {
 		os.Setenv("AK_RUN_DEPTH", strconv.Itoa(depth+1))
 		os.Setenv("AK_PARENT_RUN", parent)
 		os.Setenv(host.Marker, l.dir)
+		l.prior = record.Truthy("worktree")
+		l.pull = record.Str("review_pr")
 		l.workers, l.reviewers = names(record.List("workers")), names(record.List("reviewers"))
 		l.efforts = record.Dict("efforts")
 		minutes, _ := record.Num("silence_minutes")
@@ -331,7 +354,8 @@ func (l *loop) work() error {
 	if err := l.pick(); err != nil {
 		return err
 	}
-	if err := l.round(); err != nil {
+	passed, err := l.rounds()
+	if err != nil || !passed {
 		return err
 	}
 	return l.place.finished(l)
@@ -353,13 +377,12 @@ func (l *loop) open() error {
 	l.title = task.Title(text, "task")
 	words, points := task.Size(l.body)
 	if err := l.save(func(record *run.Object) {
-		run.SetAll(record, "run_id", l.id, "title", l.title, "task", path, "state", "running", "verdict", nil,
-			"started_at", clock(), "reported", false, "task_words", words, "task_points", points, "task_checks", len(cmds))
+		if !l.prior {
+			run.SetAll(record, "verdict", nil, "started_at", clock())
+		}
+		run.SetAll(record, "run_id", l.id, "title", l.title, "task", path, "state", "running", "reported", false,
+			"task_words", words, "task_points", points, "task_checks", len(cmds))
 	}); err != nil {
-		return err
-	}
-	rounds, method, err := budget(meta, path, l.dir)
-	if err != nil {
 		return err
 	}
 	record, err := run.Read(l.dir)
@@ -372,9 +395,20 @@ func (l *loop) open() error {
 	if repo, isRepo := l.place.(*repoPlace); isRepo {
 		repo.title, repo.files = l.title, files
 	}
-	if err := l.place.open(l, meta, path, []any{"stalls", []any{}, "executor", nil, "reviewer", nil, "rounds", rounds,
-		"finished_at", nil, "round_summaries", []any{}, "findings", "", "merge_method", method,
-		"pr", nil, "merged", false, "merge_note", nil}); err != nil {
+	if l.prior {
+		l.takeUp(record)
+		err = l.place.reopen(l, record)
+	} else {
+		var rounds int
+		var method string
+		if rounds, method, err = budget(meta, path, l.dir); err == nil {
+			l.budget = rounds
+			err = l.place.open(l, meta, path, []any{"stalls", []any{}, "executor", nil, "reviewer", nil, "rounds", rounds,
+				"finished_at", nil, "round_summaries", []any{}, "findings", "", "merge_method", method,
+				"pr", nil, "merged", false, "merge_note", nil})
+		}
+	}
+	if err != nil {
 		return err
 	}
 	landing, suite := l.place.landing()
@@ -416,14 +450,9 @@ func budget(meta map[string]string, path, dir string) (rounds int, method string
 	if raw == "" {
 		raw = meta["rounds"]
 	}
-	number, err := config.Rounds()
+	number, err := run.PolicyRounds(record)
 	if err != nil {
 		return 0, "", err
-	}
-	if policy := record.Dict("policy"); policy != nil {
-		if held, ok := policy.Int("rounds"); ok {
-			number = held
-		}
 	}
 	if raw != "" {
 		parsed := config.Int(raw)
@@ -462,11 +491,20 @@ func (l *loop) rules() (*pick.Rules, bool) {
 // pick chooses who executes and who reviews, as Python's pick_models and best_pair: a harness that
 // cannot run a turn here is left out before any budget rule reads the list.
 func (l *loop) pick() error {
+	if l.prior {
+		record, err := run.Read(l.dir)
+		if record == nil {
+			return cmp.Or(err, errors.New("run.json cannot be read"))
+		}
+		l.executor, l.reviewer = record.Str("executor"), record.Str("reviewer")
+		l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", l.executor, l.reviewer, l.budget))
+		return nil
+	}
 	rules, ok := l.rules()
 	if !ok {
 		return notYet("the models cannot be picked here", "a pick Python makes")
 	}
-	cannot := cannotRun()
+	cannot := unable()
 	if why := rules.Unstaffed(cannot); why != "" {
 		return errors.New(why)
 	}
@@ -479,8 +517,11 @@ func (l *loop) pick() error {
 	rules.Order(room, false, logged)
 	rules.Order(room, true, logged)
 	executor, reviewer, found := rules.Pair(room)
+	if len(rules.Order(room, false, nil)) == 0 {
+		return &exhausted{"every worker has a gate meter at 100% used", true}
+	}
 	if !found {
-		return notYet("no executor and reviewer can run now", "an exhausted run")
+		return &exhausted{"no eligible reviewer: no worker with budget is left to review; waiting for review", true}
 	}
 	l.executor, l.reviewer = executor, reviewer
 	var rounds int
@@ -500,25 +541,39 @@ func (l *loop) finish(err error) int {
 	switch {
 	case errors.Is(err, errStop):
 		return 1
+	case err != nil && (l.ctx.Err() != nil || errors.Is(err, worker.ErrInterrupted)):
+		// killed, it is an ordinary dead loop, as Python's is, for `ak run resume` to carry on
+		return 1
 	case errors.As(err, &cannot):
 		l.say("BLOCKED " + cannot.why)
 		err = write(l.dir, func(record *run.Object) {
 			run.SetAll(record, "state", "blocked", "verdict", "BLOCKED", "error", cannot.why,
 				"blocked", cannot.section, "finished_at", clock())
+			record.Delete("quota_dry")
+			record.Delete("transient_wait")
 		})
 	case err != nil:
-		var stopped *gitcall.Stopped
-		if errors.As(err, &stopped) {
-			err = notYet(stopped.Why, "a git that stopped")
+		said, park, stands := parked(err)
+		if !stands {
+			return End(l.dir, err.Error())
 		}
-		return End(l.dir, err.Error())
+		l.say(said)
+		if write(l.dir, park) == nil {
+			settle(l.dir)
+		}
+		record, _ := run.Read(l.dir)
+		return exitStatus(record)
 	default:
 		err = write(l.dir, func(record *run.Object) {
 			state := "fail"
-			if run.ReviewPass(record, run.Models()) {
+			switch {
+			case record.Str("state") == "waiting":
+				state = "waiting" // a parked run is no ending: its wait is the tick's
+			case run.ReviewPass(record, run.Models()):
 				state = "pass"
 			}
 			run.SetAll(record, "state", state, "finished_at", clock())
+			record.Delete("transient_wait") // a wait that ended, which nothing reads now
 		})
 	}
 	if errors.Is(err, errStop) {
@@ -548,27 +603,43 @@ func End(dir, why string) int {
 // conclude is what follows an ending on the record: its result, what it left running, ended once,
 // and the log's last word.
 func conclude(dir string) int {
-	record, _ := run.Read(dir)
+	record := settle(dir)
 	if record == nil {
 		return 2
 	}
 	said := stampedLog{dir}
-	if record.Truthy("error") && !(record.Truthy("worktree") && record.Has("round_summaries")) {
-		// nothing to report on but why: its reason is said here, as Python's record_result does
-		fmt.Fprintln(said, "ERROR "+record.Str("error"))
-	}
-	WriteResult(dir, record)
-	host.EndMarked(dir, said)
-	// said on the record, so nothing reaps it again
-	write(dir, func(record *run.Object) {
-		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
-	})
 	if record.Str("state") == "error" {
 		fmt.Fprintln(said, "FAIL -> "+filepath.Join(dir, "result.md")+" (error)")
 		return 2
 	}
 	fmt.Fprintln(said, run.Delivery(record, run.Models())+" -> "+filepath.Join(dir, "result.md"))
 	return exitStatus(record)
+}
+
+// settle is what every ending leaves on the record: its result, and what it left running, ended
+// once.  It is the record as it was read.
+func settle(dir string) *run.Object {
+	record, _ := run.Read(dir)
+	if record == nil {
+		return nil
+	}
+	said := stampedLog{dir}
+	recordResult(dir, record)
+	host.EndMarked(dir, said)
+	// said on the record, so nothing reaps it again
+	write(dir, func(record *run.Object) {
+		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
+	})
+	return record
+}
+
+// recordResult is result.md for an ending, Python's record_result: with nothing to report on but
+// why, its reason is said in the log too.
+func recordResult(dir string, record *run.Object) {
+	if record.Truthy("error") && !fullResult(record) {
+		fmt.Fprintln(stampedLog{dir}, "ERROR "+record.Str("error"))
+	}
+	WriteResult(dir, record)
 }
 
 func clock() float64 { return float64(time.Now().UnixNano()) / 1e9 }

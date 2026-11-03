@@ -81,7 +81,6 @@ func TestWhatGoCannotReadAsPythonIsLeftToIt(t *testing.T) {
 		lines string
 		args  []string
 	}{
-		{handed, []string{"done"}}, // its finding's proof runs again under the worker's limits
 		{handed + "{\"kind\": \"note\", \"what\": \"\xff\"}\n", []string{"blocked", "why"}},
 		{`{"kind": "turn", "workspace": "\ud800"}` + "\n", []string{"blocked", "why"}},
 		{handed, []string{"blocked", "why \xff"}},
@@ -177,6 +176,25 @@ func TestQuotesAreFoundInPythonsTextView(t *testing.T) {
 		}
 		if _, err := handIn(t, record, opened(ws, ""), "finding", "task.md:1", "Wrong result", "Breaks callers", "--quote", example.quote); err != nil {
 			t.Errorf("%q in %q: %v", example.quote, example.data, err)
+		}
+	}
+}
+
+func TestAFixersDoneWaitsOnEveryUndisputedProof(t *testing.T) {
+	ws, record := checkout(t)
+	handed := opened(ws, `, "role": "fixer", "findings": [{"path": "api.py", "line": 2, "what": "w", "evidence": {"run": "echo still; exit 3"}}]`)
+	if row, err := handIn(t, record, handed, "done"); row != "" || err == nil ||
+		!strings.Contains(err.Error(), "done refused: earlier findings still fail:\napi.py:2 - w [exit 3]\nstill\n") {
+		t.Fatalf("appended %q: %v", row, err)
+	}
+	for name, lines := range map[string]string{
+		"disputed":   handed + `{"kind": "dispute", "path": "api.py", "line": 2, "what": "w", "why": "y", "evidence": {"run": "true", "returncode": 0, "output": ""}}` + "\n",
+		"fixed":      opened(ws, `, "role": "fixer", "findings": [{"path": "api.py", "line": 2, "what": "w", "evidence": {"run": "true"}}]`),
+		"cannot run": opened(ws, `, "role": "fixer", "findings": [{"path": "api.py", "line": 2, "what": "w", "evidence": {"run": "exit 127"}}]`),
+		"quoted":     opened(ws, `, "role": "fixer", "findings": [{"path": "api.py", "line": 2, "what": "w", "evidence": {"quote": "q"}}]`),
+	} {
+		if row, err := handIn(t, record, lines, "done"); err != nil || row != `{"kind": "done"}`+"\n" {
+			t.Errorf("%s: appended %q: %v", name, row, err)
 		}
 	}
 }
