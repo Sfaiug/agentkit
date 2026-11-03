@@ -560,7 +560,10 @@ func (l *loop) finish(err error) int {
 	default:
 		err = write(l.dir, func(record *run.Object) {
 			state := "fail"
-			if run.ReviewPass(record, run.Models()) {
+			switch {
+			case record.Str("state") == "waiting":
+				state = "waiting" // a parked run is no ending: its wait is the tick's
+			case run.ReviewPass(record, run.Models()):
 				state = "pass"
 			}
 			run.SetAll(record, "state", state, "finished_at", clock())

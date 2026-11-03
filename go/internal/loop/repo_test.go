@@ -290,7 +290,7 @@ func TestStopCheckoutNeverTakesWhatIsUnderCode(t *testing.T) {
 	}
 }
 
-func TestALandingRunEndsWhereItsLandingStartsItsReviewStanding(t *testing.T) {
+func TestADeliveryWithNoReviewBehindItWaitsForOneItsVerdictStanding(t *testing.T) {
 	l, r := repoRig(t)
 	if r.noMerge = true; r.finished(l) != nil {
 		t.Fatal("a --no-merge run has nothing to land")
@@ -299,11 +299,11 @@ func TestALandingRunEndsWhereItsLandingStartsItsReviewStanding(t *testing.T) {
 		t.Fatal(err)
 	}
 	r.noMerge = false
-	if code := l.finish(r.finished(l)); code != 2 {
+	if code := l.finish(r.finished(l)); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
 	record, _ := run.Read(l.dir)
-	if record.Str("state") != "error" || record.Str("verdict") != "PASS" || record.Str("error") != "the review passed: landing it is not Go's yet" {
+	if record.Str("state") != "exhausted" || record.Str("verdict") != "PASS" || record.Str("error") != "delivery requires a successful reviewer allowed by the model policy; resume the run to obtain review" {
 		t.Fatalf("record %s", run.Line(record))
 	}
 }
