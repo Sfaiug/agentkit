@@ -127,12 +127,15 @@ class MachinesOnC(unittest.TestCase):
                 self.leave()
 
     def test_a_silent_machine_and_a_phone_keep_the_recorded_facts(self):
+        silent = self.machine("macOS", 4, 8, 6, 1, answering=False)
+        silent["checks"].append([NOW + 60, False])
+        self.now.write_text(str(NOW + 60))
         self.home.write(".agentkit/state/machines.json", {
             "this one": self.machine("Linux", 8, 16, 9, 4.4),
-            "acme-mac": self.machine("macOS", 4, 8, 6, 1, answering=False)})
+            "acme-mac": silent})
         screen = self.page(width=40)
         shown = " ".join(screen.split())
-        self.assertIn("not answering since 18:39 · tests", shown)
+        self.assertIn("not answering since 18:40 · tests", shown)
         self.assertIn("acme-rental rented until 15:44 · never answered · builds, reviews, tests",
                       shown)
         self.assertTrue(all(len(line) <= 40 for line in screen.splitlines()))

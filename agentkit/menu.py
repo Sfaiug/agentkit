@@ -4831,8 +4831,8 @@ def opened_line(told, kind, texts, on, room):
 
 
 def page_body(rows, at=None, moves=None):
-    """The lines of a page `c` opens, and the
-    row each is, {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its
+    """The lines of a page `c` opens and the row each is, {line: (row, [])}: of `rows`,
+    (row, label, value) each, its label and then its
     value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
     list opened under the row above it, indented as `add a subscription`'s are.  A value is
     text, or parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s
@@ -4881,8 +4881,8 @@ def config_page(name, page):
     flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
 
     A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
-    flipping it; a list, (choices,
-    several), Enter or a click opening it under the row, coming up there (motion.fading), the
+    flipping it; a list, (choices, several), Enter or a click opening it under the row, coming
+    up there (motion.fading), the
     highlight on the first choice marked; or a field, Enter or a click calling it with `draw`,
     which draws the page with lines under the row and returns the screen row of the first, as
     terminal.field takes it.  `choices()` gives (value, pick, mark) each, asked as the list
@@ -5227,12 +5227,17 @@ def machine_value(machine, rented, turns):
     if said:
         total, free = said["memory_mb"], said["free_mb"]
         words += [f"{said['cores']} cores · {machines._gb(total)}"]
-        if machine.checks and not machine.checks[-1][1]:
-            words += [f"not answering since {machines._when(said['at'])}"]
-        else:
-            busy = min(100, max(0, round(100 * said["load"] / max(1, said["cores"]))))
-            used = machines._gb(total - free).removesuffix(" GB")
-            words += [f"{busy}% busy · {used} of {machines._gb(total)} used"]
+    if machine.checks and not machine.checks[-1][1]:
+        since = machine.checks[-1][0]
+        for at, answered in reversed(machine.checks):
+            if answered:
+                break
+            since = at
+        words += [f"not answering since {machines._when(since)}"]
+    elif said:
+        busy = min(100, max(0, round(100 * said["load"] / max(1, said["cores"]))))
+        used = machines._gb(total - free).removesuffix(" GB")
+        words += [f"{busy}% busy · {used} of {machines._gb(total)} used"]
     else:
         words += ["never answered"]
     work = ("sessions, builds, reviews, tests" if here else "builds, reviews, tests"
@@ -5304,8 +5309,8 @@ def config_limits(cfg):
 def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat the popup is over, read
     from its own record -- and the efforts, under each subscription's meter, then
-    `Models`, `Subscriptions`, `Discord`, `Weekly audit`, `Machines` and `Limits`, agentkit's build under
-    them, read with the menu's keyboard (config_matrix), so nothing is typed.
+    CONFIG_ROWS, agentkit's build under them, read with the menu's keyboard (config_matrix),
+    so nothing is typed.
     With no seat, or for a seat with no record, the marks are new seats' ([defaults]); a
     record that will not read has the efforts alone, saying so under the rows: the screen that
     changes the models still opens.
