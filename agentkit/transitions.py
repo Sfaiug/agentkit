@@ -118,6 +118,17 @@ def stands_on_dependency(state):
             f"waits for; once that has merged, relaunch with `from: {branch}`")
 
 
+def run_kind(state):
+    """The launch origin a history row keeps after its run record is collected."""
+    for field, kind in (("repair", "repair"), ("split_suite", "split"),
+                        ("followup", "follow-up"), ("night", "night")):
+        if state.get(field):
+            return kind
+    if state.get("review_pr"):
+        return "seat PR" if state.get("own_pr") else "PR"
+    return "task"
+
+
 def history_start(state, log=None):
     """Publish the launch receipt without making SQLite part of run correctness.
 
@@ -137,7 +148,7 @@ def history_start(state, log=None):
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
                       orchestrator=record.get("orchestrator") if record else None,
-                      change=change_name(state), log=log)
+                      change=change_name(state), kind=run_kind(state), log=log)
 
 
 def changed_files(state):
@@ -693,15 +704,23 @@ def seat_runs(name):
     return found
 
 
-def launched_session(state, resolved=None):
-    """The seat this run was launched from, by its name now, or None: it was launched from none.
+def launched_name(state):
+    """The name of the seat this run was launched from as it recorded it, or None: from none.
 
-    `session` is what a run.json written before the field was renamed calls the same thing.  A
-    pass over many runs hands each call the same `resolved`, so a seat many runs name is
-    resolved once: following a rename reads the seat's record.
+    `session` is what a run.json written before the field was renamed calls the same thing.
     """
     name = state.get("launched_session") or state.get("session")
-    if not isinstance(name, str) or not name:
+    return name if isinstance(name, str) and name else None
+
+
+def launched_session(state, resolved=None):
+    """The seat this run was launched from, by its name now (`launched_name`), or None.
+
+    A pass over many runs hands each call the same `resolved`, so a seat many runs name is
+    resolved once: following a rename reads the seat's record.
+    """
+    name = launched_name(state)
+    if name is None:
         return None
     if resolved is None:
         return config.resolve_session(name)
@@ -719,7 +738,7 @@ def runs_by_seat(records):
         try:
             seat = launched_session(state, resolved)
         except config.Error:
-            seat = resolved[state.get("launched_session") or state.get("session")] = None
+            seat = resolved[launched_name(state)] = None
         if seat is not None:
             mine.setdefault(seat, []).append((run_dir, state))
     return mine

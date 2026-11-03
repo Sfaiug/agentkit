@@ -5,6 +5,7 @@ import (
 	"io"
 	"runtime"
 
+	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/run"
 )
@@ -19,7 +20,7 @@ func Dry(out io.Writer) bool {
 		return false
 	}
 	health, _, ok := Health()
-	if !ok || !idle(true) {
+	if !ok || !idle() {
 		return false
 	}
 	value, why, err := gh.JSON(run.Runs(), "api", "user")
@@ -29,5 +30,19 @@ func Dry(out io.Writer) bool {
 	line, _ := unanswered(why)
 	fmt.Fprintln(out, health)
 	fmt.Fprintln(out, line)
+	return true
+}
+
+// idle is whether watch.json and every row a dry tick reads say there is nothing to act on, read
+// with nothing written. The state folder comes first: the rows' seat records are listed from it.
+func idle() bool {
+	if state, ok := loadState(); !ok || !quiet(state) || !config.Listable(statePath("")) {
+		return false
+	}
+	for _, each := range table(&ticking{dry: true}) {
+		if each.dry && each.idle != nil && !each.idle() {
+			return false
+		}
+	}
 	return true
 }

@@ -99,6 +99,8 @@ class TokenExpiry(unittest.TestCase):
 
     # --- 2: from fourteen days out the ak screen says it, and no word changes --
 
+    # A worker token expiring soon is a line on the ak screen, not a word.
+    # [14, 20 Oct 2026]
     def test_thirteen_days_out_the_ak_screen_says_it_and_no_session_reads_it(self):
         self.write_token(352)
         _, tokens = self.poll()

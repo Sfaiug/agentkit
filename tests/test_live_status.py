@@ -230,6 +230,8 @@ class LiveStatus(unittest.TestCase):
         self.assertEqual(watch.hook_look("herdr")["word"], "working")   # ... and from its own
         self.assertIn("● working", self.options[statusbar.TOP])
 
+    # The word follows the real change within about 2 seconds, on every harness.
+    # [14, 20 Oct 2026]
     def test_an_open_menu_draws_again_within_two_seconds_of_a_record_changing(self):
         self.hook("Stop")
         watch.hook_look("herdr")                       # at its prompt, and recorded so

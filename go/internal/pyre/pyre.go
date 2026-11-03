@@ -64,6 +64,10 @@ var pairs = []string{"iı", "sſ", "µμ", "\u0345\u03b9\u1fbe", "\u0390\u1fd3",
 // flagged is a group that sets flags, Python's `(?i)` and `(?i-m:`.
 var flagged = regexp.MustCompile(`^\(\?([aiLmsux]*)(?:-([imsx]*))?([:)])`)
 
+// Python refuses to repeat an anchor, which the engine repeats: `\b*`, `^{2}`.
+var anchors = []string{"^", "$", `\A`, `\Z`, `\b`, `\B`}
+var repeat = regexp.MustCompile(`^(?:[*+?]|\{(?:\d+|\d*,\d*)\})`)
+
 // Compile is Python's re.compile(pattern, flags); an error where Python's would refuse it, or
 // where the engine has no way to say it.
 func Compile(pattern string, flags Flag) (*Regexp, error) {
@@ -99,8 +103,12 @@ func translated(source string, folding bool) (string, error) {
 	var out strings.Builder
 	flags := scope{folding: folding}
 	var outer []scope // the flags around each open group
+	anchored := false // the last item is an anchor
 	for at, size := 0, 0; at < len(source); at += size {
 		rest := source[at:]
+		if anchored && repeat.MatchString(rest) {
+			return "", fmt.Errorf("nothing to repeat")
+		}
 		size = 1
 		switch {
 		case rest[0] == '\\' && len(rest) > 1:
@@ -167,7 +175,10 @@ func translated(source string, folding bool) (string, error) {
 			size = len(set[0])
 		case strings.HasPrefix(rest, "(?P<"):
 			// the name as written, never a letter of it folded
-			name, _, _ := strings.Cut(rest[4:], ">")
+			name, _, closed := strings.Cut(rest[4:], ">")
+			if !closed {
+				return "", fmt.Errorf("missing >, unterminated name")
+			}
 			out.WriteString("(?<" + name + ">")
 			size = 4 + len(name) + 1
 			outer = append(outer, flags)
@@ -181,7 +192,10 @@ func translated(source string, folding bool) (string, error) {
 			size = 3 + len(name) + 1
 			outer = append(outer, flags)
 		case strings.HasPrefix(rest, "(?P="):
-			name, _, _ := strings.Cut(rest[4:], ")")
+			name, _, closed := strings.Cut(rest[4:], ")")
+			if !closed {
+				return "", fmt.Errorf("missing ), unterminated name")
+			}
 			out.WriteString(`\k<` + name + `>`)
 			size = 4 + len(name) + 1
 		case rest[0] == '(':
@@ -197,6 +211,13 @@ func translated(source string, folding bool) (string, error) {
 			var char rune
 			char, size = utf8.DecodeRuneInString(rest)
 			out.WriteString(folded(char, flags.folding, rest[:size]))
+		}
+		// a comment, or a space read verbose, between an anchor and a repeat leaves the anchor last
+		switch item := rest[:size]; {
+		case slices.Contains(anchors, item):
+			anchored = true
+		case !strings.HasPrefix(item, "(?#") && !(flags.verbose && strings.ContainsAny(item[:1], "# \t\n\r\v\f")):
+			anchored = false
 		}
 	}
 	return out.String(), nil

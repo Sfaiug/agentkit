@@ -97,6 +97,8 @@ class QuestionWaitsForTheStop(Sandbox):
             "background_tasks": [], "last_assistant_message": "\n\n".join(questions.pending(SEAT)) or "Finished.",
             **payload})
 
+    # `needs you` begins only once questions are visible and the turn ends, or
+    # pauses on a blocking card. [21 Oct 2026]
     def test_the_seat_reads_working_while_the_turn_that_asked_runs(self):
         fact = self.hook("UserPromptSubmit", prompt="Build the acme parser.")
         self.asks()

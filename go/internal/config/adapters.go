@@ -27,7 +27,8 @@ var adapters embed.FS
 const adapterDir = "AGENTKIT_ADAPTER_DIR"
 
 // ErrNoAdapterDir is a home naming no $AGENTKIT_ADAPTER_DIR, as every real home: Go runs no turn
-// through Python ak's adapter scripts, and asks them only for a listing (Lister).
+// through Python ak's adapter scripts, and asks them only for a listing (Lister) and, behind the ak
+// screen, for usage (ShippedAdapter).
 var ErrNoAdapterDir = errors.New("no adapter directory named")
 
 // Adapter is the script that runs a harness, <harness>.sh in $AGENTKIT_ADAPTER_DIR, as Python's
@@ -37,7 +38,17 @@ func Adapter(harness string) (string, error) {
 	if dir == "" {
 		return "", ErrNoAdapterDir
 	}
-	script := filepath.Join(Expand(dir), harness+".sh")
+	return runnable(filepath.Join(Expand(dir), harness+".sh"), harness)
+}
+
+// ShippedAdapter is the script Python's config.adapter_path names where no $AGENTKIT_ADAPTER_DIR
+// is: the checkout's own, shipped beside its manifest, or why it cannot be run.
+func ShippedAdapter(harness string) (string, error) {
+	return runnable(filepath.Join(Repo(), "adapters", harness+".sh"), harness)
+}
+
+// runnable is a harness's script where it can be run, as Python's config.adapter finds it.
+func runnable(script, harness string) (string, error) {
 	if _, err := os.Stat(script); err != nil {
 		return "", fmt.Errorf("no adapter for harness %s: %s does not exist", commandhelp.Quote(harness), script)
 	}

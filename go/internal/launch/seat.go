@@ -56,17 +56,19 @@ func SeatRefusal(values map[string]string, flags map[string]bool) string {
 	return ""
 }
 
-// staffed is whether a seat's record names an executor, which Python refuses a launch without in
-// its own words.
-func staffed(record map[string]any) bool {
-	workers, _ := record["workers"].([]any)
-	return len(workers) > 0
+// bind is what this launch binds: a seat's own lists and efforts, which a record naming no
+// executor leaves Python to refuse in its own words, else the config's.
+func bind() (config.Binding, error) {
+	if seat, record, _ := Seat(); seat != "" {
+		return config.BindSeat(record)
+	}
+	return config.Bind()
 }
 
 // seatQueue is what becomes of a seat's launch once everything Python asks before its queue
-// passed: refused where the seat may queue no more (seatFull), else Python's to make.  Python's
-// rival check comes first, which Go leaves to it wherever it may name a run: a repository's task
-// with a run under way.
+// passed: refused where the seat may queue no more (seatFull), else on its way.  Python's rival
+// check comes first, which Go leaves to it wherever it may name a run: a repository's task with a
+// run under way.
 func seatQueue(seat string, repo string) error {
 	if repo != "" && going() {
 		return ErrPython
@@ -74,7 +76,7 @@ func seatQueue(seat string, repo string) error {
 	if why := seatFull(seat); why != "" {
 		return &refusedOutright{why}
 	}
-	return ErrPython // its run, its receipt and its hand-back are Python's yet
+	return nil
 }
 
 // seatFull is why that seat may not launch one more run, Python's gate.seat_full: a seat may have

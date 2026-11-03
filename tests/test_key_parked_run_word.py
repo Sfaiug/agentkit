@@ -24,6 +24,8 @@ WAIT = "origin/main is red; retried after the next merge to origin/main"
 STALLED = "20261001-0100-fix-api-a-long-integration-command-in-the"
 
 
+# `needs you`: only the owner can unblock it: a failure no seat handles.
+# [14, 20 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ParkedRunWord(unittest.TestCase):
     @classmethod

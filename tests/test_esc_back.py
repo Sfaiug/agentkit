@@ -82,7 +82,8 @@ def mark_return(module, name):
 
 for module, name in ((menu, "config_matrix"), (menu, "models_page"),
                      (menu, "config_subscriptions"), (menu, "config_add_provider"),
-                     (menu, "config_discord"), (menu, "config_audit"), (menu, "show_features"),
+                     (menu, "config_discord"), (menu, "config_audit"), (menu, "config_limits"),
+                     (menu, "show_features"),
                      (menu, "new_session"),
                      (menu, "pause"), (terminal, "choose")):
     mark_return(module, name)
@@ -238,7 +239,7 @@ class EscBack(unittest.TestCase):
         menu_ = Menu(self)
         menu_.screen()
         menu_.press(b"c", title("config"))
-        menu_.press(DOWN * 30 + UP * 6, lambda lines: title("config")(lines) and any(
+        menu_.press(DOWN * 30 + UP * 4, lambda lines: title("config")(lines) and any(
             line.startswith("› Models") for line in lines))
         models = title("config · models")
         menu_.press(ENTER, models)
@@ -286,7 +287,7 @@ class EscBack(unittest.TestCase):
         menu_.screen()
         config_ = title("config")        # the highlighted seat's
         menu_.press(b"c", config_)
-        menu_.press(DOWN * 30 + UP * 6, lambda lines: config_(lines) and any(
+        menu_.press(DOWN * 30 + UP * 4, lambda lines: config_(lines) and any(
             line.startswith("› Models") for line in lines))
         menu_.press(ENTER, title("config · models"))
         menu_.back("models_page", title("config · models"))
@@ -302,6 +303,9 @@ class EscBack(unittest.TestCase):
         menu_.press(DOWN + ENTER, title("config · weekly audit"))
         menu_.back("config_audit", title("config · weekly audit"))
         self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written
+        menu_.press(DOWN + ENTER, title("config · limits"))
+        menu_.back("config_limits", title("config · limits"))
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor a number
         menu_.back("config_matrix", config_)
         menu_.leave()
 

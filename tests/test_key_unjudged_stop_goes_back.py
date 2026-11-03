@@ -110,6 +110,7 @@ class UnjudgedStopGoesBack(unittest.TestCase):
         self.assertEqual(word, "needs you")
         self.assertIn(LAST, reason)
 
+    # The owner's composer is never the question's display. [21 Oct 2026]
     def test_a_recorded_question_is_not_typed_at(self):
         seat = self.turn("question")
         done = self.home.ak("notify", "needs", ASKED, env={"AGENTKIT_SESSION": "question"})

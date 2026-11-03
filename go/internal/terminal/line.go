@@ -36,7 +36,7 @@ func Pad(text string, room int) string {
 }
 
 // faded is a word's colour, as Styled draws it, or a `#RRGGBB`, amount (0 to 1) of the way to the
-// screen's background.
+// screen's background, or with a negative one that far toward its foreground, lit.
 func (s Screen) faded(word string, amount float64) string {
 	if role, ok := kinds[word]; ok {
 		word = role
@@ -44,6 +44,9 @@ func (s Screen) faded(word string, amount float64) string {
 	rgb, to := lookOf(word).rgb, 0.0
 	if s.light {
 		rgb, to = cmp.Or(lightRGB[word], rgb), 255
+	}
+	if amount < 0 {
+		to, amount = 255-to, -amount
 	}
 	out := "#"
 	for _, text := range channels(rgb) {
@@ -58,12 +61,14 @@ func (s Screen) faded(word string, amount float64) string {
 // start to the colour at its tip, with a half cell `╸` where the share ends inside one; the rest is
 // a dim `─`.  Without colour the shapes carry it, and without UTF-8 it is `===------`.
 func (s Screen) ShareLine(share float64, size int, word string) string {
-	return s.GrowingLine(share, 1, size, word)
+	return s.GlidingLine(share, share, 1, false, size, word)
 }
 
-// GrowingLine is ShareLine grown (0 to 1) of the way to its length (motion.growing): its first cells
-// as the whole line draws them, the rest the empty track.
-func (s Screen) GrowingLine(share, grown float64, size int, word string) string {
+// GlidingLine is ShareLine on its way there (motion.growing): moved (0 to 1) of the way from the
+// share it stood at, its first cells as the whole line draws them and the cells it shrinks from
+// full in word's colour, the rest the empty track.  While lit, where colour can move, its head is
+// half way from word's colour to the foreground.
+func (s Screen) GlidingLine(from, share, moved float64, lit bool, size int, word string) string {
 	full, half, empty := "━", "╸", "─"
 	halves := int(math.RoundToEven(float64(2*size) * share))
 	if s.ascii {
@@ -71,28 +76,33 @@ func (s Screen) GrowingLine(share, grown float64, size int, word string) string 
 		halves = 2 * int(math.RoundToEven(float64(size)*share))
 	}
 	ends := (halves + 1) / 2
-	head := int(math.RoundToEven(float64(ends) * grown))
-	rest := strings.Repeat(empty, size-head)
+	start := math.RoundToEven(float64(size) * from)
+	head := int(math.RoundToEven(start + (float64(ends)-start)*moved))
 	tip := max(1, ends-1)
 	cells := make([]string, head)
 	var line strings.Builder
 	for n := range head {
-		cells[n] = half
-		if n < halves/2 {
-			cells[n] = full
+		cells[n] = full
+		if halves%2 == 1 && n == ends-1 && n == head-1 {
+			cells[n] = half
 		}
 		if s.depth > 8 {
-			amount := 0.0
-			if ends > 1 {
-				amount = 0.5 * (1 - float64(n)/float64(tip))
+			ink := word
+			switch {
+			case lit && n == head-1:
+				ink = s.faded(word, -0.5)
+			case n < ends && ends > 1:
+				ink = s.faded(word, 0.5*(1-float64(n)/float64(tip)))
+			case n < ends:
+				ink = s.faded(word, 0)
 			}
-			line.WriteString(s.Styled(cells[n], s.faded(word, amount)))
+			line.WriteString(s.Styled(cells[n], ink))
 		}
 	}
 	if s.depth <= 8 {
 		line.WriteString(s.Styled(strings.Join(cells, ""), word))
 	}
-	return line.String() + s.Styled(rest, "dim")
+	return line.String() + s.Styled(strings.Repeat(empty, size-head), "dim")
 }
 
 // EffortCells is an effort's level before its word, a cell for each of the count its model offers:

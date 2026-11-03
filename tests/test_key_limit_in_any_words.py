@@ -39,6 +39,8 @@ WORDED = entry("You've hit your 5-hour limit · resets 4:10am (Europe/Berlin)",
 FINISHED, OWING = "- [x] Shipped it\n", "- [x] Shipped it\n- [ ] Ship the rest\n"
 
 
+# `out of usage`: until it comes back or the owner moves it. [14, 20 Oct 2026]
+# A seat with nothing to continue keeps its own word while that usage is gone.
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class LimitInAnyWords(unittest.TestCase):
     def words(self, seats, ticks=1):

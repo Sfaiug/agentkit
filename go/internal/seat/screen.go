@@ -124,12 +124,17 @@ func harnessScreen(name string) (shown string, exited bool) {
 	return shown, false
 }
 
-// look is watch.look_at: one capture, classified and kept as watch.live_state keeps it.  A blank
-// capture says nothing of the screen, so it writes nothing but what a hook decided; a harness that
-// exited does say: the error it was retrying past ended with it.
+// look is watch.look_at: one capture, classified and kept.
 func (seat Seat) look(state string, now float64) (sight, error) {
 	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.own, pane, now)
+	return seat.keep(state, pane, exited, found, previous, now)
+}
+
+// keep is what a capture found kept as watch.live_state keeps it.  A blank capture says nothing of
+// the screen, so it writes nothing but what a hook decided; a harness that exited does say: the
+// error it was retrying past ended with it.
+func (seat Seat) keep(state, pane string, exited bool, found sight, previous *run.Object, now float64) (sight, error) {
 	if exited {
 		found.stall, found.login = nil, nil
 	} else if pane == "" && found.authority != "hook" {

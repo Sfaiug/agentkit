@@ -101,18 +101,18 @@ POINTS = 10                    # the most `within` can be: past ten, a point say
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
 # What a change may spend, each a top-level key of config.toml (`policy`): ak's default, the
-# floor, the step ←/→ move it by on `c`, what the number means and the board rows it moves.
+# floor, what the number means and the board rows it moves.
 # Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
 # with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).
 # Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
 # `transitions.carried_lines`): past the task cap, split it; at the seat limit, write a task.
 POLICY = {
-    "rounds": (3, 1, 1, "the review rounds a change has before it goes back to its orchestrator "
-                        "to split or re-scope", ("first round", "unmerged", "hours to merge")),
-    "review_lines": (300, 1, 50, "the most added lines a first review reads",
+    "rounds": (3, 1, "the review rounds a change has before it goes back to its orchestrator "
+                     "to split or re-scope", ("first round", "unmerged", "hours to merge")),
+    "review_lines": (300, 1, "the most added lines a first review reads",
                      ("first round", "merged")),
-    "seat_lines": (50, 0, 10, "the added lines a seat's own change stays under", ("built",)),
+    "seat_lines": (50, 0, "the added lines a seat's own change stays under", ("built",)),
 }
 # How a number of rounds opens a sentence and how the round past them reads; further up, figures.
 ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
@@ -438,14 +438,14 @@ def _policy_in(path, data):
     """The POLICY numbers `data` holds, ak's default for one it does not, refused naming `path`,
     the floor and the meaning."""
     numbers = {}
-    for key, (default, floor, _, meaning, _) in POLICY.items():
+    for key, (default, floor, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
         if type(value) is not int or value < floor:
             raise Error(f"{path}: {key} must be a whole number of at least {floor}, {meaning} "
                         f"(got {value!r})")
     if numbers["seat_lines"] > numbers["review_lines"]:
-        raise Error(f"{path}: seat_lines {numbers['seat_lines']}, {POLICY['seat_lines'][3]}, is "
-                    f"over review_lines {numbers['review_lines']}, {POLICY['review_lines'][3]}")
+        raise Error(f"{path}: seat_lines {numbers['seat_lines']}, {POLICY['seat_lines'][2]}, is "
+                    f"over review_lines {numbers['review_lines']}, {POLICY['review_lines'][2]}")
     return numbers
 
 

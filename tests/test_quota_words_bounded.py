@@ -284,6 +284,7 @@ class SeatWordsBounded(unittest.TestCase):
         self.harness, self.provider, self.pane = "claude", "anthropic", ""
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, self.provider)))
+        self.stack.enter_context(patch.object(watch, "follow_model", return_value=None))
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
         self.typed = []
         self.stack.enter_context(patch.object(

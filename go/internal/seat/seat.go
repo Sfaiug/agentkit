@@ -27,6 +27,7 @@ import (
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
+	usages "agentkit/internal/usage"
 )
 
 // A Seat is one as Python's orch.listing offers it, whether only its record holds it or tmux does,
@@ -39,7 +40,7 @@ type Seat struct {
 	reason, restart                                   string
 	since, repo                                       any
 	infer                                             bool     // the record holds no repo
-	unowned                                           bool     // would resume its record's conversation, and it names none: Python offers it no row
+	unowned                                           bool     // its harness owns no conversation: only the owner's close can keep its row
 	closed                                            bool     // its seat file holds the owner's stop mark
 	held                                              bool     // tmux still holds its session, all its panes dead
 	live                                              bool     // a pane of its session still runs: its screen says what it is
@@ -54,7 +55,7 @@ type Seat struct {
 	mine                                              []ran    // its own runs, which its ladder reads
 
 	// what its harness writes into its record before a listing reads it
-	reconciled *run.Object
+	reconcileFields *run.Object
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -118,13 +119,15 @@ func reading(now time.Time, looking bool) (Home, bool) {
 		return Home{}, seatless()
 	}
 	held, live, gone := onServer(names)
-	var planned []string
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
-		// home is given and the usage the screen's grid shows say nothing a word hangs on: a seat's
-		// own wait on its usage is in its seat file
+		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
+		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
+		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
 		if harness.KeptInState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || entry.Name() == "usage.json" ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json"}, entry.Name()) ||
+			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
+			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || usages.Owns(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
@@ -136,11 +139,8 @@ func reading(now time.Time, looking bool) (Home, bool) {
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
-			!slices.Contains(kinds[kind], suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
+			!slices.Contains(kinds[kind], suffix) && !goneKind(kind, suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
 			return Home{}, false
-		}
-		if kind == "plan" {
-			planned = append(planned, name)
 		}
 	}
 	models, err := config.Models()
@@ -154,14 +154,11 @@ func reading(now time.Time, looking bool) (Home, bool) {
 	for _, name := range names {
 		isLive := slices.Contains(live, name)
 		seat, ok := read(state, name, models, offered, runs[name], now, isLive)
-		if !ok || !isLive && !seat.closed && slices.Contains(planned, name) {
+		if !ok {
 			return Home{}, false
 		}
 		seat.held, seat.live = slices.Contains(held, name), isLive
 		if seat.live {
-			if record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json")); record != nil {
-				seat.own = models[record.Str("orchestrator")].Harness
-			}
 			if !seat.looksOn(seat.own) || !climbingOf(state, seat, sight{}, seconds(now)).readable() {
 				return Home{}, false
 			}
@@ -176,16 +173,18 @@ func reading(now time.Time, looking bool) (Home, bool) {
 			seat.unowned = false
 		}
 		home.records = append(home.records, seat)
-		if !seat.unowned {
+		if !seat.unowned || seat.closed {
 			repo, _ := seat.repo.(string)
 			seat.home = homeKey(repo, stands)
 			home.Seats = append(home.Seats, seat)
 		}
 	}
 	order(home.Seats)
-	for i, seat := range home.Seats {
-		if seat.Word == "idle" {
-			home.Seats[i].reason = seat.closedReason(i + 1)
+	for i := range home.Seats {
+		if !home.Seats[i].live {
+			if err := home.Seats[i].goneAt(state, i+1, now); err != nil {
+				return Home{}, false
+			}
 		}
 	}
 	return home, true
@@ -236,22 +235,21 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 		return Seat{}, false
 	}
 	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	fields := seatFields
-	if live {
-		fields = slices.Concat(seatFields, lookFields)
-	}
+	fields := slices.Concat(seatFields, lookFields)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || err == nil && (previous == nil || !only(previous, fields)) ||
 		!live && previous != nil && previous.Get("unasked") != nil {
 		return Seat{}, false
 	}
-	if seat.Warning == "" { // a record Python cannot read moves nothing
+	if seat.Warning == "" && !seat.unowned { // only an owned conversation can move its record
 		if seat.follow, known = follows(record, previous, models, offered); !known {
 			return Seat{}, false
 		}
 	}
-	// Python offers a stopped seat that owns no conversation a fresh start, which Go does not word yet
-	if seat.closed, known = stopped(previous); !known || seat.closed && seat.unowned {
+	if seat.closed, known = stopped(previous); !known {
 		return Seat{}, false
+	}
+	if seat.closed && seat.unowned {
+		seat.restart = "starts fresh"
 	}
 	seat.asleep, seat.mine = putToSleep(record, previous), mine
 	if seat.Created == 0 {
@@ -293,11 +291,10 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	workers, complaint, crewed := crew(record.Get("workers"), models)
 	created, dated := number(record.Get("created"))
 	// as launched, or as reconcile leaves a record whose harness proves no conversation it names
-	resumable := record.Get("resumable") == true || restart != "" && record.Get("resumable") == false
 	own := models[record.Str("orchestrator")].Harness
 	owned, _ := harness.Owns(own, record, record.Str("conversation"))
 	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
-		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" && !owned || !resumable {
+		!text(record.Get("conversation")) {
 		return Seat{}, false
 	}
 	if owned { // a conversation its harness proves comes back with it (orch.listing's `restart`)
@@ -311,7 +308,8 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	}
 	seat := Seat{Name: name, Word: "idle", Tally: "no runs yet", Orchestrator: record.Str("orchestrator"), Workers: workers,
 		Created: created, restart: restart, repo: record.Get("repo"), infer: !record.Has("repo"),
-		unowned: restart == "" && record.Str("conversation") == "", reconciled: harness.Reconciled(own, record)}
+		own:     models[record.Str("orchestrator")].Harness,
+		unowned: restart == "" && !conversationOwned(models[record.Str("orchestrator")].Harness, record), reconcileFields: harness.Reconciled(own, record)}
 	if complaint != "" {
 		seat.Orchestrator, seat.Workers = "?", "?"
 		seat.Warning = filepath.Join(state, "session-"+name+".json") + ": " + complaint
@@ -423,18 +421,20 @@ func (home Home) Announce(now time.Time) error {
 func reconcile(state string, records []Seat, infer bool) error {
 	for _, seat := range records {
 		var fields []field
-		if seat.reconciled != nil {
-			for _, key := range seat.reconciled.Keys() {
-				fields = append(fields, field{key, seat.reconciled.Get(key)})
+		if seat.reconcileFields != nil {
+			for _, key := range seat.reconcileFields.Keys() {
+				fields = append(fields, field{key, seat.reconcileFields.Get(key)})
 			}
+		} else if seat.restart != "" && !seat.unowned {
+			fields = append(fields, field{"resumable", false})
 		}
 		if infer && seat.infer {
 			fields = append(fields, field{"repo", seat.repo})
 		}
-		if len(fields) == 0 {
+		if len(fields) == 0 && !seat.unowned {
 			continue
 		}
-		if err := update(state, seat.Name, set(fields)); err != nil {
+		if err := update(state, seat.Name, seat.reconciled(fields)); err != nil {
 			return err
 		}
 	}
@@ -464,12 +464,17 @@ func (seat Seat) announce(state string, now time.Time, models map[string]config.
 }
 
 // announced is watch.announce_state for a seat nobody is in, under its announce lock: what its
-// last answer moved, then its word, begun where the seat file says it began by then, or now
+// last answer moved (watch.follow_model), then its word, begun where the seat file says it began by then, or now
 // where it said another, and for one tmux still holds its bar.
 func (seat Seat) announced(state string, now time.Time, models map[string]config.Model) error {
 	if err := seat.moved(state, models); err != nil {
 		return err
 	}
+	return seat.published(state, now, models)
+}
+
+// published is announced's word and bar, what its last answer moved left as it is.
+func (seat Seat) published(state string, now time.Time, models map[string]config.Model) error {
 	path := filepath.Join(state, "seat-"+seat.Name+".json")
 	previous, _ := run.ReadJSON(path)
 	if previous == nil {

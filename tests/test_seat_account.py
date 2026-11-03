@@ -18,7 +18,7 @@ sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
 from agentkit import config, notify, orch, statusbar, usage, watch
 from fixtures import pane
-from agentkit.harness import codex
+from agentkit.harness import codex, opencode
 from agentkit.usage import replenish
 from agentkit.worker import auth_ok
 
@@ -136,6 +136,37 @@ class SeatAccount(unittest.TestCase):
 
     def answer(self):
         return watch.session_state(NAME, session=self.seat, cfg=self.cfg, records=[])
+
+    def test_a_followed_model_s_refusal_marks_its_current_provider_only(self):
+        for provider in ("acme-old", "acme-new"):
+            self.cfg["models"][provider] = dict(harness="opencode", provider=provider,
+                                                model=f"{provider}/model", effort="high")
+            self.cfg["providers"][provider] = {"mode": "payg"}
+        config.save_session(self.cfg, NAME, "acme-old", ["acme-old"], {"launched": 1})
+        watch.seat_write(NAME, state="at_prompt")
+        self.pane = "answer\n> "
+        providers = {provider: {"meters": []} for provider in ("acme-old", "acme-new")}
+        with patch.object(opencode, "running", return_value=("acme-new/model", "high", 2)), \
+                patch.object(watch, "live_state", return_value={"state": "at_prompt"}), \
+                patch.object(watch, "follow_title", return_value=None), \
+                patch.object(watch, "sync_title"), \
+                patch.object(watch, "auth_expired_on", return_value=None), \
+                patch.object(notify, "progress", return_value=False), \
+                patch.object(watch, "done_unprompted", return_value=False), \
+                patch.object(watch, "recorded_error", return_value=(
+                    "Error: provider.free-limit 429 quota exhausted "
+                    "try again at 2100-01-01T00:00:00+00:00")), \
+                patch.object(usage, "collect", return_value=providers), \
+                patch.object(orch, "resumable", return_value=False), \
+                patch.object(orch, "find", return_value=self.seat), \
+                patch.object(watch, "announce_state"):
+            self.tick()
+        cached = json.loads((config.STATE / "usage.json").read_text())["providers"]
+        self.assertEqual(watch.seat_model(self.cfg, NAME), ("opencode", "acme-new"))
+        self.assertEqual({provider for provider, reading in cached.items()
+                          if reading.get("exhausted_until")}, {"acme-new"})
+        self.assertTrue(watch.seat_read(NAME)["usage_wait"]["reason"].startswith(
+            "acme-new out of usage until "))
 
     def test_spent_account_reopens_same_conversation_and_keeps_everything_owned(self):
         self.pane = "Usage limit reached"

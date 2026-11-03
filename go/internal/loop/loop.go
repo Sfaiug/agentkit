@@ -38,9 +38,11 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 	"agentkit/internal/task"
 	"agentkit/internal/usage"
 	"agentkit/internal/worker"
@@ -527,8 +529,12 @@ func (l *loop) pick() error {
 	if opts := launchOpts(record); opts != nil {
 		named = opts.Str("--exec")
 	}
+	// refused before the meters are read: nothing a meter says lets a harness that cannot run here run
 	cannot := unable()
-	if why := rules.Unstaffed(cannot); why != "" && cannot[named] == "" {
+	if why := cannot[named]; why != "" {
+		return fmt.Errorf("%s cannot run here: %s", named, why)
+	}
+	if why := rules.Unstaffed(cannot); why != "" {
 		return errors.New(why)
 	}
 	readings, err := usage.Read()
@@ -538,9 +544,6 @@ func (l *loop) pick() error {
 	room := ready{readings, cannot}
 	logged := rawLog{l.dir}
 	rules.Order(room, false, logged)
-	if why := cannot[named]; why != "" {
-		return fmt.Errorf("%s cannot run here: %s", named, why)
-	}
 	rules.Order(room, true, logged)
 	executor, reviewer, found := rules.Pair(room)
 	switch {
@@ -563,6 +566,7 @@ func (l *loop) pick() error {
 		return err
 	}
 	l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", executor, reviewer, rounds))
+	l.sayLaunched()
 	return nil
 }
 
@@ -649,6 +653,9 @@ func conclude(dir string) int {
 		return 2
 	}
 	said := stampedLog{dir}
+	if handback.Give(dir, func(line string) { fmt.Fprintln(said, line) }) {
+		dropTold(dir, said)
+	}
 	if record.Str("state") == "error" {
 		fmt.Fprintln(said, "FAIL -> "+filepath.Join(dir, "result.md")+" (error)")
 		return 2
@@ -675,6 +682,7 @@ func settle(dir string) *run.Object {
 	write(dir, func(record *run.Object) {
 		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
 	})
+	seat.Redress(run.Seat(record)) // the ending lands on the bar too
 	return record
 }
 

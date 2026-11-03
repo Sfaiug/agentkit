@@ -1,0 +1,222 @@
+// Package handback gives a seat's run its ending back, as Python's handback.announce and hand_back
+// do: an ending in, told or left pending out (Give).  It hides the delivery lock the ending is said
+// once under, the marks Python's tick and screens read (`handed_back`, `handback_pending`,
+// `handback_typed`, as mark_delivery writes them), the one line the seat is told in, and the send
+// that types it at the seat's quiet prompt (seat.TypeAtPrompt).
+//
+// Go hands back as Python's hand_back does, to a seat up on ak's own server, an ending that did
+// not deliver; one it does not type is marked pending, which Python's tick types at the next quiet
+// prompt: a seat that takes no line now, and a line Go does not build yet, every one but a
+// BLOCKED's decision line said whole.  What announce settles before its hand-back, an ending that
+// delivered and a seat not up there, is the tick's, which offers every ending nobody has heard.
+package handback
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	"agentkit/internal/config"
+	"agentkit/internal/lock"
+	"agentkit/internal/run"
+	"agentkit/internal/seat"
+)
+
+const (
+	maxAge        = 3600 // an ending older than this when first seen is history (watch.HANDBACK_MAX_AGE)
+	preexisting   = "pre-existing ending; not replayed"
+	decisionMost  = 399  // one read tells a seat what it decides (handback.DECISION_MOST)
+	typedMostByte = 8000 // a typed line goes into one tmux command whole (watch.MAX_BYTES)
+)
+
+// Give hands the ending of the run at dir back to the seat that launched it, saying in the run's
+// log what came of it; true where the seat has been told, now or before.
+func Give(dir string, say func(string)) bool {
+	record, _ := run.Read(dir)
+	if record == nil {
+		return false
+	}
+	session, id := run.Seat(record), filepath.Base(dir)
+	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" || delivered(record) || !seat.Watching(session) {
+		return false
+	}
+	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
+	if err != nil {
+		return false
+	}
+	defer held.Close()
+	said, _ := run.Read(dir)
+	switch {
+	case said == nil || !sameAttempt(record, said):
+		// resumed since this ending: the attempt running now hands back an ending of its own
+		say(fmt.Sprintf("run %s has moved on since this ending; nothing to hand back", id))
+		return false
+	case handedBack(said):
+		say(fmt.Sprintf("run %s was already handed back to the %s seat", id, session))
+		return true
+	case !said.Truthy("handback_pending") && !said.Truthy("notification_pending") && history(said):
+		mark(dir, record, "handed_back", now(), "handback_note", preexisting, "handback_pending", nil,
+			"handback_wait_reason", nil, "notification_pending", nil)
+		say(fmt.Sprintf("run %s is a %s", id, preexisting))
+		return true
+	}
+	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
+	line := decisionLine(record, dir)
+	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
+		mark(dir, record, "handback_typed", typed)
+		return nil
+	}, say) {
+		mark(dir, record, "handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
+			"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil)
+		say(fmt.Sprintf("handed run %s back to the %s seat", id, session))
+		return true
+	}
+	first := !said.Truthy("handback_pending") || record.Truthy("handed_back")
+	if first {
+		// an ending is said or waiting to be, never both: an earlier attempt's mark goes with it
+		mark(dir, record, "handback_pending", true, "handed_back", nil, "handback_note", nil)
+	}
+	if reading, atPrompt := seat.Untyped(session); first || atPrompt {
+		say(fmt.Sprintf("the %s seat is not at its prompt (%s); the tick hands run %s back", session, reading, id))
+	}
+	return false
+}
+
+// decisionLine is the line a BLOCKED ending is handed back in, Python's decision_line said whole:
+// `run <id> BLOCKED (<round> of <budget>): <why> Next: <move>. Result: <path>`; "" for any other
+// ending, and for one whose reason a typed line holds only cut, which Python cuts to its sentences.
+func decisionLine(record *run.Object, dir string) string {
+	if record.Str("state") != "blocked" {
+		return ""
+	}
+	rounds := "0"
+	if record.Truthy("rounds") {
+		rounds = run.Text(record.Get("rounds"))
+	}
+	head := fmt.Sprintf("run %s BLOCKED (%d of %s):", filepath.Base(dir), len(record.List("round_summaries")), rounds)
+	why := strings.Join(strings.Fields(record.Str("error")), " ")
+	if why == "" {
+		why = "no reason was recorded"
+	}
+	if !strings.HasSuffix(why, ".") && !strings.HasSuffix(why, "!") && !strings.HasSuffix(why, "?") {
+		why += "."
+	}
+	move := "rewrite the task and relaunch it"
+	if branch := record.Str("branch"); branch != "" {
+		move += " with `from: " + branch + "`"
+	}
+	tail := "Next: " + move + ". Result: " + tilde(filepath.Join(dir, "result.md"))
+	most := min(decisionMost, longest())
+	line := head + " " + why + " " + tail
+	if utf8.RuneCountInString(why) > most-utf8.RuneCountInString(head)-utf8.RuneCountInString(tail)-2 ||
+		utf8.RuneCountInString(line) > longest() || len(line) > typedMostByte {
+		return ""
+	}
+	return line
+}
+
+// longest is the most characters a typed line may hold: one every harness's composer shows whole
+// (`[screen] folds_over`), read off the manifests alone (watch.longest).
+func longest() int {
+	most := typedMostByte
+	names, _ := config.HarnessNames()
+	for _, name := range names {
+		chrome, _ := config.Section(name, "screen")
+		switch folds := chrome["folds_over"].(type) {
+		case int64:
+			most = min(most, int(folds))
+		case int:
+			most = min(most, folds)
+		}
+	}
+	return most
+}
+
+// tilde is a path as `~/...` under the home directory, config.tilde.
+func tilde(path string) string {
+	home, err := os.UserHomeDir()
+	if rest, err2 := filepath.Rel(home, path); err == nil && err2 == nil && rest != ".." && !strings.HasPrefix(rest, "../") {
+		return "~/" + rest
+	}
+	return path
+}
+
+// delivered is an ending that delivered its change, merged or found not needed.
+func delivered(record *run.Object) bool {
+	return record.Truthy("merged") || record.Str("state") == "not_needed"
+}
+
+// sameAttempt is whether two records are one attempt of the run, not either side of a resume.
+func sameAttempt(a, b *run.Object) bool {
+	for _, key := range []string{"pid", "finished_at", "interrupted_at"} {
+		if !run.Equal(a.Get(key), b.Get(key)) {
+			return false
+		}
+	}
+	return true
+}
+
+// handedBack is whether this ending, and not an earlier attempt's, was handed back: an undated
+// mark is taken at its word.
+func handedBack(record *run.Object) bool {
+	said, dated := run.Num(record.Get("handed_back"))
+	if !dated {
+		return record.Truthy("handed_back")
+	}
+	ended := record.Get("finished_at")
+	if !record.Truthy("finished_at") {
+		ended = record.Get("interrupted_at")
+	}
+	if at, ok := run.Num(ended); ok {
+		return said >= at
+	}
+	return true
+}
+
+// history is an ending older than an hour, or with no date to age by but a start that is: never
+// replayed (watch.is_preexisting).
+func history(record *run.Object) bool {
+	for _, key := range []string{"finished_at", "interrupted_at"} {
+		if at, ok := run.Num(record.Get(key)); ok {
+			return seconds()-at > maxAge
+		}
+	}
+	started, ok := run.Num(record.Get("started_at"))
+	return ok && seconds()-started > maxAge
+}
+
+// mark writes delivery marks onto the record as it stands, nil removing one, only while it is
+// still the attempt `snapshot` is of, as Python's mark_delivery; the snapshot takes them too.
+func mark(dir string, snapshot *run.Object, pairs ...any) bool {
+	set := func(record *run.Object) {
+		for at := 0; at < len(pairs); at += 2 {
+			if key := pairs[at].(string); pairs[at+1] == nil {
+				record.Delete(key)
+			} else {
+				record.Set(key, pairs[at+1])
+			}
+		}
+	}
+	err := run.Deliver(dir, func(current *run.Object) error {
+		if !sameAttempt(snapshot, current) {
+			return errMoved
+		}
+		set(current)
+		return nil
+	})
+	if err != nil {
+		return false
+	}
+	set(snapshot)
+	return true
+}
+
+var errMoved = fmt.Errorf("the run moved on")
+
+func seconds() float64 { return float64(time.Now().UnixNano()) / 1e9 }
+
+func now() run.Number { return run.Float(seconds()) }

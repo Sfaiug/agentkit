@@ -1,4 +1,4 @@
-"""A task with no `repo:` launched outside any checkout runs in its task folder's checkout."""
+"""A task with no `repo:` prefers its task folder's checkout to the launch checkout."""
 
 from contextlib import chdir
 import os
@@ -43,9 +43,13 @@ class TaskFolderRepo(unittest.TestCase):
         with chdir(self.code):
             self.assertEqual(run.task_repo({}, self.task), self.acme)
 
-    def test_inside_a_checkout_the_launch_checkout_still_wins(self):
+    def test_inside_a_checkout_the_task_folder_still_wins(self):
         with chdir(self.other):
-            self.assertEqual(run.task_repo({}, self.task), self.other)
+            self.assertEqual(run.task_repo({}, self.task), self.acme)
+
+    def test_the_original_task_file_names_the_repo_for_a_run_copy(self):
+        with chdir(self.other):
+            self.assertEqual(run.task_repo({}, self.root / "task.md", self.task), self.acme)
 
     def test_a_task_filed_under_no_known_checkout_stays_scratch(self):
         loose = config.HOME / "tasks" / "nowhere" / "fix-api.md"
@@ -56,6 +60,11 @@ class TaskFolderRepo(unittest.TestCase):
         with chdir(self.code):
             self.assertIsNone(run.task_repo({}, loose))
             self.assertIsNone(run.task_repo({}, outside))
+            self.assertIsNone(run.task_repo({"repo": "none"}, self.task))
+        with chdir(self.other):
+            self.assertEqual(run.task_repo({}, loose), self.other)
+            self.assertEqual(run.task_repo({}, outside), self.other)
+            self.assertEqual(run.task_repo({"repo": str(self.other)}, self.task), self.other)
             self.assertIsNone(run.task_repo({"repo": "none"}, self.task))
 
 

@@ -28,17 +28,20 @@ type Readings struct {
 	now       float64
 }
 
-// A source is a provider as the read asks it: its table and its harness's `[usage]` facts.
+// A source is a provider as the read asks it: its table, its harness's `[usage]` facts, and the
+// adapter script that answers for it or why none can.
 type source struct {
 	config.Subscription
-	facts config.UsageFacts
+	facts   config.UsageFacts
+	adapter string
+	broken  error
 }
 
 // Read is the reading of every provider config.toml lists: the one state/usage.json holds while
 // it is under five minutes old, else each provider's adapter asked again, as Python's
 // usage.collect reads it.  ErrPython before anything is locked or asked.
 func Read() (*Readings, error) {
-	sources, err := listed()
+	sources, err := listed(false)
 	if err != nil {
 		return nil, err
 	}
@@ -46,18 +49,19 @@ func Read() (*Readings, error) {
 	if err != nil {
 		return nil, err
 	}
-	providers, err := collect(sources, models)
+	providers, err := collect(sources, models, false)
 	return &Readings{providers, sources, models, clock()}, err
 }
 
 // Check is Read's ErrPython, nothing asked: a launch settles it before it writes anything.
 func Check() error {
-	_, err := listed()
+	_, err := listed(false)
 	return err
 }
 
-// listed is every provider config.toml lists as a read asks it, or why that is not Go's.
-func listed() ([]source, error) {
+// listed is every provider config.toml lists as a read asks it, or why that is not Go's; shipped
+// asks, where no $AGENTKIT_ADAPTER_DIR is named, the checkout's own adapters, as Python does.
+func listed(shipped bool) ([]source, error) {
 	subs, err := config.Subscriptions()
 	if err != nil {
 		return nil, err
@@ -72,11 +76,14 @@ func listed() ([]source, error) {
 		if err != nil {
 			return nil, err
 		}
-		_, err = config.Adapter(sub.Harness)
+		adapter, err := config.Adapter(sub.Harness)
+		if errors.Is(err, config.ErrNoAdapterDir) && shipped {
+			adapter, err = config.ShippedAdapter(sub.Harness)
+		}
 		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 {
 			return nil, ErrPython
 		}
-		sources = append(sources, source{sub, facts})
+		sources = append(sources, source{sub, facts, adapter, err})
 	}
 	if measured() {
 		return nil, ErrPython
