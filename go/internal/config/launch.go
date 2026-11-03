@@ -69,6 +69,16 @@ type Login struct {
 
 // Account is the login a call to the harness is on, false where its manifest has no `[account]`.
 func Account(harness string) (Login, bool, error) {
+	return loginOf(harness, os.Getenv("AGENTKIT_ACCOUNT"))
+}
+
+// UsualAccount is the login a child of this process naming no account is on: ChildEnv drops the
+// account this process was handed, which is its own and no child's.
+func UsualAccount(harness string) (Login, bool, error) {
+	return loginOf(harness, "")
+}
+
+func loginOf(harness, name string) (Login, bool, error) {
 	manifests, err := manifests()
 	root := manifests[harness]
 	account, _ := root.get("account").(*table)
@@ -85,8 +95,7 @@ func Account(harness string) (Login, bool, error) {
 			usual = spelled(accountValue(root, "usual"))
 		}
 	}
-	name := os.Getenv("AGENTKIT_ACCOUNT")
-	return Login{name, env, loginHome(root), usual, words(root, "account", "unset"),
+	return Login{name, env, homeOf(root, name), usual, words(root, "account", "unset"),
 		conversations, words(root, "account", "settings"), carry, line,
 		name == "" && os.Getenv(env) != "" && handedDown(root)}, true, nil
 }
@@ -97,8 +106,10 @@ func (login Login) Environ(environ []string) []string {
 	var kept []string
 	for _, pair := range environ {
 		name, _, _ := strings.Cut(pair, "=")
+		// a variable naming another account is no part of the usual login's environment
 		if name == login.Env && (login.Account != "" || login.handedDown) ||
-			login.Account != "" && slices.Contains(login.Unset, name) {
+			login.Account != "" && slices.Contains(login.Unset, name) ||
+			login.Account == "" && name == "AGENTKIT_ACCOUNT" {
 			continue
 		}
 		kept = append(kept, pair)

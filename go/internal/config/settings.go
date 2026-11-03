@@ -56,13 +56,6 @@ func MaxRuns() (int, error) {
 	return value, err
 }
 
-// RunMemoryRefused is whether Python's run_memory_max_mb refuses the home config: a
-// run_memory_max_mb that is no positive integer.
-func RunMemoryRefused() bool {
-	_, _, err := RunMemoryMaxMB()
-	return err != nil
-}
-
 // RunMemoryMaxMB is one run's memory cap in MiB as the home config sets it, false where it is
 // unset: unset is not zero.
 func RunMemoryMaxMB() (int, bool, error) {
