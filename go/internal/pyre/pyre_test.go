@@ -20,8 +20,8 @@ type match struct {
 	Groups  map[string]*string `json:"groups"`
 }
 
-// Every pattern Python's watch.screen compiles from a manifest, searched over each row of every
-// screen fixture and, one of several rows, its whole text, matches here as Python's matched.
+// Every pattern Python's watch.screen compiles from a manifest, searched over every screen
+// fixture's whole text and each of its rows, matches here as Python's matched.
 func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 	read, err := os.ReadFile("testdata/cases.json")
 	if err != nil {
@@ -58,48 +58,47 @@ func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 			t.Errorf("%s %s: %v", each.Harness, each.Key, err)
 			continue
 		}
-		var found []match
-		for _, name := range cases.Fixtures {
-			searched := func(row *int, text string) {
-				if at := compiled.Find(text); at != nil {
-					groups := map[string]*string{}
-					for _, name := range compiled.engine.GetGroupNames() {
-						if _, numbered := strconv.Atoi(name); numbered == nil {
-							continue
-						}
-						if taken, ok := at.Group(name); ok {
-							groups[name] = &taken
-						} else {
-							groups[name] = nil
-						}
-					}
-					span := [2]int{utf8.RuneCountInString(text[:at.Start]), utf8.RuneCountInString(text[:at.End])}
-					found = append(found, match{name, row, span, groups})
-				}
-			}
-			if flags&Multiline != 0 {
-				searched(nil, texts[name])
-			}
-			for at, row := range strings.Split(texts[name], "\n") {
-				searched(&at, row)
-			}
+		want := map[string][]match{}
+		for _, found := range each.Matches {
+			want[found.Fixture] = append(want[found.Fixture], found)
 		}
-		if !reflect.DeepEqual(found, each.Matches) {
-			for at := range max(len(found), len(each.Matches)) {
-				var got, want any
-				if at < len(found) {
-					got = found[at]
+		for _, name := range cases.Fixtures {
+			// in parallel, a core each: antigravity's footer backtracks for minutes over a whole screen
+			t.Run(each.Harness+" "+each.Key+" "+name, func(t *testing.T) {
+				t.Parallel()
+				var found []match
+				// the whole text is row null, then each row, split on newlines alone
+				for line, text := range append([]string{texts[name]}, strings.Split(texts[name], "\n")...) {
+					var row *int
+					if index := line - 1; line > 0 {
+						row = &index
+					}
+					if at := compiled.Find(text); at != nil {
+						span := [2]int{utf8.RuneCountInString(text[:at.Start]), utf8.RuneCountInString(text[:at.End])}
+						found = append(found, match{name, row, span, groups(compiled, at)})
+					}
 				}
-				if at < len(each.Matches) {
-					want = each.Matches[at]
+				if !reflect.DeepEqual(found, want[name]) {
+					t.Errorf("Go found %s where Python found %s", shown(found), shown(want[name]))
 				}
-				if !reflect.DeepEqual(got, want) {
-					t.Errorf("%s %s: Go found %s where Python found %s", each.Harness, each.Key, shown(got), shown(want))
-					break
-				}
+			})
+		}
+	}
+}
+
+// groups is each named group of the pattern and what it took in that match, nil for none.
+func groups(compiled *Regexp, at *Match) map[string]*string {
+	named := map[string]*string{}
+	for _, name := range compiled.engine.GetGroupNames() {
+		if _, numbered := strconv.Atoi(name); numbered != nil {
+			if taken, ok := at.Group(name); ok {
+				named[name] = &taken
+			} else {
+				named[name] = nil
 			}
 		}
 	}
+	return named
 }
 
 func shown(found any) string {

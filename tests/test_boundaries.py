@@ -20,9 +20,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 
 # Python and Go tests pin knowledge with fixtures, and docs describe it to a reader: both
-# follow the code wherever it lives, so the rules count where the product itself keeps a copy;
-# a Go test's data is a fixture, and a vendored module is no knowledge of ak's at all.
-SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md", ":!go/vendor/", ":!*/testdata/*")
+# follow the code wherever it lives, so the rules count where the product itself keeps a copy.
+SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md")
 
 RULES = [
     # Lifecycle reads belong to the lightweight reader, so a completed tool never needs

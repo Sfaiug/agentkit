@@ -1,9 +1,11 @@
 """Go's pyre matches as Python's re: every pattern watch.screen compiles from each manifest, with
-the flags it adds, searched over each row of every screen fixture, and over its whole text where
-the pattern reads several rows (re.M).  This builds Go's case file from them again and fails where
-the committed one differs; `--write` rewrites it.
+the flags it adds, searched over every screen fixture's whole text and over each of its rows.  This
+builds Go's case file from them again and fails where the committed one differs; `--write`
+rewrites it.
 """
 
+from concurrent.futures import ProcessPoolExecutor
+from functools import cache
 import json
 import os
 from pathlib import Path
@@ -33,27 +35,34 @@ def patterns(key, value):
             yield from patterns(f"{key} {at}", each)
 
 
+@cache
+def fixture(name):
+    return (REPO / "tests/fixtures" / name).read_bytes().decode()
+
+
+def searched(pattern, flags, name):
+    """Python's first match of the pattern in the fixture's whole text (row null) and in each row,
+    split on newlines alone, as Go splits them."""
+    compiled, text = re.compile(pattern, flags), fixture(name)
+    return [{"fixture": name, "row": row, "span": list(match.span()), "groups": match.groupdict()}
+            for row, part in [(None, text), *enumerate(text.split("\n"))]
+            if (match := compiled.search(part))]
+
+
 def cases():
     fixtures = sorted(path.name for path in (REPO / "tests/fixtures").glob("*-pane.txt"))
-    texts = {name: (REPO / "tests/fixtures" / name).read_bytes().decode() for name in fixtures}
-    found = []
-    for harness, _ in config.manifests():
-        for key, compiled in patterns("", watch.screen(harness)):
-            matches = []
-            for name in fixtures:
-                # the whole text is row null; rows are split on newlines alone, as Go splits them.
-                # A pattern of one row never reads a whole screen, and antigravity's footer,
-                # searched over one, backtracks for minutes.
-                whole = [(None, texts[name])] if compiled.flags & re.M else []
-                for row, text in [*whole, *enumerate(texts[name].split("\n"))]:
-                    if match := compiled.search(text):
-                        matches.append({"fixture": name, "row": row, "span": list(match.span()),
-                                        "groups": match.groupdict()})
-            flags = "".join(letter for letter, flag in (("i", re.I), ("m", re.M))
-                            if compiled.flags & flag)
-            found.append({"harness": harness, "key": key, "pattern": compiled.pattern,
-                          "flags": flags, "matches": matches})
-    return {"fixtures": fixtures, "patterns": found}
+    compiled = [(harness, key, each) for harness, _ in config.manifests()
+                for key, each in patterns("", watch.screen(harness))]
+    # one process a core: antigravity's footer backtracks for minutes over a whole screen
+    with ProcessPoolExecutor() as pool:
+        found = pool.map(searched, *zip(*[(each.pattern, each.flags, name)
+                                          for _, _, each in compiled for name in fixtures]))
+        return {"fixtures": fixtures, "patterns": [
+            {"harness": harness, "key": key, "pattern": each.pattern,
+             "flags": "".join(letter for letter, flag in (("i", re.I), ("m", re.M))
+                              if each.flags & flag),
+             "matches": [match for _ in fixtures for match in next(found)]}
+            for harness, key, each in compiled]}
 
 
 def written(data):
