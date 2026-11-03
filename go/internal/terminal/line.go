@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"cmp"
 	"fmt"
 	"math"
 	"strconv"
@@ -34,12 +35,20 @@ func Pad(text string, room int) string {
 	return text + strings.Repeat(" ", max(0, room-Cells(text)))
 }
 
-// faded is a `#RRGGBB` amount (0 to 1) of the way to a dark background.
-func faded(word string, amount float64) string {
+// faded is a word's colour, as Styled draws it, or a `#RRGGBB`, amount (0 to 1) of the way to the
+// screen's background.
+func (s Screen) faded(word string, amount float64) string {
+	if role, ok := kinds[word]; ok {
+		word = role
+	}
+	rgb, to := lookOf(word).rgb, 0.0
+	if s.light {
+		rgb, to = cmp.Or(lightRGB[word], rgb), 255
+	}
 	out := "#"
-	for _, text := range channels(word[1:]) {
+	for _, text := range channels(rgb) {
 		value, _ := strconv.Atoi(text)
-		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(value)*(1-amount))))
+		out += fmt.Sprintf("%02x", int(math.RoundToEven(float64(value)*(1-amount)+to*amount)))
 	}
 	return out
 }
@@ -49,6 +58,12 @@ func faded(word string, amount float64) string {
 // start to the colour at its tip, with a half cell `╸` where the share ends inside one; the rest is
 // a dim `─`.  Without colour the shapes carry it, and without UTF-8 it is `===------`.
 func (s Screen) ShareLine(share float64, size int, word string) string {
+	return s.GrowingLine(share, 1, size, word)
+}
+
+// GrowingLine is ShareLine grown (0 to 1) of the way to its length (motion.growing): its first cells
+// as the whole line draws them, the rest the empty track.
+func (s Screen) GrowingLine(share, grown float64, size int, word string) string {
 	full, half, empty := "━", "╸", "─"
 	halves := int(math.RoundToEven(float64(2*size) * share))
 	if s.ascii {
@@ -56,11 +71,12 @@ func (s Screen) ShareLine(share float64, size int, word string) string {
 		halves = 2 * int(math.RoundToEven(float64(size)*share))
 	}
 	ends := (halves + 1) / 2
-	rest := strings.Repeat(empty, size-ends)
+	head := int(math.RoundToEven(float64(ends) * grown))
+	rest := strings.Repeat(empty, size-head)
 	tip := max(1, ends-1)
-	cells := make([]string, ends)
+	cells := make([]string, head)
 	var line strings.Builder
-	for n := range ends {
+	for n := range head {
 		cells[n] = half
 		if n < halves/2 {
 			cells[n] = full
@@ -70,7 +86,7 @@ func (s Screen) ShareLine(share float64, size int, word string) string {
 			if ends > 1 {
 				amount = 0.5 * (1 - float64(n)/float64(tip))
 			}
-			line.WriteString(s.Styled(cells[n], faded(word, amount)))
+			line.WriteString(s.Styled(cells[n], s.faded(word, amount)))
 		}
 	}
 	if s.depth <= 8 {

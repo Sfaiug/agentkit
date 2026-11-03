@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentkit/internal/terminal"
 )
@@ -21,7 +22,9 @@ const (
 // A Seat is one row of the screen: its place in the whole list, what it is, and what opens under it.
 type Seat struct {
 	Number                                    int
-	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none
+	Name, Checkout, Model, Word, Unsent, Said string  // Checkout "" is filed under none
+	Done, Total                               int     // its plan's lines done, of how many; none without one
+	grown                                     float64 // how far its line has grown in (grownIn)
 }
 
 // A Cell is a subscription on the grid: Left is 1 to 100 with a meter, 0 for credits, -1 for none;
@@ -38,7 +41,8 @@ type View struct {
 	Seats       []Seat
 	Cells       []Cell
 	Clock, Keys string
-	Standing    string // what stands under the usage: a worker token that ends soon
+	Standing    string        // what stands under the usage: a worker token that ends soon
+	Up          time.Duration // how long the screen has been up, which its lines grow in over
 }
 
 // Keys is the main screen's key line, `p past` on it while a seat the owner stopped is offered.
@@ -69,6 +73,7 @@ type widths struct {
 // the arrow toward a seat that needs the owner in amber.  The first seat is highlighted.
 func Lines(view View, width, height int) []string {
 	s := view.Screen
+	view.Seats = grownIn(view.Seats, view.Up)
 	layout := max(1, min(width, 120))
 	projects := grouped(view.Seats)
 	sized := columns(s, view.Seats, width)
@@ -344,10 +349,10 @@ func unsentMark(s terminal.Screen, text string) string {
 }
 
 // lastColumn is a row's one last column in room cells (menu.last_column), none where room is
-// negative saying the fewest cells that hold it: a working seat's empty line and `no plan yet`, and
-// `✎ unsent` two cells after where the owner left text.  The line keeps eight cells at least, unless
-// narrow, where it takes the room and never more: the count alone where no cell of line fits, the
-// mark alone where both do not.
+// negative saying the fewest cells that hold it: its progress (planBar, barred), and `✎ unsent` two
+// cells after where the owner left text.  The line keeps eight cells at least, unless narrow, where
+// it takes the room and never more: the count alone where no cell of line fits, the mark alone where
+// both do not.
 func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 	mark := ""
 	if seat.Unsent != "" {
@@ -358,13 +363,13 @@ func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, text := "", ""
-	if seat.Word == "working" {
+	if barred(seat) {
 		smallest := 8
 		if narrow {
 			smallest = 0
 		}
-		bar = planLine(s, left, smallest)
-		text = terminal.Plain(planLine(s, left, 0))
+		bar = planBar(s, seat, left, smallest)
+		text = terminal.Plain(planBar(s, seat, left, 0))
 	}
 	if narrow && mark != "" && room >= 0 && terminal.Cells(text) > left {
 		bar = ""
@@ -376,16 +381,6 @@ func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 		return s.Styled(mark, "amber")
 	}
 	return bar + "  " + s.Styled(mark, "amber")
-}
-
-// planLine is a seat's progress with no plan: its line, nothing done, and `no plan yet`, never under
-// smallest cells of line.
-func planLine(s terminal.Screen, room, smallest int) string {
-	size := max(smallest, room-terminal.Cells(noPlan)-1)
-	if size < 1 {
-		return noPlan
-	}
-	return s.ShareLine(0, size, "dim") + " " + noPlan
 }
 
 // columns sizes the rows' fixed columns: number, name, model and state, and the room their last one

@@ -24,11 +24,16 @@ import (
 // outCap is the most of a check's output a model is handed: the rest is in a file its line names.
 const outCap = 20 * 1024
 
+// namesShard is a check run as a share of its suite, and namesChanged one narrowed to the files a
+// change touches: Python's runner sets each.
+var (
+	namesShard   = regexp.MustCompile(`\bAK_SHARD\b`)
+	namesChanged = regexp.MustCompile(`\bAK_CHANGED\b`)
+)
+
 // flakyKey ignores varying values without depending on a suite's failure words, Python's
 // gate.flaky_key: an absolute path can have another temporary root on each run, a test's name
 // stays.
-var namesShard = regexp.MustCompile(`\bAK_SHARD\b`)
-
 var flakyKey = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}_.])/[^\s'"` + "`" + `<>]+|\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|\d+(?:\.\d+)?(?:e[+-]?\d+)?`)
 
 // A ran is how one command ended: its status, and how a stop ended it, "" where none did.

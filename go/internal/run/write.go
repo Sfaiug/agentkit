@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"agentkit/internal/lock"
 )
@@ -32,11 +33,8 @@ func Writing(dir string) bool {
 	return false
 }
 
-// ErrLined is a write Python ak does more for than write the file (`Lined`).
-var ErrLined = errors.New("a record with a place in a line")
-
 // Lined is whether the record holds a place in a landing line, or a wait in one to count: a
-// write to it Python ak times or adds to history.db.
+// write to it Python ak times, and adds to history.db as it ends, which Go has none of.
 func Lined(record *Object) bool {
 	return InLine(record) || record.Has("line_since")
 }
@@ -59,7 +57,7 @@ const RecoveryLock = "recovery.lock"
 // Change is Python's `record`: change changes the record as it stands under recovery.lock,
 // and what it changed is written, the old time budgets gone with the write as Python's
 // record_limits drops them.  Nothing is written where change returns an error or changes
-// nothing, nor with ErrLoneSurrogate, ErrLined or a record that cannot be read.
+// nothing, nor with ErrLoneSurrogate or a record that cannot be read.
 func Change(dir string, change func(*Object) error) error {
 	return ChangeThen(dir, change, func() {})
 }
@@ -129,8 +127,14 @@ func write(dir string, data []byte, before map[string]string, record *Object) er
 			current.Set(key, record.Get(key))
 		}
 	}
-	if Lined(current) {
-		return ErrLined
+	// a place in the line counts from the write that gives it to the write that ends it, as
+	// Python's _write_state counts it, its start read from the record as it stands
+	if wait := current.Dict("waiting_on"); Member(current) && !wait.Has("fix") {
+		if !current.Has("line_since") {
+			current.Set("line_since", seconds(time.Now()))
+		}
+	} else {
+		current.Delete("line_since")
 	}
 	for _, key := range []string{"done_when_minutes", "turn_hours", "stall_minutes"} {
 		current.Delete(key)

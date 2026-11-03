@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"agentkit/internal/menu"
+	"agentkit/internal/motion"
+	"agentkit/internal/plan"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
@@ -40,8 +42,9 @@ func readFrame(now time.Time) (reading, bool) {
 		if err != nil {
 			return reading{}, false
 		}
+		done, total := plan.Progress(looked.Name)
 		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: looked.Name, Checkout: looked.Checkout(), Model: home.ModelName(looked),
-			Word: looked.Word, Unsent: looked.Unsent(), Said: looked.Said()})
+			Word: looked.Word, Unsent: looked.Unsent(), Said: looked.Said(), Done: done, Total: total})
 	}
 	var err error
 	if found.cells, err = menu.Cells(now); err != nil {
@@ -86,10 +89,14 @@ func akScreen(errOut io.Writer) int {
 		}
 	}()
 	painter := terminal.NewPainter(os.Stdout)
+	opened := time.Now()
 	for {
-		screen, shown := keyboard.Screen(), latest.Load()
+		screen, shown, up := keyboard.Screen(), latest.Load(), time.Since(opened)
 		painter.Write(menu.Lines(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menu.Keys(screen, shown.past)}, screen.Width(), screen.Height()), screen)
+			Clock: time.Now().Format("15:04"), Keys: menu.Keys(screen, shown.past), Up: up}, screen.Width(), screen.Height()), screen)
+		if menu.Growing(shown.seats, up) { // its next frame
+			time.AfterFunc(motion.Frame, keyboard.Wake)
+		}
 		key := keyboard.ReadKey()
 		switch {
 		case key.Name == "esc" || key.Name == "eof":

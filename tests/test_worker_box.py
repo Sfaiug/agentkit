@@ -149,6 +149,7 @@ def boxed(role, home_overlay):
                      state=("/tmp/state", "/var/tmp/state")) as (cmd, env, spawn):
         spawn.pop("stop")
         spawn.pop("began")
+        spawn.pop("declared")
         result = subprocess.run(cmd, env=env, cwd=work, capture_output=True, text=True,
                                 timeout=60, **spawn)
     return json.loads(result.stdout) if result.returncode == 0 else result.stderr
@@ -207,6 +208,7 @@ for home_overlay in (False, True):
                      home_overlay=home_overlay) as (cmd, env, spawn):
         spawn.pop("stop")
         spawn.pop("began")
+        spawn.pop("declared")
         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True, text=True,
                                 timeout=60, **spawn)
     seen["check" if home_overlay else "worker"] = result.stdout.strip() or result.stderr
@@ -322,6 +324,7 @@ else:
                         late.listen(1)
                         spawn.pop("stop")
                         spawn.pop("began")
+                        spawn.pop("declared")
                         result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
                                                 text=True, timeout=60, **spawn)
                     (run / "late").unlink()
@@ -411,6 +414,7 @@ else:
                              home_overlay=home_overlay) as (cmd, env, spawn):
                 spawn.pop("stop")
                 spawn.pop("began")
+                spawn.pop("declared")
                 result = subprocess.run(cmd, env=env, cwd=root, capture_output=True,
                                         text=True, timeout=60, **spawn)
             assert (result.returncode, result.stdout.strip()) == (0, "ok"), result.stderr
@@ -442,6 +446,7 @@ def stop_box(root, *, already_gone):
                                                 cwd=root, drain=True) as (cmd, env, spawn):
                 stop = spawn.pop("stop")
                 spawn.pop("began")
+                spawn.pop("declared")
                 if moment == "named":
                     at = cmd.index("--info-fd")
                     cmd[at:at] = ["--block-fd", "0", "--json-status-fd", "2"]

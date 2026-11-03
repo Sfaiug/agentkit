@@ -23,7 +23,7 @@ import (
 func Resume(id string, bg bool, out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
-	if record == nil || elsewhere() || run.Lined(record) {
+	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) {
 		return 0, "", ErrPython
 	}
 	switch state := record.Str("state"); {
@@ -38,10 +38,15 @@ func Resume(id string, bg bool, out, errOut io.Writer) (int, string, error) {
 	if err != nil || config.Check() != nil || box.Check() != nil {
 		return 0, "", ErrPython
 	}
-	// only a run that does not land is Go's to pick up, so its checks are the task's alone
+	// a run Go picks up runs the task's checks alone: one that lands is woken from its line, whose
+	// lander checks it
 	every, _ := task.Group(task.RoundCommands(cmds, "", false))
-	if !driverHere(every) || record.Truthy("repo") && helped() || !loop.Pickup(dir, record) {
+	if !driverHere(every) || record.Truthy("repo") && helped() || !loop.Pickup(dir, record) && !loop.Woken(record) {
 		return 0, "", ErrPython
+	}
+	if loop.Logging(dir) {
+		// a lander's wake writes into the run's log already: following it would feed it back in
+		bg, out = true, io.Discard
 	}
 	log := filepath.Join(dir, "log.txt")
 	info, err := os.Stat(log)

@@ -117,10 +117,11 @@ func reading(now time.Time, looking bool) (Home, bool) {
 	held, live, gone := onServer(names)
 	var planned []string
 	for _, entry := range entries {
-		// Python's cache of runs/, which Go reads itself, the cards on their way and the template every
-		// home is given say nothing a word hangs on
+		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
+		// home is given and the usage the screen's grid shows say nothing a word hangs on: a seat's
+		// own wait on its usage is in its seat file
 		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" ||
+			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || entry.Name() == "usage.json" ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
