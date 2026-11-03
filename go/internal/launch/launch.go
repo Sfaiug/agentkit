@@ -203,7 +203,7 @@ func python(path string, values map[string]string, flags map[string]bool, bound 
 	if name != "" {
 		return !seat.Votes(name)
 	}
-	return !flags["--anyway"] && going()
+	return !flags["--anyway"] && going(path)
 }
 
 // elsewhere is whether this process's surroundings leave any launch or resume to Python: those

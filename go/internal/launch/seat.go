@@ -70,7 +70,7 @@ func bind() (config.Binding, error) {
 // check comes first, which Go leaves to it wherever it may name a run: a repository's task with a
 // run under way.
 func seatQueue(seat string, repo string) error {
-	if repo != "" && going() {
+	if repo != "" && going("") {
 		return ErrPython
 	}
 	if why := seatFull(seat); why != "" {

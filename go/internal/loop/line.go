@@ -9,9 +9,8 @@ package loop
 // (`.passes`) and its log (`.log`).  Its interface is join (joinLine, then releaseLine as the run
 // leaves), check (CheckLine, `ak run --lander`) and land (landFromLine, in the woken run).
 //
-// Go's lander takes a line of one: a line holding a second member, which can stack, narrow or
-// wait on a repair, a target already found red, and a run's own PR are left to Python's lander,
-// which takes the line once this one lets go of its lock.
+// Green stacks share the single member's checks and delivery. Red stacks, repairs, pieces and
+// PR reviews are left to Python's lander once this one lets go of its lock (stack.go).
 
 import (
 	"cmp"
@@ -57,7 +56,7 @@ func parkedInLine(record *run.Object) bool {
 }
 
 // green is a verdict to deliver: the tree checked, and no fixer owed.
-func green(wait *run.Object) bool { return wait.Has("land") && !wait.Has("fix") }
+func green(wait *run.Object) bool { return wait != nil && wait.Has("land") && !wait.Has("fix") }
 
 // declaredSuite is the target's `tests:` at ref, else the checkout's, Python's declared_suite.
 func declaredSuite(checkout, ref string) string {
@@ -318,7 +317,7 @@ func lineMembers(name string) (found []member) {
 			found = append(found, member{dir, record})
 		}
 	}
-	return found
+	return orderMembers(found)
 }
 
 // wake starts the member's own `ak run resume` on the verdict written to it, Python's
@@ -342,7 +341,7 @@ func wake(dir string, said io.Writer) {
 }
 
 // CheckLine is `ak run --lander LINE`, Python's check_line: under the line's own lock, which a
-// lander already holding it keeps, the one member is checked on the target's tip and woken on its
+// lander already holding it keeps, members are checked on the stack ahead and woken on their
 // verdict, a verdict saved for it is published again, and anything else waits for Python's.
 func CheckLine(name string, out io.Writer) int {
 	host.Lower()
@@ -398,80 +397,6 @@ func keepPasses(turn string, data *run.Object) {
 	}
 }
 
-func checkTurn(turn, code string, said io.Writer) error {
-	members := lineMembers(filepath.Base(turn))
-	if len(members) != 1 {
-		return nil
-	}
-	dir, saved := members[0].dir, members[0].record
-	wait := saved.Dict("waiting_on")
-	if saved.Str("state") != "waiting" || saved.Truthy("review_pr") || saved.Truthy("repair") {
-		return nil
-	}
-	if !unchanged(dir, saved) {
-		return nil // a live rejoiner still holds its place
-	}
-	if verdict := run.NewObject(); wait.Has("land") || wait.Has("fix") {
-		// a verdict a crash or a refused launch left parked is published again
-		for _, key := range []string{"land", "fix"} {
-			if wait.Has(key) {
-				verdict.Set(key, wait.Get(key))
-			}
-		}
-		publish(dir, saved, verdict, said)
-		return nil
-	}
-	if review := saved.Dict("review"); review == nil || review.Str("verdict") != "PASS" {
-		return nil
-	}
-	repo := cmp.Or(saved.Str("worktree"), saved.Str("repo"))
-	if err := noAutoGC(repo); err != nil {
-		return err
-	}
-	// the repository's machine-side settings, as a run's own checks get them
-	env, err := config.RepoEnv(saved.Str("repo"))
-	if err != nil {
-		return err
-	}
-	for key, value := range env {
-		os.Setenv(key, value)
-	}
-	upstream := cmp.Or(saved.Str("target"), saved.Str("base"))
-	if !strings.HasPrefix(upstream, "origin/") {
-		upstream = "origin/" + upstream
-	}
-	g := gitcall.Git{Repo: repo}
-	if fetched, out, err := g.Fetch("origin", "--prune"); err != nil || fetched != 0 {
-		return cmp.Or(err, fmt.Errorf("git fetch origin --prune failed in %s: %s", repo, out))
-	}
-	tip, err := g.Must("rev-parse", upstream+"^{commit}")
-	if err != nil {
-		return err
-	}
-	target, err := g.Must("rev-parse", tip+"^{tree}")
-	if err != nil {
-		return err
-	}
-	if evidence(turn, "red").Has(target) {
-		return nil // the target's own red waits on its probes or its repair: Python's
-	}
-	l := &loop{ctx: context.Background(), dir: dir, id: filepath.Base(dir), voice: said,
-		silence: minutes(saved, "silence_minutes", run.SilenceMinutes), ceiling: time.Duration(number(saved, "ceiling_hours", run.CeilingHours) * float64(time.Hour))}
-	answer, err := l.checkMember(turn, code, saved, repo, tip, target, upstream)
-	if err != nil || answer == nil {
-		return err
-	}
-	if publish(dir, saved, answer, said) {
-		// a reparked member must retry a red this pass found
-		note(turn, func(trees, _, redStacks *run.Object) {
-			for _, key := range redStacks.Keys() {
-				redStacks.Delete(key)
-			}
-		})
-	}
-	return nil
-}
-
 // unchanged is whether the member's record is still the one read, with no process of its own.
 func unchanged(dir string, saved *run.Object) bool {
 	same := false
@@ -516,58 +441,28 @@ func number(record *run.Object, key string, fallback float64) float64 {
 	return fallback
 }
 
-// checkMember is the member's verdict on the target's tip, Python's _check_members for a stack of
-// one: `fix` where its reviewed head does not take the tip in, its rules refuse the tree, or its
-// landing checks fail there, `land` with the tree they passed on, which the line's evidence may
-// already hold; nil where the red is the target's own, which Python's lander probes and repairs.
-func (l *loop) checkMember(turn, code string, saved *run.Object, repo, tip, target, upstream string) (*run.Object, error) {
-	head := saved.Dict("review").Str("head_sha")
-	g := gitcall.Git{Repo: repo}
-	// one remote's line can hold private commits from separate clones
-	if found, _, err := g.Out("cat-file", "-e", head+"^{commit}"); err != nil || found != 0 {
-		if err != nil {
-			return nil, err
-		}
-		source := cmp.Or(saved.Str("worktree"), saved.Str("repo"), repo)
-		if fetched, out, err := g.Out("fetch", "--no-tags", "--no-write-fetch-head", "--", source, head); err != nil || fetched != 0 {
-			return l.fixed("lander.log", fmt.Sprintf("[exit %d]\nERROR: reviewed commit %s is unavailable\n%s", fetched, head, out), false), err
-		}
+// checkMember checks the member on its stack through the same checks and evidence as a line of
+// one. A red stack stays parked for Python's narrowing; the single member keeps its fixer turn.
+func (l *loop) checkMember(turn, code string, saved *run.Object, repo, tip, target, upstream string, stack *landingStack) (*run.Object, error) {
+	checkout, failure, err := l.stackMember(saved, repo, tip, stack.top, upstream)
+	if checkout != nil {
+		defer checkout.close()
 	}
-	if err := os.MkdirAll(filepath.Join(config.Home(), "wt"), 0o777); err != nil {
-		return nil, err
+	if err != nil || failure != nil {
+		return failure, err
 	}
-	scratch, err := os.MkdirTemp(filepath.Join(config.Home(), "wt"), "land-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(scratch)
-	defer g.Out("worktree", "remove", "--force", scratch)
-	if added, out, err := addScratch(repo, scratch, head); err != nil || added != 0 {
-		return l.fixed("lander.log", fmt.Sprintf("[exit %d]\nERROR: checkout of %s failed\n%s", added, head, out), false), err
-	}
+	scratch := checkout.path
 	in := gitcall.Git{Repo: scratch}
-	place := &repoPlace{wt: scratch, baseSHA: cmp.Or(saved.Str("base_sha"), tip)}
-	how, err := place.how(saved)
-	if err != nil {
-		return nil, err
-	}
-	args := []string{"merge", "--no-edit", tip}
-	if how == "rebase" {
-		// a detached rebase must not rewrite the member's branch through Git config
-		args = []string{"-c", "rebase.updateRefs=false", "rebase", tip}
-	}
-	if took, out, err := in.Out(args...); err != nil || took != 0 {
-		return l.fixed("lander.log", fmt.Sprintf("$ git %s\n[exit %d]\nERROR: %s of %s failed\n%s", strings.Join(args, " "), took, how, upstream, out), true), err
-	}
+	place := &repoPlace{wt: scratch, baseSHA: tip}
 	// AGENTS.md is measured on the tree that lands, before any evidence answers it
-	place.baseSHA = tip
 	if failure, err := place.rulesCheck(); err != nil || failure != "" {
 		return l.fixed("lander.log", failure+"\n", false), err
 	}
-	tree, err := in.Must("rev-parse", "HEAD^{tree}")
+	head, tree, err := place.identity()
 	if err != nil {
 		return nil, err
 	}
+	stack.top = head
 	checks, err := landingChecks(l.dir, scratch, tip)
 	if err != nil {
 		return nil, err
@@ -598,6 +493,9 @@ func (l *loop) checkMember(turn, code string, saved *run.Object, repo, tip, targ
 	note(turn, func(_, _, redStacks *run.Object) {
 		redStacks.Set(tree, run.SetAll(run.Fields("at", clock()), append(pairs(fix), "checks", ran, "code", codeValue(code))...))
 	})
+	if stack.multiple {
+		return nil, nil // Python narrows red stacks and probes a red target
+	}
 	if suite != "" && failing == suite {
 		// the target's tip answers for a red suite before the member is blamed: red there too, the
 		// red is the target's own, which Python's lander pauses on and repairs
