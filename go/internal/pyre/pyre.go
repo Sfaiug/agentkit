@@ -288,10 +288,12 @@ func folded(char rune, folding bool, said string) string {
 	return said
 }
 
-// quoted is char as the engine reads it as itself, in a class or out of one.
+// quoted is char as the engine reads it as itself wherever it stands, in a class or out of one:
+// any ASCII but a letter in hex, as a bare digit would lengthen a group's number or make a count,
+// and a bare newline end a comment.
 func quoted(char rune) string {
-	if char < utf8.RuneSelf && !alphanumeric(byte(char)) {
-		return `\` + string(char)
+	if char < utf8.RuneSelf && !unicode.IsLetter(char) {
+		return fmt.Sprintf(`\x%02x`, char)
 	}
 	return string(char)
 }
