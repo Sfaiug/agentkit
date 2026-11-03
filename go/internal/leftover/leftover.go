@@ -99,15 +99,14 @@ func look() ([]found, bool) {
 		if owner == nil && !tag || stat.Exited() || ofRun || theirs != home || theirsSet != homed || read(pid, "comm") == server {
 			continue
 		}
+		tagged = tagged || tag // even on a leftover: Python's sweep may end it as a forgotten seat's
 		if owner != nil && named && number(owner[1]) == namespace && number(owner[4]) == int64(stat.Session) && !underTmux(pid, stats) {
 			if was, ok := stats[int(number(owner[2]))]; !ok || was.Exited() || was.Start != number(owner[3]) {
 				words := slices.DeleteFunc(strings.Split(read(pid, "cmdline"), "\x00"), func(word string) bool { return word == "" })
 				leftovers = append(leftovers, found{pid, stat.Start, words,
 					"which a gone `" + owner[5] + "` (pid " + owner[2] + ") left running"})
-				continue
 			}
 		}
-		tagged = tagged || tag
 	}
 	return leftovers, tagged
 }
@@ -134,21 +133,6 @@ func underTmux(pid int, stats map[int]host.Stat) bool {
 		pid = stat.Parent
 	}
 	return false
-}
-
-// signal sends number to the process at pid only if it started at start: os.FindProcess holds
-// it by a pidfd, as Python's pidfd_open does, and while the pid names one with that start, the
-// held one is it.
-func signal(pid int, start int64, number syscall.Signal) bool {
-	held, err := os.FindProcess(pid)
-	if err != nil {
-		return false
-	}
-	defer held.Release()
-	if stat, ok := readStat(pid); !ok || stat.Start != start {
-		return false
-	}
-	return held.Signal(number) == nil
 }
 
 func readStat(pid int) (host.Stat, bool) { return host.ReadStatIn(proc, pid) }

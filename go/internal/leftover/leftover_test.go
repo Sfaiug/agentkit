@@ -109,6 +109,10 @@ func TestATagIsForPython(t *testing.T) {
 	if Tagless() {
 		t.Error("a tagged process went unseen")
 	}
+	fakeProc(t, faked{pid: 31, session: 4, start: 900, env: []string{home, "AK_OWNER=77 4 800 4 ak usage", "AK_TMUX_OWNER=acme"}})
+	if Tagless() {
+		t.Error("a leftover's tag went unseen")
+	}
 	fakeProc(t, faked{pid: 31, session: 31, start: 900, env: []string{"HOME=/home/other", "AK_TMUX_OWNER=acme"}})
 	if !Tagless() {
 		t.Error("another HOME's tag counted")
