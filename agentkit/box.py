@@ -425,13 +425,26 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             if target is not None:
                 _kill(target[0])
 
+    def declared(_pid):
+        # The box's own /proc holds its command's processes and nothing else, so a look at it
+        # takes as long as the command is large, never as the host is busy: one scanning the
+        # host's every process could finish after a bound it began beside had ended.
+        from . import worker    # here, not at the top: the worker imports this module
+        target = namespace()
+        proc = Path(f"/proc/{target[1]}/root/proc") if target else None
+        try:
+            return bool(proc) and worker.declared_in(proc, filter(str.isdigit, os.listdir(proc)))
+        except OSError:
+            return False
+
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
-                "pass_fds": (write,), "stop": stop, "began": report.exists}
+                "pass_fds": (write,), "stop": stop, "began": report.exists,
+                "declared": declared}
         finally:
             target = namespace()
             if target is not None:
