@@ -279,8 +279,9 @@ func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 		"a login to renew": func(t *testing.T, home string) {
 			write(t, stateFile(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`)
 		},
-		"another harness": func(t *testing.T, home string) {
-			record(t, home, "acme", map[string]any{"orchestrator": "astra"})
+		"a harness whose screen Go does not read": func(t *testing.T, home string) {
+			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+"[models.vela]\nharness='opencode'\nmodel='vela'\nprovider='test'\n")
+			record(t, home, "acme", map[string]any{"orchestrator": "vela"})
 		},
 		"the owner's stop mark": func(t *testing.T, home string) {
 			write(t, stateFile(home, "seat-acme.json"), `{"stopped_at": 1, "closed_by_owner": true}`)

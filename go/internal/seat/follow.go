@@ -28,7 +28,7 @@ type move struct{ chosen, effort, conversation, cwd string }
 func follows(record, file *run.Object, models map[string]config.Model, offered []string) (move, bool) {
 	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, at, answered := harness.LastAnswer(own.Harness, conversation, cwd, record.Str("account"))
+	model, effort, at, answered := harness.LastAnswer(own.Harness, record)
 	var switched any
 	if file != nil {
 		switched = file.Get("switched")

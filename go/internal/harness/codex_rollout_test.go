@@ -1,0 +1,82 @@
+package harness
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"agentkit/internal/run"
+)
+
+// codexSeat is a home whose Codex launch receipt vouches for thread t1 in its rollout, the
+// receipt's token, and how that rollout is written past its first line.
+func codexSeat(t *testing.T) (token string, write func(lines string)) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	token, cwd := strings.Repeat("a", 32), filepath.Join(home, "acme")
+	rollout := filepath.Join(home, "rollout.jsonl")
+	receipt := `{"launch": "` + token + `", "cwd": "` + cwd + `", "event": {"hook_event_name": "SessionStart",
+		"source": "startup", "session_id": "t1", "cwd": "` + cwd + `", "transcript_path": "` + rollout + `"}}`
+	put := func(path, text string) {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil || os.WriteFile(path, []byte(text), 0o600) != nil {
+			t.Fatal(path)
+		}
+	}
+	put(filepath.Join(home, ".agentkit", "state", "codex-launch-"+token+".json"), receipt)
+	meta := `{"type": "session_meta", "payload": {"id": "t1", "cwd": "` + cwd + `"}}` + "\n"
+	return token, func(lines string) { put(rollout, meta+lines) }
+}
+
+// TestCodexErrorIsTheLastTurnsEndInTheThreadItsLaunchReported: what a seat's rollout says, once its
+// receipt vouches for it, as codex.py `error` reads it.
+func TestCodexErrorIsTheLastTurnsEndInTheThreadItsLaunchReported(t *testing.T) {
+	token, write := codexSeat(t)
+	failed := `{"type": "event_msg", "payload": {"type": "task_complete", "error": {"message": " stream disconnected \n"}}}` + "\n"
+	record := func(pairs ...string) *run.Object {
+		made := run.NewObject()
+		for at := 0; at < len(pairs); at += 2 {
+			made.Set(pairs[at], pairs[at+1])
+		}
+		return made
+	}
+	for _, each := range []struct {
+		name, rollout string
+		record        *run.Object
+		said          string
+		recorded      bool
+	}{
+		{"a failed turn", failed, record("codex_launch", token), "stream disconnected", true},
+		{"a prompt after it", failed + `{"type": "event_msg", "payload": {"type": "task_started"}}` + "\n", record("codex_launch", token), "", true},
+		{"an item after it", failed + `{"type": "response_item", "payload": {}}` + "\n", record("codex_launch", token), "", true},
+		{"no receipt", failed, record(), "", false},
+		{"another launch's receipt", failed, record("codex_launch", strings.Repeat("b", 32)), "", false},
+		{"a thread the record replaced", failed, record("codex_launch", token, "id_source", "codex-session-start", "conversation", "t2"), "", false},
+	} {
+		write(each.rollout)
+		if said, recorded := RecordedError("codex", each.record); said != each.said || recorded != each.recorded {
+			t.Errorf("%s: %q, %v", each.name, said, recorded)
+		}
+	}
+}
+
+// TestCodexAnswerIsTheTurnContextOfTheLatestAnswer: the model and effort the turn holding the latest
+// answer started on, and that answer's time, as codex.py `running` reads them.
+func TestCodexAnswerIsTheTurnContextOfTheLatestAnswer(t *testing.T) {
+	token, write := codexSeat(t)
+	record := run.NewObject()
+	record.Set("codex_launch", token)
+	turn := func(model string) string {
+		return `{"type": "turn_context", "payload": {"model": "` + model + `", "effort": "high"}}` + "\n"
+	}
+	answer := `{"type": "event_msg", "timestamp": "2026-11-03T10:00:00Z", "payload": {"type": "item_completed", ` +
+		`"item": {"type": "AgentMessage", "content": [{"type": "Text", "text": "done"}]}}}` + "\n"
+	write(turn("gpt-a") + answer + turn("gpt-b"))
+	if model, effort, at, found := LastAnswer("codex", record); model != "gpt-a" || effort != "high" || at != "2026-11-03T10:00:00Z" || !found {
+		t.Errorf("%v %v %v %v", model, effort, at, found)
+	}
+	write(turn("gpt-a"))
+	if _, _, _, found := LastAnswer("codex", record); found {
+		t.Error("a turn that never answered shows a model")
+	}
+}

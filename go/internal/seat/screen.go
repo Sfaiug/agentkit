@@ -100,7 +100,7 @@ func observed(state, name, own, pane string, now float64) (found sight, previous
 	case pane == "":
 		found.stall, found.login = previous.Get("stall"), previous.Get("login")
 	case found.state == "at_prompt":
-		said, recorded := harness.RecordedError(own, record.Str("conversation"), record.Str("cwd"), record.Str("account"))
+		said, recorded := harness.RecordedError(own, record)
 		found.stall = seen.stallOn(own, pane, tail, said, recorded)
 		found.login = seen.loginOn(own, tail, said, recorded)
 	}
