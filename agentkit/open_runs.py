@@ -58,9 +58,10 @@ class Reader:
         self.found = {}        # those with a readable record: (that record, `attended` of it)
         self.open = set()      # those a read looks at
         self.every, self.shown = [], []       # every run's (directory, record), and `attended`'s
-        self.split = (), [], []   # `shown`, those of it at rest at the last full read -- the same
-                                  # list until the next, or until one of them goes -- and the
-                                  # others, in its order: a new tuple every read (`menu.Folds`)
+        self.split = None, [], []   # `shown`, those of it at rest at the last full read -- the
+                                    # same list until the next, or until one of them goes -- and
+                                    # the others, in its order: a new tuple every read
+                                    # (`menu.Folds`)
         self.due = 0.0         # when the next full read is, on time.monotonic
 
     def read(self, attended, save):

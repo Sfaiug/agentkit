@@ -1181,7 +1181,7 @@ class Folds:
 
     def of(self, records, now):
         """(supersession_index, runs_by_seat, {run name: its silence}) of `records`."""
-        split = _RUN_RECORDS.reader.split if _RUN_RECORDS is not None else ((),)
+        split = _RUN_RECORDS.reader.split if _RUN_RECORDS is not None else (None,)
         if split[0] is not records:
             return (transitions.supersession_index(records), transitions.runs_by_seat(records),
                     _silent(records, now))
