@@ -61,6 +61,9 @@ class Boundary(unittest.TestCase):
         """Every module under agentkit/, the harness package excepted: it is the exception."""
         return sorted(path for path in (REPO / "agentkit").glob("*.py"))
 
+    # Models are plugins the owner marks: adding a model or harness is an adapter,
+    # its toml and a config.toml entry, never a name hard-coded in code. This check
+    # permits worker.py's and orch.py's existing Claude comparisons. [18 Sep - 26 Oct 2026]
     def test_v5al_no_core_module_compares_a_harness_name(self):
         found = set()
         for path in self.modules():

@@ -301,9 +301,10 @@ def head_writers(state):
 
 
 def pair_tier(cfg, executor, reviewer):
-    """This pair's tier, in the owner's order of 21 Oct (AGENTS.md, Owner rules): 0 a model
-    on another provider, 1 another model on the executor's provider, 2 the executor's own
-    model.  Own is `same_model`'s: one model id under two providers is two models.
+    """This pair's tier, in the owner's order of 21 Oct
+    (tests/test_key_reviewer_other_provider_first.py): 0 a model on another provider,
+    1 another model on the executor's provider, 2 the executor's own model.
+    Own is `same_model`'s: one model id under two providers is two models.
 
     None when either name is unknown: no pick weighs a pair it cannot name.
     """

@@ -25,6 +25,8 @@ from fixtures.sink import Sink
 DAY = 86400
 
 
+# Shown by provider name, in roman numerals when several (Claude I, Claude II),
+# never account name. [29 Sep, 21, 24 Oct 2026]
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
 class Accounts(unittest.TestCase):
     def setUp(self):

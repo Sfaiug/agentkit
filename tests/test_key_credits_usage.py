@@ -61,6 +61,8 @@ class SpentWeekWithCredits(unittest.TestCase):
                                              ("test", "reef"): (100, {"credits": 12})})
         cls.json, cls.text, cls.seat = usage(home), shown(home), seat(home, "--model", "echo")
 
+    # Credits a provider account still holds (ChatGPT credits first, any provider
+    # that reports a balance) count as usage left. [2 Oct, 20 Oct 2026]
     def test_the_account_holding_credits_is_not_spent_and_neither_is_its_provider(self):
         test = self.json["providers"]["test"]
         self.assertEqual((test["exhausted"], test["on_credits"], test["account"]),

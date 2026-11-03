@@ -163,6 +163,9 @@ class ModelsAnswer(unittest.TestCase):
             f"           Bolt 3          medium  {bar(11, 1)}     93.2   $3.00"])
         self.assertEqual(akconfig.read(self.home)["within"], 4)
 
+    # `r` takes the best the owner's harnesses run: each role's take at its effort,
+    # the cheapest of yours within `within` of best, into new seats' defaults.
+    # [18 Sep - 26 Oct 2026]
     def test_r_takes_each_roles_take_at_its_effort(self):
         term, _ = self.models()
         term.keys("r")

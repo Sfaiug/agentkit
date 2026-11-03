@@ -43,6 +43,9 @@ def points(rated, release, effort):
             for column, m in found(rated, release, effort)["measures"].items()}
 
 
+# A missing score carried from the nearest effort, else its worst: nearest above
+# needs the intelligence index at both efforts and adds only its loss; otherwise
+# nearest below is carried unchanged. [18 Sep - 26 Oct 2026]
 class QualityRatesEveryEffort(unittest.TestCase):
     def setUp(self):
         self.rated = quality.rated(ROWS, "execute")
@@ -65,6 +68,12 @@ class QualityRatesEveryEffort(unittest.TestCase):
     def test_the_best_is_of_rows_with_the_index(self):
         self.assertEqual(points(self.rated, "echo-1", "none")[F], (-30, "measured"))
 
+    # ak rates every current model per effort and role on quality and cost alone;
+    # speed is ak's to fix, subscriptions follow the choice. The check rates only
+    # rows with at least two measured or carried role measures.
+    # Reason: the marks were intuition; on quality alone the smartest row took every
+    # role at twelve times the cost of one the boards cannot tell from it.
+    # [18 Sep - 26 Oct 2026]
     def test_quality_and_cost(self):
         self.assertAlmostEqual(found(self.rated, "acme-5", "low")["quality"],
                                100 - (0.4 * 5 + 0.2 * 10 + 0.4 * 5))
