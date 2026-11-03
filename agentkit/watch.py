@@ -6521,9 +6521,8 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     Every run in state `exhausted` is checked against the usage providers the tick
     already read: a run whose worktree is gone is left for an explicit resume, with a
     WARN, however dry every provider is; a run whose worktree still exists is resumed
-    when an eligible worker can execute again -- in the pick order, budget above
-    zero, not marked exhausted-until -- or, off a dead reviewer, when an eligible
-    reviewer can review again.  The resume is the one the command runs
+    when the resume's own pick finds a worker that can execute again, or, off a dead
+    reviewer, when an eligible reviewer can review again.  The resume is the one the command runs
     (`ak run resume <id> --bg`, detached, never waited on), handing over to that
     worker when the saved executor is still dry.  One log line per resume:
     `resumed <id>: <provider> window refilled`.  Retry metadata goes on disk before
@@ -6617,7 +6616,7 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 else:
                     try:
                         chosen, reviewer = staffing.resume_models(
-                            cfg, providers, state, skipped.append, workers=workers, now=now,
+                            cfg, providers, state, skipped.append, workers=workers,
                             skip=(retry_model,) if retry_waiting else ())
                     except turns.QuotaDry:
                         continue

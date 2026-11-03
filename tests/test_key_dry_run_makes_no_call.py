@@ -83,7 +83,7 @@ class DryRunMakesNoCall(unittest.TestCase):
         self.assertEqual(resumed.code, 1, resumed.out + resumed.err)
         cache = json.loads((self.home.path / ".agentkit/state/usage.json").read_text())
         until = cache["providers"]["anthropic"]["exhausted_until"]
-        self.assertIn(time.strftime("%Y-%m-%d %H:%M", time.localtime(until)), resumed.out)
+        self.assertIn(time.strftime("%Y-%m-%d %H:%M", time.gmtime(until)), resumed.out)
         self.assertEqual(self.snapshot(), before)
         background = self.home.ak("run", "resume", self.directory.name, "--bg")
         self.assertEqual(background.code, 1, background.out + background.err)
