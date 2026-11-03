@@ -58,8 +58,7 @@ func table(t *ticking) []pass {
 		{"job handbacks", false, jobless, nil},
 		{"ended waits", false, all(configured, seatless), nil},
 		{"owed lines", false, seatless, nil},
-		// it reads its record before it asks each checkout for its switches
-		{"switch retirement", false, seat.NoCheckouts, retireRead},
+		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, all(seatless, run.Historyless), nil},
 		{"history sync", false, run.Historyless, nil},
 		{"history checkpoint", false, run.Historyless, nil},
@@ -72,16 +71,16 @@ func table(t *ticking) []pass {
 		{"end hook", false, seatless, nil},
 		{"seat revival", false, all(configured, runless, seatless), nil},
 		{"idle sleep", false, all(configured, seatless), nil},
-		{"git housekeeping", false, all(runless, seatless, seat.NoCheckouts), nil},
+		{"git housekeeping", false, all(runless, seatless, checkoutsSeen), t.housekeeping},
 		{"exit clocks", false, seatless, nil},
 		{"seat sweep", false, all(runless, seatless), nil},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, noLeftovers, nil},
 		{"rented machines", false, all(configured, noRenting), nil},
-		{"project rules", false, all(seatless, seat.NoCheckouts), nil},
-		{"project setups", false, seat.NoCheckouts, nil},
+		{"project rules", false, all(seatless, checkoutsSeen), fetchProjects},
+		{"project setups", false, checkoutsSeen, setups},
 		{"alive checks", false, all(seatless, outageless), nil},
-		{"night reads", false, seat.NoCheckouts, nil},
+		{"night reads", false, noNights, t.nights},
 	}
 }
 

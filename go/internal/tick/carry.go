@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 const authoredSearch = "search/issues?q=is:pr+is:open+author:@me&per_page=100"
@@ -32,13 +33,21 @@ type ticking struct {
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding
 // the lock says so, and one on a home with nothing to act on goes through the passes and GitHub.
 // False leaves the tick to Python: with nothing written where a read says otherwise or cannot be
-// made, and after what Python's next tick reads as its own where gh names a pull request to act
-// on or cannot be read; and on Windows, as Overlap.
+// made, or where gh cannot be read or names who is logged in on a home holding a checkout, whose
+// pull requests Python's incoming asks; after what Python's next tick reads as its own where gh
+// names a pull request to act on; and on Windows, as Overlap.
 func Carry(out, errOut io.Writer) bool {
 	if Overlap(out, errOut) {
 		return true
 	}
-	if runtime.GOOS == "windows" || !idle(false) || config.EnsureDirs() != nil {
+	if runtime.GOOS == "windows" || !idle(false) {
+		return false
+	}
+	// asked before any pass, where Python asks after them: whether Go carries the tick hangs on it
+	asking := time.Now()
+	user, why, failed := gh.JSON(run.Runs(), "api", "user")
+	asked := time.Since(asking)
+	if checkouts, _ := seat.Checkouts(); failed != nil || login(user) != "" && len(checkouts) > 0 || config.EnsureDirs() != nil {
 		return false
 	}
 	held, err := lock.Try(lockPath())
@@ -63,7 +72,7 @@ func Carry(out, errOut io.Writer) bool {
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
 	began := t.clock()
 	t.through(table(t))
-	carried := t.github()
+	carried := t.github(user, why, asked)
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
 	record, slowest := run.NewObject(), run.NewObject()
 	record.Set("started_at", epoch(began))
@@ -91,34 +100,29 @@ func (t *ticking) through(passes []pass) {
 	}
 }
 
-// timed runs a step, says so of one over a second, and keeps the slowest.
+// timed runs a step and counts how long it took.
 func (t *ticking) timed(name string, step func() error) error {
 	start := t.clock()
 	err := step()
-	took := t.clock().Sub(start)
-	if took > time.Second {
-		t.log.line(fmt.Sprintf("%s took %.1f s", name, took.Seconds()))
-	}
-	if took > t.slowest || took == t.slowest && name > t.slowestName {
-		t.slowest, t.slowestName = took, name
-	}
+	t.took(name, t.clock().Sub(start))
 	return err
 }
 
-// github is what Python's main does with gh's answer to who is logged in; false leaves the rest
-// to Python. A logout is the owner's to fix and written down for every seat to say so; an outage
-// is not, and an earlier logout stands until gh answers.
-func (t *ticking) github() bool {
-	var value any
-	var why string
-	var failed error
-	t.timed("github user", func() error {
-		value, why, failed = gh.JSON(run.Runs(), "api", "user")
-		return nil
-	})
-	if failed != nil {
-		return false
+// took says so of a step over a second, and keeps the slowest.
+func (t *ticking) took(name string, spent time.Duration) {
+	if spent > time.Second {
+		t.log.line(fmt.Sprintf("%s took %.1f s", name, spent.Seconds()))
 	}
+	if spent > t.slowest || spent == t.slowest && name > t.slowestName {
+		t.slowest, t.slowestName = spent, name
+	}
+}
+
+// github is what Python's main does with gh's answer to who is logged in, which took asked;
+// false leaves the rest to Python. A logout is the owner's to fix and written down for every seat
+// to say so; an outage is not, and an earlier logout stands until gh answers.
+func (t *ticking) github(value any, why string, asked time.Duration) bool {
+	t.took("github user", asked)
 	me := login(value)
 	if me == "" {
 		line, loggedOut := unanswered(why)
@@ -131,7 +135,7 @@ func (t *ticking) github() bool {
 		return true
 	}
 	t.state.Delete("gh_out")
-	// incoming pull requests are asked of each checkout, and this home has none
+	// incoming pull requests are asked of each checkout, and this home has none (Carry)
 	carried := false
 	t.timed("outgoing prs", func() error {
 		carried = t.outgoing(me)
