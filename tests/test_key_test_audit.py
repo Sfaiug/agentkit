@@ -119,12 +119,18 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(rows["tests/test_api.py"], ["–", "0", "2", "1"])
         self.assertEqual(rows["tests/test_shaky.py"], ["–", "2", "0", "0", "fix", "or", "delete"])
 
-    def test_narrow_rows_fold_and_help_names_the_flag(self):
+    def test_narrow_rows_fold(self):
         out = self.report(columns=40)
         self.assertTrue(all(len(line) <= 40 and line == line.rstrip() for line in out.splitlines()), out)
         self.assertIn("tests/test_slow.py", out)
         self.assertIn("224.0s", out)
-        self.assertIn("--tests", self.home.ak("run", "status", "--help").out)
+
+    def test_help_names_the_flag(self):
+        done = self.home.ak("run", "status", "--help")
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(done.out.split("\n\n")[1],
+                         "usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]")
+        self.assertIn("[--tests]", self.home.ak("run", "--help").out.split("\n\n")[1])
 
 
 if __name__ == "__main__":
