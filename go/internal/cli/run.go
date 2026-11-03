@@ -140,7 +140,7 @@ func validateRun(args []string) string {
 	if err := config.Check(); err != nil {
 		return err.Error()
 	}
-	if err := config.CheckRunMemory(); err != nil {
+	if _, _, err := config.RunMemoryMaxMB(); err != nil {
 		return err.Error()
 	}
 	if _, parallel := parsed.values["--parallel"]; parallel && len(parsed.words) == 1 {

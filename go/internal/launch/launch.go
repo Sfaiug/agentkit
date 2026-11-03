@@ -196,7 +196,8 @@ func python(path string, values map[string]string, flags map[string]bool, bound 
 // unread, or a config Python refuses before its run.
 func elsewhere() bool {
 	_, capped := config.MaxRuns()
-	return capped != nil || config.CheckRunMemory() != nil || unread()
+	_, _, memory := config.RunMemoryMaxMB()
+	return capped != nil || memory != nil || unread()
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
