@@ -1009,6 +1009,24 @@ def ended_runs(since, until):
         return []
 
 
+def checks(since, until):
+    """Check rows of runs ended in the inclusive range, including unfinished checks.
+    No rows before checks were kept (30 Oct 2026), or where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT checks.* FROM checks JOIN runs USING (run_id) "
+                    "WHERE runs.finished_at >= ? AND runs.finished_at <= ?",
+                    (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def recent_peak_rss_mb():
     """Median measured peak of real runs finished in the last seven days, or None."""
     now = time.time()

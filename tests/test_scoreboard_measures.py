@@ -37,6 +37,8 @@ PINNED = (
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    # checks: write-up task 1 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.
+    ("checks", "checks", ("suites", "hours")),
     ("parks", "parks", ("parked",)),
     ("sunk", "sunk", ("share", "tokens")),
     # a review miss counts only when it breaks, at landing or after merge, never a rewrite
@@ -84,7 +86,11 @@ class Measures(unittest.TestCase):
                  "executor_tokens": 1, "reviewer_tokens": 1, "total_seconds": 3540,
                  "slot_wait_seconds": 0, "suite_wait_seconds": 0, "merge_wait_seconds": 0,
                  "lander_wait_seconds": 0} for repo in ("acme", "toolkit")]
+        checks = [{"run_id": row["run_id"], "round": 1, "kind": "rules", "tree": "cedar",
+                   "command": "AK_SHARD=0/2 suite", "started_at": NOW - 300,
+                   "finished_at": NOW - 60} for row in rows]
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
+                patch.object(scoreboard.history, "checks", return_value=checks), \
                 patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
                 patch.object(scoreboard.history, "owner",
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
