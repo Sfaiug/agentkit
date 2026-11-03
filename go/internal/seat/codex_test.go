@@ -3,10 +3,14 @@ package seat
 import (
 	"errors"
 	"maps"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"agentkit/internal/commandhelp"
 )
 
 func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
@@ -67,5 +71,51 @@ func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
 	}
 	if after := stateFiles(t, home)["session-acme.json"]; newer != after {
 		t.Fatalf("listing overwrote the newer record: %s", after)
+	}
+}
+
+func TestCodexReceiptArrivingDuringCaptureIsHandedToPython(t *testing.T) {
+	home := sandbox(t)
+	token := strings.Repeat("a", 32)
+	record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"},
+		"codex_launch": token, "conversation": nil, "id_source": nil, "resumable": false})
+	drawn(t, home, "acme", "Choose a model\n› 1. First\n  2. Second\n\n  Press enter to continue\n")
+	cwd, rollout := filepath.Join(home, "work", "acme"), filepath.Join(home, "rollout.jsonl")
+	write(t, rollout, encoded(t, map[string]any{"type": "session_meta", "payload": map[string]any{"id": "t1", "cwd": cwd}})+"\n")
+	launch := "codex-launch-" + token + ".json"
+	prepared := encoded(t, map[string]any{"launch": token, "cwd": cwd})
+	write(t, stateFile(home, launch), prepared)
+	arrived := encoded(t, map[string]any{"launch": token, "cwd": cwd, "event": map[string]any{
+		"hook_event_name": "SessionStart", "source": "startup", "session_id": "t1", "cwd": cwd, "transcript_path": rollout}})
+	ready := filepath.Join(home, "receipt")
+	write(t, ready, arrived)
+	real, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := filepath.Join(home, "bin", "tmux")
+	write(t, fake, "#!/bin/sh\nfor arg do\n  if [ \"$arg\" = capture-pane ]; then\n    "+
+		commandhelp.ShellJoin([]string{"cp", ready, stateFile(home, launch)})+"\n  fi\ndone\nexec "+
+		commandhelp.ShellJoin([]string{real})+" \"$@\"\n")
+	if err := os.Chmod(fake, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", filepath.Dir(fake)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	before := stateFiles(t, home)
+	if _, err := LookedLive(stateFile(home, ""), "acme"); !errors.Is(err, ErrUnread) {
+		t.Fatalf("the capture bypassed the new receipt: %v", err)
+	}
+	after := stateFiles(t, home)
+	if after[launch] != arrived {
+		t.Fatal("the hook did not arrive during capture")
+	}
+	before[launch] = arrived
+	delete(after, "seat-acme.announce") // the empty lock the look took
+	if !maps.Equal(before, after) {
+		t.Fatalf("handing over wrote: %v, then %v", before, after)
+	}
+	write(t, stateFile(home, launch), prepared)
+	if _, known := Lives(time.Now()); known {
+		t.Fatal("the tick took a reading whose capture owes Python a reconcile")
 	}
 }

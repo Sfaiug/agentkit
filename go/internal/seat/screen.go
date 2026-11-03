@@ -135,6 +135,11 @@ func (seat Seat) look(state string, now float64) (sight, error) {
 // the screen, so it writes nothing but what a hook decided; a harness that exited does say: the
 // error it was retrying past ended with it.
 func (seat Seat) keep(state, pane string, exited bool, found sight, previous *run.Object, now float64) (sight, error) {
+	// A harness may learn its conversation while tmux captures the pane.
+	record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json"))
+	if record == nil || !harness.RecordReady(seat.own, record) {
+		return found, ErrUnread
+	}
 	if exited {
 		found.stall, found.login = nil, nil
 	} else if pane == "" && found.authority != "hook" {

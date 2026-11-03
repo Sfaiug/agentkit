@@ -113,6 +113,9 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	title, _ := harness.SessionTitle(seat.own, record, ownFile("title", seat.Name))
 	wrapped := harness.WrappedUp(seat.own, map[string]any{"conversation": conversation, "cwd": cwd, "account": record.Get("account")},
 		func(entry *run.Object) bool { return script.Prompted(seat.own, entry).Text != "" })
+	if !harness.RecordReady(seat.own, record) {
+		return Live{}, false
+	}
 	return Live{Name: seat.Name, Own: seat.own, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line),
