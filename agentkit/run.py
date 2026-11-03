@@ -2973,13 +2973,16 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
     mine_files = test_files(cmds)
     if mine_files:
-        # An existing guard says nothing about which change a run builds. Never fetch here.
+        # Existing guards say nothing about which change a run builds. A partial clone
+        # may hold their paths but not their blobs, and neither lookup may fetch.
+        env = {"GIT_NO_LAZY_FETCH": "1"}
         try:
             tip = git(repo, "rev-parse", "--verify", "--quiet",
-                      f"{config.RULES_REF}^{{commit}}", check=False)
+                      f"{config.RULES_REF}^{{commit}}", check=False, env=env)
             if tip:
                 mine_files = {name for name in mine_files
-                              if git_out(repo, "cat-file", "-e", f"{tip}:{name}")[0] != 0}
+                              if not git(repo, "--literal-pathspecs", "ls-tree", "-z",
+                                         "--full-tree", tip, "--", name, env=env)}
         except (config.Error, OSError):
             pass  # an unreadable tip keeps every candidate, as before
     task_path = Path(task_path).expanduser().resolve()
