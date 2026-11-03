@@ -115,9 +115,9 @@ func akScreen(errOut io.Writer) int {
 		}
 		key := keyboard.ReadKey()
 		switch {
-		case key.Name == "up" || key.Char == "k":
+		case key.Name == "up" || key.Char == "k" || key.Char == "K":
 			cursor = menu.Step(shown.seats, cursor, -1)
-		case key.Name == "down" || key.Char == "j":
+		case key.Name == "down" || key.Char == "j" || key.Char == "J":
 			cursor = menu.Step(shown.seats, cursor, 1)
 		case key.Name == "esc" || key.Name == "eof":
 			keyboard.Give()
