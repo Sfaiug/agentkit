@@ -22,7 +22,9 @@ type plugin struct {
 	seats   bool
 	fresh   string
 	receipt string
-	answer  func(conversation, cwd string) (model, effort any, found bool)
+	// source is the `id_source` its own hooks write for a conversation that replaced the launch's.
+	source string
+	answer func(conversation, cwd string) (model, effort any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one

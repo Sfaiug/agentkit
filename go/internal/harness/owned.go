@@ -1,0 +1,53 @@
+package harness
+
+import (
+	"os"
+
+	"agentkit/internal/config"
+)
+
+// Antigravity's plugin keeps its conversation by its own evidence, which Go does not read yet.
+func init() { plugins["antigravity"] = plugin{} }
+
+// Owned is the conversation that harness says a seat's record owns once it has reconciled it
+// (its plugin's `conversation` and `reconcile`), "" for none; false where the answer hangs on
+// what Go does not do: a receipt to verify, a store of its own, or a record to reconcile.  A
+// harness with no plugin, only an adapter, takes the defaults.
+func Owned(name string, record map[string]any) (string, bool) {
+	own, plugged := plugins[name]
+	if own.receipt != "" {
+		return "", record[own.receipt] == nil
+	}
+	if plugged && !own.opens {
+		return "", false
+	}
+	conversation, isText := record["conversation"].(string)
+	source := record["id_source"]
+	if !isText && record["conversation"] != nil || conversation != "" && source != "launcher" && (own.source == "" || source != own.source) {
+		return "", false
+	}
+	return conversation, true
+}
+
+// Opened is whether that harness has written the conversation a seat's record names down yet, as
+// its plugin's `opened` answers: a store nothing knows is taken at its word; false where its
+// plugin knows one Go does not read.
+func Opened(name string, record map[string]any) (opened, known bool) {
+	hook := plugins[name].conversation
+	if hook == nil {
+		_, plugged := plugins[name]
+		return !plugged, !plugged
+	}
+	_, err := os.Stat(hook(record))
+	return err == nil, true
+}
+
+// FreshWords is what a seat of that harness starting without a past is said to be doing, its
+// manifest's `[conversation] fresh_words` where it has them.
+func FreshWords(name string) string {
+	section, _ := config.Section(name, "conversation")
+	if words, _ := section["fresh_words"].(string); words != "" {
+		return words
+	}
+	return "no conversation recorded; it starts fresh"
+}

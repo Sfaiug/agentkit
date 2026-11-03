@@ -127,17 +127,29 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 
 // Attach hands this terminal to the seat's session, as Python's orch.attach does from a
 // person's: tmux run as a terminal this box knows, the seat seen opened, then tmux's client in
-// this process's place.  It answers only where it could not.
+// this process's place, or a client already on ak's server moved over.  Only that move comes back
+// done; otherwise it answers only where it could not.
 func Attach(name string, out, errOut io.Writer) error {
+	state, now := filepath.Join(config.Home(), "state"), time.Now()
+	// the open the live states are measured against
+	opening := func() {
+		if err := errors.Join(nextGeneration(state, name, now), writeSeat(state, name, []field{{"opened_at", seconds(now)}})); err != nil {
+			fmt.Fprintf(errOut, "WARN could not record opening %s: %s\n", name, err)
+		}
+	}
+	// a client on this seat's own server: switched, rather than one tmux nested in another
+	if tmux.Inside(tmux.Own()) {
+		if err := tmux.Switch(tmux.Own(), name); err != nil {
+			return Refusal(fmt.Sprintf("cannot switch to the session %s: %v", name, err))
+		}
+		opening()
+		return nil
+	}
 	if term := tmux.Term(); term != "" {
 		fmt.Fprintf(out, "note: this box has no terminfo for TERM=%s; tmux is run as %s\n", os.Getenv("TERM"), term)
 		os.Setenv("TERM", term)
 	}
-	// the open the live states are measured against
-	state, now := filepath.Join(config.Home(), "state"), time.Now()
-	if err := errors.Join(nextGeneration(state, name, now), writeSeat(state, name, []field{{"opened_at", seconds(now)}})); err != nil {
-		fmt.Fprintf(errOut, "WARN could not record opening %s: %s\n", name, err)
-	}
+	opening()
 	return tmux.Attach(tmux.Own(), name)
 }
 
@@ -172,10 +184,29 @@ func start(state, name, cwd string, cmd []string) error {
 	if err != nil {
 		return err
 	}
+	command, launch, err := launchFile(state, name, values, cmd)
+	if err != nil {
+		return err
+	}
+	target := "=" + name + ":"
+	args := slices.Concat(serverWide, []string{"new-session", "-d", "-s", name, "-c", cwd})
+	args = append(append(append(args, paneEnvironment(values)...), command), keptEnvironment(target, values)...)
+	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, "@ak_harness_pane", "#{pane_id}",
+		";", "set-option", "-t", target, "remain-on-exit", "on")
+	if err := tmux.Spawn(tmux.Own(), shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
+		os.Remove(launch)
+		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
+	}
+	return nil
+}
+
+// launchFile is the file a seat's pane runs its harness by, which removes itself, and the pane's
+// command that runs it.
+func launchFile(state, name string, values []field, cmd []string) (string, string, error) {
 	token := make([]byte, 4)
 	rand.Read(token)
 	launch := filepath.Join(state, "launch-"+name+"."+hex.EncodeToString(token))
-	// new-session can set a variable, but not remove one the server holds
+	// a pane's -e can set a variable, but not remove one the server holds
 	script := "rm -f -- \"$0\"\n"
 	if unset := slices.DeleteFunc(slices.Clone(values), func(f field) bool { return f.value != nil }); len(unset) > 0 {
 		script += "unset"
@@ -184,17 +215,24 @@ func start(state, name, cwd string, cmd []string) error {
 		}
 		script += "\n"
 	}
-	if err := os.WriteFile(launch, []byte(script+"exec "+commandhelp.ShellJoin(cmd)+"\n"), 0o666); err != nil {
-		return err
-	}
-	target := "=" + name + ":"
-	args := slices.Concat(serverWide, []string{"new-session", "-d", "-s", name, "-c", cwd})
+	err := os.WriteFile(launch, []byte(script+"exec "+commandhelp.ShellJoin(cmd)+"\n"), 0o666)
+	return commandhelp.ShellJoin([]string{"sh", launch}), launch, err
+}
+
+// paneEnvironment is those values as the words that start a pane in them.
+func paneEnvironment(values []field) []string {
+	var args []string
 	for _, f := range values {
 		value, _ := f.value.(string)
 		args = append(args, "-e", tmux.Literal(f.key+"="+value))
 	}
-	args = append(args, commandhelp.ShellJoin([]string{"sh", launch}))
-	// later panes and Ctrl-b m in the same home as the harness
+	return args
+}
+
+// keptEnvironment is those values as commands, each after a `;`, for later panes and Ctrl-b m to
+// start in the same home as the harness.
+func keptEnvironment(target string, values []field) []string {
+	var args []string
 	for _, f := range values {
 		if value, set := f.value.(string); set {
 			args = append(args, ";", "set-environment", "-t", target, f.key, tmux.Literal(value))
@@ -202,13 +240,7 @@ func start(state, name, cwd string, cmd []string) error {
 			args = append(args, ";", "set-environment", "-t", target, "-r", f.key)
 		}
 	}
-	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, "@ak_harness_pane", "#{pane_id}",
-		";", "set-option", "-t", target, "remain-on-exit", "on")
-	if err := tmux.Spawn(tmux.Own(), shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
-		os.Remove(launch)
-		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
-	}
-	return nil
+	return args
 }
 
 // environment is what a seat takes from whoever opens it, as Python's orch.seat_env: its home,

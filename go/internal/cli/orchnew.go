@@ -54,6 +54,9 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		if err == nil {
 			err = seat.Attach(name, out, errOut)
 		}
+		if err == nil {
+			return 0
+		}
 		fmt.Fprintf(errOut, "ak orch: %s\n", err)
 		return 2
 	}

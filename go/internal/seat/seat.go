@@ -1,6 +1,6 @@
 // Package seat is what Go knows of the seats, and hides what a seat is: its record, written as
 // Python writes it under Python's locks, its session on ak's tmux server, and ak's shims first
-// on its harness's PATH; opening, stopping, renaming and reading one all go through here. Read
+// on its harness's PATH; opening, reopening, stopping, renaming and reading one all go through here. Read
 // takes the home in once, into the seats it knows or a no wherever Python's answer hangs on
 // anything that reading leaves out, and decides each word from that reading alone; each later
 // piece widens what Read knows, here.
