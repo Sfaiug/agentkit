@@ -43,9 +43,13 @@ def directories():
     return root
 
 
-def normalize(value):
+def check_path(value):
     if not value or any(c in value for c in "\0\r\n\t"):
         raise config.Error("a file path must be non-empty and contain no tabs or newlines")
+
+
+def normalize(value):
+    check_path(value)
     # Preserve literal filenames when already readable here, including quotes/backslashes.
     if Path(value).expanduser().exists():
         return str(Path(value).expanduser())
@@ -58,8 +62,7 @@ def normalize(value):
         value = parts[0] if len(parts) == 1 else value[1:-1]
     # Finder/Terminal escape shell punctuation; ordinary spaces and apostrophes stay put.
     value = re.sub(r"\\([\s\\'\"()\[\]{}<>|;&!$`*?#~])", r"\1", value)
-    if not value or any(c in value for c in "\0\r\n\t"):
-        raise config.Error("a file path must be non-empty and contain no tabs or newlines")
+    check_path(value)
     return str(Path(value).expanduser())
 
 
@@ -71,8 +74,8 @@ def extension(path):
     return Path(basename(path)).suffix
 
 
-def fetch_one(value, timeout):
-    path = normalize(value)
+def fetch_one(path, timeout):
+    check_path(path)
     if Path(path).exists():
         return str(Path(path).absolute())
     root = directories()
@@ -113,6 +116,34 @@ def fetch_one(value, timeout):
         # A delivered file may itself be named <ident>.missing.
         if missing != delivered:
             missing.unlink(missing_ok=True)
+
+
+def pasted_context(said):
+    """Fetch the owner's pasted shell words, sharing one ten-second wait on the Mac."""
+    paths, end = {}, 0
+    for match in re.finditer(r"['\"]?/(?:Users|var/folders)/", said):
+        if match.start() < end:
+            continue
+        word = shlex.shlex(said[match.start():], posix=True)
+        word.whitespace_split = True
+        word.commenters = ""
+        try:
+            path = word.get_token()
+        except ValueError:
+            break       # an unclosed word consumed the rest of the prompt
+        end = match.start() + word.instream.tell()
+        paths[path] = None
+    deadline = time.monotonic() + 10
+    lines = []
+    for path in paths:
+        try:
+            local = fetch_one(path, max(0, deadline - time.monotonic()))
+        except (config.Error, OSError) as exc:
+            lines.append(f"{path}: the Mac did not answer with a file ({exc}); "
+                         f"try ak fetch {shlex.quote(path)} later.")
+        else:
+            lines.append(f"{path} is at {local}")
+    return "\n".join(lines)
 
 
 def serve():
@@ -207,7 +238,7 @@ def fetch_main(argv):
         rc = 0
         for value in argv:
             try:
-                print(fetch_one(value, timeout), flush=True)
+                print(fetch_one(normalize(value), timeout), flush=True)
             except (config.Error, OSError) as exc:
                 print(f"ak fetch: {exc}", file=sys.stderr)
                 rc = 1
