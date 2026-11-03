@@ -16,7 +16,6 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
-	"agentkit/internal/seat"
 )
 
 const authoredSearch = "search/issues?q=is:pr+is:open+author:@me&per_page=100"
@@ -35,8 +34,7 @@ type ticking struct {
 // the lock says so, and one under the lock goes through the passes, each read at its own turn,
 // and GitHub.  False leaves the tick to Python, the lock released: at the first row that finds what
 // Go does not carry, what the rows before did standing; after what Python's next tick reads as its
-// own where gh names a pull request to act on; with nothing written where gh cannot be read or
-// names who is logged in on a home holding a checkout, whose pull requests Python's incoming asks,
+// own where gh names a pull request to act on; with nothing written where gh cannot be read,
 // or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.
 func Carry(out, errOut io.Writer) bool {
 	if Overlap(out, errOut) {
@@ -50,7 +48,7 @@ func Carry(out, errOut io.Writer) bool {
 	began := time.Now()
 	user, why, failed := gh.JSON(run.Runs(), "api", "user")
 	asked := time.Since(began)
-	if checkouts, _ := seat.Checkouts(); failed != nil || login(user) != "" && len(checkouts) > 0 || config.EnsureDirs() != nil {
+	if failed != nil || config.EnsureDirs() != nil {
 		return false
 	}
 	held, err := lock.Try(lockPath())
@@ -150,8 +148,14 @@ func (t *ticking) github(value any, why string, asked time.Duration) bool {
 		return true
 	}
 	t.state.Delete("gh_out")
-	// incoming pull requests are asked of each checkout, and this home has none (Carry)
 	carried := false
+	t.timed("incoming prs", func() error {
+		carried = t.incoming(me)
+		return nil
+	})
+	if !carried {
+		return false
+	}
 	t.timed("outgoing prs", func() error {
 		carried = t.outgoing(me)
 		return nil

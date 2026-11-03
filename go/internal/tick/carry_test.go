@@ -34,6 +34,7 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 	for key, value := range map[string]string{
 		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": t.TempDir(), "AGENTKIT_TMUX_SOCKET": "tick-test",
 		"AGENTKIT_SESSION": "", "AGENTKIT_ADAPTER_DIR": "", "XDG_RUNTIME_DIR": t.TempDir(), "XDG_CONFIG_HOME": "",
+		"AK_NOTIFY_SINK": "dry-run",
 		"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 	} {
 		t.Setenv(key, value)
@@ -162,28 +163,26 @@ func endedThere(t *testing.T, ak, said string) {
 // What a row finds to act on ends the tick there, and leaves it as it was.
 func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 	for path, content := range map[string]string{
-		"runs/fix-api":                "",
-		"jobs/fix-api":                "",
-		"secrets/acme":                "",
-		"history.db":                  "",
-		"state/session-acme.json":     "{}",
-		"state/card-acme.json":        "{}",
-		"state/alive.json":            "{}",
-		"state/google-cloud-need":     "4096\n",
-		"state/notification-outbox/a": "",
-		"state/watch.json":            `{"reviewed": {"https://github.com/acme/api/pull/1": {}}}`,
-		"state/watch.json#own":        `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
-		"state/watch.json#stalls":     `{"stalls": {"acme": {}}}`,
-		"state/watch.json#seen":       `{"seen_at": {"acme": 1}}`,
-		"state/watch.json#merge":      `{"after_merge": {"acme/api": {}}}`,
-		"state/watch.json#auth":       `{"auth_out": {"claude": {"ok": false}}}`,
-		"state/watch.json#tokens":     `{"worker_tokens": {"claude": {}}}`,
-		"state/watch.json#surrogate":  `{"mine": "\ud800"}`,
-		"config.toml":                 "[audit]\non = true\n",
-		"config.toml#absent":          "",
-		"config.toml#renting":         "[audit]\non = false\n[google_cloud]\nactive = true\n",
-		"../code/api/.git/HEAD":       "",
-		"../agentkit/.git/HEAD":       "",
+		"runs/fix-api/run.json":            `{"state":"waiting_login"}`,
+		"jobs/fix-api":                     "",
+		"secrets/acme":                     "",
+		"history.db":                       "",
+		"state/session-acme.json":          "{}",
+		"state/card-acme.json":             "{}",
+		"state/alive.json":                 "{}",
+		"state/google-cloud-need":          "4096\n",
+		"state/notification-outbox/a.json": "{}",
+		"state/watch.json":                 `{"reviewed": {"https://github.com/acme/api/pull/1": {}}}`,
+		"state/watch.json#own":             `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
+		"state/watch.json#stalls":          `{"stalls": {"acme": {}}}`,
+		"state/watch.json#seen":            `{"seen_at": {"acme": 1}}`,
+		"state/watch.json#merge":           `{"after_merge": {"acme/api": {}}}`,
+		"state/watch.json#auth":            `{"auth_out": {"claude": {"ok": false}}}`,
+		"state/watch.json#tokens":          `{"worker_tokens": {"claude": {}}}`,
+		"state/watch.json#surrogate":       `{"mine": "\ud800"}`,
+		"config.toml":                      "[audit]\non = true\n",
+		"config.toml#absent":               "",
+		"config.toml#renting":              "[audit]\non = false\n[google_cloud]\nactive = true\n",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)

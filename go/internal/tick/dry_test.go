@@ -38,7 +38,7 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 		t.Fatalf("printed %q", got)
 	}
 	// each a folder holding the file named
-	for found, content := range map[string]string{"runs/fix-api": "", "jobs/fix-api": "", "secrets/acme": "", "state/watch.json": `{"own": {"https://github.com/acme/api/pull/1": {}}}`, "state/notification-outbox/acme.json": ""} {
+	for found, content := range map[string]string{"runs/fix-api/run.json": `{"state":"waiting_login"}`, "jobs/fix-api": "", "secrets/acme": "", "state/watch.json": `{"own": {"https://github.com/acme/api/pull/1": {}}}`, "state/notification-outbox/acme.json": ""} {
 		path := filepath.Join(home, ".agentkit", found)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)

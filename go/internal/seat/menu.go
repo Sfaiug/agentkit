@@ -11,7 +11,7 @@ import (
 )
 
 // Menu reads a frame's seats and runs once, filing projectless records before numbering them.
-// Looking and the commands that publish a word still leave wider run records to Python.
+// Looking and commands that publish a word use the same run interpretation without filing.
 func Menu(now time.Time) (Home, bool) {
 	runs, projects, known := menuRuns(now)
 	if !known || !menuProjects(runs, projects) {

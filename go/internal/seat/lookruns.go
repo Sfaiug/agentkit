@@ -1,0 +1,10 @@
+package seat
+
+import "time"
+
+// Looks and menu frames use the same read-only interpretation of full run records.
+// Maintenance belongs to the tick rows that reap or offer those endings.
+func lookRuns(_ []string, now time.Time) (map[string][]ran, bool) {
+	runs, _, known := menuRuns(now)
+	return runs, known
+}

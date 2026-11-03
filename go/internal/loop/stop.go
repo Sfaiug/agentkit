@@ -72,6 +72,7 @@ func endStopped(dir string, state *run.Object, keep bool) {
 		host.EndTree(pid)
 	}
 	host.EndMarked(dir, io.Discard)
+	redressStopped(state)
 	// the checkout is still there, a live loop or a git that said no, so its branch stays with it
 	// and the record says kept, as `--keep` does
 	if !keep && !stopCheckout(dir, state, func(line string) { appendLog(dir, stamped(line)) }, false) {
@@ -127,11 +128,11 @@ func checkStopOwner(record *run.Object) error {
 }
 
 // goStops is whether this stop is the record, the result, the process tree and the checkout, all
-// Go does: no process but a Go driver of this run alive, nothing of a seat, a job or a review to
+// Go does: no process but a Go driver of this run alive, nothing of a job or a review to
 // tell, no landing line, no history row to close, no browser tab to shut, and no unit that may
 // hold it, as Python stops a unit by its name.
 func goStops(dir string, record *run.Object) bool {
-	for _, key := range []string{"launched_session", "session", "job_id", "review_pr"} {
+	for _, key := range []string{"job_id", "review_pr"} {
 		if record.Truthy(key) {
 			return false
 		}

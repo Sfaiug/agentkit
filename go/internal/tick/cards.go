@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
+	"agentkit/internal/plan"
 	"agentkit/internal/seat"
 )
 
@@ -42,7 +43,7 @@ func cards() error {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := notify.Turned(name, seat.Published); err != nil || !carried {
+		if carried, err := notify.TurnedPlan(name, seat.Published, plan.Outcomes); err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
 	}

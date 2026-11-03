@@ -6,8 +6,8 @@
 //
 // Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
 // does not type is marked pending, which Python's tick types at the next quiet
-// prompt: a seat that takes no line now, and a line Go does not build yet, every one but a
-// BLOCKED's decision line said whole. A seat not up there is the tick's, which offers every
+// prompt: a seat that takes no line now, and a line Go does not build or shorten yet.
+// A seat not up there is the tick's, which offers every
 // ending nobody has heard.
 package handback
 
@@ -64,6 +64,9 @@ func Give(dir string, say func(string)) bool {
 	}
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
 	line := decisionLine(record, dir)
+	if line == "" {
+		line = finishedLine(record, dir)
+	}
 	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
 		return nil
