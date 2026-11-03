@@ -503,6 +503,51 @@ def run_reviewers(cfg, state):
     return run_workers(cfg, state)
 
 
+def resume_needs_executor(state):
+    # Landing invalidates review before its fixer runs. That pending review is not
+    # proof the executor finished: a refused rebase/final fixer still needs its fuel.
+    return state.get("step") == "executor" or not (
+        transitions.exhausted_wait(state) == "reviewer" or state.get("review_pr")
+        or state.get("review_pending"))
+
+
+def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, skip=()):
+    """The pair a resume can actually run, shared by its admission and the tick.
+
+    Keep the saved executor while eligible, otherwise hand over as mid-round. A
+    refusal with no replacement parks before taking a slot, never on the saved model.
+    """
+    from . import usage
+    bound, reviewers = config.role_groups(cfg, run_workers(cfg, state), state.get("reviewers"))
+    workers = bound if bound is not None else workers
+    review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
+                               role="reviewer", quiet=True, repo=repo)
+    executor, reviewer = state.get("executor"), state.get("reviewer")
+    if not resume_needs_executor(state):
+        order = reviewer_order(cfg, executor, review_order) if executor else review_order
+        if order:
+            return executor, reviewer if reviewer in order else order[0]
+        raise turns.QuotaDry("no eligible reviewer; waiting for review")
+    order = [name for name in ready_order(cfg, providers, workers, log, quiet=True,
+                                         repo=repo, reviewers=reviewers) if name not in skip]
+    if (executor and executor not in skip
+            and not usage.model_exhausted(cfg, executor, providers)[0]
+            and not usage.unready(cfg, executor, providers)):
+        if reviewer not in reviewer_order(cfg, executor, review_order):
+            reviewer = None
+        return pick_models(cfg, providers, executor, reviewer, log, resuming=True, quiet=True,
+                           repo=repo, workers=workers, reviewers=reviewers)
+    pair = best_pair(cfg, order, review_order)
+    if pair is not None:
+        return pair
+    if executor:
+        refuse_unready(cfg, providers, executor)
+    reasons = [why for name in (workers if workers is not None else config.workers(cfg))
+               if (why := usage.model_exhausted(cfg, name, providers)[1])]
+    raise turns.QuotaDry("nothing is left to execute with a legal reviewer"
+                         + (": " + "; ".join(dict.fromkeys(reasons)) if reasons else ""))
+
+
 def _cached_providers():
     """The usage cache's providers for display: {} when the cache cannot be read."""
     try:
@@ -518,7 +563,7 @@ def executable_models(cfg, providers, workers, now, log=None, *, reviewers=None)
 
     An eligible worker counts when the pick order keeps it, its budget is above zero
     with nothing unknown about it, and no refusal parked its provider until a future
-    window.  The tick's availability and the waiting words share this one rule.  `log`
+    window.  The waiting words use this conservative estimate of capacity.  `log`
     is told each worker left out because its harness cannot run, as `ready_order` says it.
     """
     from . import usage  # here, not at the top: usage imports staffing
