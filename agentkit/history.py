@@ -566,15 +566,34 @@ def phases(run_id):
         return []
 
 
-def add_tokens(run_id, role, tokens, *, log=None):
-    """Accumulate role tokens across rounds when an event log reports them."""
+def add_turn_tokens(run_id, role, paths, *, harness=None, log=None):
+    """Count reported turns once, whether their finally block or their run's ending gets here."""
+    _write(lambda connection: _add_turn_tokens(connection, run_id, role, paths, harness), log)
+
+
+def _add_turn_tokens(connection, run_id, role, paths, harness):
+    from .harness import load as harness_plugin
     column = "executor_tokens" if role == "executor" else "reviewer_tokens" \
         if role == "reviewer" else None
-    if column is None or not isinstance(tokens, (int, float)) or isinstance(tokens, bool):
+    if column is None:
         return
-    _write(lambda connection: connection.execute(
+    values = []
+    for out in paths:
+        out = Path(out)
+        if not (out / "tokens-counted").exists():
+            value = harness_plugin(harness).tokens(out)
+            if value is not None:
+                values.append((out, value))
+    if not values:
+        return
+    changed = connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
-        (int(tokens), run_id)), log)
+        (int(sum(value for _, value in values)), run_id))
+    if changed.rowcount:
+        # Hold the writer lock through the marks; a failed database write must leave no mark.
+        connection.commit()
+        for out, _ in values:
+            (out / "tokens-counted").touch()
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
@@ -814,6 +833,14 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
         connection.execute(
             "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
             "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id))
+        # Only launches with a harness receipt participate: old recorded totals stay as written.
+        for receipt in sorted((config.RUNS / str(run_id)).glob("round-*/*/harness")):
+            try:
+                out = receipt.parent
+                role = "reviewer" if out.name.startswith("reviewer") else "executor"
+                _add_turn_tokens(connection, run_id, role, [out], receipt.read_text().strip())
+            except (OSError, ValueError, TypeError, config.Error):
+                continue
 
     _write(publish, log)
 
