@@ -80,7 +80,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -122,6 +122,19 @@ CREATE TABLE IF NOT EXISTS checks (
     started_at REAL,
     finished_at REAL,
     rerun INTEGER
+)
+"""
+
+CONFLICTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS conflicts (
+    run_id TEXT,
+    at REAL,
+    how TEXT,
+    target TEXT,
+    tip TEXT,
+    path TEXT,
+    added_only INTEGER,
+    outcome TEXT
 )
 """
 
@@ -223,6 +236,7 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(CHECKS_SCHEMA)
+    connection.execute(CONFLICTS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(FINDINGS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
@@ -409,6 +423,17 @@ def update_run(run_id, *, log=None, **fields):
     _write(lambda connection: _update(connection, run_id, fields), log)
 
 
+def blame_merge(sha, source, *, log=None):
+    """Mark the run that merged `sha` broken after merge, once; return its id, if known."""
+    def blame(connection):
+        row = connection.execute("SELECT run_id FROM runs WHERE merge_sha=?", (sha,)).fetchone()
+        if row:
+            connection.execute("UPDATE runs SET broke_after_merge=? WHERE run_id=? "
+                               "AND COALESCE(broke_after_merge,'')=''", (source, row[0]))
+            return row[0]
+    return _write(blame, log)
+
+
 def first_review(run_id, lines, *, log=None):
     """Record the lines a change's first review reads, once: a review resumed before its verdict,
     the work grown or the target moved meanwhile, keeps the size first read."""
@@ -498,6 +523,40 @@ def _started(connection, values):
     return cursor.lastrowid if cursor.rowcount else None
 
 
+@contextlib.contextmanager
+def conflicts(run_id, how, target, tip, *, log=None):
+    """One row per file handed to a conflict fixer; its outcome ends with the fixer rounds.
+
+    NULL means those rounds have not ended. A run with no history row keeps none here.
+    """
+    rows, ended = [], []
+
+    def record(files):
+        at = time.time()
+
+        def insert(connection):
+            added = []
+            for path, added_only in files:
+                cursor = connection.execute(
+                    "INSERT INTO conflicts (run_id, at, how, target, tip, path, added_only) "
+                    "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+                    (at, how, target, tip, path, added_only, run_id))
+                if cursor.rowcount:
+                    added.append(cursor.lastrowid)
+            return added
+
+        if files:
+            rows.extend(_write(insert, log) or [])
+    try:
+        yield record, ended
+    finally:
+        if rows:
+            outcome = "resolved" if ended and ended[0] else "aborted"
+            _write(lambda connection: connection.executemany(
+                "UPDATE conflicts SET outcome=? WHERE rowid=?",
+                [(outcome, row) for row in rows]), log)
+
+
 phase = waiter.phase
 
 
@@ -518,15 +577,36 @@ def phases(run_id):
         return []
 
 
-def add_tokens(run_id, role, tokens, *, log=None):
-    """Accumulate role tokens across rounds when an event log reports them."""
+def add_turn_tokens(run_id, role, paths, *, harness=None, log=None):
+    """Count reported turns once, whether their finally block or their run's ending gets here."""
+    _write(lambda connection: _add_turn_tokens(connection, run_id, role, paths, harness), log)
+
+
+def _add_turn_tokens(connection, run_id, role, paths, harness):
+    from .harness import load as harness_plugin
     column = "executor_tokens" if role == "executor" else "reviewer_tokens" \
         if role == "reviewer" else None
-    if column is None or not isinstance(tokens, (int, float)) or isinstance(tokens, bool):
+    if column is None:
         return
-    _write(lambda connection: connection.execute(
-        f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
-        (int(tokens), run_id)), log)
+    row = connection.execute("SELECT counted_turns FROM runs WHERE run_id=?", (run_id,)).fetchone()
+    if row is None:
+        return
+    counted = set(json.loads(row[0] or "[]"))
+    values = []
+    for out in paths:
+        out = Path(out)
+        turn = str(out.resolve())
+        if turn not in counted:
+            value = harness_plugin(harness).tokens(out)
+            if value is not None:
+                values.append(value)
+                counted.add(turn)
+    if not values:
+        return
+    # The total and the turns it includes survive or roll back together, even after a kill.
+    connection.execute(
+        f"UPDATE runs SET {column}=COALESCE({column},0)+?, counted_turns=? WHERE run_id=?",
+        (int(sum(values)), json.dumps(sorted(counted)), run_id))
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
@@ -736,6 +816,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
     since writes its own row.
     """
     finished_at = time.time() if finished_at is None else finished_at
+    run_dir = config.RUNS / str(run_id)
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
@@ -766,8 +847,20 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
         connection.execute(
             "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
             "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id))
+        # Only launches with a harness receipt participate: old recorded totals stay as written.
+        for receipt in sorted(run_dir.glob("round-*/*/harness")):
+            try:
+                out = receipt.parent
+                role = "reviewer" if out.name.startswith("reviewer") else "executor"
+                _add_turn_tokens(connection, run_id, role, [out], receipt.read_text().strip())
+            except (OSError, ValueError, TypeError, config.Error):
+                continue
 
-    _write(publish, log)
+    # A tick that saw the stop's record must wait until its worker has stopped writing.
+    with contextlib.suppress(OSError):
+        with (record.recovery_lock(run_dir) if saved is not None and run_dir.is_dir()
+              else contextlib.nullcontext()):
+            _write(publish, log)
 
 
 def sample_rss(run_id, pid=None, *, log=None):
@@ -921,6 +1014,24 @@ def ended_runs(since, until):
                 return [dict(row) for row in connection.execute(
                     "SELECT * FROM runs WHERE finished_at >= ? AND finished_at <= ? "
                     f"AND {REAL_WORK}", (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
+def checks(since, until):
+    """Check rows of runs ended in the inclusive range, including unfinished checks.
+    No rows before checks were kept (30 Oct 2026), or where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT checks.* FROM checks JOIN runs USING (run_id) "
+                    "WHERE runs.finished_at >= ? AND runs.finished_at <= ?",
+                    (since, until))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

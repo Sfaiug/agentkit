@@ -18,6 +18,7 @@ KEY = "github.com/acme/widget"
 LINE = "The acme harness gate failed: fix it."
 
 
+# Nothing one seat writes is typed into another. [4 Oct, 9 Oct]
 class StaysWithItsSeat(unittest.TestCase):
     def setUp(self):
         stack = ExitStack()

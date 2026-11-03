@@ -18,7 +18,6 @@ from itertools import accumulate
 from pathlib import Path
 
 from . import config, gitcall, history, record as run_record, task as taskfile, turns
-from .harness import load as harness_plugin
 
 
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -469,11 +468,7 @@ def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
         harness = None
     out = Path(out)
     paths = [out, *sorted(out.parent.glob(f"{out.name}-retry*"))]
-    values = [harness_plugin(harness).tokens(path) for path in paths]
-    values = [value for value in values if value is not None]
-    if not values:
-        return
-    history.add_tokens(run_id, role, sum(values), log=log)
+    history.add_turn_tokens(run_id, role, paths, harness=harness, log=log)
 
 
 def park_exhausted(state, exc):
@@ -704,15 +699,23 @@ def seat_runs(name):
     return found
 
 
-def launched_session(state, resolved=None):
-    """The seat this run was launched from, by its name now, or None: it was launched from none.
+def launched_name(state):
+    """The name of the seat this run was launched from as it recorded it, or None: from none.
 
-    `session` is what a run.json written before the field was renamed calls the same thing.  A
-    pass over many runs hands each call the same `resolved`, so a seat many runs name is
-    resolved once: following a rename reads the seat's record.
+    `session` is what a run.json written before the field was renamed calls the same thing.
     """
     name = state.get("launched_session") or state.get("session")
-    if not isinstance(name, str) or not name:
+    return name if isinstance(name, str) and name else None
+
+
+def launched_session(state, resolved=None):
+    """The seat this run was launched from, by its name now (`launched_name`), or None.
+
+    A pass over many runs hands each call the same `resolved`, so a seat many runs name is
+    resolved once: following a rename reads the seat's record.
+    """
+    name = launched_name(state)
+    if name is None:
         return None
     if resolved is None:
         return config.resolve_session(name)
@@ -730,7 +733,7 @@ def runs_by_seat(records):
         try:
             seat = launched_session(state, resolved)
         except config.Error:
-            seat = resolved[state.get("launched_session") or state.get("session")] = None
+            seat = resolved[launched_name(state)] = None
         if seat is not None:
             mine.setdefault(seat, []).append((run_dir, state))
     return mine

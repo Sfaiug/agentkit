@@ -113,7 +113,7 @@ class StatusBar(Sandbox):
                 self.assertNotIn(hint, half)
         statusbar.dress("herdr", "fable")
         self.assertEqual(self.line(statusbar.KEY), "Ctrl-b m  menu ")
-        self.assertEqual(self.line(statusbar.TOP), " herdr   Fable 5.1")
+        self.assertEqual(self.line(statusbar.TOP), " herdr   Fable 5.1 xhigh")
         self.assertEqual(self.line(statusbar.WHY), "")
         self.assertEqual(self.options["set-titles-string"], "herdr")
         # a model carrying `#` is doubled, so tmux reads text and not a format

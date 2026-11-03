@@ -27,6 +27,8 @@ def marks(line):
 BLUE, GREEN = "38;2;137;180;250", "38;2;166;227;161"
 
 
+# The features screen has only `you` and `everyone`; grants for specific users live on the
+# project's own owner page, never in ak. [23 Sep]
 class FeatureDots(unittest.TestCase):
     def draw(self, at=None, column=0):
         with patch.object(terminal, "colour_depth", return_value=24), \

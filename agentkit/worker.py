@@ -875,6 +875,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         raise LoginExpired(entry["harness"], why)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "harness").write_text(entry["harness"])
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
     base = turn_env.pop(BASE_ENV, None)

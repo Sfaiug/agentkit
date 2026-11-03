@@ -7,7 +7,8 @@ this removes: it separates reading every run from reading the open ones by 4x, w
 does by 2x and host load moves it more.  Its yardstick is the same look done plainly in this
 test's process, so a slow host raises both.
 An open run's paths are resolved again only once its record changed or at a full read, so a symlink
-that moved shows by then.
+that moved shows by then.  What a read works out of the runs at rest is kept until a full read,
+and a seat renamed still shows its runs under its new name on the next.
 Black-box, on tests/test_key_idle_screen_reads_only_what_changed.py's open screen.
 """
 
@@ -145,6 +146,12 @@ class RunsAtRestCostAnOpenScreenLittle(OpenScreen):
         self.home.write(kept, {**record, "repo": str(code / "acme")})
         moved.touch()
         self.menu.wait(row(SEATS[2], "● working"))
+
+    def test_5_a_seat_renamed_shows_its_runs_under_its_new_name(self):
+        self.menu.wait(row(SEATS[1], "● working"), bound=LATE)      # test_2's run, still going
+        done = self.home.ak("orch", "rename", SEATS[1], "acme-renamed")
+        self.assertEqual(done.code, 0, done.err)
+        self.menu.wait(row("acme-renamed", "● working"))
 
 
 if __name__ == "__main__":

@@ -44,16 +44,6 @@ func midturn(live seat.Live, account bool) bool {
 	return mark != nil && mark.Truthy("account") == account
 }
 
-// waitsOnNothing is whether no `ak wait` of the seat's is left to end and tell (watch.wait_over).
-func waitsOnNothing(live seat.Live) bool {
-	wait := live.File.Dict("wait")
-	if wait == nil {
-		return true
-	}
-	_, named := wait.Get("on").(string)
-	return !named || wait.Truthy("told")
-}
-
 // healthy is whether the health row's look at the seat is all it does (watch.health): nothing it
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.
@@ -149,7 +139,7 @@ func (t *ticking) stamp() error {
 			return err
 		}
 	}
-	return nil
+	return stampGone(t.clock())
 }
 
 // awake is whether idle sleep leaves the seat be (sleep.tick): it does not rest at its prompt, with
@@ -173,11 +163,4 @@ func awake(live seat.Live) bool {
 		cache = seconds
 	}
 	return err == nil && !(epoch(time.Now())-max(began, launched) > cache)
-}
-
-// declaresNoAlive is whether the project the seat is filed under declares no `alive:` on its
-// default branch as it stands, which the alive row would read (alive.tick).
-func declaresNoAlive(live seat.Live) bool {
-	repo := live.Record.Str("repo")
-	return repo == "" || !declares(repo, "alive")
 }

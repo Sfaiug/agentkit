@@ -38,7 +38,7 @@ func table(t *ticking) []pass {
 	return []pass{
 		{"merge checks", true, runless, nil},
 		// a boot it has not seen moves only its baseline, with every seat it would resume up
-		{"boot resume", true, all(configured, seated), bootBaseline},
+		{"boot resume", true, all(configured, seated, restingGone), bootBaseline},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
@@ -65,7 +65,7 @@ func table(t *ticking) []pass {
 		{"old endings", false, runless, nil},
 		{"endings", false, runless, nil},
 		{"job handbacks", false, jobless, nil},
-		{"ended waits", false, all(configured, every(waitsOnNothing)), nil},
+		{"ended waits", false, all(configured, seated, waitsOnNothing), nil},
 		{"owed lines", false, every(func(live seat.Live) bool { return !live.File.Truthy("owed_lines") }), nil},
 		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, run.Historyless, nil},
@@ -78,7 +78,7 @@ func table(t *ticking) []pass {
 			return empty(filepath.Join(config.Home(), "state", "notification-outbox"))
 		}, nil},
 		{"end hook", false, nil, hookOptions},
-		{"seat revival", false, all(configured, runless), revive},
+		{"seat revival", false, all(configured, runless, restingGone), revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, all(runless, checkoutsSeen), t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
@@ -87,13 +87,13 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
-		{"seat sweep", false, all(runless, seated), nil},
+		{"seat sweep", false, all(runless, seated, t.retainedSeats), nil},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"project rules", false, checkoutsSeen, fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
-		{"alive checks", false, all(every(declaresNoAlive), outageless), nil},
+		{"alive checks", false, all(noSeatAlive, outageless), nil},
 		{"night reads", false, noNights, t.nights},
 	}
 }

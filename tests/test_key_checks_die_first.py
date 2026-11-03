@@ -56,7 +56,7 @@ class ChecksDieFirst(unittest.TestCase):
 
     def test_a_check_and_its_child_read_the_score_ended_first(self):
         self.assertEqual(self.state.get("verdict"), "PASS", self.done.out + self.done.err)
-        self.assertIn(f"$ {SCORE}\n[exit 0]\ncheck 1000 child 1000\n", self.log)
+        self.assertIn(f"$ {SCORE}\n[exit 0]\ncheck 1000 child 1000\n", self.log + "\n")
 
     def test_the_ak_that_ran_the_check_keeps_its_own_score(self):
         self.assertEqual((self.fakes["codex"].dir / "score").read_text().strip(), MINE)
