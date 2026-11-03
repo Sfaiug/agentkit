@@ -187,15 +187,14 @@ sys.exit(1)
                     self.assertIn(worker.GATE, prompt)
 
     def test_a_follow_up_review_in_a_new_conversation_still_holds_the_rule(self):
-        # The answer with no verdict and the turn left running in the background are each
-        # followed up by an ask alone; with no session to resume, that ask opens a new
+        # An answer with no verdict is followed by an ask alone, even with a background
+        # signal; with no session to resume, that ask opens a new
         # conversation, and the gate it carries is all that reviewer knows of the rule.
-        for mode, ask in (("silent", turns.NO_VERDICT_ASK),
-                          ("background", f"{turns.FINISH_IN_FOREGROUND} {turns.NO_VERDICT_ASK}")):
+        for mode in ("silent", "background"):
             with self.subTest(mode=mode):
                 (self.root / "prompts.jsonl").unlink(missing_ok=True)
                 reviews, _ = self.launch("---\nusers: real\n---\n# Repo\n", [mode, "pass"])
-                self.assertTrue(reviews[1].endswith(f"\n\n{ask}"), reviews[1][-300:])
+                self.assertTrue(reviews[1].endswith(f"\n\n{turns.NO_VERDICT_ASK}"), reviews[1][-300:])
                 self.assertNotIn("# Users fixture", reviews[1])
                 for prompt in reviews:
                     self.assertIn(RULE, prompt)

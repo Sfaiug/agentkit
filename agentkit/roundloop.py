@@ -264,11 +264,6 @@ def worker_result(lp, summary, out):
         if (closing["kind"] == "not-needed" and not lp.state.get("round_summaries")
                 and (lp.state.get("followup") or taskfile.FIX_THE_COMMAND in lp.body)):
             raise turns.NotNeeded(closing["why"])
-    # A closing reply may be only an acknowledgement; retain the work prose on restart too.
-    name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]
-    work = turns.read_answer(answer.with_name(name) / "final.md")
-    if work and work != summary:
-        summary = f"{work}\n\n{summary}"
     return summary
 
 
@@ -1238,12 +1233,6 @@ def execute(lp, role, text, name):
         lp.exec_sid = None
         note = {"at": time.time(), "role": role, "restarted": True}
         lp.state["resume_notice"] = note
-    # The ask's directory survives a host interruption, so resuming it cannot buy a third ask.
-    closing_asked = previous is not None and ((previous / "final.md").exists()
-                       or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
-    if closing_asked:
-        body = turns.NO_CLOSING_ASK
-        out = turns.free_dir(lp, f"{previous.name}-retry-hand-in")
     if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
         findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
         if findings.is_file():
@@ -1278,7 +1267,6 @@ def execute(lp, role, text, name):
             if staffing.hand_executor(lp, "cannot run", broken.detail, dry) is None:
                 raise
             body = text
-            closing_asked = False
             out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         except turns.RanDry as refused:
@@ -1294,14 +1282,12 @@ def execute(lp, role, text, name):
                                   else "resume when a meter refills. ") +
                                f"See {out}*/stderr.log")
             body = f"{prompts.HANDOVER.format(before=before)}\n\n{text}"
-            closing_asked = False
             out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         except turns.TransientHandover as handed:
             # hand_executor already moved the role inside the callback; the new model
             # joins a round another started, in a fresh out dir on a fresh session.
             body = f"{prompts.HANDOVER.format(before=handed.before)}\n\n{text}"
-            closing_asked = False
             out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         finally:
@@ -1312,15 +1298,6 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {turns.killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
-        submitted = prompts.review_records(out, summary)
-        if (not (submitted is not None and submitted.closing) and not closing_asked
-                and not list(out.parent.glob(f"{out.name}-retry*foreground*"))):
-            lp.log(f"{role} {lp.executor} gave no closing; asking once more")
-            resume["previous"] = prompts.written_answer(out, summary).parent
-            body = turns.NO_CLOSING_ASK
-            closing_asked = True
-            out = turns.free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
-            continue
         return worker_result(lp, summary, out)
 
 
@@ -1613,10 +1590,9 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         # A missing verdict is a reviewer that has not answered, never an answer: ask the
         # same session once more, same round, no backoff, through the same call as the
         # review itself, so a window spent on the ask is a spent window and waits for its
-        # refill.  When the turn already spent its one extra call finishing background
-        # work in the foreground, that call already carried the verdict ask, so a second
-        # silence means the reviewer is gone: no round is recorded, same as a dead reviewer.
-        if asked_body == turns.NO_VERDICT_ASK or list(lp.round_dir.glob(f"{out.name}*foreground*")):
+        # refill. A second silence means the reviewer is gone: no round is recorded,
+        # same as a dead reviewer.
+        if asked_body == turns.NO_VERDICT_ASK:
             prompts.record_findings(lp, out, text)
             lp.save()
             name = fall_back("gave no verdict twice", out)

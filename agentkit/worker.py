@@ -47,8 +47,8 @@ BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak h
            "as the `# once` suite.\n"
            "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings "
            "and records after a closing.\n"
-           "[checked by ak: tests/test_executor_text_ignored.py] ak asks once for a missing closing, "
-           "then sends the work to checks and review.")
+           "[checked by ak: tests/test_executor_text_ignored.py] ak sends an answer without a closing "
+           "straight to checks and review.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
 GATE = ("[worker judgement] Hand in a **blocking** finding only for what a command can show "
         "fails: a correctness defect in the task's outcome, asked-for work missing among them, a "
@@ -132,7 +132,7 @@ LEAST = ("[worker judgement] Minimum change that solves the task completely; the
          "code; nothing callers must do that a module could; and what the change makes dead deleted.")
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
-             "when your turn ends and asks once to finish in the foreground.")
+             "when your turn ends.")
 CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
           "commands even when the worker skips them.")
 # 24 Oct 2026: an ATLAS builder ran its repository's whole suite, 7,417 tests, in one 3-hour

@@ -381,7 +381,7 @@ sys.exit(row.get("code", 0))
         finding = FINDING
         followup = ["follow-up", "api.py:1", "old defect", "breaks callers", "--quote", "first line",
                     "--before", "base abc123"]
-        for reason in ("transient", "account", "swap", "signal", "foreground"):
+        for reason in ("transient", "account", "swap", "signal", "verdict"):
             with self.subTest(reason=reason):
                 case = self.root / reason
                 case.mkdir()
@@ -398,9 +398,8 @@ sys.exit(row.get("code", 0))
                         overrides.append(patch.object(update, "swap_end", side_effect=[1, 0]))
                     elif reason == "signal":
                         code, text = -15, ""
-                    elif reason == "foreground":
+                    elif reason == "verdict":
                         code, text = 0, "Handed in."
-                        overrides.append(patch.object(turns, "turn_unfinished", side_effect=[True, False]))
                     verdict, lp, calls, _ = self.review(
                         {"commands": [finding, followup], "text": text, "code": code},
                         {"commands": [["done"]]}, overrides=overrides)
@@ -414,7 +413,7 @@ sys.exit(row.get("code", 0))
 
     def test_a_host_ended_resume_keeps_the_records_of_its_session(self):
         finding = FINDING
-        for suffix in ("", "-retry2", "-retry2-retry-foreground"):
+        for suffix in ("", "-retry2"):
             with self.subTest(suffix=suffix):
                 case = self.root / (suffix or "initial")
                 case.mkdir()
