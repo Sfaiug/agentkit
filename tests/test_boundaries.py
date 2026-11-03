@@ -14,6 +14,7 @@ Offline: `git grep` over the tracked files of this checkout.
 import ast
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -21,7 +22,9 @@ REPO = Path(__file__).resolve().parents[1]
 
 # Python and Go tests pin knowledge with fixtures, and docs describe it to a reader: both
 # follow the code wherever it lives, so the rules count where the product itself keeps a copy.
-SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md")
+# A Go test's data is such a fixture, and a vendored module is another project's code, never
+# ak's knowledge.
+SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md", ":!go/vendor/", ":!*/testdata/*")
 
 RULES = [
     # Lifecycle reads belong to the lightweight reader, so a completed tool never needs
@@ -240,9 +243,9 @@ RULES = [
 WORDS = {"AGENTS.md": 2977, "orchestrator.md": 2140}
 
 
-def outside(rule):
+def outside(rule, repo=REPO):
     """Each `path:line: text` matching the rule outside its home."""
-    proc = subprocess.run(["git", "-C", str(REPO), "grep", "-n", "-I", "--no-color", "-E",
+    proc = subprocess.run(["git", "-C", str(repo), "grep", "-n", "-I", "--no-color", "-E",
                            *rule["flags"], "-e", rule["pattern"], *SCOPE],
                           capture_output=True, text=True)
     if proc.returncode not in (0, 1):     # 1 is no match at all
@@ -296,6 +299,17 @@ class Boundaries(unittest.TestCase):
                 if len(found) < rule["max"]:
                     print(f"{rule['name']}: {len(found)} lines, under max {rule['max']}: "
                           f"lower its max in tests/test_boundaries.py to {len(found)}")
+
+    def test_vendored_code_and_go_test_data_are_not_counted(self):
+        with tempfile.TemporaryDirectory() as repo:
+            for path in ("go/vendor/acme/a.go", "go/internal/acme/testdata/cases.json",
+                         "go/internal/acme/acme.go"):
+                Path(repo, path).parent.mkdir(parents=True, exist_ok=True)
+                Path(repo, path).write_text("overload\n")
+            subprocess.run(["git", "-C", repo, "init", "-q"], check=True)
+            subprocess.run(["git", "-C", repo, "add", "."], check=True)
+            rule = {"pattern": "overload", "flags": (), "home": ("agentkit/",)}
+            self.assertEqual(outside(rule, repo), ["go/internal/acme/acme.go:1:overload"])
 
     def test_no_file_grows_past_its_word_max(self):
         for path, most in WORDS.items():
