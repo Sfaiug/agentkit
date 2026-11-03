@@ -3,9 +3,9 @@ package seat
 import (
 	"errors"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -43,7 +43,7 @@ func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 	rulebook := filepath.Join(state, "rulebook-acme.md")
 	write(t, rulebook, "rules\n")
 	seat := reopening{name: "acme", held: true}
-	err := seat.launch(state, rulebook, []string{"claude"}, "new-conversation")
+	err := seat.launch(state, rulebook, "rules\n", []string{"claude"}, "new-conversation")
 	var refused Refusal
 	if !errors.As(err, &refused) || string(refused) != "cannot resume the session acme: can't find pane" {
 		t.Fatalf("refused with %v", err)
@@ -80,25 +80,41 @@ func TestReopenRefusals(t *testing.T) {
 	}
 }
 
-// An adapter that gives no line leaves it all to Python, the seat's rulebook as it found it.
-func TestARulebookIsTakenBack(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "rulebook-acme.md")
-	takeBack, ok := handRulebook(path, "new\n")
-	if read, _ := os.ReadFile(path); !ok || string(read) != "new\n" {
-		t.Fatalf("handed %q", read)
+// Asking the adapter touches no rulebook a seat runs on: it reads the rules from a scratch file, a
+// refusal leaves the seat's own as it was, and the line it gives names the seat's own.
+func TestAskingTheAdapterTouchesNoRulebook(t *testing.T) {
+	home := sandbox(t)
+	state := filepath.Join(home, ".agentkit", "state")
+	rulebook := filepath.Join(state, "rulebook-acme.md")
+	write(t, rulebook, "kept\n")
+	script := filepath.Join(home, "adapters", "claude.sh")
+	write(t, script, `#!/bin/sh
+cat "$AGENTKIT_RULEBOOK" >"$HOME/read"
+[ ! -e "$HOME/refuse" ] || exit 2
+printf 'claude --rules %s\n' "$AGENTKIT_RULEBOOK"
+`)
+	if err := os.Chmod(script, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	takeBack()
-	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
-		t.Error("a rulebook that was not there is left behind")
+	t.Setenv("AGENTKIT_ADAPTER_DIR", filepath.Dir(script))
+	models, err := config.Models()
+	if err != nil {
+		t.Fatal(err)
 	}
-	write(t, path, "kept\n")
-	takeBack, ok = handRulebook(path, "new\n")
-	if read, _ := os.ReadFile(path); !ok || string(read) != "new\n" {
-		t.Fatalf("handed %q", read)
+	seat := reopening{name: "acme", conversation: "conv-acme", model: models["opus"]}
+	cmd, _, ok := seat.command("new\n", rulebook)
+	if !ok || !slices.Contains(cmd, rulebook) {
+		t.Errorf("the line is %v, %v", cmd, ok)
 	}
-	takeBack()
-	if read, _ := os.ReadFile(path); string(read) != "kept\n" {
-		t.Errorf("left %q", read)
+	if read, _ := os.ReadFile(filepath.Join(home, "read")); string(read) != "new\n" {
+		t.Errorf("the adapter read %q", read)
+	}
+	write(t, filepath.Join(home, "refuse"), "")
+	if _, _, ok := seat.command("new\n", rulebook); ok {
+		t.Error("a refusing adapter gave a line")
+	}
+	if read, _ := os.ReadFile(rulebook); string(read) != "kept\n" {
+		t.Errorf("the seat's rulebook is left %q", read)
 	}
 }
 
