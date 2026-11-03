@@ -91,7 +91,13 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if err != nil {
 		return true, err
 	}
-	config.RememberDefaults(orchestrator, workers, reviewers) // a seat is made all the same
+	config.RememberDefaults(orchestrator, workers, reviewers, func() error { // a seat is made all the same
+		offered, err := config.Offered()
+		if err != nil {
+			return err
+		}
+		return keepEfforts(state, bound.Models, models, offered)
+	})
 	if err := forgetSeen(state, name, time.Now()); err != nil {
 		return true, err
 	}

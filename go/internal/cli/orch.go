@@ -1,13 +1,11 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
-	"path/filepath"
 	"strings"
+	"time"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -118,10 +116,11 @@ func orchOpen(args []string, out, errOut io.Writer) int {
 	if dryRun {
 		return orchNew(name, flags, true, out, errOut)
 	}
+	tidy := seat.Tidy(time.Now())
 	// a seat name CurrentSession refuses is Python's
 	seat, _, err := config.CurrentSession()
 	typed := terminal.TypedHere()
-	if err != nil || !tidy() || config.EnsureDirs() != nil {
+	if err != nil || !tidy || config.EnsureDirs() != nil {
 		return notImplemented(errOut, "orch")
 	}
 	// a terminal a seat made is not a person's
@@ -138,22 +137,4 @@ func orchOpen(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(errOut, "ak orch: %s; %s\n%s\n", seat, how, orchUsage)
 	return 2
-}
-
-// tidy is whether Python's maintenance finds nothing to tidy: no seat file, no run, no session
-// on ak's server but its control one, and none ak opened on the default server.  A folder
-// missing holds nothing; one Go cannot read may hold anything.
-func tidy() bool {
-	for place, prefix := range map[string]string{"state": "session-", "runs": ""} {
-		entries, err := os.ReadDir(filepath.Join(config.Home(), place))
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return false
-		}
-		for _, entry := range entries {
-			if strings.HasPrefix(entry.Name(), prefix) {
-				return false
-			}
-		}
-	}
-	return seat.OnNoServer()
 }
