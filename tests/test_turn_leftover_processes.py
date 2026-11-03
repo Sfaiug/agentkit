@@ -1,4 +1,4 @@
-"""Every harness's turn ends its detached commands before the foreground finish call."""
+"""Every harness's turn stops and logs its detached commands without another call."""
 
 from contextlib import ExitStack
 import json
@@ -130,18 +130,15 @@ class TurnLeftoverProcesses(unittest.TestCase):
             time.sleep(.01)
         self.fail("fixture sleeper never started")
 
-    def test_non_claude_nohup_gets_one_foreground_finish(self):
+    def test_non_claude_nohup_is_stopped_without_another_call(self):
         code, text, session, dead = self.launch()
         self.assertEqual(worker.marked_pids(self.marker), [], "turn left its nohup child running")
         self.assertTrue(any("sleep 300" in line for line in self.logs), self.logs)
         calls = self.calls()
-        self.assertEqual(len(calls), 2, calls)
-        self.assertIn(turns.FINISH_IN_FOREGROUND, calls[1]["prompt"])
-        self.assertEqual(calls[1]["session"], ["fixture-session"])
+        self.assertEqual(len(calls), 1, calls)
         self.assertEqual((code, text, session, dead),
-                         (0, "## Summary\nFinished.", "fixture-session", False))
+                         (0, "## Summary\nStarted.", "fixture-session", False))
         self.assertTrue(all(call["marker"].startswith(f"{self.marker}/turn-") for call in calls))
-        self.assertNotEqual(calls[0]["marker"], calls[1]["marker"])
 
     def test_turn_cleanup_spares_suite_helpers_and_other_turns(self):
         markers = (self.marker, f"{self.marker}/suite", f"{self.marker}/turn-other")
@@ -158,23 +155,20 @@ class TurnLeftoverProcesses(unittest.TestCase):
                 (self.root / "calls.jsonl").write_text("")
                 self.launch()
                 self.assertEqual(worker.marked_pids(self.marker), [])
-                self.assertEqual(len(self.calls()), 2)
+                self.assertEqual(len(self.calls()), 1)
 
-    def test_reviewer_leftovers_share_the_one_finish_and_verdict_ask(self):
+    def test_reviewer_leftovers_are_stopped_without_another_call(self):
         self.launch("reviewer")
         calls = self.calls()
-        self.assertEqual(len(calls), 2)
-        self.assertIn(turns.FINISH_IN_FOREGROUND, calls[1]["prompt"])
-        self.assertIn(turns.NO_VERDICT_ASK, calls[1]["prompt"])
+        self.assertEqual(len(calls), 1)
         self.assertEqual(worker.marked_pids(self.marker), [])
 
-    def test_second_unfinished_turn_is_stopped_and_warned_without_a_third_call(self):
+    def test_a_harness_that_always_leaks_still_gets_one_call(self):
         with patch.dict(os.environ, {"TURN_LEAK_EVERY": "1"}):
             self.launch()
-        self.assertEqual(len(self.calls()), 2)
+        self.assertEqual(len(self.calls()), 1)
         self.assertEqual(worker.marked_pids(self.marker), [])
-        self.assertEqual(sum("sleep 300" in line for line in self.logs), 2)
-        self.assertEqual(sum("background again" in line for line in self.logs), 1)
+        self.assertEqual(sum("sleep 300" in line for line in self.logs), 1)
 
     def test_failed_auth_turn_still_ends_its_processes(self):
         helper = self.spawn(self.marker)

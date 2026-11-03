@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import test_followup_runs as followup
 import test_review_gate as gate
-from agentkit import prompts, record, run, turns
+from agentkit import record, roundloop, run, turns
 
 
 ADAPTER = r'''import json, os, pathlib, subprocess, sys
@@ -150,7 +150,7 @@ class FixRunHandsIn(unittest.TestCase):
         (self.root / "closings.json").write_text(json.dumps({
             "executor": [row], "reviewer": [{"text": gate.PASS}]}))
         if resume:
-            with patch.object(prompts, "review_records", side_effect=record.StopRequested("fixture host ended")):
+            with patch.object(roundloop, "worker_result", side_effect=record.StopRequested("fixture host ended")):
                 code, state = self.drive(child)
             self.assertEqual(code, 1)
             code, state = self.drive(child, prior=state)

@@ -7,40 +7,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"agentkit/internal/run"
 )
-
-func TestRedStackLeavesItsVerdictToPython(t *testing.T) {
-	l, r := repoRig(t)
-	shell(t, r.wt, "printf '%s\\n' '---' 'tests: test ! -f bad.txt' '---' > AGENTS.md; git add -A; git commit -qm suite")
-	tip := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
-	target := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD^{tree}"))
-	shell(t, r.wt, "echo first > first.txt; git add -A; git commit -qm first")
-	top := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
-	shell(t, r.wt, "git checkout -q --detach "+tip+"; echo bad > bad.txt; git add -A; git commit -qm second")
-	head := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
-	saved := run.Fields("repo", r.repo, "worktree", r.wt, "base_sha", tip,
-		"review", run.Fields("verdict", "PASS", "head_sha", head))
-	if err := os.WriteFile(filepath.Join(l.dir, "task.md"), []byte("## Done when\n```bash\ntrue\n```\n"), 0o666); err != nil {
-		t.Fatal(err)
-	}
-	turn := filepath.Join(run.Runs(), ".merge-acme.lock")
-	stack := &landingStack{top: top, after: run.Fields("first", "first-tree"), multiple: true}
-	answer, err := l.checkMember(turn, "", saved, r.repo, tip, target, "origin/main", stack)
-	if err != nil || answer != nil {
-		t.Fatalf("red stack published %v, err=%v", answer, err)
-	}
-	if len(evidence(turn, "trees").Keys()) != 0 || len(evidence(turn, "red_stacks").Keys()) != 1 {
-		t.Fatal("the red stack must keep only its red evidence for Python")
-	}
-	if _, err := os.Stat(filepath.Join(l.dir, "target-probe.log")); !os.IsNotExist(err) {
-		t.Fatalf("Go probed the red stack's target: %v", err)
-	}
-}
 
 func TestPrefixAcceptsDeliveryRebasesButRejectsChangedWork(t *testing.T) {
 	saved := run.Fields("state", "waiting", "waiting_on", run.Fields("line", ".merge-acme.lock", "joined", 1, "land", "stack-tree"),

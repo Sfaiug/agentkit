@@ -100,6 +100,8 @@ class Catalog(Sandbox):
             {"slug": "gamma-1", "name": "Gamma 1", "maker": "Gamma",
              "efforts": [{"effort": None, "slug": "gamma-1", "default": True, "values": {}}]}])
 
+    # Each series' newest only: catalog.successor follows deprecatedTo to the current
+    # release its chain ends at; missing or cyclic chains yield None. [18 Sep - 26 Oct 2026]
     def test_a_release_s_successor_is_the_current_release_its_chain_ends_at(self):
         held = boards.collect(now=10000)
         successor = lambda slug: (catalog.successor(held, slug) or {}).get("slug")

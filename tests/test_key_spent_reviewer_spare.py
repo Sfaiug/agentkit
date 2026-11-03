@@ -28,6 +28,9 @@ REFUSED = re.compile(r"WARN reviewer astra refused: You have hit your usage limi
 FELL_BACK = "WARN reviewer fell back to spark"
 
 
+# Across its provider's accounts, the next once it is spent or cannot run. This
+# check uses a spare model on another provider after a usage refusal, holding the
+# spent provider out for an hour. [18 Sep - 26 Oct 2026]
 class SpentReviewer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

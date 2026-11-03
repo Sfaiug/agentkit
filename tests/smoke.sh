@@ -5088,7 +5088,7 @@ else
 fi
 # --- turn_cleanup: worker process cleanup ---------------------------------
 if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
-  ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
+  ok "worker turns stop their leftover processes on every harness without another turn"
 else
   no "worker turn process cleanup"; tail -30 "$WORK/turn-processes.log"
 fi

@@ -47,6 +47,7 @@ type ran struct {
 	code    int
 	stopped string
 	left    []string
+	testReport
 }
 
 // checks runs the commands while they produce output, with a ceiling on the whole list, Python's
@@ -60,7 +61,8 @@ func (l *loop) checks(cmds []string, path string) (bool, string, error) {
 
 // checksIn is that in cwd, with each command's exit as the runner saw it, nil for one killed at the
 // limit or never run, and none for those after a kill: what decides a proof, never the text.
-func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, []*int, error) {
+func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*checkSelection) (bool, string, []*int, error) {
+	selection := selectedCheck(selections)
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return false, "", nil, err
 	}
@@ -93,7 +95,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 			}
 			fmt.Fprintf(progress, "$ %s\n", cmd)
 			offset, _ = progress.Seek(0, io.SeekEnd)
-			if namesShard.MatchString(cmd) {
+			if namesShard.MatchString(cmd) && !selection.pinned() {
 				// its pieces each went once more alone where red: the command is not run again
 				text := ""
 				if outcome, text, err = l.pieces(cwd, cmd, deadline, progress, path); err != nil {
@@ -103,7 +105,8 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 				break
 			}
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
-			if outcome, err = l.boxed(cwd, cmd, "", remaining, progress, path, false); err != nil {
+			shard, only := selection.request()
+			if outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, only); err != nil {
 				return false, "", nil, err
 			}
 			if outcome.code == 0 || first != nil || outcome.stopped != "" {
@@ -120,6 +123,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 			break
 		}
 		ok = ok && outcome.code == 0 && outcome.stopped == ""
+		selection.observe(cmd, outcome, first != nil && outcome.code == 0)
 		if outcome.stopped != "" {
 			marks = append(marks, nil)
 		} else {
@@ -181,7 +185,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 // lands, until it ends, says nothing for the run's silence or spends limit; with a shard, as that
 // piece of its suite.  A proof keeps its bytecode apart: same-size revisions can share a
 // timestamp, making ignored bytecode look valid.
-func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.File, activity string, proof bool) (ran, error) {
+func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.File, activity string, proof bool, only ...[]string) (ran, error) {
 	out, err := os.MkdirTemp(filepath.Dir(activity), "")
 	if err != nil {
 		return ran{}, err
@@ -195,6 +199,9 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	env["AK_FAILED"] = filepath.Join(out, "AK_FAILED")
 	if shard != "" {
 		env["AK_SHARD"] = shard
+	}
+	if err := nameTests(env, out, only); err != nil {
+		return ran{}, err
 	}
 	if proof {
 		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
@@ -214,7 +221,7 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	if l.ctx.Err() != nil {
 		return ran{}, context.Cause(l.ctx)
 	}
-	return ran{code, stopped, left}, nil
+	return reportedTests(ran{code: code, stopped: stopped, left: left}, out, only, progress), nil
 }
 
 // checkEnv is a check's environment: seatless, as the workers are, at the run's next depth.

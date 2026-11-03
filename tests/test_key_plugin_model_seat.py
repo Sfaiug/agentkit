@@ -24,6 +24,8 @@ SHELL_LINE = """printf '%s\\n' "${SHELL:-/bin/sh}\""""
 TUI_LINE = """printf 'acme-tui --model %s --effort %s\\n' "$2" "$3\""""
 
 
+# Adding a model or harness is an adapter, its toml and a config.toml entry, never a
+# name hard-coded in code. [18 Sep - 26 Oct 2026]
 class PluginModel(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

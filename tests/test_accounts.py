@@ -162,6 +162,8 @@ class Accounts(unittest.TestCase):
 
     # --- the accounts -----------------------------------------------------
 
+    # Across its provider's accounts, the next once it is spent or cannot run.
+    # [18 Sep - 26 Oct 2026]
     def test_the_first_account_at_100_percent_runs_the_turn_on_the_second(self):
         self.meters("tok-default", 100)
         self.meters("tok-second", 20)

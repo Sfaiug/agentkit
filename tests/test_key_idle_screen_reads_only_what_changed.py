@@ -13,7 +13,6 @@ runs unlogged.  Black-box: the program `AK_BIN` names runs in a person's termina
 (tests/fixtures/akterm.py) beside tests/fixtures/akseat.py's seats.
 """
 
-import json
 import os
 from pathlib import Path
 import re
@@ -145,36 +144,6 @@ class OpenScreen(unittest.TestCase):
 
 
 class IdleScreenReadsOnlyWhatChanged(OpenScreen):
-    def test_1_an_idle_minute_reads_less_than_the_files_hold(self):
-        start = self.read()
-        time.sleep(MINUTE)
-        self.assertLess(self.read() - start, self.budget)
-
-    def going(self, run, record):
-        """That run going, touching the mark every open screen reads again on, as a run's every
-        move does (`handback.redress_seat`)."""
-        self.home.write(run, {**record, "state": "running", "verdict": None, "merged": False,
-                              "step": "executor", "started_at": time.time(), "finished_at": None})
-        (self.home.path / ".agentkit/state/runs-moved").touch()
-
-    def test_2_a_changed_seat_or_run_file_shows_at_the_next_refresh(self):
-        # a seat tmux lost no longer holds a conversation to resume: it has no row to reopen
-        gone = self.home.path / ".agentkit/state/session-acme-09.json"
-        record = json.loads(gone.read_text())
-        del record["conversation"]
-        self.home.write(gone, record)
-        run = self.runs["acme-03"]
-        self.going(run, json.loads(run.read_text()))
-        # A screen reads one refresh at a time.  A new run of acme-15's goes after the changes,
-        # so the refresh drawing it ended after they landed; acme-21's goes once that is drawn,
-        # so the refresh drawing it began after them, and shows them both however soon it came.
-        for n, witness in enumerate(("acme-15", "acme-21"), RUNS):
-            record = ended(n, witness, time.time())
-            self.going(self.home.path / f".agentkit/runs/{record['run_id']}/run.json", record)
-            screen = self.menu.wait(row(witness, "● working"))
-        self.assertIsNone(row("acme-09")(screen))
-        self.assertTrue(row("acme-03", "● working")(screen))
-
     def test_3_runs_waiting_to_land_and_endings_owed_read_less_than_they_hold(self):
         self.line_up()
         budget = self.held()

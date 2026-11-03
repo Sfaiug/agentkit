@@ -9,8 +9,8 @@ package loop
 // (`.passes`) and its log (`.log`).  Its interface is join (joinLine, then releaseLine as the run
 // leaves), check (CheckLine, `ak run --lander`) and land (landFromLine, in the woken run).
 //
-// Green stacks share the single member's checks and delivery. Red stacks, repairs, pieces and
-// PR reviews are left to Python's lander once this one lets go of its lock (stack.go).
+// Stacks share the single member's checks and delivery; narrow.go searches a red by what failed.
+// Target repairs, helper pieces and PR reviews remain Python's once this releases its lock.
 
 import (
 	"cmp"
@@ -409,7 +409,7 @@ func unchanged(dir string, saved *run.Object) bool {
 
 // publish writes the verdict onto the member and wakes it, Python's publish: only a record still
 // the one this pass read, with no process of its own, takes it.
-func publish(dir string, saved, verdict *run.Object, said io.Writer) bool {
+func publish(dir string, saved, verdict *run.Object, said io.Writer, deferred ...bool) bool {
 	err := run.Change(dir, func(current *run.Object) error {
 		if !run.Equal(current, saved) || run.ProcessActive(current) {
 			return errStale
@@ -424,7 +424,9 @@ func publish(dir string, saved, verdict *run.Object, said io.Writer) bool {
 	if err != nil {
 		return false
 	}
-	wake(dir, said)
+	if len(deferred) == 0 || !deferred[0] {
+		wake(dir, said)
+	}
 	return true
 }
 
@@ -439,82 +441,6 @@ func number(record *run.Object, key string, fallback float64) float64 {
 		return value
 	}
 	return fallback
-}
-
-// checkMember checks the member on its stack through the same checks and evidence as a line of
-// one. A red stack stays parked for Python's narrowing; the single member keeps its fixer turn.
-func (l *loop) checkMember(turn, code string, saved *run.Object, repo, tip, target, upstream string, stack *landingStack) (*run.Object, error) {
-	checkout, failure, err := l.stackMember(saved, repo, tip, stack.top, upstream)
-	if checkout != nil {
-		defer checkout.close()
-	}
-	if err != nil || failure != nil {
-		return failure, err
-	}
-	scratch := checkout.path
-	in := gitcall.Git{Repo: scratch}
-	place := &repoPlace{wt: scratch, baseSHA: tip}
-	// AGENTS.md is measured on the tree that lands, before any evidence answers it
-	if failure, err := place.rulesCheck(); err != nil || failure != "" {
-		return l.fixed("lander.log", failure+"\n", false), err
-	}
-	head, tree, err := place.identity()
-	if err != nil {
-		return nil, err
-	}
-	stack.top = head
-	checks, err := landingChecks(l.dir, scratch, tip)
-	if err != nil {
-		return nil, err
-	}
-	if slices.ContainsFunc(checks, func(cmd string) bool { return namesShard.MatchString(cmd) || namesChanged.MatchString(cmd) }) {
-		return nil, nil // a check run in pieces or narrowed to the change is Python's lander's
-	}
-	leader := filepath.Base(l.dir)
-	if entry := answering(turn, code, "trees").Dict(tree); entry != nil && entry.Str("tested") == tree && covers(entry.List("checks"), checks) {
-		return run.Fields("land", tree, "after", run.NewObject()), nil
-	}
-	suite := declaredSuite(scratch, tip)
-	ok, line, failing, err := l.checkTree(scratch, checks, fmt.Sprintf("lander-%s.log", tree), suite)
-	if err != nil {
-		return nil, err
-	}
-	ran := toList(checks)
-	if ok {
-		note(turn, func(trees, _, _ *run.Object) {
-			trees.Set(tree, run.Fields("at", clock(), "tested", tree, "leader", leader, "checks", ran, "code", codeValue(code)))
-		})
-		return run.Fields("land", tree, "after", run.NewObject()), nil
-	}
-	fix := run.Fields("line", line, "log", filepath.Join(l.dir, fmt.Sprintf("lander-%s.log", tree)))
-	if failing != "" {
-		fix = run.SetAll(fix, "command", failing, "piece", "")
-	}
-	note(turn, func(_, _, redStacks *run.Object) {
-		redStacks.Set(tree, run.SetAll(run.Fields("at", clock()), append(pairs(fix), "checks", ran, "code", codeValue(code))...))
-	})
-	if stack.multiple {
-		return nil, nil // Python narrows red stacks and probes a red target
-	}
-	if suite != "" && failing == suite {
-		// the target's tip answers for a red suite before the member is blamed: red there too, the
-		// red is the target's own, which Python's lander pauses on and repairs
-		if _, err := in.Must("checkout", "--force", "--detach", tip); err != nil {
-			return nil, err
-		}
-		if _, err := in.Must("clean", "-fdx"); err != nil {
-			return nil, err
-		}
-		passed, _, _, err := l.checkTree(scratch, []string{suite}, "target-probe.log", suite)
-		if err != nil || !passed {
-			return nil, err
-		}
-		note(turn, func(trees, red, _ *run.Object) {
-			trees.Set(target, run.Fields("at", clock(), "tested", target, "leader", leader, "checks", []any{suite}, "code", codeValue(code)))
-			red.Delete(target)
-		})
-	}
-	return run.Fields("fix", fix, "after", run.NewObject()), nil
 }
 
 // addScratch checks the commit out at path, detached, Python's add_worktree with the scratch mark:
@@ -557,7 +483,7 @@ func (l *loop) fixed(name, text string, conflict bool) *run.Object {
 // checkTree runs the checks on the scratch checkout, pinned to its commit, Python's _check: whether
 // they passed, the line that says what failed, and the first command that failed, the suite where
 // none did yet they did not pass.
-func (l *loop) checkTree(scratch string, checks []string, name, suite string) (bool, string, string, error) {
+func (l *loop) checkTree(scratch string, checks []string, name, suite string, selections ...*checkSelection) (bool, string, string, error) {
 	in := gitcall.Git{Repo: scratch}
 	place := &repoPlace{wt: scratch}
 	head, tree, err := place.identity()
@@ -569,7 +495,7 @@ func (l *loop) checkTree(scratch string, checks []string, name, suite string) (b
 		return false, "", "", err
 	}
 	path := filepath.Join(l.dir, name)
-	ok, text, marks, err := l.checksIn(scratch, checks, path)
+	ok, text, marks, err := l.checksIn(scratch, checks, path, selections...)
 	if err != nil {
 		return false, "", "", err
 	}
@@ -578,6 +504,9 @@ func (l *loop) checkTree(scratch string, checks []string, name, suite string) (b
 			return false, "", "", err
 		}
 		ok = false
+		if selection := selectedCheck(selections); selection != nil {
+			selection.handoff = true
+		}
 		text += "\n\nCheckout changed during the final check; these commands do not verify the pinned commit."
 	}
 	text = fmt.Sprintf("Commit: %s\nTree: %s\n\n%s", head, tree, text)

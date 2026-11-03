@@ -92,6 +92,7 @@ def rows(home):
         return [label for _, label, _, _ in menu.usage_cells(config.load())]
 
 
+# Every provider takes several subscriptions. [29 Sep, 21, 24 Oct 2026]
 class AddSubscription(unittest.TestCase):
     def test_another_subscription_logs_in_under_a_fresh_name_and_joins_accounts(self):
         screen = Screen(self, child=CHILD, text=CLAUDE)
