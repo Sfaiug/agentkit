@@ -90,20 +90,8 @@ func validateRun(args []string) string {
 	if problem != "" {
 		return problem
 	}
-	_, session, err := config.CurrentSession()
-	if err != nil {
-		return err.Error()
-	}
-	if session != nil && os.Getenv("AGENTKIT_RUN_DIR") == "" {
-		var given []string
-		for _, flag := range []string{"--exec", "--review", "--anyway", "--first"} {
-			if parsed.values[flag] != "" || parsed.flags[flag] {
-				given = append(given, flag)
-			}
-		}
-		if len(given) > 0 {
-			return strings.Join(given, ", ") + ": not a seat's; ak picks the models, decides what goes first and refuses a second run of a change under way, so launch without"
-		}
+	if why := launch.SeatRefusal(parsed.values, parsed.flags); why != "" {
+		return why
 	}
 	if url := parsed.values["--review-pr"]; url != "" {
 		_, parallel := parsed.values["--parallel"]

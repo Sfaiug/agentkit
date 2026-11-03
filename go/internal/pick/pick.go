@@ -140,9 +140,22 @@ func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 // of every executor and reviewer with room, the pair of the best tier, then the earlier executor,
 // then the earlier reviewer; false where none forms.
 func (r *Rules) Pair(room Room) (executor, reviewer string, ok bool) {
+	return r.pair(room, r.Order(room, false, nil))
+}
+
+// PairFor is the reviewer a run whose executor was named takes, Python's staffing.pick_models
+// with --exec: the named executor's meter is never read; false where none forms.
+func (r *Rules) PairFor(room Room, executor string) (reviewer string, ok bool) {
+	_, reviewer, ok = r.pair(room, []string{executor})
+	return reviewer, ok
+}
+
+// pair is the pair of the best tier of these executors, in their order, and every reviewer with
+// room, Python's best_pair.
+func (r *Rules) pair(room Room, executors []string) (executor, reviewer string, ok bool) {
 	best, reviewers := 3, r.Order(room, true, nil) // 3: past every tier
 	// pairs come executor by executor, so the first of the best tier is the one taken
-	for _, each := range r.Order(room, false, nil) {
+	for _, each := range executors {
 		for _, other := range reviewers {
 			if tier := r.tier(each, other); tier < best {
 				executor, reviewer, best = each, other, tier

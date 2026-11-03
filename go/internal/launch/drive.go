@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"agentkit/internal/config"
@@ -26,13 +27,15 @@ var (
 )
 
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
-// before anything is written: a model named outright, a pick Go cannot read as Python does, a meter
-// it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
+// before anything is written: a reviewer named outright, an executor no worker of its groups, a
+// pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
 // with no box, one with a user manager to place the run under, the checkout a task folder is named
 // for, or a run under way that Python's rival check would read.
 func drivable(path string, values map[string]string) error {
 	_, rules := pick.Load()
-	if values["--exec"] != "" || values["--review"] != "" || !rules || !placed() ||
+	executors, _, _ := config.Groups()
+	named := values["--exec"]
+	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !rules || !placed() ||
 		usage.Check() != nil && !loop.Unstaffed() || filed(path) || going() {
 		return ErrPython
 	}
