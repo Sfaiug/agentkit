@@ -881,16 +881,21 @@ class Task(tuple):
 
 
 def seat_tasks(name, records=None, now=None):
-    """Each task in flight that seat launched, as (stage, state), furthest behind first: its
+    """`own_tasks` of the runs among `records` that seat launched."""
+    records = run_records() if records is None else records
+    return own_tasks(transitions.runs_by_seat(records).get(name, []), now)
+
+
+def own_tasks(mine, now=None):
+    """Each task in flight among a seat's own runs, as (stage, state), furthest behind first: its
     stage 0, 1 or 2 (`STAGES`), and `moving` while a model or ak works on it, `spent` while every
     model it may go on with is out of usage, `waiting` while it waits -- for a slot, behind an
     older change, for a login, for its turn in the line, for the live check.  A run that ended is no task in flight, whatever it delivered:
     the owner's word of 19 Oct 2026, as red squares of ended runs read as work still going."""
     from . import gate, watch   # here, not at the top: watch imports this module
     now = time.time() if now is None else now
-    records = run_records() if records is None else records
     found = []
-    for run_dir, state in transitions.runs_by_seat(records).get(name, []):
+    for run_dir, state in mine:
         stage, run = STAGES.get(state.get("step"), 0), Path(run_dir).name
         if transitions.landing_line(state):
             found.append(Task(2, "waiting", run))
@@ -1151,7 +1156,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
     return {"number": str(number), "name": name, "session": session, "back": back,
             "go_on": go_on, "go_on_name": go_on and config.model_name(cfg, go_on),
             "crew": seat_crew(cfg, selection),
-            "tasks": seat_tasks(name, own, now),
+            "tasks": own_tasks(own, now),
             "count": word, "orchestrator": shown, "worker": shown,
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
@@ -1167,16 +1172,17 @@ class Folds:
     all.
 
     It hides that the runs at rest at the last full read (`open_runs.Reader`) are folded once and
-    kept, by each key they are listed under and by the name each was launched from, so a read folds
-    only its other runs, resolves every name again, a rename showing on that very read, and merges
-    the two in `records`' order, never adding to a kept list; and that a pass over the records of
+    kept, their entries under each key they are listed under and their runs by the name each was
+    launched from, so a read folds only its other runs, resolves every name again, a rename showing
+    on that very read, and merges the two in the order a whole fold has, never adding to a kept
+    list; and that a pass over the records of
     the read before it, with no read since, gets that read's answers.  Records no read of the
     screen's gave out are folded whole.  Nothing it keeps is changed after: two threads asking at
     once each get a whole answer.
     """
 
     def __init__(self):
-        self.kept = None, {}, {}, {}   # the runs at rest, their index, their runs by key and by name
+        self.kept = None, {}, {}, {}   # the runs at rest, their index, it `_tagged`, runs by name
         self.last = None, None         # a read's `open_runs.Reader.split` and its answers
 
     def of(self, records, now):
@@ -1191,11 +1197,14 @@ class Folds:
         _, rest, moving = split
         kept = self.kept
         if kept[0] is not rest:
-            kept = self.kept = rest, transitions.supersession_index(rest), _keyed(rest), _named(rest)
-        _, index, keyed, named = kept
+            tagged = _tagged(rest)
+            kept = self.kept = rest, {key: [entry for _, entry in entries]
+                                      for key, entries in tagged.items()}, tagged, _named(rest)
+        _, index, tagged, named = kept
         index = dict(index)
-        for key, runs in _keyed(moving).items():
-            index[key] = transitions.supersession_index(_in_order(keyed.get(key), runs))[key]
+        for key, entries in _tagged(moving).items():
+            index[key] = [entry for _, entry in heapq.merge(tagged.get(key, ()), entries,
+                                                            key=_newest)]
         lists = {}
         for name, runs in named.items():
             try:
@@ -1210,13 +1219,23 @@ class Folds:
         return answers
 
 
-def _keyed(runs):
-    """Those runs under each key `transitions.supersession_index` lists one under, in order."""
-    keyed = {}
+def _tagged(runs):
+    """`transitions.supersession_index` of those runs, each entry with its run's name, in that
+    index's order (`_newest`)."""
+    tagged = {}
     for run in runs:
-        for key in transitions.supersession_index((run,)):
-            keyed.setdefault(key, []).append(run)
-    return keyed
+        for key, (entry,) in transitions.supersession_index((run,)).items():
+            tagged.setdefault(key, []).append((run[0].name, entry))
+    for entries in tagged.values():
+        entries.sort(key=_newest)
+    return tagged
+
+
+def _newest(tagged):
+    """The order of a `supersession_index` list: newest first, then as `records` has them, which is
+    by name (`_in_order`)."""
+    name, (when, *_) = tagged
+    return -when, name
 
 
 def _named(runs):

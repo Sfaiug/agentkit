@@ -17,9 +17,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.sandbox import Sandbox  # noqa: E402
-from agentkit import config, menu, open_runs, parsed, transitions  # noqa: E402
+from agentkit import config, menu, open_runs, orch, parsed, transitions  # noqa: E402
 
 ENDED, OPEN = 6000, 10
+SEATS = ["acme-api", "acme-web", "acme-ops", "acme-new", "acme-www"]   # listed, each filed under acme
 WEEK = 7 * 86400
 NOW = time.time_ns() // 10**9    # the real clock: `open_runs` dates a record by its file
 
@@ -57,7 +58,9 @@ class ReadFoldsOnlyTheOpenRuns(Sandbox):
         super().setUp()
         for patched in (patch.object(parsed, "FRESH", 0),            # every record kept as read
                         patch.object(open_runs, "SHARE", 1e-9),      # full reads CEILING apart
-                        patch.object(menu.time, "time", return_value=NOW)):
+                        patch.object(menu.time, "time", return_value=NOW),
+                        patch.object(orch, "listing",
+                                     side_effect=lambda: [{"name": name, "repo": "acme"} for name in SEATS])):
             self.stack.enter_context(patched)
         clock, self.shift = time.monotonic, 0
         self.stack.enter_context(patch.object(open_runs.time, "monotonic",
@@ -79,7 +82,8 @@ class ReadFoldsOnlyTheOpenRuns(Sandbox):
         return self.read()
 
     def counted(self):
-        calls = {"launched_session": 0, "silent_for_run": 0}
+        """How often each fold is asked of a run from now on."""
+        calls = {"launched_session": 0, "silent_for_run": 0, "supersession_index": 0}
 
         def wrap(module, name):
             real = getattr(module, name)
@@ -88,8 +92,15 @@ class ReadFoldsOnlyTheOpenRuns(Sandbox):
                 calls[name] += 1
                 return real(*args, **kwargs)
             return patch.object(module, name, counting)
+
+        def indexing(states):
+            states = list(states)
+            calls["supersession_index"] += len(states)
+            return index(states)
+        index = transitions.supersession_index
         self.stack.enter_context(wrap(transitions, "launched_session"))
         self.stack.enter_context(wrap(menu, "silent_for_run"))
+        self.stack.enter_context(patch.object(transitions, "supersession_index", indexing))
         return calls
 
     def assert_whole(self):
@@ -104,10 +115,13 @@ class ReadFoldsOnlyTheOpenRuns(Sandbox):
 
     def test_1_a_read_folds_each_open_run_once(self):
         calls = self.counted()
-        going(1, step="reviewer")
-        self.assertEqual(len(self.read()), ENDED + OPEN)
-        self.assertLessEqual(calls["launched_session"], OPEN, "a read folds the runs at rest")
-        self.assertLessEqual(calls["silent_for_run"], OPEN, "a read asks the runs at rest")
+        # merged under a title runs at rest share, then a read with nothing changed
+        going(1, state="pass", merged=True, title="Fix 0", finished_at=NOW)
+        for _ in range(2):
+            self.assertEqual(len(self.read()), ENDED + OPEN)
+            for fold, asked in calls.items():
+                self.assertLessEqual(asked, OPEN, f"a read asks {fold} of the runs at rest")
+                calls[fold] = 0
 
     def test_2_what_a_read_works_out_is_what_folding_every_run_does(self):
         given = menu.FOLDS.of(self.records, NOW)
@@ -146,7 +160,8 @@ class ReadFoldsOnlyTheOpenRuns(Sandbox):
         live.read_from = self.found, self.records
         live.passing.acquire()
         live._look(self.found, self.records)
-        self.assertEqual(calls, {"launched_session": 0, "silent_for_run": 0})
+        self.assertEqual(calls, {"launched_session": 0, "silent_for_run": 0,
+                                 "supersession_index": 0})
 
 
 if __name__ == "__main__":
