@@ -119,11 +119,7 @@ func (k *Keyboard) Sense() {
 		heard = append(heard[:at[0]:at[0]], heard[at[1]:]...)
 	}
 	k.keyed = append(heard, k.keyed...)
-	k.sensed = For(os.Stdout)
-	k.sensed.light = light
-	if k.sensed.depth != 0 && trueColour(features) {
-		k.sensed.depth = 24
-	}
+	k.sensed = Screen{depth: depth(os.Stdout, trueColour(features)), ascii: !utf8(), light: light}
 }
 
 // Screen is what Sense found, at the size the terminal is now.

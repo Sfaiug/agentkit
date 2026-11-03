@@ -31,7 +31,7 @@ type Screen struct {
 }
 
 func For(out io.Writer) Screen {
-	return Screen{depth: depth(out), width: width(out), ascii: !utf8()}
+	return Screen{depth: depth(out, false), width: width(out), ascii: !utf8()}
 }
 
 // TypedHere is whether a person is at this command's keyboard: agents run ak with no
@@ -50,14 +50,16 @@ func Dim(out io.Writer, text string) string {
 	return For(out).Styled(text, "dim")
 }
 
-func depth(out io.Writer) int {
+// depth is the colours out takes: none off a terminal, under NO_COLOR or a dumb TERM; true colour
+// where COLORTERM says so or rgb, a terminal's own features, does; else terminfo's count.
+func depth(out io.Writer, rgb bool) int {
 	file, ok := out.(*os.File)
 	term := os.Getenv("TERM")
 	_, noColor := os.LookupEnv("NO_COLOR")
 	if !ok || !isTerminal(file) || noColor || term == "" || term == "dumb" {
 		return 0
 	}
-	if color := strings.ToLower(os.Getenv("COLORTERM")); color == "truecolor" || color == "24bit" {
+	if color := strings.ToLower(os.Getenv("COLORTERM")); color == "truecolor" || color == "24bit" || rgb {
 		return 24
 	}
 	switch colors := terminalColors(term); {
