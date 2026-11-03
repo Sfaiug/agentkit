@@ -228,6 +228,56 @@ type place struct {
 	every, once        []string
 }
 
+// checkout is the checkout a launch of the task works in, "" for none, as Python's task_repo finds
+// it; the refusal for a named one that is no git repository; ErrPython where it is Python's to find.
+func checkout(meta map[string]string, path, copied string) (string, string, error) {
+	switch named := meta["repo"]; {
+	case strings.ToLower(named) == "none":
+		return "", "", nil
+	case named != "":
+		if account, _, _ := strings.Cut(named, "/"); account != "~" && strings.HasPrefix(account, "~") {
+			return "", "", ErrPython // a `~user`: that account's home is Python's to find
+		}
+		repo := config.Absolute(named)
+		if !readable(repo) {
+			return "", "", ErrPython
+		}
+		if found, err := exists(filepath.Join(repo, ".git")); err != nil || !found {
+			return "", fmt.Sprintf("%s: repo %s is not a git repository", copied, repo), err
+		}
+		return repo, "", nil
+	}
+	top, _, found, err := git("", "rev-parse", "--show-toplevel")
+	if err != nil || !found && filed(path) {
+		return "", "", ErrPython // the checkout a task folder is named for is Python's to find
+	}
+	if !found {
+		return "", "", nil
+	}
+	if repo := config.Resolve(top); readable(repo) {
+		return repo, "", nil
+	}
+	return "", "", ErrPython
+}
+
+// Budget is the rounds in force for a launch of the task at path, as Python's launch_policy reads
+// them before anything else is judged: its checkout's, the host's where the task does not read or
+// names a checkout that is none; ErrPython where the checkout is Python's to find.
+func Budget(path string) (int, error) {
+	repo := ""
+	if meta, _, err := task.Read(path); err == nil {
+		found, refused, err := checkout(meta, path, path)
+		if err != nil {
+			return 0, ErrPython
+		}
+		if refused == "" {
+			repo = found
+		}
+	}
+	numbers, err := numbers(repo)
+	return numbers.Rounds, err
+}
+
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
@@ -237,31 +287,17 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		return reason, warning, at, err
 	}
-	switch named := meta["repo"]; {
-	case strings.ToLower(named) == "none":
-	case named != "":
-		if account, _, _ := strings.Cut(named, "/"); account != "~" && strings.HasPrefix(account, "~") {
-			return refuse("", "", ErrPython) // a `~user`: that account's home is Python's to find
-		}
-		at.repo = config.Absolute(named)
-		if !readable(at.repo) {
-			return refuse("", "", ErrPython)
-		}
-		found, err := exists(filepath.Join(at.repo, ".git"))
-		if err != nil || !found {
-			return refuse(fmt.Sprintf("%s: repo %s is not a git repository", copied, at.repo), "", err)
-		}
-	default:
-		top, _, found, err := git("", "rev-parse", "--show-toplevel")
-		if err != nil || !found && filed(path) {
-			return refuse("", "", ErrPython) // the checkout a task folder is named for is Python's to find
-		}
-		if found {
-			at.repo = config.Resolve(top)
-		}
-		if !readable(at.repo) {
-			return refuse("", "", ErrPython)
-		}
+	repo, refused, err := checkout(meta, path, copied)
+	if refused != "" || err != nil {
+		return refuse(refused, "", err)
+	}
+	at.repo = repo
+	if at.numbers, err = numbers(at.repo); err != nil {
+		return refuse("", "", &refusedOutright{err.Error()})
+	}
+	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged here
+	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
+		return refuse("", "", &refusedOutright{why})
 	}
 	landing := at.repo != "" && !flags["--no-merge"]
 	if landing && !flags["--no-worktree"] {
@@ -326,15 +362,6 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	if later != "" {
 		return refuse(later, warning, nil)
 	}
-	var err error
-	if at.numbers, err = numbers(at.repo); err != nil {
-		return refuse("", "", &refusedOutright{err.Error()})
-	}
-	for _, asked := range [][2]string{{values["--rounds"], "--rounds"}, {meta["rounds"], "rounds:"}} {
-		if why := task.RoundsOver(asked[0], asked[1], at.numbers.Rounds); why != "" {
-			return refuse("", "", &refusedOutright{why})
-		}
-	}
 	return refuse("", warning, nil)
 }
 
@@ -356,6 +383,9 @@ func asPython(err error) error {
 // numbers is the numbers in force for a repository's run: the front matter of AGENTS.md on the
 // default branch of its checkout, one commit for all of them, else the host's.
 func numbers(repo string) (config.Numbers, error) {
+	if repo == "" {
+		return config.HostNumbers()
+	}
 	commit, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD")
 	if err != nil || commit == "" {
 		return config.HostNumbers()
