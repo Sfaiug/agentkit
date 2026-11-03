@@ -111,9 +111,6 @@ func transcript(t *testing.T, home, name, content string) {
 func TestHomesGoDoesNotKnow(t *testing.T) {
 	merged := map[string]any{"state": "pass", "merged": true, "finished_at": 1_799_999_000}
 	for name, build := range map[string]func(t *testing.T, home string){
-		"a record not resumable": func(t *testing.T, home string) {
-			record(t, home, "acme", map[string]any{"resumable": false})
-		},
 		"a record's write cut short beside it": func(t *testing.T, home string) {
 			record(t, home, "acme", nil)
 			write(t, filepath.Join(home, ".agentkit", "state", "session-acme.tmp"), "")

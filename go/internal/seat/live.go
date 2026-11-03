@@ -44,14 +44,14 @@ type Live struct {
 func Seats(now time.Time) ([]string, bool) {
 	home, known := seated(now)
 	var names []string
-	for _, each := range home.records {
+	for _, each := range home.Seats {
 		names = append(names, each.Name)
 	}
 	return names, known
 }
 
-// Lives is every seat the home holds, each read as Live reads it; false where any is not a seat its
-// panes run on that Go reads.
+// Lives reads the live seats, leaving absent ones to the rows that read them. Held panes and
+// screens Go does not read still hand over.
 func Lives(now time.Time) ([]Live, bool) {
 	home, known := seated(now)
 	if !known {
@@ -59,7 +59,10 @@ func Lives(now time.Time) ([]Live, bool) {
 	}
 	state := filepath.Join(config.Home(), "state")
 	var lives []Live
-	for _, each := range home.records {
+	for _, each := range home.Seats {
+		if !each.live && !each.held {
+			continue
+		}
 		pane, exited := harnessScreen(each.Name)
 		found, _ := observed(state, each.Name, each.own, pane, seconds(now))
 		live, ok := each.lived(state, pane, exited, found, now)
@@ -71,13 +74,12 @@ func Lives(now time.Time) ([]Live, bool) {
 	return lives, true
 }
 
-// seated is the home, false where any record is not a seat with a row that Go reads.
+// seated is the home, false where any record or seat is one Go does not read.
 func seated(now time.Time) (Home, bool) {
 	if len(config.SeatFiles()) == 0 {
 		return Home{}, OnNoServer()
 	}
-	home, known := Looking(now)
-	return home, known && len(home.Seats) == len(home.records)
+	return Looking(now)
 }
 
 // lived is the seat as Live reads it off that capture, false where its panes no longer run its
@@ -150,7 +152,8 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 		now := time.Now()
 		home, seat, known := liveSeat(name, now)
 		if !known {
-			return nil
+			carried, err = healthGone(state, name, now)
+			return err
 		}
 		pane, exited := harnessScreen(name)
 		found, previous := observed(state, name, seat.own, pane, seconds(now))

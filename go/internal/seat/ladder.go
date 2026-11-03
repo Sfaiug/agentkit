@@ -22,6 +22,8 @@ type climbing struct {
 	file, notice     *run.Object
 	found            sight
 	now              float64
+	gone             *Seat
+	place            int
 }
 
 // An answer is a rung's: the seat's word, why and since when, and whether that why is the question
@@ -36,8 +38,8 @@ type answer struct {
 // read what it hangs on yet.  Every rung is pure: readable asks them all before a look writes.
 type rung func(climbing) (*answer, error)
 
-// ladder is watch._session_state's for a seat its panes run on, top rung first; a seat nobody is in
-// reads goneWord.  Python's rung names are in brackets where it numbers them.
+// ladder is watch._session_state's, top rung first. Python's rung names are in brackets where it
+// numbers them.
 var ladder = []rung{
 	loginOut,          // [1]
 	runOnALogin,       // [1a]
@@ -53,6 +55,7 @@ var ladder = []rung{
 	usageWait, // [3b]
 	retrying,  // [3c]
 	liveCheck, // [3a]
+	nobodyIn,  // [4]
 	alert,     // [5]
 	telling,
 	stillOwed,
@@ -65,7 +68,8 @@ func climbingOf(state string, seat Seat, found sight, now float64) climbing {
 	if file == nil {
 		file = run.NewObject()
 	}
-	return climbing{state, seat.Name, seat.own, seat.mine, file, notify.Last(seat.Name), found, now}
+	return climbing{state: state, name: seat.Name, own: seat.own, mine: seat.mine, file: file,
+		notice: notify.Last(seat.Name), found: found, now: now}
 }
 
 // readable is whether no rung is one Go cannot read yet, whatever a higher one would decide.
@@ -141,14 +145,14 @@ func loginOut(facts climbing) (*answer, error) {
 
 // aRunOfItsOwn: any run of the seat's own, at each of the rungs a run decides.
 func aRunOfItsOwn(facts climbing) (*answer, error) {
-	if len(facts.mine) > 0 {
+	if facts.gone == nil && len(facts.mine) > 0 {
 		return nil, ErrUnread
 	}
 	return nil, nil
 }
 
 func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
-func runsGoing(facts climbing) (*answer, error)   { return aRunOfItsOwn(facts) }
+func runsGoing(facts climbing) (*answer, error)   { return goneRuns(facts) }
 func runParked(facts climbing) (*answer, error)   { return aRunOfItsOwn(facts) }
 func liveCheck(facts climbing) (*answer, error)   { return aRunOfItsOwn(facts) }
 
@@ -171,6 +175,9 @@ func onItsScreen(facts climbing) (*answer, error) {
 // repeatingQuestion: a harness with no blocking Stop is sent back to say what it asked, read from a
 // conversation Go does not read for that yet.
 func repeatingQuestion(facts climbing) (*answer, error) {
+	if facts.gone != nil {
+		return nil, nil
+	}
 	if nudged, err := lifecycle.Nudged(facts.own); err != nil || nudged {
 		return nil, ErrUnread
 	}
@@ -180,7 +187,7 @@ func repeatingQuestion(facts climbing) (*answer, error) {
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it
 // stood through has stopped.  A watcher's own alert waits for its prompt (alert).
 func ownQuestion(facts climbing) (*answer, error) {
-	if !notify.OwnerQuestion(facts.notice) || !facts.found.composerOpen(facts.own) {
+	if facts.gone != nil || !notify.OwnerQuestion(facts.notice) || !facts.found.composerOpen(facts.own) {
 		return nil, nil
 	}
 	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true}, nil
@@ -188,6 +195,9 @@ func ownQuestion(facts climbing) (*answer, error) {
 
 // usage: a wait on its subscription, or a move to another account, which its seat file keeps.
 func usage(facts climbing) (*answer, error) {
+	if facts.gone != nil {
+		return nil, nil
+	}
 	if facts.file.Get("usage_wait") != nil || facts.file.Get("usage_refusal") != nil {
 		return nil, ErrUnread
 	}

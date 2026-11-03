@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
@@ -20,8 +21,8 @@ func unasked(live seat.Live) bool {
 
 // cardsHeld is whether every card is a seat's, none left of a seat gone (notify.tick_cards).
 func cardsHeld() bool {
-	seats := recorded("session")
-	return !slices.ContainsFunc(recorded("card"), func(name string) bool { return !slices.Contains(seats, name) })
+	seats, known := seat.Seats(time.Now())
+	return known && !slices.ContainsFunc(recorded("card"), func(name string) bool { return !slices.Contains(seats, name) })
 }
 
 // recorded is the seat each record of that kind is named for.
@@ -36,7 +37,11 @@ func recorded(kind string) (names []string) {
 // health row published, read under the card's lock and never off the screen again; the first seat
 // whose card or word is one a card goes out for ends the tick there.
 func cards() error {
-	for _, name := range recorded("session") {
+	names, known := seat.Seats(time.Now())
+	if !known {
+		return errLeft
+	}
+	for _, name := range names {
 		if carried, err := notify.Turned(name, seat.Published); err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
