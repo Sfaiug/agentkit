@@ -1674,7 +1674,8 @@ def unnamed(code, only, ran, output):
 
 def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwargs):
     """Run a suite and keep its named reds and flakes beside its check rows."""
-    reds, flakes = {}, []
+    reds = {} if confirmed is not None or checked is not None else None
+    flakes = [] if flaky is not None or checked is not None else None
     try:
         return _run_suite(command, limit, confirmed=reds, flaky=flakes, checked=checked, **kwargs)
     finally:
