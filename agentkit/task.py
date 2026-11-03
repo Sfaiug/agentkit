@@ -61,6 +61,26 @@ def parse_task(path):
     return dict(pairs), body, title
 
 
+def goal_text(body):
+    """Keep the Goal's indentation and examples; headings inside fences are its text."""
+    lines, found, fence = [], False, ""
+    for line in body.splitlines(keepends=True):
+        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if marker and marker[1].startswith(fence) and not marker[2].strip():
+                fence = ""
+        elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            fence = marker[1]
+        elif re.match(r"##[ \t]+", line):
+            if found:
+                break
+            found = bool(re.fullmatch(r"##[ \t]+Goal[ \t]*\n?", line, re.I))
+            continue
+        if found:
+            lines.append(line)
+    return "".join(lines).strip("\n")
+
+
 def task_files(path):
     """Allowed Git pathspecs from repeatable, comma-separated `files:` lines."""
     return [part.strip() for key, value in front_matter(path)[0] if key == "files"

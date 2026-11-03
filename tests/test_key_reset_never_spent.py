@@ -50,6 +50,7 @@ def read(home, *args):
 
 
 class NoneSpent:
+    # ak never spends a usage-limit reset on its own. [2 Oct, 20 Oct 2026]
     def test_the_count_is_read_for_every_account_and_no_reset_is_ever_asked_for(self):
         verbs = [verb for verb, *_ in self.meter.calls()]
         asked = {account for verb, _, account in self.meter.calls() if verb == "reset-status"}

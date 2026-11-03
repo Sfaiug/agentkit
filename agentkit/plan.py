@@ -606,6 +606,8 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
     repo = Path(repo) if repo else project_of(name)
     check = one_command(check)
     holds_checkout(check, repo)
+    from . import retire
+    retire.vet_check(repo, check)
     passed = None
     if proven:
         found, base = root(repo, proven), proven[:12]

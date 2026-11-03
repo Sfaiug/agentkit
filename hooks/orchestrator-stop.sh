@@ -80,7 +80,7 @@ sys.path.insert(0, str(Path(sys.argv[2]).resolve().parents[1]))
 from agentkit import config, harness, lifecycle, notify, questions
 from agentkit.handback import handback_reason
 from agentkit.stop import live_unrecorded, question_refused, recorded_ending, ways_out
-from agentkit.watch import keep, owner_question, seat_read, start_look, turn_ended
+from agentkit.watch import keep, start_look, turn_ended
 
 LIMIT = 2           # blocks in one turn; the third stop stands
 REASON = ("You stopped with work open and nothing recorded: no question asked through the question "
@@ -251,7 +251,8 @@ def told(seat, turn, kind):
     if note.get("kind") != kind:
         return False
     when = moment(note.get("time"))
-    return when is not None and when >= turn
+    return (when is not None and when >= turn
+            and any(not q.startswith(STUCK) for q in notify.questions(note)))
 
 
 def parked_reason(found):
@@ -296,18 +297,28 @@ def held(launched, payload):
     if turn is None:
         return ""    # no turn was written down; nothing here can say what happened during it
     seat = resolve(launched)
+    # ak's third-stop question is no fact of the seat's own. Once the seat can end on one,
+    # retire that question before asking it to repeat its still-unanswered questions in chat.
+    pending = questions.pending(seat)
+    asked = (questioned(payload) or told(seat, turn, "needs")
+             or any(not q.startswith(STUCK) for q in pending))
+    ends, undecided = recorded_ending(seat, question=asked, since=turn)
+    if any(q.startswith(STUCK) for q in pending):
+        if ends or lifecycle.waits_on(payload):
+            notify.clear(seat, prefix=STUCK, wait=False)
+        else:
+            return ""    # still stuck: the owner was asked once, and nothing has changed
+    pending = [q for q in questions.pending(seat) if q.startswith(STUCK)]
     delivery = questions.reminder(seat, last_message(payload))
+    if pending:
+        for question in pending:
+            delivery = delivery.replace("\n\n" + question, "", 1)
+        if "\n\n" not in delivery:
+            delivery = ""
     if not delivery and lifecycle.waits_on(payload):
         return ""
     if not delivery and last_message(payload) is None:
         return ""    # nothing it said can be read; nothing here can judge the turn
-    # a question to the owner that nothing has answered yet ends a turn whenever it was asked:
-    # a hand-back opens turns on a seat while it stands (`watch.stop_nudge`), and one the
-    # seat kept back for this turn's end (`watch.keeps_back`) is in its record
-    kept = isinstance(seat_read(seat).get("unasked"), dict)
-    asked = (questioned(payload) or told(seat, turn, "needs") or kept
-             or owner_question(notify.last(seat)))
-    ends, undecided = recorded_ending(seat, question=asked, since=turn)
     if ends and not delivery:
         live = not asked and not record.get("live_back") and live_unrecorded(launched)
         if live:

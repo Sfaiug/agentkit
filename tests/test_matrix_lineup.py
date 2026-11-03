@@ -97,6 +97,8 @@ class Answer(unittest.TestCase):
     def setUp(self):
         self.lineup = matrix.lineup(BOARDS, OFFERS)
 
+    # The cheapest within `within` points of the best picks; if no harness runs it,
+    # take is the cheapest of yours within `within` of best. [18 Sep - 26 Oct 2026]
     def test_a_pick_no_harness_runs_takes_the_cheapest_of_yours_within_the_best(self):
         execute = matrix.answer(self.lineup, 5)["execute"]
         self.assertEqual({key(row): round(row["quality"], 6) for row in execute["rated"]},

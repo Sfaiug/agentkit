@@ -39,8 +39,7 @@ type piece struct {
 // did, and hands on what handedOn says.
 //
 // What Python does beyond that is not Go's yet and differs here: a heavy-suite turn and the suite
-// helper, a red piece's named tests run alone first (AK_ONLY), and the suite's pace and cost
-// measured for its next run.
+// helper, and the suite's pace and cost measured for its next run.
 func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, path string) (ran, string, error) {
 	count := host.Pieces(suiteCost(l.dir, cwd, cmd))
 	ctx, cancel := context.WithCancelCause(l.ctx)
@@ -57,7 +56,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			}
 		}
 	}()
-	attempt := func(at *piece, why string) error {
+	attempt := func(at *piece, why string, only []string) error {
 		out, err := os.CreateTemp(filepath.Dir(path), stem(path)+"-piece-*.log")
 		if err != nil {
 			return err
@@ -70,7 +69,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		l.say(fmt.Sprintf("AK_SHARD=%s runs here: %s", at.shard, why))
 		if left := time.Until(deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
-		} else if at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false); errors.Is(err, errSibling) {
+		} else if at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, only); errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
 		} else if err != nil {
 			return err
@@ -91,7 +90,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			errs[index] = attempt(all[index], "command is not sent to the suite helper (no suite helper set up)")
+			errs[index] = attempt(all[index], "command is not sent to the suite helper (no suite helper set up)", nil)
 		}()
 	}
 	started.Wait()
@@ -106,7 +105,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		if err != nil {
 			return ran{}, "", err
 		}
-		if err := attempt(at, "command is not sent to the suite helper (piece retry)"); err != nil {
+		if err := retryTests(at, attempt); err != nil {
 			return ran{}, "", err
 		}
 		at.failed = failed
@@ -138,8 +137,12 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 		most, into, status := share, &green, fmt.Sprintf("exit %d", at.ended.code)
 		if at.ended.code != 0 {
 			most, into = redShare, &red
+			if ended.code == 0 {
+				ended.piece, ended.confirmed = at.shard, at.ended.confirmed
+			}
 			ended.code = cmp.Or(ended.code, at.ended.code)
 		}
+		ended.flaky = ended.flaky || at.ended.flaky || at.failed != nil && at.ended.code == 0
 		if at.ended.stopped != "" {
 			status = "killed at the limit"
 			if at.ended.stopped != "sibling" && ended.stopped == "" {

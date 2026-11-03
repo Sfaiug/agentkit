@@ -15,8 +15,8 @@ import (
 // already passed review, and what fails this late is as often the world as the work, so the run
 // does not end FAIL.  It takes the target's tip in, its executor gets one fixer turn on the failing
 // output, spending no round, a fresh review judges the fixed work, and the run rejoins its line,
-// whose lander checks the fixed tree.  A red after that turn, one a helper or a shard reported and
-// one on a stack are Python's.
+// whose lander checks the fixed tree. A red after that turn, helper work and moved PRs are Python's;
+// a stack red is rechecked after its predecessors land, before its fixer wakes.
 func (r *repoPlace) fixLanding(l *loop, upstream string, record, wait *run.Object) error {
 	fix := wait.Dict("fix")
 	failed := fmt.Sprintf("its landing failed: %s; see %s", fix.Str("line"), fix.Str("log"))
