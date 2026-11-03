@@ -3,16 +3,23 @@
 package loop
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
 
 func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *testing.T) {
 	l := rig(t, 0)
+	previous := HoldSlots
+	HoldSlots = func(ctx context.Context) (*os.File, error) {
+		return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
+	}
+	t.Cleanup(func() { HoldSlots = previous })
 	home := filepath.Join(os.Getenv("HOME"), ".agentkit")
 	os.MkdirAll(filepath.Join(home, "state"), 0o700)
 	settings, err := os.ReadFile("../../../config.default.toml")

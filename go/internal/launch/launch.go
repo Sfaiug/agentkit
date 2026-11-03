@@ -447,7 +447,11 @@ func git(repo string, args ...string) (string, string, bool, error) {
 
 // holdSlots waits for the lock every run's admission changes under.
 func holdSlots() (*os.File, error) {
-	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+	return holdAdmission(context.Background())
+}
+
+func holdAdmission(ctx context.Context) (*os.File, error) {
+	return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
 }
 
 // receive writes the launch's receipt under the slots lock.

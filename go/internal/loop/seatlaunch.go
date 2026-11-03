@@ -11,11 +11,13 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
-	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/task"
 )
+
+// HoldSlots is supplied by launch, which owns admission and uses the loop to drive runs.
+var HoldSlots func(context.Context) (*os.File, error)
 
 // launchForSeat prepares a sibling run with the seat's lists now, not the ending's slot,
 // marker or ancestry. Its first record is queued, recoverable by Python's tick if cut off.
@@ -29,7 +31,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	if err != nil {
 		return nil, err
 	}
-	held, err := lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+	held, err := HoldSlots(context.Background())
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +57,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 		if os.Getenv("AK_MAX_RUNS") != "0" {
 			return fmt.Errorf("queued for Python's host admission")
 		}
-		held, err := lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+		held, err := HoldSlots(context.Background())
 		if err != nil {
 			return err
 		}
@@ -98,7 +100,7 @@ func failedStart(dir, reason string) {
 // admitQueued transfers an ungated seat launch from waiting to holding under Python's
 // admission lock. Start leaves it waiting until its own driver reaches this point.
 func (l *loop) admitQueued() error {
-	held, err := lock.Wait(l.ctx, filepath.Join(run.Runs(), ".slots.lock"))
+	held, err := HoldSlots(l.ctx)
 	if err != nil {
 		return err
 	}
