@@ -28,8 +28,8 @@ import test_key_runs_at_rest_cost_an_open_screen_little as at_rest
 LIVE = SEATS[:3]
 GONE = [f"acme-past-{n:02}" for n in range(60)]
 EVERY = 3         # seconds between two writes of a live seat's file, each a read of the screen's
-LOOKS = 55        # what that minute may cost, in plain looks: deciding every seat on every read
-                  # costs about 62, deciding the changed ones about 48
+LOOKS = 425       # what that minute may cost, in plain looks: deciding every seat on every read
+                  # costs about 475, deciding the changed ones about 365
 
 
 class GoneSeatsCostAnOpenScreenLittle(OpenScreen):
@@ -79,14 +79,15 @@ class GoneSeatsCostAnOpenScreenLittle(OpenScreen):
     def plain_look(self):
         """Clock ticks of this process's CPU reading every seat's files once, as deciding it
         does."""
-        start = sum(os.times()[:2])
-        state = self.home.path / ".agentkit/state"
+        start, state = time.process_time(), self.home.path / ".agentkit/state"
         for name in [*LIVE, *GONE]:
-            json.loads((state / f"session-{name}.json").read_text())
-            for kind in ("plan", "seat", "notify", "hook"):
-                for path in state.glob(f"{kind}-{name}.*"):
-                    path.read_text()
-        return (sum(os.times()[:2]) - start) * os.sysconf("SC_CLK_TCK")
+            for kind in ("session-{}.json", "seat-{}.json", "notify-{}.json", "hook-{}.json",
+                         "plan-{}.md"):
+                try:
+                    json.loads((state / kind.format(name)).read_text())
+                except (FileNotFoundError, ValueError):
+                    pass               # no such file, or a plan
+        return (time.process_time() - start) * os.sysconf("SC_CLK_TCK")
 
     def test_a_minute_of_reads_costs_less_than_a_few_dozen_plain_looks(self):
         spent = min(self.busy_minute() for _ in range(2))
