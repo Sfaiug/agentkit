@@ -209,6 +209,36 @@ class RunNotice(Sandbox):
         self.assertEqual(episodes["after_merge"], {})
         self.assertIn(evidence, (directory / "result.md").read_text())
 
+    def test_retiring_a_check_notice_finishes_its_receipt_before_forgetting_it(self):
+        directory, _ = self.result(merged=True, pr=PR, finished_at=80000, merge_sha="a" * 40)
+        key = watch.after_merge_repo(PR)[3]
+        line = "nightly failed on main after this merge."
+        marked = handback.not_live_line(line, directory)
+        pending = {"sha": "a" * 40, "line": line, "run": directory.name,
+                   "check": "nightly", "source": "checks", "finished": 80000,
+                   "session": "gone-seat", "typed": {"line": marked, "seat": 100}}
+        episodes = {"after_merge": {key: {"pending": pending}}}
+        self.composer = marked
+
+        def lost_enter(*args, **kw):
+            return (1, "not sent") if args[-1] == "Enter" else self.tmux(*args, **kw)
+
+        with patch.object(orch, "sessions", return_value=[self.seat]), \
+                patch.object(watch, "broke_after_merge") as blame:
+            with patch.object(orch, "tmux_out", side_effect=lost_enter):
+                watch.after_merge_checks(episodes, False, self.logs.append, now=100000)
+            self.assertEqual(episodes["after_merge"][key]["pending"], pending)
+            self.assertEqual(self.composer, marked)
+            watch.after_merge_checks(episodes, False, self.logs.append, now=100001)
+            self.assertIn("pending", episodes["after_merge"][key])
+            watch.after_merge_checks(episodes, False, self.logs.append, now=100002)
+            self.assertNotIn(key, episodes["after_merge"])
+            self.assertTrue(watch.type_at_prompt(self.seat, "The next run finished.",
+                                                self.logs.append, cfg=self.cfg))
+        self.assertEqual(self.sent, [marked, "The next run finished."])
+        self.assertEqual(self.composer, "")
+        blame.assert_not_called()
+
     def test_a_report_finishing_after_failure_delivery_keeps_the_whole_notice(self):
         directory, state = self.result(merged=True, pr=PR, repo=str(self.root), finished_at=9999,
                                        merge_sha="a" * 40, target="origin/main")

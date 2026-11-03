@@ -7846,6 +7846,13 @@ def after_merge_checks(state, dry_run, log, now=None):
             if (pending.get("source") != "health" or not isinstance(line, str) or not line
                     or not isinstance(sha, str) or not sha or finished is None
                     or not isinstance(run_name, str) or not run_name):
+                mark = pending.get("typed")
+                if not dry_run and isinstance(mark, dict) and mark.get("line"):
+                    # Finish text already typed before discarding the receipt that owns it.
+                    seat = next((s for s in orch.sessions() if after_merge_live(s)
+                                 and s.get("created") == mark.get("seat")), None)
+                    if seat and not type_at_prompt(seat, mark["line"], log, typed=mark):
+                        continue
                 episode.pop("pending", None)
                 if not episode and episodes.get(key) is episode:
                     episodes.pop(key, None)
