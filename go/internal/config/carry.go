@@ -74,6 +74,8 @@ func tomlValue(value any) (string, error) {
 		return valueRepr(value), nil
 	case string:
 		return jsonString(value), nil
+	case moment:
+		return string(value), nil
 	case []any:
 		items = value
 	case tableArray:
@@ -91,8 +93,7 @@ func tomlValue(value any) (string, error) {
 		}
 		return "{" + strings.Join(parts, ", ") + "}", nil
 	default:
-		// a date or a time, whose kind and offset Go's reading does not keep as Python's does
-		return "", fmt.Errorf("cannot write %v: the Go build writes no TOML date or time", value)
+		return "", fmt.Errorf("cannot write %v to config.toml: not a TOML value", value)
 	}
 	parts := make([]string, len(items))
 	for i, item := range items {
