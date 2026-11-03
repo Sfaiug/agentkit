@@ -5,9 +5,9 @@ package tick
 import (
 	"bytes"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -53,17 +53,25 @@ func TestACheckoutIsTended(t *testing.T) {
 	}
 }
 
-// A checkout naming its switches or a night read is Python's, and nothing is written.
-func TestADeclaredReadIsPythons(t *testing.T) {
-	for _, key := range []string{"features", "nightly"} {
+// A checkout naming its switches or a night read ends the tick at that row, before its stamp, what
+// the rows before did standing.
+func TestADeclaredReadEndsTheTickThere(t *testing.T) {
+	for key, row := range map[string]struct {
+		stamp string
+		swept bool // the git housekeeping row, between the two, ran
+	}{"features": {"retire.json", false}, "nightly": {"nightly.json", true}} {
 		t.Run(key, func(t *testing.T) {
-			ak, _ := checkoutHome(t, "---\n"+key+": tools/"+key+"\n---\n# acme\n")
-			before := files(t, filepath.Dir(ak))
-			if Carry(io.Discard, io.Discard) {
-				t.Fatal("carried it")
+			ak, api := checkoutHome(t, "---\n"+key+": tools/"+key+"\n---\n# acme\n")
+			said := ""
+			if row.swept {
+				said = "git gc: " + api + "\n"
 			}
-			if after := files(t, filepath.Dir(ak)); !reflect.DeepEqual(before, after) {
-				t.Error("wrote what it left to Python")
+			endedThere(t, ak, said)
+			if _, err := os.Stat(filepath.Join(ak, "state", row.stamp)); err == nil {
+				t.Errorf("%s was stamped", row.stamp)
+			}
+			if swept := strings.Contains(read(t, filepath.Join(api, ".git", "config")), "auto = 0"); swept != row.swept {
+				t.Errorf("git housekeeping ran: %v", swept)
 			}
 		})
 	}

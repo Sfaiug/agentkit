@@ -118,9 +118,12 @@ func reading(now time.Time, looking bool) (Home, bool) {
 	var planned []string
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
-		// home is given and the usage the screen's grid shows say nothing a word hangs on: a seat's
-		// own wait on its usage is in its seat file
+		// home is given, the usage the screen's grid shows, the tick's lock, its log's and the
+		// hourly stamps of its reads, and what the collection keeps say nothing a word hangs on: a
+		// seat's own wait on its usage is in its seat file
 		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json"}, entry.Name()) ||
+			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || entry.Name() == "usage.json" ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
@@ -455,12 +458,17 @@ func (seat Seat) announce(state string, now time.Time, models map[string]config.
 }
 
 // announced is watch.announce_state for a seat nobody is in, under its announce lock: what its
-// last answer moved, then its word, begun where the seat file says it began by then, or now
+// last answer moved (watch.follow_model), then its word, begun where the seat file says it began by then, or now
 // where it said another, and for one tmux still holds its bar.
 func (seat Seat) announced(state string, now time.Time, models map[string]config.Model) error {
 	if err := seat.moved(state, models); err != nil {
 		return err
 	}
+	return seat.published(state, now, models)
+}
+
+// published is announced's word and bar, what its last answer moved left as it is.
+func (seat Seat) published(state string, now time.Time, models map[string]config.Model) error {
 	path := filepath.Join(state, "seat-"+seat.Name+".json")
 	previous, _ := run.ReadJSON(path)
 	if previous == nil {
