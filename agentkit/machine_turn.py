@@ -15,6 +15,7 @@ from contextlib import contextmanager
 import fnmatch
 import glob
 import io
+import json
 import math
 import os
 from pathlib import Path
@@ -81,14 +82,11 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     if session and not held:
         return None
     cwd, out_dir = Path(cwd).absolute(), Path(out_dir).absolute()
-    facts = config.manifest(harness).get("worker", {})
-    logins = [*config.manifest_paths(facts.get("logins", ()), env, cwd)]
+    logins = [*config.manifest_paths(config.manifest(harness).get("worker", {}).get("logins", ()),
+                                     env, cwd)]
     seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
-        # `lent_for` counts on `_following`, and only a login's file tells it of a renewal: a
-        # login in none (macOS's Keychain) must last the hour.
-        lent = _lend(entry, cmd[0], env, home,
-                     facts.get("lent_for", LENT_FOR) if any(seen) else LENT_FOR)
+        lent = _lend(entry, cmd[0], env, home, logins=logins)
         if not lent:
             return None
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
@@ -216,19 +214,44 @@ def _following(entry, adapter, env, logins, seen, sent):
         os.close(renewals)
 
 
-def _lend(entry, adapter, env, home, lasting):
+def _lend(entry, adapter, env, home, lasting=LENT_FOR, logins=()):
     """{path under `home`: its bytes} of the login the adapter lent there for the account `env`
-    names, none where it lends none lasting `lasting` seconds. The account is `lend`'s alone: the
-    machine's adapter runs with none, reading the copy where the usual login lives."""
+    names, none where it lends none lasting `lasting` seconds, or its harness's `lent_for` when
+    the copy is of one of the files `logins`: only a renewal changing such a file reaches a turn
+    out there (`_following`), and a login held elsewhere (macOS's Keychain) may sit beside a stale
+    one. The account is `lend`'s alone: the machine's adapter runs with none, reading the copy
+    where the usual login lives."""
     try:
         done = config.run_adapter([adapter, "lend", home], 60,
                                   env={**env, **config.provider_env([entry["provider"]])})
-        if done.returncode or float(done.stdout or "inf") < time.time() + lasting:
+        if done.returncode:
             return {}
-        return {str(path.relative_to(home)): path.read_bytes()
+        lent = {str(path.relative_to(home)): path.read_bytes()
                 for path in Path(home).rglob("*") if path.is_file()}
+        lent_for = config.manifest(entry["harness"]).get("worker", {}).get("lent_for")
+        if lent_for is not None and all(
+                any(_within(json.loads(data), _login(path)) for path in logins)
+                for data in lent.values()):
+            lasting = lent_for
+        return {} if float(done.stdout or "inf") < time.time() + lasting else lent
     except (OSError, subprocess.SubprocessError, ValueError):
         return {}
+
+
+def _login(path):
+    """What the login file `path` holds, None where it holds nothing a copy could come from."""
+    try:
+        return json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return None
+
+
+def _within(copy, login):
+    """Is `copy` part of `login`, as a copy with what can renew it taken out is?"""
+    if isinstance(copy, dict):
+        return isinstance(login, dict) and all(
+            key in login and _within(value, login[key]) for key, value in copy.items())
+    return copy == login
 
 
 def _parcel(tar, program, cwd, out_dir, env, home, lent, held):

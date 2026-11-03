@@ -16,12 +16,16 @@ import os
 from pathlib import Path
 import stat
 import subprocess
+import sys
 import tempfile
 import time
 import tomllib
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from agentkit import machine_turn
+
 ENDS = 4102444800     # 2100-01-01: when the fixture key stops authenticating
 LAPSED = 946684800    # 2000-01-01: when a lapsed one did
 INSTANT = int(datetime(2099, 10, 28, 17, 36, 12, tzinfo=timezone.utc).timestamp())
@@ -169,6 +173,22 @@ class Lend(unittest.TestCase):
         file.unlink()
         (self.root / "bin/security").write_text(f"#!/bin/sh\necho '{json.dumps(login)}'\n")
         self.assert_lent("claude", *self.lend("claude"), login, ends)
+
+    def test_only_a_copy_of_a_watched_file_goes_to_a_machine_on_the_harness_s_shorter_cutoff(self):
+        file, login = self.fixture("claude", ends=int(time.time()) + 1800)
+        env = {"HOME": str(self.home), "PATH": self.path}
+
+        def lent():
+            return machine_turn._lend({"harness": "claude", "provider": "anthropic"},
+                                      str(REPO / "adapters/claude.sh"), env,
+                                      str(self.root / f"lent-{next(self.homes)}"), logins=[file])
+        self.assertTrue(lent())
+        # the same login in the Keychain, whose renewal changes no file, beside a stale file
+        (self.root / "bin/security").write_text(f"#!/bin/sh\necho '{json.dumps(login)}'\n")
+        file.write_text(json.dumps({"claudeAiOauth": {"accessToken": "fixture-old"}}))
+        self.assertEqual(lent(), {})
+        file.unlink()
+        self.assertEqual(lent(), {})
 
     def test_this_home_and_a_taken_place_are_refused(self):
         for harness, spec in LOGINS.items():

@@ -55,8 +55,8 @@ exec "$0.real" "$@"
 
 class ATurnLendsItsLogin(unittest.TestCase):
     def run_task(self, lend=None, lasts=None, in_file=False):
-        """The finished run's directory, and the machine with its logs; `in_file`, Claude's login
-        has a file here, which a renewal would change."""
+        """The finished run's directory, and the machine with its logs; `in_file`, what Claude lends
+        is a copy of files here, which a renewal would change."""
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
@@ -73,9 +73,12 @@ class ATurnLendsItsLogin(unittest.TestCase):
             if lasts:
                 fake.lasts(lasts)
         if in_file:
-            (home.root / "login").touch()
+            logins = {home.root / f"{account}.login": fakeadapter.lent(account)
+                      for account in ("usual", "second")}
+            for path, login in logins.items():
+                path.write_text(json.dumps({**login, "refresh": "fixture-refresh"}))
             with fakes["claude"].manifest.open("a") as manifest:
-                manifest.write(f"logins = {json.dumps([str(home.root / 'login')])}\n")
+                manifest.write(f"logins = {json.dumps([*map(str, logins)])}\n")
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
             home.fake(harness, f"#!/bin/sh\necho {version}\n")
