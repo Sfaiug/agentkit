@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
-	"agentkit/internal/config/adapters"
 	"agentkit/internal/run"
 )
 
@@ -66,16 +65,8 @@ func textPart(text string) *run.Object {
 func Says(text, word string) bool { return says(text, word) }
 
 // Failure is the word a seat's error says in its `[stall]` words, and whether it is a spent or
-// limited window, as Python's plugin `failure` reads a turn that ran: the kinds of word are tried
-// strongest first.  "" where it says none of them.
+// limited window, as a turn that ran reads it.  "" where it says none of them.
 func Failure(name, said string) (string, bool) {
-	for rank, kind := range adapters.Failures {
-		words, _ := config.Words(name, "stall", kind.Key)
-		for _, word := range append(words, kind.Words...) {
-			if says(said, word) {
-				return word, rank == 0
-			}
-		}
-	}
-	return "", false
+	ending, word := Ending(name, said, true)
+	return word, ending == Spent
 }

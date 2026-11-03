@@ -1,6 +1,6 @@
 // Package loop drives one run of a task from its slot to its result, as Python's drive, loop,
-// rounds, execute, verify_work, review, write_result and finish do on the roads a run with a working
-// model takes: a PASS, a round budget spent, and the same failure twice.
+// rounds, execute, verify_work, review, write_result and finish do: a PASS, a round budget spent, the
+// same failure twice, and a worker that goes silent, fails on its provider or is blocked.
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
 // terminal what that driver does until it is gone, Drive is that driver, End is its ending in
 // error, Clean takes a run's checkout, StopRun ends a run, and Pickup and Reopen hand a dead one
@@ -36,7 +36,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
@@ -512,8 +511,11 @@ func (l *loop) pick() error {
 	rules.Order(room, false, logged)
 	rules.Order(room, true, logged)
 	executor, reviewer, found := rules.Pair(room)
+	if len(rules.Order(room, false, nil)) == 0 {
+		return &exhausted{"every worker has a gate meter at 100% used", true}
+	}
 	if !found {
-		return notYet("no executor and reviewer can run now", "an exhausted run")
+		return &exhausted{"no eligible reviewer: no worker with budget is left to review; waiting for review", true}
 	}
 	l.executor, l.reviewer = executor, reviewer
 	var rounds int
@@ -541,13 +543,20 @@ func (l *loop) finish(err error) int {
 		err = write(l.dir, func(record *run.Object) {
 			run.SetAll(record, "state", "blocked", "verdict", "BLOCKED", "error", cannot.why,
 				"blocked", cannot.section, "finished_at", clock())
+			record.Delete("quota_dry")
+			record.Delete("transient_wait")
 		})
 	case err != nil:
-		var stopped *gitcall.Stopped
-		if errors.As(err, &stopped) {
-			err = notYet(stopped.Why, "a git that stopped")
+		said, park, stands := parked(err)
+		if !stands {
+			return End(l.dir, err.Error())
 		}
-		return End(l.dir, err.Error())
+		l.say(said)
+		if write(l.dir, park) == nil {
+			settle(l.dir)
+		}
+		record, _ := run.Read(l.dir)
+		return exitStatus(record)
 	default:
 		err = write(l.dir, func(record *run.Object) {
 			state := "fail"
@@ -555,6 +564,7 @@ func (l *loop) finish(err error) int {
 				state = "pass"
 			}
 			run.SetAll(record, "state", state, "finished_at", clock())
+			record.Delete("transient_wait") // a wait that ended, which nothing reads now
 		})
 	}
 	if errors.Is(err, errStop) {
@@ -584,9 +594,25 @@ func End(dir, why string) int {
 // conclude is what follows an ending on the record: its result, what it left running, ended once,
 // and the log's last word.
 func conclude(dir string) int {
-	record, _ := run.Read(dir)
+	record := settle(dir)
 	if record == nil {
 		return 2
+	}
+	said := stampedLog{dir}
+	if record.Str("state") == "error" {
+		fmt.Fprintln(said, "FAIL -> "+filepath.Join(dir, "result.md")+" (error)")
+		return 2
+	}
+	fmt.Fprintln(said, run.Delivery(record, run.Models())+" -> "+filepath.Join(dir, "result.md"))
+	return exitStatus(record)
+}
+
+// settle is what every ending leaves on the record: its result, and what it left running, ended
+// once.  It is the record as it was read.
+func settle(dir string) *run.Object {
+	record, _ := run.Read(dir)
+	if record == nil {
+		return nil
 	}
 	said := stampedLog{dir}
 	recordResult(dir, record)
@@ -595,12 +621,7 @@ func conclude(dir string) int {
 	write(dir, func(record *run.Object) {
 		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
 	})
-	if record.Str("state") == "error" {
-		fmt.Fprintln(said, "FAIL -> "+filepath.Join(dir, "result.md")+" (error)")
-		return 2
-	}
-	fmt.Fprintln(said, run.Delivery(record, run.Models())+" -> "+filepath.Join(dir, "result.md"))
-	return exitStatus(record)
+	return record
 }
 
 // recordResult is result.md for an ending, Python's record_result: with nothing to report on but

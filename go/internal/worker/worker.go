@@ -123,6 +123,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	interrupted := interrupt.Err() != nil
 	restore()
 	said.Close()
+	harness.RecordTurn(model.Harness, out, filepath.Join(config.Home(), "state"), env["AGENTKIT_ACCOUNT"])
 	if data, err := os.ReadFile(own); err == nil && os.Remove(own) == nil && len(data) > 0 {
 		if log, err := os.OpenFile(filepath.Join(out, "stderr.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o666); err == nil {
 			log.Write(data)

@@ -45,6 +45,12 @@ type plugin struct {
 	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool
+	// usageTaken and usageRecorded are UsageTaken's and UsageRecorded's: nil where a usage read
+	// says when it measured and the harness writes no refusal's meters down.
+	usageTaken    func(data *run.Object, state string) any
+	usageRecorded func(state string, now float64) []*run.Object
+	// recordTurn is RecordTurn's: nil where a turn reports no refusal of its own.
+	recordTurn func(out, state, account string)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
 	registerMCP func(servers []Server) (string, error)
 }

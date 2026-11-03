@@ -17,8 +17,7 @@ import (
 )
 
 // ErrPython is a home whose usage Python ak reads: where its adapter scripts live, a provider
-// listing accounts, a harness whose probe runs a model or says no time, and the tokens a window
-// holds measured in state/capacity.json are not yet Go's.
+// listing accounts, and the tokens a window holds measured in state/capacity.json are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // Readings is every provider's reading, as of the moment it was read.
@@ -74,7 +73,7 @@ func listed() ([]source, error) {
 			return nil, err
 		}
 		_, err = config.Adapter(sub.Harness)
-		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 || facts.Capture || facts.StripsTimestamp {
+		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 {
 			return nil, ErrPython
 		}
 		sources = append(sources, source{sub, facts})
