@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS checks (
 )
 """
 
+CONFLICTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS conflicts (
+    run_id TEXT,
+    at REAL,
+    how TEXT,
+    target TEXT,
+    tip TEXT,
+    path TEXT,
+    added_only INTEGER,
+    outcome TEXT
+)
+"""
+
 REVIEWS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS reviews (
     run_id TEXT,
@@ -223,6 +236,7 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(CHECKS_SCHEMA)
+    connection.execute(CONFLICTS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(FINDINGS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
@@ -496,6 +510,36 @@ def _started(connection, values):
         "FROM runs WHERE run_id=?1", values)
     # an insert of no row leaves the connection's last rowid, another table's
     return cursor.lastrowid if cursor.rowcount else None
+
+
+@contextlib.contextmanager
+def conflicts(run_id, how, target, tip, files, *, log=None):
+    """One row per file handed to a conflict fixer; its outcome ends with the fixer rounds.
+
+    NULL means those rounds have not ended. A run with no history row keeps none here.
+    """
+    at, ended = time.time(), []
+
+    def insert(connection):
+        rows = []
+        for path, added_only in files:
+            cursor = connection.execute(
+                "INSERT INTO conflicts (run_id, at, how, target, tip, path, added_only) "
+                "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+                (at, how, target, tip, path, added_only, run_id))
+            if cursor.rowcount:
+                rows.append(cursor.lastrowid)
+        return rows
+
+    rows = _write(insert, log)
+    try:
+        yield ended
+    finally:
+        if rows:
+            outcome = "resolved" if ended and ended[0] else "aborted"
+            _write(lambda connection: connection.executemany(
+                "UPDATE conflicts SET outcome=? WHERE rowid=?",
+                [(outcome, row) for row in rows]), log)
 
 
 phase = waiter.phase

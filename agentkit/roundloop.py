@@ -1946,6 +1946,36 @@ def fix_after_failed_review(lp, upstream, how):
     return False
 
 
+def conflict_added_only(wt, path):
+    """Every diff3 conflict must have an empty base; never read or rewrite the worktree."""
+    try:
+        with tempfile.TemporaryDirectory(prefix="ak-conflict-") as work:
+            stages = [Path(work) / str(n) for n in (1, 2, 3)]
+            call = dict(cwd=wt, env=gitcall.tool_env(), timeout=gitcall.TOOL_CAP,
+                        stderr=subprocess.DEVNULL)
+            for n, stage in enumerate(stages, 1):
+                with stage.open("wb") as output:
+                    if subprocess.run(["git", "show", f":{n}:{path}"], stdout=output,
+                                      **call).returncode:
+                        return 0
+            # A source line resembling a marker must never stand in for git's separator.
+            source = b"".join(stage.read_bytes() for stage in stages)
+            size = 7
+            while any(char * size in source for char in (b"<", b"|", b"=", b">")):
+                size += 1
+            merged = Path(work) / "merged"
+            with merged.open("wb") as output:
+                code = subprocess.run(["git", "merge-file", "-p", "--diff3",
+                                       f"--marker-size={size}", "-L", "ours", "-L", "base",
+                                       "-L", "theirs", str(stages[1]), str(stages[0]),
+                                       str(stages[2])], stdout=output, **call).returncode
+            bases = re.findall(re.escape(b"|" * size + b" base\n") + rb"(.*?)"
+                               + re.escape(b"=" * size + b"\n"), merged.read_bytes(), re.S)
+            return int(0 < code < 128 and bool(bases) and not any(bases))
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+
+
 def resolve_conflicts(lp, upstream, out, how, tip=None):
     """Hand a conflicted rebase or merge back to the executor, then re-test and re-review it.
 
@@ -1978,26 +2008,29 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             + "\n".join(f"- {p}" for p in conflicts)
             + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
-    hand_to_writer(lp)
-    for attempt in range(1, CONFLICT_ROUNDS + 1):
-        lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
-               f"fixer {lp.executor} ({how} conflict)")
-        try:
-            summary = landing_fixer(lp, text, f"{how}-fixer")
-        except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
-            pending = lp.state.get("review_pending")
-            if isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired)) and pending:
-                # A stopped conflict fixer retries landing even at the task round budget.
-                pending.update(round=lp.rnd, record=False)
-            # whatever stops here, the retry starts from a clean tree: a rebase or merge
-            # left in progress behind it would be a conflict round nobody asked for
-            abort_integration(lp, how)
-            raise
-        if not gitcall.in_progress(lp.wt, how):
-            landed = integrated(lp.wt, tip)
-            break
-        if attempt < CONFLICT_ROUNDS:
-            lp.log(f"WARN the fixer did not finish {what}; another conflict round works it")
+    files = [(path, conflict_added_only(lp.wt, path)) for path in conflicts]
+    with history.conflicts(lp.state["run_id"], how, upstream, tip, files, log=lp.log) as ended:
+        hand_to_writer(lp)
+        for attempt in range(1, CONFLICT_ROUNDS + 1):
+            lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
+                   f"fixer {lp.executor} ({how} conflict)")
+            try:
+                summary = landing_fixer(lp, text, f"{how}-fixer")
+            except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
+                pending = lp.state.get("review_pending")
+                if isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired)) and pending:
+                    # A stopped conflict fixer retries landing even at the task round budget.
+                    pending.update(round=lp.rnd, record=False)
+                # whatever stops here, the retry starts from a clean tree: a rebase or merge
+                # left in progress behind it would be a conflict round nobody asked for
+                abort_integration(lp, how)
+                raise
+            if not gitcall.in_progress(lp.wt, how):
+                landed = integrated(lp.wt, tip)
+                break
+            if attempt < CONFLICT_ROUNDS:
+                lp.log(f"WARN the fixer did not finish {what}; another conflict round works it")
+        ended.append(landed)
     if not landed:
         # only an unfinished rebase or merge is aborted, and only then is it said to be:
         # a fixer that finished the `git` but left the tip out is reported the same way
