@@ -32,6 +32,7 @@ MEASURES = (
     ("parks", "parks", ("parked",)),
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "unknown")),
+    ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
@@ -216,6 +217,23 @@ def compute(now=None):
                 "landing": sum(1 for row in known if row["landing_breaks"]),
                 "unknown": len(merged) - len(known)}
 
+    def pairs(ended):
+        """The week's merged changes by their recorded pair; unknown pairs count in none,
+        and unknown landing results count in no landing share."""
+        merged = {row.get("change") or row["run_id"]: row
+                  for row in sorted(ended, key=lambda row: row["finished_at"]) if history.merged(row)}
+        merged = [row for row in merged.values() if row.get("review_pair") is not None]
+        if not merged:
+            return None
+        stats = {}
+        for key, pair in (("self", "self"), ("same_provider", "same provider"), ("other", "other provider")):
+            group = [row for row in merged if row["review_pair"] == pair]
+            if key != "other":
+                stats[key] = len(group) / len(merged)
+            landings = [row["landing_breaks"] for row in group if row.get("landing_breaks") is not None]
+            stats[key + "_landing"] = sum(bool(n) for n in landings) / len(landings) if landings else None
+        return stats
+
     def who_built(ended):
         """The week's merged runs by who built the change: a seat, whose change comes as a
         pull request's review (`change` names the PR, its own or another's), or a worker, a
@@ -263,6 +281,7 @@ def compute(now=None):
     seats, not_counted = seat_tokens.read(now - 2 * week, now)
     board, waits, merged_changes, broken = {"products": [], "ak": [], "tokens": []}, [], [], []
     built, parks, sunk, owner, intent, check_costs = [], [], [], [], [], []
+    review_pairs = []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -289,6 +308,7 @@ def compute(now=None):
         merged_changes.append(per_change(grouped))
         check_costs.append(checked(grouped))
         broken.append(breaks(ended))
+        review_pairs.append(pairs(ended))
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         # the week's tokens that bought no merge: every ended run that delivered nothing
@@ -357,6 +377,7 @@ def compute(now=None):
     board["parks"] = parks
     board["sunk"] = sunk
     board["broke"] = broken
+    board["pairs"] = review_pairs
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
 
@@ -418,6 +439,18 @@ def render(board=None):
         if stats["unknown"]:
             text += f"; {stats['unknown']} merged before breaks were recorded"
         return text
+
+    def pairs(stats):
+        if stats is None:
+            return "not recorded"
+
+        def landing(key):
+            value = stats[key + "_landing"]
+            return "landing not recorded" if value is None else f"{value:.0%} went red at landing"
+
+        return (f"{stats['self']:.0%} self-reviewed ({landing('self')}); "
+                f"{stats['same_provider']:.0%} reviewed by another model of the same provider "
+                f"({landing('same_provider')}); another provider: {landing('other')}")
 
     def size(stats):
         if stats is None:
@@ -481,15 +514,16 @@ def render(board=None):
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True), "tokens": tokens,
              "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
-             "checks": checks, "sunk": sunk, "broke": broke, "size": size}
+             "checks": checks, "sunk": sunk, "broke": broke, "pairs": pairs, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
-    room = max(1, (terminal.content_width() - 12) // 2)
+    label_width = max(len(label) for _, label, _ in MEASURES)
+    room = max(1, (terminal.content_width() - label_width - 4) // 2)
     lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
     for label, current, previous in rows:
         left, right = terminal.wrap(current, room), terminal.wrap(previous, room)
         for i in range(max(len(left), len(right))):
             lines.append(terminal.table_row(
                 [label if i == 0 else "", left[i] if i < len(left) else "",
-                 right[i] if i < len(right) else ""], [8, room, room]))
+                 right[i] if i < len(right) else ""], [label_width, room, room]))
     return lines

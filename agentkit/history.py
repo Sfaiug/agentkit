@@ -80,7 +80,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
+              ("review_pair", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -835,7 +836,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, saved=None, log=None):
+               own_orchestrator_effort=None, review_pair=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -864,6 +865,11 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                     "SELECT 1 FROM runs WHERE run_id=? AND final_state='running'",
                     (run_id,)).fetchone():
                 return
+        # A maintainer merge republishes the same ending: its pair, even NULL, belongs to
+        # the config at that ending. A resume clears finished_at so its next ending records anew.
+        connection.execute(
+            "UPDATE runs SET review_pair=? WHERE run_id=? AND finished_at IS NOT ?",
+            (review_pair, run_id, finished_at))
         _update(connection, run_id, values)
         if peak is not None:
             connection.execute(

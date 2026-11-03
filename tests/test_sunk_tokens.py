@@ -66,7 +66,7 @@ class Sunk(unittest.TestCase):
         self.ended("silent", tokens=(None, None))
         board = scoreboard.compute(NOW)
         self.assertEqual(board["sunk"], [None, None])
-        self.assertIn("sunk      no tokens recorded", "\n".join(scoreboard.render()))
+        self.assertIn("sunk          no tokens recorded", "\n".join(scoreboard.render()))
 
 
 if __name__ == "__main__":
