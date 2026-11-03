@@ -1629,9 +1629,9 @@ class _SuiteMeasure:
             pass
 
 
-def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed", cap=None):
-    """Keep the whole failure, even when its distinguishing lines precede the output cap; those
-    lines stop at `cap` bytes. No line ends blank: a record is what lies between two blank lines."""
+def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
+    """Keep the whole failure, even when its distinguishing lines precede the output cap: the
+    record's head, and those lines at most OUT_CAP bytes, for `flaky_text`."""
     with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
                                      prefix=f"{log_path.stem}-failed-",
                                      suffix=".log", delete=False) as saved:
@@ -1640,11 +1640,18 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed", c
              if line.strip()]
     reran = {flaky_key(line) for line in rerun.decode("utf-8", errors="replace").splitlines()}
     diff = "\n".join([line for line in lines if flaky_key(line) not in reran][:20])
-    diff = diff.encode()[:cap].decode(errors="ignore").rstrip()
     note = f"flaky: {command} {how}, then passed on its re-run"
     if log is not None:
         log(f"done-when: {note}")
-    return "\n".join(filter(None, [note, f"failed output: {Path(saved.name).resolve()}", diff]))
+    return (f"{note}\nfailed output: {Path(saved.name).resolve()}",
+            diff.encode()[:turns.OUT_CAP])
+
+
+def flaky_text(record, cap=None):
+    """A `flaky_record` as handed on, its distinguishing lines cut at `cap` bytes. No line ends
+    blank: a record is what lies between two blank lines."""
+    head, diff = record
+    return "\n".join(filter(None, [head, diff[:cap].decode(errors="ignore").rstrip()]))
 
 
 def shares(reds, others):
@@ -2111,7 +2118,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             break
                         # passing alone, they failed, then passed, whatever the piece does next
                         piece.seek(0)
-                        flakes.append((shard, failed, piece.read(), how))
+                        flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
+                                                   piece.read(), activity, run_dir, log, how))
                         if flaky is not None:
                             flaky.extend(only)
                         only = None
@@ -2126,15 +2134,14 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     code, piece, killed, tests = rerun(shard, only)
                 if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
-                    flakes.append((shard, failed, piece.read(), how))
+                    flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
+                                               piece.read(), activity, run_dir, log, how))
                 results[index - 1] = code, piece, killed, tests
                 alones[shard] = alone
             # The shares rest on how many ended red, known only now, reruns included.
             reds = sum(1 for code, _, _, _ in results if code)
             red_share, share = shares(reds, count - reds + len(flakes))
-            flakes = [flaky_record(f"{command} (AK_SHARD={shard})", failed, again, activity,
-                                   run_dir, log, how, share)
-                      for shard, failed, again, how in flakes]
+            flakes = [flaky_text(record, share) for record in flakes]
             for index, (code, piece, killed, _) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 text = turns.cut_file(piece, 0, run_dir or activity.parent,
@@ -2350,7 +2357,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     failed = progress.read(first_span[1] - first_span[0])
                     progress.seek(offset)
                     rerun = progress.read(end - offset)
-                chunks.append(flaky_record(cmd, failed, rerun, log_path, run_dir, log, how))
+                chunks.append(flaky_text(flaky_record(cmd, failed, rerun, log_path, run_dir, log,
+                                                      how)))
                 if flaky is not None:
                     flaky.extend(first)
             if killed:
