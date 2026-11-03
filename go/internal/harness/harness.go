@@ -75,9 +75,10 @@ func Receipt(name string) string {
 
 // Opens is whether a launch of that harness's seat writes down its title, as Python's plugin
 // `title_command` and the manifest's `[title] at_launch` say; false where Go does not open that
-// harness's seats yet.
+// harness's seats yet.  A harness named nowhere here is a manifest and an adapter, whose every
+// hook is the default.
 func Opens(name string) (titled, known bool) {
-	if !plugins[name].opens {
+	if own, named := plugins[name]; named && !own.opens {
 		return false, false
 	}
 	title, err := config.Section(name, "title")
