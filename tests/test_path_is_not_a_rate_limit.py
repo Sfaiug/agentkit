@@ -140,6 +140,11 @@ class PathIsNotARateLimit(unittest.TestCase):
             with self.subTest(said=said):
                 self.assertEqual(turns.cannot_run(1, "", said, harness="opencode"), said)
 
+    def test_a_prompt_too_long_for_the_harness_is_no_wait(self):
+        said = ('Error: turn/start: turn/start failed: Input exceeds the maximum length of 1048576 '
+                'characters. (code -32602), data: {"input_error_code":"input_too_large"}')
+        self.assertEqual(turns.cannot_run(1, "", said, harness="codex"), said)
+
     def test_a_status_joined_by_a_hyphen_is_still_the_status(self):
         for said, word in (("HTTP-503", "HTTP~5##"), ("status-503", "status~5##"),
                            ("API Error-503", "API Error~5##"), ("API Error-429", "429")):
