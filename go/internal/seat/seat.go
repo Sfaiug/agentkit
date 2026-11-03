@@ -395,7 +395,7 @@ func (home Home) Announce(now time.Time) error {
 	}
 	for at, seat := range home.Seats {
 		if seat.live { // its look decides its word, which every reader of this home reads
-			looked, err := lookedLive(state, seat.Name)
+			looked, err := LookedLive(state, seat.Name)
 			if err != nil {
 				return err
 			}

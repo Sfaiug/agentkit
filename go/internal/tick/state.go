@@ -5,9 +5,9 @@ import (
 	"errors"
 	"math"
 	"os"
-	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -126,19 +126,10 @@ func syncSeen(state, current *run.Object) {
 	}
 }
 
-// bootID is this boot's, none where the machine says none.
-func bootID() string {
-	data, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
-	if err != nil {
-		return ""
-	}
-	return strings.TrimFunc(string(data), config.Space)
-}
-
 // bootBaseline records this boot, written at once as Python's resume_after_boot does: with no
 // seat there is nobody to resume.
 func bootBaseline() error {
-	boot := bootID()
+	boot := host.BootID()
 	if boot == "" {
 		return nil
 	}
