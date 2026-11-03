@@ -56,7 +56,7 @@ func readFrame(now time.Time) (reading, bool) {
 
 // akScreen is bare `ak` on a server: it takes the terminal, draws the frame and gives the terminal
 // back.  A read refused once the frame is up keeps that frame.
-func akScreen(errOut io.Writer) int {
+func akScreen(args []string, errOut io.Writer) int {
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
 	if !drawable {
@@ -99,12 +99,16 @@ func akScreen(errOut io.Writer) int {
 	}()
 	painter := terminal.NewPainter(os.Stdout)
 	clock, highlight := &motion.Clock{}, menu.Highlight{}
+	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
+	if overlay {
+		highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
+	}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
 	for {
 		screen, shown := keyboard.Screen(), latest.Load()
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menu.Keys(screen, shown.past), Highlight: highlight, Motion: clock}, screen.Width(), screen.Height())
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown.past, overlay), Highlight: highlight, Motion: clock}, screen.Width(), screen.Height())
 		painter.Write(drawn.Lines, screen)
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
@@ -115,14 +119,20 @@ func akScreen(errOut io.Writer) int {
 		if key.Name != "wake" && key.Name != "again" {
 			clock.Finish()
 		}
+		choice := menuChoice(key, drawn, shown.seats, keyboard)
 		switch {
+		case choice != "":
+			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {
+				return code
+			}
+			highlight, clock = menu.Highlight{Cursor: choice}, &motion.Clock{}
 		case highlight.Move(key, drawn):
 		case key.Name == "esc" || key.Name == "eof":
 			keyboard.Give()
 			return 0
 		case key.Name == "again":
 			painter.Forget()
-		case opensSomething(key, shown.past):
+		case opensSomething(key, shown.past, overlay):
 			keyboard.Give()
 			return notImplemented(errOut, "attach")
 		}
@@ -130,18 +140,17 @@ func akScreen(errOut io.Writer) int {
 }
 
 // opensSomething is whether a key leads where Go has no road yet, every other being let go.
-func opensSomething(key terminal.Key, past bool) bool {
+func opensSomething(key terminal.Key, past, overlay bool) bool {
 	switch key.Name {
-	case "enter":
-		return true
 	case "char":
 		switch key.Char {
 		case "n", "N", "c", "C":
 			return true
 		case "p", "P":
 			return past
+		case "x", "X":
+			return overlay
 		}
-		return len(key.Char) == 1 && '0' <= key.Char[0] && key.Char[0] <= '9'
 	}
 	return false
 }
