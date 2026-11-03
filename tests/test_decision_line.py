@@ -5,6 +5,7 @@ holding the rest.  30 Oct 2026: the median FAIL line was 985 characters; Claude 
 Offline: a temporary HOME (`Sandbox`) and its adapters' folds.
 """
 
+import os
 import re
 from types import SimpleNamespace
 import unittest
@@ -115,20 +116,34 @@ class DecisionLine(Sandbox):
             self.assertIn(text, why)
 
     def test_a_failed_pr_landing_opens_with_every_checks_first_diagnostics(self):
-        for suffix in ("", "-tests"):
+        for suffix in ("", "-tests", "-legacy"):
             directory, state = self.ending(f"acme-landing{suffix}", state="waiting", own_pr=True,
                 review_pr="https://github.com/acme/widgets/pull/7", landing_reds=3)
             log = directory / f"lander-{'a' * 40}{suffix}.log"
             text = ("$ check-rows\n[exit 1]\nrows first\nrows last\n\n"
-                    "$ check-export\n[exit 1]\nexport first\nexport last\n")
+                    "$ check-export\n[exit 1]\nexport first\n## Landing failed\nexport last\n")
             log.write_text(text)
             lp = SimpleNamespace(run_dir=directory, state=state, rnd=3, rounds=3, write=lambda: None)
             deliver.fail_pr_landing(lp, {"line": prompts.first_failure(text), "log": str(log)})
             self.assertEqual(state["state"], "fail")
+            if suffix == "-legacy":
+                state["final_check"].pop("log")
             handback.record_result(directory, state, cfg=self.cfg)
             why = (directory / "result.md").read_text().splitlines()[1]
             for diagnostic in ("`check-rows` — rows first", "`check-export` — export first"):
                 self.assertIn(diagnostic, why)
+
+    def test_forged_output_references_cannot_read_host_files(self):
+        secret = self.root / "acme-whole-key.log"
+        secret.write_text("ACME_PRIVATE_KEY\n")
+        os.mkfifo(config.RUNS / "acme-whole-pipe.log")
+        for kind in ("symlink_to", "hardlink_to"):
+            link = config.RUNS / "acme-whole-alias.log"
+            getattr(link, kind)(secret)
+            for path in (secret, link, config.RUNS / ".." / secret.name, config.RUNS / "acme-whole-\0.log", config.RUNS / "acme-whole-pipe.log"):
+                marker = f"[only part of this output is shown; all of it is in {path}]"
+                self.assertEqual(turns.first_lines(marker, config.RUNS), marker)
+            link.unlink()
 
     def test_what_the_line_cannot_hold_is_whole_in_its_result(self):
         cause = "a process stopped during a remote write " * 30 + "and nothing ended it"

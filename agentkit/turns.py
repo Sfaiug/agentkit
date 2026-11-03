@@ -12,6 +12,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -444,8 +445,8 @@ def cut_file(output, start, where, name, cap=OUT_CAP):
     return line + tail[max(0, len(tail) - cap):].decode("utf-8", errors="ignore")
 
 
-def first_lines(text):
-    """A check's first three nonempty lines, from its saved whole when `kept` cut it."""
+def first_lines(text, where):
+    """First diagnostics; only regular kept files under the runner's protected `where` are trusted."""
     shown = []
     for line in text.splitlines():
         if not line.strip():
@@ -453,9 +454,16 @@ def first_lines(text):
         named = re.fullmatch(r"\[only part of this output is shown; all of it is in (.+)\]", line)
         if named:
             try:
-                with Path(named[1]).open(errors="replace") as source:
+                path = Path(named[1])
+                if path.parent != where.resolve() or not path.match("*-whole-*.log"):
+                    raise ValueError("not a saved output")
+                with open(path, errors="replace", opener=lambda name, flags: os.open(
+                        name, flags | os.O_NOFOLLOW | os.O_NONBLOCK)) as source:
+                    info = os.fstat(source.fileno())
+                    if not (stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid() and info.st_nlink == 1):
+                        raise ValueError("not a runner-owned regular output")
                     shown.extend(islice((part.strip() for part in source if part.strip()), 3 - len(shown)))
-            except OSError:
+            except (OSError, ValueError):
                 shown.append(line.strip())
         else:
             shown.append(line.strip())

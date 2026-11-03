@@ -1446,8 +1446,7 @@ def decision_reason(run_dir, state, why):
             parts[0] = hand_in.item_text(row)
         else:
             parts.append(hand_in.item_text(row))
-    check = failed_check(state)
-    if check:
+    if check := failed_check(state):
         parts.append(check)
     history = state.get("done_when_failure")
     history = history if isinstance(history, dict) else {}
@@ -1456,18 +1455,15 @@ def decision_reason(run_dir, state, why):
     every = max(run_dir.glob("round-*/donewhen.log"),
                 key=lambda path: int(path.parent.name.removeprefix("round-")),
                 default=run_dir / "donewhen.log")
-    for gate, path in (("every", every), ("once", run_dir / "final-check.log")):
+    for gate, path in (("every", every), ("once", Path(final.get("log") or run_dir / "final-check.log"))):
         if not history.get(gate) and not (gate == "once" and final.get("outcome") == "failed"):
             continue
-        try:
-            text = path.read_text(errors="replace")
-        except OSError:
-            text = ""
-        if gate == "once" and state.get("review_pr"):
-            text = prompts.saved_findings(run_dir, state).rpartition("\n## Landing failed\n")[2] or text
+        text = turns.read_answer(path) or (
+            re.sub(r"\n+(?=\$ [^\n]*\n\[)", "\n\n", prompts.saved_findings(run_dir, state))
+            if gate == "once" and state.get("review_pr") else "")
         for cmd, said in prompts.failing_checks(text) or history.get(gate) or []:
             output = text.partition(f"$ {cmd}\n")[2].split("\n\n$ ", 1)[0].partition("\n")[2]
-            first = turns.first_lines(output)
+            first = turns.first_lines(output, run_dir if gate == "every" else path.parent)
             parts.append(f"`{cmd}` — {first or said}" if first or said else f"`{cmd}`")
     return " ".join("; ".join(dict.fromkeys(parts)).split())
 
