@@ -1,14 +1,12 @@
 package gc
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/lock"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 )
@@ -26,7 +24,7 @@ func takeStale(wt string, orphan bool) func(*collection) (bool, error) {
 		}
 		r := &reads{now: epoch(), paths: processPaths()} // read before our own lock is open
 		if present(dir) {
-			release, err := holdRecovery(dir)
+			release, err := run.Hold(dir)
 			if err != nil {
 				return false, err
 			}
@@ -166,15 +164,6 @@ func unremovable(tree string) bool {
 		return nil
 	})
 	return found
-}
-
-// holdRecovery waits for a run's or job's recovery lock, where its record is written.
-func holdRecovery(dir string) (func(), error) {
-	held, err := lock.Wait(context.Background(), filepath.Join(dir, run.RecoveryLock))
-	if err != nil {
-		return nil, err
-	}
-	return func() { held.Close() }, nil
 }
 
 // recoverySafe is a recovery lock retention may open: no link, and ours where it stands.

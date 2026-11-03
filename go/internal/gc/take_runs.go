@@ -46,7 +46,7 @@ func takeWhole(dir string, old bool, interrupted any) func(*collection) (bool, e
 			return false, nil
 		}
 		r := &reads{now: epoch(), paths: processPaths()}
-		release, err := holdRecovery(dir)
+		release, err := run.Hold(dir)
 		if err != nil {
 			return false, err
 		}
@@ -117,7 +117,7 @@ func stillFinal(dir string, clean bool, then func(*run.Object) (bool, error)) (b
 	if !recoverySafe(dir) {
 		return false, nil
 	}
-	release, err := holdRecovery(dir)
+	release, err := run.Hold(dir)
 	if err != nil {
 		return false, err
 	}
@@ -207,7 +207,7 @@ func takeFinishedJob(dir string) func(*collection) (bool, error) {
 			return false, nil
 		}
 		paths := processPaths()
-		release, err := holdRecovery(dir)
+		release, err := run.Hold(dir)
 		if err != nil {
 			return false, err
 		}
@@ -232,7 +232,7 @@ func takeGoneJob(dir string) func(*collection) (bool, error) {
 		if !safe(dir) {
 			return false, nil
 		}
-		release, err := holdRecovery(dir)
+		release, err := run.Hold(dir)
 		if err != nil {
 			return false, err
 		}

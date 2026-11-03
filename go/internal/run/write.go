@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/lock"
@@ -54,6 +55,24 @@ func hold(dir, name string) (func(), error) {
 // RecoveryLock is the lock file a run's record is written under, which no commit of a checkout takes.
 const RecoveryLock = "recovery.lock"
 
+// holding is each directory whose recovery lock this process holds through Hold.
+var holding sync.Map
+
+// Hold waits for a run's or job's recovery lock and holds it until release, a Change of that
+// run inside taking it as its own, as Python's recovery_lock is reentrant: the collector holds it
+// across a checkout's removal, which records a checkout kept.
+func Hold(dir string) (func(), error) {
+	release, err := hold(dir, RecoveryLock)
+	if err != nil {
+		return nil, err
+	}
+	holding.Store(filepath.Clean(dir), true)
+	return func() {
+		holding.Delete(filepath.Clean(dir))
+		release()
+	}, nil
+}
+
 // Change is Python's `record`: change changes the record as it stands under recovery.lock,
 // and what it changed is written, the old time budgets gone with the write as Python's
 // record_limits drops them.  Nothing is written where change returns an error or changes
@@ -64,11 +83,13 @@ func Change(dir string, change func(*Object) error) error {
 
 // ChangeThen is Change with what then follows a write that landed, still under recovery.lock.
 func ChangeThen(dir string, change func(*Object) error, then func()) error {
-	release, err := hold(dir, RecoveryLock)
-	if err != nil {
-		return err
+	if _, held := holding.Load(filepath.Clean(dir)); !held {
+		release, err := hold(dir, RecoveryLock)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
-	defer release()
 	path := filepath.Join(dir, "run.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
