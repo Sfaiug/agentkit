@@ -2206,7 +2206,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None, checked=None):
+                  confirmed=None, changed=None, flaky=None, checked=None, exits=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2242,7 +2242,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     `marks`, a list, gets each command's exit as the runner saw it, in order -- None for one
     killed at the limit or never run, and none for those after a kill: what decides a proof,
-    never the text, which a command can print anything into.  `pieces`, a dict, gets the same
+    never the text, which a command can print anything into. `exits` also keeps command
+    retries (None for a kill), so a caller can distinguish a pinned piece's flake from a pass.
+    `pieces`, a dict, gets the same
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
@@ -2320,6 +2322,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
+                if exits is not None:
+                    exits.append(None if killed else code)
                 asked = time.time()
                 if code == 0 or first_span is not None or split(cmd):
                     break

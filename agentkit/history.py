@@ -423,6 +423,17 @@ def update_run(run_id, *, log=None, **fields):
     _write(lambda connection: _update(connection, run_id, fields), log)
 
 
+def blame_merge(sha, source, *, log=None):
+    """Mark the run that merged `sha` broken after merge, once; return its id, if known."""
+    def blame(connection):
+        row = connection.execute("SELECT run_id FROM runs WHERE merge_sha=?", (sha,)).fetchone()
+        if row:
+            connection.execute("UPDATE runs SET broke_after_merge=? WHERE run_id=? "
+                               "AND COALESCE(broke_after_merge,'')=''", (source, row[0]))
+            return row[0]
+    return _write(blame, log)
+
+
 def first_review(run_id, lines, *, log=None):
     """Record the lines a change's first review reads, once: a review resumed before its verdict,
     the work grown or the target moved meanwhile, keeps the size first read."""
