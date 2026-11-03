@@ -1,9 +1,9 @@
-"""A follow-up never blocks a round, and every round's are kept whatever its verdict.
+"""A follow-up predates the task; one the change caused is weighed as a finding.
 
 A reviewer hands one in with `--before` for a defect from before the task, or without it
-for a smaller defect of this change that need not hold it: then its `--run` must fail on
-the reviewed commit, where ak re-proves it.  The round's verdict never turns on one, and the
-run keeps every round's, for the plan lines a merge writes (tests/test_followup_runs.py).
+with a `--run` failing on the reviewed commit, where ak re-proves it. Passing on base
+makes it a finding; failing there too keeps it a follow-up. The run keeps every round's
+follow-ups, for the plan lines a merge writes (tests/test_followup_runs.py).
 Offline: a real repository; proofs run in a clone of the reviewed commit.
 """
 
@@ -64,7 +64,7 @@ class HandedIn(unittest.TestCase):
 
 class Weighed(unittest.TestCase):
     """How the loop weighs a follow-up: on the reviewed commit without `--before`, on base
-    with it; never as a reason to fail."""
+    with it; defects this change caused block."""
 
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-never-block-", dir=REPO)
@@ -118,15 +118,16 @@ class Weighed(unittest.TestCase):
         submitted = prompts.weigh_review(self.lp, hand_in.Review([*rows, {"kind": "done"}]), self.head)
         return submitted, submitted.records[0]
 
-    def test_a_follow_up_of_this_change_is_proven_on_the_reviewed_commit_and_never_blocks(self):
+    def test_a_follow_up_caused_by_this_change_is_a_finding_and_older_defects_stay_follow_ups(self):
         submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode != "branch"')))
-        self.assertEqual(submitted.verdict, "PASS")
-        self.assertEqual(row["kind"], "follow-up")
+        self.assertEqual(submitted.verdict, "FAIL")
+        self.assertEqual((row["kind"], row["handed"]), ("finding", "follow-up"))
         self.assertEqual(row["evidence"]["commit"], self.head)
         self.assertEqual(row["evidence"]["base"]["returncode"], 0)
         self.assertNotIn("before", row)
-        self.assertEqual(submitted.followup_checks, {hand_in.item_text(row): probe('api.mode != "branch"')})
-        self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.head})
+        self.assertEqual(submitted.followups, [])
+        self.assertEqual(submitted.followup_checks, {})
+        self.assertEqual(submitted.followup_commits, {})
         self.assertEqual(submitted.preexisting, [])
         # one failing on base too is from before the task, whatever the reviewer said
         submitted, row = self.weigh(followup("api.py:1", "mode is wrong", probe('api.mode == "fixed"')))
@@ -147,6 +148,24 @@ class Weighed(unittest.TestCase):
         self.assertIn("Before the task", hand_in.item_text(row))
         self.assertEqual(submitted.followup_commits, {hand_in.item_text(row): self.base})
         self.assertEqual(submitted.preexisting, [row])
+
+    def test_later_rounds_keep_new_caused_follow_ups_outside_the_fix_delta_as_notes(self):
+        for rnd in (2, 3):
+            with self.subTest(round=rnd):
+                since = self.head
+                (self.wt / "other.txt").write_text(f"round {rnd}\n")
+                self.commit("An unrelated fix")
+                self.head = run.git(self.wt, "rev-parse", "HEAD")
+                self.lp.rnd = rnd
+                self.lp.round_dir.mkdir()
+                row = followup("api.py:1", "mode is wrong", probe('api.mode != "branch"'))
+                submitted = prompts.weigh_review(
+                    self.lp, hand_in.Review([row, {"kind": "done"}]), self.head, since=since)
+                self.assertEqual(submitted.verdict, "PASS")
+                self.assertEqual(submitted.followups, [])
+                [note] = submitted.records[:-1]
+                self.assertEqual((note["kind"], note["handed"]), ("note", "follow-up"))
+                self.assertIn(f"the fix delta since {since[:12]}", note["outside"])
 
 
 if __name__ == "__main__":
