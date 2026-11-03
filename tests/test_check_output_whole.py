@@ -108,6 +108,17 @@ class CheckOutputWhole(unittest.TestCase):
             self.assertNotIn(f"first {shard}\n", text)
             self.assertIn(f"last {shard}", text)
 
+    def test_a_red_piece_shares_the_cap_among_the_red_any_other_among_all(self):
+        cap = 8 * 1024
+        for red, sizes in (("test \"$AK_SHARD\" != 2/2", [cap // 2, cap]),
+                           ("false", [cap // 2, cap // 2])):
+            with self.subTest(red=red), patch.object(turns, "PIECES_CAP", cap):
+                ok, text = self.check(f"{PIECES}; {red}")
+                self.assertFalse(ok)
+                ends = re.findall(r"(x+\nlast \d/2)$", text, re.M)
+                self.assertEqual(sorted(len(end) + 1 for end in ends), sizes)
+                self.assertEqual(len(NAMED.findall(text)), 2)
+
     def test_a_check_printing_more_than_memory_holds_is_never_read_whole(self):
         for cmd in (FLOOD, FLOODS):
             with self.subTest(cmd=cmd):

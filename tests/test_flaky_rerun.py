@@ -18,7 +18,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.sandbox import account_home
-from agentkit import config, gate, gitcall, host, prompts
+from agentkit import config, gate, gitcall, host, prompts, turns
 from agentkit import record as run_record
 
 ACME = "/home/fixture/code/acme"        # the main checkout as the record names it; never opened
@@ -206,6 +206,26 @@ class FlakyRerun(unittest.TestCase):
         self.assertEqual(saved.read_text(), "FAIL: under load\n")
         self.assertEqual(excerpt, "FAIL: under load")
         self.assertEqual(prompts.done_when_counts(text, [cmd]), (1, 1))
+
+    def test_a_piece_s_flaky_lines_stay_within_its_share_and_name_the_whole(self):
+        # 512 bytes a piece: the first cut falls just after a newline, the second inside a letter
+        said = {"1": "F" * 511 + "\nGone\n", "2": "a" + "é" * 600 + "\n"}
+        for piece, lines in said.items():
+            (self.root / piece).write_text(lines)
+        at = f'{shlex.quote(str(self.root))}/"${{AK_SHARD%/*}}"'
+        cmd = (f'if test -f {at}.seen; then echo passed; else touch {at}.seen; cat {at}; exit 1; '
+               'fi')
+        with patch.object(host, "host_readings", return_value={
+                "cpus": 4, "load": 0, "free_mb": 820}), patch.object(turns, "PIECES_CAP", 1024):
+            ok, text, _ = self.gate([cmd])
+        self.assertTrue(ok, text)
+        for piece, excerpt in (("1", "F" * 511), ("2", "a" + "é" * 255)):
+            saved, kept = self.evidence(text, f"{cmd} (AK_SHARD={piece}/2)")
+            self.assertEqual(kept, excerpt)
+            self.assertEqual(saved.read_text(), said[piece])
+        state = {}
+        prompts.record_flakes(state, text)
+        self.assertEqual(len(state["followups"]), 2)
 
     def test_a_stop_during_the_rerun_ends_the_gate_as_a_stop_mid_list_does(self):
         # the re-run marks the record stopped, as `ak run stop` does, and is killed by it
