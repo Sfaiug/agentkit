@@ -92,8 +92,9 @@ func validateOrch(args []string) string {
 }
 
 // orchOpen refuses an open nobody typed, as Python's main does: only a person opens a seat.  It
-// answers only where Python's maintenance finds nothing to tidy on the way in; a person's open
-// and a dry run are orchNew's, and pane-died's `ended` is Python's.
+// answers only where Python's maintenance finds nothing to tidy on the way in; a seat that is
+// there is orchAgain's, a person's open and a dry run are orchNew's, and pane-died's `ended` is
+// Python's.
 func orchOpen(args []string, out, errOut io.Writer) int {
 	// validateOrch reads nothing after `ended`, so neither may this
 	if len(args) > 0 && args[0] == "ended" {
@@ -110,6 +111,9 @@ func orchOpen(args []string, out, errOut io.Writer) int {
 		default:
 			name = config.SessionName(args[i])
 		}
+	}
+	if code, there := orchAgain(name, dryRun, len(flags) > 0, out, errOut); there {
+		return code
 	}
 	if dryRun {
 		return orchNew(name, flags, true, out, errOut)
