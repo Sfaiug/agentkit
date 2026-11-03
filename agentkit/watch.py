@@ -7296,16 +7296,11 @@ def say(dry_run, log, text, url, session, merged=False):
     return True
 
 
-# --- after a merge: the target's checks and the project's live product ------
-# A merge to a repository's target starts that repository's own checks on the merge
-# commit -- for one project a release gate of 12-25 min that must pass before
-# production deploys.  The tick follows them for three hours, and a failed one goes
-# back to a seat that can fix the target, never to the owner. A project's health
-# command follows its deploy in the same window. One break is said
-# once, for its newest failing commit; a later commit all green ends the break.
+# --- after a merge: the project's live product ----------------------------
+# A project's health command follows its deploy for three hours. One break goes back
+# to the first failing merge's seat, once, until a later merge passes.
 
-AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
-AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
+AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge's live health is followed
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
 LIVE_INTERVAL = 15  # seconds after a probe ends, so slow probes never overlap
 # The spaces str.strip strips beyond ASCII, in UTF-8: those of three bytes, and all of them.
@@ -7600,51 +7595,6 @@ def after_merge_sha(pr_url, run_state, log):
     return None
 
 
-def after_merge_status(owner, repo, host, sha, log):
-    """(verdict, name, url) for that merge commit's check runs.
-
-    `failed` carries the first failing check by name; `passed` means every check green;
-    `pending` is still running or not yet registered; `ignored` is only cancelled runs,
-    which GitHub leaves behind when a newer commit superseded them.  `unknown` is a `gh`
-    that could not say, which costs this tick and never a notice.
-    """
-    api = ("api",) if host == "github.com" else ("api", "--hostname", host)
-    data, why = gh_json(config.RUNS, *api, "--paginate",
-                        f"repos/{owner}/{repo}/commits/{sha}/check-runs"
-                        "?filter=latest&per_page=100")
-    try:
-        if not isinstance(data, list):
-            raise ValueError(why or "invalid check-runs response")
-        runs = [check for page in data for check in page["check_runs"]]
-    except (KeyError, TypeError, ValueError) as exc:
-        log(f"WARN {owner}/{repo}@{sha[:12]}: cannot read its checks: {exc}")
-        return "unknown", None, None
-    failed, pending, passed, seen = [], False, False, False
-    for check in runs:
-        if not isinstance(check, dict):
-            continue
-        seen = True
-        if check.get("status") != "completed":
-            pending = True
-            continue
-        if check.get("conclusion") == "cancelled":
-            continue
-        if check.get("conclusion") in AFTER_MERGE_PASS:
-            passed = True
-            continue
-        name = check.get("name") or "A check"
-        url = check.get("html_url") or check.get("details_url") or check.get("url") or ""
-        failed.append((str(name), str(url)))
-    if failed:
-        failed.sort()
-        return "failed", failed[0][0], failed[0][1]
-    if pending or not seen:
-        return "pending", None, None
-    if passed:
-        return "passed", None, None
-    return "ignored", None, None
-
-
 def after_merge_live(seat):
     """Whether that seat is up to be typed into: what `say` asks before it types."""
     return bool(seat) and not any(seat.get(key) for key in ("exited", "resumable", "restart"))
@@ -7749,23 +7699,19 @@ def after_merge_seat(run_state, repo_key, typed, log):
     return after_merge_fallback(repo_key)
 
 
-def broke_after_merge(run_id, source, log):
-    """The merged change a break was handed back to broke main's checks or its live health
-    (`source`, "checks" or "health", as the status that failed came from): written on its
+def broke_after_merge(run_id, log):
+    """The merged change a break was handed back to broke its live health: written on its
     history row once, as the break is told, so the scoreboard counts what got past review and
     landing."""
     from . import history
-    history.update_run(run_id, broke_after_merge=source, log=log)
+    history.update_run(run_id, broke_after_merge="health", log=log)
 
 
 def after_merge_checks(state, dry_run, log, now=None):
-    """Follow target checks and health, and hand one break per repository back to fix.
+    """Follow live health, and hand one break per repository back to fix.
 
-    Each merge commit younger than three hours is read the way the loop reads a PR's:
-    its latest check runs from `gh`.  Only the newest commit with a failed check is
-    handed back, and only once -- that commit or a newer one `passed` ends it, and a
-    `gh` that could not say, for the merge commit or for a newer commit's checks, waits
-    a tick rather than saying anything on half an answer.  A break found is kept until a
+    The oldest failing merge after the newest passing merge is handed back, once.
+    A newer unreadable health waits a tick. A break found is kept until a
     seat at its prompt is told it, however long past the window, with its composer mark,
     as a finished run's is, so a line whose Enter did not land is entered by the next tick
     instead of typed twice; a break already told stays told when its commit slides out of
@@ -7813,10 +7759,10 @@ def after_merge_checks(state, dry_run, log, now=None):
         parsed = after_merge_repo(pr_url)
         if not parsed:
             continue
-        owner, repo, host, key = parsed
+        key = parsed[3]
         sha = after_merge_sha(pr_url, st, log)
         grouped.setdefault(key, []).append(
-            (finished, run_dir.name, run_dir, st, owner, repo, host, sha or None, pr_url))
+            (finished, run_dir.name, run_dir, st, sha or None, pr_url))
     for key in sorted(set(grouped) | set(episodes)):
         found = sorted(grouped.get(key, []))
         statuses = []
@@ -7829,30 +7775,22 @@ def after_merge_checks(state, dry_run, log, now=None):
                     with run_record.record(directory) as current:
                         current.pop("health", None)
 
-        for finished, name, run_dir, st, owner, repo, host, sha, pr_url in found:
+        for finished, name, run_dir, st, sha, pr_url in found:
             if sha is None:
                 statuses.append((finished, name, run_dir, st, None, pr_url,
-                                 "unknown", None, None, None))
+                                 "unknown", None, None))
                 continue
-            if now - finished <= AFTER_MERGE_WINDOW:
-                verdict, check, url = after_merge_status(owner, repo, host, sha, log)
-            else:
-                verdict, check, url = "ignored", None, None
             try:
                 health = after_merge_health(run_dir, st, key, sha, pr_url, now,
                                             dry_run, log, probes, records)
             except (config.Error, OSError, ValueError, AttributeError, KeyError, TypeError) as exc:
-                # Until a command is known, discovery cannot change the target's check verdict.
                 health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
                 if health:
                     log(f"WARN run {name}'s health could not be followed: {exc}")
             if now - finished >= AFTER_MERGE_WINDOW and health and health[0] == "failed":
                 expired_health.append(run_dir)
-            source = "checks"   # where the verdict came from: a check's name can be any text
-            if health and verdict != "failed" and (health[0] != "passed" or verdict == "ignored"):
-                if health[0] == "failed" or verdict != "unknown":
-                    (verdict, check, url), source = health, "health"
-            statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url, source))
+            verdict, check, url = health or ("ignored", None, None)
+            statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
         episode = episodes.get(key)
         if isinstance(episode, str):
             episode = episodes[key] = {"notified": episode} if episode else {}
@@ -7914,21 +7852,19 @@ def after_merge_checks(state, dry_run, log, now=None):
                 pending = None
         if not pending:
             candidate, at = None, -1
-            for i in range(len(statuses) - 1, -1, -1):
-                if statuses[i][6] == "failed":
-                    candidate, at = statuses[i], i
-                    break
+            for i, entry in enumerate(statuses):
+                if entry[6] == "passed":
+                    candidate, at = None, -1
+                elif entry[6] == "failed" and candidate is None:
+                    candidate, at = entry, i
             if candidate is None:
                 close_health()
                 continue
-            if any(entry[6] == "passed" for entry in statuses[at + 1:]):
-                close_health()
-                continue
             if any(entry[6] == "unknown" for entry in statuses[at + 1:]):
-                log(f"WARN {key}: a newer merge's checks are unreadable; "
+                log(f"WARN {key}: a newer merge's health is unreadable; "
                     "the after-merge notice waits a tick")
                 continue
-            finished, run_name, _, st, sha, pr_url, _, check, url, source = candidate
+            finished, run_name, _, st, sha, pr_url, _, check, url = candidate
             target = after_merge_target(st)
             line = after_merge_line(check or "A check", target, url or pr_url)
             try:
@@ -7936,7 +7872,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             except config.Error:
                 session = None
             pending = {"sha": sha, "line": line, "typed": None, "run": run_name,
-                       "check": check, "source": source, "finished": finished,
+                       "check": check, "source": "health", "finished": finished,
                        "target": target, "session": session}
             if not dry_run:
                 # Kept until it is told or its repository goes green: a seat asleep or in a
@@ -7960,8 +7896,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             episodes[key] = {"notified": sha, "at": now, "run": run_name, "check": check,
                              "finished": finished}
             _save()
-            # a break kept by an install that did not carry its source counts as checks
-            broke_after_merge(run_name, pending.get("source") or "checks", log)
+            broke_after_merge(run_name, log)
             log(f"handed run {run_name} back for {check} on {target} after its merge")
         elif pending.get("typed"):
             log(f"run {run_name}'s after-merge notice sits in a composer; "

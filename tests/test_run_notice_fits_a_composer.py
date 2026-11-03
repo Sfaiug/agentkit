@@ -195,8 +195,7 @@ class RunNotice(Sandbox):
             merge_sha="a" * 40, target="origin/main",
             health={"command": "probe", "output": evidence})
         episodes = {}
-        with patch.object(watch, "after_merge_sha", return_value="a" * 40), \
-                patch.object(watch, "after_merge_status", return_value=("passed", None, None)):
+        with patch.object(watch, "after_merge_sha", return_value="a" * 40):
             watch.after_merge_checks(episodes, False, self.logs.append, now=now)
             self.assertEqual(len(self.sent), 1)
             self.assertIsNone(watch.too_long(self.sent[0]))
@@ -223,10 +222,8 @@ class RunNotice(Sandbox):
 
         with patch.object(run, "git", side_effect=during_diff), patch.object(gitcall, "git", side_effect=during_diff), \
                 patch.object(watch, "after_merge_sha", return_value="a" * 40), \
-                patch.object(watch, "after_merge_health", return_value=None), \
-                patch.object(watch, "gh_json", return_value=([{"check_runs": [{
-                    "name": "release-gate", "status": "completed", "conclusion": "failure",
-                    "details_url": details}]}], "")):
+                patch.object(watch, "after_merge_health",
+                             return_value=("failed", "health: probe", details)):
             run.write_result(directory, state, [], cfg=self.cfg)
         self.assertEqual(len(self.sent), 1)
         self.assertIsNone(watch.too_long(self.sent[0]))

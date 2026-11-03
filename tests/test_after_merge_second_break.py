@@ -1,6 +1,6 @@
 """A break on a later merge is told even while an earlier told break is in the window.
 
-Offline: a temporary HOME, fake run records, faked check statuses and fake seats.
+Offline: a temporary HOME, fake run records, faked health verdicts and fake seats.
 """
 
 from contextlib import ExitStack
@@ -32,13 +32,14 @@ class SecondBreak(unittest.TestCase):
         for name in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             stack.enter_context(patch.object(config, name, root / name.lower()))
         config.ensure_dirs()
-        self.checks = {}
+        self.health = {}
         self.typed = []
         self.rows = [{"name": seat, "created": 100, "exited": False}
                      for seat in ("fix-api", "fix-ui")]
         stack.enter_context(patch.object(
-            watch, "after_merge_status",
-            lambda owner, repo, host, sha, log: self.checks.get(sha, ("pending", None, None))))
+            watch, "after_merge_health",
+            lambda directory, st, key, sha, *_args, **_kw:
+                self.health.get(sha, ("pending", None, None))))
         stack.enter_context(patch.object(orch, "sessions", lambda: list(self.rows)))
         stack.enter_context(patch.object(orch, "find", lambda name: next(
             (seat for seat in self.rows if seat["name"] == name), None)))
@@ -57,13 +58,13 @@ class SecondBreak(unittest.TestCase):
     def test_later_break_is_told_after_the_earlier_commit_goes_green(self):
         state = {}
         self.merged("run-a", A, 1, "fix-api", age=1800)
-        self.checks[A] = ("failed", "gate-a", PR + "1/checks")
+        self.health[A] = ("failed", "gate-a", PR + "1/checks")
         watch.after_merge_checks(state, False, lambda line: None, now=NOW)
         self.assertEqual([seat for seat, _ in self.typed], ["fix-api"])
 
-        self.checks[A] = ("passed", None, None)
+        self.health[A] = ("passed", None, None)
         self.merged("run-b", B, 2, "fix-ui", age=600)
-        self.checks[B] = ("failed", "gate-b", PR + "2/checks")
+        self.health[B] = ("failed", "gate-b", PR + "2/checks")
         watch.after_merge_checks(state, False, lambda line: None, now=NOW)
         self.assertEqual(len(self.typed), 2, self.typed)
         seat, line = self.typed[1]
@@ -73,7 +74,7 @@ class SecondBreak(unittest.TestCase):
     def test_a_pending_notice_ends_when_its_own_commit_goes_green(self):
         state = {}
         self.merged("run-a", A, 1, "fix-api", age=1800)
-        self.checks[A] = ("failed", "gate-a", PR + "1/checks")
+        self.health[A] = ("failed", "gate-a", PR + "1/checks")
 
         def stuck(seat, line, log, receipt, **_kw):
             receipt("mark")
@@ -84,9 +85,9 @@ class SecondBreak(unittest.TestCase):
             watch.after_merge_checks(state, False, lambda line: None, now=NOW)
         self.assertEqual([seat for seat, _ in self.typed], ["fix-api"])
 
-        self.checks[A] = ("passed", None, None)
+        self.health[A] = ("passed", None, None)
         self.merged("run-b", B, 2, "fix-ui", age=600)
-        self.checks[B] = ("failed", "gate-b", PR + "2/checks")
+        self.health[B] = ("failed", "gate-b", PR + "2/checks")
         watch.after_merge_checks(state, False, lambda line: None, now=NOW)
         self.assertEqual(len(self.typed), 2, self.typed)
         seat, line = self.typed[1]

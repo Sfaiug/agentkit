@@ -1,6 +1,6 @@
 """Merged changes become live on the project's probe; deadline failures use the same break.
 
-Offline: temporary HOME and repositories, fake checks and seats, and an injected timeout.
+Offline: temporary HOME and repositories, fake seats, and an injected timeout.
 """
 
 from contextlib import ExitStack
@@ -41,9 +41,6 @@ class HealthAfterMerge(unittest.TestCase):
         self.repo = self.root / "widget"
         self.repo.mkdir()
         self.git("init", "-q")
-        self.ci = ("passed", None, None)
-        self.checks = stack.enter_context(patch.object(
-            watch, "after_merge_status", side_effect=lambda *_args: self.ci))
         self.rows = [{"name": SEAT, "created": 100, "exited": False}]
         self.lines = []
         self.logs = []
@@ -171,7 +168,7 @@ class HealthAfterMerge(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.git("cat-file", "-e", f"{sha}^{{commit}}")
 
-    def test_failed_discovery_preserves_green_checks_and_retries_next_tick(self):
+    def test_failed_discovery_tells_nothing_and_retries_next_tick(self):
         sha = self.remote_merge("exit 0")
         directory = self.merged(sha)
         self.git("remote", "set-url", "origin", str(self.root / "unavailable.git"))
@@ -202,7 +199,7 @@ class HealthAfterMerge(unittest.TestCase):
         with self.assertRaises(subprocess.CalledProcessError):
             self.git("cat-file", "-e", f"{sha}^{{commit}}")
 
-    def test_discovery_exception_leaves_existing_checks_unchanged(self):
+    def test_discovery_exception_without_a_probe_tells_nothing(self):
         sha = self.remote_merge("exit 0")
         self.merged(sha)
         key = watch.after_merge_repo(PR)[3]
@@ -301,18 +298,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual((self.probes.call_count, len(self.lines)), (1, 1))
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
 
-    def test_health_failure_and_check_failure_share_one_episode(self):
-        sha = self.declare("echo deployment missing; exit 1")
-        self.merged(sha, age=watch.AFTER_MERGE_WINDOW - 1)
-        self.ci = ("failed", "release-gate", PR + "/checks")
-        self.tick()
-        self.assertEqual(len(self.lines), 1)
-        self.tick(now=NOW + 2)
-        self.tick(now=NOW + 3)
-        self.assertEqual(len(self.lines), 1)
-        self.assertIn("release-gate", self.lines[0][1])
-
-    def test_absent_declaration_at_merge_preserves_check_behavior(self):
+    def test_absent_declaration_at_merge_is_recorded_once_and_never_probed(self):
         sha = self.declare(None)
         directory = self.merged(sha)
         (self.repo / "AGENTS.md").write_text("---\nhealth: exit 0\n---\n")
@@ -323,11 +309,9 @@ class HealthAfterMerge(unittest.TestCase):
             self.assertNotIn("live_at", record.read_state(directory))
             # what the merge commit declares is recorded, none included, and read once
             self.assertEqual(record.read_state(directory)["health"], {})
-            self.ci = ("failed", "release-gate", PR + "/checks")
             self.tick()
         self.assertEqual(read.call_count, 1)
-        self.assertEqual([seat for seat, _ in self.lines], [SEAT])
-        self.assertIn("release-gate failed on main after this merge.", self.lines[0][1])
+        self.assertEqual(self.lines, [])
 
     def test_dry_run_neither_runs_health_nor_records_live(self):
         sha = self.declare("exit 0")
