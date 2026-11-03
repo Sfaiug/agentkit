@@ -122,9 +122,8 @@ def pr_body(state):
     path = Path(state["task"]) if state.get("task") else None
     if path and path.is_file():
         _, body, title = taskfile.parse_task(path)
-        section = re.search(r"^##\s+Goal\s*$(.*?)(?=^##\s|\Z)", body, re.S | re.M | re.I)
-        text = section.group(1).strip() if section else ""
-        goal = title + "\n\n" + (text or "No Goal section recorded.")
+        text = taskfile.goal_text(body)
+        goal = title + "\n\n" + (text if text.strip() else "No Goal section recorded.")
         try:
             cmds = taskfile.done_when(body, path)
         except config.Error:

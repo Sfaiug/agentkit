@@ -13,7 +13,12 @@ from fixtures.gitrig import Rig
 
 
 TITLE = "Keep the retry file"
-GOAL = "Keep retry.txt with its expected contents.\n\n### Detail\nPreserve the final newline."
+GOAL = ("    example invocation\n\n"
+        "Keep retry.txt with its expected contents.\n\n"
+        "```markdown\n## Usage\nexample invocation\n```\n\n"
+        "````markdown\n```text\n## Nested example\n```\n## Still inside\n````\n\n"
+        "~~~markdown\n## Other example\n~~~\n\n"
+        "### Detail\nPreserve the final newline.")
 COMMANDS = ("test -f retry.txt", 'test "$(cat retry.txt)" = hello')
 SUMMARY = "## Summary\nThe executor says it wrote retry.txt."
 
