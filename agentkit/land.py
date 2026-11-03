@@ -347,9 +347,9 @@ def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
                 exits, flaky = [], []
                 ok, _, red = _check(directory, state, scratch, [suite],
                                     directory / f"tip-{sha}.log", log, suite=suite,
-                                    shard=piece or "1/1", only=only, kind="tip",
+                                    shard=piece or None, only=only, kind="tip",
                                     exits=exits, flaky=flaky)
-                if flaky or (ok and any(code != 0 for code in exits)):
+                if flaky or (0 in exits and any(code != 0 for code in exits)):
                     log(f"{sha[:12]} is flaky: nobody is blamed")
                     return
                 if not ok and only and not red.get("tests"):

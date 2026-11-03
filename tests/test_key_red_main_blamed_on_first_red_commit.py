@@ -14,32 +14,38 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import Home
-from fixtures.akline import Line
+from fixtures.akline import Line, RUNNER, rules
 from test_key_history_db import ORIGINAL
 
 RED = 'test ! -f "$(git rev-parse --git-common-dir)/red"\n'
 FLAKY = ('[ -f c.txt ] && exit 1\n'
          'mark="$(git rev-parse --git-common-dir)/once-$(git rev-parse HEAD)"\n'
          '[ -f "$mark" ] || { touch "$mark"; exit 1; }\n')
+UNSHARDED = ('[ -f "$(git rev-parse --git-common-dir)/red" ] || exit 0\n'
+             '[ -n "$AK_SHARD" ] && [ ! -f c.txt ] && exit 0\nexit 1\n')
 
 
 class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
-    def line(self, *, old=False, flaky=False, outside=False, blame="", dated=False, padding=0):
+    def line(self, *, old=False, flaky=False, outside=False, blame="", dated=False, padding=0,
+             unsharded=False, partial=False):
         home = Home()
         self.addCleanup(home.close)
         if dated:
             home.env["GIT_COMMITTER_DATE"] = "2000-01-01T00:00:00Z"
-        line = Line({"t/ok.sh": "true\n", **({"t/bad.sh": RED} if old else {})}, home=home)
+        files = ({"AGENTS.md": rules("sh suite.sh"), "suite.sh": UNSHARDED} if unsharded else
+                 {"suite.sh": RUNNER.replace('[ $((i % n + 1)) = "$k" ]', '[ "$k" = "1" ]')}
+                 if partial else {})
+        line = Line({"t/ok.sh": "true\n", **({"t/bad.sh": RED} if old else {}), **files}, home=home)
         initial = line.base
         a = line.rig.commit({"a.txt": "a\n"}, "acme-a")
         home.env.pop("GIT_COMMITTER_DATE", None)
         script = ('test ! -f "$(git rev-parse --git-common-dir)/red" && exit 0\n' + FLAKY
-                  if flaky else RED)
+                  if flaky or partial else RED)
         branch = line.rig.branch("ak/acme-b", {"t/bad.sh": script})
         line.rig.git("merge", "--no-ff", branch, "-m", "acme-b")
         line.rig.git("push", "origin", "main")
         b = line.rig.head()
-        c = line.rig.commit({"c.txt": "c\n"}, "acme-c")
+        c = line.rig.commit({"c.txt": "c\n", **({"t/new.sh": RED} if partial else {})}, "acme-c")
         for n in range(padding):
             c = line.rig.commit({}, f"later merge {n}")
         line.base = c
@@ -58,11 +64,20 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
                            "broke_after_merge) VALUES (?, 'acme', 'pass', ?, ?)",
                            (name, sha, blame if name == "acme-b" else ""))
         (line.rig.path / ".git/red").touch()
-        done = line.land()
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.output = done.out + done.err
+        self.output = ""
+        for _ in range(7):
+            done = line.land()
+            self.assertEqual(done.code, 0, done.out + done.err)
+            self.output += done.out + done.err
+            repairs = list(line.members[0].parent.glob("*make-main-pass-*/task.md"))
+            if repairs:
+                break
+            path = (line.members[0].parent / line.line).with_suffix(".green")
+            data = json.loads(path.read_text())
+            for red in data.get("red", {}).values():
+                red["at"] = 0
+            path.write_text(json.dumps(data))
         self.assertNotIn("fix", line.verdict(1))
-        repairs = list(line.members[0].parent.glob("*make-main-pass-*/task.md"))
         self.assertEqual(len(repairs), 1, done.out + done.err)
         return line, (initial, a, b, c)
 
@@ -98,6 +113,17 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         line, (_, _, b, _) = self.line(flaky=True)
         self.assertEqual(self.blame(line), {})
         self.assertEqual(self.probes(line, b), [1, 0])
+
+    def test_an_unsharded_probe_stays_unsharded_during_the_walk(self):
+        line, (oldest, _, _, _) = self.line(unsharded=True)
+        self.assertEqual(self.blame(line), {})
+        self.assertIn(f"red before {oldest[:12]}", self.output)
+
+    def test_missing_tests_do_not_hide_a_flake_before_the_piece_fallback(self):
+        line, (_, _, b, _) = self.line(partial=True)
+        self.assertEqual(self.blame(line), {})
+        self.assertEqual(self.probes(line, b), [1, 1])
+        self.assertIn(f"{b[:12]} is flaky", self.output)
 
     def test_a_merge_outside_ak_leaves_no_blame_row(self):
         line, (_, _, b, _) = self.line(outside=True)
