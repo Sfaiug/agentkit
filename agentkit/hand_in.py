@@ -63,6 +63,8 @@ def item_text(row):
         text += proof_text(evidence)
         if "base" in evidence:
             text += f"\nBase {evidence['base']['sha']}:\n" + proof_text(evidence["base"])
+    if row["kind"] == "finding" and row.get("handed") == "follow-up":
+        text += "\nBlocking: its proof passes on base and fails on this commit, so this change caused it"
     if row.get("before"):
         text += "\nBefore the task: " + row["before"]
     if row.get("dropped"):
