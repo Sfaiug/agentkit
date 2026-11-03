@@ -20,32 +20,30 @@ type match struct {
 	Groups  map[string]*string `json:"groups"`
 }
 
-// Every pattern Python's watch.screen compiles from a manifest, searched over every screen
-// fixture's whole text and each of its rows, matches here as Python's matched.
+// Every pattern Python's watch.screen compiles from a manifest, searched over each row of every
+// screen fixture and, under re.M, its whole text, matches here as Python's matched; and every letter
+// ignoring case takes for more than its own upper and lower case is found as Python finds it.
 func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 	read, err := os.ReadFile("testdata/cases.json")
 	if err != nil {
 		t.Fatal(err)
 	}
+	type pattern struct {
+		Harness, Key, Pattern, Flags, Found string
+		Matches                             []match
+	}
 	var cases struct {
 		Fixtures []string
-		Patterns []struct {
-			Harness, Key, Pattern, Flags string
-			Matches                      []match
+		Patterns []pattern
+		Cased    struct {
+			Letters  string
+			Patterns []pattern
 		}
 	}
 	if err := json.Unmarshal(read, &cases); err != nil {
 		t.Fatal(err)
 	}
-	texts := map[string]string{}
-	for _, name := range cases.Fixtures {
-		text, err := os.ReadFile(filepath.Join("..", "..", "..", "tests", "fixtures", name))
-		if err != nil {
-			t.Fatal(err)
-		}
-		texts[name] = string(text)
-	}
-	for _, each := range cases.Patterns {
+	compile := func(each pattern) *Regexp {
 		var flags Flag
 		if strings.Contains(each.Flags, "i") {
 			flags |= IgnoreCase
@@ -56,6 +54,12 @@ func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 		compiled, err := Compile(each.Pattern, flags)
 		if err != nil {
 			t.Errorf("%s %s: %v", each.Harness, each.Key, err)
+		}
+		return compiled
+	}
+	for _, each := range cases.Patterns {
+		compiled := compile(each)
+		if compiled == nil {
 			continue
 		}
 		want := map[string][]match{}
@@ -63,25 +67,46 @@ func TestEveryManifestPatternMatchesAsPythonsDoes(t *testing.T) {
 			want[found.Fixture] = append(want[found.Fixture], found)
 		}
 		for _, name := range cases.Fixtures {
-			// in parallel, a core each: antigravity's footer backtracks for minutes over a whole screen
-			t.Run(each.Harness+" "+each.Key+" "+name, func(t *testing.T) {
-				t.Parallel()
-				var found []match
-				// the whole text is row null, then each row, split on newlines alone
-				for line, text := range append([]string{texts[name]}, strings.Split(texts[name], "\n")...) {
-					var row *int
-					if index := line - 1; line > 0 {
-						row = &index
-					}
-					if at := compiled.Find(text); at != nil {
-						span := [2]int{utf8.RuneCountInString(text[:at.Start]), utf8.RuneCountInString(text[:at.End])}
-						found = append(found, match{name, row, span, groups(compiled, at)})
-					}
+			text, err := os.ReadFile(filepath.Join("..", "..", "..", "tests", "fixtures", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			// the whole text is row null, read only where re.M reads rows together, then each
+			// row, split on newlines alone
+			type part struct {
+				row  *int
+				text string
+			}
+			var parts []part
+			if strings.Contains(each.Flags, "m") {
+				parts = append(parts, part{nil, string(text)})
+			}
+			for line, row := range strings.Split(string(text), "\n") {
+				parts = append(parts, part{&line, row})
+			}
+			var found []match
+			for _, part := range parts {
+				if at := compiled.Find(part.text); at != nil {
+					span := [2]int{utf8.RuneCountInString(part.text[:at.Start]), utf8.RuneCountInString(part.text[:at.End])}
+					found = append(found, match{name, part.row, span, groups(compiled, at)})
 				}
-				if !reflect.DeepEqual(found, want[name]) {
-					t.Errorf("Go found %s where Python found %s", shown(found), shown(want[name]))
+			}
+			if !reflect.DeepEqual(found, want[name]) {
+				t.Errorf("%s %s in %s: Go found %s where Python found %s", each.Harness, each.Key, name, shown(found), shown(want[name]))
+			}
+		}
+	}
+	for _, each := range cases.Cased.Patterns {
+		if compiled := compile(each); compiled != nil {
+			found := ""
+			for _, letter := range cases.Cased.Letters {
+				if compiled.MatchString(string(letter)) {
+					found += string(letter)
 				}
-			})
+			}
+			if found != each.Found {
+				t.Errorf("%s (%s) found %s where Python found %s", each.Pattern, each.Flags, found, each.Found)
+			}
 		}
 	}
 }
@@ -126,6 +151,12 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`^\d$`, "٣", "٣"},
 		{`^\S$`, "é", "é"},
 		{`^\S$`, "\u00a0", ""},
+		{`(?i:s)s`, "ſſ ſs", "ſs"},
+		{`(?i)x(?-i:s)`, "Xſ XS Xs", "Xs"},
+		{`(?i)(?P<s>s)`, "ſ", "ſ"},
+		{`(?i)\x73`, "ſ", "ſ"},
+		{`[\x41-\x43]+`, "ABCD", "ABC"},
+		{`(?i)[À-Þ]`, "÷×", "×"},
 	} {
 		compiled, err := Compile(each.pattern, 0)
 		if err != nil {

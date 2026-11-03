@@ -1,10 +1,11 @@
 """Go's pyre matches as Python's re: every pattern watch.screen compiles from each manifest, with
-the flags it adds, searched over every screen fixture's whole text and over each of its rows.  This
-builds Go's case file from them again and fails where the committed one differs; `--write`
-rewrites it.
+the flags it adds, searched over each row of every screen fixture, and over its whole text where
+re.M reads several rows together; and every letter ignoring case takes for more than its own upper
+and lower case, outside a class and inside one.  This builds Go's case file from them again and
+fails where the committed one differs; `--write` rewrites it.
 """
 
-from concurrent.futures import ProcessPoolExecutor
+from collections import defaultdict
 from functools import cache
 import json
 import os
@@ -13,6 +14,7 @@ import re
 import sys
 import tempfile
 import unittest
+import _sre
 
 REPO = Path(__file__).resolve().parents[1]
 CASES = REPO / "go/internal/pyre/testdata/cases.json"
@@ -41,28 +43,48 @@ def fixture(name):
 
 
 def searched(pattern, flags, name):
-    """Python's first match of the pattern in the fixture's whole text (row null) and in each row,
-    split on newlines alone, as Go splits them."""
+    """Python's first match of the pattern in each row of the fixture, split on newlines alone, as
+    Go splits them, and in its whole text (row null) where re.M reads rows together: Python's
+    watch searches no other pattern over a whole screen."""
     compiled, text = re.compile(pattern, flags), fixture(name)
+    parts = [*([(None, text)] if flags & re.M else []), *enumerate(text.split("\n"))]
     return [{"fixture": name, "row": row, "span": list(match.span()), "groups": match.groupdict()}
-            for row, part in [(None, text), *enumerate(text.split("\n"))]
-            if (match := compiled.search(part))]
+            for row, part in parts if (match := compiled.search(part))]
+
+
+def letters():
+    """Every letter of a kind ignoring case takes for more than one upper and one lower case: one
+    Python's re pairs with another (`s` with `ſ`), or that holds more than two (`k` with the Kelvin
+    sign).  A kind is the letters whose lower case falls among one lower case's pairs."""
+    kinds = defaultdict(str)
+    for code in range(sys.maxunicode + 1):
+        lower = _sre.unicode_tolower(code)
+        kinds[min((lower, *re._compiler._EXTRA_CASES.get(lower, ())))] += chr(code)
+    return "".join(kind for kind in kinds.values()
+                   if len(kind) > 2 or any(ord(each) in re._compiler._EXTRA_CASES for each in kind))
 
 
 def cases():
     fixtures = sorted(path.name for path in (REPO / "tests/fixtures").glob("*-pane.txt"))
     compiled = [(harness, key, each) for harness, _ in config.manifests()
                 for key, each in patterns("", watch.screen(harness))]
-    # one process a core: antigravity's footer backtracks for minutes over a whole screen
-    with ProcessPoolExecutor() as pool:
-        found = pool.map(searched, *zip(*[(each.pattern, each.flags, name)
-                                          for _, _, each in compiled for name in fixtures]))
-        return {"fixtures": fixtures, "patterns": [
-            {"harness": harness, "key": key, "pattern": each.pattern,
-             "flags": "".join(letter for letter, flag in (("i", re.I), ("m", re.M))
-                              if each.flags & flag),
-             "matches": [match for _ in fixtures for match in next(found)]}
-            for harness, key, each in compiled]}
+    cased = letters()
+    folded = [(pattern, flags) for letter in cased
+              for pattern, flags in ((letter, re.I), (f"(?i)[{letter}]", 0))]
+    return {"fixtures": fixtures, "patterns": [
+        {"harness": harness, "key": key, "pattern": each.pattern, "flags": said(flags),
+         "matches": [match for name in fixtures for match in searched(each.pattern, flags, name)]}
+        for harness, key, each in compiled
+        # the flags watch gave, never those the pattern sets itself, which Go reads as Python does
+        for flags in [each.flags & ~re.compile(each.pattern).flags]],
+        "cased": {"letters": cased, "patterns": [
+            {"pattern": pattern, "flags": said(flags),
+             "found": "".join(each for each in cased if re.search(pattern, each, flags))}
+            for pattern, flags in [*folded, ("[a-z]", re.I), ("(?i)[^α-ω]", 0)]]}}
+
+
+def said(flags):
+    return "".join(letter for letter, flag in (("i", re.I), ("m", re.M)) if flags & flag)
 
 
 def written(data):

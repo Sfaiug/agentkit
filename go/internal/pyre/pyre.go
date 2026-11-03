@@ -1,14 +1,19 @@
 // Package pyre compiles a pattern written for Python's re, with Python's flags, and matches as
 // Python's re.search matches it.  It hides the backtracking engine it runs on (regexp2, vendored:
 // Go's own regexp has no lookaround or backreference), how Python's syntax is said to that engine
-// (named groups, `\Z`, `{,n}`, and the classes and word edge Python reads over all of Unicode),
-// and that the engine counts runes where every offset here is a byte of the Go string.
+// (named groups, `\Z`, `{,n}`, the classes and word edge Python reads over all of Unicode, and the
+// letters Python's ignore case pairs beyond upper and lower case), and that the engine counts runes
+// where every offset here is a byte of the Go string.
 package pyre
 
 import (
 	"fmt"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/dlclark/regexp2"
 )
@@ -46,12 +51,21 @@ var sets = map[byte]string{'s': `\t\n\v\f\r\x1c-\x1f \x85\p{Z}`, 'w': `\p{L}\p{N
 // edge is Python's word edge, \b, its \w on one side alone; the engine's own reads its \w.
 var edge = `(?:(?<=[` + sets['w'] + `])(?![` + sets['w'] + `])|(?<![` + sets['w'] + `])(?=[` + sets['w'] + `]))`
 
+// The lower case letters Python's re pairs under ignore case (re._compiler's _EXTRA_CASES), each
+// matching all of its own: the engine pairs only a letter's upper and lower case.  Those a
+// normalising editor would make one letter are escaped.
+var pairs = []string{"iı", "sſ", "µμ", "\u0345\u03b9\u1fbe", "\u0390\u1fd3", "\u03b0\u1fe3", "βϐ", "εϵ",
+	"θϑ", "κϰ", "πϖ", "ρϱ", "σς", "φϕ", "вᲀ", "дᲁ", "оᲂ", "сᲃ", "тᲄᲅ", "ъᲆ", "ѣᲇ", "ꙋᲈ", "ṡẛ", "ﬅﬆ"}
+
+// flagged is a group that sets flags, Python's `(?i)` and `(?i-m:`.
+var flagged = regexp.MustCompile(`^\(\?([aiLmsux]*)(?:-([imsx]*))?([:)])`)
+
 // Compile is Python's re.compile(pattern, flags); an error where Python's would refuse it, or
 // where the engine has no way to say it.
 func Compile(pattern string, flags Flag) (*Regexp, error) {
-	said, err := translated(pattern)
+	said, err := translated(pattern, flags&IgnoreCase != 0)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%q: %w", pattern, err)
 	}
 	options := regexp2.None
 	if flags&IgnoreCase != 0 {
@@ -67,53 +81,105 @@ func Compile(pattern string, flags Flag) (*Regexp, error) {
 	return &Regexp{engine}, nil
 }
 
-// translated is a Python pattern in the engine's syntax.
-func translated(source string) (string, error) {
+// translated is a Python pattern in the engine's syntax; folding is whether it ignores case where
+// it opens, as each group that sets flags changes until the group closes.
+func translated(source string, folding bool) (string, error) {
 	var out strings.Builder
-	for at := 0; at < len(source); at++ {
-		char, rest := source[at], source[at+1:]
+	var outer []bool // whether case is ignored around each open group
+	for at, size := 0, 0; at < len(source); at += size {
+		rest := source[at:]
+		size = 1
 		switch {
-		case char == '\\' && rest != "":
-			at++
-			switch set, complement := sets[rest[0]], sets[rest[0]|0x20]; {
+		case rest[0] == '\\' && len(rest) > 1:
+			size = 2
+			switch set, complement := sets[rest[1]], sets[rest[1]|0x20]; {
 			case set != "":
 				out.WriteString("[" + set + "]")
 			case complement != "":
 				out.WriteString("[^" + complement + "]")
-			case rest[0] == 'b':
+			case rest[1] == 'b':
 				out.WriteString(edge)
-			case rest[0] == 'Z':
+			case rest[1] == 'Z':
 				out.WriteString(`\z`)
 			default:
-				out.WriteString(source[at-1 : at+1])
+				var char rune
+				var known bool
+				if char, size, known = atom(rest); known {
+					out.WriteString(folded(char, folding, quoted(char)))
+				} else {
+					out.WriteString(rest[:size])
+				}
 			}
-		case char == '[':
-			said, length, err := class(source[at:])
+		case rest[0] == '[':
+			said, length, err := class(rest, folding)
 			if err != nil {
-				return "", fmt.Errorf("%q: %w", source, err)
+				return "", err
 			}
 			out.WriteString(said)
-			at += length - 1
-		case char == '(' && strings.HasPrefix(rest, "?P<"):
-			out.WriteString("(?<")
-			at += 3
-		case char == '(' && strings.HasPrefix(rest, "?P="):
-			name, _, _ := strings.Cut(rest[3:], ")")
+			size = length
+		case flagged.MatchString(rest):
+			flags := flagged.FindStringSubmatch(rest)
+			if flags[3] == ":" {
+				outer = append(outer, folding)
+			}
+			folding = strings.Contains(flags[1], "i") || folding && !strings.Contains(flags[2], "i")
+			out.WriteString(flags[0])
+			size = len(flags[0])
+		case strings.HasPrefix(rest, "(?P<"):
+			// the name as written, never a letter of it folded
+			name, _, _ := strings.Cut(rest[4:], ">")
+			out.WriteString("(?<" + name + ">")
+			size = 4 + len(name) + 1
+			outer = append(outer, folding)
+		case strings.HasPrefix(rest, "(?P="):
+			name, _, _ := strings.Cut(rest[4:], ")")
 			out.WriteString(`\k<` + name + `>`)
-			at += 3 + len(name) + 1
-		case strings.HasPrefix(source[at:], "{,") && strings.HasPrefix(strings.TrimLeft(source[at+2:], "0123456789"), "}"):
+			size = 4 + len(name) + 1
+		case rest[0] == '(':
+			out.WriteByte('(')
+			outer = append(outer, folding)
+		case rest[0] == ')' && len(outer) > 0:
+			out.WriteByte(')')
+			folding, outer = outer[len(outer)-1], outer[:len(outer)-1]
+		case strings.HasPrefix(rest, "{,") && strings.HasPrefix(strings.TrimLeft(rest[2:], "0123456789"), "}"):
 			// Python's {,n} is {0,n}; the engine reads it as text
 			out.WriteString("{0")
 		default:
-			out.WriteByte(char)
+			var char rune
+			char, size = utf8.DecodeRuneInString(rest)
+			out.WriteString(folded(char, folding, rest[:size]))
 		}
 	}
 	return out.String(), nil
 }
 
+// atom is the one character source opens with, an escape read as Python reads it, and the bytes
+// it takes; known is false for an escape that names no one character (a set, a group's number).
+func atom(source string) (char rune, size int, known bool) {
+	if source[0] != '\\' || len(source) == 1 {
+		char, size = utf8.DecodeRuneInString(source)
+		return char, size, true
+	}
+	switch next := source[1]; {
+	case strings.IndexByte("xuU", next) >= 0:
+		size = 2 + map[byte]int{'x': 2, 'u': 4, 'U': 8}[next]
+		if size > len(source) {
+			return 0, 2, false
+		}
+		code, err := strconv.ParseUint(source[2:size], 16, 32)
+		return rune(code), size, err == nil
+	case strings.IndexByte("abfnrtv", next) >= 0:
+		return rune("\a\b\f\n\r\t\v"[strings.IndexByte("abfnrtv", next)]), 2, true
+	case next >= utf8.RuneSelf || !alphanumeric(next):
+		char, size = utf8.DecodeRuneInString(source[1:])
+		return char, 1 + size, true
+	}
+	return 0, 2, false
+}
+
 // class is the `[...]` that source opens with, as the engine says it, and the bytes it takes.  A
 // \S or \W in it is a set apart, as no class of the engine's can hold Python's complement.
-func class(source string) (string, int, error) {
+func class(source string, folding bool) (string, int, error) {
 	at := 1
 	negated := strings.HasPrefix(source[at:], "^")
 	if negated {
@@ -121,28 +187,56 @@ func class(source string) (string, int, error) {
 	}
 	var members strings.Builder
 	var apart []string
-	for first := true; at < len(source) && (first || source[at] != ']'); at, first = at+1, false {
-		switch char := source[at]; {
-		case char == '\\' && at+1 < len(source):
-			at++
-			switch set, complement := sets[source[at]], sets[source[at]|0x20]; {
-			case set != "":
-				members.WriteString(set)
-			case complement != "":
-				apart = append(apart, "[^"+complement+"]")
-			default:
-				members.WriteString(source[at-1 : at+1])
+	var chars []rune
+	for first := true; at < len(source) && (first || source[at] != ']'); first = false {
+		low, size, known := atom(source[at:])
+		set, complement := sets[source[at+size-1]], sets[source[at+size-1]|0x20]
+		switch at += size; {
+		case known && strings.HasPrefix(source[at:], "-") && !strings.HasPrefix(source[at:], "-]"):
+			high, size, known := atom(source[at+1:])
+			if !known || high < low {
+				return "", 0, fmt.Errorf("bad character range")
 			}
-		case char == '[' || char == ']':
-			// a member to Python, a `]` as the first; to the engine `-[` opens a subtraction
-			members.WriteString(`\` + string(char))
+			for char := low; char <= high; char++ {
+				chars = append(chars, char)
+			}
+			at += 1 + size
+		case known:
+			chars = append(chars, low)
+		case set != "":
+			members.WriteString(set)
+		case complement != "":
+			apart = append(apart, "[^"+complement+"]")
 		default:
-			members.WriteByte(char)
+			members.WriteString(source[at-size : at])
 		}
 	}
-	switch {
-	case at == len(source):
+	if at == len(source) {
 		return "", 0, fmt.Errorf("unterminated character set")
+	}
+	if folding {
+		// each character stands as the lower case letters ignoring case takes it for, as the
+		// engine lowers the text it reads and its own lowering of a range misses most of Unicode
+		var lowered []rune
+		for _, char := range chars {
+			lowered = append(lowered, paired(char)...)
+		}
+		chars = lowered
+	}
+	slices.Sort(chars)
+	chars = slices.Compact(chars)
+	for from := 0; from < len(chars); {
+		to := from
+		for to+1 < len(chars) && chars[to+1] == chars[to]+1 {
+			to++
+		}
+		members.WriteString(quoted(chars[from]))
+		if to > from {
+			members.WriteString("-" + quoted(chars[to]))
+		}
+		from = to + 1
+	}
+	switch {
 	case len(apart) == 0 && negated:
 		return "[^" + members.String() + "]", at + 1, nil
 	case len(apart) == 0:
@@ -153,6 +247,38 @@ func class(source string) (string, int, error) {
 		apart = append([]string{"[" + members.String() + "]"}, apart...)
 	}
 	return "(?:" + strings.Join(apart, "|") + ")", at + 1, nil
+}
+
+// paired is every lower case letter Python's ignore case takes char for.
+func paired(char rune) []rune {
+	lower := unicode.ToLower(char)
+	for _, group := range pairs {
+		if strings.ContainsRune(group, lower) {
+			return []rune(group)
+		}
+	}
+	return []rune{lower}
+}
+
+// folded is char outside a class: a class of the letters ignoring case pairs it with, where it
+// has any, else as said.
+func folded(char rune, folding bool, said string) string {
+	if group := paired(char); folding && len(group) > 1 {
+		return "[" + string(group) + "]"
+	}
+	return said
+}
+
+// quoted is char as the engine reads it as itself, in a class or out of one.
+func quoted(char rune) string {
+	if char < utf8.RuneSelf && !alphanumeric(byte(char)) {
+		return `\` + string(char)
+	}
+	return string(char)
+}
+
+func alphanumeric(char byte) bool {
+	return 'a' <= char|0x20 && char|0x20 <= 'z' || '0' <= char && char <= '9'
 }
 
 // MatchString is whether the pattern matches anywhere in text.

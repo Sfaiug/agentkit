@@ -253,15 +253,6 @@
     },
     {
      "fixture": "antigravity-narrow-pane.txt",
-     "row": null,
-     "span": [
-      521,
-      536
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-narrow-pane.txt",
      "row": 19,
      "span": [
       0,
@@ -280,28 +271,10 @@
     },
     {
      "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      602
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
      "row": 17,
      "span": [
       0,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      584
      ],
      "groups": {}
     },
@@ -325,15 +298,6 @@
     },
     {
      "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      929
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
      "row": 29,
      "span": [
       0,
@@ -343,28 +307,10 @@
     },
     {
      "fixture": "antigravity-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      911
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-pane.txt",
      "row": 29,
      "span": [
       0,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-usage-pane.txt",
-     "row": null,
-     "span": [
-      810,
-      921
      ],
      "groups": {}
     },
@@ -383,15 +329,6 @@
      "span": [
       0,
       100
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-manual-mode-pane.txt",
-     "row": null,
-     "span": [
-      1121,
-      1136
      ],
      "groups": {}
     },
@@ -1490,15 +1427,6 @@
     },
     {
      "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      602
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
      "row": 17,
      "span": [
       0,
@@ -1508,28 +1436,10 @@
     },
     {
      "fixture": "antigravity-short-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      584
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-pane.txt",
      "row": 17,
      "span": [
       0,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      929
      ],
      "groups": {}
     },
@@ -1539,15 +1449,6 @@
      "span": [
       0,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      911
      ],
      "groups": {}
     },
@@ -1713,15 +1614,6 @@
     },
     {
      "fixture": "claude-auth-401-pane.txt",
-     "row": null,
-     "span": [
-      428,
-      488
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-401-pane.txt",
      "row": 10,
      "span": [
       0,
@@ -1762,15 +1654,6 @@
      "span": [
       0,
       1
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-pane.txt",
-     "row": null,
-     "span": [
-      505,
-      565
      ],
      "groups": {}
     },
@@ -1857,15 +1740,6 @@
     },
     {
      "fixture": "claude-prompt-pane.txt",
-     "row": null,
-     "span": [
-      430,
-      490
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-prompt-pane.txt",
      "row": 25,
      "span": [
       82,
@@ -1911,28 +1785,10 @@
     },
     {
      "fixture": "claude-question-scrolled-back-pane.txt",
-     "row": null,
-     "span": [
-      6741,
-      6975
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-scrolled-back-pane.txt",
      "row": 54,
      "span": [
       11,
       245
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-scrolled-pane.txt",
-     "row": null,
-     "span": [
-      7297,
-      7531
      ],
      "groups": {}
     },
@@ -1960,15 +1816,6 @@
      "span": [
       5,
       7
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-stall-pane.txt",
-     "row": null,
-     "span": [
-      509,
-      569
      ],
      "groups": {}
     },
@@ -2289,15 +2136,6 @@
     },
     {
      "fixture": "unknown-logout-pane.txt",
-     "row": null,
-     "span": [
-      521,
-      581
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "unknown-logout-pane.txt",
      "row": 10,
      "span": [
       0,
@@ -2329,15 +2167,6 @@
      "span": [
       2,
       62
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "unknown-stuck-pane.txt",
-     "row": null,
-     "span": [
-      514,
-      574
      ],
      "groups": {}
     },
@@ -2387,28 +2216,10 @@
    "matches": [
     {
      "fixture": "antigravity-narrow-pane.txt",
-     "row": null,
-     "span": [
-      521,
-      536
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-narrow-pane.txt",
      "row": 19,
      "span": [
       0,
       15
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-accept-edits-pane.txt",
-     "row": null,
-     "span": [
-      861,
-      916
      ],
      "groups": {}
     },
@@ -2423,15 +2234,6 @@
     },
     {
      "fixture": "claude-after-interrupt-next-turn-pane.txt",
-     "row": null,
-     "span": [
-      777,
-      822
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-after-interrupt-next-turn-pane.txt",
      "row": 43,
      "span": [
       2,
@@ -2441,28 +2243,10 @@
     },
     {
      "fixture": "claude-auth-401-pane.txt",
-     "row": null,
-     "span": [
-      428,
-      488
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-401-pane.txt",
      "row": 29,
      "span": [
       2,
       62
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-401-tmux-tip-pane.txt",
-     "row": null,
-     "span": [
-      530,
-      630
      ],
      "groups": {}
     },
@@ -2486,28 +2270,10 @@
     },
     {
      "fixture": "claude-auth-pane.txt",
-     "row": null,
-     "span": [
-      505,
-      565
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-pane.txt",
      "row": 29,
      "span": [
       2,
       62
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-cancelled-before-any-answer-pane.txt",
-     "row": null,
-     "span": [
-      520,
-      565
      ],
      "groups": {}
     },
@@ -2522,28 +2288,10 @@
     },
     {
      "fixture": "claude-compacting-pane.txt",
-     "row": null,
-     "span": [
-      896,
-      976
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-compacting-pane.txt",
      "row": 11,
      "span": [
       18,
       98
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-draft-pane.txt",
-     "row": null,
-     "span": [
-      653,
-      714
      ],
      "groups": {}
     },
@@ -2558,28 +2306,10 @@
     },
     {
      "fixture": "claude-draft-while-working-pane.txt",
-     "row": null,
-     "span": [
-      1089,
-      1149
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-draft-while-working-pane.txt",
      "row": 11,
      "span": [
       18,
       78
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-interrupted-pane.txt",
-     "row": null,
-     "span": [
-      628,
-      673
      ],
      "groups": {}
     },
@@ -2594,28 +2324,10 @@
     },
     {
      "fixture": "claude-manual-mode-pane.txt",
-     "row": null,
-     "span": [
-      1102,
-      1136
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-manual-mode-pane.txt",
      "row": 11,
      "span": [
       18,
       52
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-multiline-draft-pane.txt",
-     "row": null,
-     "span": [
-      804,
-      865
      ],
      "groups": {}
     },
@@ -2630,15 +2342,6 @@
     },
     {
      "fixture": "claude-narrow-streaming-pane.txt",
-     "row": null,
-     "span": [
-      704,
-      771
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-narrow-streaming-pane.txt",
      "row": 11,
      "span": [
       18,
@@ -2648,28 +2351,10 @@
     },
     {
      "fixture": "claude-narrow-working-pane.txt",
-     "row": null,
-     "span": [
-      685,
-      752
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-narrow-working-pane.txt",
      "row": 11,
      "span": [
       18,
       85
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-plan-mode-pane.txt",
-     "row": null,
-     "span": [
-      860,
-      911
      ],
      "groups": {}
     },
@@ -2684,28 +2369,10 @@
     },
     {
      "fixture": "claude-prompt-pane.txt",
-     "row": null,
-     "span": [
-      430,
-      490
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-prompt-pane.txt",
      "row": 29,
      "span": [
       2,
       62
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-prompt-scrolled-pane.txt",
-     "row": null,
-     "span": [
-      6468,
-      6719
      ],
      "groups": {}
     },
@@ -2720,15 +2387,6 @@
     },
     {
      "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      590,
-      625
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
      "row": 29,
      "span": [
       2,
@@ -2738,28 +2396,10 @@
     },
     {
      "fixture": "claude-scrolled-line-pane.txt",
-     "row": null,
-     "span": [
-      572,
-      607
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-scrolled-line-pane.txt",
      "row": 29,
      "span": [
       2,
       37
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-session-limit-pane.txt",
-     "row": null,
-     "span": [
-      4006,
-      4067
      ],
      "groups": {}
     },
@@ -2774,15 +2414,6 @@
     },
     {
      "fixture": "claude-stall-pane.txt",
-     "row": null,
-     "span": [
-      509,
-      569
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-stall-pane.txt",
      "row": 29,
      "span": [
       2,
@@ -2792,28 +2423,10 @@
     },
     {
      "fixture": "claude-stop-hooks-running-pane.txt",
-     "row": null,
-     "span": [
-      966,
-      1046
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-stop-hooks-running-pane.txt",
      "row": 11,
      "span": [
       18,
       98
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-suggestion-pane.txt",
-     "row": null,
-     "span": [
-      518,
-      594
      ],
      "groups": {}
     },
@@ -2846,28 +2459,10 @@
     },
     {
      "fixture": "claude-working-after-question-pane.txt",
-     "row": null,
-     "span": [
-      838,
-      883
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-working-after-question-pane.txt",
      "row": 43,
      "span": [
       2,
       47
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-working-pane.txt",
-     "row": null,
-     "span": [
-      447,
-      526
      ],
      "groups": {}
     },
@@ -2882,28 +2477,10 @@
     },
     {
      "fixture": "unknown-logout-pane.txt",
-     "row": null,
-     "span": [
-      521,
-      581
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "unknown-logout-pane.txt",
      "row": 29,
      "span": [
       2,
       62
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "unknown-stuck-pane.txt",
-     "row": null,
-     "span": [
-      514,
-      574
      ],
      "groups": {}
     },
@@ -2926,28 +2503,10 @@
    "matches": [
     {
      "fixture": "claude-folded-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      379,
-      395
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-folded-line-and-owner-words-pane.txt",
      "row": 41,
      "span": [
       2,
       18
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-folded-line-pane.txt",
-     "row": null,
-     "span": [
-      379,
-      395
      ],
      "groups": {}
     },
@@ -2970,28 +2529,10 @@
    "matches": [
     {
      "fixture": "claude-prompt-scrolled-pane.txt",
-     "row": null,
-     "span": [
-      5670,
-      5697
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-prompt-scrolled-pane.txt",
      "row": 49,
      "span": [
       143,
       170
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-scrolled-pane.txt",
-     "row": null,
-     "span": [
-      7252,
-      7279
      ],
      "groups": {}
     },
@@ -3014,15 +2555,6 @@
    "matches": [
     {
      "fixture": "claude-auth-401-pane.txt",
-     "row": null,
-     "span": [
-      115,
-      167
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-401-pane.txt",
      "row": 8,
      "span": [
       0,
@@ -3032,28 +2564,10 @@
     },
     {
      "fixture": "claude-auth-401-tmux-tip-pane.txt",
-     "row": null,
-     "span": [
-      117,
-      184
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-401-tmux-tip-pane.txt",
      "row": 7,
      "span": [
       0,
       67
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-pane.txt",
-     "row": null,
-     "span": [
-      115,
-      150
      ],
      "groups": {}
     },
@@ -3077,28 +2591,10 @@
     },
     {
      "fixture": "claude-draft-pane.txt",
-     "row": null,
-     "span": [
-      351,
-      372
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-draft-pane.txt",
      "row": 25,
      "span": [
       93,
       114
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-prompt-pane.txt",
-     "row": null,
-     "span": [
-      206,
-      222
      ],
      "groups": {}
     },
@@ -3113,28 +2609,10 @@
     },
     {
      "fixture": "claude-question-ruled-footer-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      75
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-ruled-footer-pane.txt",
      "row": 0,
      "span": [
       0,
       75
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-stall-pane.txt",
-     "row": null,
-     "span": [
-      115,
-      154
      ],
      "groups": {}
     },
@@ -3158,15 +2636,6 @@
     },
     {
      "fixture": "claude-tray-idle-pane.txt",
-     "row": null,
-     "span": [
-      2636,
-      2786
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-tray-idle-pane.txt",
      "row": 47,
      "span": [
       6,
@@ -3185,15 +2654,6 @@
     },
     {
      "fixture": "claude-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      1845,
-      1995
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-tray-working-pane.txt",
      "row": 47,
      "span": [
       6,
@@ -3207,15 +2667,6 @@
      "span": [
       13,
       191
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-working-pane.txt",
-     "row": null,
-     "span": [
-      223,
-      239
      ],
      "groups": {}
     },
@@ -3230,28 +2681,10 @@
     },
     {
      "fixture": "opencode-cursor-model-dialog-pane.txt",
-     "row": null,
-     "span": [
-      944,
-      998
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-model-dialog-pane.txt",
      "row": 17,
      "span": [
       32,
       86
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "unknown-logout-pane.txt",
-     "row": null,
-     "span": [
-      115,
-      166
      ],
      "groups": {}
     },
@@ -3270,15 +2703,6 @@
      "span": [
       82,
       98
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "unknown-stuck-pane.txt",
-     "row": null,
-     "span": [
-      115,
-      159
      ],
      "groups": {}
     },
@@ -3306,17 +2730,8 @@
    "harness": "claude",
    "key": "rule asking.trust newest",
    "pattern": "(?i)enter to confirm",
-   "flags": "i",
+   "flags": "",
    "matches": [
-    {
-     "fixture": "claude-dialog-pane.txt",
-     "row": null,
-     "span": [
-      484,
-      500
-     ],
-     "groups": {}
-    },
     {
      "fixture": "claude-dialog-pane.txt",
      "row": 17,
@@ -3328,28 +2743,10 @@
     },
     {
      "fixture": "codex-hooks-review-pane.txt",
-     "row": null,
-     "span": [
-      211,
-      227
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-hooks-review-pane.txt",
      "row": 8,
      "span": [
       8,
       24
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-seat-server-turn-pane.txt",
-     "row": null,
-     "span": [
-      941,
-      957
      ],
      "groups": {}
     },
@@ -3456,28 +2853,10 @@
    "matches": [
     {
      "fixture": "claude-compacting-pane.txt",
-     "row": null,
-     "span": [
-      955,
-      971
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-compacting-pane.txt",
      "row": 11,
      "span": [
       77,
       93
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-narrow-streaming-pane.txt",
-     "row": null,
-     "span": [
-      763,
-      771
      ],
      "groups": {}
     },
@@ -3492,15 +2871,6 @@
     },
     {
      "fixture": "claude-narrow-working-pane.txt",
-     "row": null,
-     "span": [
-      744,
-      752
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-narrow-working-pane.txt",
      "row": 11,
      "span": [
       77,
@@ -3510,28 +2880,10 @@
     },
     {
      "fixture": "claude-stop-hooks-running-pane.txt",
-     "row": null,
-     "span": [
-      1025,
-      1041
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-stop-hooks-running-pane.txt",
      "row": 11,
      "span": [
       77,
       93
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-working-pane.txt",
-     "row": null,
-     "span": [
-      495,
-      511
      ],
      "groups": {}
     },
@@ -3546,28 +2898,10 @@
     },
     {
      "fixture": "codex-title-working-accepted-pane.txt",
-     "row": null,
-     "span": [
-      1234,
-      1250
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-working-accepted-pane.txt",
      "row": 24,
      "span": [
       37,
       53
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-working-composed-pane.txt",
-     "row": null,
-     "span": [
-      1092,
-      1108
      ],
      "groups": {}
     },
@@ -3582,28 +2916,10 @@
     },
     {
      "fixture": "codex-title-working-pane.txt",
-     "row": null,
-     "span": [
-      1002,
-      1018
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-working-pane.txt",
      "row": 19,
      "span": [
       28,
       44
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-working-pane.txt",
-     "row": null,
-     "span": [
-      567,
-      583
      ],
      "groups": {}
     },
@@ -3618,28 +2934,10 @@
     },
     {
      "fixture": "muse-approval-pane.txt",
-     "row": null,
-     "span": [
-      346,
-      362
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-approval-pane.txt",
      "row": 5,
      "span": [
       126,
       142
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-answered-pane.txt",
-     "row": null,
-     "span": [
-      3075,
-      3091
      ],
      "groups": {}
     },
@@ -3654,28 +2952,10 @@
     },
     {
      "fixture": "muse-steering-pane.txt",
-     "row": null,
-     "span": [
-      888,
-      904
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-steering-pane.txt",
      "row": 15,
      "span": [
       137,
       153
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-working-composed-pane.txt",
-     "row": null,
-     "span": [
-      1660,
-      1676
      ],
      "groups": {}
     },
@@ -3690,15 +2970,6 @@
     },
     {
      "fixture": "muse-title-working-refused-pane.txt",
-     "row": null,
-     "span": [
-      1727,
-      1743
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-working-refused-pane.txt",
      "row": 18,
      "span": [
       25,
@@ -3708,28 +2979,10 @@
     },
     {
      "fixture": "muse-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      2341,
-      2357
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-working-pane.txt",
      "row": 37,
      "span": [
       217,
       233
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-working-pane.txt",
-     "row": null,
-     "span": [
-      47,
-      63
      ],
      "groups": {}
     },
@@ -3788,28 +3041,10 @@
     },
     {
      "fixture": "codex-effort-picker-pane.txt",
-     "row": null,
-     "span": [
-      770,
-      827
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-effort-picker-pane.txt",
      "row": 14,
      "span": [
       15,
       72
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-prompt-pane.txt",
-     "row": null,
-     "span": [
-      741,
-      760
      ],
      "groups": {}
     },
@@ -3878,15 +3113,6 @@
     },
     {
      "fixture": "codex-working-pane.txt",
-     "row": null,
-     "span": [
-      617,
-      636
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-working-pane.txt",
      "row": 21,
      "span": [
       0,
@@ -3913,28 +3139,10 @@
    "matches": [
     {
      "fixture": "antigravity-narrow-pane.txt",
-     "row": null,
-     "span": [
-      521,
-      536
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-narrow-pane.txt",
      "row": 19,
      "span": [
       0,
       15
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-manual-mode-pane.txt",
-     "row": null,
-     "span": [
-      1121,
-      1136
      ],
      "groups": {}
     },
@@ -3953,32 +3161,14 @@
    "harness": "codex",
    "key": "rule asking.chooser newest",
    "pattern": "(?i)press enter to|^enter confirm · ",
-   "flags": "i",
+   "flags": "",
    "matches": [
-    {
-     "fixture": "codex-dialog-pane.txt",
-     "row": null,
-     "span": [
-      341,
-      355
-     ],
-     "groups": {}
-    },
     {
      "fixture": "codex-dialog-pane.txt",
      "row": 11,
      "span": [
       2,
       16
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-hooks-review-pane.txt",
-     "row": null,
-     "span": [
-      205,
-      219
      ],
      "groups": {}
     },
@@ -3993,28 +3183,10 @@
     },
     {
      "fixture": "codex-remote-hooks-pane.txt",
-     "row": null,
-     "span": [
-      1553,
-      1567
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-remote-hooks-pane.txt",
      "row": 29,
      "span": [
       2,
       16
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-remote-local-hooks-pane.txt",
-     "row": null,
-     "span": [
-      1360,
-      1374
      ],
      "groups": {}
     },
@@ -4029,28 +3201,10 @@
     },
     {
      "fixture": "codex-seat-server-hooks-pane.txt",
-     "row": null,
-     "span": [
-      1581,
-      1595
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-seat-server-hooks-pane.txt",
      "row": 34,
      "span": [
       2,
       16
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-seat-server-turn-pane.txt",
-     "row": null,
-     "span": [
-      935,
-      949
      ],
      "groups": {}
     },
@@ -4472,15 +3626,6 @@
     },
     {
      "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -4626,15 +3771,6 @@
     {
      "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
      "row": 27,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -4797,15 +3933,6 @@
     {
      "fixture": "antigravity-terms-ctrl-c-pane.txt",
      "row": 5,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-usage-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -4985,15 +4112,6 @@
     },
     {
      "fixture": "claude-draft-while-working-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-draft-while-working-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -5112,15 +4230,6 @@
     {
      "fixture": "claude-multiline-draft-pane.txt",
      "row": 29,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-narrow-streaming-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -5732,15 +4841,6 @@
     },
     {
      "fixture": "claude-session-limit-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-session-limit-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -6029,15 +5129,6 @@
     },
     {
      "fixture": "codex-agents-hint-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-agents-hint-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -6093,15 +5184,6 @@
     {
      "fixture": "codex-auth-pane.txt",
      "row": 8,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-dialog-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -6173,15 +5255,6 @@
     },
     {
      "fixture": "codex-draft-two-lines-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-two-lines-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -6272,15 +5345,6 @@
     },
     {
      "fixture": "codex-draft-wrapped-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-wrapped-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -6345,15 +5409,6 @@
     {
      "fixture": "codex-draft-wrapped-pane.txt",
      "row": 13,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-effort-picker-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -6425,15 +5480,6 @@
     },
     {
      "fixture": "codex-hooks-review-0160-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-hooks-review-0160-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -6462,15 +5508,6 @@
     {
      "fixture": "codex-hooks-review-0160-pane.txt",
      "row": 5,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-hooks-review-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -6525,15 +5562,6 @@
     {
      "fixture": "codex-hooks-review-pane.txt",
      "row": 8,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-model-picker-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -7262,15 +6290,6 @@
     },
     {
      "fixture": "codex-seat-server-turn-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-seat-server-turn-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -7397,15 +6416,6 @@
     },
     {
      "fixture": "codex-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-tall-line-and-owner-words-pane.txt",
      "row": 0,
      "span": [
       0,
@@ -7596,15 +6606,6 @@
     {
      "fixture": "codex-tall-line-and-owner-words-pane.txt",
      "row": 26,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-tall-line-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -9864,15 +8865,6 @@
     {
      "fixture": "grokbuild-compacting-pane.txt",
      "row": 22,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-esc-clear-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -10359,15 +9351,6 @@
     {
      "fixture": "grokbuild-permission-parked-pane.txt",
      "row": 17,
-     "span": [
-      0,
-      3
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-question-answered-pane.txt",
-     "row": null,
      "span": [
       0,
       3
@@ -12790,15 +11773,6 @@
    "matches": [
     {
      "fixture": "muse-prompt-pane.txt",
-     "row": null,
-     "span": [
-      275,
-      319
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-prompt-pane.txt",
      "row": 7,
      "span": [
       2,
@@ -12889,15 +11863,6 @@
     },
     {
      "fixture": "muse-working-pane.txt",
-     "row": null,
-     "span": [
-      272,
-      316
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-working-pane.txt",
      "row": 10,
      "span": [
       2,
@@ -12913,15 +11878,6 @@
    "pattern": "(?:main(?: · ↓ to select)?|[├└] .+)",
    "flags": "",
    "matches": [
-    {
-     "fixture": "antigravity-usage-pane.txt",
-     "row": null,
-     "span": [
-      220,
-      236
-     ],
-     "groups": {}
-    },
     {
      "fixture": "antigravity-usage-pane.txt",
      "row": 5,
@@ -12951,15 +11907,6 @@
     },
     {
      "fixture": "claude-narrow-streaming-pane.txt",
-     "row": null,
-     "span": [
-      218,
-      222
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-narrow-streaming-pane.txt",
      "row": 4,
      "span": [
       5,
@@ -12969,15 +11916,6 @@
     },
     {
      "fixture": "claude-tray-idle-pane.txt",
-     "row": null,
-     "span": [
-      2638,
-      2642
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-tray-idle-pane.txt",
      "row": 47,
      "span": [
       8,
@@ -12987,28 +11925,10 @@
     },
     {
      "fixture": "claude-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      1847,
-      1851
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-tray-working-pane.txt",
      "row": 47,
      "span": [
       8,
       12
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-approved-pane.txt",
-     "row": null,
-     "span": [
-      216,
-      292
      ],
      "groups": {}
     },
@@ -13032,15 +11952,6 @@
     },
     {
      "fixture": "codex-draft-warning-pane.txt",
-     "row": null,
-     "span": [
-      671,
-      684
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-warning-pane.txt",
      "row": 7,
      "span": [
       11,
@@ -13059,15 +11970,6 @@
     },
     {
      "fixture": "codex-resumed-warning-pane.txt",
-     "row": null,
-     "span": [
-      671,
-      684
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-resumed-warning-pane.txt",
      "row": 7,
      "span": [
       11,
@@ -13081,15 +11983,6 @@
      "span": [
       11,
       24
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-seat-server-hooks-pane.txt",
-     "row": null,
-     "span": [
-      21,
-      117
      ],
      "groups": {}
     },
@@ -13113,28 +12006,10 @@
     },
     {
      "fixture": "codex-sub-agent-done-pane.txt",
-     "row": null,
-     "span": [
-      597,
-      693
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-sub-agent-done-pane.txt",
      "row": 9,
      "span": [
       6,
       102
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-working-composed-pane.txt",
-     "row": null,
-     "span": [
-      1120,
-      1166
      ],
      "groups": {}
     },
@@ -13149,28 +12024,10 @@
     },
     {
      "fixture": "muse-question-answered-pane.txt",
-     "row": null,
-     "span": [
-      3093,
-      3125
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-answered-pane.txt",
      "row": 29,
      "span": [
       0,
       32
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-steering-pane.txt",
-     "row": null,
-     "span": [
-      1321,
-      1325
      ],
      "groups": {}
     },
@@ -13194,15 +12051,6 @@
     },
     {
      "fixture": "muse-tray-draft-pane.txt",
-     "row": null,
-     "span": [
-      1587,
-      1591
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-draft-pane.txt",
      "row": 26,
      "span": [
       16,
@@ -13221,15 +12069,6 @@
     },
     {
      "fixture": "muse-tray-placeholder-pane.txt",
-     "row": null,
-     "span": [
-      1571,
-      1575
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-placeholder-pane.txt",
      "row": 26,
      "span": [
       16,
@@ -13243,15 +12082,6 @@
      "span": [
       0,
       138
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      2359,
-      2391
      ],
      "groups": {}
     },
@@ -13331,32 +12161,14 @@
    "harness": "muse",
    "key": "rule asking.picker newest",
    "pattern": "(?i)to select",
-   "flags": "i",
+   "flags": "",
    "matches": [
-    {
-     "fixture": "claude-question-notes-pane.txt",
-     "row": null,
-     "span": [
-      988,
-      997
-     ],
-     "groups": {}
-    },
     {
      "fixture": "claude-question-notes-pane.txt",
      "row": 23,
      "span": [
       6,
       15
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-pane.txt",
-     "row": null,
-     "span": [
-      799,
-      808
      ],
      "groups": {}
     },
@@ -13371,28 +12183,10 @@
     },
     {
      "fixture": "claude-question-preview-pane.txt",
-     "row": null,
-     "span": [
-      1184,
-      1193
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-preview-pane.txt",
      "row": 24,
      "span": [
       6,
       15
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-ruled-footer-pane.txt",
-     "row": null,
-     "span": [
-      633,
-      642
      ],
      "groups": {}
     },
@@ -13407,15 +12201,6 @@
     },
     {
      "fixture": "claude-question-scrolled-back-pane.txt",
-     "row": null,
-     "span": [
-      6597,
-      6606
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-scrolled-back-pane.txt",
      "row": 53,
      "span": [
       17,
@@ -13425,15 +12210,6 @@
     },
     {
      "fixture": "muse-auth-pane.txt",
-     "row": null,
-     "span": [
-      83,
-      92
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-auth-pane.txt",
      "row": 6,
      "span": [
       5,
@@ -13443,28 +12219,10 @@
     },
     {
      "fixture": "muse-dialog-pane.txt",
-     "row": null,
-     "span": [
-      83,
-      92
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-dialog-pane.txt",
      "row": 6,
      "span": [
       5,
       14
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-asked-pane.txt",
-     "row": null,
-     "span": [
-      3591,
-      3600
      ],
      "groups": {}
     },
@@ -13479,28 +12237,10 @@
     },
     {
      "fixture": "muse-question-pane.txt",
-     "row": null,
-     "span": [
-      1597,
-      1606
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-pane.txt",
      "row": 18,
      "span": [
       19,
       28
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-steering-pane.txt",
-     "row": null,
-     "span": [
-      1345,
-      1354
      ],
      "groups": {}
     },
@@ -13515,28 +12255,10 @@
     },
     {
      "fixture": "muse-tray-placeholder-pane.txt",
-     "row": null,
-     "span": [
-      1595,
-      1604
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-placeholder-pane.txt",
      "row": 26,
      "span": [
       40,
       49
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      2703,
-      2712
      ],
      "groups": {}
     },
@@ -13690,15 +12412,6 @@
    "matches": [
     {
      "fixture": "antigravity-bracketed-label-pane.txt",
-     "row": null,
-     "span": [
-      733,
-      776
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-bracketed-label-pane.txt",
      "row": 7,
      "span": [
       11,
@@ -13735,15 +12448,6 @@
     },
     {
      "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      1,
-      37
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
      "row": 0,
      "span": [
       1,
@@ -13789,15 +12493,6 @@
     },
     {
      "fixture": "antigravity-short-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      1,
-      37
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-pane.txt",
      "row": 0,
      "span": [
       1,
@@ -13838,15 +12533,6 @@
      "span": [
       1,
       17
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      46,
-      80
      ],
      "groups": {}
     },
@@ -13915,15 +12601,6 @@
     },
     {
      "fixture": "antigravity-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      46,
-      80
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-pane.txt",
      "row": 4,
      "span": [
       1,
@@ -13987,15 +12664,6 @@
     },
     {
      "fixture": "grok-title-working-accepted-pane.txt",
-     "row": null,
-     "span": [
-      289,
-      380
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-working-accepted-pane.txt",
      "row": 11,
      "span": [
       2,
@@ -14014,15 +12682,6 @@
     },
     {
      "fixture": "grok-title-working-composed-pane.txt",
-     "row": null,
-     "span": [
-      289,
-      380
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-working-composed-pane.txt",
      "row": 11,
      "span": [
       2,
@@ -14041,15 +12700,6 @@
     },
     {
      "fixture": "grok-title-working-pane.txt",
-     "row": null,
-     "span": [
-      289,
-      380
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-working-pane.txt",
      "row": 11,
      "span": [
       2,
@@ -14063,15 +12713,6 @@
      "span": [
       2,
       15
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-permission-narrow-pane.txt",
-     "row": null,
-     "span": [
-      563,
-      637
      ],
      "groups": {}
     },
@@ -14167,15 +12808,6 @@
     },
     {
      "fixture": "grokbuild-permission-pane.txt",
-     "row": null,
-     "span": [
-      934,
-      1068
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-permission-pane.txt",
      "row": 6,
      "span": [
       24,
@@ -14261,15 +12893,6 @@
      "span": [
       24,
       158
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-permission-parked-pane.txt",
-     "row": null,
-     "span": [
-      934,
-      1068
      ],
      "groups": {}
     },
@@ -14365,15 +12988,6 @@
     },
     {
      "fixture": "grokbuild-question-pane.txt",
-     "row": null,
-     "span": [
-      923,
-      1057
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-question-pane.txt",
      "row": 6,
      "span": [
       24,
@@ -14459,15 +13073,6 @@
      "span": [
       24,
       158
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-question-parked-pane.txt",
-     "row": null,
-     "span": [
-      1376,
-      1590
      ],
      "groups": {}
     },
@@ -14563,15 +13168,6 @@
     },
     {
      "fixture": "opencode-auth-pane.txt",
-     "row": null,
-     "span": [
-      38,
-      39
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-auth-pane.txt",
      "row": 2,
      "span": [
       2,
@@ -14639,15 +13235,6 @@
      "span": [
       2,
       98
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-model-dialog-pane.txt",
-     "row": null,
-     "span": [
-      123,
-      124
      ],
      "groups": {}
     },
@@ -14725,15 +13312,6 @@
     },
     {
      "fixture": "opencode-cursor-prompt-pane.txt",
-     "row": null,
-     "span": [
-      123,
-      124
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-prompt-pane.txt",
      "row": 2,
      "span": [
       2,
@@ -14801,15 +13379,6 @@
      "span": [
       2,
       118
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-quoted-dialog-pane.txt",
-     "row": null,
-     "span": [
-      123,
-      124
      ],
      "groups": {}
     },
@@ -14909,15 +13478,6 @@
      "span": [
       2,
       118
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-dialog-pane.txt",
-     "row": null,
-     "span": [
-      70,
-      71
      ],
      "groups": {}
     },
@@ -15031,15 +13591,6 @@
     },
     {
      "fixture": "opencode-draft-beside-card-pane.txt",
-     "row": null,
-     "span": [
-      713,
-      1024
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-draft-beside-card-pane.txt",
      "row": 2,
      "span": [
       52,
@@ -15148,15 +13699,6 @@
     },
     {
      "fixture": "opencode-draft-sidebar-hidden-pane.txt",
-     "row": null,
-     "span": [
-      681,
-      914
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-draft-sidebar-hidden-pane.txt",
      "row": 2,
      "span": [
       36,
@@ -15247,15 +13789,6 @@
     },
     {
      "fixture": "opencode-prompt-pane.txt",
-     "row": null,
-     "span": [
-      303,
-      304
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-prompt-pane.txt",
      "row": 15,
      "span": [
       13,
@@ -15296,15 +13829,6 @@
      "span": [
       13,
       88
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-stall-pane.txt",
-     "row": null,
-     "span": [
-      38,
-      39
      ],
      "groups": {}
     },
@@ -15377,15 +13901,6 @@
      "span": [
       2,
       98
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-working-pane.txt",
-     "row": null,
-     "span": [
-      38,
-      39
      ],
      "groups": {}
     },
@@ -15480,15 +13995,6 @@
     },
     {
      "fixture": "antigravity-chooser-pane.txt",
-     "row": null,
-     "span": [
-      725,
-      762
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-chooser-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -15516,15 +14022,6 @@
     },
     {
      "fixture": "antigravity-dialog-pane.txt",
-     "row": null,
-     "span": [
-      323,
-      352
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-dialog-pane.txt",
      "row": 11,
      "span": [
       6,
@@ -15538,15 +14035,6 @@
      "span": [
       89,
       100
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-draft-pane.txt",
-     "row": null,
-     "span": [
-      523,
-      565
      ],
      "groups": {}
     },
@@ -15570,28 +14058,10 @@
     },
     {
      "fixture": "antigravity-permission-pane.txt",
-     "row": null,
-     "span": [
-      1211,
-      1413
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-permission-pane.txt",
      "row": 18,
      "span": [
       57,
       109
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-prompt-pane.txt",
-     "row": null,
-     "span": [
-      648,
-      684
      ],
      "groups": {}
     },
@@ -15615,15 +14085,6 @@
     },
     {
      "fixture": "antigravity-question-pane.txt",
-     "row": null,
-     "span": [
-      1236,
-      1402
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-question-pane.txt",
      "row": 20,
      "span": [
       59,
@@ -15633,15 +14094,6 @@
     },
     {
      "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      590,
-      603
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-and-owner-words-pane.txt",
      "row": 17,
      "span": [
       28,
@@ -15651,28 +14103,10 @@
     },
     {
      "fixture": "antigravity-short-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      572,
-      585
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-short-tall-line-pane.txt",
      "row": 17,
      "span": [
       28,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-signin-pane.txt",
-     "row": null,
-     "span": [
-      211,
-      251
      ],
      "groups": {}
     },
@@ -15682,15 +14116,6 @@
      "span": [
       7,
       30
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-stall-pane.txt",
-     "row": null,
-     "span": [
-      707,
-      741
      ],
      "groups": {}
     },
@@ -15714,15 +14139,6 @@
     },
     {
      "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      917,
-      930
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-and-owner-words-pane.txt",
      "row": 29,
      "span": [
       28,
@@ -15732,28 +14148,10 @@
     },
     {
      "fixture": "antigravity-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      899,
-      912
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-tall-line-pane.txt",
      "row": 29,
      "span": [
       28,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-terms-ctrl-c-pane.txt",
-     "row": null,
-     "span": [
-      1471,
-      1502
      ],
      "groups": {}
     },
@@ -15772,15 +14170,6 @@
      "span": [
       123,
       153
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "antigravity-usage-pane.txt",
-     "row": null,
-     "span": [
-      909,
-      922
      ],
      "groups": {}
     },
@@ -15813,15 +14202,6 @@
     },
     {
      "fixture": "claude-accept-edits-pane.txt",
-     "row": null,
-     "span": [
-      537,
-      917
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-accept-edits-pane.txt",
      "row": 0,
      "span": [
       40,
@@ -15844,15 +14224,6 @@
      "span": [
       100,
       134
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-after-interrupt-next-turn-pane.txt",
-     "row": null,
-     "span": [
-      402,
-      823
      ],
      "groups": {}
     },
@@ -15934,15 +14305,6 @@
      "span": [
       18,
       36
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-auth-401-tmux-tip-pane.txt",
-     "row": null,
-     "span": [
-      548,
-      631
      ],
      "groups": {}
     },
@@ -16074,28 +14436,10 @@
     },
     {
      "fixture": "claude-dialog-pane.txt",
-     "row": null,
-     "span": [
-      493,
-      517
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-dialog-pane.txt",
      "row": 17,
      "span": [
       10,
       33
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-draft-pane.txt",
-     "row": null,
-     "span": [
-      353,
-      715
      ],
      "groups": {}
     },
@@ -16114,15 +14458,6 @@
      "span": [
       95,
       114
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-draft-while-working-pane.txt",
-     "row": null,
-     "span": [
-      1120,
-      1150
      ],
      "groups": {}
     },
@@ -16164,15 +14499,6 @@
     },
     {
      "fixture": "claude-folded-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      191,
-      587
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-folded-line-and-owner-words-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -16200,15 +14526,6 @@
     },
     {
      "fixture": "claude-folded-line-pane.txt",
-     "row": null,
-     "span": [
-      191,
-      569
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-folded-line-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -16231,15 +14548,6 @@
      "span": [
       54,
       118
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-interrupted-pane.txt",
-     "row": null,
-     "span": [
-      198,
-      674
      ],
      "groups": {}
     },
@@ -16267,15 +14575,6 @@
      "span": [
       5,
       49
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-manual-mode-pane.txt",
-     "row": null,
-     "span": [
-      1116,
-      1137
      ],
      "groups": {}
     },
@@ -16326,15 +14625,6 @@
     },
     {
      "fixture": "claude-multiline-draft-pane.txt",
-     "row": null,
-     "span": [
-      162,
-      866
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-multiline-draft-pane.txt",
      "row": 2,
      "span": [
       74,
@@ -16362,28 +14652,10 @@
     },
     {
      "fixture": "claude-permission-pane.txt",
-     "row": null,
-     "span": [
-      749,
-      771
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-permission-pane.txt",
      "row": 11,
      "span": [
       19,
       40
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-plan-mode-pane.txt",
-     "row": null,
-     "span": [
-      537,
-      912
      ],
      "groups": {}
     },
@@ -16411,15 +14683,6 @@
      "span": [
       100,
       134
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-plan-pane.txt",
-     "row": null,
-     "span": [
-      915,
-      953
      ],
      "groups": {}
     },
@@ -16497,15 +14760,6 @@
     },
     {
      "fixture": "claude-question-notes-pane.txt",
-     "row": null,
-     "span": [
-      1053,
-      1094
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-notes-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -16533,28 +14787,10 @@
     },
     {
      "fixture": "claude-question-pane.txt",
-     "row": null,
-     "span": [
-      818,
-      848
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-pane.txt",
      "row": 16,
      "span": [
       36,
       65
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-preview-pane.txt",
-     "row": null,
-     "span": [
-      1223,
-      1270
      ],
      "groups": {}
     },
@@ -16587,28 +14823,10 @@
     },
     {
      "fixture": "claude-question-ruled-footer-pane.txt",
-     "row": null,
-     "span": [
-      652,
-      788
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-ruled-footer-pane.txt",
      "row": 15,
      "span": [
       25,
       49
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-scrolled-back-pane.txt",
-     "row": null,
-     "span": [
-      6616,
-      6976
      ],
      "groups": {}
     },
@@ -16645,15 +14863,6 @@
      "span": [
       36,
       149
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-question-scrolled-pane.txt",
-     "row": null,
-     "span": [
-      5322,
-      7532
      ],
      "groups": {}
     },
@@ -16713,15 +14922,6 @@
     },
     {
      "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      112,
-      626
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -16749,15 +14949,6 @@
     },
     {
      "fixture": "claude-scrolled-line-pane.txt",
-     "row": null,
-     "span": [
-      112,
-      608
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-scrolled-line-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -16780,15 +14971,6 @@
      "span": [
       7,
       38
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-session-limit-pane.txt",
-     "row": null,
-     "span": [
-      4037,
-      4068
      ],
      "groups": {}
     },
@@ -16983,15 +15165,6 @@
     },
     {
      "fixture": "claude-tray-idle-pane.txt",
-     "row": null,
-     "span": [
-      2955,
-      2979
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-tray-idle-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -17055,15 +15228,6 @@
     },
     {
      "fixture": "claude-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      2164,
-      2188
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-tray-working-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -17118,15 +15282,6 @@
     },
     {
      "fixture": "claude-working-after-question-pane.txt",
-     "row": null,
-     "span": [
-      455,
-      884
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-working-after-question-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -17149,15 +15304,6 @@
      "span": [
       23,
       47
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "claude-working-pane.txt",
-     "row": null,
-     "span": [
-      502,
-      527
      ],
      "groups": {}
     },
@@ -17199,15 +15345,6 @@
     },
     {
      "fixture": "codex-agents-hint-pane.txt",
-     "row": null,
-     "span": [
-      475,
-      508
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-agents-hint-pane.txt",
      "row": 40,
      "span": [
       60,
@@ -17221,15 +15358,6 @@
      "span": [
       16,
       48
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-approved-pane.txt",
-     "row": null,
-     "span": [
-      1385,
-      1432
      ],
      "groups": {}
     },
@@ -17253,15 +15381,6 @@
     },
     {
      "fixture": "codex-auth-401-pane.txt",
-     "row": null,
-     "span": [
-      529,
-      551
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-auth-401-pane.txt",
      "row": 19,
      "span": [
       14,
@@ -17271,28 +15390,10 @@
     },
     {
      "fixture": "codex-auth-pane.txt",
-     "row": null,
-     "span": [
-      508,
-      530
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-auth-pane.txt",
      "row": 19,
      "span": [
       14,
       25
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-pane.txt",
-     "row": null,
-     "span": [
-      1127,
-      1171
      ],
      "groups": {}
     },
@@ -17307,28 +15408,10 @@
     },
     {
      "fixture": "codex-draft-two-lines-pane.txt",
-     "row": null,
-     "span": [
-      547,
-      591
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-two-lines-pane.txt",
      "row": 14,
      "span": [
       68,
       111
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-warning-pane.txt",
-     "row": null,
-     "span": [
-      1086,
-      1111
      ],
      "groups": {}
     },
@@ -17352,28 +15435,10 @@
     },
     {
      "fixture": "codex-draft-wrapped-pane.txt",
-     "row": null,
-     "span": [
-      649,
-      693
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-draft-wrapped-pane.txt",
      "row": 14,
      "span": [
       68,
       111
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-effort-picker-pane.txt",
-     "row": null,
-     "span": [
-      797,
-      828
      ],
      "groups": {}
     },
@@ -17388,28 +15453,10 @@
     },
     {
      "fixture": "codex-hooks-review-0160-pane.txt",
-     "row": null,
-     "span": [
-      262,
-      293
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-hooks-review-0160-pane.txt",
      "row": 6,
      "span": [
       18,
       48
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-model-picker-pane.txt",
-     "row": null,
-     "span": [
-      873,
-      903
      ],
      "groups": {}
     },
@@ -17424,28 +15471,10 @@
     },
     {
      "fixture": "codex-prompt-pane.txt",
-     "row": null,
-     "span": [
-      749,
-      761
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-prompt-pane.txt",
      "row": 21,
      "span": [
       10,
       21
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-resumed-warning-pane.txt",
-     "row": null,
-     "span": [
-      1119,
-      1144
      ],
      "groups": {}
     },
@@ -17469,28 +15498,10 @@
     },
     {
      "fixture": "codex-stall-pane.txt",
-     "row": null,
-     "span": [
-      489,
-      511
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-stall-pane.txt",
      "row": 19,
      "span": [
       14,
       25
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-sub-agent-done-pane.txt",
-     "row": null,
-     "span": [
-      898,
-      945
      ],
      "groups": {}
     },
@@ -17505,15 +15516,6 @@
     },
     {
      "fixture": "codex-suggestion-pane.txt",
-     "row": null,
-     "span": [
-      1137,
-      1181
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-suggestion-pane.txt",
      "row": 21,
      "span": [
       42,
@@ -17523,15 +15525,6 @@
     },
     {
      "fixture": "codex-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      885,
-      908
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-tall-line-and-owner-words-pane.txt",
      "row": 28,
      "span": [
       14,
@@ -17541,28 +15534,10 @@
     },
     {
      "fixture": "codex-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      867,
-      890
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-tall-line-pane.txt",
      "row": 28,
      "span": [
       14,
       35
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-accepted-pane.txt",
-     "row": null,
-     "span": [
-      1059,
-      1102
      ],
      "groups": {}
     },
@@ -17577,15 +15552,6 @@
     },
     {
      "fixture": "codex-title-composed-pane.txt",
-     "row": null,
-     "span": [
-      883,
-      929
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-composed-pane.txt",
      "row": 19,
      "span": [
       40,
@@ -17595,28 +15561,10 @@
     },
     {
      "fixture": "codex-title-idle-pane.txt",
-     "row": null,
-     "span": [
-      887,
-      933
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-idle-pane.txt",
      "row": 19,
      "span": [
       40,
       75
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-working-accepted-pane.txt",
-     "row": null,
-     "span": [
-      1342,
-      1378
      ],
      "groups": {}
     },
@@ -17631,28 +15579,10 @@
     },
     {
      "fixture": "codex-title-working-pane.txt",
-     "row": null,
-     "span": [
-      1110,
-      1151
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-title-working-pane.txt",
      "row": 24,
      "span": [
       40,
       75
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "codex-working-pane.txt",
-     "row": null,
-     "span": [
-      625,
-      637
      ],
      "groups": {}
     },
@@ -17667,28 +15597,10 @@
     },
     {
      "fixture": "grok-draft-pane.txt",
-     "row": null,
-     "span": [
-      446,
-      839
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-draft-pane.txt",
      "row": 7,
      "span": [
       127,
       178
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-suggestion-pane.txt",
-     "row": null,
-     "span": [
-      446,
-      723
      ],
      "groups": {}
     },
@@ -17703,28 +15615,10 @@
     },
     {
      "fixture": "grok-title-accepted-pane.txt",
-     "row": null,
-     "span": [
-      513,
-      610
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-accepted-pane.txt",
      "row": 26,
      "span": [
       84,
       114
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-auto-pane.txt",
-     "row": null,
-     "span": [
-      545,
-      642
      ],
      "groups": {}
     },
@@ -17739,28 +15633,10 @@
     },
     {
      "fixture": "grok-title-composed-pane.txt",
-     "row": null,
-     "span": [
-      465,
-      623
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-composed-pane.txt",
      "row": 26,
      "span": [
       84,
       114
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-idle-pane.txt",
-     "row": null,
-     "span": [
-      465,
-      562
      ],
      "groups": {}
     },
@@ -17775,28 +15651,10 @@
     },
     {
      "fixture": "grok-title-working-accepted-pane.txt",
-     "row": null,
-     "span": [
-      871,
-      968
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-working-accepted-pane.txt",
      "row": 26,
      "span": [
       84,
       114
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-working-composed-pane.txt",
-     "row": null,
-     "span": [
-      825,
-      983
      ],
      "groups": {}
     },
@@ -17811,28 +15669,10 @@
     },
     {
      "fixture": "grok-title-working-pane.txt",
-     "row": null,
-     "span": [
-      825,
-      922
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grok-title-working-pane.txt",
      "row": 26,
      "span": [
       84,
       114
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-background-pane.txt",
-     "row": null,
-     "span": [
-      3768,
-      4289
      ],
      "groups": {}
     },
@@ -17842,15 +15682,6 @@
      "span": [
       127,
       180
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-compacting-pane.txt",
-     "row": null,
-     "span": [
-      2985,
-      3506
      ],
      "groups": {}
     },
@@ -17860,15 +15691,6 @@
      "span": [
       127,
       180
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-esc-clear-pane.txt",
-     "row": null,
-     "span": [
-      4692,
-      5155
      ],
      "groups": {}
     },
@@ -17883,15 +15705,6 @@
     },
     {
      "fixture": "grokbuild-interrupted-pane.txt",
-     "row": null,
-     "span": [
-      5109,
-      5630
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-interrupted-pane.txt",
      "row": 36,
      "span": [
       127,
@@ -17901,15 +15714,6 @@
     },
     {
      "fixture": "grokbuild-palette-edit-prompt-pane.txt",
-     "row": null,
-     "span": [
-      4980,
-      5035
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-palette-edit-prompt-pane.txt",
      "row": 36,
      "span": [
       127,
@@ -17919,28 +15723,10 @@
     },
     {
      "fixture": "grokbuild-palette-pane.txt",
-     "row": null,
-     "span": [
-      6173,
-      6228
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-palette-pane.txt",
      "row": 36,
      "span": [
       127,
       178
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-question-answered-pane.txt",
-     "row": null,
-     "span": [
-      4418,
-      4997
      ],
      "groups": {}
     },
@@ -17955,28 +15741,10 @@
     },
     {
      "fixture": "grokbuild-question-pane.txt",
-     "row": null,
-     "span": [
-      2488,
-      3400
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-question-pane.txt",
      "row": 14,
      "span": [
       62,
       289
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-question-parked-pane.txt",
-     "row": null,
-     "span": [
-      3559,
-      4970
      ],
      "groups": {}
     },
@@ -17991,15 +15759,6 @@
     },
     {
      "fixture": "grokbuild-slash-pane.txt",
-     "row": null,
-     "span": [
-      3152,
-      3789
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-slash-pane.txt",
      "row": 20,
      "span": [
       127,
@@ -18009,15 +15768,6 @@
     },
     {
      "fixture": "grokbuild-suggestion-pane.txt",
-     "row": null,
-     "span": [
-      2688,
-      3104
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-suggestion-pane.txt",
      "row": 41,
      "span": [
       167,
@@ -18027,28 +15777,10 @@
     },
     {
      "fixture": "grokbuild-suggestion-typed-pane.txt",
-     "row": null,
-     "span": [
-      2699,
-      3231
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "grokbuild-suggestion-typed-pane.txt",
      "row": 41,
      "span": [
       167,
       218
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-approval-pane.txt",
-     "row": null,
-     "span": [
-      1521,
-      1573
      ],
      "groups": {}
     },
@@ -18081,15 +15813,6 @@
     },
     {
      "fixture": "muse-auth-pane.txt",
-     "row": null,
-     "span": [
-      86,
-      130
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-auth-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -18117,15 +15840,6 @@
     },
     {
      "fixture": "muse-autoreview-idle-pane.txt",
-     "row": null,
-     "span": [
-      942,
-      995
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-autoreview-idle-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -18148,15 +15862,6 @@
      "span": [
       113,
       139
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-compacted-pane.txt",
-     "row": null,
-     "span": [
-      2096,
-      2200
      ],
      "groups": {}
     },
@@ -18216,15 +15921,6 @@
     },
     {
      "fixture": "muse-compacting-pane.txt",
-     "row": null,
-     "span": [
-      2053,
-      2159
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-compacting-pane.txt",
      "row": 0,
      "span": [
       106,
@@ -18279,15 +15975,6 @@
     },
     {
      "fixture": "muse-dialog-pane.txt",
-     "row": null,
-     "span": [
-      86,
-      107
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-dialog-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -18310,15 +15997,6 @@
      "span": [
       8,
       28
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-draft-wrapped-pane.txt",
-     "row": null,
-     "span": [
-      2370,
-      2396
      ],
      "groups": {}
     },
@@ -18373,15 +16051,6 @@
      "span": [
       113,
       133
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-interrupting-pane.txt",
-     "row": null,
-     "span": [
-      2498,
-      2596
      ],
      "groups": {}
     },
@@ -18450,15 +16119,6 @@
     },
     {
      "fixture": "muse-model-picker-pane.txt",
-     "row": null,
-     "span": [
-      2226,
-      2249
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-model-picker-pane.txt",
      "row": 0,
      "span": [
       106,
@@ -18513,15 +16173,6 @@
     },
     {
      "fixture": "muse-overrides-idle-pane.txt",
-     "row": null,
-     "span": [
-      836,
-      893
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-overrides-idle-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -18553,15 +16204,6 @@
      "span": [
       113,
       144
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-placeholder-pane.txt",
-     "row": null,
-     "span": [
-      1365,
-      1413
      ],
      "groups": {}
     },
@@ -18603,15 +16245,6 @@
     },
     {
      "fixture": "muse-question-answered-pane.txt",
-     "row": null,
-     "span": [
-      3777,
-      3803
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-answered-pane.txt",
      "row": 28,
      "span": [
       201,
@@ -18630,15 +16263,6 @@
     },
     {
      "fixture": "muse-question-asked-pane.txt",
-     "row": null,
-     "span": [
-      4016,
-      4037
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-asked-pane.txt",
      "row": 34,
      "span": [
       65,
@@ -18652,15 +16276,6 @@
      "span": [
       98,
       118
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-escaped-pane.txt",
-     "row": null,
-     "span": [
-      2255,
-      2280
      ],
      "groups": {}
     },
@@ -18720,15 +16335,6 @@
     },
     {
      "fixture": "muse-question-pane.txt",
-     "row": null,
-     "span": [
-      2011,
-      2033
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-pane.txt",
      "row": 0,
      "span": [
       96,
@@ -18760,15 +16366,6 @@
      "span": [
       70,
       92
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-question-review-pane.txt",
-     "row": null,
-     "span": [
-      2298,
-      2322
      ],
      "groups": {}
     },
@@ -18837,15 +16434,6 @@
     },
     {
      "fixture": "muse-resume-picker-pane.txt",
-     "row": null,
-     "span": [
-      351,
-      525
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-resume-picker-pane.txt",
      "row": 38,
      "span": [
       17,
@@ -18859,15 +16447,6 @@
      "span": [
       0,
       17
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-steering-pane.txt",
-     "row": null,
-     "span": [
-      1725,
-      1840
      ],
      "groups": {}
     },
@@ -18918,15 +16497,6 @@
     },
     {
      "fixture": "muse-tall-line-and-owner-words-pane.txt",
-     "row": null,
-     "span": [
-      892,
-      909
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tall-line-and-owner-words-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -18945,15 +16515,6 @@
     },
     {
      "fixture": "muse-tall-line-pane.txt",
-     "row": null,
-     "span": [
-      874,
-      891
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tall-line-pane.txt",
      "row": 1,
      "span": [
       0,
@@ -18967,15 +16528,6 @@
      "span": [
       27,
       41
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-before-turn-refused-pane.txt",
-     "row": null,
-     "span": [
-      1182,
-      1214
      ],
      "groups": {}
     },
@@ -18990,28 +16542,10 @@
     },
     {
      "fixture": "muse-title-idle-composed-pane.txt",
-     "row": null,
-     "span": [
-      1647,
-      1675
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-idle-composed-pane.txt",
      "row": 15,
      "span": [
       50,
       61
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-idle-refused-pane.txt",
-     "row": null,
-     "span": [
-      1856,
-      1882
      ],
      "groups": {}
     },
@@ -19026,28 +16560,10 @@
     },
     {
      "fixture": "muse-title-resume-pane.txt",
-     "row": null,
-     "span": [
-      199,
-      373
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-resume-pane.txt",
      "row": 30,
      "span": [
       6,
       91
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-working-composed-pane.txt",
-     "row": null,
-     "span": [
-      1980,
-      2002
      ],
      "groups": {}
     },
@@ -19071,15 +16587,6 @@
     },
     {
      "fixture": "muse-title-working-refused-pane.txt",
-     "row": null,
-     "span": [
-      2199,
-      2219
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-title-working-refused-pane.txt",
      "row": 18,
      "span": [
       20,
@@ -19093,15 +16600,6 @@
      "span": [
       50,
       61
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-draft-pane.txt",
-     "row": null,
-     "span": [
-      1862,
-      1904
      ],
      "groups": {}
     },
@@ -19138,15 +16636,6 @@
      "span": [
       102,
       122
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-placeholder-pane.txt",
-     "row": null,
-     "span": [
-      1846,
-      1888
      ],
      "groups": {}
     },
@@ -19192,15 +16681,6 @@
      "span": [
       102,
       122
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "muse-tray-working-pane.txt",
-     "row": null,
-     "span": [
-      3409,
-      3430
      ],
      "groups": {}
     },
@@ -19323,15 +16803,6 @@
     },
     {
      "fixture": "opencode-auth-pane.txt",
-     "row": null,
-     "span": [
-      203,
-      417
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-auth-pane.txt",
      "row": 8,
      "span": [
       5,
@@ -19354,15 +16825,6 @@
      "span": [
       0,
       101
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-model-dialog-pane.txt",
-     "row": null,
-     "span": [
-      1462,
-      1649
      ],
      "groups": {}
     },
@@ -19395,15 +16857,6 @@
     },
     {
      "fixture": "opencode-cursor-prompt-pane.txt",
-     "row": null,
-     "span": [
-      565,
-      752
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-prompt-pane.txt",
      "row": 10,
      "span": [
       5,
@@ -19426,15 +16879,6 @@
      "span": [
       0,
       51
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-cursor-quoted-dialog-pane.txt",
-     "row": null,
-     "span": [
-      983,
-      1170
      ],
      "groups": {}
     },
@@ -19471,15 +16915,6 @@
      "span": [
       0,
       51
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-dialog-pane.txt",
-     "row": null,
-     "span": [
-      134,
-      357
      ],
      "groups": {}
     },
@@ -19512,15 +16947,6 @@
     },
     {
      "fixture": "opencode-prompt-pane.txt",
-     "row": null,
-     "span": [
-      435,
-      737
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-prompt-pane.txt",
      "row": 18,
      "span": [
       43,
@@ -19548,15 +16974,6 @@
     },
     {
      "fixture": "opencode-stall-pane.txt",
-     "row": null,
-     "span": [
-      209,
-      423
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-stall-pane.txt",
      "row": 8,
      "span": [
       5,
@@ -19579,15 +16996,6 @@
      "span": [
       0,
       101
-     ],
-     "groups": {}
-    },
-    {
-     "fixture": "opencode-working-pane.txt",
-     "row": null,
-     "span": [
-      165,
-      376
      ],
      "groups": {}
     },
@@ -19713,5 +17121,960 @@
     }
    ]
   }
- ]
+ ],
+ "cased": {
+  "letters": "IiİıKkKSsſµΜμÅåÅǄǅǆǇǈǉǊǋǌǱǲǳͅΙιιΐΐΒβϐΕεϵΘθϑϴΚκϰΠπϖΡρϱΣςσΦφϕΩωΩΰΰВвᲀДдᲁОоᲂСсᲃТтᲄᲅЪъᲆѢѣᲇᲈꙊꙋṠṡẛﬅﬆ",
+  "patterns": [
+   {
+    "pattern": "I",
+    "flags": "i",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "(?i)[I]",
+    "flags": "",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "i",
+    "flags": "i",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "(?i)[i]",
+    "flags": "",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "İ",
+    "flags": "i",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "(?i)[İ]",
+    "flags": "",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "ı",
+    "flags": "i",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "(?i)[ı]",
+    "flags": "",
+    "found": "Iiİı"
+   },
+   {
+    "pattern": "K",
+    "flags": "i",
+    "found": "KkK"
+   },
+   {
+    "pattern": "(?i)[K]",
+    "flags": "",
+    "found": "KkK"
+   },
+   {
+    "pattern": "k",
+    "flags": "i",
+    "found": "KkK"
+   },
+   {
+    "pattern": "(?i)[k]",
+    "flags": "",
+    "found": "KkK"
+   },
+   {
+    "pattern": "K",
+    "flags": "i",
+    "found": "KkK"
+   },
+   {
+    "pattern": "(?i)[K]",
+    "flags": "",
+    "found": "KkK"
+   },
+   {
+    "pattern": "S",
+    "flags": "i",
+    "found": "Ssſ"
+   },
+   {
+    "pattern": "(?i)[S]",
+    "flags": "",
+    "found": "Ssſ"
+   },
+   {
+    "pattern": "s",
+    "flags": "i",
+    "found": "Ssſ"
+   },
+   {
+    "pattern": "(?i)[s]",
+    "flags": "",
+    "found": "Ssſ"
+   },
+   {
+    "pattern": "ſ",
+    "flags": "i",
+    "found": "Ssſ"
+   },
+   {
+    "pattern": "(?i)[ſ]",
+    "flags": "",
+    "found": "Ssſ"
+   },
+   {
+    "pattern": "µ",
+    "flags": "i",
+    "found": "µΜμ"
+   },
+   {
+    "pattern": "(?i)[µ]",
+    "flags": "",
+    "found": "µΜμ"
+   },
+   {
+    "pattern": "Μ",
+    "flags": "i",
+    "found": "µΜμ"
+   },
+   {
+    "pattern": "(?i)[Μ]",
+    "flags": "",
+    "found": "µΜμ"
+   },
+   {
+    "pattern": "μ",
+    "flags": "i",
+    "found": "µΜμ"
+   },
+   {
+    "pattern": "(?i)[μ]",
+    "flags": "",
+    "found": "µΜμ"
+   },
+   {
+    "pattern": "Å",
+    "flags": "i",
+    "found": "ÅåÅ"
+   },
+   {
+    "pattern": "(?i)[Å]",
+    "flags": "",
+    "found": "ÅåÅ"
+   },
+   {
+    "pattern": "å",
+    "flags": "i",
+    "found": "ÅåÅ"
+   },
+   {
+    "pattern": "(?i)[å]",
+    "flags": "",
+    "found": "ÅåÅ"
+   },
+   {
+    "pattern": "Å",
+    "flags": "i",
+    "found": "ÅåÅ"
+   },
+   {
+    "pattern": "(?i)[Å]",
+    "flags": "",
+    "found": "ÅåÅ"
+   },
+   {
+    "pattern": "Ǆ",
+    "flags": "i",
+    "found": "Ǆǅǆ"
+   },
+   {
+    "pattern": "(?i)[Ǆ]",
+    "flags": "",
+    "found": "Ǆǅǆ"
+   },
+   {
+    "pattern": "ǅ",
+    "flags": "i",
+    "found": "Ǆǅǆ"
+   },
+   {
+    "pattern": "(?i)[ǅ]",
+    "flags": "",
+    "found": "Ǆǅǆ"
+   },
+   {
+    "pattern": "ǆ",
+    "flags": "i",
+    "found": "Ǆǅǆ"
+   },
+   {
+    "pattern": "(?i)[ǆ]",
+    "flags": "",
+    "found": "Ǆǅǆ"
+   },
+   {
+    "pattern": "Ǉ",
+    "flags": "i",
+    "found": "Ǉǈǉ"
+   },
+   {
+    "pattern": "(?i)[Ǉ]",
+    "flags": "",
+    "found": "Ǉǈǉ"
+   },
+   {
+    "pattern": "ǈ",
+    "flags": "i",
+    "found": "Ǉǈǉ"
+   },
+   {
+    "pattern": "(?i)[ǈ]",
+    "flags": "",
+    "found": "Ǉǈǉ"
+   },
+   {
+    "pattern": "ǉ",
+    "flags": "i",
+    "found": "Ǉǈǉ"
+   },
+   {
+    "pattern": "(?i)[ǉ]",
+    "flags": "",
+    "found": "Ǉǈǉ"
+   },
+   {
+    "pattern": "Ǌ",
+    "flags": "i",
+    "found": "Ǌǋǌ"
+   },
+   {
+    "pattern": "(?i)[Ǌ]",
+    "flags": "",
+    "found": "Ǌǋǌ"
+   },
+   {
+    "pattern": "ǋ",
+    "flags": "i",
+    "found": "Ǌǋǌ"
+   },
+   {
+    "pattern": "(?i)[ǋ]",
+    "flags": "",
+    "found": "Ǌǋǌ"
+   },
+   {
+    "pattern": "ǌ",
+    "flags": "i",
+    "found": "Ǌǋǌ"
+   },
+   {
+    "pattern": "(?i)[ǌ]",
+    "flags": "",
+    "found": "Ǌǋǌ"
+   },
+   {
+    "pattern": "Ǳ",
+    "flags": "i",
+    "found": "Ǳǲǳ"
+   },
+   {
+    "pattern": "(?i)[Ǳ]",
+    "flags": "",
+    "found": "Ǳǲǳ"
+   },
+   {
+    "pattern": "ǲ",
+    "flags": "i",
+    "found": "Ǳǲǳ"
+   },
+   {
+    "pattern": "(?i)[ǲ]",
+    "flags": "",
+    "found": "Ǳǲǳ"
+   },
+   {
+    "pattern": "ǳ",
+    "flags": "i",
+    "found": "Ǳǲǳ"
+   },
+   {
+    "pattern": "(?i)[ǳ]",
+    "flags": "",
+    "found": "Ǳǲǳ"
+   },
+   {
+    "pattern": "ͅ",
+    "flags": "i",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "(?i)[ͅ]",
+    "flags": "",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "Ι",
+    "flags": "i",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "(?i)[Ι]",
+    "flags": "",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "ι",
+    "flags": "i",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "(?i)[ι]",
+    "flags": "",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "ι",
+    "flags": "i",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "(?i)[ι]",
+    "flags": "",
+    "found": "ͅΙιι"
+   },
+   {
+    "pattern": "ΐ",
+    "flags": "i",
+    "found": "ΐΐ"
+   },
+   {
+    "pattern": "(?i)[ΐ]",
+    "flags": "",
+    "found": "ΐΐ"
+   },
+   {
+    "pattern": "ΐ",
+    "flags": "i",
+    "found": "ΐΐ"
+   },
+   {
+    "pattern": "(?i)[ΐ]",
+    "flags": "",
+    "found": "ΐΐ"
+   },
+   {
+    "pattern": "Β",
+    "flags": "i",
+    "found": "Ββϐ"
+   },
+   {
+    "pattern": "(?i)[Β]",
+    "flags": "",
+    "found": "Ββϐ"
+   },
+   {
+    "pattern": "β",
+    "flags": "i",
+    "found": "Ββϐ"
+   },
+   {
+    "pattern": "(?i)[β]",
+    "flags": "",
+    "found": "Ββϐ"
+   },
+   {
+    "pattern": "ϐ",
+    "flags": "i",
+    "found": "Ββϐ"
+   },
+   {
+    "pattern": "(?i)[ϐ]",
+    "flags": "",
+    "found": "Ββϐ"
+   },
+   {
+    "pattern": "Ε",
+    "flags": "i",
+    "found": "Εεϵ"
+   },
+   {
+    "pattern": "(?i)[Ε]",
+    "flags": "",
+    "found": "Εεϵ"
+   },
+   {
+    "pattern": "ε",
+    "flags": "i",
+    "found": "Εεϵ"
+   },
+   {
+    "pattern": "(?i)[ε]",
+    "flags": "",
+    "found": "Εεϵ"
+   },
+   {
+    "pattern": "ϵ",
+    "flags": "i",
+    "found": "Εεϵ"
+   },
+   {
+    "pattern": "(?i)[ϵ]",
+    "flags": "",
+    "found": "Εεϵ"
+   },
+   {
+    "pattern": "Θ",
+    "flags": "i",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "(?i)[Θ]",
+    "flags": "",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "θ",
+    "flags": "i",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "(?i)[θ]",
+    "flags": "",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "ϑ",
+    "flags": "i",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "(?i)[ϑ]",
+    "flags": "",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "ϴ",
+    "flags": "i",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "(?i)[ϴ]",
+    "flags": "",
+    "found": "Θθϑϴ"
+   },
+   {
+    "pattern": "Κ",
+    "flags": "i",
+    "found": "Κκϰ"
+   },
+   {
+    "pattern": "(?i)[Κ]",
+    "flags": "",
+    "found": "Κκϰ"
+   },
+   {
+    "pattern": "κ",
+    "flags": "i",
+    "found": "Κκϰ"
+   },
+   {
+    "pattern": "(?i)[κ]",
+    "flags": "",
+    "found": "Κκϰ"
+   },
+   {
+    "pattern": "ϰ",
+    "flags": "i",
+    "found": "Κκϰ"
+   },
+   {
+    "pattern": "(?i)[ϰ]",
+    "flags": "",
+    "found": "Κκϰ"
+   },
+   {
+    "pattern": "Π",
+    "flags": "i",
+    "found": "Ππϖ"
+   },
+   {
+    "pattern": "(?i)[Π]",
+    "flags": "",
+    "found": "Ππϖ"
+   },
+   {
+    "pattern": "π",
+    "flags": "i",
+    "found": "Ππϖ"
+   },
+   {
+    "pattern": "(?i)[π]",
+    "flags": "",
+    "found": "Ππϖ"
+   },
+   {
+    "pattern": "ϖ",
+    "flags": "i",
+    "found": "Ππϖ"
+   },
+   {
+    "pattern": "(?i)[ϖ]",
+    "flags": "",
+    "found": "Ππϖ"
+   },
+   {
+    "pattern": "Ρ",
+    "flags": "i",
+    "found": "Ρρϱ"
+   },
+   {
+    "pattern": "(?i)[Ρ]",
+    "flags": "",
+    "found": "Ρρϱ"
+   },
+   {
+    "pattern": "ρ",
+    "flags": "i",
+    "found": "Ρρϱ"
+   },
+   {
+    "pattern": "(?i)[ρ]",
+    "flags": "",
+    "found": "Ρρϱ"
+   },
+   {
+    "pattern": "ϱ",
+    "flags": "i",
+    "found": "Ρρϱ"
+   },
+   {
+    "pattern": "(?i)[ϱ]",
+    "flags": "",
+    "found": "Ρρϱ"
+   },
+   {
+    "pattern": "Σ",
+    "flags": "i",
+    "found": "Σςσ"
+   },
+   {
+    "pattern": "(?i)[Σ]",
+    "flags": "",
+    "found": "Σςσ"
+   },
+   {
+    "pattern": "ς",
+    "flags": "i",
+    "found": "Σςσ"
+   },
+   {
+    "pattern": "(?i)[ς]",
+    "flags": "",
+    "found": "Σςσ"
+   },
+   {
+    "pattern": "σ",
+    "flags": "i",
+    "found": "Σςσ"
+   },
+   {
+    "pattern": "(?i)[σ]",
+    "flags": "",
+    "found": "Σςσ"
+   },
+   {
+    "pattern": "Φ",
+    "flags": "i",
+    "found": "Φφϕ"
+   },
+   {
+    "pattern": "(?i)[Φ]",
+    "flags": "",
+    "found": "Φφϕ"
+   },
+   {
+    "pattern": "φ",
+    "flags": "i",
+    "found": "Φφϕ"
+   },
+   {
+    "pattern": "(?i)[φ]",
+    "flags": "",
+    "found": "Φφϕ"
+   },
+   {
+    "pattern": "ϕ",
+    "flags": "i",
+    "found": "Φφϕ"
+   },
+   {
+    "pattern": "(?i)[ϕ]",
+    "flags": "",
+    "found": "Φφϕ"
+   },
+   {
+    "pattern": "Ω",
+    "flags": "i",
+    "found": "ΩωΩ"
+   },
+   {
+    "pattern": "(?i)[Ω]",
+    "flags": "",
+    "found": "ΩωΩ"
+   },
+   {
+    "pattern": "ω",
+    "flags": "i",
+    "found": "ΩωΩ"
+   },
+   {
+    "pattern": "(?i)[ω]",
+    "flags": "",
+    "found": "ΩωΩ"
+   },
+   {
+    "pattern": "Ω",
+    "flags": "i",
+    "found": "ΩωΩ"
+   },
+   {
+    "pattern": "(?i)[Ω]",
+    "flags": "",
+    "found": "ΩωΩ"
+   },
+   {
+    "pattern": "ΰ",
+    "flags": "i",
+    "found": "ΰΰ"
+   },
+   {
+    "pattern": "(?i)[ΰ]",
+    "flags": "",
+    "found": "ΰΰ"
+   },
+   {
+    "pattern": "ΰ",
+    "flags": "i",
+    "found": "ΰΰ"
+   },
+   {
+    "pattern": "(?i)[ΰ]",
+    "flags": "",
+    "found": "ΰΰ"
+   },
+   {
+    "pattern": "В",
+    "flags": "i",
+    "found": "Ввᲀ"
+   },
+   {
+    "pattern": "(?i)[В]",
+    "flags": "",
+    "found": "Ввᲀ"
+   },
+   {
+    "pattern": "в",
+    "flags": "i",
+    "found": "Ввᲀ"
+   },
+   {
+    "pattern": "(?i)[в]",
+    "flags": "",
+    "found": "Ввᲀ"
+   },
+   {
+    "pattern": "ᲀ",
+    "flags": "i",
+    "found": "Ввᲀ"
+   },
+   {
+    "pattern": "(?i)[ᲀ]",
+    "flags": "",
+    "found": "Ввᲀ"
+   },
+   {
+    "pattern": "Д",
+    "flags": "i",
+    "found": "Ддᲁ"
+   },
+   {
+    "pattern": "(?i)[Д]",
+    "flags": "",
+    "found": "Ддᲁ"
+   },
+   {
+    "pattern": "д",
+    "flags": "i",
+    "found": "Ддᲁ"
+   },
+   {
+    "pattern": "(?i)[д]",
+    "flags": "",
+    "found": "Ддᲁ"
+   },
+   {
+    "pattern": "ᲁ",
+    "flags": "i",
+    "found": "Ддᲁ"
+   },
+   {
+    "pattern": "(?i)[ᲁ]",
+    "flags": "",
+    "found": "Ддᲁ"
+   },
+   {
+    "pattern": "О",
+    "flags": "i",
+    "found": "Ооᲂ"
+   },
+   {
+    "pattern": "(?i)[О]",
+    "flags": "",
+    "found": "Ооᲂ"
+   },
+   {
+    "pattern": "о",
+    "flags": "i",
+    "found": "Ооᲂ"
+   },
+   {
+    "pattern": "(?i)[о]",
+    "flags": "",
+    "found": "Ооᲂ"
+   },
+   {
+    "pattern": "ᲂ",
+    "flags": "i",
+    "found": "Ооᲂ"
+   },
+   {
+    "pattern": "(?i)[ᲂ]",
+    "flags": "",
+    "found": "Ооᲂ"
+   },
+   {
+    "pattern": "С",
+    "flags": "i",
+    "found": "Ссᲃ"
+   },
+   {
+    "pattern": "(?i)[С]",
+    "flags": "",
+    "found": "Ссᲃ"
+   },
+   {
+    "pattern": "с",
+    "flags": "i",
+    "found": "Ссᲃ"
+   },
+   {
+    "pattern": "(?i)[с]",
+    "flags": "",
+    "found": "Ссᲃ"
+   },
+   {
+    "pattern": "ᲃ",
+    "flags": "i",
+    "found": "Ссᲃ"
+   },
+   {
+    "pattern": "(?i)[ᲃ]",
+    "flags": "",
+    "found": "Ссᲃ"
+   },
+   {
+    "pattern": "Т",
+    "flags": "i",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "(?i)[Т]",
+    "flags": "",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "т",
+    "flags": "i",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "(?i)[т]",
+    "flags": "",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "ᲄ",
+    "flags": "i",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "(?i)[ᲄ]",
+    "flags": "",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "ᲅ",
+    "flags": "i",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "(?i)[ᲅ]",
+    "flags": "",
+    "found": "Ттᲄᲅ"
+   },
+   {
+    "pattern": "Ъ",
+    "flags": "i",
+    "found": "Ъъᲆ"
+   },
+   {
+    "pattern": "(?i)[Ъ]",
+    "flags": "",
+    "found": "Ъъᲆ"
+   },
+   {
+    "pattern": "ъ",
+    "flags": "i",
+    "found": "Ъъᲆ"
+   },
+   {
+    "pattern": "(?i)[ъ]",
+    "flags": "",
+    "found": "Ъъᲆ"
+   },
+   {
+    "pattern": "ᲆ",
+    "flags": "i",
+    "found": "Ъъᲆ"
+   },
+   {
+    "pattern": "(?i)[ᲆ]",
+    "flags": "",
+    "found": "Ъъᲆ"
+   },
+   {
+    "pattern": "Ѣ",
+    "flags": "i",
+    "found": "Ѣѣᲇ"
+   },
+   {
+    "pattern": "(?i)[Ѣ]",
+    "flags": "",
+    "found": "Ѣѣᲇ"
+   },
+   {
+    "pattern": "ѣ",
+    "flags": "i",
+    "found": "Ѣѣᲇ"
+   },
+   {
+    "pattern": "(?i)[ѣ]",
+    "flags": "",
+    "found": "Ѣѣᲇ"
+   },
+   {
+    "pattern": "ᲇ",
+    "flags": "i",
+    "found": "Ѣѣᲇ"
+   },
+   {
+    "pattern": "(?i)[ᲇ]",
+    "flags": "",
+    "found": "Ѣѣᲇ"
+   },
+   {
+    "pattern": "ᲈ",
+    "flags": "i",
+    "found": "ᲈꙊꙋ"
+   },
+   {
+    "pattern": "(?i)[ᲈ]",
+    "flags": "",
+    "found": "ᲈꙊꙋ"
+   },
+   {
+    "pattern": "Ꙋ",
+    "flags": "i",
+    "found": "ᲈꙊꙋ"
+   },
+   {
+    "pattern": "(?i)[Ꙋ]",
+    "flags": "",
+    "found": "ᲈꙊꙋ"
+   },
+   {
+    "pattern": "ꙋ",
+    "flags": "i",
+    "found": "ᲈꙊꙋ"
+   },
+   {
+    "pattern": "(?i)[ꙋ]",
+    "flags": "",
+    "found": "ᲈꙊꙋ"
+   },
+   {
+    "pattern": "Ṡ",
+    "flags": "i",
+    "found": "Ṡṡẛ"
+   },
+   {
+    "pattern": "(?i)[Ṡ]",
+    "flags": "",
+    "found": "Ṡṡẛ"
+   },
+   {
+    "pattern": "ṡ",
+    "flags": "i",
+    "found": "Ṡṡẛ"
+   },
+   {
+    "pattern": "(?i)[ṡ]",
+    "flags": "",
+    "found": "Ṡṡẛ"
+   },
+   {
+    "pattern": "ẛ",
+    "flags": "i",
+    "found": "Ṡṡẛ"
+   },
+   {
+    "pattern": "(?i)[ẛ]",
+    "flags": "",
+    "found": "Ṡṡẛ"
+   },
+   {
+    "pattern": "ﬅ",
+    "flags": "i",
+    "found": "ﬅﬆ"
+   },
+   {
+    "pattern": "(?i)[ﬅ]",
+    "flags": "",
+    "found": "ﬅﬆ"
+   },
+   {
+    "pattern": "ﬆ",
+    "flags": "i",
+    "found": "ﬅﬆ"
+   },
+   {
+    "pattern": "(?i)[ﬆ]",
+    "flags": "",
+    "found": "ﬅﬆ"
+   },
+   {
+    "pattern": "[a-z]",
+    "flags": "i",
+    "found": "IiİıKkKSsſ"
+   },
+   {
+    "pattern": "(?i)[^α-ω]",
+    "flags": "",
+    "found": "IiİıKkKSsſÅåÅǄǅǆǇǈǉǊǋǌǱǲǳΐΐΰΰВвᲀДдᲁОоᲂСсᲃТтᲄᲅЪъᲆѢѣᲇᲈꙊꙋṠṡẛﬅﬆ"
+   }
+  ]
+ }
 }
