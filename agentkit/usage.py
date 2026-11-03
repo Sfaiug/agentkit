@@ -1334,6 +1334,44 @@ def model_rates(cfg):
     return found
 
 
+def task_usage(rates):
+    """Mean weekly percentage points per complete run, separately for each worker role."""
+    roles = ("executor", "reviewer")
+    found = {model: {effort: dict.fromkeys(roles) for effort in efforts}
+             for model, efforts in rates.items()}
+    runs, samples = {}, {}
+    for provider, accounts in _measured().items():
+        for account, meters in _record(accounts).items():
+            for values in _record(meters).values():
+                for pair in _pairs(values):
+                    run, role = pair.get("run_id"), pair.get("role")
+                    if isinstance(run, str) and run and role in roles:
+                        runs.setdefault((run, role), []).append((provider, account, pair))
+    for (run, role), pairs in runs.items():
+        model, effort = pairs[0][2].get("model"), pairs[0][2].get("effort")
+        if (not isinstance(model, str) or not isinstance(effort, str)
+                or any((p.get("model"), p.get("effort")) != (model, effort)
+                       for _, _, p in pairs)):
+            continue
+        rate = rates.get(model, {}).get(effort)
+        if rate is None:
+            continue
+        # One turn can pair several gating meters at the same timestamp.
+        tokens = {(provider, account, p["at"]): p["tokens"]
+                  for provider, account, p in pairs}
+        launches = sum(("reviewer" if receipt.parent.name.startswith("reviewer") else
+                        "executor") == role
+                       for receipt in (config.RUNS / run).glob("round-*/*/harness"))
+        # A missed reading (or pruned window) must not make a task look cheaper. Without
+        # every launch receipt and its pair, including after diagnostics go, it is unknown.
+        if launches != len(tokens) or not launches or any(t <= 0 for t in tokens.values()):
+            continue
+        samples.setdefault((model, effort, role), []).append(sum(tokens.values()) * rate / 1e6)
+    for (model, effort, role), shares in samples.items():
+        found[model][effort][role] = sum(shares) / len(shares)
+    return found
+
+
 def holds(provider, account, meter):
     """(the tokens 100% of this subscription's `meter`, a reading's, stands for, the pairs it is
     measured from): those of the window the reading names and the one before it (`_recent`),
