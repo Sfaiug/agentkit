@@ -38,7 +38,7 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import command_help, config, matrix, staffing, terminal, turns, usage_probe, worker
+from . import command_help, config, gitcall, matrix, staffing, terminal, turns, usage_probe, worker
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -1306,21 +1306,33 @@ def account(cfg, provider, model=None):
         return None, None
     prov = collect(cfg).get(provider) or {}
     if prov.get("account") in names:
+        if model is None:
+            return prov["account"], not prov.get("exhausted")
         readings = prov["accounts"]
+
+        def spent(account):
+            return model_exhausted(cfg, model, {provider: readings[account]})[0]
+
         # One whose meters ak cannot read may be logged out: it is no safer than one running low.
-        order = [prov["account"]] if model is None else sorted(readings, key=lambda a: _worker_rank(
+        order = sorted(readings, key=lambda a: _worker_rank(
             a, readings[a], readings[a]["budget_reason"] is not None
             or model_low(cfg, model, {provider: readings[a]})))
         best = order[0]
-        seat = config.active_session(cfg) if model is not None else None
+        state = getattr(gitcall._RUN_CONTEXT, "state", {})
+        if "launched_session" in state or "session" in state:
+            # An explicit no-seat launch survives a resume inside another seat.
+            name = state.get("launched_session", state.get("session"))
+            seat = config.load_session(cfg, name, required=False) if name else None
+        else:
+            seat = config.active_session(cfg)
         if seat and cfg["models"].get(seat["orchestrator"], {}).get("provider") == provider:
             own = seat.get("account") or config.DEFAULT_ACCOUNT
             if own in readings:
                 harness = config.model(cfg, model)["harness"]
-                best = next((a for a in order if a != own and not readings[a]["exhausted"]
+                best = next((a for a in order if a != own and not spent(a)
                              and worker.auth_ok(harness, account=a, provider=provider)[0]
                              is not False), own)
-        return best, not readings[best]["exhausted"]
+        return best, not spent(best)
     spare = next((a for a in names if a != config.DEFAULT_ACCOUNT), names[0])
     return spare, not prov.get("exhausted")
 
