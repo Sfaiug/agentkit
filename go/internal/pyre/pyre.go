@@ -373,9 +373,14 @@ func (r *Regexp) FindAll(text string, n int) []Match {
 	bytes = append(bytes, len(text))
 	runes := []rune(text)
 	var found []Match
-	// an error is only a timeout, and none is set
-	match, _ := r.engine.FindRunesMatch(runes)
-	for ; match != nil && n != 0; n-- {
+	// no search past the n-th match: it costs work, exponential on some patterns, for nothing
+	search, at := r.engine, 0
+	for len(found) != n {
+		// an error is only a timeout, and none is set
+		match, _ := search.FindRunesMatchStartingAt(runes, at)
+		if match == nil {
+			break
+		}
 		start, end := bytes[match.Index], bytes[match.Index+match.Length]
 		each := Match{Start: start, End: end, Text: text[start:end], named: map[string]*string{}}
 		for _, group := range match.Groups() {
@@ -386,11 +391,10 @@ func (r *Regexp) FindAll(text string, n int) []Match {
 			}
 		}
 		found = append(found, each)
-		next := r.engine
+		search, at = r.engine, match.Index+match.Length
 		if match.Length == 0 {
-			next = r.advancing
+			search = r.advancing
 		}
-		match, _ = next.FindRunesMatchStartingAt(runes, match.Index+match.Length)
 	}
 	return found
 }
