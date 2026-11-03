@@ -198,6 +198,7 @@ class Scoreboard(unittest.TestCase):
                                  "intent": [None, None],
                                  "owner": [None, None],
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
+                                 "checks": [None, None],
                                  "parks": [None, None], "sunk": [None, None], "broke": [None, None],
                                  "size": [None, None]})
         text = self.status("--history")
@@ -217,6 +218,7 @@ class Scoreboard(unittest.TestCase):
         before = history.path().read_bytes()
         stats = scoreboard.compute(NOW)["products"][0]
         self.assertEqual((stats["runs"], stats["hours"], stats["tokens"]), (1, 1, 100))
+        self.assertEqual(scoreboard.compute(NOW)["checks"], [None, None])
         self.assertEqual(history.path().read_bytes(), before)
 
     def test_render_keeps_the_existing_text(self):
@@ -234,6 +236,7 @@ class Scoreboard(unittest.TestCase):
             "built": [None, None],
             "waits": [{"compute": .25, "merge_hours": 1.5, "lander_hours": .5}, None],
             "merged": [{"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0}, None],
+            "checks": [{"suites": 1.32, "hours": 1.45}, None],
             "parks": [None, None],
             "sunk": [{"share": .4, "tokens": 1200}, None],
             "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "unknown": 1}, None],
@@ -260,6 +263,8 @@ class Scoreboard(unittest.TestCase):
             "merged    median hours per merged change: 1.4 in model  no merged change",
             "          turns, 1.9 ak's own work, 0.8 waiting, 1.0",
             "          with its seat between runs",
+            "checks    1.32 suite runs and 1.45 check hours per      not recorded",
+            "          merged change",
             "parks     not recorded                                  not recorded",
             "sunk      40% of the week's tokens, 1,200, went to      no tokens recorded",
             "          runs that never merged",

@@ -2,8 +2,8 @@
 
 The bar is the seat's row on the `ak` screen with the line under it always open.  Line one is
 its state -- `! needs you` in dark bold text on its amber, the one loud thing on the bar, any
-other word as its glyph and word in its colour -- then the seat's name in bold, then the model
-that orchestrates it, dim, then its progress line, as its menu row draws it, as wide as `BARS`
+other word as its glyph and word in its colour -- then the seat's name in bold, then its model
+and orchestrator effort, dim, then its progress line, as its menu row draws it, as wide as `BARS`
 lets it be.  Its right end, while another seat on ak's own server needs you, says so in amber,
 `! 2 other seats need you`, a click away from the first of them; where it does not fit beside
 the left part the line narrows, then it folds to `! 2 need you`, and only then is the left part
@@ -357,7 +357,13 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     count this one again, in the same call."""
     lasts = lasts or [""] * len(BARS)
     versions = list(versions) or [""] * len(WHYS)
-    model = model and config.model_name(config.load() if cfg is None else cfg, model)
+    if model:
+        cfg = config.load() if cfg is None else cfg
+        cfg = config.at_efforts(cfg, config.load_session(cfg, name, required=False))
+        effort = config.worker_effort(cfg, model, "orchestrator")
+        model = config.model_name(cfg, model)
+        if effort and effort != "none":
+            model += f" {effort}"
     tops = [lines(name, model, word, last)[0] for last in lasts]
     _, _, key, title = lines(name, model, word, lasts[0])
     whys_drawn = [lines(name, model, word, "", version)[1] for version in versions]

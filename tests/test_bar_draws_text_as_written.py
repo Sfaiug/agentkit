@@ -81,7 +81,7 @@ class AsWritten(Sandbox):
                 cells = re.sub(r"#\[[^\]]*\]", "", bar)
                 self.assertEqual(len(cells), statusbar.CELLS)
                 statusbar._write("fix-api", "fable", "working", bars, self.cfg)
-                drawn = "Fable 5.1   " + cells.rstrip()
+                drawn = "Fable 5.1 xhigh   " + cells.rstrip()
                 line = self.screen(drawn)[0].rstrip()
                 self.assertTrue(line.endswith(drawn), line)
 

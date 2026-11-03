@@ -23,7 +23,7 @@ from fixtures.akbin import AK, Home
 from fixtures.gitrig import Rig
 
 TITLE = "Scoreboard (reported tokens; size now and 7 days ago)"
-LABELS = ["products", "ak", "tokens", "intent", "owner", "built", "waits", "merged", "parks", "sunk",
+LABELS = ["products", "ak", "tokens", "intent", "owner", "built", "waits", "merged", "checks", "parks", "sunk",
           "broke", "ak size"]
 # The host's own load never holds a run back or shows in the header: its readings are a roomy
 # machine's.
@@ -81,7 +81,7 @@ class AnEmptyBoard(unittest.TestCase):
         empty = {"products": "no runs ended", "ak": "no runs ended",
                  "tokens": "no tokens recorded", "intent": "not recorded",
                  "owner": "not recorded", "built": "no runs ended", "waits": "not recorded",
-                 "merged": "no merged change", "parks": "not recorded",
+                 "merged": "no merged change", "checks": "not recorded", "parks": "not recorded",
                  "sunk": "no tokens recorded", "broke": "no merged change"}
         rows = {label: (this, last) for label, this, last in scoreboard(self.done.out)}
         for label, words in empty.items():

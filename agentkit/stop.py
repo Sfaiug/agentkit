@@ -285,6 +285,39 @@ def stop_line(run_id, branch, kept):
     return f"stopped {run_id}: branch {branch} kept; relaunch with from: {branch}"
 
 
+def _stop_processes(run_id, state, log):
+    # The record already says stopped, so whatever notices the dead children aborts
+    # instead of replacing it. The scope and marker both catch escaped grandchildren.
+    pid = state.get("pid")
+    if orch.user_manager() and pid == os.getpid():
+        # this process is the run's loop, parking itself at its commit step (`leases.park`):
+        # a waited stop of its own unit would end it here, before its save raises the stop
+        orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
+    elif orch.user_manager():
+        unit = f"agentkit-run-{run_id}"
+        for suffix in (".scope", ".service"):
+            try:
+                subprocess.run(["systemctl", "--user", "stop", f"{unit}{suffix}"],
+                               capture_output=True, encoding="utf-8", errors="replace",
+                               env=orch.bus_env(), timeout=orch.SLICE_WAIT)
+            except (OSError, subprocess.SubprocessError):
+                pass
+    # Only a run of its own is ended by its tree: a task whose pid is still its live
+    # scheduler's is ended by its marker below, and a task resumed by hand -- a new
+    # pid under an old stamp -- is ended by its tree like any run of its own.
+    if not jobs.job_scheduler_owns(run_id, state) and isinstance(pid, int) and pid > 0 \
+            and pid != os.getpid() and run_record.process_active(state):
+        try:
+            watch.kill_tree(pid, log)
+        except (OSError, ValueError):
+            pass
+    for member in marker_pids(run_id):
+        try:
+            watch.kill_tree(member, log)
+        except (OSError, ValueError):
+            pass
+
+
 def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=None):
     """End that run: its record first (`stopped`, under the lock, `why` its error and `extra`
     on it), then its loop and everything it started, then its checkout unless `keep`.  The
@@ -314,6 +347,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
             current.pop(key, None)
         current.update(extra or {})
         run_record.save_state(run_dir, current)
+        _stop_processes(run_id, current, log)
         transitions.history_finish(current, log)
         try:
             handback.redress_seat(transitions.launched_session(current))
@@ -324,38 +358,6 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
         except (OSError, ValueError, KeyError, TypeError):
             pass
         state = current
-    # The scope where one exists, else the tree by the run's marker -- in practice both,
-    # so a scope that refused to stop still loses its processes, and a plain start loses
-    # nothing by the scope attempt missing.  The record already says stopped, so whatever
-    # notices the dead children aborts instead of replacing them.
-    pid = state.get("pid")
-    if orch.user_manager() and pid == os.getpid():
-        # this process is the run's loop, parking itself at its commit step (`leases.park`):
-        # a waited stop of its own unit would end it here, before its save raises the stop
-        orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
-    elif orch.user_manager():
-        unit = f"agentkit-run-{run_id}"
-        for suffix in (".scope", ".service"):
-            try:
-                subprocess.run(["systemctl", "--user", "stop", f"{unit}{suffix}"],
-                               capture_output=True, encoding="utf-8", errors="replace",
-                               env=orch.bus_env(), timeout=orch.SLICE_WAIT)
-            except (OSError, subprocess.SubprocessError):
-                pass
-    # Only a run of its own is ended by its tree: a task whose pid is still its live
-    # scheduler's is ended by its marker below, and a task resumed by hand -- a new
-    # pid under an old stamp -- is ended by its tree like any run of its own.
-    if not jobs.job_scheduler_owns(run_id, state) and isinstance(pid, int) and pid > 0 \
-            and pid != os.getpid() and run_record.process_active(state):
-        try:
-            watch.kill_tree(pid, log)
-        except (OSError, ValueError):
-            pass
-    for member in marker_pids(run_id):
-        try:
-            watch.kill_tree(member, log)
-        except (OSError, ValueError):
-            pass
     if not keep and not worktrees.stop_checkout(state, log):
         # The checkout is still there -- a live loop, or a git that said no --
         # so the branch stays with it, and the record says kept: `from:` carries
