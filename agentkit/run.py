@@ -2868,8 +2868,9 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
     A match is a run whose state is `running` or `queued` with a live process
     (`process_active`), in the task's repository, launched by anybody, where either a
-    done-when of the new task and of the running run name the same test file -- not a
-    general check, which three other jobs there whose titles do not name it ran too,
+    done-when of the new task and of the running run name the same test file absent
+    from the local origin default tip -- not a general check, which three other jobs
+    there whose titles do not name it ran too,
     unless both titles name it -- or the new task's resolved path is the `task_file`
     recorded at launch.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
@@ -2971,6 +2972,19 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 or len(named.get(name, set()) - {title, other_title}) < 3}
 
     mine_files = test_files(cmds)
+    if mine_files:
+        # Existing guards say nothing about which change a run builds. A partial clone
+        # may hold their paths but not their blobs, and neither lookup may fetch.
+        env = {"GIT_NO_LAZY_FETCH": "1"}
+        try:
+            tip = git(repo, "rev-parse", "--verify", "--quiet",
+                      f"{config.RULES_REF}^{{commit}}", check=False, env=env)
+            if tip:
+                mine_files = {name for name in mine_files
+                              if not git(repo, "--literal-pathspecs", "ls-tree", "-z",
+                                         "--full-tree", tip, "--", name, check=False, env=env)}
+        except (config.Error, OSError):
+            pass  # an unreadable tip keeps every candidate, as before
     task_path = Path(task_path).expanduser().resolve()
     matches = []
     for directory in run_record.run_dirs():
