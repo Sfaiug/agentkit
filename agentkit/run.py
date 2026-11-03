@@ -38,7 +38,7 @@ from .roundloop import (Loop, note, pin_checkout, pinned_head,
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,

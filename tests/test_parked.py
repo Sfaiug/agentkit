@@ -895,7 +895,7 @@ class Parked(unittest.TestCase):
         providers = self.providers(openai_used=50, meta_used=60)
         providers["xai"] = {"meters": [meter("weekly", 0, self.now + WEEK)]}
         # Without the saved session's list, the healthy Grok would win this handover.
-        self.assertEqual(run.next_executor(self.cfg, providers, {"anthropic"}, "spark",
+        self.assertEqual(staffing.next_executor(self.cfg, providers, {"anthropic"}, "spark",
                                             self.log, workers=["grok", "astra", "spark"])[0],
                          "grok")
 
