@@ -29,8 +29,9 @@ import time
 from . import config, gitcall, helper
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
-# Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
-# login and page the owner. A machine Google ends sooner takes no turn, which it would lose.
+# Seconds a lent login must last, else the turn runs here, unless the harness says fewer (`[worker]
+# lent_for`): a longer turn would end on an expired login. A machine Google ends sooner takes no
+# turn, which it would lose.
 LENT_FOR = 3600
 # Seconds at most a bound found in a turn's container holds it before the machine is asked again:
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
@@ -80,11 +81,11 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     if session and not held:
         return None
     cwd, out_dir = Path(cwd).absolute(), Path(out_dir).absolute()
-    logins = [*config.manifest_paths(config.manifest(harness).get("worker", {}).get("logins", ()),
-                                     env, cwd)]
+    facts = config.manifest(harness).get("worker", {})
+    logins = [*config.manifest_paths(facts.get("logins", ()), env, cwd)]
     seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
-        lent = _lend(entry, cmd[0], env, home)
+        lent = _lend(entry, cmd[0], env, home, facts.get("lent_for", LENT_FOR))
         if not lent:
             return None
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
@@ -212,7 +213,7 @@ def _following(entry, adapter, env, logins, seen, sent):
         os.close(renewals)
 
 
-def _lend(entry, adapter, env, home, lasting=LENT_FOR):
+def _lend(entry, adapter, env, home, lasting):
     """{path under `home`: its bytes} of the login the adapter lent there for the account `env`
     names, none where it lends none lasting `lasting` seconds. The account is `lend`'s alone: the
     machine's adapter runs with none, reading the copy where the usual login lives."""

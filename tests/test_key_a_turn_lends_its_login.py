@@ -1,6 +1,6 @@
 """A model turn on a machine reads a copy of its account's login, sent over ssh's stdin and gone
-from the machine before `collect` can send anything; a login that lapses within the hour or cannot
-be lent keeps the turn here; and a turn starting holds two of the machine's CPUs, not half of it.
+from the machine before `collect` can send anything; a login that lapses too soon for its harness
+or cannot be lent keeps the turn here; and a turn starting holds two of the machine's CPUs, not half of it.
 
 Black-box, as tests/test_key_a_turn_runs_on_a_machine.py, on its machine, with its fake adapters,
 whose `lend` is the real tools/lend.py. ssh and docker log their arguments, and ssh what the HOME
@@ -11,7 +11,6 @@ says where it ran, which account's login it read and its environment, and leaves
 import json
 from pathlib import Path
 import sys
-import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -55,7 +54,7 @@ exec "$0.real" "$@"
 
 
 class ATurnLendsItsLogin(unittest.TestCase):
-    def run_task(self, lend=None):
+    def run_task(self, lend=None, lasts=None):
         """The finished run's directory, and the machine with its logs."""
         home = Home()
         self.addCleanup(home.close)
@@ -70,6 +69,8 @@ class ATurnLendsItsLogin(unittest.TestCase):
         for fake in fakes.values():
             if lend:
                 fake.answer("lend", *lend)
+            if lasts:
+                fake.lasts(lasts)
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
             home.fake(harness, f"#!/bin/sh\necho {version}\n")
@@ -127,10 +128,14 @@ class ATurnLendsItsLogin(unittest.TestCase):
         self.assertEqual([path.name for path in tree.iterdir()
                           if path.is_dir() and path.name not in ("harness", "mirrors")], [])
 
-    def test_a_login_that_lapses_within_the_hour_or_cannot_be_lent_keeps_the_turn_here(self):
-        for lend in ((str(int(time.time()) + 1800),), ("", 1)):
-            with self.subTest(lend=lend):
-                run, machine = self.run_task(lend=lend)
+    def test_half_an_hour_of_login_takes_a_claude_turn_out_and_keeps_another_harness_s_here(self):
+        run, _ = self.run_task(lasts=1800)
+        self.assertEqual(self.said(run, "where"), ["docker", "here"])
+
+    def test_a_login_about_to_lapse_or_that_cannot_be_lent_keeps_the_turn_here(self):
+        for given in ({"lasts": 200}, {"lend": ("", 1)}):
+            with self.subTest(**given):
+                run, machine = self.run_task(**given)
                 self.assertEqual(self.said(run, "where"), ["here"] * 2)
                 self.assertEqual([*machine.glob("docker/roots/*-turn")], [])
                 # no parcel with a HOME, a turn's, ever reached the machine
