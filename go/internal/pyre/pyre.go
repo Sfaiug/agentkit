@@ -211,9 +211,10 @@ func class(source string, folding bool) (string, int, error) {
 		low, size, known := atom(source[at:], true)
 		set, complement := sets[source[at+size-1]], sets[source[at+size-1]|0x20]
 		switch at += size; {
-		case known && len(source[at:]) > 1 && source[at] == '-' && source[at+1] != ']':
-			high, size, known := atom(source[at+1:], true)
-			if !known || high < low {
+		case len(source[at:]) > 1 && source[at] == '-' && source[at+1] != ']':
+			// a range, as Python reads one, whatever its ends; a set at either is a bad one
+			high, size, highKnown := atom(source[at+1:], true)
+			if !known || !highKnown || high < low {
 				return "", 0, fmt.Errorf("bad character range")
 			}
 			for char := low; char <= high; char++ {
