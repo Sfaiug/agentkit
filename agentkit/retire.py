@@ -113,6 +113,27 @@ def check(row, proven):
             f"{shlex.quote(str(row['id']))} {'proven' if proven else 'unproven'}")
 
 
+def vet_check(checkout, command):
+    """Refuse our proven check while the list dates its proof in the future: ak plans that
+    line when it is proven, so a seat never holds work that only time can finish."""
+    try:
+        switch, kind = shlex.split(command)[-2:]
+    except ValueError:
+        return
+    if kind != "proven" or command != check({"id": switch}, True):
+        return
+    from . import menu
+    rows = menu.switch_rows(menu.features_run(checkout, "list")[0])
+    now = time.time()
+    for row in rows or []:
+        at = since(row)
+        if str(row["id"]) == switch and at is not None and now - at < PROVEN:
+            day = datetime.fromtimestamp(at + PROVEN, timezone.utc).date()
+            raise config.Error(f"{checkout.name}'s switch {switch} is not yet proven; ak plans "
+                               "this line itself into a seat at work once it is proven on "
+                               f"{day}; the seat holds no line for it before then")
+
+
 def check_main():
     """A plan line's check, in the project's checkout: the switch id and `proven` or `unproven`
     on the command line, the list read through its one home (`menu.features_run`,
