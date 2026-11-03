@@ -52,13 +52,13 @@ func (r *reads) staleWorktree(wt string) (Item, bool) {
 	}
 	dir := filepath.Join(runsDir(), filepath.Base(wt))
 	if !present(filepath.Join(dir, "run.json")) {
-		orphan := !writing(dir) && !busy(dir, r.paths) && expired(lastUsed(wt), r.now, day) && !holdsWork(wt)
+		orphan := !run.Writing(dir) && !busy(dir, r.paths) && expired(lastUsed(wt), r.now, day) && !holdsWork(wt)
 		return Item{"remove", "orphan-worktree", wt, "no run record"}, orphan
 	}
 	record := r.record(dir)
 	if record == nil || record.Get("worktree") != wt || record.Str("state") != "pass" || record.Truthy("merged") ||
 		!record.Truthy("merge_note") && !record.Truthy("no_merge") || record.Truthy("scratch") || !provablyFinal(record) ||
-		!expired(record.Get("finished_at"), r.now, gcAge) || writing(dir) {
+		!expired(record.Get("finished_at"), r.now, gcAge) || run.Writing(dir) {
 		return Item{}, false
 	}
 	finished, _ := run.Num(record.Get("finished_at"))

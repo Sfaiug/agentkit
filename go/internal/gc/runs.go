@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/job"
 	"agentkit/internal/run"
 )
 
@@ -38,7 +39,7 @@ func (r *reads) sweep() []Item {
 	for _, dir := range children(runsDir()) {
 		record := r.record(dir)
 		if record == nil || record.Truthy("scratch") || record.Str("state") != "pass" || !record.Truthy("merged") ||
-			!provablyFinal(record) || writing(dir) {
+			!provablyFinal(record) || run.Writing(dir) {
 			continue
 		}
 		repo, worktree := record.Str("repo"), record.Get("worktree")
@@ -78,12 +79,12 @@ func (r *reads) sweep() []Item {
 // goneJobs is a stop for every job nobody is coming back for, planned before any run goes: the
 // old-run rule's removal of a task's run would take its last write with it (gc.gone_jobs).
 func (r *reads) goneJobs() []Item {
-	if !safe(jobsDir()) {
+	if !safe(job.Jobs()) {
 		return nil
 	}
 	var found []Item
-	for _, dir := range children(jobsDir()) {
-		if job := r.json(filepath.Join(dir, "job.json")); job != nil && isList(job.Get("tasks")) && r.jobAgedOut(dir, job) {
+	for _, dir := range children(job.Jobs()) {
+		if job := r.json(job.ReceiptPath(filepath.Base(dir))); job != nil && isList(job.Get("tasks")) && r.jobAgedOut(dir, job) {
 			found = append(found, Item{"stop", "gone-job", dir, "the job's launcher gone and nothing written for 30 days"})
 		}
 	}
@@ -154,7 +155,7 @@ func (r *reads) runs() []Item {
 		if record == nil {
 			continue
 		}
-		quiet := !writerActive(record) && !busy(dir, r.paths) && !writing(dir)
+		quiet := !writerActive(record) && !busy(dir, r.paths) && !run.Writing(dir)
 		// a throwaway repo's run is the smoke suite's own: on nobody's list, naming no project
 		if throwaway(record.Get("repo")) && expired(first(record, "finished_at", "started_at"), r.now, r.age()) &&
 			!record.Truthy("notification_pending") && !record.Truthy("pending_inbox") && !record.Truthy("handback_pending") &&
@@ -210,12 +211,12 @@ func (r *reads) runs() []Item {
 
 // finishedJobs is each job every task of which ended, its age past (gc.gc_candidates).
 func (r *reads) finishedJobs() []Item {
-	if !safe(jobsDir()) {
+	if !safe(job.Jobs()) {
 		return nil
 	}
 	var found []Item
-	for _, dir := range children(jobsDir()) {
-		job := r.json(filepath.Join(dir, "job.json"))
+	for _, dir := range children(job.Jobs()) {
+		job := r.json(job.ReceiptPath(filepath.Base(dir)))
 		if job == nil || len(job.List("tasks")) == 0 || slices.ContainsFunc(job.List("tasks"), func(each any) bool {
 			task, ok := each.(*run.Object)
 			return !ok || !slices.Contains(jobEnded, task.Str("state"))

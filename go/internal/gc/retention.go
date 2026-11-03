@@ -355,11 +355,6 @@ func pidGone(record *run.Object) bool {
 	return !writerActive(record)
 }
 
-// writing is a record's write under way (record.writing).
-func writing(dir string) bool {
-	return present(filepath.Join(dir, "run.tmp")) || present(filepath.Join(dir, "delivery.tmp"))
-}
-
 // marker is where an artifact's receipt is kept (retention.marker).
 func marker(path string) string {
 	if isDir(path) {

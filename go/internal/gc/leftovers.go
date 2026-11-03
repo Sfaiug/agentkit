@@ -9,10 +9,11 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
+	"agentkit/internal/job"
 	"agentkit/internal/run"
 )
 
@@ -113,18 +114,13 @@ func (r *reads) seatGone(path string) (string, bool) {
 }
 
 // harnessEntries is each harness file whose trust or MCP entries name a gone smoke sandbox or
-// checkout (retention.harness_plan): ~/.claude.json and ~/.codex/config.toml, each with its
-// tables.
+// checkout (retention.harness_plan).
 func (r *reads) harnessEntries() []Item {
-	home := config.UserHome()
 	var found []Item
-	for _, file := range [][3]string{
-		{filepath.Join(home, ".claude.json"), "projects", "mcpServers"},
-		{filepath.Join(home, ".codex", "config.toml"), "projects", "mcp_servers"},
-	} {
-		if trust, mcp := r.staleEntries(file[0], file[1], file[2]); trust+mcp > 0 {
+	for _, file := range harness.ConfigEntries() {
+		if trust, mcp := r.staleEntries(file.File, file.Trust, file.MCP); trust+mcp > 0 {
 			why := fmt.Sprintf("%d trust entries and %d MCP servers name a gone smoke sandbox or checkout", trust, mcp)
-			found = append(found, Item{"prune", "harness-entries", file[0], why})
+			found = append(found, Item{"prune", "harness-entries", file.File, why})
 		}
 	}
 	return found
@@ -232,7 +228,7 @@ func (r *reads) tmpBase(base string) []Item {
 		if protected(name) {
 			continue
 		}
-		if claudeScratch(name) {
+		if harness.OwnsTmp(name) {
 			r.python = true
 			continue
 		}
@@ -247,20 +243,6 @@ func (r *reads) tmpBase(base string) []Item {
 // protected is a dot entry, a tmux socket or a systemd-private folder: never the collector's.
 func protected(name string) bool {
 	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "tmux-") || strings.HasPrefix(name, "systemd-private-")
-}
-
-// claudeScratch is a `claude-<uid>` folder where ak runs Claude, whose plugin owns it
-// (harness/claude.tmp_rule): it applies wherever the claude adapter is installed.
-func claudeScratch(name string) bool {
-	uid, ok := strings.CutPrefix(name, "claude-")
-	if !ok || uid == "" || strings.IndexFunc(uid, func(r rune) bool { return !unicode.IsDigit(r) }) >= 0 {
-		return false
-	}
-	roots := []string{filepath.Join(config.Repo(), "adapters")}
-	if override := os.Getenv("AGENTKIT_ADAPTER_DIR"); override != "" {
-		roots = append(roots, config.Expand(override))
-	}
-	return slices.ContainsFunc(roots, func(root string) bool { return present(filepath.Join(root, "claude.sh")) })
 }
 
 // untouched is why that entry goes, or "" where it stays: ours alone, nothing in it changed for
@@ -418,11 +400,11 @@ func (r *reads) homeFolder(folder string, age float64, paths []string) []Item {
 // taskFiles is every task file a job still names: a queued task's is read when its turn comes.
 func (r *reads) taskFiles() []string {
 	var named []string
-	if !safe(jobsDir()) {
+	if !safe(job.Jobs()) {
 		return nil
 	}
-	for _, dir := range children(jobsDir()) {
-		if job := r.json(filepath.Join(dir, "job.json")); job != nil {
+	for _, dir := range children(job.Jobs()) {
+		if job := r.json(job.ReceiptPath(filepath.Base(dir))); job != nil {
 			for _, task := range job.List("tasks") {
 				if task, ok := task.(*run.Object); ok && isText(task.Get("task_file")) {
 					named = append(named, task.Str("task_file"))
@@ -439,11 +421,11 @@ func isText(value any) bool {
 }
 
 // conversations is each conversation a harness keeps and never ends itself that nobody wrote to
-// for a run directory's age and nobody holds open (gc.stale_conversations).  OpenCode keeps its
-// own in SQLite, which Go's standard library does not read: where it keeps any, the plan is
+// for a run directory's age and nobody holds open (gc.stale_conversations).  A harness keeping
+// its own as rows of a SQLite file, which Go's standard library does not read, makes the plan
 // Python's.
 func (r *reads) conversations() []Item {
-	if isFile(opencodeDatabase()) {
+	if slices.ContainsFunc(harness.ConversationDatabases(), isFile) {
 		r.python = true
 		return nil
 	}
@@ -452,61 +434,14 @@ func (r *reads) conversations() []Item {
 		return nil
 	}
 	var found []Item
-	for _, store := range conversationStores() {
-		for _, path := range glob(store[0], store[1]) {
+	for _, store := range harness.ConversationStores() {
+		for _, path := range glob(store.Root, store.Pattern) {
 			if why := r.conversationStale(path, paths); why != "" {
 				found = append(found, Item{"remove", "conversation", path, why})
 			}
 		}
 	}
 	return found
-}
-
-// opencodeDatabase is where OpenCode keeps every session (harness/opencode.database).
-func opencodeDatabase() string {
-	share := os.Getenv("XDG_DATA_HOME")
-	if share == "" {
-		share = filepath.Join(config.UserHome(), ".local", "share")
-	}
-	name, set := os.LookupEnv("OPENCODE_DB")
-	if !set {
-		name = "opencode.db"
-	}
-	if filepath.IsAbs(name) {
-		return name
-	}
-	return filepath.Join(share, "opencode", name)
-}
-
-// conversationStores is where each harness that never ends a conversation keeps them, a folder
-// and the pattern of one conversation under it, in the plugins' order: Antigravity's, Codex's
-// and each Codex seat's, each Grok home's, and Muse's (harness.conversation_stores).
-func conversationStores() [][2]string {
-	home := config.UserHome()
-	stores := [][2]string{{filepath.Join(home, ".gemini", "antigravity-cli", "conversations"), "*.db"}}
-	rollouts := "*/*/*/rollout-*.jsonl"
-	stores = append(stores, [2]string{filepath.Join(home, ".codex", "sessions"), rollouts})
-	for _, seat := range glob(filepath.Join(home, ".codex", "agentkit-seats"), "*/") {
-		stores = append(stores, [2]string{filepath.Join(seat, "sessions"), rollouts},
-			[2]string{filepath.Join(seat, "archived_sessions"), rollouts})
-	}
-	grok := []string{filepath.Join(home, ".grok")}
-	names, _ := listdir(home)
-	for _, name := range names {
-		if strings.HasPrefix(name, ".grok-") {
-			grok = append(grok, filepath.Join(home, name))
-		}
-	}
-	for _, each := range grok {
-		if !isLink(filepath.Join(each, "sessions")) {
-			stores = append(stores, [2]string{filepath.Join(each, "sessions"), "*/*/"})
-		}
-	}
-	share := os.Getenv("XDG_DATA_HOME")
-	if share == "" {
-		share = filepath.Join(home, ".local", "share")
-	}
-	return append(stores, [2]string{filepath.Join(share, "muse", "sessions"), "[0-9]*/[0-9]*/[0-9]*/*/"})
 }
 
 // glob is what Python's Path.glob finds under root, in Path order: each `*` any name, dot names

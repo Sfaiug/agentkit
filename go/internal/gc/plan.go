@@ -192,6 +192,5 @@ func diskPressure() bool {
 
 // ak's own folders.
 func runsDir() string { return filepath.Join(config.Home(), "runs") }
-func jobsDir() string { return filepath.Join(config.Home(), "jobs") }
 func wtDir() string   { return filepath.Join(config.Home(), "wt") }
 func tmpDir() string  { return filepath.Join(config.Home(), "tmp") }
