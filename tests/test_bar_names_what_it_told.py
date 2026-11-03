@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import look, orch, statusbar, watch
+from agentkit import config, look, orch, statusbar, watch
 from agentkit.guard import commands
 
 SEATS = ("acme", "beta", "gamma")
@@ -75,6 +75,16 @@ class NamesWhatItTold(Sandbox):
         self.assertIn("1 other seat needs you", self.option("acme", statusbar.NEED))
         self.calls.clear()
         self.look()      # each own options' digest is true still, and each right end's
+        self.assertEqual(self.written(), set())
+
+    def test_an_effort_change_is_told_once_with_the_same_word_and_model(self):
+        config.save_session(self.cfg, "acme", "fable", ["fable"])
+        config.change_efforts("acme", lambda record: {"fable": {"effort": "low"}})
+        self.look()
+        self.assertEqual(self.written(), {"=acme:"})
+        self.assertIn("Fable 5.1 low#[default]", self.option("acme", statusbar.TOP))
+        self.calls.clear()
+        self.look()
         self.assertEqual(self.written(), set())
 
     def test_a_word_that_moves_mid_pass_is_read_by_the_write_after_it(self):

@@ -53,7 +53,8 @@ class Bar(unittest.TestCase):
         return [row.rstrip() for row in self.screen.rstrip("\n").split("\n")[-2:]]
 
 
-# A seat's own bar is that row, still, its line open, never repeating chat's question.
+# A seat's bar is that row, still, its line open, never repeating chat's question;
+# it also names its orchestrator's effort. [3 Nov 2026]
 # [2, 14, 19, 23, 26 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AQuestionSeat(Bar):
@@ -64,7 +65,7 @@ class AQuestionSeat(Bar):
         return home.ak("orch", "why", "acme")
 
     def test_line_one_is_its_word_its_name_and_its_model(self):
-        self.assertRegex(self.bar()[0], r"^ *! needs you +acme +Opus 5\.5$")
+        self.assertRegex(self.bar()[0], r"^ *! needs you +acme +Opus 5\.5 xhigh$")
 
     def test_line_two_is_who_builds_and_reviews_with_the_menu_key_at_its_end(self):
         line = self.bar()[1]
@@ -91,7 +92,7 @@ class AWorkingSeatWithAPlan(Bar):
                    "- [x] the parser parses\n- [ ] the parser reports\n")
 
     def test_the_tick_draws_its_word_name_model_and_its_plan_as_a_count(self):
-        self.assertRegex(self.bar()[0], r"^ *● working +wrk +Opus 5\.5 +\S+ 1 of 2$")
+        self.assertRegex(self.bar()[0], r"^ *● working +wrk +Opus 5\.5 xhigh +\S+ 1 of 2$")
         self.assertRegex(self.bar()[1], r"^ *Opus 5\.5 ⚒◎ +" + KEY + "$")
 
     # never a percentage or a finish time. [2, 14, 19, 23, 26 Oct 2026]
