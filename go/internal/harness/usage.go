@@ -25,7 +25,7 @@ func UsageRecorded(name, state string, now float64) []*run.Object {
 	return nil
 }
 
-// museStem is what one login's quota record and probe cache are named after.
+// museStem is what one login's refusal record and probe cache are named after.
 func museStem(account string) string {
 	if account != "" {
 		return "usage-meta." + account
@@ -56,7 +56,7 @@ func museUsageTaken(data *run.Object, state string) any {
 	return nil
 }
 
-// museUsageRecorded is the quota imported from a refused turn's adapter report: each meter is trusted
+// museUsageRecorded is the meters imported from a refused turn's adapter report: each meter is trusted
 // for at most its own window, as the adapter's `usage` verb trusts it.
 func museUsageRecorded(state string, now float64) []*run.Object {
 	path := filepath.Join(state, museStem("")+".json")

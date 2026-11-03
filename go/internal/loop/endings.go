@@ -8,11 +8,11 @@ import (
 	"agentkit/internal/worker"
 )
 
-// An exhausted is work a later run can pick up: a provider spent, with quota the window it waits on,
+// An exhausted is work a later run can pick up: a provider spent, with window the one it waits on,
 // or nobody left to take the role.  Never an error, a remedy nothing can act on.
 type exhausted struct {
-	why   string
-	quota bool
+	why    string
+	window bool
 }
 
 func (e *exhausted) Error() string { return e.why }
@@ -41,17 +41,17 @@ func parked(err error) (string, func(*run.Object), bool) {
 			run.SetAll(record, "state", "interrupted", "interrupted_at", clock(), "interruption_reason", killed.why, "recovery_pending", true)
 		}, true
 	case errors.As(err, &tired):
-		return "exhausted: " + tired.why, func(record *run.Object) { parkExhausted(record, tired.why, tired.quota) }, true
+		return "exhausted: " + tired.why, func(record *run.Object) { parkExhausted(record, tired.why, tired.window) }, true
 	case errors.As(err, &stopped):
 		return "exhausted: " + stopped.Why, func(record *run.Object) { parkExhausted(record, stopped.Why, false) }, true
 	}
 	return "", nil, false
 }
 
-// parkExhausted is Python's mark_state and park_exhausted: only a quota stop waits on a window.
-func parkExhausted(record *run.Object, why string, quota bool) {
+// parkExhausted is Python's mark_state and park_exhausted: only a spent provider waits on a window.
+func parkExhausted(record *run.Object, why string, window bool) {
 	markState(record, "exhausted", why)
-	if quota {
+	if window {
 		record.Set("quota_dry", true)
 		return
 	}

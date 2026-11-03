@@ -148,7 +148,7 @@ func (l *loop) readyReviewers(failed []any) (all, independent []string, err erro
 // fallBack is the road a dry, twice-silent or twice-transient reviewer takes, Python's fall_back:
 // the name of the next one's directory, or an exhausted run.  Only those that failed this round stay
 // out, and only a reviewer that cannot come back settles for the executor's own model.
-func (l *loop) fallBack(reason, out string, allowSelf, quota bool) (string, error) {
+func (l *loop) fallBack(reason, out string, allowSelf, window bool) (string, error) {
 	var failed []any
 	if err := l.save(func(record *run.Object) {
 		pending := record.Dict("review_pending")
@@ -169,7 +169,7 @@ func (l *loop) fallBack(reason, out string, allowSelf, quota bool) (string, erro
 		offered = independent
 	}
 	if len(offered) == 0 {
-		return "", &exhausted{fmt.Sprintf("reviewer %s %s and no eligible reviewer is left to review; waiting for review. See %s*/stderr.log", l.reviewer, reason, out), quota}
+		return "", &exhausted{fmt.Sprintf("reviewer %s %s and no eligible reviewer is left to review; waiting for review. See %s*/stderr.log", l.reviewer, reason, out), window}
 	}
 	l.reviewer, l.reviewSession = offered[0], ""
 	if err := l.save(func(record *run.Object) { run.SetAll(record, "reviewer", l.reviewer, "review_session", nil) }); err != nil {

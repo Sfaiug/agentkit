@@ -46,7 +46,7 @@ type plugin struct {
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool
 	// usageTaken and usageRecorded are UsageTaken's and UsageRecorded's: nil where a usage read
-	// says when it measured and the harness writes no refused quota down.
+	// says when it measured and the harness writes no refusal's meters down.
 	usageTaken    func(data *run.Object, state string) any
 	usageRecorded func(state string, now float64) []*run.Object
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.

@@ -10,7 +10,7 @@ import (
 // provider: long enough that nothing hands the same work straight back to it.
 const dryFor = 3600.0
 
-// MarkExhausted parks a provider that has just refused a worker until it says it has capacity
+// MarkExhausted parks a provider that has just refused a worker until it says it can work
 // again, the deadline it recorded, Python's usage.mark_exhausted: until is the harness's own "try
 // again at", 0 where its refusal named none, else the soonest of the provider's own windows still
 // to roll over, dryFor at most where no meter shows the refusal, as a window with room did not

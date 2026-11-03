@@ -14,7 +14,7 @@ func TestAnEndingIsTheStrongestThingItSays(t *testing.T) {
 		{"acme: unknown model big", false, Fault, "unknown model"},
 		{"acme: unknown model big", true, Unsaid, ""},
 		{"unknown model big; Service unavailable", false, Outage, "Service unavailable"},
-		{"402 payment required; API Error: 529", true, Quota, "402"},
+		{"402 payment required; API Error: 529", true, Spent, "402"},
 		{"API Error: 529 overloaded", true, Refused, "API Error"},
 		{"overloaded", true, Outage, "overloaded"},
 		{"wrote retry.txt", true, Unsaid, ""},

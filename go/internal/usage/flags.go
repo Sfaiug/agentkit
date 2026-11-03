@@ -26,7 +26,7 @@ func gateFlags(providers *run.Object, now float64, models map[string]config.Mode
 		if !ok {
 			continue
 		}
-		// a quota the harness recorded when it refused a run is the reading at once: a file and no
+		// meters the harness recorded when it refused a run are the reading at once: a file and no
 		// request, naming only the window it hit, so the week beside it stays
 		if recorded := harness.UsageRecorded(prov.Str("harness"), state(), now); len(recorded) > 0 {
 			fresh := []any{}

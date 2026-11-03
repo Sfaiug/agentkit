@@ -277,7 +277,7 @@ func (c *call) harnessWords(t *try) (bool, error) {
 	terminal, _ := config.Words(c.model.Harness, "stall", "terminal")
 	said := harnessSaid(t.out, t.text, strings.Join(terminal, ""), t.code == 0)
 	ending, mark := harness.Ending(c.model.Harness, said, true)
-	if ending == harness.Unsaid || ending != harness.Quota && !t.silent && killedWord(t.code) != "" {
+	if ending == harness.Unsaid || ending != harness.Spent && !t.silent && killedWord(t.code) != "" {
 		return false, nil
 	}
 	message := cmp.Or(said, mark)
@@ -291,7 +291,7 @@ func (c *call) harnessWords(t *try) (bool, error) {
 		message = cmp.Or(recordText(decoded), message)
 	}
 	message = cmp.Or(strings.Join(strings.Fields(message), " "), mark)
-	if ending != harness.Quota {
+	if ending != harness.Spent {
 		return c.waitOut(fmt.Sprintf("transient %s: %s", quoted(mark), message))
 	}
 	until := usage.MarkExhausted(c.model.Provider, tryAgainAt(said))
