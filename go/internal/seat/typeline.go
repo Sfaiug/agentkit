@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -281,10 +282,27 @@ func (at seatAt) unasked() bool {
 	return file != nil && file.Truthy("unasked")
 }
 
-// editorKept is whether ak's editor keeps text set aside, or tmux cannot say (watch._editor_kept).
+// editorKept is whether ak's editor keeps text of this seat or its pinned pane, or tmux cannot
+// say (watch._editor_kept).
 func (at seatAt) editorKept() bool {
 	names, err := tmux.Ask(tmux.Own(), "list-buffers", "-F", "#{buffer_name}")
-	return err != nil || strings.Contains("\n"+names, "\nak_aside-")
+	if err != nil {
+		return true
+	}
+	if !strings.Contains("\n"+names, "\nak_aside-") {
+		return false
+	}
+	panes, err := tmux.Ask(tmux.Own(), "list-panes", "-s", "-t", "="+at.name+":", "-F", "#{pane_id}")
+	if err != nil {
+		return true
+	}
+	buffers := strings.Split(names, "\n")
+	for _, pane := range strings.Fields(panes + " " + at.pane) {
+		if slices.Contains(buffers, "ak_aside-"+strings.TrimPrefix(pane, "%")) {
+			return true
+		}
+	}
+	return false
 }
 
 // unread is watch.pane_unread: either terminal of the pane holds input its reader has not read.
