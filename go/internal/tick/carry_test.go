@@ -300,6 +300,30 @@ func TestThroughSaysWhatARowDid(t *testing.T) {
 	}
 }
 
+// A row that finds what Go does not carry, by its read or by its step, ends the tick there, what
+// the rows before did standing and none after asked.
+func TestThroughEndsAtTheRowThatFindsWork(t *testing.T) {
+	idleHome(t, answers)
+	for name, ending := range map[string]pass{
+		"its read": {"ends", false, func() bool { return false }, nil},
+		"its step": {"ends", false, nil, func() error { return errLeft }},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var ran []string
+			row := func(name string) pass {
+				return pass{name, false, func() bool { ran = append(ran, name+" read"); return true }, func() error {
+					ran = append(ran, name)
+					return nil
+				}}
+			}
+			tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
+			if tick.through([]pass{row("before"), ending, row("after")}) || !reflect.DeepEqual(ran, []string{"before read", "before"}) {
+				t.Errorf("ran %v", ran)
+			}
+		})
+	}
+}
+
 // A pull request on another's repository is Python's to follow, past what the tick has written;
 // the account's own, or an empty search, or a search that fails, leaves nothing to follow.
 func TestWhatTheSearchFinds(t *testing.T) {

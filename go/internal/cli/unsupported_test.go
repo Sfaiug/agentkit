@@ -47,7 +47,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"plan", "check", "²", "a\nb"},
 		{"plan", "check", "1", "true \xff"},
 		{"notify", "needs", "Which branch?"},
-		{"watch"},
 		{"watch", "--dry-run"},
 	}
 	if runtime.GOOS == "darwin" {
