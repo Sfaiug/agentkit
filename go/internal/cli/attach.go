@@ -16,12 +16,15 @@ import (
 
 func init() { commands["attach"] = attach }
 
-// attach is the hop a client's `ak` makes to its server, Python's menu.client.  The menu stays
-// Python's, and so does a hop that starts something first: the update on the live checkout, the
-// bridge on a Mac.
+// attach is the hop a client's `ak` makes to its server, Python's menu.client, or with none named
+// and nothing asked the ak screen itself.  A hop that starts something first stays Python's: the
+// update on the live checkout, the bridge on a Mac.
 func attach(args []string, out, errOut io.Writer) int {
 	dry := contains(args, "--dry-run")
 	alias := serverAlias()
+	if alias == "" && len(args) == 0 {
+		return akScreen(errOut)
+	}
 	if onLiveCheckout() || alias == "" || contains(args, "--client") || contains(args, "--overlay") || !dry && runtime.GOOS == "darwin" {
 		return notImplemented(errOut, "attach")
 	}

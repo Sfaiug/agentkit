@@ -202,10 +202,10 @@ func liveSeat(name string, now time.Time) (Home, Seat, bool) {
 	return home, home.Seats[at], true
 }
 
-// lookedLive is the look at a seat its panes still run on, under its announce lock from the reading
+// LookedLive is the look at a seat its panes still run on, under its announce lock from the reading
 // to the word, as the wait for that lock can outlast what the home held: what the listing
 // reconciles, watch.announce_state's look, what its last answer moved, and the word published.
-func lookedLive(state, name string) (Seat, error) {
+func LookedLive(state, name string) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
 		now := time.Now()
@@ -236,7 +236,7 @@ func lookedLive(state, name string) (Seat, error) {
 // explainLive is orch.explain of a seat its panes still run on: the look, and what decided it read
 // back as every other reader reads it.
 func explainLive(state, name string) ([]string, error) {
-	seat, err := lookedLive(state, name)
+	seat, err := LookedLive(state, name)
 	if err != nil {
 		return nil, err
 	}
