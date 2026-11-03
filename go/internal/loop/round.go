@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -52,13 +53,26 @@ func (l *loop) execute(word, name, body, findings string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	ask, err := l.goOn(name, word, body, l.execSession)
+	if err != nil {
+		return "", err
+	}
+	l.execSession = ask.session
+	if ask.cut != "" {
+		if err := l.keepDisputes(ask.cut); err != nil {
+			return "", err
+		}
+	}
 	if err := l.step("executor", "verdict", nil, "review", nil, "exec_session", none(l.execSession), "review_session", none(l.reviewSession),
 		"executor_effort", model.TurnEffort(false)); err != nil {
 		return "", err
 	}
+	if err := l.notice(ask); err != nil {
+		return "", err
+	}
 	l.place.beforeTurn(l)
-	out := filepath.Join(l.roundDir(), name)
-	session, failed := l.turn(l.workspace, l.executor, model, word, l.place.role(word), body, out, l.execSession, findings)
+	session, failed := l.turn(l.workspace, l.executor, model, word, l.place.role(word), ask.body, ask.out, ask.session, findings, ask.previous)
+	out := ask.out
 	if err := l.keepDisputes(out); failed == nil {
 		failed = err
 	}
@@ -101,7 +115,7 @@ func (e *exited) Error() string { return e.err.Error() }
 // turn runs one turn of the model from cwd in its out directory on that conversation, the
 // conversation it leaves once it ended well enough to read: any other ending is a road Go does not
 // carry out.
-func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out, session, findings string) (string, error) {
+func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out, session, findings, previous string) (string, error) {
 	if err := l.stopCheck(); err != nil {
 		return "", err
 	}
@@ -117,14 +131,14 @@ func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out,
 	}
 	who := word + " " + name
 	code, left, err := worker.Turn(name, role, body, cwd, out, session, worker.Given{
-		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines, Findings: findings,
+		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines, Findings: findings, Previous: previous,
 		Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
 	}, stampedLog{l.dir})
 	stderr := filepath.Join(out, "stderr.log")
 	var login *worker.LoginExpired
 	switch {
 	case errors.Is(err, worker.ErrInterrupted):
-		return "", context.Cause(l.ctx)
+		return "", cmp.Or(context.Cause(l.ctx), err)
 	case errors.Is(err, worker.ErrSilent):
 		return "", notYet(fmt.Sprintf("%s emitted no event for %g min and was stopped; see %s", who, l.silence.Minutes(), stderr), "a silent turn")
 	case errors.As(err, &login):

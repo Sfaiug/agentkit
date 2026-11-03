@@ -15,6 +15,7 @@ const File = "hand-in.jsonl"
 // A Review is what a turn handed in, Python's hand_in.Review, its turn's row aside.
 type Review struct {
 	Records []*run.Object
+	Handed  any // the blocking findings handed to the turn
 }
 
 var closings = []string{"done", "blocked", "not-needed"}
@@ -71,7 +72,7 @@ func Read(path string) (*Review, bool) {
 			return empty, true
 		}
 	}
-	return &Review{records}, true
+	return &Review{records, rows[0].Get("findings")}, true
 }
 
 // allowed is whether a turn of that role hands in that kind of record.

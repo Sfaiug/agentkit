@@ -263,12 +263,10 @@ func DeathLines(record *Object) []string {
 // WorkspaceLocation is `present`, or what a missing checkout still leaves behind: its branch,
 // unless a stop without --keep, a merge, a run found not needed or a seat's stop took it.
 func WorkspaceLocation(record *Object, present bool) string {
-	state := record.Str("state")
 	switch {
 	case present:
 		return "present"
-	case state == "stopped" && !record.Truthy("stop_kept") || state == "not_needed" ||
-		record.Truthy("merged") || record.Truthy("branch_removed"):
+	case branchGone(record):
 		return "removed; branch removed"
 	}
 	return "removed; branch/PR retained"
@@ -355,6 +353,10 @@ func PolicyRounds(record *Object) (int, error) {
 // ChangeLeft is the rounds the run may still have, asked less what its other runs and its own
 // (own) spent of its change's budget, and why none, as Python's change_budget.
 func ChangeLeft(record *Object, dir string, asked, own int, now time.Time) (int, string, error) {
+	return left(record, dir, asked, own, "this change", now)
+}
+
+func left(record *Object, dir string, asked, own int, what string, now time.Time) (int, string, error) {
 	budget, err := PolicyRounds(record)
 	if err != nil {
 		return 0, "", err
@@ -370,7 +372,7 @@ func ChangeLeft(record *Object, dir string, asked, own int, now time.Time) (int,
 	if runs == 1 {
 		plural = ""
 	}
-	return 0, fmt.Sprintf("%d review rounds spent on this change across %d run%s: %d per pull request is the budget; split or redesign it", spent+own, runs, plural, budget), nil
+	return 0, fmt.Sprintf("%d review rounds spent on %s across %d run%s: %d per pull request is the budget; split or redesign it", spent+own, what, runs, plural, budget), nil
 }
 
 // lineageCap is the rounds that run may have in all: the change's budget less what its other

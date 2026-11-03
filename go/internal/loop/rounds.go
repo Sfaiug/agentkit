@@ -2,6 +2,7 @@ package loop
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -29,6 +30,11 @@ func (l *loop) roundDir() string {
 // rounds is executor, checks and reviewer until a PASS or the budget is spent, Python's rounds:
 // whether the last review passed.
 func (l *loop) rounds() (bool, error) {
+	if l.prior {
+		if passed, err := l.resumeReview(); err != nil || passed {
+			return passed, err
+		}
+	}
 	for l.rnd < l.budget {
 		if err := l.allowed(); err != nil {
 			return false, err
@@ -61,7 +67,6 @@ func (l *loop) allowed() error {
 // round is one round from its turn to its verdict: round 1 builds, a later one fixes what the last
 // review found, in the executor's own conversation.
 func (l *loop) round() (bool, error) {
-	l.say(fmt.Sprintf("--- round %d/%d: executor %s", l.rnd, l.budget, l.executor))
 	summary, err := l.firstTurn()
 	if err != nil {
 		return false, err
@@ -75,7 +80,7 @@ func (l *loop) round() (bool, error) {
 	} else {
 		l.say("done-when: FAILED")
 		l.say(fmt.Sprintf("--- round %d: fixer %s (done-when failed)", l.rnd, l.executor))
-		fixed, err := l.execute("fixer", "fixer", l.prompt+"\n\n## The done-when commands failed. Fix the root cause.\n```\n"+text+"\n```", "")
+		fixed, err := l.execute("fixer", "fixer", l.checksFailed(text), "")
 		if err != nil {
 			return false, err
 		}
@@ -89,17 +94,32 @@ func (l *loop) round() (bool, error) {
 			l.say("done-when after fix: still FAILING")
 		}
 	}
-	if err := l.sameFailure(ok, text); err != nil {
+	if err := l.sameFailure(ok, text, true); err != nil {
 		return false, err
 	}
 	if err := l.place.beforeReview(l); err != nil {
 		return false, err
 	}
-	return l.review(summary, ok, text)
+	preface := ""
+	if l.rnd > 1 {
+		preface = "Re-review after fixes."
+	}
+	return l.review(summary, ok, text, preface)
 }
 
-// firstTurn is the round's opening turn.
+// checksFailed is what a fixer is told of the checks' output.
+func (l *loop) checksFailed(text string) string {
+	return l.prompt + "\n\n## The done-when commands failed. Fix the root cause.\n```\n" + text + "\n```"
+}
+
+// firstTurn is the round's opening turn: a fixer a host cut off goes on first, on what it was told.
 func (l *loop) firstTurn() (string, error) {
+	if name, _, _ := openWorker(l.roundDir()); name != "" && name != "executor" {
+		l.say(fmt.Sprintf("--- round %d/%d: continuing %s", l.rnd, l.budget, name))
+		checked, _ := os.ReadFile(filepath.Join(l.roundDir(), "donewhen.log"))
+		return l.execute("fixer", name, l.checksFailed(string(checked)), "")
+	}
+	l.say(fmt.Sprintf("--- round %d/%d: executor %s", l.rnd, l.budget, l.executor))
 	if l.rnd > 1 {
 		return l.execute("fixer", "executor", l.prompt+"\n\n## Reviewer findings to fix\n"+withoutAsides(l.findings),
 			filepath.Join(filepath.Dir(l.findingsFile), "findings.json"))
@@ -114,8 +134,9 @@ func (l *loop) firstTurn() (string, error) {
 
 // sameFailure records what the round's checks left failing, and ends the run blocked where a fix
 // round changed neither which fail nor what they say, Python's same_failure: a third attempt would
-// buy the same answer.  A first sight is only recorded, and a pass records no failure.
-func (l *loop) sameFailure(ok bool, text string) error {
+// buy the same answer.  A first sight is only recorded, and a pass records no failure.  A resume
+// only records, not knowing whether a fixer came before: compare is off.
+func (l *loop) sameFailure(ok bool, text string, compare bool) error {
 	failure := []any{}
 	if !ok {
 		failure = failingChecks(text)
@@ -133,7 +154,7 @@ func (l *loop) sameFailure(ok bool, text string) error {
 	}); err != nil {
 		return err
 	}
-	if !seen || len(failure) == 0 || !run.Equal(before, failure) {
+	if !compare || !seen || len(failure) == 0 || !run.Equal(before, failure) {
 		return nil
 	}
 	listed := make([]string, len(failure))

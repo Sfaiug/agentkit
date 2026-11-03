@@ -50,6 +50,11 @@ const RecoveryLock = "recovery.lock"
 // record_limits drops them.  Nothing is written where change returns an error or changes
 // nothing, nor with ErrLoneSurrogate, ErrLined or a record that cannot be read.
 func Change(dir string, change func(*Object) error) error {
+	return ChangeThen(dir, change, func() {})
+}
+
+// ChangeThen is Change with what then follows a write that landed, still under recovery.lock.
+func ChangeThen(dir string, change func(*Object) error, then func()) error {
 	release, err := hold(dir, RecoveryLock)
 	if err != nil {
 		return err
@@ -68,7 +73,11 @@ func Change(dir string, change func(*Object) error) error {
 	if err := change(record); err != nil {
 		return err
 	}
-	return write(dir, data, before, record)
+	if err := write(dir, data, before, record); err != nil {
+		return err
+	}
+	then()
+	return nil
 }
 
 // Create writes a run's first record as Change writes one, but without recovery.lock, as

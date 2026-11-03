@@ -15,6 +15,8 @@ import (
 type workplace interface {
 	// open makes the place and puts it on the record with the fields every run writes.
 	open(l *loop, meta map[string]string, path string, common []any) error
+	// reopen goes back to the place a record names.
+	reopen(l *loop, record *run.Object) error
 	// where opens the prompt, and rules are what the place's own rules add to a task's body.
 	where(l *loop) string
 	rules() string
@@ -73,6 +75,12 @@ func (scratch) open(l *loop, _ map[string]string, _ string, common []any) error 
 		return err
 	}
 	l.say(fmt.Sprintf("scratch workspace %s: no repository, so no branch, no PR and no merge", l.workspace))
+	return nil
+}
+
+func (scratch) reopen(l *loop, record *run.Object) error {
+	l.workspace = record.Str("worktree")
+	l.sayResuming("")
 	return nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -152,21 +153,19 @@ func TestAStopOnTheRecordEndsTheChecksAndEveryWrite(t *testing.T) {
 	}
 }
 
-func TestASignalWithNoStopEndsTheRunInErrorNamingIt(t *testing.T) {
+func TestASignalWithNoStopLeavesAnOrdinaryDeadLoop(t *testing.T) {
 	l := rig(t, time.Minute)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(errors.New("the driver got SIGTERM"))
 	l.ctx = ctx
-	if code := l.finish(l.stopCheck()); code != 2 {
+	if code := l.finish(l.stopCheck()); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	record, _ := run.Read(l.dir)
-	if record.Str("state") != "error" || record.Str("error") != "the driver got SIGTERM" {
+	if record, _ := run.Read(l.dir); record.Str("state") != "running" || record.Truthy("error") {
 		t.Fatalf("record %s", run.Line(record))
 	}
-	result, _ := os.ReadFile(filepath.Join(l.dir, "result.md"))
-	if !strings.HasPrefix(string(result), "# FAIL — 20260101-0000-acme") || !strings.Contains(string(result), "## Why this run stopped\n\nthe driver got SIGTERM") {
-		t.Fatalf("result %q", result)
+	if _, err := os.Stat(filepath.Join(l.dir, "result.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a result: %v", err)
 	}
 }
 
@@ -191,7 +190,7 @@ func TestEndLeavesAStopAndAnEndingAsTheyStand(t *testing.T) {
 func TestFollowLeavesARunItsDriverLeftGoingAndSaysSo(t *testing.T) {
 	l := rig(t, time.Minute)
 	t.Setenv("AGENTKIT_RUN", "")
-	if err := Start(l.dir, io.Discard); err != nil {
+	if err := Start(l.dir, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := run.Read(l.dir)

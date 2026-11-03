@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -26,13 +27,22 @@ var flakyRecord = regexp.MustCompile(`(?m)^flaky: `)
 // review is the reviewer's turn on what the workplace holds and its verdict on the record, Python's
 // review: whether it passed.  The author's summary is recorded, never handed to the reviewer, whom
 // it would prime.
-func (l *loop) review(summary string, ok bool, checked string) (bool, error) {
+func (l *loop) review(summary string, ok bool, checked, preface string) (bool, error) {
 	var j *judging
-	if err := l.save(func(record *run.Object) { j = judgingFrom(record) }); err != nil {
+	since := ""
+	if err := l.save(func(record *run.Object) {
+		j = judgingFrom(record)
+		// where this review began on its reviewer's session, kept from its first entry across a death
+		if pending := record.Dict("review_pending"); pending != nil && pending.Has("since") {
+			since = pending.Str("since")
+		} else {
+			since = reviewTurn(l.roundDir(), l.reviewSession, "")
+		}
+	}); err != nil {
 		return false, err
 	}
 	if err := l.step("reviewer", "verdict", nil, "review", nil, "review_pending", run.Fields("round", l.rnd, "summary", summary,
-		"since", "", "earlier", j.earlierList(), "failed", []any{})); err != nil {
+		"since", since, "earlier", j.earlierList(), "failed", []any{})); err != nil {
 		return false, err
 	}
 	passed, total := doneWhenCounts(checked, l.cmds)
@@ -60,13 +70,15 @@ func (l *loop) review(summary string, ok bool, checked string) (bool, error) {
 			text += disputes.Text() + "\n"
 		}
 		text += heading + "```\n" + checked + "\n```"
-		if l.rnd > 1 {
-			text = "Re-review after fixes.\n\n" + text
+		if preface != "" {
+			text = preface + "\n\n" + text
 		}
 		return opening + text
 	}
 	l.say(fmt.Sprintf("--- round %d: reviewer %s", l.rnd, l.reviewer))
-	name := "reviewer"
+	// a review cut off goes on where it was: a reviewer that took it over wrote in its own directory
+	name, _, _ := openReview(l.roundDir())
+	name = cmp.Or(name, "reviewer")
 	if other := l.another(); other != "" {
 		l.say(fmt.Sprintf("reviewer %s has room: %s does not review its own work", other, l.reviewer))
 		l.reviewer, l.reviewSession, name = other, "", "reviewer-"+other
@@ -75,23 +87,40 @@ func (l *loop) review(summary string, ok bool, checked string) (bool, error) {
 		}
 	}
 	// a conversation that resumes holds the whole change already; one that starts fresh gets it too
-	asked := body(work)
-	if j.whole != "" && l.reviewSession == "" {
-		asked = body(j.whole + "\n\n" + work)
+	whole := body(work)
+	if j.whole != "" {
+		whole = body(j.whole + "\n\n" + work)
+	}
+	ask, err := l.goOn(name, "reviewer", whole, l.reviewSession)
+	if err != nil {
+		return false, err
+	}
+	if ask.body == whole && ask.session != "" {
+		ask.body = body(work)
+	}
+	if ask.previous == "" && ask.cut == "" {
+		// a turn that handed in before the driver died hands on what it found: its `done` alone is no verdict
+		if turn := reviewTurn(l.roundDir(), ask.session, since); turn != "" {
+			ask.previous = filepath.Join(turn, handin.File)
+		}
+	}
+	l.reviewSession = ask.session
+	if err := l.notice(ask); err != nil {
+		return false, err
 	}
 	model, err := l.model(l.reviewer)
 	if err != nil {
 		return false, err
 	}
-	out := filepath.Join(l.roundDir(), name)
+	out := ask.out
 	var session string
 	err = l.place.inCopy(l, out, func(cwd string) error {
-		told, at := asked, l.workspace
+		told, at := ask.body, l.workspace
 		if cwd != "" {
-			told, at = strings.ReplaceAll(asked, config.Resolve(l.workspace), cwd), cwd
+			told, at = strings.ReplaceAll(told, config.Resolve(l.workspace), cwd), cwd
 		}
 		var failed error
-		session, failed = l.turn(at, l.reviewer, model, "reviewer", l.place.role("reviewer"), told, out, l.reviewSession, j.listed)
+		session, failed = l.turn(at, l.reviewer, model, "reviewer", l.place.role("reviewer"), told, out, ask.session, j.listed, ask.previous)
 		return failed
 	})
 	var failed *exited
