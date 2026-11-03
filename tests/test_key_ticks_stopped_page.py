@@ -69,7 +69,7 @@ class TicksStopped(unittest.TestCase):
         self.assertEqual(self.sink.pages(), [])
 
     @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
-    def test_a_tick_that_ends_says_back_once_without_a_mention(self):
+    def test_a_tick_that_ends_says_back_once_without_a_mention_and_a_new_stop_pages(self):
         held = self.held_for(61)
         since = (self.home.path / LOCK).stat().st_mtime
         self.run_tick()
@@ -87,6 +87,16 @@ class TicksStopped(unittest.TestCase):
         self.assertEqual(self.sink.requests[1].json["allowed_mentions"], {"parse": []})
         self.run_tick(ends=True)
         self.assertEqual(self.sink.pages(), [page, back])
+        # Back-date recovery too, so the next holder starts after the last tick ended.
+        state = json.loads((self.home.path / ".agentkit/state/watch.json").read_text())
+        for field in ("started_at", "ended_at"):
+            state["tick"][field] -= 65 * MINUTE
+        if "tick_completed_at" in state:
+            state["tick_completed_at"] -= 65 * MINUTE
+        self.home.write(".agentkit/state/watch.json", state)
+        self.held_for(61)
+        self.run_tick()
+        self.assertEqual(len(self.sink.pages()), 3)
 
     def failing_ticks(self, started, ended=90):
         state = self.home.ticked(ago=ended * MINUTE + 30)
@@ -98,6 +108,16 @@ class TicksStopped(unittest.TestCase):
     @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
     def test_recent_starts_without_an_end_for_ninety_minutes_page_then_say_back(self):
         since = self.failing_ticks(started=3)
+        # Refuse every attempt to save watch.json, so these ticks leave no ended record.
+        obstacle = self.home.path / ".agentkit/state/watch.tmp"
+        obstacle.mkdir()
+        for _ in range(2):
+            before = time.time()
+            done = self.home.tick()
+            self.assertNotEqual(done.code, 0, done.out + done.err)
+            self.assert_page(since, (before, time.time()), "no tick has ended for {} min")
+            self.assertEqual(len(self.sink.pages()), 1)
+        obstacle.rmdir()
         self.assert_page(since, self.run_tick(ends=True), "no tick has ended for {} min")
         self.assertEqual(len(self.sink.pages()), 2)
         self.assertTrue(self.sink.pages()[1].startswith("ak ticks end again after "))
