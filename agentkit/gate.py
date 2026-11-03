@@ -2308,6 +2308,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             first_span = None   # the gate log's byte span of a first run that failed, while its
                                 # re-run decides: the flaky diff reads whole runs
             named = []          # the tests this command's run named failed
+            reds = {} if confirmed is not None or checked is not None else None
+            flakes = [] if flaky is not None or checked is not None else None
             busy = False
             # stopped sooner at its suite's pace on its first go; a second has the rest
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
@@ -2332,10 +2334,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
-                        only=only,
-                        confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
-                        changed=changed, flaky=flaky, named=named, checked=checked, asked=asked,
-                        raw=raw)
+                        only=only, confirmed=reds, changed=changed, flaky=flakes, named=named,
+                        # Whole commands retry here; their named outcomes must wait for that.
+                        checked=checked if split(cmd) else None, asked=asked, raw=raw)
                     ended.append(None if killed else code)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
@@ -2388,8 +2389,14 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     rerun = progress.read(end - offset)
                 chunks.append(flaky_text(flaky_record(cmd, failed, rerun, log_path, run_dir, log,
                                                       how)))
-                if flaky is not None:
-                    flaky.extend(first)
+                if flakes is not None:
+                    flakes.extend(first)
+            if confirmed is not None:
+                confirmed.setdefault(cmd, {}).update(reds)
+            if flaky is not None:
+                flaky.extend(flakes)
+            if not split(cmd):
+                history.test_reds(checked, reds, flakes)
             if killed:
                 spent, kept = cmd, out
                 break

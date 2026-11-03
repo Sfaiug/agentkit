@@ -47,22 +47,24 @@ raise SystemExit(failed)
 class SuiteRun:
     repo = "widgets"
     broken_history = False
+    suite, runner = SUITE, RUNNER
+    tests = {"tests/test_api.py": "raise SystemExit(1)\n", "tests/test_web.py": WEB,
+             "tests/test_ok.py": "raise SystemExit(0)\n"}
 
     @classmethod
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, cls.repo, files={
-            "AGENTS.md": f"---\ntests: {SUITE}\n---\n# widgets\n", "suite.py": RUNNER,
-            ".gitignore": ".web-seen\n", "tests/test_api.py": "raise SystemExit(1)\n",
-            "tests/test_web.py": WEB, "tests/test_ok.py": "raise SystemExit(0)\n"})
+            "AGENTS.md": f"---\ntests: {cls.suite}\n---\n# widgets\n", "suite.py": cls.runner,
+            ".gitignore": ".web-seen\n", **cls.tests})
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])
         fakeadapter.install(cls.home, claude="work", codex="pass")
         if cls.broken_history:
             (cls.home.path / ".agentkit/history.db").mkdir()
         task = taskfile.write(cls.home, cls.rig.path, "Record failing tests",
-                              done_when=(SUITE,), front={"rounds": 1})
+                              done_when=(cls.suite,), front={"rounds": 1})
         cls.done = cls.home.ak("run", str(task), "--no-merge", env=OWNERS, timeout=300)
         cls.run_dir = taskfile.only_run(cls.home)
         cls.state = json.loads((cls.run_dir / "run.json").read_text())
@@ -89,6 +91,31 @@ class TestReds(SuiteRun, unittest.TestCase):
             self.assertTrue(row["tree"], row)
             self.assertGreaterEqual(row["at"], min(check["finished_at"] for check in matching))
             self.assertLessEqual(row["at"], self.state["finished_at"])
+
+
+class WholeCommand(SuiteRun, unittest.TestCase):
+    suite = "python3 suite.py"
+    tests = {"tests/test_web.py": WEB}
+    runner = """\
+import os, subprocess, sys
+from pathlib import Path
+code = subprocess.call([sys.executable, 'tests/test_web.py'])
+if code:
+    Path(os.environ['AK_FAILED']).write_text('tests/test_web.py\\n')
+raise SystemExit(code)
+"""
+
+    def test_a_passing_retry_keeps_a_flake_without_a_confirmed_red(self):
+        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
+        self.assertEqual(self.state["state"], "pass")
+        checks = read(self.home, "SELECT * FROM checks WHERE kind='done-when' ORDER BY rowid")
+        self.assertEqual([check["exit"] for check in checks], [1, 0])
+        rows = read(self.home, "SELECT * FROM test_reds WHERE kind='done-when'")
+        self.assertEqual([(row["test"], row["flaky"]) for row in rows],
+                         [("tests/test_web.py", 1)])
+        for key in ("run_id", "round", "kind", "tree"):
+            self.assertEqual(rows[0][key], checks[-1][key])
+        self.assertGreaterEqual(rows[0]["at"], checks[-1]["finished_at"])
 
 
 class Sandbox(SuiteRun, unittest.TestCase):
