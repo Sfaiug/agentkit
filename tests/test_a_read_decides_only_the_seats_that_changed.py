@@ -94,6 +94,23 @@ class AReadDecidesOnlyTheSeatsThatChanged(Sandbox):
         self.assertIn("acme-moved", self.listed)
         self.assertNotIn(GONE[11], self.listed)
 
+    def test_a_config_changed_in_place_shows_on_the_next_read(self):
+        self.cfg["models"][self.cfg["defaults"]["orchestrator"]]["model"] = "acme-updated-model"
+        self.assertEqual(self.decided(), self.listed)
+
+    def test_a_write_while_a_read_lists_the_seats_shows_on_the_next(self):
+        other = next(name for name in self.cfg["models"]
+                     if name != self.cfg["defaults"]["orchestrator"])
+        listing = orch.listing
+
+        def written_meanwhile():
+            found = listing()
+            config.update_session(GONE[3], orchestrator=other)
+            return found
+        with patch.object(orch, "listing", side_effect=written_meanwhile):
+            menu.rows(self.cfg, self.kept)
+        self.assertIn(GONE[3], self.decided())
+
 
 if __name__ == "__main__":
     unittest.main()

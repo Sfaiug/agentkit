@@ -90,7 +90,7 @@ class NewsMotion(Sandbox):
                 (menu, "seat_row_state", row_state),
                 (menu, "seat_progress", lambda name: self.tasks.get(name, (0, 0))),
                 # what a row is decided from is these fakes', not a seat's files
-                (menu, "stamps", lambda cfg, found, mine: {seat["name"]: (
+                (menu, "stamps", lambda cfg, found, *_args: {seat["name"]: (
                     self.words.get(seat["name"]), self.reasons.get(seat["name"]),
                     self.tasks.get(seat["name"])) for seat in found}),
                 (orch, "job_notices", lambda: [self.notices.pop()] if self.notices else []),

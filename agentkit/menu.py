@@ -200,10 +200,13 @@ def rows(cfg, kept=None):
     """The seats, their runs and their groups, as the main screen reads them (`Live.read`), its
     rows `kept` between its reads (`v5o_groups`)."""
     with look.one_look():              # one look a read: filing, looking, drawing
+        # stat'ed before the pass reads what they hold: a write after is news to the next read
+        files = None if kept is None else seat_file_stats()
         found = orch.listing()
         records = run_records(rest_may_lag=True)
         orch.file_projectless(found, [state for _, state in records])
-        return found, records, v5o_groups(cfg, found, records, look=False, kept=kept)
+        return found, records, v5o_groups(cfg, found, records, look=False, kept=kept,
+                                          files=files)
 
 
 class Live:
@@ -1270,7 +1273,7 @@ def _silent(runs, now):
 FOLDS = Folds()
 
 
-def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None):
+def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None, files=None):
     """The projects and their seats, in the order their numbers go (`orch.numbered`).
 
     A project is a checkout under ~/code, or agentkit's own at ~/agentkit -- one of
@@ -1290,7 +1293,8 @@ def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None):
     the past screen (`show_past`), and has no row under its project.
 
     `kept`, a screen's own between its reads, holds each seat's row as a read decided it, with the
-    stamp it was decided from (`stamps`) and when, on time.monotonic: a read without `look` draws
+    stamp it was decided from (`stamps`, over `files`, `seat_file_stats` taken before anything
+    the read decides from) and when, on time.monotonic: a read without `look` draws
     it again while the stamp is the same and it is younger than `open_runs.CEILING`, so the
     seats whose inputs did not change cost a read next to nothing (the owner, 2 Nov 2026), and
     what the stamp misses -- the clock, other seats' runs, the meters -- is a minute late at most.
@@ -1305,7 +1309,8 @@ def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None):
     jobs_cache = {}
     infos = []
     keeping = kept is not None and not look
-    stamped, clock, held = (stamps(cfg, found, mine) if keeping else {}), time.monotonic(), {}
+    stamped = stamps(cfg, found, mine, files) if keeping else {}
+    clock, held = time.monotonic(), {}
     for number, session in enumerate(found, 1):
         if session.get("closed"):
             continue          # stopped: numbered after every seat with a row, on the past screen
@@ -1326,36 +1331,39 @@ def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None):
     return tallied(list(groups.values()), infos, silent_map)    # each where its first seat is
 
 
-def stamps(cfg, found, mine):
-    """Each listed seat's stamp of what its row is decided from (`v5o_groups`), taken before it
-    is: its number and listing, its runs (`mine`), the config and what the tick last found of
-    logins and of its stalls, and the stat of each of its files under STATE, under every name
-    that leads to it (`config.session_aliases`)."""
-    from . import watch   # here, not at the top: watch imports this module
-    leads, files = config.session_aliases(), {}
+def seat_file_stats():
+    """{(seat, file): its stat} for every file of a seat under STATE (`config.seat_file_owner`)."""
     try:
         listed = sorted(parsed.read(config.STATE, os.listdir))
     except OSError:
-        listed = []
+        return {}
+    state, found = os.fspath(config.STATE), {}
     for entry in listed:
         owner = config.seat_file_owner(entry)
         if owner:
-            files.setdefault(leads.get(owner[1], owner[1]), []).append(entry)
+            try:
+                info = os.stat(os.path.join(state, entry))  # no Path: a read stats every file
+            except OSError:
+                continue
+            found[owner[1], entry] = info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
+    return found
 
-    state = os.fspath(config.STATE)
 
-    def stat(entry):
-        try:
-            info = os.stat(os.path.join(state, entry))     # no Path: a read stats every file
-        except OSError:
-            return entry, None
-        return entry, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
-
+def stamps(cfg, found, mine, files):
+    """Each listed seat's stamp of what its row is decided from (`v5o_groups`): its number and
+    listing, its runs (`mine`), the config as it reads now and what the tick last found of logins
+    and of its stalls, and `files`' stats of its own under every name that leads to it
+    (`config.session_aliases`)."""
+    from . import watch   # here, not at the top: watch imports this module
+    leads, own = config.session_aliases(), {}
+    for (name, entry), stat in files.items():
+        own.setdefault(leads.get(name, name), []).append((entry, stat))
     saved = look.once("watch state", watch.load_state)
-    every = cfg, saved.get("auth_out"), saved.get("gh_out"), saved.get("worker_tokens")
+    # the config's text, not the dict: one changed in place reads as the stamp's own otherwise
+    every = repr(cfg), saved.get("auth_out"), saved.get("gh_out"), saved.get("worker_tokens")
     return {session["name"]: (every, number, dict(session), saved["stalls"].get(session["name"]),
                               tuple(mine.get(session["name"], ())),
-                              tuple(map(stat, files.get(session["name"], ()))))
+                              tuple(own.get(session["name"], ())))
             for number, session in enumerate(found, 1)}
 
 
