@@ -4021,11 +4021,12 @@ cat >"$WBIN/gh" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "api user") printf '{"login":"me"}\n' ;;
-  "repo view --json nameWithOwner,owner") printf '{"nameWithOwner":"me/owned","owner":{"login":"me"}}\n' ;;
-  "api --paginate repos/me/owned/pulls?state=open&per_page=100")
-    printf '[]\n[{"number":3,"user":{"login":"bob"},"title":"Fix parser","html_url":"https://github.com/me/owned/pull/3","head":{"sha":"abcdef1234567890"},"draft":false},'
-    printf '{"number":4,"user":{"login":"me"},"title":"Mine","html_url":"https://github.com/me/owned/pull/4","head":{"sha":"1111111111111111"},"draft":false},'
-    printf '{"number":5,"user":{"login":"eve"},"title":"Draft","html_url":"https://github.com/me/owned/pull/5","head":{"sha":"2222222222222222"},"draft":true}]\n' ;;
+  "api --paginate search/issues -X GET -f q=is:pr is:open draft:false user:me -author:me -f per_page=100")
+    printf '{"items":[]}\n{"items":[{"number":3,"user":{"login":"bob"},"pull_request":{"html_url":"https://github.com/me/owned/pull/3"}},'
+    printf '{"number":4,"user":{"login":"me"},"pull_request":{"html_url":"https://github.com/me/owned/pull/4"}},'
+    printf '{"number":5,"user":{"login":"eve"},"pull_request":{"html_url":"https://github.com/me/owned/pull/5"},"draft":true}]}\n' ;;
+  "api repos/me/owned/pulls/3")
+    printf '{"state":"open","number":3,"user":{"login":"bob"},"title":"Fix parser","html_url":"https://github.com/me/owned/pull/3","head":{"sha":"abcdef1234567890"},"draft":false}\n' ;;
   "pr view https://github.com/me/owned/pull/3 --json reviews") printf '{"reviews":[]}\n' ;;
   # our own open PRs anywhere: one on a repo we do not own, opened by hand, with changes requested
   "api --paginate search/issues?q=is:pr+is:open+author:@me&per_page=100")
