@@ -24,6 +24,8 @@ DAY = 86400
 PR = "https://github.com/acme/widgets/pull/7"
 
 
+# A seat shows one of five words: `working` (something moves without the owner:
+# a turn, its runs, a wait, a retry). [14, 20 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class MovingWord(unittest.TestCase):
     @classmethod

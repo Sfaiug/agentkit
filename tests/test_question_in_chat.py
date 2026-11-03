@@ -75,6 +75,8 @@ class QuestionInChat(unittest.TestCase):
             with self.subTest(choices=choices):
                 self.assertIsNone(self.stop("Which account should acme use?\n\n" + choices))
 
+    # A turn ending with unanswered questions repeats them. Reason: a recorded
+    # question hidden in tool output left nothing to answer. [21 Oct 2026]
     def test_a_later_turn_repeats_a_question_still_waiting_for_an_answer(self):
         self.write("notify", {"kind": "needs", "text": FIRST, "time": time.time() - 300})
         self.assertIn(FIRST, self.stop("The other run finished.")["reason"])

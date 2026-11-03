@@ -43,6 +43,7 @@ def offline(home, sink):
     home.env.update(no_proxy=near, NO_PROXY=near)
 
 
+# `needs you`: only the owner can unblock it: an expired login. [14, 20 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AuthExpired(unittest.TestCase):
     @classmethod

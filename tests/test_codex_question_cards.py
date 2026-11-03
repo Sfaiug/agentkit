@@ -64,6 +64,7 @@ class CodexQuestionCards(Sandbox):
         self.add('response_item', {'type': 'function_call', 'name': 'request_user_input_async',
                  'call_id': 'call-new', 'arguments': json.dumps(repeated['tool_input'])}, 10003)
 
+    # Every harness keeps its native question cards. [21 Oct 2026]
     def test_native_cards_are_allowed_and_each_question_survives_acceptance_and_stop(self):
         self.ask()
         self.add('response_item', {'type': 'function_call_output', 'call_id': 'call-acme',
@@ -75,6 +76,8 @@ class CodexQuestionCards(Sandbox):
         self.assertFalse(notify.answer_written(SEAT))
         self.assertEqual(questions.pending(SEAT), TEXTS)
 
+    # Independent work remains `working`; an actual answer resolves its question,
+    # never an automatic update. [21 Oct 2026]
     def test_a_card_answer_during_independent_work_resolves_only_that_question(self):
         self.ask()
         self.reply(0)

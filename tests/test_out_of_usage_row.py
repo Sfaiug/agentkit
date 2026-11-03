@@ -55,6 +55,7 @@ def today_at(hour, minute):
     return time.mktime(time.localtime(10000)[:3] + (hour, minute, 0, 0, 0, -1))
 
 
+# `out of usage`: red, until it comes back or the owner moves it. [14, 20 Oct 2026]
 class OutOfUsageRow(Sandbox):
     def decide(self, live=None, records=()):
         found = watch.session_state(SEAT, now=10000, session={"name": SEAT}, records=list(records),

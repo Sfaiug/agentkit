@@ -41,6 +41,9 @@ BASH = "Claude needs your permission to use Bash"
 RUNS = "2 running · Parked on a window"
 
 
+# Text in the composer never changes the word; once the owner leaves, its row ends
+# in `✎ unsent`. Reason: seats read `needs you` for idle prompts, drafts and answered
+# questions, and stale for minutes. [14, 20 Oct 2026]
 class UnsentDraft(Sandbox):
     def setUp(self):
         super().setUp()
