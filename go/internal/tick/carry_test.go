@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -24,7 +25,7 @@ const (
 	answers = `case "$*" in "api user") ` + user + ` ;; *) echo '{"items": []}' ;; esac`
 )
 
-// idleHome is a home with nothing to act on and the audit off, whose gh runs script, and where it
+// idleHome is a home with nothing to act on, the audit off and no collection due, whose gh runs script, and where it
 // keeps ak's own files.
 func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 	t.Helper()
@@ -38,6 +39,8 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 	}
 	ak = filepath.Join(home, ".agentkit")
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n")
+	// a collection on record today: a due one would start this test binary as its collector
+	put(t, filepath.Join(ak, "state", "gc.json"), fmt.Sprintf(`{"started_at": %d}`, time.Now().Unix()))
 	gh = func(script string) {
 		t.Helper()
 		put(t, filepath.Join(bin, "gh"), "#!/bin/sh\n"+script+"\n")
