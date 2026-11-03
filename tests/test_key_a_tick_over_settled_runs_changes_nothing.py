@@ -3,9 +3,10 @@
 A live Claude seat at its prompt, its plan with nothing open, has a checkout of a repository its
 GitHub account owns, with no pull request open, and five runs it launched with `ak run`, each
 ended and handed back: one passed and merged, one failed with its rounds spent, one the owner
-stopped, one ended not needed and one passed with `--no-merge`.  Over three ticks every tick
-exits 0, every run's record and result.md stay byte for byte, nothing is typed into the seat, no
-run, review or seat starts, GitHub is changed in nothing, and the checkout keeps its branches
+stopped, one ended not needed and one passed with `--no-merge`.  After each of three ticks: the
+tick exited 0; every run's record and result.md are as they were, byte for byte, but for what
+the first tick keeps on a record once (`kept`); nothing was typed into the seat; no run, review
+or seat started; GitHub was asked nothing that changes it; and the checkout keeps its branches
 and work tree.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, each tick in the box `home.tick()` builds, on a project from gitrig.py
 with the GitHub of fakegh.py, the seat of akseat.py and harnesses of fakeadapter.py.
@@ -13,6 +14,7 @@ with the GitHub of fakegh.py, the seat of akseat.py and harnesses of fakeadapter
 
 import json
 from pathlib import Path
+import re
 import sys
 import time
 import unittest
@@ -32,6 +34,26 @@ FIX = ("Your checkout starts on the target branch's tip, fetched when this run s
        '"<why>"`, with no edits or PR. Otherwise fix the root cause so it passes, and show it '
        "failing before the fix and passing afterwards in your summary. If only the owner can "
        'decide, run `ak hand-in blocked "<question>"`.')
+
+
+# What gh asks GitHub without changing it, beside an API read.
+READS = {("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "status"), ("pr", "diff"),
+         ("repo", "view"), ("repo", "list"), ("auth", "status"), ("run", "list"), ("run", "view")}
+METHOD = re.compile(r"^(?:-X|--method=?)(.*)$")
+FIELDS = ("-f", "-F", "--field", "--raw-field", "--input")
+
+
+def changes_github(argv):
+    """Whether a gh call asks GitHub to change anything, refused or not: any call but a read
+    above, an API call with a method other than GET or with fields, and a GraphQL mutation."""
+    if argv[:1] != ["api"]:
+        return tuple(argv[:2]) not in READS
+    if "graphql" in argv:
+        return any("mutation" in word for word in argv)
+    methods = [found[1] or after for word, after in zip(argv, [*argv[1:], ""])
+               if (found := METHOD.match(word))]
+    return any(method.upper() != "GET" for method in methods) or any(
+        word.startswith(FIELDS) for word in argv)
 
 
 def work(name):
@@ -61,11 +83,12 @@ class SettledRuns(unittest.TestCase):
         cls.launch("Add api file", [work("api.txt")], ["pass"])
         # the seat's plan, read, ticks its one line: the merge proved it
         cls.seat_says("plan")
-        # the tick after a merge keeps its commit on the run's record, once: the home has had it
-        cls.ticks = [home.tick()]
-        cls.before = cls.world()
-        cls.ticks += [home.tick() for _ in range(3)]
-        cls.after = cls.world()
+        # git housekeeping ran on the checkout just now
+        (cls.rig.path / ".git" / "ak-gc").write_text(f"{time.time()}\n")
+        cls.before, cls.ticks, cls.worlds = cls.world(), [], []
+        for _ in range(3):
+            cls.ticks.append(home.tick())
+            cls.worlds.append(cls.world())
 
     @classmethod
     def seat_says(cls, *args):
@@ -111,8 +134,9 @@ class SettledRuns(unittest.TestCase):
             "turns": {harness: fake.n for harness, fake in cls.fakes.items()},
             "seats": home.tmux("list-sessions", "-F", "#{session_name}").out.split(),
             "github": json.loads(cls.gh.file.read_text()),
-            "branches": (rig.git("for-each-ref", "--format=%(refname) %(objectname)"),
-                         rig.origin("for-each-ref", "--format=%(refname) %(objectname)")),
+            "asked": home.calls("gh"),
+            "branches": [where("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
+                         for where in (rig.git, rig.origin)],
             "tree": (rig.git("rev-parse", "HEAD"), rig.git("status", "--porcelain", "-uall"),
                      rig.git("worktree", "list", "--porcelain")),
         }
@@ -131,18 +155,44 @@ class SettledRuns(unittest.TestCase):
                          (True, False))
 
     def test_every_run_s_record_and_result_stay_byte_for_byte(self):
-        self.assertEqual(self.after["runs"], self.before["runs"])
+        first = self.worlds[0]["runs"]
+        self.assertEqual(first.keys(), self.before["runs"].keys())
+        for name, files in self.before["runs"].items():
+            record = json.loads(files["run.json"])
+            kept = self.kept(dict(record))
+            self.assertEqual(json.loads(first[name]["run.json"]), kept, name)
+            if kept == record:
+                self.assertEqual(first[name]["run.json"], files["run.json"], name)
+            self.assertEqual(first[name]["result.md"], files["result.md"], name)
+        for tick, world in enumerate(self.worlds[1:], 2):
+            self.assertEqual(world["runs"], first, f"tick {tick}")
+
+    def kept(self, record):
+        """What the first tick keeps on a run's record, once, as Python's does: a merged run's
+        merge commit, and on a run that passed or failed, the loop it swept for what that loop
+        left running, where the loop did not."""
+        if record.get("merged"):
+            record["merge_sha"] = self.rig.head()
+        if record["state"] in ("pass", "fail"):
+            record.setdefault("tree_stopped", [record["pid"], record["process_identity"]])
+        return record
 
     def test_nothing_is_typed_and_no_run_review_or_seat_starts(self):
-        for part in ("typed", "turns", "seats"):
-            self.assertEqual(self.after[part], self.before[part], part)
+        for tick, world in enumerate(self.worlds, 1):
+            for part in ("typed", "turns", "seats"):
+                self.assertEqual(world[part], self.before[part], f"{part}, tick {tick}")
 
-    def test_github_is_changed_in_nothing(self):
-        self.assertEqual(self.after["github"], self.before["github"])
+    def test_github_is_asked_nothing_that_changes_it(self):
+        asked = self.home.calls("gh")[len(self.before["asked"]):]
+        self.assertTrue(asked, "no tick asked GitHub anything")
+        self.assertEqual([argv for argv in asked if changes_github(argv)], [])
+        for tick, world in enumerate(self.worlds, 1):
+            self.assertEqual(world["github"], self.before["github"], f"tick {tick}")
 
     def test_the_checkout_keeps_its_branches_and_work_tree(self):
-        self.assertEqual(self.after["branches"], self.before["branches"])
-        self.assertEqual(self.after["tree"], self.before["tree"])
+        for tick, world in enumerate(self.worlds, 1):
+            for part in ("branches", "tree"):
+                self.assertEqual(world[part], self.before[part], f"{part}, tick {tick}")
 
 
 if __name__ == "__main__":
