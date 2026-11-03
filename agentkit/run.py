@@ -2982,7 +2982,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             if tip:
                 mine_files = {name for name in mine_files
                               if not git(repo, "--literal-pathspecs", "ls-tree", "-z",
-                                         "--full-tree", tip, "--", name, env=env)}
+                                         "--full-tree", tip, "--", name, check=False, env=env)}
         except (config.Error, OSError):
             pass  # an unreadable tip keeps every candidate, as before
     task_path = Path(task_path).expanduser().resolve()

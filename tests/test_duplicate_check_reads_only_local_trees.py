@@ -16,6 +16,33 @@ from fixtures.gitrig import Rig
 
 
 class LocalTreesOnly(unittest.TestCase):
+    def test_external_candidates_do_not_restore_existing_guards(self):
+        with Home() as home, patch.dict(os.environ, home.env, clear=True):
+            rig = Rig(home, "widgets", files={"tests/test_guard.py": "pass\n"})
+            rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+            extra = rig.path.parent / "test_extra.py"
+            extra.write_text("pass\n")
+            held = home.root / "held"
+            held.mkdir()
+            state = {"state": "running", "repo": str(rig.path)}
+            with patch.object(run.run_record, "run_dirs", return_value=[held]), \
+                    patch.object(run.run_record, "read_state", return_value=state), \
+                    patch.object(run.run_record, "process_active", return_value=True):
+                for guard in ("tests/test_guard.py", "./tests/test_guard.py",
+                              str(rig.path / "tests/test_guard.py")):
+                    for external in (str(extra), "../test_extra.py"):
+                        commands = [f"python3 {guard}", f"python3 {external}"]
+                        for shared in (False, True):
+                            with self.subTest(guard=guard, external=external, shared=shared):
+                                (held / "task.md").write_text(
+                                    "# Improve upload progress\n\n## Done when\n```bash\n"
+                                    + "\n".join(commands if shared else commands[:1]) + "\n```\n")
+                                matches = run.already_under_way(
+                                    home.root / "new.md", {"repo": str(rig.path)},
+                                    "Improve upload labels", commands)
+                                self.assertEqual([match["files"] for match in matches],
+                                                 [[external]] if shared else [])
+
     def test_partial_clones_never_fetch_during_duplicate_detection(self):
         with Home() as home, patch.dict(os.environ, home.env, clear=True):
             rig = Rig(home, "widgets", files={"tests/test_guard.py": "pass\n"})
