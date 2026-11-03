@@ -261,3 +261,20 @@ func TestRunRecognizesJobs(t *testing.T) {
 		assertCall(t, args, 3, "", "ak run"+suffix+": not implemented in Go yet\n")
 	}
 }
+
+// Its own numbers are the one part of `ak models` that reads SQLite: a home with a history is
+// Python's, before anything is asked or written.
+func TestModelsLeavesAHistoryToPython(t *testing.T) {
+	home := sandbox(t)
+	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, ".agentkit", "history.db"), nil, 0o666); err != nil {
+		t.Fatal(err)
+	}
+	before := tree(t, home)
+	assertCall(t, []string{"models", "--json"}, 3, "", "ak models: not implemented in Go yet\n")
+	if !reflect.DeepEqual(before, tree(t, home)) {
+		t.Fatal("a home left to Python was changed")
+	}
+}
