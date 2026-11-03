@@ -46,27 +46,10 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 		return false, "", err
 	}
 	clean := code == 0
-	before, err := dirtyPaths(r.git())
-	if err != nil {
-		return false, "", err
-	}
 	// a host with a helper is Python's: launch leaves it there
 	l.say("done-when runs here: no suite helper set up")
-	ok, text, _, err := l.checksIn(r.wt, l.every, path)
+	ok, text, err := r.checks(l, l.every, path)
 	if err != nil {
-		return false, "", err
-	}
-	after, err := dirtyPaths(r.git())
-	if err != nil {
-		return false, "", err
-	}
-	// what the checks newly dirty is the loop's own droppings, never the executor's work
-	for _, each := range after {
-		if !slices.Contains(before, each) {
-			r.artifacts[each] = true
-		}
-	}
-	if err := l.save(func(record *run.Object) { record.Set("artifacts", r.artifactList()) }); err != nil {
 		return false, "", err
 	}
 	moved, err := r.changedSince(head, tree)
@@ -90,6 +73,29 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 	}
 	text = fmt.Sprintf("Commit: %s\nTree: %s\n\n%s", head, tree, text)
 	return ok, text, os.WriteFile(path, []byte(text), 0o666)
+}
+
+// checks runs the commands in the checkout, keeping on the record what they newly dirty: the
+// loop's own droppings, never the executor's work, which a later commit of leftovers leaves out.
+func (r *repoPlace) checks(l *loop, cmds []string, path string) (bool, string, error) {
+	before, err := dirtyPaths(r.git())
+	if err != nil {
+		return false, "", err
+	}
+	ok, text, _, err := l.checksIn(r.wt, cmds, path)
+	if err != nil {
+		return false, "", err
+	}
+	after, err := dirtyPaths(r.git())
+	if err != nil {
+		return false, "", err
+	}
+	for _, each := range after {
+		if !slices.Contains(before, each) {
+			r.artifacts[each] = true
+		}
+	}
+	return ok, text, l.save(func(record *run.Object) { record.Set("artifacts", r.artifactList()) })
 }
 
 func (r *repoPlace) artifactList() []any {

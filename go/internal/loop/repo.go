@@ -343,13 +343,12 @@ func (r *repoPlace) role(word string) string { return word }
 
 func (r *repoPlace) beforeTurn(l *loop) { r.sweepSandboxes(l) }
 
-// finished ends a run that lands where its landing starts: the review it earned stays on the
-// record, for Python's `ak run resume` to carry on from.
-func (r *repoPlace) finished(*loop) error {
+// finished delivers the passed work, unless the run opted out of landing it.
+func (r *repoPlace) finished(l *loop) error {
 	if r.noMerge {
 		return nil
 	}
-	return notYet("the review passed", "landing it")
+	return r.merge(l)
 }
 
 // head is a repository's opening of result.md: the diff stat never depends on git working.

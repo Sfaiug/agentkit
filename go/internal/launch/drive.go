@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
+	"agentkit/internal/task"
 )
 
 var (
@@ -41,7 +42,9 @@ func drivable(every []string, path string, values map[string]string) error {
 // driver is what a stop ends; a foreground one shares this process's group, so a terminal that goes
 // away takes the run with it, leaving a dead loop for `ak run resume`.
 func drive(dir string, meta map[string]string, at place, warning string, flags map[string]bool, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
+	title := ""
 	if err := unstopped(func(record *run.Object) {
+		title = record.Str("title")
 		if at.repo == "" {
 			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", nil)
 			return
@@ -79,9 +82,13 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		said, base, target = at.repo, at.base, at.target
 		delivery = "no push or merge; local commits"
 		if !flags["--no-merge"] {
-			branch, _, _, err := git(at.repo, "rev-parse", "--abbrev-ref", "HEAD")
-			if err != nil {
-				return 0, err
+			branch := "new ak/" + task.Slug(title) + " branch (unique suffix if needed)"
+			if flags["--no-worktree"] {
+				head, _, _, err := git(at.repo, "rev-parse", "--abbrev-ref", "HEAD")
+				if err != nil {
+					return 0, err
+				}
+				branch = head
 			}
 			delivery = fmt.Sprintf("push %s to origin (fork if needed); PR into %s; merge after PASS", branch, target)
 		}

@@ -305,14 +305,7 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		keepFollowups(record, checks, commits, defects)
 		run.SetAll(record, "verdict", verdict, "review", review)
 		if verdict == "PASS" {
-			// each flaky check's evidence stays with the review that passed over it
-			kept := record.List("followups")
-			for _, part := range strings.Split(checked, "\n\n") {
-				if strings.HasPrefix(part, "flaky: ") && !slices.Contains(kept, any(part)) {
-					kept = append(kept, part)
-				}
-			}
-			record.Set("followups", kept)
+			keepFlakes(record, checked)
 		}
 		kept := record.List("disputes")
 		for _, each := range dropped {
@@ -410,4 +403,16 @@ func listing(root string) string {
 		return "(the workspace is empty)"
 	}
 	return strings.Join(rows, "\n")
+}
+
+// keepFlakes keeps each flaky check's evidence in the checks' text with the review that passed
+// over it, Python's record_flakes.
+func keepFlakes(record *run.Object, text string) {
+	kept := record.List("followups")
+	for _, part := range strings.Split(text, "\n\n") {
+		if strings.HasPrefix(part, "flaky: ") && !slices.Contains(kept, any(part)) {
+			kept = append(kept, part)
+		}
+	}
+	record.Set("followups", kept)
 }
