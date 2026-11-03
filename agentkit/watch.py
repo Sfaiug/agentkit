@@ -6988,9 +6988,9 @@ def checkouts():
     return sorted(d for d in config.CODE.iterdir() if (d / ".git").exists())
 
 
-def pages(cwd, endpoint, key=None):
+def pages(cwd, endpoint, key=None, *args):
     """Flatten REST array pages or a search response's items arrays."""
-    data, why = gh_json(cwd, "api", "--paginate", endpoint)
+    data, why = gh_json(cwd, "api", "--paginate", endpoint, *args)
     if isinstance(data, list) and key:
         data = [page.get(key) if isinstance(page, dict) else None for page in data]
     if not isinstance(data, list) or any(not isinstance(page, list) for page in data):
@@ -7056,18 +7056,27 @@ def launch(*words):
 
 def incoming(state, me, dry_run, log):
     """Other people's open PRs on this account's repos: review each head once."""
+    repos = {}
     for repo in checkouts():
-        info, why = gh_json(repo, "repo", "view", "--json", "nameWithOwner,owner")
-        if not isinstance(info, dict) or not info.get("nameWithOwner"):
-            log(f"skip {repo.name}: {why or 'not a GitHub repo'}")
+        name = gitcall.owner_name(gitcall.git(repo, "remote", "get-url", "origin", check=False))
+        if name.split("/", 1)[0] == me.lower():
+            repos[name] = repo
+    prs, why = pages(config.RUNS, "search/issues", "items", "-X", "GET", "-f",
+                     f"q=is:pr is:open draft:false user:{me} -author:{me}", "-f", "per_page=100")
+    if not isinstance(prs, list):
+        log(f"WARN incoming PR discovery failed: {why}")
+        return
+    for found in prs:
+        url = (found.get("pull_request") or {}).get("html_url")
+        name = "/".join(urlsplit(url or "").path.strip("/").split("/")[:2]).lower()
+        if (not url or not found.get("number") or name not in repos or found.get("draft")
+                or (found.get("user") or {}).get("login", "").lower() == me.lower()):
             continue
-        if (info.get("owner") or {}).get("login") != me:
+        pr, why = gh_json(repos[name], "api", f"repos/{name}/pulls/{found['number']}")
+        if not isinstance(pr, dict):
+            log(f"WARN {url}: PR discovery failed: {why}")
             continue
-        prs, why = pages(repo, f"repos/{info['nameWithOwner']}/pulls?state=open&per_page=100")
-        if not isinstance(prs, list):
-            log(f"WARN {info['nameWithOwner']}: PR discovery failed: {why}")
-            continue
-        for pr in prs:
+        if pr.get("state") == "open":
             author = (pr.get("user") or {}).get("login") or "?"
             url, sha = pr.get("html_url"), (pr.get("head") or {}).get("sha")
             if not url or not sha or author == me or pr.get("draft"):

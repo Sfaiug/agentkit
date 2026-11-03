@@ -344,11 +344,18 @@ def _api(state, opts, endpoint):
     if path == "graphql" and "branchProtectionRule" in asked:
         return {"data": {"repository": {"ref": {"branchProtectionRule": None}}}}
     if path == "search/issues":
+        query = fields.get("q", query)
         found = [pr for pr in state["prs"] if pr["state"] == "OPEN"
-                 and ("author:@me" not in query or pr["author"]["login"] == state["login"])]
+                 and ("author:@me" not in query or pr["author"]["login"] == state["login"])
+                 and (f"user:{state['login']}" not in query
+                      or pr["repo"].split("/")[0] == state["login"])
+                 and (f"-author:{state['login']}" not in query
+                      or pr["author"]["login"] != state["login"])
+                 and ("draft:false" not in query or not pr["isDraft"])]
         return {"total_count": len(found), "incomplete_results": False, "items": [
             {"number": pr["number"], "title": pr["title"], "state": "open", "user": pr["author"],
-             "html_url": pr["url"], "pull_request": {"html_url": pr["url"]}} for pr in found]}
+             "html_url": pr["url"], "draft": pr["isDraft"],
+             "pull_request": {"html_url": pr["url"]}} for pr in found]}
     parts = path.split("/", 3)
     slug, rest = ("/".join(parts[1:3]), parts[3]) if len(parts) == 4 else ("", "")
     if parts[0] != "repos":
