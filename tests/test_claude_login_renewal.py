@@ -1,9 +1,9 @@
 """A Claude seat login that lapsed for lack of use is renewed by Claude Code before ak reads it.
 
 Claude Code renews the seat login only when it runs on it, so a login no seat keeps open --
-a second subscription's -- lapses after some eight hours and stays lapsed. `auth seat` and
-`usage` give a lapsed login that still holds a refresh token the smallest Claude Code turn,
-one per login at a time, and then answer as they would for a fresh one. The real
+a second subscription's -- lapses after some eight hours and stays lapsed. `auth` and `usage`
+give a lapsed login that still holds a refresh token the smallest Claude Code turn, one per
+login at a time, and then answer as they would for a fresh one. The real
 `adapters/claude.sh`, a fake `claude` that renews the login it runs on, a fake `curl`, and a
 temporary HOME: no real login, and nothing that reaches a network.
 """
@@ -14,18 +14,22 @@ from pathlib import Path
 import subprocess
 import tempfile
 import time
+import sys
 import unittest
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+from agentkit import config, worker
 
-# A fake claude: one line per turn -- the login's directory, the token beside it, the prompt,
+# A fake claude: one line per turn -- the login's directory, the token beside it, the prompt's first,
 # and its arguments -- then, unless told to fail, a renewed pair written where Claude Code
 # writes it. `FAKE_SLEEP` holds the turn open, the way a real one takes seconds.  `auth logout`
 # removes the login of the directory it runs in.
 FAKE_CLAUDE = r"""#!/usr/bin/env bash
 dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 [ "$*" != "auth logout" ] || exec rm "$dir/.credentials.json"
-printf '%s|%s|%s|%s\n' "$dir" "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(cat)" "$(printf '[%s]' "$@")" \
+printf '%s|%s|%s|%s\n' "$dir" "${CLAUDE_CODE_OAUTH_TOKEN-unset}" "$(head -n 1)" "$(printf '[%s]' "$@")" \
   >>"$FAKE/turns"
 sleep "${FAKE_SLEEP:-0}"
 [ ! -e "$FAKE/fail" ] || { echo "OAuth token refresh failed" >&2; exit 1; }
@@ -159,15 +163,30 @@ class LoginRenewal(unittest.TestCase):
         self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
         self.assertEqual(self.turns(), [])
 
-    def test_a_turn_on_the_worker_token_renews_an_ending_login_first(self):
-        prompt = self.root / "prompt"
-        prompt.write_text("work\n")
-        for left, tokens in ((240, ["unset", "worker"]), (360, ["worker"])):
-            with self.subTest(left=left):
-                self.login("second", int((time.time() + left) * 1000))
-                code, said = self.ask("second", "run", "m-1", "high", str(self.root), str(prompt),
-                                      str(self.root / "out"))
-                self.assertEqual(code, 0, said)
+    def test_a_turn_on_a_worker_token_renews_an_ending_login_outside_its_box(self):
+        cfg = {"models": {"w": {"harness": "claude", "model": "m-1", "effort": "high",
+                                "provider": "anthropic"}}, "providers": {"anthropic": {}}}
+        secrets = self.root / ".agentkit" / "secrets"
+        file_only = {k: v for k, v in self.env.items() if k != "CLAUDE_CODE_OAUTH_TOKEN"}
+        work = self.root / "acme"     # apart from HOME, as ~/.agentkit is walled from a turn
+        work.mkdir()
+        for name, account, env, left, tokens in (
+                ("its file", "", file_only, 240, ["unset", "worker"]),
+                ("a named account's", "second", file_only, 240, ["unset", "worker"]),
+                ("the environment", "", self.env, 240, ["unset", "worker-env"]),
+                ("longer left", "", file_only, 360, ["worker"])):
+            with self.subTest(name), patch.dict(os.environ, env, clear=True), \
+                    patch.object(config, "STATE", self.root / "state"):
+                token = secrets / "claude_oauth_token"
+                token.write_text("worker\n")
+                if name == "the environment":
+                    token.unlink()
+                self.login(account, int((time.time() + left) * 1000))
+                code = worker.call(cfg, "w", "fix the api", work, self.root / "out",
+                                   env={config.ACCOUNT_ENV: account} if account else None,
+                                   # where the fake claude's lines reach from inside the box
+                                   places=[self.fake])[0]
+                self.assertEqual(code, 0)
                 self.assertEqual([turn[1] for turn in self.turns()], tokens)
 
     def test_logout_signs_out_its_own_login_and_worker_token_alone(self):

@@ -82,8 +82,10 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 
 # The seat login lapses some eight hours after Claude Code last ran on it, and nothing but
 # Claude Code renews it.  A login no seat is open on stays lapsed: `auth seat` sent no seat
-# onto it and `usage` fell back to the worker token, which the usage page refuses.  So before
-# either reads it, a lapsed login that still holds a refresh token gets the smallest turn
+# onto it and `usage` fell back to the worker token, which the usage page refuses, and a turn on
+# that token never renews it.  So before `usage` reads it, and at every `auth` -- which a worker
+# asks before each turn, outside the box that keeps $TMPD read-only, wherever the turn then runs
+# and on whatever token -- a lapsed login that still holds a refresh token gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
 # one per login at a time: whoever waited finds it renewed and asks nothing.  A login that
 # has not lapsed is never touched, and one the turn could not renew is read as it was.  Its last
@@ -142,10 +144,9 @@ run)
   cd -- "$ws" || { echo "claude.sh: no such workspace: $ws" >&2; exit 2; }
   [ -z "$ACCOUNT" ] || share
   # The long-lived worker token, where there is one: a headless turn authenticates with it and
-  # never reads or refreshes the seat's ~/.claude/.credentials.json, so an ending one is renewed
-  # first.  No file, and the turn falls back to whatever the seat's own login leaves there,
-  # exactly as it always did, renewing it as Claude Code does.
-  tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && { renew; export CLAUDE_CODE_OAUTH_TOKEN="$tok"; }
+  # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
+  # falls back to whatever the seat's own login leaves there, exactly as it always did.
+  tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
   if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
   # The prompt goes down stdin.
   # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word
@@ -376,6 +377,7 @@ auth)
   # There are two logins here once a worker token exists, and they expire apart -- a box whose
   # workers are fine can still have a seat showing `Please run /login`, and answering that
   # seat with the worker's token would hide exactly the thing this is here to catch.
+  renew
   [ "${1:-}" = seat ] || {
     [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && { echo "claude: CLAUDE_CODE_OAUTH_TOKEN is set"; exit 0; }
     tok=$(cat "$TOKEN" 2>/dev/null) && case "$tok" in *[![:space:]]*)
@@ -394,7 +396,6 @@ auth)
       exit 0 ;;
     esac
   }
-  renew
   tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
     || tok=$(cat "$CREDS" 2>/dev/null) || tok=
   case "$tok" in *accessToken*) ;; *)
