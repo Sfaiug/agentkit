@@ -29,6 +29,9 @@ func Main(args []string, out, errOut io.Writer) int {
 	if command == "seat-look" { // unlisted too
 		return seatLook(rest)
 	}
+	if command == "guard" && len(rest) >= 2 { // unlisted too
+		return guardCall(rest, errOut)
+	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))
 		return 2

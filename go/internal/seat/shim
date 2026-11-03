@@ -1,0 +1,37 @@
+#!/bin/sh
+# The body of every PATH shim: ak links it as ~/.agentkit/bin/<name>, first on a seat's PATH.  A
+# seat's own call is asked of the program beside this file, which may refuse it; everything else,
+# and a body with no program beside it, runs the real <name>.  sh, not that program: git is hot, so
+# no seatless or worker call -- ak's own work, a test's sandbox -- pays for a start.
+name=${0##*/}
+name=${name%-shim}
+# The real <name>: the first file on PATH after this shim's own, so a wrapper ahead of it that calls
+# it never loops and one after it chains on; with this shim's own off PATH, the first that is not it.
+set -f
+IFS=:
+past= first= real=
+for dir in $PATH; do
+    [ -n "$dir" ] && [ -f "$dir/$name" ] && [ -x "$dir/$name" ] || continue
+    if [ "$dir/$name" -ef "$0" ]; then
+        past=1
+    elif [ -n "$past" ]; then
+        real=$dir/$name
+        break
+    else
+        first=${first:-$dir/$name}
+    fi
+done
+unset IFS
+set +f
+[ -n "$past" ] || real=$first
+if [ -z "$real" ]; then
+    echo "$name-shim: no real $name on PATH" >&2
+    exit 127
+fi
+# A seat's own call only: a worker (AK_RUN_ROLE=worker) and whatever runs seatless pass.
+if [ -n "$AGENTKIT_SESSION" ] && [ "$AK_RUN_ROLE" != worker ]; then
+    shim=$(readlink "$0") || shim=$0
+    ak=${shim%/*}/ak
+    [ -x "$ak" ] && exec "$ak" guard "$name" "$real" "$@"
+fi
+exec "$real" "$@"

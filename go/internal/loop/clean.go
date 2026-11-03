@@ -52,17 +52,6 @@ func Clean(id string, out io.Writer) error {
 	return nil
 }
 
-// underCode is whether the path is ~/code or inside it: a checkout there is the owner's, never a
-// run's to delete.
-func underCode(path string) bool {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return true
-	}
-	code, resolved := config.Resolve(filepath.Join(home, "code")), config.Resolve(path)
-	return resolved == code || strings.HasPrefix(resolved, code+string(filepath.Separator))
-}
-
 // safe is no link among a path's ancestors, and it a folder of this account's, Python's
 // retention.safe where a checkout goes by hand.
 func safe(path string) bool {
@@ -92,7 +81,7 @@ func stopCheckout(dir string, record *run.Object, log func(string), keepBranch b
 	if record.Truthy("scratch") || repo == "" || worktree == "" || filepath.Clean(worktree) == filepath.Clean(repo) {
 		return true
 	}
-	if underCode(worktree) {
+	if config.UnderCode(worktree) {
 		home, _ := os.UserHomeDir()
 		log(fmt.Sprintf("WARN left worktree %s: it is under %s", worktree, filepath.Join(home, "code")))
 		return false
