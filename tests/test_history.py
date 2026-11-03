@@ -99,8 +99,9 @@ class HistoryTests(unittest.TestCase):
                                            ("birch", "acme", "birch"), ("elm", "beta", "elm"))}}
         state = {"run_id": "r1", "executor": "elm", "reviewer": "elm", "state": "pass"}
         with patch.object(config, "load", return_value=cfg):
-            for reviewer, expected in (("alias", "self"), ("birch", "same provider"),
-                                       ("elm", "other provider"), ("gone", None)):
+            for at, (reviewer, expected) in enumerate((("alias", "self"), ("birch", "same provider"),
+                                                      ("elm", "other provider"), ("gone", None)), 2):
+                state["finished_at"] = at
                 state["review"] = {"executor": "cedar", "reviewer": reviewer}
                 ending = transitions.history_ending(state)
                 history.finish_run("r1", **ending)
@@ -116,6 +117,22 @@ class HistoryTests(unittest.TestCase):
         state["review"] = {"executor": "cedar", "reviewer": "alias"}
         with patch.object(config, "load", side_effect=config.Error("unreadable")):
             self.assertIsNone(transitions.history_ending(state)["review_pair"])
+
+    def test_review_pair_stays_with_its_ending_even_when_unknown(self):
+        for n, pair in enumerate(("other provider", None)):
+            name = f"r{n}"
+            history.start_run(name, started_at=1)
+            history.finish_run(name, final_state="pass", finished_at=2, review_pair=pair)
+            for later in ("same provider", None):
+                history.finish_run(name, final_state="pass", finished_at=2,
+                                   review_pair=later, changed_lines=7)
+                self.assertEqual(history.get(name)["review_pair"], pair)
+                self.assertEqual(history.get(name)["changed_lines"], 7)
+            history.start_run(name)  # resuming allows a new pair, even if the clock has not moved
+            history.finish_run(name, final_state="pass", finished_at=2, review_pair="self")
+            self.assertEqual(history.get(name)["review_pair"], "self")
+            history.finish_run(name, final_state="error", finished_at=3)
+            self.assertIsNone(history.get(name)["review_pair"])
 
     def test_a_lost_ending_lands_only_while_its_run_still_reads_it(self):
         # the tick read a run that failed at 20 (`transitions.history_agree`), and its write
