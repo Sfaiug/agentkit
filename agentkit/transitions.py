@@ -391,14 +391,14 @@ def _windows(lines):
             for at, end in enumerate(ends)]
 
 
-def history_ending(state):
+def history_ending(state, cfg=None):
     """The ending a run's record holds, in `history.finish_run`'s terms: rounds unknown where
-    it keeps none, never zero."""
+    it keeps none, never zero. Use the run's config when supplied; recovery loads it afresh."""
     from . import staffing
     pair = None
     if isinstance(state.get("review"), dict) and state["review"].get("reviewer"):
         try:
-            cfg = config.load()
+            cfg = config.load() if cfg is None else cfg
             executor, reviewer = staffing.review_pair(state)
             for name in (executor, reviewer):
                 config.model(cfg, name)  # even equal names must still be known
@@ -417,9 +417,9 @@ def history_ending(state):
             "own_orchestrator_effort": state.get("own_orchestrator_effort")}
 
 
-def history_finish(state, log=None):
+def history_finish(state, log=None, cfg=None):
     """Publish a terminal receipt and close the step this process was running, if any."""
-    ending = history_ending(state)
+    ending = history_ending(state, cfg)
     history.close_step(state.get("run_id"), ending["finished_at"], log=log)
     files = changed_files(state)
     # git is read from the run's worktree while it exists, else from its repository

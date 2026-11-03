@@ -1515,7 +1515,7 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
         log(f"WARN could not redraw the seat's bar: {exc}")
     announce(state, run_dir, log, cfg)
-    history_finish(state, log)
+    history_finish(state, log, cfg=cfg)
     worktrees.settle_run(run_record.read_state(run_dir) or state, run_dir, log)
     if state["state"] == "error":
         log(f"FAIL -> {run_dir / 'result.md'} (error)")
