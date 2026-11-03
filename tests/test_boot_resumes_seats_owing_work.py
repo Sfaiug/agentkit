@@ -50,6 +50,8 @@ class BootResumesOwingSeats(Sandbox):
         if run:
             self.ended(f"run-{name}", owner=name, finished_at=time.time() - 600, **run)
 
+    # After a reboot only seats owing work come back. [17 Oct 2026]
+    # Reason: after the 17 Oct reboot the owner closed by hand those owing nothing.
     def test_only_a_seat_that_owes_work_comes_back_and_the_rest_reopen_with_their_number(self):
         self.seat("midturn", "UserPromptSubmit")
         self.seat("asking", "PermissionRequest")

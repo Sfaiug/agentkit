@@ -1,9 +1,10 @@
 """With no terminal on stdin, or from a seat, `ak orch` opens no seat: it says how one opens.
 
-Only a person opens a seat (owner rules): an agent's guessed `ak orch help` once opened a real
-seat, which sat in the owner's list reading `needs you`.  Agents run ak with no terminal on
-stdin, so a name no seat has, or no name at all, is refused, with the two ways a person opens a
-seat and the usage; a seat that gives its `ak orch` a terminal is refused all the same.  Nothing
+Only a person opens a seat (tests/test_key_orch_open_no_terminal.py): an agent's guessed
+`ak orch help` once opened a real seat, which sat in the owner's list reading `needs you`.
+Agents run ak with no terminal on stdin, so a name no seat has, or no name at all, is refused,
+with the two ways a person opens a seat and the usage; a seat that gives its `ak orch` a
+terminal is refused all the same.  Nothing
 is left behind: no seat record and no tmux session.  Arguments ak cannot read are refused first,
 each saying what was wrong.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py; this test fails against `/bin/false`.
@@ -23,6 +24,8 @@ FROM_A_TERMINAL = ("; a new seat opens only from a terminal (the menu's n, or `a
                    "typed there)\n" + USAGE + "\n")
 
 
+# Only a person opens a seat: `ak orch` with no terminal opens none. [4 Oct, 14 Oct, 17 Oct]
+# Stray seats paged the owner.
 class OpenWithoutTerminal(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

@@ -131,6 +131,7 @@ class Wait(Sandbox):
             self.assertEqual(self.tick(), [])
         return lines
 
+    # A seat waits only on a pull request or a run (`ak wait`). [4 Oct, 9 Oct]
     def test_a_refuses_a_session_a_missing_run_and_no_seat_and_records_nothing(self):
         for on in (OTHER, "no-such-run", "../runs", SEAT):
             with self.subTest(on=on):
@@ -173,6 +174,7 @@ class Wait(Sandbox):
         self.assertEqual(self.decide(), ("working", f"waiting on {THEIRS}"))
         self.assertEqual(watch.waiting_on(SEAT)["on"], THEIRS)
 
+    # ak ends the wait when that merges, closes or ends. [4 Oct, 9 Oct]
     def test_c_over_once_the_run_ends_and_the_line_is_typed_once(self):
         self.receipt(THEIRS, OTHER)
         self.wait(THEIRS)
@@ -195,6 +197,7 @@ class Wait(Sandbox):
         self.assertEqual(self.tick(), ["run 20260101-0800-gone is gone; your wait is over. "
                                        "Decide the next step."])
 
+    # ak ends the wait when that merges, closes or ends. [4 Oct, 9 Oct]
     def test_d_a_pull_request_holds_while_open_and_ends_merged_or_closed(self):
         self.wait(PR)
         self.assertEqual(self.decide(), ("working", f"waiting on {PR}"))

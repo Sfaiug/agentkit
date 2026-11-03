@@ -442,7 +442,7 @@ def tell_audit(cfg, log, now=None):
     it on purpose: what the owner stopped stays stopped, and the line waits for them to open
     it.  Delivered at least once: the mark is kept in the line's record from tick to tick until
     the composer reads empty, and a tick that dies mid-line is finished by the next.  The one
-    exception to "only a person opens a seat" (AGENTS.md, Owner rules, 14 Oct, 17 Oct)."""
+    exception to "only a person opens a seat" (tests/test_key_audit_seat.py, 14 Oct, 17 Oct)."""
     from . import audit, stuck
     now = time.time() if now is None else now
     pending = stuck.read()
