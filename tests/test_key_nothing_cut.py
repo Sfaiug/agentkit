@@ -25,9 +25,10 @@ from fixtures.gitrig import Rig
 
 HEADING = "## The done-when commands failed. Fix the root cause.\n```\n"
 SHORT = "seq -f 'café short %g' 1 40; test -f fixed.txt"
-LONG = "seq -f 'café long %g' 1 30000; test -f fixed.txt"     # about 500 KB
+# About 500 KB; its last 20 KiB start inside a three-byte character.
+LONG = "seq -f '€€ long %g' 1 30000; test -f fixed.txt"
 PRINTED = {SHORT: "".join(f"café short {n}\n" for n in range(1, 41)),
-           LONG: "".join(f"café long {n}\n" for n in range(1, 30001))}
+           LONG: "".join(f"€€ long {n}\n" for n in range(1, 30001))}
 FIX = {"write": {"fixed.txt": "ok\n"}, "commit": "fix the checks",
        "final": "## Summary\nfixed", "hand_in": [["done"]]}
 ORCHESTRATOR = shipped_rules()
@@ -77,6 +78,7 @@ class FailedChecks(unittest.TestCase):
         kept = Path(re.search(r"/[^\s\]]+", named)[0])
         self.assertTrue(kept.is_relative_to(self.run_dir), named)
         self.assertEqual(kept.read_bytes(), PRINTED[LONG].encode())
+        self.assertLessEqual(len(shown.encode()), 20 * 1024)
         # the end is what the command finally said about itself
         self.assertTrue(PRINTED[LONG].endswith(shown), shown[-200:])
         self.assertGreater(shown.count("\n"), 100)
