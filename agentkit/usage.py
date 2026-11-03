@@ -1298,6 +1298,8 @@ def account(cfg, provider, model=None):
     the config lists them in; for a `model`, one running low on the meters gating it
     (`model_low`), or unread, after every one that is not.  (None, None) for a provider that
     lists no accounts, which is asked nothing: it is one login, exactly as it always was.
+    For a model launched from a seat on this provider, spend the seat's account only once
+    the others are spent or cannot authenticate; the model pick still reads the same meters.
     """
     names = config.accounts(_on_disk(cfg), provider)
     if not names:
@@ -1306,10 +1308,19 @@ def account(cfg, provider, model=None):
     if prov.get("account") in names:
         readings = prov["accounts"]
         # One whose meters ak cannot read may be logged out: it is no safer than one running low.
-        best = prov["account"] if model is None else min(readings, key=lambda a: _worker_rank(
+        order = [prov["account"]] if model is None else sorted(readings, key=lambda a: _worker_rank(
             a, readings[a], readings[a]["budget_reason"] is not None
             or model_low(cfg, model, {provider: readings[a]})))
-        return best, not prov.get("exhausted")
+        best = order[0]
+        seat = config.active_session(cfg) if model is not None else None
+        if seat and cfg["models"].get(seat["orchestrator"], {}).get("provider") == provider:
+            own = seat.get("account") or config.DEFAULT_ACCOUNT
+            if own in readings:
+                harness = config.model(cfg, model)["harness"]
+                best = next((a for a in order if a != own and not readings[a]["exhausted"]
+                             and worker.auth_ok(harness, account=a, provider=provider)[0]
+                             is not False), own)
+        return best, not readings[best]["exhausted"]
     spare = next((a for a in names if a != config.DEFAULT_ACCOUNT), names[0])
     return spare, not prov.get("exhausted")
 
