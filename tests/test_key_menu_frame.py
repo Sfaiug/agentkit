@@ -38,6 +38,13 @@ def grid_end(shown):
     return shown.index("", 2)
 
 
+# The ak screen is the one the owner approved on 14 Oct 2026
+# (the live mock at https://claude.ai/artifact/GmF6YMPHJtN3Z2mggbumGt, version 6):
+# one row per seat with its word, its own model. No screen names a task, nor any row who
+# builds or reviews. No tip replaces the key line. Usage stays on top and keys at the bottom.
+# Reason: a selected question pushed the usage off the screen, the tips only repeated the row,
+# who builds, who reviews and each task's step crowded it, and ended runs stayed red squares.
+# [2, 14, 19, 23, 26 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Frame(unittest.TestCase):
     """What every main screen holds, read at rest: once each seat's look has landed."""
@@ -90,11 +97,20 @@ class Frame(unittest.TestCase):
         # Nothing between the last seat and the key line: no tip, no task, no other line.
         self.assertFalse(any(self.shown[end + 5:-3]), self.shown)
 
+    # with a plan, a smooth line of how much is done with `N of M`.
+    # [2, 14, 19, 23, 26 Oct 2026]
     def test_a_seat_with_a_plan_shows_its_count_and_no_task_is_named(self):
         plan_row = next(row for row in self.shown if "atoll-fix" in row)
         self.assertTrue(plan_row.endswith(" 1 of 3"), plan_row)
         for task in TASKS:
             self.assertNotIn(task, "\n".join(self.shown))
+
+    # never a percentage or a finish time. [2, 14, 19, 23, 26 Oct 2026]
+    def test_no_seat_row_shows_a_percentage_or_a_time(self):
+        end = grid_end(self.shown)
+        for row in self.shown[end + 3:end + 5]:
+            self.assertNotIn("%", row)
+            self.assertNotRegex(row, r"\d\d:\d\d")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

@@ -218,6 +218,7 @@ class OutOfUsageRow(Sandbox):
             menu.go_on_now(self.cfg, SEAT, "gpt-sol")
         said.assert_called_once_with("gpt-sol: codex is not installed")
 
+    # red without usage. [2, 14, 19, 23, 26 Oct 2026]
     def test_a_run_waiting_for_usage_is_a_red_square(self):
         run = (config.RUNS / "acme-run", {"state": "exhausted", "quota_dry": True,
                                           "step": "reviewer", "launched_session": SEAT})

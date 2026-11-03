@@ -57,6 +57,9 @@ class Wash(Sandbox):
         """The name a seat's row and `c` show the model by (config.model_name)."""
         return config.model_name(self.cfg, name)
 
+    # Colour says where a thing stands; a company's shows only while the pointer is on its
+    # subscription's meter, filling it and lighting every model on screen running on it.
+    # [2, 14, 19, 23, 26 Oct 2026]
     def test_at_rest_no_model_wears_a_colour_and_the_pointer_colours_its_subscriptions(self):
         rest = self.screen()
         for name, model in (("acme-plan", "opus"), ("acme-docs", "astra")):

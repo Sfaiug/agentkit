@@ -71,6 +71,7 @@ class Listing(unittest.TestCase):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ProjectsBySeatsMade(Listing):
+    # a project with no seat shown has no heading. [2, 14, 19, 23, 26 Oct 2026]
     def test_projects_come_by_name_and_under_each_its_seats_in_the_order_made(self):
         with Home() as home:
             now = int(time.time())

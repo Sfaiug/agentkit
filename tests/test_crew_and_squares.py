@@ -33,6 +33,8 @@ class CrewAndSquares(Sandbox):
         super().setUp()
         self.stack.enter_context(patch.dict(os.environ, {"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"}))
 
+    # each task in flight as three squares (build, review, land).
+    # Reason: ended runs stayed red squares. [2, 14, 19, 23, 26 Oct 2026]
     def test_each_run_in_flight_is_a_task_at_its_stage_moving_or_waiting_and_an_ended_one_none(self):
         records = [
             run("g1-parser", state="running", step="executor"),
