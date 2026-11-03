@@ -39,7 +39,7 @@ func TestTheLastDropInNamingTasksMaxWins(t *testing.T) {
 		os.MkdirAll(dir, 0o755)
 		os.WriteFile(filepath.Join(dir, "50-limits.conf"), []byte(text), 0o644)
 	}
-	if got := sliceCeiling(); got != 500 {
+	if got, _ := dropInTasksMax("agentkit-test.slice"); got != 500 {
 		t.Errorf("got %v, want 500", got)
 	}
 }

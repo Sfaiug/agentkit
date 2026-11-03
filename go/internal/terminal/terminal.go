@@ -1,5 +1,6 @@
-// Package terminal handles presentation without invoking host tools: widths,
-// wrapping, fitted columns and the state words' glyphs and colours.
+// Package terminal handles presentation: widths, wrapping, fitted columns and the state words'
+// glyphs and colours, and the keyboard of a screen that takes the terminal.  The one host tool it
+// asks is tmux, for what the terminal of the client it runs under takes.
 package terminal
 
 import (
@@ -22,14 +23,15 @@ var styles = map[string]style{
 	"dim":       {"·", ".", "6c7086", "37", "2"},
 }
 
-// A Screen is one output's colour depth, glyphs and width, read once.
+// A Screen is one output's colour depth, background, glyphs and size, read once: a screen asks for
+// a colour by its role and a glyph by its word, never an RGB or a code.
 type Screen struct {
-	depth, width int
-	ascii        bool
+	depth, width, height int
+	ascii, light         bool
 }
 
 func For(out io.Writer) Screen {
-	return Screen{depth(out), width(out), !utf8()}
+	return Screen{depth: depth(out, false), width: width(out), ascii: !utf8()}
 }
 
 // TypedHere is whether a person is at this command's keyboard: agents run ak with no
@@ -48,14 +50,16 @@ func Dim(out io.Writer, text string) string {
 	return For(out).Styled(text, "dim")
 }
 
-func depth(out io.Writer) int {
+// depth is the colours out takes: none off a terminal, under NO_COLOR or a dumb TERM; true colour
+// where COLORTERM says so or rgb, a terminal's own features, does; else terminfo's count.
+func depth(out io.Writer, rgb bool) int {
 	file, ok := out.(*os.File)
 	term := os.Getenv("TERM")
 	_, noColor := os.LookupEnv("NO_COLOR")
 	if !ok || !isTerminal(file) || noColor || term == "" || term == "dumb" {
 		return 0
 	}
-	if color := strings.ToLower(os.Getenv("COLORTERM")); color == "truecolor" || color == "24bit" {
+	if color := strings.ToLower(os.Getenv("COLORTERM")); color == "truecolor" || color == "24bit" || rgb {
 		return 24
 	}
 	switch colors := terminalColors(term); {
@@ -99,16 +103,28 @@ func (s Screen) Width() int {
 	return s.width
 }
 
+// Height is the terminal's rows, known once a Keyboard has said what the terminal is.
+func (s Screen) Height() int {
+	return s.height
+}
+
 // ContentWidth is the room a listing lays out in: the terminal's, capped at 100 columns.
 func (s Screen) ContentWidth() int {
 	return max(1, min(s.width, 100))
 }
 
-// Styled is text in a state word's colour, or dim, or a caller's own `#RRGGBB`.
+// Styled is text in a state word's colour, or dim, or a role's (kinds), or a caller's own `#RRGGBB`,
+// from the palette of the background this screen has.
 func (s Screen) Styled(text, word string) string {
+	if role, ok := kinds[word]; ok {
+		word = role
+	}
 	look := lookOf(word)
 	if s.depth == 0 || text == "" {
 		return text
+	}
+	if rgb, ok := lightRGB[word]; ok && s.light {
+		look.rgb = rgb
 	}
 	code := look.tone
 	switch s.depth {

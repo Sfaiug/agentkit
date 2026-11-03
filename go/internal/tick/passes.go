@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 	"agentkit/internal/job"
+	"agentkit/internal/leftover"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -44,7 +44,7 @@ func table(t *ticking) []pass {
 		{"stall recovery", true, all(configured, runless), nil},
 		{"lease scan", false, runless, nil},
 		{"lease restart", false, runless, nil},
-		{"seat headroom", false, host.NoSliceCeiling, nil},
+		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		{"token reminder", false, nil, nil},
 		// its workers are the seat's own selection, which Go does not read yet
@@ -75,7 +75,7 @@ func table(t *ticking) []pass {
 		{"exit clocks", false, seatless, nil},
 		{"seat sweep", false, all(runless, seatless), nil},
 		{"ended logins", false, noLoginsToEnd, nil},
-		{"leftover sweep", false, noLeftovers, nil},
+		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"project rules", false, all(seatless, checkoutsSeen), fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},

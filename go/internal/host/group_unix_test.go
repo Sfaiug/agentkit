@@ -25,10 +25,16 @@ func TestGroupEndsTheWholeSession(t *testing.T) {
 		time.Sleep(time.Minute)
 		return
 	}
+	endsWithItsGroups(t, Group)
+}
+
+// endsWithItsGroups is whether a command start started goes, cancelled, with a child that leads a
+// process group of its own.
+func endsWithItsGroups(t *testing.T, start func(*exec.Cmd) func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestGroupEndsTheWholeSession$")
 	cmd.Env = append(os.Environ(), "AK_GROUP_HELPER=1")
-	Group(cmd)
+	start(cmd)
 	out, _ := cmd.StdoutPipe()
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

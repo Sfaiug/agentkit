@@ -72,10 +72,15 @@ func Resume(id string, bg bool, out, errOut io.Writer) (int, string, error) {
 	return loop.Follow(dir, info.Size(), out, errOut), "", nil
 }
 
-// driverHere is whether a driver can take these checks on this host: a box, no user manager to place
-// the run under, meters it can read, and no check that names a suite's share.
+// driverHere is whether a driver can take these checks on this host: placed, with meters it can read.
 func driverHere(every []string) bool {
-	return box.Supported && !host.UserManager() && usage.Check() == nil &&
+	return placed(every) && usage.Check() == nil
+}
+
+// placed is whether this host can hold a driver for these checks: a box, no user manager to place
+// the run under, and no check that names a suite's share.
+func placed(every []string) bool {
+	return box.Supported && !host.UserManager() &&
 		!slices.ContainsFunc(every, func(cmd string) bool { return namesShard.MatchString(cmd) })
 }
 

@@ -17,6 +17,7 @@ import (
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/task"
+	"agentkit/internal/usage"
 )
 
 var (
@@ -25,13 +26,14 @@ var (
 )
 
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
-// before anything is written: a model named outright, a pick or a meter Go cannot read as Python
-// does, a home with no adapter directory, a host with no box, one with a user manager to place the
-// run under, a check that names a suite's share, the checkout a task folder is named for, or a run
-// under way that Python's rival check would read.
+// before anything is written: a model named outright, a pick Go cannot read as Python does, a meter
+// it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
+// with no box, one with a user manager to place the run under, a check that names a suite's share,
+// the checkout a task folder is named for, or a run under way that Python's rival check would read.
 func drivable(every []string, path string, values map[string]string) error {
 	_, rules := pick.Load()
-	if values["--exec"] != "" || values["--review"] != "" || !rules || !driverHere(every) || filed(path) || going() {
+	if values["--exec"] != "" || values["--review"] != "" || !rules || !placed(every) ||
+		usage.Check() != nil && !loop.Unstaffed() || filed(path) || going() {
 		return ErrPython
 	}
 	return nil

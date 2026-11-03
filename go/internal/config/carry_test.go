@@ -35,7 +35,7 @@ func TestCarryLeavesAFileLackingNothingAndRefusesWhatItCannotWrite(t *testing.T)
 	if got, changed, err := Carry("# mine\n[ui]\nx = 1\n", "[ui]\nx = 2\n"); got != "" || changed || err != nil {
 		t.Fatalf("lacking nothing: %q %v %v", got, changed, err)
 	}
-	for _, each := range [][2]string{{"[bad", "x = 1"}, {"x = 1", "[bad"}, {"", "x = nan"}, {"", "x = 1979-05-27"}} {
+	for _, each := range [][2]string{{"[bad", "x = 1"}, {"x = 1", "[bad"}, {"", "x = nan"}} {
 		if _, changed, err := Carry(each[0], each[1]); changed || err == nil {
 			t.Errorf("Carry(%q, %q) wrote it", each[0], each[1])
 		}

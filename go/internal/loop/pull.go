@@ -236,7 +236,7 @@ func (l *loop) pickReviewer() error {
 	if err != nil {
 		return notYet("the meters cannot be read: "+err.Error(), "a pick without them")
 	}
-	order := rules.Order(withRoom(readings), true, rawLog{l.dir})
+	order := rules.Order(ready{readings, unable()}, true, rawLog{l.dir})
 	if len(order) == 0 {
 		return notYet("no reviewer can run now", "an exhausted run")
 	}

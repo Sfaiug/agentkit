@@ -1,8 +1,11 @@
 package loop
 
 import (
+	"errors"
+
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/pick"
 	"agentkit/internal/usage"
 	"agentkit/internal/worker"
 )
@@ -22,9 +25,17 @@ func (r ready) Spent(name string) string {
 	return r.Readings.Spent(name)
 }
 
-// withRoom is that read, each harness asked once for each provider it runs.
-func withRoom(readings *usage.Readings) ready {
-	found := ready{readings, map[string]string{}}
+// Unstaffed is whether the config's groups leave no executor or no reviewer that can run here,
+// which ends a run with no meter read and no turn, in whatever home.
+func Unstaffed() bool {
+	rules, ok := pick.Load()
+	return ok && rules.Unstaffed(unable()) != ""
+}
+
+// unable is why each model cannot run a turn here, each harness asked once for each provider it
+// runs.
+func unable() map[string]string {
+	found := map[string]string{}
 	models, err := config.Models()
 	if err != nil {
 		return found
@@ -37,21 +48,36 @@ func withRoom(readings *usage.Readings) ready {
 			why = unready(model)
 			asked[place] = why
 		}
-		found.cannot[name] = why
+		found[name] = why
 	}
 	return found
 }
 
 // unready is why the model's harness cannot run a turn here, Python's usage.harness_unready: not
-// installed, or its own `auth` verb saying no.  No answer withholds nothing.
+// installed, or its own `auth` verb saying no, which in a home with no adapter to ask is Go's own
+// read of the login.  No answer withholds nothing, as for a provider's several accounts, each
+// Python's to ask, or a login only a turn can renew.
 func unready(model config.Model) string {
 	program := model.Harness
 	if version, _ := config.Words(model.Harness, "update", "version"); len(version) > 0 && version[0] != "" {
 		program = version[0]
 	}
 	adapter, err := config.Adapter(model.Harness)
-	if err != nil || harness.Binary(program) == "" {
+	unnamed := errors.Is(err, config.ErrNoAdapterDir)
+	if err != nil && !unnamed || harness.Binary(program) == "" {
 		return model.Harness + " is not installed"
+	}
+	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 {
+		return ""
+	}
+	if unnamed {
+		// the login the scripted probe reads, on ChildEnv
+		login, _, err := config.UsualAccount(model.Harness)
+		answer, read := harness.Auth(model.Harness, login, false)
+		if err == nil && read && !answer.Yes && !answer.Lapsed {
+			return model.Harness + " is not logged in"
+		}
+		return ""
 	}
 	env, err := config.ChildEnv()
 	if err != nil {

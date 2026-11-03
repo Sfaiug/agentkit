@@ -101,7 +101,7 @@ func pairReady(record *run.Object) bool {
 	if err != nil {
 		return false
 	}
-	room := withRoom(readings)
+	room := ready{readings, unable()}
 	executor, reviewer := record.Str("executor"), record.Str("reviewer")
 	return room.Spent(executor) == "" && !rules.Same(executor, reviewer) && slices.Contains(rules.Order(room, true, io.Discard), reviewer)
 }

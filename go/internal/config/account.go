@@ -10,7 +10,12 @@ import (
 // it and its adapter's shell spells it: an account's own where $AGENTKIT_ACCOUNT names one, else
 // the one its `env` variable names unless that is an account's (`drop`), else the usual one.
 func loginHome(root *table) string {
-	if name := os.Getenv("AGENTKIT_ACCOUNT"); name != "" {
+	return homeOf(root, os.Getenv("AGENTKIT_ACCOUNT"))
+}
+
+// homeOf is the home of that account's login, the usual one's for "".
+func homeOf(root *table, name string) string {
+	if name != "" {
 		return strings.ReplaceAll(spelled(accountValue(root, "home")), "{account}", name)
 	}
 	return usualHome(root)

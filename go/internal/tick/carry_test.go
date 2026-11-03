@@ -9,10 +9,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
-	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -166,7 +164,6 @@ func TestAnythingToActOnWritesNothing(t *testing.T) {
 		"config.toml#renting":         "[audit]\non = false\n[google_cloud]\nactive = true\n",
 		"../code/api/.git/HEAD":       "",
 		"../agentkit/.git/HEAD":       "",
-		"../.config/systemd/user/tick-test.slice.d/ceiling.conf": "[Slice]\nTasksMax=100\n",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)
@@ -197,8 +194,6 @@ func TestAFailedReadWritesNothing(t *testing.T) {
 		"code":         {"../code/api/.git/HEAD", "../code", 0},
 		"a code entry": {"../code/api/.git/HEAD", "../code/api", 0},
 		"own checkout": {"../agentkit/.git/HEAD", "../agentkit", 0},
-		"slice":        {"../.config/systemd/user/tick-test.slice.d/ceiling.conf", "../.config/systemd/user/tick-test.slice.d", 0},
-		"slice parent": {"../.config/systemd/user.control/tick-test.slice.d/ceiling.conf", "../.config/systemd", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)
@@ -226,23 +221,6 @@ func TestAFailedReadWritesNothing(t *testing.T) {
 				t.Error("it took the lock")
 			}
 		})
-	}
-}
-
-// A process of this HOME carrying ak's mark, or a seat's tag, is the leftover sweep's to judge.
-func TestAMarkedProcessIsForTheSweep(t *testing.T) {
-	idleHome(t, answers)
-	if !noLeftovers() {
-		t.Fatal("no process of this HOME, yet a leftover")
-	}
-	if _, err := os.Stat("/proc/self/environ"); err != nil {
-		t.Skip("no /proc")
-	}
-	// /proc shows a process's environment as it started: only a child can hold the mark
-	marked := startSleep(t, "AK_OWNER=1 2 3 4 ak watch")
-	defer marked()
-	if noLeftovers() {
-		t.Error("a marked process went unseen")
 	}
 }
 
@@ -371,28 +349,3 @@ func TestTheLogDatesEachLine(t *testing.T) {
 }
 
 func errIsDir() error { return syscall.EISDIR }
-
-// startSleep runs a child holding the environment word, for as long as the test lasts.
-func startSleep(t *testing.T, word string) func() {
-	t.Helper()
-	child := exec.Command("sleep", "60")
-	child.Env = append(os.Environ(), word)
-	if err := child.Start(); err != nil {
-		t.Fatal(err)
-	}
-	stop := func() {
-		child.Process.Kill()
-		child.Wait()
-	}
-	// Start returns a moment before the exec has filled in what /proc shows
-	environ := filepath.Join("/proc", strconv.Itoa(child.Process.Pid), "environ")
-	for deadline := time.Now().Add(time.Minute); ; time.Sleep(time.Millisecond) {
-		if data, _ := os.ReadFile(environ); strings.Contains(string(data), word) {
-			return stop
-		}
-		if time.Now().After(deadline) {
-			stop()
-			t.Fatal("the child's environment never showed")
-		}
-	}
-}

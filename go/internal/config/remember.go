@@ -25,10 +25,10 @@ var saveOrder = map[string][]string{
 // RememberDefaults is Python's config.remember_defaults of a new seat's models: what the next
 // seat starts from, written as [defaults] into ~/.agentkit/config.toml where the file says
 // otherwise.  The whole file is written as Python's save writes it: the config as load() reads
-// it, the home file's own top-level keys over it.  Python's save first has every seat's record
-// hold the efforts it runs at; Go's one caller opens a seat in a home with no other, whose
-// record holds them already.  An error leaves the file as it was.
-func RememberDefaults(orchestrator string, workers, reviewers []string) error {
+// it, the home file's own top-level keys over it.  `keep` is what Python's save does once the
+// text is built and before it is written: every seat's record holding the efforts it runs at
+// (config.keep_efforts, the records' own package's).  An error leaves the file as it was.
+func RememberDefaults(orchestrator string, workers, reviewers []string, keep func() error) error {
 	path := filepath.Join(Home(), "config.toml")
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -76,6 +76,9 @@ func RememberDefaults(orchestrator string, workers, reviewers []string) error {
 	root.put("defaults", defaults)
 	text, err := dump(root)
 	if err != nil {
+		return err
+	}
+	if err := keep(); err != nil {
 		return err
 	}
 	tmp := filepath.Join(Home(), "config.tmp")

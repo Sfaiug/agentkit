@@ -57,7 +57,7 @@ func (l *loop) handExecutor(why, detail string, dry map[string]bool) (string, er
 	if !ok || err != nil || known != nil {
 		return "", nil
 	}
-	next, reviewer, found := rules.Pair(refusing{withRoom(readings), models, dry})
+	next, reviewer, found := rules.Pair(refusing{ready{readings, unable()}, models, dry})
 	if !found || why == "transient" && rules.Same(next, reviewer) {
 		return "", nil
 	}
@@ -130,7 +130,7 @@ func (l *loop) readyReviewers(failed []any) (all, independent []string, err erro
 	if readings, err := usage.Read(); err != nil {
 		l.say("WARN could not read the meters: " + err.Error())
 	} else {
-		room = withRoom(readings)
+		room = ready{readings, unable()}
 	}
 	writers := headWriters(record)
 	for _, name := range rules.Beside(room, writers) {
