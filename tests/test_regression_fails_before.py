@@ -555,9 +555,29 @@ class RegressionFailsBefore(unittest.TestCase):
         self.fixed()
         lp = self.loop(["PYTHONPATH=. python3 tests/check.py"])
         ok, text = run.verify_work(lp)
-        with patch.object(run.turns, "call_retrying", side_effect=run.Stopped("fixture stop")):
-            with self.assertRaises(run.Stopped):
+        started, stopped = threading.Event(), threading.Event()
+
+        def proof(_lp, **_kw):
+            started.set()
+            stopped.wait(10)
+            return ""
+
+        def reviewer(*_args, **_kw):
+            self.assertTrue(started.wait(10))
+            raise KeyboardInterrupt
+
+        def stop(marker, **_kw):
+            if threading.current_thread() is threading.main_thread():
+                self.assertEqual(marker, worker.run_marker(lp.state["run_id"]) + "/base-proof")
+                stopped.set()
+
+        with patch.object(run._RUN_CONTEXT, "state", lp.state, create=True), \
+                patch.object(roundloop, "fails_on_base", side_effect=proof), \
+                patch.object(worker, "kill_marked", side_effect=stop), \
+                patch.object(run.turns, "call_retrying", side_effect=reviewer):
+            with self.assertRaises(KeyboardInterrupt):
                 run.review(lp, "", ok, text)
+        self.assertTrue(stopped.is_set(), "review exit joined without stopping the replay")
         state = record.read_state(self.directory)
         self.assertEqual(state["base_proof"], "owed")
         self.assertTrue(state["review_pending"])
