@@ -85,14 +85,15 @@ func checkTurn(turn, code string, said io.Writer) error {
 			if tested := wait.Str("tested"); tested != "" && tested != wait.Str("land") {
 				return nil // a batch covering a different tree is Python's
 			}
+			// A moved target may invalidate the prefix; its saved delivery still wakes to rejoin.
+			if saved.Str("state") == "waiting" && unchanged(dir, saved) {
+				withPrefix(prefix, func() bool { return publish(dir, saved, wait, said) })
+			}
 			top, err := l.prefixTop(saved, repo, tip, upstream, stack.top)
 			if err != nil || top == "" {
 				return err
 			}
 			stack.top = top
-			if saved.Str("state") == "waiting" && unchanged(dir, saved) {
-				withPrefix(prefix, func() bool { return publish(dir, saved, wait, said) })
-			}
 		} else {
 			if saved.Str("state") != "waiting" || !unchanged(dir, saved) || !withPrefix(prefix, func() bool { return true }) {
 				return nil
