@@ -421,17 +421,8 @@ func asPython(err error) error {
 	return nil
 }
 
-// numbers is the numbers in force for a repository's run: the front matter of AGENTS.md on the
-// default branch of its checkout, one commit for all of them, else the host's.
 func numbers(repo string) (config.Numbers, error) {
-	if repo == "" {
-		return config.HostNumbers()
-	}
-	commit, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD")
-	if err != nil || commit == "" {
-		return config.HostNumbers()
-	}
-	return config.ProjectNumbers(repo, func(key string) string { return gitcall.DeclaredAt(repo, commit, key) })
+	return run.LaunchPolicy(repo)
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it

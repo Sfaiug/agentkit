@@ -13,8 +13,8 @@ import (
 	"agentkit/internal/run"
 )
 
-func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *testing.T) {
-	l := rig(t, 0)
+func seatLaunchFixture(t *testing.T) {
+	t.Helper()
 	previous := HoldSlots
 	HoldSlots = func(ctx context.Context) (*os.File, error) {
 		return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
@@ -29,6 +29,11 @@ func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *test
 	os.WriteFile(filepath.Join(home, "config.toml"), settings, 0o600)
 	os.WriteFile(filepath.Join(home, "state", "session-acme.json"),
 		[]byte(`{"workers": ["opus"], "reviewers": ["astra"], "efforts": {"opus": {"effort": "high"}}}`), 0o600)
+}
+
+func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *testing.T) {
+	l := rig(t, 0)
+	seatLaunchFixture(t)
 	t.Setenv("AK_RUN_DEPTH", "3")
 	t.Setenv("AK_PARENT_RUN", "parent")
 	t.Setenv("AK_RUN_ROLE", "executor")
@@ -76,6 +81,33 @@ func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *test
 	record, _ = run.Read(child)
 	if record.Str("state") != "running" || record.Truthy("slot_waiting") || !record.Truthy("slot_started_at") {
 		t.Fatalf("never claimed its own slot: %s", run.Line(record))
+	}
+}
+
+func TestAFixCapturesTheCurrentDefaultBranchPolicy(t *testing.T) {
+	_, repo := repoRig(t)
+	seatLaunchFixture(t)
+	agents := filepath.Join(repo.repo, "AGENTS.md")
+	os.WriteFile(agents, []byte("---\nrounds: 1\nreview_lines: 60\nseat_lines: 0\n---\n"), 0o600)
+	shell(t, repo.repo, "git add AGENTS.md && git commit -qm policy && git update-ref refs/remotes/origin/main HEAD && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main")
+	// Neither the parent's older policy nor the checkout's uncommitted edits set this launch's limits.
+	os.WriteFile(agents, []byte("---\nrounds: 2\nreview_lines: 90\nseat_lines: 50\n---\n"), 0o600)
+	child := filepath.Join(run.Runs(), "fix")
+	os.Mkdir(child, 0o700)
+	path := filepath.Join(child, "task.md")
+	os.WriteFile(path, []byte("# Fix retry\n"), 0o600)
+	parent := run.Fields("launched_session", "acme", "policy", run.Fields("rounds", 3, "review_lines", 300, "seat_lines", 50))
+	_, err := launchForSeat(child, parent, run.Fields("repo", repo.repo, "followup", run.Fields("check", "false")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := run.Read(child)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rounds, _, err := budget(nil, path, child)
+	if err != nil || rounds != 1 || numbersOf(record) != 60 || record.Dict("policy") == nil || record.Dict("policy").Get("seat_lines") != run.Number("0") {
+		t.Fatalf("fix policy = %s, budget = %d: %v", run.Line(record.Get("policy")), rounds, err)
 	}
 }
 

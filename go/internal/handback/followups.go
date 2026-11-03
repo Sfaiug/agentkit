@@ -62,7 +62,7 @@ func StartFollowups(dir string, prepare func(string, *run.Object, *run.Object) (
 	checks, commits := cmp.Or(state.Dict("followup_checks"), run.NewObject()), cmp.Or(state.Dict("followup_commits"), run.NewObject())
 	for _, value := range state.List("followups") {
 		item := run.Text(value)
-		check := checks.Str(item)
+		check := strings.TrimFunc(checks.Str(item), config.Space)
 		if check == "" {
 			complete = false
 			continue

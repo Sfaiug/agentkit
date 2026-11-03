@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"agentkit/internal/run"
+	"agentkit/internal/task"
 )
 
 func followupRig(t *testing.T, workers string) (string, string) {
@@ -118,6 +119,38 @@ func TestANoExecutorSeatPlansItsOwnWorkAndAClosedSeatStartsNothing(t *testing.T)
 			text, err := os.ReadFile(plan)
 			if closed && !os.IsNotExist(err) || !closed && (err != nil || strings.Contains(string(text), " · deferred")) {
 				t.Fatalf("plan %q: %v", text, err)
+			}
+		})
+	}
+}
+
+func TestAFollowupCommandIsNormalizedForItsPlanAndFixReceipt(t *testing.T) {
+	const check = "test -f sturdy.txt"
+	for _, workers := range []string{`[]`, `["opus"]`} {
+		t.Run(workers, func(t *testing.T) {
+			dir, plan := followupRig(t, workers)
+			run.Change(dir, func(record *run.Object) error {
+				record.Dict("followup_checks").Set("retry.txt:1 - fragile retry", "\x1f \t"+check+"\r\n")
+				return nil
+			})
+			prepared := false
+			err := StartFollowups(dir, func(child string, state, origin *run.Object) (func() error, error) {
+				prepared = true
+				if got := origin.Dict("followup").Str("check"); got != check {
+					t.Errorf("fix receipt check = %q, want %q", got, check)
+				}
+				_, commands, err := task.Read(filepath.Join(child, "task.md"))
+				if err != nil || len(commands) != 1 || commands[0] != check {
+					t.Errorf("fix commands = %q: %v", commands, err)
+				}
+				return func() error { return nil }, nil
+			}, func(line string) { t.Log(line) })
+			if err != nil || prepared != (workers != `[]`) {
+				t.Fatalf("prepared = %v: %v", prepared, err)
+			}
+			text, err := os.ReadFile(plan)
+			if err != nil || strings.Count(string(text), "\n") != 1 || !strings.Contains(string(text), " · check: `"+check+"` · ") {
+				t.Fatalf("unreadable check line: %q: %v", text, err)
 			}
 		})
 	}
