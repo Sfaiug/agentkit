@@ -60,15 +60,15 @@ class LineOne(Sandbox):
 
     def test_a_the_tasks_bar_takes_36_cells_where_line_one_has_room(self):
         self.assertEqual(statusbar.BARS, (36, 24, 12))
-        bar = drawn(self.lasts[0]).split("Fable 5.1   ")[1]
+        bar = drawn(self.lasts[0]).split("Fable 5.1 xhigh   ")[1]
         self.assertEqual(len(bar), 36, bar)
         shown = self.line(200)
-        self.assertTrue(shown.startswith(" ● working   fix-api   Fable 5.1   " + bar), shown)
+        self.assertTrue(shown.startswith(" ● working   fix-api   Fable 5.1 xhigh   " + bar), shown)
         self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
 
     def test_b_line_one_narrows_its_tasks_bar_before_anything_is_cut(self):
         lefts = []
-        for width in (100, 90, 75):
+        for width in (106, 96, 81):
             shown = self.line(width)
             self.assertNotIn("…", shown, width)
             self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
@@ -86,9 +86,9 @@ class LineOne(Sandbox):
         for total in (10, 100):
             self.dress(0, total, [(0, "moving")] * 8)
             for top, cells in zip(self.lasts, statusbar.BARS):
-                bar = drawn(top).split("Fable 5.1   ")[1]
+                bar = drawn(top).split("Fable 5.1 xhigh   ")[1]
                 self.assertEqual(len(bar), cells, (total, bar))
-            shown = self.line(84)       # the 12-cell bar fits beside the name, so it stays
+            shown = self.line(90)       # the 12-cell bar fits beside the name, so it stays
             self.assertTrue(shown.rstrip().endswith(NEEDING), shown)
 
     def test_d_a_line_one_that_fits_is_never_cut_even_to_the_cell(self):

@@ -268,25 +268,25 @@ class OnTmux(Sandbox):
         os.set_blocking(self.pty, False)
         self.until(lambda: self.tmux("list-clients", "-F", "#{client_session}")[1] == "fix-api",
                    "the client never attached")
-        whole = " ● working   fix-api   Fable 5.1 "   # 32 cells and the space after
+        whole = " ● working   fix-api   Fable 5.1 xhigh "
         line = "  " + "─" * 24 + " no plan yet "      # its line: it is working with no plan
-        self.assertEqual(self.width(100), whole + line + "! 1 other seat needs you ")
+        self.assertEqual(self.width(106), whole + line + "! 1 other seat needs you ")
         # narrower, the count folds beside the whole left part, and only then is that cut: one
         # `…`, the whole line the client's width
-        self.assertEqual(self.width(50), whole + " … ! 1 needs you ")
+        self.assertEqual(self.width(56), whole + " … ! 1 needs you ")
         self.assertEqual(self.width(30), " ● working   f… ! 1 needs you ")
-        # the count is columns 76 to 99 of line one, row 19: the wheel over it moves no window
-        self.width(100)
+        # the count is columns 82 to 105 of line one, row 19: the wheel moves no window
+        self.width(106)
         for button, window in ((64, "1"), (65, "0")):        # up from the second, down from the first
             for name in ("fix-api", "orbit-proxies"):
                 self.tmux("select-window", "-t", f"={name}:{window}")
-            os.write(self.pty, f"\x1b[<{button};85;19M".encode())
+            os.write(self.pty, f"\x1b[<{button};91;19M".encode())
             time.sleep(0.3)
             self.drain()
             self.assertEqual(self.active(), [window, window])
         # a click beside the count leaves the client where it is; one on it moves it
         for column, session in ((3, "fix-api"), (49, "fix-api"), (70, "fix-api"),
-                                (85, "orbit-proxies")):
+                                (91, "orbit-proxies")):
             os.write(self.pty, f"\x1b[<0;{column};19M\x1b[<0;{column};19m".encode())
             self.until(lambda: self.tmux("list-clients", "-F",
                                          "#{client_session}")[1] == session,
