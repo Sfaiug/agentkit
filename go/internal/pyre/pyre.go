@@ -175,7 +175,10 @@ func translated(source string, folding bool) (string, error) {
 			size = len(set[0])
 		case strings.HasPrefix(rest, "(?P<"):
 			// the name as written, never a letter of it folded
-			name, _, _ := strings.Cut(rest[4:], ">")
+			name, _, closed := strings.Cut(rest[4:], ">")
+			if !closed {
+				return "", fmt.Errorf("missing >, unterminated name")
+			}
 			out.WriteString("(?<" + name + ">")
 			size = 4 + len(name) + 1
 			outer = append(outer, flags)
@@ -189,7 +192,10 @@ func translated(source string, folding bool) (string, error) {
 			size = 3 + len(name) + 1
 			outer = append(outer, flags)
 		case strings.HasPrefix(rest, "(?P="):
-			name, _, _ := strings.Cut(rest[4:], ")")
+			name, _, closed := strings.Cut(rest[4:], ")")
+			if !closed {
+				return "", fmt.Errorf("missing ), unterminated name")
+			}
 			out.WriteString(`\k<` + name + `>`)
 			size = 4 + len(name) + 1
 		case rest[0] == '(':

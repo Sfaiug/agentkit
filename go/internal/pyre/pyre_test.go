@@ -197,7 +197,8 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		t.Error(`[^\S] compiled, though no class here can say it`)
 	}
 	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`, `(?#\)`, `\400`, `[\777]`, `[a-\400]`,
-		`\b*`, `\B{2}`, `^?`, `$+`, `\A{,}`, `\Z{1,2}`, `\b(?#c)*`, "(?x)\\b *", "(?x)\\B #c\n*"} {
+		`\b*`, `\B{2}`, `^?`, `$+`, `\A{,}`, `\Z{1,2}`, `\b(?#c)*`, "(?x)\\b *", "(?x)\\B #c\n*",
+		`(?P<a`, `(?P<`, `(?P=a`, `(?P=`} {
 		if _, err := Compile(refused, 0); err == nil {
 			t.Errorf("%s compiled, though Python refuses it", refused)
 		}
