@@ -22,7 +22,9 @@ func Turned(name string, said func(current string) (word string, since any)) err
 			card = run.NewObject()
 		}
 		word, since := said(current)
-		if run.Equal(card.Get("word"), word) {
+		// a word a card goes out for, come since the tick read the seat, is the next tick's, whose
+		// reading leaves it to Python
+		if word == "" || word == "needs you" || word == "done" || run.Equal(card.Get("word"), word) {
 			return nil
 		}
 		at, _ := finite(since)
