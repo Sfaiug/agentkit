@@ -23,37 +23,33 @@ func claude(t *testing.T) *Rules {
 	return read
 }
 
-func TestPythonsClassesReadAllOfUnicode(t *testing.T) {
-	for source, text := range map[string]string{
-		`^❯\s+x$`:  "❯ x",
-		`^\w+$`:    "héllo_٣",
-		`^[\w-]+$`: "hé-llo",
-		`^\d$`:     "٣",
-		`^\S$`:     "é",
-	} {
-		found, err := Pattern(source, "")
-		if err != nil || !found.MatchString(text) {
-			t.Errorf("%s on %q: %v %v", source, text, found, err)
-		}
+func TestEveryManifestCompiles(t *testing.T) {
+	names, err := config.ManifestNames()
+	if err != nil || len(names) < 6 {
+		t.Fatal(names, err)
 	}
-	nbsp, _ := Pattern(`^\S$`, "")
-	if nbsp.MatchString(" ") {
-		t.Error(`\S read U+00A0 as text`)
+	for _, name := range names {
+		chrome, err := config.Section(name, "screen")
+		if err != nil {
+			t.Fatal(err)
+		}
+		rules, err := config.ScreenRules(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Compile(chrome, rules); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 
-func TestWhatGoCannotSayIsARefusalNeverAMisreading(t *testing.T) {
-	for _, source := range []string{`(?!x)y`, `(?<=x)y`, `x\Z`, `[\S-]`, `[\W]`, `(?P<a>x)(?P=a)`} {
-		if _, err := Pattern(source, ""); err == nil {
-			t.Errorf("%s compiled", source)
-		}
-	}
+func TestWhatPythonRefusesIsARefusal(t *testing.T) {
 	chrome := map[string]any{"composer": "x"}
-	if _, err := Compile(chrome, []map[string]any{{"id": "a", "state": "working", "newest": `(?!x)`}}); err == nil {
-		t.Error("a rule Go cannot say compiled")
+	if _, err := Compile(chrome, []map[string]any{{"id": "a", "state": "working", "newest": `(x`}}); err == nil {
+		t.Error("a rule Python refuses compiled")
 	}
-	if _, err := Compile(map[string]any{"composer": `(?!x)`}, nil); err == nil {
-		t.Error("chrome Go cannot say compiled")
+	if _, err := Compile(map[string]any{"composer": `[x`}, nil); err == nil {
+		t.Error("chrome Python refuses compiled")
 	}
 	if _, err := Compile(chrome, []map[string]any{{"id": "a", "state": "busy"}}); err == nil {
 		t.Error("a state no seat has compiled")

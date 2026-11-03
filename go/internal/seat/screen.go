@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/hookfact"
+	"agentkit/internal/pyre"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
 	"agentkit/internal/tmux"
@@ -26,7 +27,7 @@ const turnSeconds = 3 * 3600
 // harness's manifest: whether it can be read at all is known before anything is written.
 type eye struct {
 	rules     *screen.Rules
-	wrapper   *regexp.Regexp // the auth wrapper its login errors open with
+	wrapper   *pyre.Regexp   // the auth wrapper its login errors open with
 	authority map[string]any // which states its hooks decide, and which its screen
 	bad       error
 }
@@ -55,7 +56,7 @@ func compileEye(name string) eye {
 		return eye{bad: err}
 	}
 	if wrapper, _ := auth["wrapper"].(string); wrapper != "" {
-		if found.wrapper, err = screen.Pattern(wrapper, "(?i)"); err != nil {
+		if found.wrapper, err = pyre.Compile(wrapper, pyre.IgnoreCase); err != nil {
 			return eye{bad: err}
 		}
 	}

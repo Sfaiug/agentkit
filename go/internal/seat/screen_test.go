@@ -333,7 +333,7 @@ func TestARuleGoCannotSayLeavesTheHarnessToPython(t *testing.T) {
 	record(t, home, "acme", nil)
 	drawn(t, home, "acme", prompting)
 	adapters := filepath.Join(home, "adapters")
-	write(t, filepath.Join(adapters, "claude.toml"), "[[rule]]\nid = \"x\"\nstate = \"working\"\nnewest = '(?!x)y'\n")
+	write(t, filepath.Join(adapters, "claude.toml"), "[[rule]]\nid = \"x\"\nstate = \"working\"\nnewest = '[^\\S]'\n")
 	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
 	eyes.Delete("claude")
 	t.Cleanup(func() { eyes.Delete("claude") })

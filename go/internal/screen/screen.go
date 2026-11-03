@@ -1,6 +1,6 @@
 // Package screen reads what a harness has drawn: handed a harness's rules and the tail of its
 // pane, it says which state that screen shows and the rule that said so, as Python's
-// watch.screen_state does.  It hides how Python's regular expressions are said in Go's, which rows
+// watch.screen_state does.  It hides which rows
 // a rule may read (a tray, a view scrolled away, the rule framing a footer), the attributes that
 // tell typed text from a faint suggestion, how far a composer goes, and the order rules are tried
 // in.  It names no harness, captures no pane and writes no record: every fact about a harness is
@@ -17,6 +17,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/lifecycle"
+	"agentkit/internal/pyre"
 )
 
 // A Reading is the state a screen shows, the rule that matched and the line it stands on; all
@@ -25,8 +26,8 @@ type Reading struct{ State, Rule, Evidence string }
 
 // Rules are one harness's `[screen]` chrome and `[[rule]]` list, compiled.
 type Rules struct {
-	composer, footer, tray *regexp.Regexp // each reads a whole row
-	away, scrolled, draft  *regexp.Regexp
+	composer, footer, tray *pyre.Regexp // each reads a whole row
+	away, scrolled, draft  *pyre.Regexp
 	ruled, boxed           bool
 	faint                  []string
 	rules                  []rule
@@ -36,7 +37,7 @@ type rule struct {
 	id, state         string
 	lines             int
 	all, some, none   []string
-	row, rows, newest *regexp.Regexp
+	row, rows, newest *pyre.Regexp
 	atComposer        bool
 }
 
@@ -55,8 +56,8 @@ var (
 	typed     = regexp.MustCompile(`^(?:│` + config.SpaceClass + `*)?[❯›⟩]` + config.SpaceClass + `*(.*)$`)
 )
 
-// Compile reads a harness's `[screen]` table and `[[rule]]` list.  An error is a rule Go cannot
-// say, or one Python's would refuse: nothing of that harness can be read.
+// Compile reads a harness's `[screen]` table and `[[rule]]` list.  An error is a rule Python's
+// would refuse, or one the engine cannot say: nothing of that harness can be read.
 func Compile(chrome map[string]any, rules []map[string]any) (*Rules, error) {
 	var parts []string
 	listed, _ := chrome["footer"].([]any)
@@ -75,15 +76,15 @@ func Compile(chrome map[string]any, rules []map[string]any) (*Rules, error) {
 	}
 	footer := ""
 	if len(parts) > 0 {
-		footer = "(?i)(?:" + strings.Join(parts, "|") + ")$"
+		footer = "(?:" + strings.Join(parts, "|") + ")$"
 	}
 	for _, each := range []struct {
-		into   **regexp.Regexp
+		into   **pyre.Regexp
 		source any
 		whole  bool
-		flags  string
-	}{{&read.composer, chrome["composer"], true, ""}, {&read.footer, footer, true, ""}, {&read.tray, chrome["tray"], true, ""},
-		{&read.away, chrome["away"], false, ""}, {&read.scrolled, chrome["scrolled"], false, ""}, {&read.draft, chrome["draft"], false, "(?m)"}} {
+		flags  pyre.Flag
+	}{{&read.composer, chrome["composer"], true, 0}, {&read.footer, footer, true, pyre.IgnoreCase}, {&read.tray, chrome["tray"], true, 0},
+		{&read.away, chrome["away"], false, 0}, {&read.scrolled, chrome["scrolled"], false, 0}, {&read.draft, chrome["draft"], false, pyre.Multiline}} {
 		var err error
 		if *each.into, err = pattern(each.source, each.flags, each.whole); err != nil {
 			return nil, err
@@ -118,14 +119,30 @@ func compileRule(entry map[string]any) (rule, error) {
 	}
 	found.all, found.some, found.none = marks(entry["all"]), marks(entry["any"]), marks(entry["none"])
 	var err error
-	if found.row, err = pattern(entry["row"], "", false); err != nil {
+	if found.row, err = pattern(entry["row"], 0, false); err != nil {
 		return rule{}, err
 	}
-	if found.rows, err = pattern(entry["rows"], "(?m)", false); err != nil {
+	if found.rows, err = pattern(entry["rows"], pyre.Multiline, false); err != nil {
 		return rule{}, err
 	}
-	found.newest, err = pattern(entry["newest"], "", false)
+	found.newest, err = pattern(entry["newest"], 0, false)
 	return found, err
+}
+
+// pattern is a `[screen]` or `[[rule]]` pattern, nil where none is written; `whole` has it read a
+// whole row, as Python's fullmatch.
+func pattern(value any, flags pyre.Flag, whole bool) (*pyre.Regexp, error) {
+	if value == nil || value == "" {
+		return nil, nil
+	}
+	source, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("a pattern must be text, not %v", value)
+	}
+	if whole {
+		source = `\A(?:` + source + `)\Z`
+	}
+	return pyre.Compile(source, flags)
 }
 
 func marks(value any) (folded []string) {

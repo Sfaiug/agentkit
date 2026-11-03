@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/pyre"
 	"agentkit/internal/screen"
 )
 
@@ -113,7 +114,7 @@ func (seen eye) loginOn(own, tail, recorded string, kept bool) any {
 		lines = seen.rules.Said(strings.Join(lines[:len(lines)-1], "\n"))
 	}
 	for _, mark := range signatures {
-		whole, err := screen.Pattern(`\A(?:[●■⎿✕!]\s*)?(?:Error:\s*)?`+regexp.QuoteMeta(mark)+`(?:, url: https?://\S+)?\z`, "(?i)")
+		whole, err := pyre.Compile(`\A(?:[●■⎿✕!]\s*)?(?:Error:\s*)?`+regexp.QuoteMeta(mark)+`(?:, url: https?://\S+)?\Z`, pyre.IgnoreCase)
 		if err != nil {
 			continue
 		}
