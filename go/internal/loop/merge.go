@@ -197,7 +197,18 @@ func (r *repoPlace) openPR(l *loop, target string) (string, error) {
 		return "", err
 	}
 	if record.Truthy("pr") {
-		// a run that rejoined its line after opening its PR delivers through that PR
+		// a run that rejoined its line after opening its PR delivers through that PR, while it is
+		// still open on the head just pushed and aimed at the target the line checked
+		current, err := prHead(l.dir, record.Str("pr"))
+		if err != nil {
+			if errors.As(err, new(*gitcall.Stopped)) {
+				return "", err
+			}
+			return "", r.note(l, "could not re-check the PR: "+err.Error(), true)
+		}
+		if current.Str("state") != "open" || !isDelivery(record, current, target) {
+			return "", r.note(l, "PR head or target changed since PASS; a new run is required", true)
+		}
 		if ok, err := r.refreshPR(l, record); err != nil || !ok {
 			return "", err
 		}
