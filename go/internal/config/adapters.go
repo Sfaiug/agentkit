@@ -27,7 +27,8 @@ var adapters embed.FS
 const adapterDir = "AGENTKIT_ADAPTER_DIR"
 
 // ErrNoAdapterDir is a home naming no $AGENTKIT_ADAPTER_DIR, as every real home: Go runs no turn
-// through Python ak's adapter scripts, and asks them only for a listing (Lister).
+// through Python ak's adapter scripts, and asks them only for a listing (Lister) and, behind the ak
+// screen, for usage (ShippedAdapter).
 var ErrNoAdapterDir = errors.New("no adapter directory named")
 
 // Adapter is the script that runs a harness, <harness>.sh in $AGENTKIT_ADAPTER_DIR, as Python's
