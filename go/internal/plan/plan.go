@@ -136,7 +136,7 @@ func verifying(ctx context.Context, name string, fn func() error) error {
 // One nothing can look at is an error: an unread plan proves nothing done.
 func path(current string) (string, error) {
 	found, newest := seatFile("plan", current, "md"), int64(-1)
-	for _, each := range names(current) {
+	for _, each := range Names(current) {
 		plan := seatFile("plan", each, "md")
 		info, err := os.Stat(plan)
 		if os.IsNotExist(err) {
@@ -152,8 +152,8 @@ func path(current string) (string, error) {
 	return found, nil
 }
 
-// names are the names a seat goes by: the one it has now, then every name renamed into it.
-func names(current string) []string {
+// Names are the names a seat goes by: the one it has now, then every name renamed into it.
+func Names(current string) []string {
 	every := []string{current}
 	for _, record := range config.SeatFiles() {
 		old := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(record), "session-"), ".json")
@@ -170,7 +170,7 @@ func names(current string) []string {
 // newest turn is its running launch's, so an earlier launch's reach never counts.
 func ReachedLive(current string) bool {
 	launched, turn := "", 0.0
-	for _, each := range names(current) {
+	for _, each := range Names(current) {
 		var stop map[string]any
 		data, err := os.ReadFile(seatFile("stop", each, "json"))
 		if err != nil || json.Unmarshal(data, &stop) != nil {

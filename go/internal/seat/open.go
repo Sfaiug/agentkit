@@ -3,12 +3,10 @@ package seat
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,7 +48,7 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
 	rulebook := filepath.Join(state, "rulebook-"+name+".md")
-	text, err := Rulebook()
+	text, err := Rulebook(name)
 	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
 		os.Remove(rulebook)
 		return false, nil
@@ -89,14 +87,12 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if err := forgetSeen(state, name, time.Now()); err != nil {
 		return true, err
 	}
-	read, _ := os.ReadFile(rulebook)
-	sum := sha256.Sum256(read)
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
 		// before the harness is up: its first prompt may be offered a newer rulebook already
 		if err := update(state, current, func(data *run.Object) bool {
 			data.Set("resumable", conversation != "")
-			data.Set("rulebook_sha", hex.EncodeToString(sum[:]))
+			data.Set("rulebook_sha", digest([]byte(text)))
 			return true
 		}); err != nil {
 			return err
@@ -139,24 +135,6 @@ func Attach(name string, out, errOut io.Writer) error {
 		fmt.Fprintf(errOut, "WARN could not record opening %s: %s\n", name, err)
 	}
 	return tmux.Attach(tmux.Own(), name)
-}
-
-// Rulebook is what a seat filed under no project opens on (config.seat_rulebook): ak's rules,
-// then this host's own where it wrote any, each read as Python reads text.
-func Rulebook() (string, error) {
-	body, err := os.ReadFile(filepath.Join(config.Repo(), "orchestrator.md"))
-	if err != nil {
-		return "", err
-	}
-	local, err := os.ReadFile(filepath.Join(config.Home(), "rules.md"))
-	if errors.Is(err, fs.ErrNotExist) {
-		err = nil
-	}
-	text := string(body)
-	if strings.TrimFunc(string(local), config.Space) != "" {
-		text = strings.TrimRightFunc(text, config.Space) + "\n\n" + string(local)
-	}
-	return strings.NewReplacer("\r\n", "\n", "\r", "\n").Replace(text), err
 }
 
 // start is the seat's session on ak's server, as Python's orch.start opens it: its harness run

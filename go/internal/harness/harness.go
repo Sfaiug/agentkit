@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/run"
 )
 
 // A plugin is one harness's own answers; a hook it leaves nil takes the default.
@@ -25,6 +26,8 @@ type plugin struct {
 	answer  func(conversation, cwd string) (model, effort any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
+	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
+	owns func(record *run.Object, conversation string) bool
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
