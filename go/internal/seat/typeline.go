@@ -12,6 +12,7 @@ import (
 	"unicode"
 
 	"agentkit/internal/config"
+	"agentkit/internal/guard"
 	"agentkit/internal/harness"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -85,7 +86,7 @@ func TypeAtPrompt(name, line string, receipt func(mark *run.Object) error, log f
 		if _, err := file.WriteString(run.Line(entry) + "\n"); err != nil {
 			return err
 		}
-		if out, err := tmux.Ask(tmux.Own(), "send-keys", "-t", pane, "-l", text); err != nil {
+		if out, err := guard.Keys(pane, "-l", text); err != nil {
 			file.Truncate(before)
 			log("WARN could not type into the " + current + " seat: " + tail(out+err.Error(), 200))
 			return errUntyped
@@ -267,7 +268,7 @@ func (at seatAt) sent(line string) bool {
 
 // enter is one Enter completing the line, watch._send_enter.
 func (at seatAt) enter(log func(string)) bool {
-	if out, err := tmux.Ask(tmux.Own(), "send-keys", "-t", at.pane, "Enter"); err != nil {
+	if out, err := guard.Keys(at.pane, "Enter"); err != nil {
 		log("WARN could not type into the " + at.name + " seat: " + tail(out+err.Error(), 200))
 		return false
 	}
