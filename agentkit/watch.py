@@ -3295,7 +3295,19 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if undecided:
             return {"word": "needs you", "since": found.get("began"), "reason":
                     f"run {undecided[0].name} parked: {handback.handback_reason(undecided[1])}"}
-        return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
+        done = {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
+        # tmux remembers even visits between looks; only one since the work finished counts.
+        try:
+            done_at = max(_stamp(found.get("began")) or 0, plan_mod.path(name).stat().st_mtime)
+        except FileNotFoundError:   # a rename moved the plan; the next look resolves it anew
+            return done
+        rc, visit = orch.tmux_out("display-message", "-p", "-t", f"={name}:",
+                                  "#{session_attached}\t#{session_last_attached}",
+                                  socket=orch.seat_socket(session))
+        attached, _, last = visit.partition("\t")
+        if rc == 0 and attached == "0" and last.isdigit() and int(last) > done_at:
+            return {"word": "idle", "reason": "", "since": found.get("began")}
+        return done
     return {"word": "idle", "reason": "", "since": found.get("began")}
 
 
@@ -7988,7 +8000,8 @@ def runs_health():
         if any(pid in processes for pid in worker.run_pids(str(run_dir))):
             continue
         resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-        if any(args == resume or args == [sys.executable, *resume]
+        # The env python3 shebang leaves "python3" as argv[0].
+        if any(args in (resume, [sys.executable, *resume], ["python3", *resume])
                for args in processes.values()):
             continue
         age = now - run_last_write(run_dir)
@@ -8001,6 +8014,45 @@ def runs_health():
     if dead:
         line += f" · dead: {', '.join(dead)}"
     return line, stuck
+
+
+def gates_health():
+    """Gate use from the ledger, with live waits taking precedence over their last poll."""
+    from . import gate
+    now, holding = time.time(), set()
+    last = history.gate_holds()
+    behind = gate.slot_queue()[2][1:]
+    for _, state in run_record.runs():
+        if not run_record.process_active(state):
+            continue
+        if state.get("state") == "queued" and state.get("slot_waiting"):
+            kind = "count" if state.get("run_id") in behind else state.get("slot_wait_kind")
+            if name := history.SLOT_GATES.get(kind):
+                holding.add(name)
+        if gate.gate_turn_note(state):
+            holding.add("suite turns")
+    # A line's checker marks no run record. Its locked wait file lives only while it waits.
+    for path in config.RUNS.glob(".landing-wait-*"):
+        try:
+            with path.open() as file:
+                fcntl.flock(file, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            holding.add("suite turns")
+        except OSError:
+            pass
+    parts = []
+    for name in ("admission", "suite turns", "memory"):
+        at = last.get(name)
+        if name in holding:
+            status = "holding now"
+        elif at is None:
+            status = "never held"
+        else:
+            days = max(0, int((now - at) // 86400))
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(at))
+            status = f"{days} day{'s' if days != 1 else ''} idle, last held {when}"
+        parts.append(f"{name} {status}")
+    return " · ".join(parts)
 
 
 def doctor(argv):
@@ -8024,6 +8076,7 @@ def doctor(argv):
     print(f"tick  {tick}", flush=True)
     runs, stuck = runs_health()
     print(f"runs  {runs}", flush=True)
+    print(f"gates  {gates_health()}", flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)

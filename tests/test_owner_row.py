@@ -115,7 +115,7 @@ class OwnerRow(Sandbox):
         self.assertFalse(history.path().exists())
         self.assertIsNone(history.owner(NOW - WEEK, NOW))
         self.assertEqual(scoreboard.compute(NOW)["owner"], [None, None])
-        self.assertIn("owner     not recorded", "\n".join(scoreboard.render()))
+        self.assertIn("owner         not recorded", "\n".join(scoreboard.render()))
 
 
 if __name__ == "__main__":

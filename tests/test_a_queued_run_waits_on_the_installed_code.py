@@ -180,7 +180,7 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
             str(config.REPO), OLD, *ak])])
         self.assertEqual(os.environ[waiter.SLOT_WAIT_ENV], "1000.0 5.0")
         counted = []
-        with patch.object(gate, "count_wait", lambda *a: counted.append(a)), \
+        with patch.object(gate, "count_wait", lambda *a, **_kw: counted.append(a)), \
                 patch.object(gate, "_host_admits", return_value=True):
             state = gate.wait_for_slot(self.run_dir)
         self.assertEqual((state["state"], state["slot_waited"]), ("running", True))
@@ -196,7 +196,7 @@ class QueuedRunWaitsOnTheInstalledCode(unittest.TestCase):
             with self.subTest(handed=handed):
                 handback.redress_seat.reset_mock()
                 os.environ[waiter.SLOT_WAIT_ENV] = handed
-                with patch.object(gate, "count_wait", lambda run_id, wait, counted: counted), \
+                with patch.object(gate, "count_wait", lambda run_id, wait, counted, **_kw: counted), \
                         patch.object(gate, "_host_admits", return_value=False), \
                         patch.object(gate.time, "sleep", lambda seconds: None), \
                         self.assertRaises(Replaced):

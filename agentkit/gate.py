@@ -533,17 +533,18 @@ def claim_slot(state, limit, readings=None, launch=False):
     return True
 
 
-def count_wait(run_id, wait, counted):
+def count_wait(run_id, wait, counted, *, kind=""):
     """Add what this process waited since `counted` to its run's history; returns it moved to now.
 
     `counted` is the wait's start on the wall clock, which keys its one phase row, and the
     monotonic time it is counted up to.  The waiting process counts its own wait as it polls,
     so one that dies loses at most a poll, and no recovery can count time no process spent
     waiting -- nor a clock correction.
+    `kind` comes from the last poll's record, so counting opens no run.json behind the first.
     """
     began, since = counted
     now = time.monotonic()
-    history.add_wait(run_id, wait, now - since, began=began)
+    history.add_wait(run_id, wait, now - since, began=began, kind=kind)
     return began, now
 
 
@@ -570,7 +571,7 @@ def wait_for_slot(run_dir, between=None):
         if not first_poll:
             counted = counted or (time.time(), time.monotonic())
             time.sleep(SLOT_POLL)
-            counted = count_wait(run_dir.name, "slot", counted)
+            counted = count_wait(run_dir.name, "slot", counted, kind="count" if behind else wait_kind or "")
             waiting_behind = behind_first(run_dir.name)
             if between is not None:
                 between(counted if waiting_behind else None)
@@ -599,6 +600,7 @@ def wait_for_slot(run_dir, between=None):
             if behind:
                 # The polls it skipped were count waits.
                 state.update(slot_waited=True, slot_wait_kind="count")
+                wait_kind = "count"
                 behind = False
             first_poll = False
             if claim_slot(state, limit):
@@ -612,7 +614,7 @@ def wait_for_slot(run_dir, between=None):
             handback.redress_seat(state.get("launched_session"))
             announced = True
     if counted:
-        count_wait(run_dir.name, "slot", counted)
+        count_wait(run_dir.name, "slot", counted, kind=wait_kind or "")
     if state.get("slot_waited"):
         minutes = max(0, int((time.time() - state["queued_at"]) / 60))
         kind = wait_kind or "count"
@@ -1277,6 +1279,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
 
     @contextmanager
     def queued():
+        counted = (time.time(), time.monotonic())
         with landing_wait(is_landing, place, self_id, line):
             if run_dir:
                 mark_gate_wait(run_dir, repo, place)
@@ -1285,6 +1288,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
+                if run_dir or is_landing:
+                    count_wait(self_id, "suite" if run_dir else "lander", counted)
     return _GateHold(files, slot, context, limit, more, queued)
 
 
@@ -2229,7 +2234,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None, checked=None, exits=None):
+                  confirmed=None, changed=None, flaky=None, checked=None, exits=None, timings=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2278,7 +2283,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     tree)`, has each run of a command, or of a piece of one, leave its row in history
     (`history.check`), a re-run one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
-    until then, takes `text`, its capped form.
+    until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
+    ({file: seconds}, piece count) from this pass alone, before that cap.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2315,7 +2321,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
             rest = silence - (window or 0)
             how = "failed"
-            raw = {} if exits is not None else None
+            raw = {} if exits is not None or timings is not None else None
             while True:
                 run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2367,6 +2373,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     marks.append(None)
                 break
             ok &= code == 0
+            if timings is not None and code == 0 and not killed:
+                timings[cmd] = suite_times.measured(log_path, offset), max(1, len(raw))
             if marks is not None:
                 marks.append(None if killed else code)
             if split(cmd):

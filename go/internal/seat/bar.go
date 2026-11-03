@@ -167,26 +167,7 @@ func barFaded(word string, amount float64) string {
 
 // barCrew is who builds and reviews a seat's work, each named once with its marks, all dim (menu.crew).
 func barCrew(screen terminal.Screen, builds, reviews []string) string {
-	build, review := "⚒", "◎"
-	if screen.ASCII() {
-		build, review = "B", "R"
-	}
-	var seen, parts []string
-	for _, model := range slices.Concat(builds, reviews) {
-		if slices.Contains(seen, model) {
-			continue
-		}
-		seen = append(seen, model)
-		icons := ""
-		if slices.Contains(builds, model) {
-			icons += build
-		}
-		if slices.Contains(reviews, model) {
-			icons += review
-		}
-		parts = append(parts, terminal.Plain(model)+" "+icons)
-	}
-	return barPaint(strings.Join(parts, "   "), "dim")
+	return barPaint(screen.Crew(builds, reviews), "dim")
 }
 
 // barSelection is the seat's model and crew by their full names, none where its record does not

@@ -69,7 +69,7 @@ class BrokeAfterReview(unittest.TestCase):
         self.assertEqual(before, {"merged": 2, "unknown": 1, "landing": 1, "after_merge": 2})
         with patch.object(scoreboard.terminal, "content_width", return_value=400):
             board = "\n".join(scoreboard.render())
-        self.assertIn("broke     1 of 3 merged changes broke main or live after merge; 1 went red "
+        self.assertIn("broke         1 of 3 merged changes broke main or live after merge; 1 went red "
                       "at landing", board)
         self.assertIn("2 of 2 merged changes broke main or live after merge; 1 went red at "
                       "landing; 1 merged before breaks were recorded", board)
@@ -79,7 +79,7 @@ class BrokeAfterReview(unittest.TestCase):
         history.finish_run("open", final_state="fail", finished_at=NOW - 1800)
         self.assertEqual(scoreboard.compute(NOW)["broke"], [None, None])
         with patch.object(scoreboard.terminal, "content_width", return_value=400):
-            self.assertIn("broke     no merged change", "\n".join(scoreboard.render()))
+            self.assertIn("broke         no merged change", "\n".join(scoreboard.render()))
 
 
 if __name__ == "__main__":

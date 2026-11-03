@@ -1515,7 +1515,7 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
         log(f"WARN could not redraw the seat's bar: {exc}")
     announce(state, run_dir, log, cfg)
-    history_finish(state, log)
+    history_finish(state, log, cfg=cfg)
     worktrees.settle_run(run_record.read_state(run_dir) or state, run_dir, log)
     if state["state"] == "error":
         log(f"FAIL -> {run_dir / 'result.md'} (error)")
@@ -2870,16 +2870,13 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     (`process_active`), in the task's repository, launched by anybody, where either a
     done-when of the new task and of the running run name the same test file -- not a
     general check, which three other jobs there whose titles do not name it ran too,
-    unless both titles name it -- or their titles share at least four significant words, at
-    least half of the shorter title's.  Each match is a dict with the run's
+    unless both titles name it -- or the new task's resolved path is the `task_file`
+    recorded at launch.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
-    title-word count.  Read-only: run state comes only from run_dirs(), read_state()
+    task file.  Read-only: run state comes only from run_dirs(), read_state()
     and process_active(), and a run's done-when from its own task.md.  A
     scratch task, or one whose repository cannot be resolved, is never checked.
     """
-    stop = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with",
-            "is", "are", "that", "this", "from", "into"}
-
     def test_files(commands):
         """Done-when tokens naming a test file, quotes stripped for the comparison.
 
@@ -2898,14 +2895,6 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 if stem.startswith("test_") or base.endswith("_test"):
                     found.add(name)
         return found
-
-    def significant_words(text, repo_name):
-        """Lowercased words of four or more letters outside the stop list."""
-        words = (text or "").lower()
-        if repo_name and words.startswith(repo_name.lower() + ":"):
-            words = words[len(repo_name) + 1:]
-        return {word for word in re.findall(r"[a-z0-9]+", words)
-                if len(word) >= 4 and word not in stop}
 
     try:
         repo = task_repo(meta, task_path)
@@ -2982,7 +2971,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 or len(named.get(name, set()) - {title, other_title}) < 3}
 
     mine_files = test_files(cmds)
-    mine_words = significant_words(title, repo.name)
+    task_path = Path(task_path).expanduser().resolve()
     matches = []
     for directory in run_record.run_dirs():
         if exclude is not None and Path(directory) == Path(exclude):
@@ -3001,12 +2990,9 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             continue
         other_title = state.get("title") or parsed_title or directory.name
         shared = sorted(specific(mine_files & test_files(other_cmds), other_title))
-        theirs = (significant_words(other_title, repo.name)
-                  if state.get("title") or parsed_title else set())
-        words = len(mine_words & theirs)
-        # Long titles share four common words (`line`, `turn`, `only`, `wait`) without being
-        # one job: 20 of 27 refusals on title words alone in a week of Oct 2026 named other work.
-        if not shared and (words < 4 or 2 * words < min(len(mine_words), len(theirs))):
+        same_task = bool(state.get("task_file")) and \
+            Path(state["task_file"]).expanduser().resolve() == task_path
+        if not shared and not same_task:
             continue
         try:
             seat = launched_session(state)
@@ -3016,7 +3002,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         started = state.get("started_at")
         matches.append({"id": directory.name, "seat": seat,
                         "started": started if isinstance(started, (int, float)) else None,
-                        "title": other_title, "files": shared, "words": words})
+                        "title": other_title, "files": shared,
+                        "task_file": str(task_path) if same_task else None})
     matches.sort(key=lambda match: (match["started"] if match["started"] is not None
                                     else float("-inf"), match["id"]), reverse=True)
     return matches
@@ -3241,7 +3228,7 @@ def main(argv):
                 if first["files"]:
                     detail = ", ".join(first["files"])
                 else:
-                    detail = f"{first['words']} title words"
+                    detail = f"task file {first['task_file']}"
                 if len(rivals) > 1:
                     detail += f" and {len(rivals) - 1} more"
                 try:

@@ -337,17 +337,21 @@ def best_pair(cfg, executors, reviewers, allow_self=True):
     return best
 
 
-def self_reviewed(state, cfg=None):
-    """Whether the executor's own model reviews this run: the recorded review's pair
-    where a round was reviewed, else the current one.  A seat's own PR has no executor,
-    so its writer -- the seat's orchestrator -- counts as the executor.  `cfg` tells an
-    alias (the same provider and model id under another name) from another model;
-    without it only the same name counts."""
+def review_pair(state):
+    """The recorded review's pair, else the current one. A seat's own PR has no executor,
+    so its writer -- the seat's orchestrator -- counts as the executor."""
     evidence = state.get("review") if isinstance(state.get("review"), dict) else {}
     reviewer = evidence.get("reviewer") or state.get("reviewer")
     executor = evidence.get("executor")
     if executor is None:
         executor = state.get("own_orchestrator") if state.get("own_pr") else state.get("executor")
+    return executor, reviewer
+
+
+def self_reviewed(state, cfg=None):
+    """Whether this run's review pair is one model. With no config only the same name counts;
+    with it, aliases of the same provider and model id count too."""
+    executor, reviewer = review_pair(state)
     if not reviewer or not executor or reviewer == executor:
         return bool(reviewer and reviewer == executor)
     return cfg is not None and same_model(cfg, executor, reviewer)

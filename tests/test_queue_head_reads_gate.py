@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, handback, host, record  # noqa: E402
+from agentkit import config, gate, handback, history, host, record  # noqa: E402
 from fixtures.clock import Clock  # noqa: E402
 
 READINGS = {"free_mb": 4096, "mem_total_mb": 16384, "cpus": 8, "load": 1,
@@ -83,6 +83,7 @@ class QueueHeadReadsGate(unittest.TestCase):
                                       "slot_waiting": word == "queued", "queued_at": queued_at,
                                       "started_at": queued_at, "run_depth": 0,
                                       **record.process_owner(), **extra})
+        history.start_run(name, repo="acme", started_at=queued_at)
         return directory
 
     def end(self, name):
@@ -136,6 +137,7 @@ class QueueHeadReadsGate(unittest.TestCase):
         for _ in range(3):
             self.assertEqual(self.poll("fix-api", "fix-ui", "fix-db"),
                              {"fix-api": full, "fix-ui": [], "fix-db": []})
+        self.assertIn("admission", history.gate_holds())
         self.assertEqual(self.note("fix-db"),
                          "waiting for a slot · limit full (1 running) · 2 ahead")
 
