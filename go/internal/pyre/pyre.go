@@ -115,9 +115,11 @@ func translated(source string, folding bool) (string, error) {
 			case rest[1] == 'Z':
 				out.WriteString(`\z`)
 			default:
-				var char rune
-				var known bool
-				if char, size, known = atom(rest, false); known {
+				char, length, known, err := atom(rest, false)
+				if err != nil {
+					return "", err
+				}
+				if size = length; known {
 					out.WriteString(folded(char, flags.folding, quoted(char)))
 				} else {
 					out.WriteString(rest[:size])
@@ -202,36 +204,39 @@ func translated(source string, folding bool) (string, error) {
 
 // atom is the one character source opens with, an escape read as Python reads it in a class or
 // out of one, and the bytes it takes; known is false for an escape that names no one character (a
-// set, a group's number).
-func atom(source string, inClass bool) (char rune, size int, known bool) {
+// set, a group's number); err is Python's refusal of an octal escape past one byte.
+func atom(source string, inClass bool) (char rune, size int, known bool, err error) {
 	if source[0] != '\\' || len(source) == 1 {
 		char, size = utf8.DecodeRuneInString(source)
-		return char, size, true
+		return char, size, true, nil
 	}
 	switch next := source[1]; {
 	case strings.IndexByte("xuU", next) >= 0:
 		size = 2 + map[byte]int{'x': 2, 'u': 4, 'U': 8}[next]
 		if size > len(source) {
-			return 0, 2, false
+			return 0, 2, false, nil
 		}
-		code, err := strconv.ParseUint(source[2:size], 16, 32)
-		return rune(code), size, err == nil
+		code, bad := strconv.ParseUint(source[2:size], 16, 32)
+		return rune(code), size, bad == nil, nil
 	case '0' <= next && next <= '7':
 		// octal: in a class always, out of one from a 0 or as three digits, else a group's number
 		digits := source[1:min(len(source), 4)]
 		digits = digits[:len(digits)-len(strings.TrimLeft(digits, "01234567"))]
 		if !inClass && next != '0' && len(digits) < 3 {
-			return 0, 2, false
+			return 0, 2, false, nil
 		}
 		code, _ := strconv.ParseUint(digits, 8, 32)
-		return rune(code), 1 + len(digits), true
+		if code > 0o377 {
+			return 0, 0, false, fmt.Errorf("octal escape value \\%s outside of range 0-0o377", digits)
+		}
+		return rune(code), 1 + len(digits), true, nil
 	case strings.IndexByte("abfnrtv", next) >= 0:
-		return rune("\a\b\f\n\r\t\v"[strings.IndexByte("abfnrtv", next)]), 2, true
+		return rune("\a\b\f\n\r\t\v"[strings.IndexByte("abfnrtv", next)]), 2, true, nil
 	case next >= utf8.RuneSelf || !alphanumeric(next):
 		char, size = utf8.DecodeRuneInString(source[1:])
-		return char, 1 + size, true
+		return char, 1 + size, true, nil
 	}
-	return 0, 2, false
+	return 0, 2, false, nil
 }
 
 // class is the `[...]` that source opens with, as the engine says it, and the bytes it takes.  A
@@ -246,12 +251,18 @@ func class(source string, folding bool) (string, int, error) {
 	var apart []string
 	var chars []rune
 	for first := true; at < len(source) && (first || source[at] != ']'); first = false {
-		low, size, known := atom(source[at:], true)
+		low, size, known, err := atom(source[at:], true)
+		if err != nil {
+			return "", 0, err
+		}
 		set, complement := sets[source[at+size-1]], sets[source[at+size-1]|0x20]
 		switch at += size; {
 		case len(source[at:]) > 1 && source[at] == '-' && source[at+1] != ']':
 			// a range, as Python reads one, whatever its ends; a set at either is a bad one
-			high, size, highKnown := atom(source[at+1:], true)
+			high, size, highKnown, err := atom(source[at+1:], true)
+			if err != nil {
+				return "", 0, err
+			}
 			if !known || !highKnown || high < low {
 				return "", 0, fmt.Errorf("bad character range")
 			}
