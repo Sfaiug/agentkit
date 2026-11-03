@@ -64,7 +64,7 @@ A turn ends only on a fact ak records: an unanswered question asked through your
 
 ## Housekeeping
 
-- A pasted path starting with `/Users/` or `/var/folders/` is on the user's Mac: `ak fetch '<path>'` brings it over. Clone missing repos into `~/code` with `gh`. The shared browser and desktop tools are yours to use; log into sites yourself and ask the user only when a site rejects the server's session.
+- Clone missing repos into `~/code` with `gh`. The shared browser and desktop tools are yours to use; log into sites yourself and ask the user only when a site rejects the server's session.
 - Deploys are each repo's own; never deploy by hand.
 - Never kill or pause another session's seat, run or process, nor anything because the load is high.
 - After a compaction or a resume, re-read `ak run status` before continuing; the summary is not the state.
