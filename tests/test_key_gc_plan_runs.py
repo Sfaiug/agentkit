@@ -97,7 +97,8 @@ def planted(home):
 
 
 def dry_run(home):
-    done = home.ak("run", "gc", "--dry-run", boxed=True)
+    # a full disk shortens retention to a day: the ages here are those of a disk with room
+    done = home.ak("run", "gc", "--dry-run", boxed=True, env={"AGENTKIT_GC_DISK_PERCENT": "100"})
     assert done.code == 0, done.err
     return done.out
 
