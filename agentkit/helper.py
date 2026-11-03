@@ -225,8 +225,11 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
                       f"one argument holds ({MAX_ARG_STRLEN}, Linux's MAX_ARG_STRLEN)")
     rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo), bool(turn))
              for alias in aliases}
-    why = {alias: reason for alias, (_, reason) in rooms.items()}
-    wanted = cpu_mb(piece_cpus, piece_mem_mb, _least(repo))
+
+    def need():
+        """Asks the tick for a machine, the MiB read now: `short` may raise them meanwhile."""
+        google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)))
+
     # A suite splits into as many pieces as fit, so most room first; a turn takes one place and
     # is as fast on a busy machine, so least first, and one it leaves empty goes back
     # (google_cloud.IDLE_FOR): 12 turns kept three 72-core machines a tenth busy at €46 a day
@@ -252,15 +255,15 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
             sent = LOST
         if not sent and lasts(alias):
             log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
-            if not any(rooms[other][0] and lasts(other, google_cloud.READY + google_cloud.PASS)
-                       for other in aliases):
-                google_cloud.need(wanted)
+            if not any(left and lasts(other, google_cloud.READY + google_cloud.PASS)
+                       for other, (left, _) in rooms.items()):
+                need()
             return away, ""
         finish(away)
-        why[alias] = failure(sent) if sent else "ends too soon"
-    google_cloud.need(wanted)
-    return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items()) or (
-        "no suite helper set up")
+        rooms[alias] = None, failure(sent) if sent else "ends too soon"   # its room is gone
+    need()
+    return None, " · ".join(f"helper {alias} {reason}"
+                            for alias, (_, reason) in rooms.items()) or "no suite helper set up"
 
 
 def _least(repo):
