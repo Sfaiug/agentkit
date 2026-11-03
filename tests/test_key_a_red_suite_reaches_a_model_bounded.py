@@ -1,9 +1,10 @@
 """A suite red in every piece reaches the next model bounded, and a lone red piece keeps its 20 KB.
 
 A suite's pieces share 256 KB, each at most 20 KB, the red ones taking theirs first: on 3 Nov 128
-pieces red on one test made a landing log the harnesses refused as too long.  Black-box: the program `AK_BIN` names runs
-from outside through tests/fixtures/akbin.py, on a host with room for 40 pieces and a project from
-gitrig.py with scripted harnesses from fakeadapter.py; the suite is the task's done-when.
+pieces red on one test made a landing log the harnesses refused as too long.  Black-box: the
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a host with room for
+40 pieces and a project from gitrig.py with scripted harnesses from fakeadapter.py; the suite is
+the task's done-when.
 """
 
 import json

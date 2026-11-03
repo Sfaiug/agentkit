@@ -208,7 +208,8 @@ class FlakyRerun(unittest.TestCase):
         self.assertEqual(prompts.done_when_counts(text, [cmd]), (1, 1))
 
     def test_a_piece_s_flaky_lines_stay_within_its_share_and_name_the_whole(self):
-        # 512 bytes a record, its piece's output the other 512: the first cut falls just after a newline, the second inside a letter
+        # 512 bytes a record, its piece's output the other 512: the first cut falls just after a
+        # newline, the second inside a letter
         said = {"1": "F" * 511 + "\nGone\n", "2": "a" + "é" * 600 + "\n"}
         for piece, lines in said.items():
             (self.root / piece).write_text(lines)
