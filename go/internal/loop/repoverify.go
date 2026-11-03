@@ -398,6 +398,11 @@ func (r *repoPlace) view(l *loop, j *judging, passed, total int) (string, string
 	if err := r.commitLeftovers(l); err != nil {
 		return "", "", "", err
 	}
+	return r.viewOf(l, j, passed, total)
+}
+
+// viewOf is that view of the commit the checkout has out.
+func (r *repoPlace) viewOf(l *loop, j *judging, passed, total int) (string, string, string, error) {
 	diff, err := r.git().Try("diff", r.baseSHA+"...HEAD")
 	if err != nil {
 		return "", "", "", err

@@ -240,6 +240,13 @@ func DefaultBase(repo string) (string, string, error) {
 	return current, fmt.Sprintf("WARN %s has no origin/HEAD; basing this run on the current branch %s", repo, current), nil
 }
 
+// OwnerName is `owner/name`, lowercase, of a clone's URL or path, Python's owner_name: a GitHub
+// slug, and a local origin's last two parts.
+func OwnerName(url string) string {
+	parts := strings.Split(strings.ReplaceAll(strings.TrimSuffix(strings.TrimRight(url, "/"), ".git"), ":", "/"), "/")
+	return strings.ToLower(strings.Join(parts[max(0, len(parts)-2):], "/"))
+}
+
 // ProjectEnv is what git's environment changes to work on the checkout at repo and nothing else,
 // Python's project_env: GIT_DIR names its own `.git`, so git looks nowhere else, and the other
 // variables git keeps for one repository are dropped.

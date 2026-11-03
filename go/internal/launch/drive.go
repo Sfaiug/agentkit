@@ -57,10 +57,6 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	}); err != nil {
 		return 0, err
 	}
-	record, err := run.Read(dir)
-	if record == nil {
-		return 0, cmp.Or(err, errors.New("run.json cannot be read"))
-	}
 	lines := []string{}
 	if warning != "" {
 		lines = append(lines, warning)
@@ -93,6 +89,16 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	lines = append(lines, "--- preflight",
 		fmt.Sprintf("repo: %s | base: %s | target: %s | merge: %s", said, base, target, cmp.Or(meta["merge"], "squash")),
 		"delivery: "+delivery, "done-when: "+commands)
+	return underWay(dir, lines, "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`", flags, log, out, errOut)
+}
+
+// underWay says the rest of what a launch's log says, and the run goes on in a driver of its own,
+// followed here unless told --bg.
+func underWay(dir string, lines []string, notification string, flags map[string]bool, log func(string) error, out, errOut io.Writer) (int, error) {
+	record, err := run.Read(dir)
+	if record == nil {
+		return 0, cmp.Or(err, errors.New("run.json cannot be read"))
+	}
 	for _, role := range []string{"workers", "reviewers"} {
 		if list := record.List(role); list != nil {
 			var names []string
@@ -103,8 +109,7 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		}
 	}
 	lines = append(lines, fmt.Sprintf("limits: silence %dm | done-when ceiling %dh | git/gh %ds", run.SilenceMinutes, run.CeilingHours, gitcall.CapSeconds),
-		"scope: pending", "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"),
-		"notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`")
+		"scope: pending", "result: "+filepath.Join(dir, "result.md")+" | log: "+filepath.Join(dir, "log.txt"), notification)
 	for _, line := range lines {
 		if err := log(line); err != nil {
 			return 0, err

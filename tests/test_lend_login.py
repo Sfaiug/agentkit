@@ -17,6 +17,7 @@ from pathlib import Path
 import stat
 import subprocess
 import tempfile
+import time
 import tomllib
 import unittest
 
@@ -161,6 +162,13 @@ class Lend(unittest.TestCase):
                 self.assert_none(*self.lend(harness))
                 self.fixture(harness, ends=LAPSED)
                 self.assert_none(*self.lend(harness))
+
+    def test_a_machine_needs_an_hour_of_a_keychain_login_and_a_check_or_a_file_s_does_not(self):
+        _, login = self.fixture("claude", ends=int(time.time()) + 1800)
+        self.assertEqual(self.lend("claude", AK_UNFOLLOWED_LASTS="3600")[0].returncode, 0)
+        (self.root / "bin/security").write_text(f"#!/bin/sh\necho '{json.dumps(login)}'\n")
+        self.assert_none(*self.lend("claude", AK_UNFOLLOWED_LASTS="3600"))
+        self.assertEqual(self.lend("claude")[0].returncode, 0)
 
     def test_this_home_and_a_taken_place_are_refused(self):
         for harness, spec in LOGINS.items():

@@ -203,7 +203,7 @@ func (r *repoPlace) open(l *loop, meta map[string]string, path string, common []
 			return err
 		}
 		l.say(fmt.Sprintf("no worktree: working directly in %s on %s", r.wt, r.branch))
-	} else if err := r.makeWorktree(l); err != nil {
+	} else if err := r.makeWorktree(l, task.Slug(l.title), cmp.Or(r.from, r.baseSHA)); err != nil {
 		return err
 	}
 	l.workspace, l.usersAt = r.wt, r.upstream()
@@ -265,13 +265,12 @@ func (r *repoPlace) settle(l *loop) error {
 	return nil
 }
 
-// makeWorktree cuts the run's checkout from the pinned base, on a branch whose name is free on
+// makeWorktree cuts the run's checkout from that commit, on a branch whose name is free on
 // the remote too: two runs that picked one locally would both push it, and the second is rejected
 // after its work has passed.  An origin that cannot say is the empty set: naming is not worth
 // failing a run over.
-func (r *repoPlace) makeWorktree(l *loop) error {
+func (r *repoPlace) makeWorktree(l *loop, slug, start string) error {
 	g := gitcall.Git{Repo: r.repo}
-	slug := task.Slug(l.title)
 	taken := map[string]bool{}
 	asked := g
 	asked.Cap = time.Minute
@@ -302,7 +301,7 @@ func (r *repoPlace) makeWorktree(l *loop) error {
 	if err := gcOff(gitcall.Git{Repo: r.repo, Env: gitcall.ProjectEnv(r.repo)}); err != nil {
 		return err
 	}
-	code, out, err := g.Out("worktree", "add", "--lock", "--reason", making, r.wt, "-b", r.branch, cmp.Or(r.from, r.baseSHA))
+	code, out, err := g.Out("worktree", "add", "--lock", "--reason", making, r.wt, "-b", r.branch, start)
 	if err == nil && code == 0 {
 		code, out, err = g.Out("worktree", "unlock", r.wt)
 	}

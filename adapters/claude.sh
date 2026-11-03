@@ -353,12 +353,14 @@ lend)
   # Renewing retires the login renewed (28 Oct: a check's renewal left every seat a dead one),
   # so the copy holds the access token alone, which runs a turn until `expiresAt` -- one that
   # says it lapses in a minute still does -- and not the MCP servers' logins, which renew too.
-  # Read, never renewed: a lapsed login is none to lend.
+  # Read, never renewed: a lapsed login is none to lend.  So, for a turn on a machine, is one in the
+  # Keychain ending within `AK_UNFOLLOWED_LASTS`: a renewal there changes no file to carry over.
   [ $# -ge 1 ] || { echo "claude.sh lend needs <home>" >&2; exit 2; }
   command -v jq >/dev/null || { echo "claude.sh lend: jq is required" >&2; exit 2; }
-  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
+  ahead=0
+  blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) && ahead=${AK_UNFOLLOWED_LASTS:-0} \
     || blob=$(cat "$CREDS" 2>/dev/null) || blob=
-  lent=$(printf '%s' "$blob" | jq -c --argjson now "$(date +%s)" '.claudeAiOauth
+  lent=$(printf '%s' "$blob" | jq -c --argjson now "$(( $(date +%s) + ahead ))" '.claudeAiOauth
       | (.expiresAt | numbers | if . > 99999999999 then . / 1000 | floor else . end) as $ends
       | select((.accessToken | strings | test("[^[:space:]]")) and $ends > $now)
       | {ends: $ends, login: {claudeAiOauth: del(.refreshToken)}}' 2>/dev/null) &&

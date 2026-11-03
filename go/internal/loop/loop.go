@@ -4,7 +4,7 @@
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
 // terminal what that driver does until it is gone, Drive is that driver, End is its ending in
 // error, Clean takes a run's checkout, StopRun ends a run, and Pickup and Reopen hand a dead one
-// to a new driver.
+// to a new driver.  A review of somebody else's pull request takes the same driver, with no executor.
 //
 // It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
@@ -215,6 +215,7 @@ type loop struct {
 	findings      string // the last review's whole text, for its fixer
 	findingsFile  string // and where it is
 	prior         bool   // the record already names its workplace: this driver carries the run on
+	pull          string // the pull request this run reviews alone, "" for a run of a task
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
@@ -234,7 +235,12 @@ func Drive(dir string) (code int) {
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	err := l.adopt()
-	if err == nil {
+	switch {
+	case err != nil:
+	case l.pull != "":
+		l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
+		err = l.reviewPull()
+	default:
 		word := "run"
 		if l.prior {
 			word = "resume"
@@ -267,6 +273,7 @@ func (l *loop) adopt() error {
 		os.Setenv("AK_PARENT_RUN", parent)
 		os.Setenv(host.Marker, l.dir)
 		l.prior = record.Truthy("worktree")
+		l.pull = record.Str("review_pr")
 		l.workers, l.reviewers = names(record.List("workers")), names(record.List("reviewers"))
 		l.efforts = record.Dict("efforts")
 		minutes, _ := record.Num("silence_minutes")
@@ -599,7 +606,7 @@ func conclude(dir string) int {
 // recordResult is result.md for an ending, Python's record_result: with nothing to report on but
 // why, its reason is said in the log too.
 func recordResult(dir string, record *run.Object) {
-	if record.Truthy("error") && !(record.Truthy("worktree") && record.Has("round_summaries")) {
+	if record.Truthy("error") && !fullResult(record) {
 		fmt.Fprintln(stampedLog{dir}, "ERROR "+record.Str("error"))
 	}
 	WriteResult(dir, record)
