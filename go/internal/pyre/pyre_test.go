@@ -157,6 +157,14 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`(?i)\x73`, "ſ", "ſ"},
 		{`[\x41-\x43]+`, "ABCD", "ABC"},
 		{`(?i)[À-Þ]`, "÷×", "×"},
+		{`[\141]`, "La", "a"},
+		{`(?i)\163`, "ſ", "ſ"},
+		{`(?i)[\163]`, "ſ", "ſ"},
+		{`(a)\1`, "aa a\x01", "aa"},
+		{`\0`, "x\x00", "\x00"},
+		{`[\1]`, "\x01", "\x01"},
+		{`(?i)(?P<s>a)(?(s)b|c)`, "ac ab", "ab"},
+		{`(?i)(?P<state>s)?(?(state)b|c)`, "ſb", "ſb"},
 	} {
 		compiled, err := Compile(each.pattern, 0)
 		if err != nil {
@@ -170,6 +178,11 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	}
 	if _, err := Compile(`[^\S]`, 0); err == nil {
 		t.Error(`[^\S] compiled, though no class here can say it`)
+	}
+	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`} {
+		if _, err := Compile(refused, 0); err == nil {
+			t.Errorf("%s compiled, though Python refuses it", refused)
+		}
 	}
 }
 

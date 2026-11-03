@@ -104,7 +104,7 @@ func translated(source string, folding bool) (string, error) {
 			default:
 				var char rune
 				var known bool
-				if char, size, known = atom(rest); known {
+				if char, size, known = atom(rest, false); known {
 					out.WriteString(folded(char, folding, quoted(char)))
 				} else {
 					out.WriteString(rest[:size])
@@ -131,6 +131,15 @@ func translated(source string, folding bool) (string, error) {
 			out.WriteString("(?<" + name + ">")
 			size = 4 + len(name) + 1
 			outer = append(outer, folding)
+		case strings.HasPrefix(rest, "(?("):
+			// a conditional's group, its name as written
+			name, _, closed := strings.Cut(rest[3:], ")")
+			if !closed {
+				return "", fmt.Errorf("missing ), unterminated name")
+			}
+			out.WriteString("(?(" + name + ")")
+			size = 3 + len(name) + 1
+			outer = append(outer, folding)
 		case strings.HasPrefix(rest, "(?P="):
 			name, _, _ := strings.Cut(rest[4:], ")")
 			out.WriteString(`\k<` + name + `>`)
@@ -153,9 +162,10 @@ func translated(source string, folding bool) (string, error) {
 	return out.String(), nil
 }
 
-// atom is the one character source opens with, an escape read as Python reads it, and the bytes
-// it takes; known is false for an escape that names no one character (a set, a group's number).
-func atom(source string) (char rune, size int, known bool) {
+// atom is the one character source opens with, an escape read as Python reads it in a class or
+// out of one, and the bytes it takes; known is false for an escape that names no one character (a
+// set, a group's number).
+func atom(source string, inClass bool) (char rune, size int, known bool) {
 	if source[0] != '\\' || len(source) == 1 {
 		char, size = utf8.DecodeRuneInString(source)
 		return char, size, true
@@ -168,6 +178,15 @@ func atom(source string) (char rune, size int, known bool) {
 		}
 		code, err := strconv.ParseUint(source[2:size], 16, 32)
 		return rune(code), size, err == nil
+	case '0' <= next && next <= '7':
+		// octal: in a class always, out of one from a 0 or as three digits, else a group's number
+		digits := source[1:min(len(source), 4)]
+		digits = digits[:len(digits)-len(strings.TrimLeft(digits, "01234567"))]
+		if !inClass && next != '0' && len(digits) < 3 {
+			return 0, 2, false
+		}
+		code, _ := strconv.ParseUint(digits, 8, 32)
+		return rune(code), 1 + len(digits), true
 	case strings.IndexByte("abfnrtv", next) >= 0:
 		return rune("\a\b\f\n\r\t\v"[strings.IndexByte("abfnrtv", next)]), 2, true
 	case next >= utf8.RuneSelf || !alphanumeric(next):
@@ -189,11 +208,11 @@ func class(source string, folding bool) (string, int, error) {
 	var apart []string
 	var chars []rune
 	for first := true; at < len(source) && (first || source[at] != ']'); first = false {
-		low, size, known := atom(source[at:])
+		low, size, known := atom(source[at:], true)
 		set, complement := sets[source[at+size-1]], sets[source[at+size-1]|0x20]
 		switch at += size; {
-		case known && strings.HasPrefix(source[at:], "-") && !strings.HasPrefix(source[at:], "-]"):
-			high, size, known := atom(source[at+1:])
+		case known && len(source[at:]) > 1 && source[at] == '-' && source[at+1] != ']':
+			high, size, known := atom(source[at+1:], true)
 			if !known || high < low {
 				return "", 0, fmt.Errorf("bad character range")
 			}
