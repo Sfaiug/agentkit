@@ -434,13 +434,12 @@ class ResumeMidturn(unittest.TestCase):
     def test_a_finished_fallback_supersedes_an_earlier_unanswered_review(self):
         directory = self.receipt("20260922-1315-finished-fallback", step="reviewer")
         rd = directory / "round-1"
-        for name, pending, at in (("reviewer", True, 1), ("reviewer-astra", False, 2)):
+        for name, answered, at in (("reviewer", False, 1), ("reviewer-astra", True, 2)):
             out = rd / name
             out.mkdir(parents=True)
-            (out / "final.md").write_text("refused" if pending else "VERDICT: PASS")
             (out / "session_id").write_text(name)
-            if pending:
-                (out / "pending").touch()
+            if answered:
+                (out / "final.md").write_text("VERDICT: PASS")
             os.utime(out, (at, at))
         self.assertEqual(turns.open_review(rd), (None, None, None))
 

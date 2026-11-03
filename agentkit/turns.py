@@ -189,15 +189,15 @@ def latest_turn(round_dir, name):
 def open_turn(round_dir, name):
     """`(resume|fresh, session)` when this role's latest attempt never finished.
 
-    A missing `final.md` or a pending harness call has not answered. A recorded
+    A missing `final.md`, a refusal or a cut-off harness call has not answered. A recorded
     session is resumed; without one a fresh turn is needed. An answered attempt is
     `(None, None)`, whether or not it handed in a closing.
     """
     latest = latest_turn(round_dir, name)
     if latest is None:
         return None, None
-    if (latest / "final.md").exists() and not (latest / "pending").exists():
-        # Older calls have no pending marker, including refusals already waiting to resume.
+    if (latest / "final.md").exists():
+        # Harnesses write refusals to final.md too; only an answer ends the turn.
         code, text = box.returncode(latest, 0), read_answer(latest / "final.md") or ""
         harness = tail(latest / "harness").strip()
         failed = killed_word(code) or transient(code, text)
@@ -1052,10 +1052,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # own first attempt left behind is a fresh turn's, and an empty exit on it is the
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
-        target.mkdir(parents=True, exist_ok=True)
-        # Harnesses write final.md for refusals too; only an accepted answer ends the turn.
-        pending = target / "pending"
-        pending.touch()
         code, text, sid, killed, _leftovers = turn(body, target, session)
         calls += 1
         if swapped(code, killed, sid or session):
@@ -1136,7 +1132,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # a quota word left only in the model's answer is the answer talking, not the
             # provider: it parks no account and hands nothing over
             login_refusals.answered(entry["harness"])
-            pending.unlink()
             return code, text, session, False
         if handover is not None and attempt == 2 and not handover_tried:
             handover_tried = True

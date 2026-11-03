@@ -122,7 +122,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         for call in review.call_args_list:
             self.assertIn(self.text, call.args[1])
 
-    def test_a_refusal_recorded_before_pending_markers_still_resumes_the_work(self):
+    def test_a_refusal_in_final_md_still_resumes_the_work(self):
         self.text = "## Summary\ncontinued"
         self.lp.rnd = 1
         refused = self.lp.dir("executor")
