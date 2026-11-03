@@ -69,8 +69,8 @@ def ignore_time_keys(run_dir, meta, log):
 
 
 def task_repo(meta, task_path, task_file=None):
-    """`repo:` if the task names one, else the git repository the `ak run` was invoked from,
-    else the checkout its task folder is named for.
+    """`repo:` if the task names one, else the checkout its task folder is named for,
+    else the git repository the `ak run` was invoked from.
 
     `task_file` is the file the run was launched from, where `task_path` is the run's own
     copy of it: only the original stands in a task folder.
@@ -88,15 +88,15 @@ def task_repo(meta, task_path, task_file=None):
         if not (repo / ".git").exists():
             raise config.Error(f"{task_path}: repo {repo} is not a git repository")
         return repo
+    checkout = task_project(None, str(task_file or task_path))
+    if checkout:
+        return checkout.resolve()
     code, out, err = tool_run(["git", "rev-parse", "--show-toplevel"])
     if stopped(code, err):
         # "no repository here" is an answer; a git that never gave one must not be read as it,
         # or the work asked for in a checkout would quietly run in a scratch workspace instead
         raise Stopped(f"git rev-parse --show-toplevel failed: {err.strip()}")
-    if code != 0:
-        checkout = task_project(None, str(task_file or task_path))
-        return checkout.resolve() if checkout else None
-    return Path(out.strip()).resolve()
+    return Path(out.strip()).resolve() if code == 0 else None
 
 
 def from_refusal(task_path, from_branch, repo, no_worktree):
@@ -1453,7 +1453,7 @@ def preflight(run_dir, opts, log):
         ignore_time_keys(run_dir, meta, log)
         if opts.get("--anyway"):
             # the run starts regardless; name the run it starts next to, read-only
-            rivals = already_under_way(run_dir / "task.md", meta, title,
+            rivals = already_under_way(state.get("task_file") or run_dir / "task.md", meta, title,
                                        taskfile.done_when(body, run_dir / "task.md"),
                                        exclude=run_dir)
             alongside = rivals[0]["id"] if rivals else None
