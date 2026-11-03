@@ -20,10 +20,6 @@ import (
 	"agentkit/internal/task"
 )
 
-// making is the reason ak locks a checkout it makes while git makes it, so a maker killed before
-// it unlocks leaves one gc knows holds nothing yet.
-const making = "ak is making this checkout"
-
 var refName = regexp.MustCompile(`^refs/(heads|remotes/origin)/`)
 
 // repoPlace is a repository's run: a checkout of its own on a branch of its own, or the
@@ -301,7 +297,7 @@ func (r *repoPlace) makeWorktree(l *loop, slug, start string) error {
 	if err := gcOff(gitcall.Git{Repo: r.repo, Env: gitcall.ProjectEnv(r.repo)}); err != nil {
 		return err
 	}
-	code, out, err := g.Out("worktree", "add", "--lock", "--reason", making, r.wt, "-b", r.branch, start)
+	code, out, err := g.Out("worktree", "add", "--lock", "--reason", gitcall.Making, r.wt, "-b", r.branch, start)
 	if err == nil && code == 0 {
 		code, out, err = g.Out("worktree", "unlock", r.wt)
 	}

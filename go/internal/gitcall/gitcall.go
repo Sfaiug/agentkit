@@ -21,6 +21,13 @@ import (
 	"agentkit/internal/task"
 )
 
+// Junk is what a test run, a build or an editor drops next to the work.
+var Junk = []string{"__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", "node_modules/", ".DS_Store", "*.swp"}
+
+// Making is the reason ak locks a checkout it makes while git makes it, so a maker killed before
+// it unlocks leaves one gc knows holds nothing yet.
+const Making = "ak is making this checkout"
+
 // CapSeconds is how many seconds a git may take, Python's TOOL_CAP.
 const CapSeconds = 120
 

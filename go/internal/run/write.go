@@ -21,6 +21,17 @@ import (
 // json.dumps(record, indent=2) lays it out, into run.tmp and renamed over run.json, so it
 // lands whole or not at all.
 
+// Writing is whether a write of the run's record, or of its delivery, is under way: its temporary
+// file is there, a link left dangling among them (record.writing).
+func Writing(dir string) bool {
+	for _, name := range []string{"run.tmp", "delivery.tmp"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // ErrLined is a write Python ak does more for than write the file (`Lined`).
 var ErrLined = errors.New("a record with a place in a line")
 
