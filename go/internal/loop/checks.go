@@ -21,8 +21,14 @@ import (
 	"agentkit/internal/run"
 )
 
-// outCap is the most of a check's output a model is handed: the rest is in a file its line names.
-const outCap = 20 * 1024
+// The bound on what a model is handed of a check's output, every handing-on of it reading these:
+// outCap of one command or piece, the rest in a file its line names, and piecesCap of a suite's
+// pieces together, as their number follows the machine and on 3 Nov 128 of them at outCap made a
+// log the harnesses refused as too long.
+const (
+	outCap    = 20 * 1024
+	piecesCap = 256 * 1024
+)
 
 // namesShard is a check run as a share of its suite, and namesChanged one narrowed to the files a
 // change touches: Python's runner sets each.
@@ -74,6 +80,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 		var first *[2]int64
 		var outcome ran
 		var offset int64
+		var pieced *string // what a suite run in pieces hands on, its pieces' shares
 		out := true
 		for {
 			if err := l.stopCheck(); err != nil {
@@ -86,8 +93,17 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 			}
 			fmt.Fprintf(progress, "$ %s\n", cmd)
 			offset, _ = progress.Seek(0, io.SeekEnd)
+			if namesShard.MatchString(cmd) {
+				// its pieces each went once more alone where red: the command is not run again
+				text := ""
+				if outcome, text, err = l.pieces(cwd, cmd, deadline, progress, path); err != nil {
+					return false, "", nil, err
+				}
+				pieced = &text
+				break
+			}
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
-			if outcome, err = l.boxed(cwd, cmd, remaining, progress, path, false); err != nil {
+			if outcome, err = l.boxed(cwd, cmd, "", remaining, progress, path, false); err != nil {
 				return false, "", nil, err
 			}
 			if outcome.code == 0 || first != nil || outcome.stopped != "" {
@@ -110,8 +126,10 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 			code := outcome.code
 			marks = append(marks, &code)
 		}
-		said, err := cutFrom(progress, offset, l.dir, stem(path))
-		if err != nil {
+		var said string
+		if pieced != nil {
+			said = *pieced
+		} else if said, err = cutFrom(progress, offset, l.dir, stem(path), outCap); err != nil {
 			return false, "", nil, err
 		}
 		status := "exit " + strconv.Itoa(outcome.code)
@@ -160,9 +178,10 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 }
 
 // boxed runs one command in cwd in a box, its output into progress and activity being where that
-// lands, until it ends, says nothing for the run's silence or spends limit.  A proof keeps its
-// bytecode apart: same-size revisions can share a timestamp, making ignored bytecode look valid.
-func (l *loop) boxed(cwd, cmd string, limit time.Duration, progress *os.File, activity string, proof bool) (ran, error) {
+// lands, until it ends, says nothing for the run's silence or spends limit; with a shard, as that
+// piece of its suite.  A proof keeps its bytecode apart: same-size revisions can share a
+// timestamp, making ignored bytecode look valid.
+func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.File, activity string, proof bool) (ran, error) {
 	out, err := os.MkdirTemp(filepath.Dir(activity), "")
 	if err != nil {
 		return ran{}, err
@@ -174,6 +193,9 @@ func (l *loop) boxed(cwd, cmd string, limit time.Duration, progress *os.File, ac
 	}
 	// where a check names the tests that failed, as any command that takes part is told
 	env["AK_FAILED"] = filepath.Join(out, "AK_FAILED")
+	if shard != "" {
+		env["AK_SHARD"] = shard
+	}
 	if proof {
 		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
 	}
@@ -245,6 +267,13 @@ func (l *loop) flaky(cmd string, progress *os.File, first [2]int64, rerun int64,
 	if _, err := progress.ReadAt(again, rerun); err != nil {
 		return "", err
 	}
+	return l.flakyRecord(cmd, failed, again, path, -1)
+}
+
+// flakyRecord is that record of one failed output and its passing re-run, Python's
+// gate.flaky_record: the lines it keeps stop at most bytes, none where that is negative, and no
+// line ends blank, as a record is what lies between two blank lines.
+func (l *loop) flakyRecord(cmd string, failed, again []byte, path string, most int) (string, error) {
 	saved, err := os.CreateTemp(l.dir, stem(path)+"-failed-*.log")
 	if err != nil {
 		return "", err
@@ -257,43 +286,57 @@ func (l *loop) flaky(cmd string, progress *os.File, first [2]int64, rerun int64,
 	}
 	note := "flaky: " + cmd + " failed, then passed on its re-run"
 	l.say("done-when: " + note)
-	rows := []string{note, "failed output: " + config.Resolve(saved.Name())}
-	kept := 0
+	var lines []string
 	for _, line := range config.SplitLines(decoded(failed)) {
-		if strings.TrimFunc(line, config.Space) != "" && !printed[flakyKey.ReplaceAllString(line, "${1}<varying>")] && kept < 20 {
-			rows = append(rows, line)
-			kept++
+		if strings.TrimFunc(line, config.Space) != "" && !printed[flakyKey.ReplaceAllString(line, "${1}<varying>")] && len(lines) < 20 {
+			lines = append(lines, line)
 		}
+	}
+	diff := strings.Join(lines, "\n")
+	if most >= 0 && len(diff) > most {
+		diff = strings.ToValidUTF8(diff[:most], "")
+	}
+	rows := []string{note, "failed output: " + config.Resolve(saved.Name())}
+	if diff = strings.TrimRightFunc(diff, config.Space); diff != "" {
+		rows = append(rows, diff)
 	}
 	return strings.Join(rows, "\n"), nil
 }
 
 // cutFrom is a binary file's bytes from start to its end as a model is handed them, Python's
-// turns.cut_file: whole up to outCap, else its end under a line naming a file holding all of it,
-// never read whole, as a check can print more than the run's memory holds.
-func cutFrom(file *os.File, start int64, where, name string) (string, error) {
+// turns.cut_file: whole up to most bytes, else its end under a line naming a file holding all of
+// it, never read whole, as a check can print more than the run's memory holds.
+func cutFrom(file *os.File, start int64, where, name string, most int64) (string, error) {
 	size, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return "", err
 	}
 	line := ""
-	if size-start > outCap {
-		whole, err := os.CreateTemp(where, name+"-whole-*.log")
-		if err != nil {
+	if size-start > most {
+		if line, err = kept(io.NewSectionReader(file, start, size-start), where, name); err != nil {
 			return "", err
 		}
-		defer whole.Close()
-		if _, err := io.Copy(whole, io.NewSectionReader(file, start, size-start)); err != nil {
-			return "", err
-		}
-		line = "[only part of this output is shown; all of it is in " + config.Resolve(whole.Name()) + "]\n"
 	}
-	from := max(start, size-outCap)
+	from := max(start, size-most)
 	part := make([]byte, size-from)
 	if _, err := file.ReadAt(part, from); err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
 	return line + decoded(part), nil
+}
+
+// kept saves output whole in a new file under where, the line naming it heading any part of it a
+// model is handed, so nothing a check printed is out of its reach, Python's turns.kept.
+func kept(output io.Reader, where, name string) (string, error) {
+	whole, err := os.CreateTemp(where, name+"-whole-*.log")
+	if err != nil {
+		return "", err
+	}
+	defer whole.Close()
+	if _, err := io.Copy(whole, output); err != nil {
+		return "", err
+	}
+	return "[only part of this output is shown; all of it is in " + config.Resolve(whole.Name()) + "]\n", nil
 }
 
 // proof runs a finding's command on the workspace, Python's prompts.proof_on on a scratch run, its

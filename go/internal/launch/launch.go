@@ -360,7 +360,7 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(at.every, path, values); err != nil {
+		if err := drivable(path, values); err != nil {
 			return refuse("", "", err)
 		}
 		// a helper takes a repository's checks in Python, and Go has none

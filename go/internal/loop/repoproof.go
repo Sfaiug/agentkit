@@ -167,7 +167,7 @@ func (l *loop) proved(cwd, command, path, label string) (int, string, bool, erro
 	defer progress.Close()
 	fmt.Fprintf(progress, "$ %s (on %s)\n", command, label)
 	start, _ := progress.Seek(0, io.SeekEnd)
-	outcome, err := l.boxed(cwd, command, l.ceiling, progress, path, true)
+	outcome, err := l.boxed(cwd, command, "", l.ceiling, progress, path, true)
 	if err != nil {
 		return 0, "", false, err
 	}

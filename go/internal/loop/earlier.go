@@ -20,6 +20,9 @@ type judging struct {
 	replayed []replay        // ak's own proof of the earlier findings on this commit
 	listed   string          // the file of earlier findings handed to the reviewer, "" for none
 	whole    string          // the whole change, for a conversation that starts fresh; "" where the section is that
+
+	uncounted bool   // a landing re-review, which spends no round
+	passed    string // the head the task's checks last passed on as it began
 }
 
 // A replay is an earlier finding proven again on this commit, at the line the fix left it.
