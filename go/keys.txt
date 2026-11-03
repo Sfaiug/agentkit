@@ -13,11 +13,15 @@ test_key_dash_led_attach
 test_key_doctor_effort
 test_key_doctor_tick_line
 test_key_done_seat_question_refused
+test_key_donewhen_same_failure
 test_key_dry_tick_lines
 test_key_env_file_checks
 test_key_fetch_inbox
 test_key_fetch_local
 test_key_fetch_serve
+test_key_fixer_continues
+test_key_fixer_dispute_run
+test_key_followups_nonblocking
 test_key_grok_hooks
 test_key_hand_in_executor
 test_key_hand_in_finding_rows FindingRows
@@ -69,6 +73,7 @@ test_key_plan_list_ticks
 test_key_plan_needs_seat
 test_key_plan_rename PlanUnderTheOldName
 test_key_prompt_hook_fact
+test_key_reviewer_fail_rounds
 test_key_run_background
 test_key_run_clean
 test_key_run_no_worktree

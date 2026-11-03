@@ -199,7 +199,9 @@ func (r *Review) Text() string {
 	return strings.Join(parts, "\n\n") + "\n"
 }
 
-// itemText is a record in words, Python's hand_in.item_text.
+// ItemText is a record in words, Python's hand_in.item_text.
+func ItemText(row *run.Object) string { return itemText(row) }
+
 func itemText(row *run.Object) string {
 	var text string
 	if row.Str("kind") == "dispute" {
@@ -217,12 +219,21 @@ func itemText(row *run.Object) string {
 			text += "Commit " + evidence.Str("commit") + ":\n"
 		}
 		text += proofText(evidence)
+		if base := evidence.Dict("base"); base != nil {
+			text += "\nBase " + base.Str("sha") + ":\n" + proofText(base)
+		}
 	}
 	if row.Truthy("before") {
 		text += "\nBefore the task: " + row.Str("before")
 	}
 	if row.Truthy("dropped") {
 		text += "\nDropped follow-up: " + row.Str("dropped")
+	}
+	if row.Truthy("outside") {
+		text += "\nOutside " + row.Str("outside")
+	}
+	if row.Truthy("replayed") {
+		text += "\nRe-proven by ak on this commit: " + row.Str("replayed")
 	}
 	return strings.TrimFunc(text, config.Space)
 }

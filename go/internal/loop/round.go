@@ -18,39 +18,10 @@ import (
 // foreground is what every turn is told of its commands, Python's turns.shell_foreground_note.
 var foreground = fmt.Sprintf("Run long commands, tests included, in the foreground and wait for them; a turn that ends with a command still running in the background is not finished. A command that may print nothing for %d minutes starts with `timeout <seconds>`, or that silence stops it.", run.SilenceMinutes)
 
-// roundName is the one round a run takes here: any other is a fixer's.
-const roundName = "round-1"
-
-// round is the executor's turn, the checks and the reviewer's verdict, Python's rounds on a run
-// that passes in its first.
-func (l *loop) round() error {
-	var rounds int
-	if err := l.save(func(record *run.Object) { rounds, _ = record.Int("rounds") }); err != nil {
-		return err
-	}
-	l.say(fmt.Sprintf("--- round 1/%d: executor %s", rounds, l.executor))
-	summary, err := l.execute()
-	if err != nil {
-		return err
-	}
-	// a change past the ceiling is refused now, before its checks
-	if err := l.place.worked(l); err != nil {
-		return err
-	}
-	text, err := l.verify()
-	if err != nil {
-		return err
-	}
-	if err := l.place.beforeReview(l); err != nil {
-		return err
-	}
-	return l.review(summary, text)
-}
-
 // step says which step this run is in, since when and in which round.
 func (l *loop) step(name string, more ...any) error {
 	return l.save(func(record *run.Object) {
-		run.SetAll(record, "step", name, "step_at", clock(), "step_round", 1)
+		run.SetAll(record, "step", name, "step_at", clock(), "step_round", l.rnd)
 		run.SetAll(record, more...)
 	})
 }
@@ -72,29 +43,37 @@ func (l *loop) model(name string) (config.Model, error) {
 	return model, nil
 }
 
-// execute is the executor's turn, its summary once it closed: one that says the task cannot be
-// done as written ends the run blocked, with nothing to judge.
-func (l *loop) execute() (string, error) {
+// execute is one turn of the round's executor under the name given (executor or fixer, word its
+// rules, name its directory), resuming its conversation, handed the findings file if any: its
+// summary once it closed.  One that says the task cannot be done as written ends the run blocked,
+// with nothing to judge.
+func (l *loop) execute(word, name, body, findings string) (string, error) {
 	model, err := l.model(l.executor)
 	if err != nil {
 		return "", err
 	}
-	if err := l.step("executor", "verdict", nil, "review", nil, "exec_session", nil, "review_session", nil,
+	if err := l.step("executor", "verdict", nil, "review", nil, "exec_session", none(l.execSession), "review_session", none(l.reviewSession),
 		"executor_effort", model.TurnEffort(false)); err != nil {
 		return "", err
 	}
 	l.place.beforeTurn(l)
-	out := filepath.Join(l.dir, roundName, "executor")
-	session, err := l.turn(l.workspace, l.executor, model, "executor", l.place.role("executor"), l.prompt, out)
-	if err != nil {
-		return "", err
+	out := filepath.Join(l.roundDir(), name)
+	session, failed := l.turn(l.workspace, l.executor, model, word, l.place.role(word), body, out, l.execSession, findings)
+	if err := l.keepDisputes(out); failed == nil {
+		failed = err
 	}
-	if err := l.save(func(record *run.Object) { record.Set("exec_session", session) }); err != nil {
+	if failed != nil {
+		return "", failed
+	}
+	if session != "" {
+		l.execSession = session
+	}
+	if err := l.save(func(record *run.Object) { record.Set("exec_session", none(l.execSession)) }); err != nil {
 		return "", err
 	}
 	submitted, _ := handin.Read(filepath.Join(out, handin.File))
 	if submitted == nil || submitted.Closing() == nil {
-		return "", notYet(fmt.Sprintf("executor %s gave no closing; see %s", l.executor, filepath.Join(out, "stderr.log")), "a silent turn")
+		return "", notYet(fmt.Sprintf("%s %s gave no closing; see %s", word, l.executor, filepath.Join(out, "stderr.log")), "a silent turn")
 	}
 	if closing := submitted.Closing(); closing.Str("kind") == "blocked" {
 		why := closing.Str("why")
@@ -103,9 +82,26 @@ func (l *loop) execute() (string, error) {
 	return handin.Answer(filepath.Join(out, "final.md")), nil
 }
 
-// turn runs one turn of the model from cwd in its out directory, the conversation it leaves once it
-// ended well enough to read: any other ending is a road Go does not carry out.
-func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out string) (string, error) {
+// none is a conversation as the record holds it, null before there is one.
+func none(session string) any {
+	if session == "" {
+		return nil
+	}
+	return session
+}
+
+// An exited is a turn whose harness exited non-zero, which only a reviewer's verdict outlives.
+type exited struct {
+	code int
+	err  error
+}
+
+func (e *exited) Error() string { return e.err.Error() }
+
+// turn runs one turn of the model from cwd in its out directory on that conversation, the
+// conversation it leaves once it ended well enough to read: any other ending is a road Go does not
+// carry out.
+func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out, session, findings string) (string, error) {
 	if err := l.stopCheck(); err != nil {
 		return "", err
 	}
@@ -120,8 +116,8 @@ func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out 
 		file.Close()
 	}
 	who := word + " " + name
-	code, session, err := worker.Turn(name, role, body, cwd, out, "", worker.Given{
-		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines,
+	code, left, err := worker.Turn(name, role, body, cwd, out, session, worker.Given{
+		Context: l.ctx, Efforts: model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines, Findings: findings,
 		Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
 	}, stampedLog{l.dir})
 	stderr := filepath.Join(out, "stderr.log")
@@ -136,11 +132,11 @@ func (l *loop) turn(cwd, name string, model config.Model, word, role, body, out 
 	case err != nil:
 		return "", notYet(who+": "+err.Error(), "a failed turn")
 	case code != 0:
-		return "", notYet(fmt.Sprintf("%s exited %d; see %s", who, code, stderr), "a failed or exhausted turn")
+		return left, &exited{code, notYet(fmt.Sprintf("%s exited %d; see %s", who, code, stderr), "a failed or exhausted turn")}
 	case unfinished(out):
 		return "", notYet(who+" ended its turn with a command still in the background", "finishing it in the foreground")
 	}
-	return session, nil
+	return left, nil
 }
 
 // unfinished is whether a turn ended with a command still running, Python's worker.turn and
@@ -166,23 +162,16 @@ func unfinished(out string) bool {
 	return tasks
 }
 
-// verify is the checks of the round on what the workplace holds, what they said once all exited 0:
-// a failure's fixer turn is a road Go does not carry out.
-func (l *loop) verify() (string, error) {
+// verify is the checks of the round on what the workplace holds: whether they passed, what they said.
+func (l *loop) verify() (bool, string, error) {
 	if err := l.step("done-when"); err != nil {
-		return "", err
+		return false, "", err
 	}
-	ok, text, err := l.place.verify(l, filepath.Join(l.dir, roundName, "donewhen.log"))
+	ok, text, err := l.place.verify(l, filepath.Join(l.roundDir(), "donewhen.log"))
 	if err != nil {
-		return "", err
+		return false, "", err
 	}
-	if !ok {
-		l.say("done-when: FAILED")
-		return "", notYet("the done-when failed: "+failing(text), "its fixer turn")
-	}
-	l.say("done-when: all passed")
-	return text, l.save(func(record *run.Object) {
-		record.Set("done_when_failure", run.Fields("every", []any{}))
+	return ok, text, l.save(func(record *run.Object) {
 		if !record.Has("artifacts") {
 			record.Set("artifacts", []any{})
 		}

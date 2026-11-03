@@ -86,7 +86,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err := os.MkdirAll(out, 0o777); err != nil {
 		return 0, "", err
 	}
-	handIn, err := handin.Start(out, workspace, role)
+	handIn, err := handin.Start(out, workspace, role, given.Findings)
 	if err != nil {
 		return 0, "", err
 	}
@@ -116,7 +116,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	ctx, unwatch := words.watch(interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
-	ctx, watched := Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Marker: env[host.Marker]}.Stop(ctx)
+	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Marker: env[host.Marker]}.Stop(ctx)
 	code, left, err := box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
 	unwatch()
 	stopped := watched() != ""

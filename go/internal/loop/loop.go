@@ -1,5 +1,6 @@
 // Package loop drives one run of a task from its slot to its result, as Python's drive, loop,
-// rounds, execute, verify_work, review, write_result and finish do on the road a passing run takes.
+// rounds, execute, verify_work, review, write_result and finish do on the roads a run with a working
+// model takes: a PASS, a round budget spent, and the same failure twice.
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
 // terminal what that driver does until it is gone, Drive is that driver, End is its ending in
 // error, and Clean takes a run's checkout.
@@ -181,26 +182,32 @@ func exitStatus(record *run.Object) int {
 
 // A loop is one driver's run.
 type loop struct {
-	ctx         context.Context
-	dir         string
-	id          string
-	body        string
-	every       []string // the done-when lines as a round runs them
-	prompt      string
-	workspace   string
-	place       workplace
-	title       string
-	cmds        []string // the done-when lines a round reads
-	usersAt     string   // the ref a review's `users:` is read at
-	reviewLines int      // the first review's ceiling
-	once        []string // those deferred to landing
-	executor    string
-	reviewer    string
-	workers     []string // the lists the run was launched with, nil where none was bound
-	reviewers   []string
-	efforts     *run.Object
-	silence     time.Duration
-	ceiling     time.Duration
+	ctx           context.Context
+	dir           string
+	id            string
+	body          string
+	every         []string // the done-when lines as a round runs them
+	prompt        string
+	workspace     string
+	place         workplace
+	title         string
+	cmds          []string // the done-when lines a round reads
+	usersAt       string   // the ref a review's `users:` is read at
+	reviewLines   int      // the first review's ceiling
+	once          []string // those deferred to landing
+	executor      string
+	reviewer      string
+	workers       []string // the lists the run was launched with, nil where none was bound
+	reviewers     []string
+	efforts       *run.Object
+	silence       time.Duration
+	ceiling       time.Duration
+	budget        int    // the rounds this run may spend
+	rnd           int    // the round under way, the rounds spent before it
+	execSession   string // the conversation a fixer resumes, "" before any
+	reviewSession string // and a later review
+	findings      string // the last review's whole text, for its fixer
+	findingsFile  string // and where it is
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
@@ -329,7 +336,8 @@ func (l *loop) work() error {
 	if err := l.pick(); err != nil {
 		return err
 	}
-	if err := l.round(); err != nil {
+	passed, err := l.rounds()
+	if err != nil || !passed {
 		return err
 	}
 	return l.place.finished(l)
@@ -360,6 +368,7 @@ func (l *loop) open() error {
 	if err != nil {
 		return err
 	}
+	l.budget = rounds
 	record, err := run.Read(l.dir)
 	if record == nil {
 		return cmp.Or(err, errors.New("run.json cannot be read"))
@@ -414,14 +423,9 @@ func budget(meta map[string]string, path, dir string) (rounds int, method string
 	if raw == "" {
 		raw = meta["rounds"]
 	}
-	number, err := config.Rounds()
+	number, err := run.PolicyRounds(record)
 	if err != nil {
 		return 0, "", err
-	}
-	if policy := record.Dict("policy"); policy != nil {
-		if held, ok := policy.Int("rounds"); ok {
-			number = held
-		}
 	}
 	if raw != "" {
 		parsed := config.Int(raw)
