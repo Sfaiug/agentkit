@@ -123,6 +123,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(len(self.checks), checks + 1, "the line checks the fixed tree once")
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
+        run.history_finish(state)
         self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertEqual(len(self.reviews), 2)
@@ -165,6 +166,7 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
+        run.history_finish(state)
         self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
 
     def test_a_rebase_the_tip_conflicts_with_is_a_landing_red_of_the_fixers(self):
