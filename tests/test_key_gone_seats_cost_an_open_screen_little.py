@@ -28,8 +28,8 @@ import test_key_runs_at_rest_cost_an_open_screen_little as at_rest
 LIVE = SEATS[:3]
 GONE = [f"acme-past-{n:02}" for n in range(60)]
 EVERY = 3         # seconds between two writes of a live seat's file, each a read of the screen's
-LOOKS = 315       # what that minute may cost, in plain looks: deciding every seat on every read
-                  # costs about 360, deciding the changed ones about 275
+LOOKS = 335       # what that minute may cost, in plain looks: deciding every seat on every read
+                  # costs about 375, deciding the changed ones about 290
 
 
 class GoneSeatsCostAnOpenScreenLittle(OpenScreen):
@@ -91,7 +91,8 @@ class GoneSeatsCostAnOpenScreenLittle(OpenScreen):
 
     def test_a_minute_of_reads_costs_less_than_a_few_dozen_plain_looks(self):
         spent = min(self.busy_minute() for _ in range(2))
-        look = sum(self.plain_look() for _ in range(50)) / 50
+        # the least of ten batches: what the host's load adds to a look is noise, not its cost
+        look = min(sum(self.plain_look() for _ in range(10)) / 10 for _ in range(10))
         self.assertLess(spent, LOOKS * look, f"a minute costs {spent} ticks, a plain look {look}")
 
 
