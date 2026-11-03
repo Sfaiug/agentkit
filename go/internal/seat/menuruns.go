@@ -22,12 +22,13 @@ type runView struct {
 	task        *Task
 }
 
-func menuRuns(now time.Time) (map[string][]ran, bool) {
+func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 	entries, err := os.ReadDir(run.Runs())
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, false
+		return nil, nil, false
 	}
 	mine := map[string][]ran{}
+	projects := map[string][]ran{}
 	for _, entry := range entries {
 		dir := filepath.Join(run.Runs(), entry.Name())
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -35,23 +36,27 @@ func menuRuns(now time.Time) (map[string][]ran, bool) {
 		}
 		record, err := run.Read(dir)
 		if err != nil || record == nil {
-			return nil, false
+			return nil, nil, false
 		}
-		if record.Truthy("unattended") || run.SmokeRun(record) {
+		if run.SmokeRun(record) {
+			continue
+		}
+		name := run.Seat(record)
+		projects[name] = append(projects[name], ran{record: record})
+		if record.Truthy("unattended") {
 			continue
 		}
 		view, known := viewRun(record, now)
 		if !known {
-			return nil, false
+			return nil, nil, false
 		}
 		info, err := os.Stat(filepath.Join(dir, "run.json"))
 		if err != nil {
-			return nil, false
+			return nil, nil, false
 		}
-		name := run.Seat(record)
 		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds(), view: &view})
 	}
-	return mine, true
+	return mine, projects, true
 }
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {

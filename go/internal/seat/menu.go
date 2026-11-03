@@ -10,11 +10,11 @@ import (
 	"agentkit/internal/tmux"
 )
 
-// Menu reads a frame's seats and runs once. Looking and the commands that publish a word still
-// leave wider run records to Python; the screen only observes them and writes no records.
+// Menu reads a frame's seats and runs once, filing projectless records before numbering them.
+// Looking and the commands that publish a word still leave wider run records to Python.
 func Menu(now time.Time) (Home, bool) {
-	runs, known := menuRuns(now)
-	if !known {
+	runs, projects, known := menuRuns(now)
+	if !known || !menuProjects(runs, projects) {
 		return Home{}, false
 	}
 	home, known := reading(now, true, func([]string, time.Time) (map[string][]ran, bool) { return runs, true }, nil)

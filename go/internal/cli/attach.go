@@ -28,8 +28,8 @@ func attach(args []string, out, errOut io.Writer) int {
 			fmt.Fprintf(errOut, "ak attach: %s\n", err)
 			return 2
 		}
-		if alias == "" && len(args) == 0 {
-			return akScreen(errOut)
+		if alias == "" || contains(args, "--overlay") {
+			return akScreen(args, errOut)
 		}
 		return notImplemented(errOut, "attach")
 	}
