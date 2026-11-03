@@ -99,18 +99,16 @@ func removeEntry(path string) (bool, error) {
 	return !present(path), err
 }
 
-// takeConversation is how a harness's conversation ends, the harness's own way, nil where that
-// way is Python's: Antigravity's alone is Go's, while no home of it keeps a summaries database,
-// whose rows Go's standard library does not write.
+// takeConversation ends a conversation its harness's own way, nil where that way is Python's.
 func takeConversation(name, path string) func(*collection) (bool, error) {
-	if summaries, err := agySummaries(path); name != "antigravity" || summaries || err != nil {
+	if _, ours, err := harness.ConversationParts(name, path); !ours || err != nil {
 		return nil
 	}
 	return func(c *collection) (bool, error) {
 		if c.balked[name] {
 			return false, nil
 		}
-		done, err := endAgy(path)
+		done, err := endConversation(name, path)
 		if err != nil {
 			c.balked[name] = true // one failure a pass, not one a conversation
 		}
@@ -118,73 +116,28 @@ func takeConversation(name, path string) func(*collection) (bool, error) {
 	}
 }
 
-// endAgy ends an Antigravity conversation: its annotations, implicit and presence files in every
-// home and its brain folder, then its .db, so a pass cut short finds the .db again; only while it
-// is still stale and each part ours, reached through no link and held by nobody
-// (antigravity.end_conversation).
-func endAgy(path string) (bool, error) {
-	if summaries, err := agySummaries(path); summaries || err != nil {
+// endConversation takes what the harness keeps of a conversation, then the conversation, only
+// while it is still stale and each part ours, reached through no link and held by nobody
+// (harness.end_conversation, gc.conversation_ends).
+func endConversation(name, path string) (bool, error) {
+	parts, ours, err := harness.ConversationParts(name, path)
+	if !ours || err != nil {
 		return false, err
-	}
-	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	homes := agyHomes(path)
-	var found []string
-	for _, home := range homes {
-		for _, part := range []string{filepath.Join(home, "annotations", stem+".pbtxt"),
-			filepath.Join(home, "implicit", stem+".pb"), filepath.Join(home, "presence", stem+".lock")} {
-			if held, err := there(part); err != nil {
-				return false, err
-			} else if held {
-				found = append(found, part)
-			}
-		}
-	}
-	if held, err := there(filepath.Join(homes[0], "brain", stem)); err != nil {
-		return false, err
-	} else if held {
-		found = append(found, filepath.Join(homes[0], "brain", stem))
 	}
 	r := &reads{now: epoch()}
 	paths := r.every()
-	if r.conversationStale(path, paths) == "" || slices.ContainsFunc(found, func(part string) bool {
+	if r.conversationStale(path, paths) == "" || slices.ContainsFunc(parts, func(part string) bool {
 		return !safe(part) || busy(part, paths)
 	}) {
 		return false, nil
 	}
-	for _, part := range found {
+	for _, part := range parts {
 		if _, err := removeEntry(part); err != nil {
 			return false, err
 		}
 	}
-	err := os.Remove(path)
+	err = os.Remove(path)
 	return !present(path), err
-}
-
-// agySummaries is whether a home of Antigravity's keeps a summaries database.
-func agySummaries(path string) (bool, error) {
-	for _, home := range agyHomes(path) {
-		if held, err := there(filepath.Join(home, "conversation_summaries.db")); held || err != nil {
-			return held, err
-		}
-	}
-	return false, nil
-}
-
-// agyHomes is the conversation's home, then every other home of Antigravity's beside it.
-func agyHomes(path string) []string {
-	home := filepath.Dir(filepath.Dir(path))
-	others, _ := filepath.Glob(filepath.Join(filepath.Dir(home), filepath.Base(home)+"-*"))
-	return append([]string{home}, others...)
-}
-
-// there is whether something is at the path, link or not; what cannot be looked at is an error,
-// as a home nobody may search may still keep a part of the conversation.
-func there(path string) (bool, error) {
-	_, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	}
-	return err == nil, err
 }
 
 // takeHarness rewrites a harness's JSON file without the entries naming a gone sandbox or
