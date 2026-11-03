@@ -1647,6 +1647,14 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed", c
     return "\n".join(filter(None, [note, f"failed output: {Path(saved.name).resolve()}", diff]))
 
 
+def shares(reds, others):
+    """What each of `reds` red pieces, then each of `others` (green pieces and flaky records),
+    hands on of the suite's PIECES_CAP, at most OUT_CAP each: the red pieces take theirs first, so
+    one red piece keeps its whole OUT_CAP however many ran, and the others share the rest."""
+    red = min(turns.OUT_CAP, turns.PIECES_CAP // max(reds, 1))
+    return red, min(turns.OUT_CAP, (turns.PIECES_CAP - reds * red) // max(others, 1))
+
+
 def unnamed(code, only, ran, output):
     """`code`, or 1 for a run of just the tests `only` lists that exited 0 without naming each
     one as run (`AK_RAN`): a runner may skip a name it does not know and exit 0."""
@@ -2060,7 +2068,6 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if hold is not None:
                 hold.alone()
             chunks, red, flakes, alones = [], [], [], {}
-            share = min(turns.OUT_CAP, turns.PIECES_CAP // count)
             for index, (code, piece, killed, tests) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 failed = only = alone = None
@@ -2104,9 +2111,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             break
                         # passing alone, they failed, then passed, whatever the piece does next
                         piece.seek(0)
-                        flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                                   piece.read(), activity, run_dir, log, how,
-                                                   share))
+                        flakes.append((shard, failed, piece.read(), how))
                         if flaky is not None:
                             flaky.extend(only)
                         only = None
@@ -2121,13 +2126,15 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     code, piece, killed, tests = rerun(shard, only)
                 if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
-                    flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                               piece.read(), activity, run_dir, log, how, share))
+                    flakes.append((shard, failed, piece.read(), how))
                 results[index - 1] = code, piece, killed, tests
                 alones[shard] = alone
-            # A red piece's share rests on how many ended red, known only now, reruns included.
+            # The shares rest on how many ended red, known only now, reruns included.
             reds = sum(1 for code, _, _, _ in results if code)
-            red_share = min(turns.OUT_CAP, turns.PIECES_CAP // max(reds, 1))
+            red_share, share = shares(reds, count - reds + len(flakes))
+            flakes = [flaky_record(f"{command} (AK_SHARD={shard})", failed, again, activity,
+                                   run_dir, log, how, share)
+                      for shard, failed, again, how in flakes]
             for index, (code, piece, killed, _) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 text = turns.cut_file(piece, 0, run_dir or activity.parent,
