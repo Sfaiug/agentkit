@@ -43,6 +43,7 @@ class BackgroundShellIsNoWait(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         return done.stdout
 
+    # A seat waits only on a pull request or a run (`ak wait`). [4 Oct, 9 Oct]
     def test_a_shell_alone_is_held_and_told_to_ak_wait(self):
         self.assertEqual(SHELL["type"], "shell")
         decision = json.loads(self.stop(SHELL))

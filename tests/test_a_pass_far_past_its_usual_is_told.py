@@ -63,6 +63,8 @@ class PassFarPastItsUsual(unittest.TestCase):
         watch.tell_audit(self.cfg, self.log.append, now)
         return [call.args[1] for call in self.typed.call_args_list]
 
+    # The one exception is the `audit` seat, which the tick opens for a stall it found,
+    # so ak improves itself without the owner. [4 Oct, 14 Oct, 17 Oct]
     def test_a_pass_far_past_its_line_s_usual_is_told_to_the_audit_seat_once(self):
         self.passes(NOW - 3000)
         self.assertEqual(self.tick(), [

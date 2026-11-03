@@ -1,9 +1,9 @@
 """The first tick of a week opens the `audit` seat by itself, and its line names quality first.
 
-The one seat ak opens without a person (AGENTS.md, Owner rules) is how ak improves itself: the
-first `ak watch` of an ISO week (UTC) writes that week's board under state/audit/, keeps the line
-the seat is told in state/audit.json, and opens a seat called `audit` on `[audit]`'s models, not
-the defaults.  The line names the week's largest loss in the vision's order, so a week whose
+The one seat ak opens without a person (tests/test_key_audit_seat.py) is how ak improves itself:
+the first `ak watch` of an ISO week (UTC) writes that week's board under state/audit/, keeps the
+line the seat is told in state/audit.json, and opens a seat called `audit` on `[audit]`'s models,
+not the defaults.  The line names the week's largest loss in the vision's order, so a week whose
 runs merged in round 1 less often is a loss however much faster they merged.  A second tick that
 week writes no new board and opens no second seat.
 
@@ -57,6 +57,8 @@ def seed_history(home, now):
     database.close()
 
 
+# The one exception is the `audit` seat, which the tick opens with `[audit]`'s models for the
+# week's largest loss, so ak improves itself without the owner. [4 Oct, 14 Oct, 17 Oct]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AuditSeat(unittest.TestCase):
     @classmethod

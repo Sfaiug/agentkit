@@ -1,8 +1,9 @@
 """Inside a seat, its tmux can neither end another seat nor type into one.
 
-Seats never message one another, and nothing one seat writes is typed into another (owner
-rules).  A seat's tmux refuses a call that would end another seat's session or type into its
-pane, in each form tmux takes one, and says why; the seat's own pane, a session that is no seat,
+Seats never message one another, and nothing one seat writes is typed into another
+(tests/test_key_open_seat_isolated.py, tests/test_key_tmux_shim_other_seat.py).  A seat's tmux
+refuses a call that would end another seat's session or type into its pane, in each form tmux
+takes one, and says why; the seat's own pane, a session that is no seat,
 and every call of a worker or of no seat pass.  Black-box: the shims a seat's launch installs
 (tests/fixtures/shims.py), run as a seat's commands against the Home's real tmux, judged by the
 sessions tmux holds and what each pane received; this test fails against `/bin/false`.
@@ -63,6 +64,7 @@ class AnotherSeat(unittest.TestCase):
         self.refused([(("send-keys", "-t", "=acme:", "x", ";", "kill-window", "-t", "=beta:"),
                        "kill-window")], ENDS, untyped=[self.acme])
 
+    # Nothing one seat writes is typed into another. [4 Oct, 9 Oct]
     def test_typing_into_another_seat_is_refused(self):
         self.refused([(("send-keys", "-t", "beta:", "hi", "Enter"), "send-keys"),
                       (("send-keys", "-t", "=beta:", "-l", "hi"), "send-keys"),
