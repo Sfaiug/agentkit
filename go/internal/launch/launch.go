@@ -4,8 +4,10 @@
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
 // scratch task's or a repository's with --no-merge or --no-worktree, or a review of somebody else's
 // pull request from no seat, and that run goes on in package loop.  A seat's launch it judges as
-// Python's run.parse does, up to its queue (seat.go).  Any other it leaves to Python (ErrPython),
-// deciding so before it writes anything, so preflight is settled first.
+// Python's run.parse does, and one that passes is the seat's run: its receipt names the seat and
+// binds the seat's lists and efforts, and the seat's bar and project follow it (seat.go).  Any
+// other it leaves to Python (ErrPython), deciding so before it writes anything, so preflight is
+// settled first.
 package launch
 
 import (
@@ -31,6 +33,7 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 	"agentkit/internal/task"
 )
 
@@ -57,7 +60,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	}
 	text := task.Text(data)
 	meta, cmds, err := task.Read(path)
-	bound, unbound := config.Bind()
+	bound, unbound := bind()
 	if err != nil || unbound != nil || python(path, values, flags, bound) {
 		return 0, "", ErrPython
 	}
@@ -74,10 +77,15 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		return 0, "", err
 	}
 	copied := filepath.Join(dir, "task.md")
-	reason, warning, place, err := preflight(meta, cmds, path, copied, values, flags)
+	reason, warning, place, err := preflight(meta, cmds, path, copied, values, flags, bound)
 	var outright *refusedOutright
 	if errors.As(err, &outright) {
 		return 2, outright.why, nil
+	}
+	seated, _, _ := Seat()
+	// a seat's launch a rule refuses is said where the seat typed it, which is Python's yet
+	if err == nil && reason != "" && seated != "" {
+		err = ErrPython
 	}
 	if err != nil {
 		return 0, "", err
@@ -90,7 +98,8 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
 		func() error { return os.WriteFile(logged, nil, 0o666) },
-		func() error { return receive(dir, path, values, flags, bound) },
+		func() error { return receive(dir, path, values, flags, bound, seated) },
+		func() error { seat.Redress(seated); return nil }, // the seat's bar says it from the start
 		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
 	} {
 		if err := step(); err != nil {
@@ -98,7 +107,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		}
 	}
 	if reason == "" {
-		code, err := drive(dir, meta, place, warning, flags, unstopped, log, out, errOut)
+		code, err := drive(dir, meta, place, warning, flags, seated, unstopped, log, out, errOut)
 		return code, "", err
 	}
 	return refuse(dir, reason, warning, log)
@@ -181,18 +190,18 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: any that leaves unread surroundings to Python, a seat's naming no
-// executor, one Python's rival check may refuse, which a seat's asks with its queue (preflight),
-// or a string for the record Python would write with a lone surrogate.  A count that is none the
-// gate never reads: Task refuses it.
+// cannot read as it does: any that leaves unread surroundings to Python, one naming no executor,
+// a seat's whose runs Go cannot count its project from, one Python's rival check may refuse, which
+// a seat's asks with its queue (preflight), or a string for the record Python would write with a
+// lone surrogate.  A count that is none the gate never reads: Task refuses it.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	seat, record, unnamed := Seat()
+	name, _, unnamed := Seat()
 	if unnamed != nil || unread() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
-	if seat != "" {
-		return !staffed(record)
+	if name != "" {
+		return !seat.Votes(name)
 	}
 	return !flags["--anyway"] && going()
 }
@@ -304,7 +313,7 @@ func Budget(path string) (int, error) {
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
 // Python a run whose suite is narrowed to its change, or whose landing checks run in pieces.
-func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
+func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool, bound config.Binding) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		return reason, warning, at, err
@@ -324,7 +333,9 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	// a seat's launch is judged up to its queue, asked last before anything is created
 	if seat, _, _ := Seat(); seat != "" {
-		return refuse("", "", seatQueue(seat, repo))
+		if err := seatQueue(seat, repo); err != nil {
+			return refuse("", "", err)
+		}
 	}
 	if refused != "" {
 		return refuse(refused, "", nil)
@@ -370,7 +381,7 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(path, values); err != nil {
+		if err := drivable(path, values, bound); err != nil {
 			return refuse("", "", err)
 		}
 		// a helper takes a repository's checks in Python, and Go has none
@@ -441,18 +452,19 @@ func holdSlots() (*os.File, error) {
 }
 
 // receive writes the launch's receipt under the slots lock.
-func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
+func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
-	return receipt(dir, path, values, flags, bound)
+	return receipt(dir, path, values, flags, bound, seat)
 }
 
 // receipt is the launch's first record, as Python's capture_launch writes it, with the gate's
-// outright admission; its caller holds the slots lock.
-func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
+// outright admission, owned by the seat that launched it, "" for none; its caller holds the slots
+// lock.
+func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
 	depth, _ := runDepth()
 	var parent, identity any
 	if value, set := os.LookupEnv("AK_PARENT_RUN"); set {
@@ -471,13 +483,21 @@ func receipt(dir, path string, values map[string]string, flags map[string]bool, 
 	for _, flag := range Switches {
 		launched.Set(flag, flags[flag])
 	}
+	var owner any
+	if seat != "" {
+		owner = seat
+	}
 	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
-		"launched_session", nil, "started_at", now(), "queued_at", now(), "slot_waiting", false,
+		"launched_session", owner, "started_at", now(), "queued_at", now(), "slot_waiting", false,
 		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
-		"unattended", os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
+		"unattended", seat == "" && os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
 		"process_identity", identity, "launch_opts", launched}
+	// a seat binds its own lists, and the config its own where it names reviewers apart
+	if seat != "" || bound.Reviewers != nil {
+		first = append(first, "workers", bound.Workers)
+	}
 	if bound.Reviewers != nil {
-		first = append(first, "workers", bound.Workers, "reviewers", bound.Reviewers)
+		first = append(first, "reviewers", bound.Reviewers)
 	}
 	for _, model := range bound.Models {
 		keys := run.NewObject()

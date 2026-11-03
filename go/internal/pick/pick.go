@@ -30,7 +30,7 @@ type Room interface {
 	OnCredits(model string) bool
 }
 
-// Rules are config.toml's groups, as a pick outside any seat reads them.
+// Rules are a run's groups, as its picks read them.
 type Rules struct {
 	executors, reviewers []string
 	reviewList           []string // reviewers as the group names them, those barred from reviewing too
@@ -40,20 +40,18 @@ type Rules struct {
 // Load is the Rules of the home's groups as they stand.
 func Load() (*Rules, bool) {
 	executors, reviewers, err := config.Groups()
-	if err != nil {
+	// in a seat the groups are its own, which only a launch binds (config.BindSeat)
+	if _, seat, unread := config.CurrentSession(); err != nil || unread != nil || seat != nil {
 		return nil, false
 	}
 	return Within(executors, reviewers)
 }
 
 // Within is the Rules of these groups, reviewers nil being the executors, false where Python ak
-// picks there: a seat's own groups, a payg provider or model, one whose harness says how it is
-// paid, a pace_margin Python refuses, a model a group names that config.model refuses, a matrix
-// lineup from state/matrix.json that ranks the models, are not yet Go's.
+// picks there: a payg provider or model, one whose harness says how it is paid, a pace_margin
+// Python refuses, a model a group names that config.model refuses, a matrix lineup from
+// state/matrix.json that ranks the models, are not yet Go's.
 func Within(executors, reviewers []string) (*Rules, bool) {
-	if _, seat, err := config.CurrentSession(); err != nil || seat != nil {
-		return nil, false
-	}
 	if _, ok := config.PaceMargin(); !ok || ranked() {
 		return nil, false
 	}

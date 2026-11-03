@@ -57,7 +57,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 			}
 			defer slots.Close()
 			taken = runOn(url)
-			return receipt(dir, "", values, flags, bound)
+			return receipt(dir, "", values, flags, bound, "")
 		},
 	} {
 		if err := step(); err != nil {

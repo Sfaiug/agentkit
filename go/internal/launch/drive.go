@@ -31,22 +31,30 @@ var (
 // pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
 // with no box, one with a user manager to place the run under, the checkout a task folder is named
 // for, or a run under way that Python's rival check would read.
-func drivable(path string, values map[string]string) error {
-	_, rules := pick.Load()
-	executors, _, _ := config.Groups()
+func drivable(path string, values map[string]string, bound config.Binding) error {
+	executors, reviewers := names(bound.Workers), names(bound.Reviewers)
+	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
-	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !rules || !placed() ||
-		usage.Check() != nil && !loop.Unstaffed() || filed(path) || going() {
+	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !placed() ||
+		usage.Check() != nil && !loop.Unstaffed(rules) || filed(path) || going() {
 		return ErrPython
 	}
 	return nil
+}
+
+// names is a bound list as the picks read it, nil for none.
+func names(list []any) (found []string) {
+	for _, name := range list {
+		found = append(found, name.(string))
+	}
+	return found
 }
 
 // drive is the rest of a launch: the receipt says what it will deliver, the log what Python's
 // preflight says, and the run goes on in a driver of its own, followed here unless told --bg.  Its
 // driver is what a stop ends; a foreground one shares this process's group, so a terminal that goes
 // away takes the run with it, leaving a dead loop for `ak run resume`.
-func drive(dir string, meta map[string]string, at place, warning string, flags map[string]bool, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
+func drive(dir string, meta map[string]string, at place, warning string, flags map[string]bool, seated string, unstopped func(func(*run.Object)) error, log func(string) error, out, errOut io.Writer) (int, error) {
 	title := ""
 	if err := unstopped(func(record *run.Object) {
 		title = record.Str("title")
@@ -64,6 +72,12 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err
+	}
+	if seated != "" {
+		// filed under the project most of its runs belong to, this one now among them
+		if err := seat.JoinProject(seated); err != nil {
+			return 0, err
+		}
 	}
 	lines := []string{}
 	if warning != "" {
@@ -101,7 +115,11 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	lines = append(lines, "--- preflight",
 		fmt.Sprintf("repo: %s | base: %s | target: %s | merge: %s", said, base, target, cmp.Or(meta["merge"], "squash")),
 		"delivery: "+delivery, "done-when: "+commands)
-	return underWay(dir, lines, "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`", flags, log, out, errOut)
+	notification := "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`"
+	if seated != "" {
+		notification = "notification: " + seated + "; dead-seat fallback: needs to Discord if that seat is gone at the end (stderr if unconfigured)"
+	}
+	return underWay(dir, lines, notification, flags, log, out, errOut)
 }
 
 // underWay says the rest of what a launch's log says, and the run goes on in a driver of its own,
