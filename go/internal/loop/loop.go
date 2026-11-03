@@ -38,9 +38,11 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 	"agentkit/internal/task"
 	"agentkit/internal/usage"
 	"agentkit/internal/worker"
@@ -564,6 +566,7 @@ func (l *loop) pick() error {
 		return err
 	}
 	l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", executor, reviewer, rounds))
+	l.sayLaunched()
 	return nil
 }
 
@@ -650,6 +653,9 @@ func conclude(dir string) int {
 		return 2
 	}
 	said := stampedLog{dir}
+	if handback.Give(dir, func(line string) { fmt.Fprintln(said, line) }) {
+		dropTold(dir, said)
+	}
 	if record.Str("state") == "error" {
 		fmt.Fprintln(said, "FAIL -> "+filepath.Join(dir, "result.md")+" (error)")
 		return 2
@@ -676,6 +682,7 @@ func settle(dir string) *run.Object {
 	write(dir, func(record *run.Object) {
 		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
 	})
+	seat.Redress(run.Seat(record)) // the ending lands on the bar too
 	return record
 }
 

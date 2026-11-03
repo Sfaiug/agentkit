@@ -25,11 +25,10 @@ func (r ready) Spent(name string) string {
 	return r.Readings.Spent(name)
 }
 
-// Unstaffed is whether the config's groups leave no executor or no reviewer that can run here,
-// which ends a run with no meter read and no turn, in whatever home.
-func Unstaffed() bool {
-	rules, ok := pick.Load()
-	return ok && rules.Unstaffed(unable()) != ""
+// Unstaffed is whether a run's groups leave no executor or no reviewer that can run here, which
+// ends a run with no meter read and no turn, in whatever home.
+func Unstaffed(rules *pick.Rules) bool {
+	return rules.Unstaffed(unable()) != ""
 }
 
 // unable is why each model cannot run a turn here, each harness asked once for each provider it
