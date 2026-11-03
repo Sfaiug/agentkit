@@ -572,7 +572,13 @@ func (r *repoPlace) forkAndPR(l *loop, target, repo, permission string) error {
 		return cmp.Or(err, errors.New("run.json cannot be read"))
 	}
 	if record.Truthy("pr") {
-		return notYet("the PR is already open", "refreshing its description")
+		if ok, err := r.refreshPR(l, record); err != nil || !ok {
+			return err
+		}
+		if err := l.save(func(record *run.Object) { record.Set("foreign", true) }); err != nil {
+			return err
+		}
+		return r.note(l, "waiting for the maintainer", false)
 	}
 	code, me, err := asked(l.dir, "api", "user", "-q", ".login")
 	if err != nil {

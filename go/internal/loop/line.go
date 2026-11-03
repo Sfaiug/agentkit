@@ -572,6 +572,9 @@ func (l *loop) checkMember(turn, code string, saved *run.Object, repo, tip, targ
 	if err != nil {
 		return nil, err
 	}
+	if slices.ContainsFunc(checks, func(cmd string) bool { return namesShard.MatchString(cmd) || namesChanged.MatchString(cmd) }) {
+		return nil, nil // a check run in pieces or narrowed to the change is Python's lander's
+	}
 	leader := filepath.Base(l.dir)
 	if entry := answering(turn, code, "trees").Dict(tree); entry != nil && entry.Str("tested") == tree && covers(entry.List("checks"), checks) {
 		return run.Fields("land", tree, "after", run.NewObject()), nil

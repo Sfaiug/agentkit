@@ -197,7 +197,11 @@ func (r *repoPlace) openPR(l *loop, target string) (string, error) {
 		return "", err
 	}
 	if record.Truthy("pr") {
-		return "", notYet("the PR is already open", "refreshing its description")
+		// a run that rejoined its line after opening its PR delivers through that PR
+		if ok, err := r.refreshPR(l, record); err != nil || !ok {
+			return "", err
+		}
+		return record.Str("pr"), nil
 	}
 	path := filepath.Join(l.dir, "pr-body.md")
 	if err := os.WriteFile(path, []byte(prBody(record)), 0o666); err != nil {
@@ -237,6 +241,32 @@ func (r *repoPlace) openPR(l *loop, target string) (string, error) {
 	}
 	l.say("--- merge: PR " + url + open)
 	return url, nil
+}
+
+// refreshPR puts the run's description on its open PR, Python's refresh_pr_body: through the REST
+// API, as `gh pr edit` asks GraphQL for Projects (classic), which some gh releases fail since
+// GitHub retired them.  Only an update GitHub confirmed is skipped on a later delivery.
+func (r *repoPlace) refreshPR(l *loop, record *run.Object) (bool, error) {
+	path, body := filepath.Join(l.dir, "pr-body.md"), prBody(record)
+	if held, err := os.ReadFile(path); err == nil && string(held) == body {
+		return true, nil
+	}
+	api, owner, name, number, ok := prParts(record.Str("pr"))
+	if !ok {
+		return false, r.note(l, "cannot update the description of "+record.Str("pr")+": not a PR URL", true)
+	}
+	pending := filepath.Join(l.dir, "pr-body-update.md")
+	if err := os.WriteFile(pending, []byte(body), 0o666); err != nil {
+		return false, err
+	}
+	code, said, err := asked(r.wt, append(api, "-X", "PATCH", "repos/"+owner+"/"+name+"/pulls/"+number, "-F", "body=@"+pending)...)
+	if err != nil {
+		return false, err
+	}
+	if code != 0 {
+		return false, r.note(l, "updating the PR description failed: "+tail(said, 400), true)
+	}
+	return true, os.Rename(pending, path)
 }
 
 // prParts are `gh api` with the host it needs, and the owner, repository and number of the PR at
