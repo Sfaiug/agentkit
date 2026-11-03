@@ -43,6 +43,9 @@ def counted(one, column):
     return measure["how"], round(measure["points"], 6)
 
 
+# A missing score carried from the nearest effort, else its worst: here a missing
+# measure takes the row's furthest-behind measured or carried points and error;
+# a measure no row of the index has counts for no row. [18 Sep - 26 Oct 2026]
 class QualityMissingNeverHelps(unittest.TestCase):
     def setUp(self):
         self.rated = quality.rated([ACME, BOLT, CRUX_HIGH, CRUX_LOW], "execute")

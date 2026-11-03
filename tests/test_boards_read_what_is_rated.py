@@ -18,6 +18,7 @@ from agentkit import boards, matrix, quality
 from test_model_matrix import Boards
 
 
+# ak rates every current model on Artificial Analysis and Arena. [18 Sep - 26 Oct 2026]
 class ReadWhatIsRated(Sandbox):
     def setUp(self):
         super().setUp()
