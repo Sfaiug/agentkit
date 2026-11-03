@@ -338,10 +338,12 @@ def main(argv):
     found, own = answer(rows, within(cfg), marked), live(cfg)
     if "--json" in flags:
         from . import usage     # only JSON asks for subscription measurements
+        rates = usage.model_rates(cfg)
         json.dump({**{role: {"best": said["best"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
              "notes": notes(row, said)} for row in said["front"]]}
-            for role, said in found.items()}, "live": own, "usage": usage.model_rates(cfg)},
+            for role, said in found.items()}, "live": own, "usage": rates,
+            "task_usage": usage.task_usage(rates)},
             sys.stdout, indent=2)
         print()
         return 0
