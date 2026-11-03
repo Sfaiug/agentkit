@@ -137,6 +137,7 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`x{,2}`, "xxx", "xx"},
 		{`\bé`, "aé é", "é"},
 		{`\w`, "́", ""},
+		{`.\B́`, "x́ ́", " ́"},
 		{`(?P<a>x)(?P=a)`, "yxx", "xx"},
 		{`a\Z`, "a\n", ""},
 		{`a$`, "a\n", "a"},
@@ -180,6 +181,9 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	}
 	if at := must(Compile(`\bé`, 0)).Find("aé é"); at.Start != 4 || at.End != 6 {
 		t.Errorf("é found at bytes %d to %d, not 4 to 6", at.Start, at.End)
+	}
+	if edge := must(Compile(`\B`, 0)); !edge.MatchString("́") || edge.MatchString("") {
+		t.Error(`\B is not Python's: inside a mark, never in an empty text`)
 	}
 	if _, err := Compile(`[^\S]`, 0); err == nil {
 		t.Error(`[^\S] compiled, though no class here can say it`)

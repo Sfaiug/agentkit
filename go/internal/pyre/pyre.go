@@ -1,7 +1,7 @@
 // Package pyre compiles a pattern written for Python's re, with Python's flags, and matches as
 // Python's re.search matches it.  It hides the backtracking engine it runs on (regexp2, vendored:
 // Go's own regexp has no lookaround or backreference), how Python's syntax is said to that engine
-// (named groups, `\Z`, `{,n}`, the classes and word edge Python reads over all of Unicode, and the
+// (named groups, `\Z`, `{,n}`, the classes and word edges Python reads over all of Unicode, and the
 // letters Python's ignore case pairs beyond upper and lower case), and that the engine counts runes
 // where every offset here is a byte of the Go string.
 package pyre
@@ -49,8 +49,11 @@ func (m Match) Group(name string) (string, bool) {
 // Python's \s and \w, as members of a class: the engine's own classes read other characters.
 var sets = map[byte]string{'s': `\t\n\v\f\r\x1c-\x1f \x85\p{Z}`, 'w': `\p{L}\p{N}_`}
 
-// edge is Python's word edge, \b, its \w on one side alone; the engine's own reads its \w.
-var edge = `(?:(?<=[` + sets['w'] + `])(?![` + sets['w'] + `])|(?<![` + sets['w'] + `])(?=[` + sets['w'] + `]))`
+// Python's word edge, \b, its \w on one side alone, and \B, on both or neither, never in an empty
+// text: the engine's own read its \w.
+var word = `[` + sets['w'] + `]`
+var edges = map[byte]string{'b': `(?:(?<=` + word + `)(?!` + word + `)|(?<!` + word + `)(?=` + word + `))`,
+	'B': `(?!\A\z)(?:(?<=` + word + `)(?=` + word + `)|(?<!` + word + `)(?!` + word + `))`}
 
 // The lower case letters Python's re pairs under ignore case (re._compiler's _EXTRA_CASES), each
 // matching all of its own: the engine pairs only a letter's upper and lower case.  Those a
@@ -103,8 +106,8 @@ func translated(source string, folding bool) (string, error) {
 				out.WriteString("[" + set + "]")
 			case complement != "":
 				out.WriteString("[^" + complement + "]")
-			case rest[1] == 'b':
-				out.WriteString(edge)
+			case edges[rest[1]] != "":
+				out.WriteString(edges[rest[1]])
 			case rest[1] == 'Z':
 				out.WriteString(`\z`)
 			default:
