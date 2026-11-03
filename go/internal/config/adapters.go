@@ -37,7 +37,17 @@ func Adapter(harness string) (string, error) {
 	if dir == "" {
 		return "", ErrNoAdapterDir
 	}
-	script := filepath.Join(Expand(dir), harness+".sh")
+	return runnable(filepath.Join(Expand(dir), harness+".sh"), harness)
+}
+
+// ShippedAdapter is the script Python's config.adapter_path names where no $AGENTKIT_ADAPTER_DIR
+// is: the checkout's own, shipped beside its manifest, or why it cannot be run.
+func ShippedAdapter(harness string) (string, error) {
+	return runnable(filepath.Join(Repo(), "adapters", harness+".sh"), harness)
+}
+
+// runnable is a harness's script where it can be run, as Python's config.adapter finds it.
+func runnable(script, harness string) (string, error) {
 	if _, err := os.Stat(script); err != nil {
 		return "", fmt.Errorf("no adapter for harness %s: %s does not exist", commandhelp.Quote(harness), script)
 	}

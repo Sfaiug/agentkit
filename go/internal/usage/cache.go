@@ -21,12 +21,12 @@ var mark = []string{"exhausted_until", "exhausted_at", "exhausted_ends", "exhaus
 
 // collect is every provider's record, Python's usage.collect: the snapshot's while it is under
 // cacheTTL old, a provider with a meter past its reset or accounts it no longer lists asked
-// again, else every provider asked.
-func collect(sources []source, models map[string]config.Model) (*run.Object, error) {
+// again, else, or on a refresh, every provider asked.
+func collect(sources []source, models map[string]config.Model, refresh bool) (*run.Object, error) {
 	now := clock()
 	blob := object(read())
 	held, cached := blob.Get("providers").(*run.Object)
-	if at, ok := run.Num(blob.Get("fetched_at")); ok && now-at <= cacheTTL && cached {
+	if at, ok := run.Num(blob.Get("fetched_at")); ok && now-at <= cacheTTL && cached && !refresh {
 		listed := map[string]source{}
 		for _, src := range sources {
 			listed[src.Name] = src

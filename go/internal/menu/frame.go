@@ -4,8 +4,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
+	"agentkit/internal/motion"
 	"agentkit/internal/terminal"
 )
 
@@ -22,9 +22,15 @@ const (
 // A Seat is one row of the screen: its place in the whole list, what it is, and what opens under it.
 type Seat struct {
 	Number                                    int
-	Name, Checkout, Model, Word, Unsent, Said string  // Checkout "" is filed under none
-	Done, Total                               int     // its plan's lines done, of how many; none without one
-	grown                                     float64 // how far its line has grown in (grownIn)
+	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none
+	Done, Total                               int    // its plan's lines done, of how many; none without one
+
+	// where it moves this frame (moving): its mark as drawn now, "" where it holds still, and its
+	// line moved (0 to 1) from the share it stood at, its count from counted, its head lit
+	mark        string
+	from, moved float64
+	counted     int
+	lit         bool
 }
 
 // A Cell is a subscription on the grid: Left is 1 to 100 with a meter, 0 for credits, -1 for none;
@@ -42,7 +48,8 @@ type View struct {
 	Cells       []Cell
 	Clock, Keys string
 	Standing    string        // what stands under the usage: a worker token that ends soon
-	Up          time.Duration // how long the screen has been up, which its lines grow in over
+	Cursor      string        // the seat highlighted, the first where it is none of them
+	Motion      *motion.Clock // where what moves is this frame; nil, all still
 }
 
 // Keys is the main screen's key line, `p past` on it while a seat the owner stopped is offered.
@@ -70,10 +77,10 @@ type widths struct {
 // rule, the usage grid, the line under it, the projects and their seats, and the key line, always
 // last.  What does not fit folds as docs/cli-design.md says: the usage to its readings and then, with
 // the frame's blank lines, away; a row's last column under it; more seats than fit, to pages, with
-// the arrow toward a seat that needs the owner in amber.  The first seat is highlighted.
+// the arrow toward a seat that needs the owner in amber.
 func Lines(view View, width, height int) []string {
 	s := view.Screen
-	view.Seats = grownIn(view.Seats, view.Up)
+	view.Seats = moving(s, view.Seats, view.Motion)
 	layout := max(1, min(width, 120))
 	projects := grouped(view.Seats)
 	sized := columns(s, view.Seats, width)
@@ -82,10 +89,7 @@ func Lines(view View, width, height int) []string {
 	single := len(keyLine(s, view.Keys, width, ""))
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
-	cursor := ""
-	if len(view.Seats) > 0 {
-		cursor = view.Seats[0].Name
-	}
+	cursor := Step(view.Seats, view.Cursor, 0)
 	saidRoom := max(1, sized.room-(2+sized.num+2))
 	said := map[string]int{}
 	opens := 0
@@ -423,7 +427,9 @@ func head(s terminal.Screen, seat Seat, w widths) string {
 	number := terminal.Cut(strconv.Itoa(seat.Number), w.num)
 	number = "  " + strings.Repeat(" ", max(0, w.num-terminal.Cells(number))) + s.Styled(number, "dim")
 	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.Model, w.orch, "dim")}
-	if w.count > 0 {
+	if w.count > 0 && seat.mark != "" {
+		rest = append(rest, seat.mark+" "+cell(s, seat.Word, w.count-2, tone(seat.Word)))
+	} else if w.count > 0 {
 		rest = append(rest, cell(s, s.StateText(seat.Word), w.count, tone(seat.Word)))
 	}
 	line := strings.Join(append([]string{number}, rest...), "  ")

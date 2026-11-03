@@ -28,18 +28,24 @@ func TestEachPlanEasesOutToItsShare(t *testing.T) {
 		each.Number, each.Model, each.Checkout = i+1, "Fable 5.1", "/home/acme/code/atoll"
 		view.Seats = append(view.Seats, each)
 	}
+	opened := time.Now()
+	view.Motion = &motion.Clock{}
+	view.Motion.Draw(opened)
 	opening := Lines(view, 100, 30)
 	if fix := rowOf(opening, "atoll-fix"); !strings.HasSuffix(fix, "─ 0 of 7") || strings.Contains(fix, "━") {
 		t.Fatalf("a screen just up draws no line grown: %q", fix)
 	}
-	if !Growing(view.Seats, 0) {
+	if _, due := view.Motion.Next(); !due {
 		t.Fatal("a screen just up grows")
 	}
-	view.Up = motion.Grow + time.Second
-	if Growing(view.Seats, view.Up) {
+	halfway := &motion.Clock{}
+	halfway.Draw(opened)
+	halfway.Draw(opened.Add(motion.Grow / 2))
+	view.Motion.Draw(opened.Add(motion.Grow + time.Second))
+	grown := Lines(view, 100, 30)
+	if _, due := view.Motion.Next(); due {
 		t.Fatal("a screen up a while is still")
 	}
-	grown := Lines(view, 100, 30)
 	fix, done := rowOf(grown, "atoll-fix"), rowOf(grown, "atoll-done")
 	if !strings.HasSuffix(fix, "━╸───────────────────────────── 3 of 7") {
 		t.Fatalf("%q", fix)
@@ -56,8 +62,36 @@ func TestEachPlanEasesOutToItsShare(t *testing.T) {
 			t.Fatalf("no plan or at rest, no line: %q", row)
 		}
 	}
-	halfway := rowOf(Lines(View{Clock: view.Clock, Seats: view.Seats, Up: motion.Grow / 2}, 100, 30), "atoll-fix")
-	if strings.Count(halfway, "━") == 0 || strings.Count(halfway, "━") >= strings.Count(fix, "━")+1 || !strings.HasSuffix(halfway, " 1 of 7") { // eased(0.5) is a hair under a half, in Python too
-		t.Fatalf("half way grown: %q", halfway)
+	half := rowOf(Lines(View{Clock: view.Clock, Seats: view.Seats, Motion: halfway}, 100, 30), "atoll-fix")
+	if strings.Count(half, "━") == 0 || strings.Count(half, "━") >= strings.Count(fix, "━")+1 || !strings.HasSuffix(half, " 1 of 7") { // eased(0.5) is a hair under a half, in Python too
+		t.Fatalf("half way grown: %q", half)
+	}
+}
+
+// A plan that moves while the screen is up glides to its new length, its count counting on with it,
+// and is still once there.
+func TestAMovingPlanGlidesThere(t *testing.T) {
+	opened, clock := time.Now(), &motion.Clock{}
+	seat := Seat{Number: 1, Name: "atoll-fix", Model: "Fable 5.1", Word: "working", Done: 2, Total: 8}
+	draw := func(after time.Duration, done int) string {
+		seat.Done = done
+		clock.Draw(opened.Add(after))
+		return rowOf(Lines(View{Seats: []Seat{seat}, Motion: clock}, 100, 30), "atoll-fix")
+	}
+	draw(0, 2)
+	still := draw(time.Hour, 2)
+	if got := draw(time.Hour, 6); got != still {
+		t.Fatalf("a plan that moved has not begun to: %q", got)
+	}
+	if got := draw(time.Hour+motion.Glide/2, 6); strings.Count(got, "━") <= strings.Count(still, "━") || !strings.HasSuffix(got, " 4 of 8") {
+		t.Fatalf("half way there: %q", got)
+	}
+	seat.Done = 6
+	there := rowOf(Lines(View{Seats: []Seat{seat}}, 100, 30), "atoll-fix")
+	if got := draw(time.Hour+motion.Glide, 6); got != there {
+		t.Fatalf("there: %q", got)
+	}
+	if _, due := clock.Next(); due { // nor does its mark breathe, where colour cannot move
+		t.Fatal("a line there still moves")
 	}
 }
