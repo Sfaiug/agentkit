@@ -1675,7 +1675,7 @@ def unnamed(code, only, ran, output):
 def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, changed=None, flaky=None, named=None, checked=None, asked=None,
-              **kwargs):
+              raw=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1701,11 +1701,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
     alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
     or `shard`) named as failed, confirmed or not.
+    `raw` receives each piece's process exits by share, before checking coverage of `only`.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
     """
+    def observed(share, code, killed):
+        if raw is not None and (code != SUITE_BUSY or killed):
+            raw.setdefault(share, []).append(None if killed else code)
+
     times = suite_times.handed(cwd)
     env = suite_env(changed, times)
     if shard is not None:
@@ -1721,6 +1726,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
             env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, flaky=flaky,
             **kwargs)
+        observed(shard, code, killed)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
         if named is not None and code > 0:
@@ -1746,6 +1752,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                               cpu=measured.cpu if measured else None,
                               quiet=measured.quiet if measured else None, failed=failed,
                               flaky=flaky, **kwargs)
+        observed("", result[0], result[2])
         if confirmed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
         if named is not None and result[0] > 0:
@@ -1874,6 +1881,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
                         ended.append(None if killed else code)
+                    if not there or code not in (*helper.GONE, helper.FULL):
+                        observed(shard, code, killed)
                     if not there and not killed and measure.starved(code, kills):
                         starved.add(shard)
                     else:
@@ -2206,7 +2215,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None, checked=None):
+                  confirmed=None, changed=None, flaky=None, checked=None, exits=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2242,7 +2251,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     `marks`, a list, gets each command's exit as the runner saw it, in order -- None for one
     killed at the limit or never run, and none for those after a kill: what decides a proof,
-    never the text, which a command can print anything into.  `pieces`, a dict, gets the same
+    never the text, which a command can print anything into. `exits` keeps each piece's attempt
+    exits as a list (None for a kill), before coverage validation, so names cannot hide a flake.
+    `pieces`, a dict, gets the same
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
@@ -2288,6 +2299,7 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
             rest = silence - (window or 0)
             how = "failed"
+            raw = {} if exits is not None else None
             while True:
                 run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2308,7 +2320,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
                         only=only,
                         confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
-                        changed=changed, flaky=flaky, named=named, checked=checked, asked=asked)
+                        changed=changed, flaky=flaky, named=named, checked=checked, asked=asked,
+                        raw=raw)
                     ended.append(None if killed else code)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
@@ -2329,6 +2342,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     how = f"was stopped after {window / 60:g} min of silence"
                     del reason[:], running[:]     # a stop of its second go is the one to name
                 first_span, first, named = (offset, end), named, []
+            if exits is not None:
+                exits.extend(raw.values())
             if left <= 0 and first_span is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
