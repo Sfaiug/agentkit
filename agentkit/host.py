@@ -106,12 +106,13 @@ def process_identity(pid):
         return None
 
 
-def process_age(pid):
-    """Seconds since that process started, or None where it is gone or a zombie.
+def process_age(pid, proc_root=PROC):
+    """Seconds since that process started, or None where it is gone or a zombie; `proc_root` as
+    in `proc_stat`.
 
     Read on the boot clock its start is counted on: a birth on the wall clock goes through
     btime, which is whole seconds, and makes the process up to a second older than it is."""
-    stat = proc_stat(pid)
+    stat = proc_stat(pid, proc_root)
     if stat is None or stat.exited:
         return None
     return time.clock_gettime(time.CLOCK_BOOTTIME) - stat.start / os.sysconf("SC_CLK_TCK")

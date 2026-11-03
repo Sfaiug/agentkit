@@ -498,13 +498,18 @@ def within_declared_timeout(pid):
     A command started under `timeout` has said how long it may take, however little it prints:
     `| tail` hides a slow test's output, and its silence is no hang before that bound."""
     from . import watch     # here, not at the top: the babysitter imports this module
-    for child in watch.descendants(pid):
+    return declared_in(host.PROC, watch.descendants(pid))
+
+
+def declared_in(proc, pids):
+    """Whether any of those pids, read in that /proc, is a `timeout N` still inside its N seconds."""
+    for pid in pids:
         try:
-            argv = Path(f"/proc/{child}/cmdline").read_bytes().decode(errors="replace").split("\0")
+            argv = (proc / str(pid) / "cmdline").read_bytes().decode(errors="replace").split("\0")
         except OSError:
             continue
         seconds = timeout_seconds(argv)
-        if seconds and (age := host.process_age(child)) is not None and age < seconds:
+        if seconds and (age := host.process_age(pid, proc)) is not None and age < seconds:
             return True
     return False
 
@@ -586,8 +591,8 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
     this is here to stop.  It must be cheap and must not raise.
 
     `declared(pid)` says whether a command the process runs is inside the timeout it declared,
-    which holds off silence: `within_declared_timeout` reads the tree under the pid, a turn on a
-    machine asks the machine (agentkit/machine_turn.py).
+    which holds off silence: `within_declared_timeout` reads the tree under the pid, a box its own
+    /proc (agentkit/box.py), a turn on a machine asks the machine (agentkit/machine_turn.py).
 
     `began()`, for a command a box starts, says the box is up.  Silence is the command's, and
     counts from then: on a busy host the box alone can outlast a short limit.  One still not up
