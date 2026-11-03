@@ -1,8 +1,8 @@
-"""The added lines ak counts are the host's settings: `review_lines` and `seat_lines`.
+"""The added lines ak counts are the host's settings: `executor_lines` and `orchestrator_lines`.
 
-Set, lower or higher than ak's default, `review_lines` is what a task's first review takes and
-what its executor and fixer are told, and `seat_lines` is what a seat's own pull request stays
-under.  Unset, they read 300 and 50.  Black-box: the program `AK_BIN` names runs from outside
+Set, lower or higher than ak's default, `executor_lines` is what a task's first review takes and
+what its executor and fixer are told, and `orchestrator_lines` is the most a seat's own pull request
+adds.  Unset, they read 300 and 50.  Black-box: the program `AK_BIN` names runs from outside
 through tests/fixtures/akbin.py, on a project from gitrig.py, a config from akconfig.py, a task
 from taskfile.py, scripted harnesses from fakeadapter.py, the seat of akseat.py and the GitHub
 of fakegh.py; this test fails against `/bin/false`.
@@ -39,15 +39,15 @@ def build(lines):
 
 # title: (config.toml's settings, the executor's turns then the fixer's, the reviewer's)
 TASKS = {
-    "Cut to 120": ({"review_lines": 120}, [build(150)], ["pass"]),
+    "Cut to 120": ({"executor_lines": 120}, [build(150)], ["pass"]),
     "Left at 300": ({}, [build(301)], ["pass"]),
-    "Raised to 500": ({"review_lines": 500}, [build(350), "dispute"], [FINDING, "pass"]),
+    "Raised to 500": ({"executor_lines": 500}, [build(350), "dispute"], [FINDING, "pass"]),
 }
 # branch: (config.toml's settings, the lines its pull request adds)
 PULLS = {
-    "cut-to-20": ({"seat_lines": 20}, 25),
-    "left-at-50": ({}, 50),
-    "raised-to-100": ({"seat_lines": 100}, 60),
+    "cut-to-20": ({"orchestrator_lines": 20}, 25),
+    "left-at-50": ({}, 51),
+    "raised-to-100": ({"orchestrator_lines": 100}, 60),
 }
 
 
@@ -130,7 +130,7 @@ class SeatPullRequest(unittest.TestCase):
         done, number, reviewed = self.pulls[branch]
         self.assertEqual(done.code, 2, done.out + done.err)
         self.assertIn(f"PR #{number} adds {lines} lines (generated files and unchanged moves "
-                      f"aside): too big for the seat, which builds under {limit} added lines. "
+                      f"aside): too big for the seat, which builds at most {limit} added lines. "
                       "Write it as a task and launch it; a worker builds it", done.err)
         self.assertEqual(reviewed, 0)
 
@@ -138,7 +138,7 @@ class SeatPullRequest(unittest.TestCase):
         self.refused("cut-to-20", 25, 20)
 
     def test_no_setting_reads_50(self):
-        self.refused("left-at-50", 50, 50)
+        self.refused("left-at-50", 51, 50)
 
     def test_a_higher_setting_reviews_a_pull_request_over_ak_s_default(self):
         done, _, reviewed = self.pulls["raised-to-100"]

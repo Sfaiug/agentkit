@@ -162,7 +162,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         else:
             repo = task_repo(meta, task_path, receipt.get("task_file"))  # receipts before preflight saved it
         scratch = repo is None
-        raw_rounds = opts["--rounds"] or meta.get("rounds") or run_record.policy_of(receipt)["rounds"]
+        raw_rounds = opts["--rounds"] or meta.get("rounds") or run_record.policy_of(receipt)["review_rounds"]
         try:
             n_rounds = int(raw_rounds)
         except (TypeError, ValueError):
@@ -225,7 +225,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
                 change = change_on(from_branch, repo, exclude=run_dir)
-                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["rounds"],
+                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["review_rounds"],
                                              change=change, exclude=run_dir,
                                              what=f"branch {from_branch}")
                 if why:
@@ -1756,7 +1756,7 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / argv[0]
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
-    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
+    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
     if refusal:
         raise config.Error(refusal)
     if state is None:
@@ -1861,7 +1861,7 @@ def resume_run(argv):
         # the change's budget with this run's own rounds counted: spent, no --rounds carries
         # it on and the task is what changes; else the way on names the bound `over_lineage`
         # holds a --rounds to
-        left, why = change_budget(state, run_dir, run_record.policy_of(state)["rounds"], own=state["rounds"])
+        left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=state["rounds"])
         if why:
             raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); {why}")
         if n_rounds is None or n_rounds <= state["rounds"]:
@@ -2352,7 +2352,7 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR a review already judged in this run
     or any, whose later rounds review whatever the fix left.  The
-    seat builds under `config.policy`'s `seat_lines` added lines, the ones moved unchanged aside
+    seat builds at most `config.policy`'s `orchestrator_lines` added lines, the ones moved unchanged aside
     and the files the target's tip marks generated, as the change will land on it, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
@@ -2360,12 +2360,12 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
-    read, limit = lines - carried, numbers["seat_lines"]
-    if read >= limit:
+    read, limit = lines - carried, numbers["orchestrator_lines"]
+    if read > limit:
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
-                      f"too big for the seat, which builds under {limit} added "
+                      f"too big for the seat, which builds at most {limit} added "
                       "lines. Write it as a task and launch it; a worker builds it")
-    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["rounds"],
+    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["review_rounds"],
                                      exclude=run_dir)
 
 
@@ -2867,7 +2867,7 @@ def settle_pr_round(lp, url, info):
 def own_pr_budget(url, run_dir, own=0):
     """`round_budget` for a seat's own pull request, `own` the rounds this run spent on it:
     the one place its arguments are read."""
-    budget = run_record.policy_of(run_record.read_state(run_dir) or {})["rounds"]
+    budget = run_record.policy_of(run_record.read_state(run_dir) or {})["review_rounds"]
     return round_budget(budget, budget, pr=url, exclude=run_dir,
                         what=f"PR #{PR_PARTS.match(url).group(3)}", own=own)
 
@@ -3163,7 +3163,7 @@ def main(argv):
     queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
     for task in positional if opts["--rounds"] and not queued_child else ():
-        refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["rounds"])
+        refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["review_rounds"])
         if refusal:
             raise config.Error(refusal)
     parallel = None
@@ -3238,7 +3238,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(meta, cmds, launch_policy(task_path)["rounds"])
+        refusal = taskfile.launch_refusal(meta, cmds, launch_policy(task_path)["review_rounds"])
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2

@@ -1,4 +1,4 @@
-"""What ak tells a seat of `rounds`, `review_lines` and `seat_lines` is what this host set.
+"""What ak tells a seat of `review_rounds`, `executor_lines` and `orchestrator_lines` is what this host set.
 
 The rulebook a seat opens on, the task template written beside it and `ak run --help` say the
 numbers in force, whole sentences reading right at any of them; with no setting they say ak's
@@ -21,8 +21,8 @@ ECHO = {"one": {"harness": "echo", "model": "echo-1", "provider": "test"},
         "two": {"harness": "echo", "model": "echo-2", "provider": "test"}}
 OWN = "Acme's own rule: a seat costs $5, and $rounds, $Rounds and $s mean nothing here.\n"
 DRAFT = "# Acme's own draft\n"
-DEFAULTS = ("at most 300 added lines with its tests", "Under 50 added lines you build",
-            "ak refuses your own PR from 50 lines", "Three review rounds per change is the budget",
+DEFAULTS = ("at most 300 added lines with its tests", "you build at most 50 added lines",
+            "ak refuses your own PR above 50 lines", "Three review rounds per change is the budget",
             "ak refuses a fourth.")
 
 
@@ -42,7 +42,7 @@ class Help(unittest.TestCase):
     def test_says_the_rounds_in_force(self):
         for rounds, plural in ((4, "4 rounds"), (1, "1 round")):
             with self.subTest(rounds=rounds):
-                run, resume = self.helps(rounds=rounds)
+                run, resume = self.helps(review_rounds=rounds)
                 self.assertIn(f"at most {rounds} (default: task rounds or {rounds}).", run)
                 self.assertIn(f"a task over {plural} is refused", run)
                 self.assertIn(f"raises the round limit, at most {rounds}.", resume)
@@ -56,7 +56,7 @@ class Help(unittest.TestCase):
 
     def test_prints_on_a_config_ak_cannot_use(self):
         with Home() as home:
-            home.write(".agentkit/config.toml", "rounds = 0\n")
+            home.write(".agentkit/config.toml", "review_rounds = 0\n")
             self.assertIn("at most 3 (default", said(home, "run", "--help"))
             self.assertNotEqual(home.ak("run", "task.md").code, 0)
 
@@ -81,18 +81,18 @@ class Rulebook(unittest.TestCase):
                     (home.path / ".agentkit/state/task-template.md").read_text())
 
     def test_says_the_numbers_in_force(self):
-        book, template = self.book(review_lines=150, rounds=4, seat_lines=20)
+        book, template = self.book(executor_lines=150, review_rounds=4, orchestrator_lines=20)
         self.assertIn("at most 150 added lines with its tests", template)
         self.assertIn("Four rounds is the budget (`rounds` defaults to 4).", template)
-        for words in ("at most 150 added lines with its tests", "Under 20 added lines you build",
-                      "ak refuses your own PR from 20 lines",
+        for words in ("at most 150 added lines with its tests", "you build at most 20 added lines",
+                      "ak refuses your own PR above 20 lines",
                       "Four review rounds per change is the budget", "ak refuses a fifth."):
             self.assertIn(words, book)
         for words in DEFAULTS:
             self.assertNotIn(words, book)
 
     def test_reads_right_at_either_end_of_the_budget(self):
-        one, many = self.book(rounds=1)[0], self.book(rounds=7)[0]
+        one, many = self.book(review_rounds=1)[0], self.book(review_rounds=7)[0]
         self.assertIn("One review round per change is the budget", one)
         self.assertIn("ak refuses a second.", one)
         self.assertIn("7 review rounds per change is the budget", many)

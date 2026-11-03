@@ -119,7 +119,7 @@ class OwnPrReview(unittest.TestCase):
         return state, reviewer, usage, inbox
 
     def test_an_own_pr_within_the_ceiling_is_reviewed_and_its_size_recorded(self):
-        under = config.policy()["seat_lines"] - 1
+        under = config.policy()["orchestrator_lines"] - 1
         self.change(under)   # under the seat's limit, generated files aside
         (self.repo / "output.generated").write_text("generated\n" * 1000)
         self.commit()
@@ -186,7 +186,7 @@ class OwnPrReview(unittest.TestCase):
         self.git("checkout", "-qb", "feature")
         attrs = "*.generated linguist-generated=true\nwork.txt linguist-generated\n"
         (self.repo / ".gitattributes").write_text(attrs)
-        self.change(config.policy()["review_lines"] + 100)
+        self.change(config.policy()["executor_lines"] + 100)
         self.git("checkout", "-q", "main")
         (self.repo / ".gitattributes").write_text(attrs)
         self.git("update-ref", "refs/remotes/origin/main", self.commit())

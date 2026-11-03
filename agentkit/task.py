@@ -200,7 +200,7 @@ def opens_heredoc(command):
 def rounds_refusal(value, what, budget):
     """One sentence when a round budget asked for is over the rule, else None.
 
-    `budget`, the `rounds` in force (`config.policy`), is never a default to raise: a run
+    `budget`, the `review_rounds` in force (`config.policy`), is never a default to raise: a run
     that has not passed by then goes back to its orchestrator with its findings, to split or
     re-scope, and no flag carries it further.  A value that is no number is left to the check
     that says so.

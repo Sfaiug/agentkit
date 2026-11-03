@@ -51,12 +51,16 @@ def record_limits(state):
     """Migrate old receipts without reviving task-specific time budgets."""
     for key in ("done_when_minutes", "turn_hours", "stall_minutes"):
         state.pop(key, None)
+    if state.get("policy"):
+        config.rename_policy(state["policy"])
     state.setdefault("silence_minutes", SILENCE_MINUTES)
     state.setdefault("ceiling_hours", CEILING_HOURS)
 
 
 def _state(path):
     state = json.loads(path.read_text())
+    if isinstance(state, dict) and state.get("policy"):
+        config.rename_policy(state["policy"])
     return state if isinstance(state, dict) else None
 
 

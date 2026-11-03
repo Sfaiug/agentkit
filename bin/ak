@@ -59,15 +59,16 @@ def main():
         sub, rest = "attach", argv        # `ak`, `ak --client`, `ak --overlay`, `ak --dry-run`
     else:
         sub, rest = argv[0], argv[1:]
-    if sub not in SUBS:
-        print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)
-        return 2
-    if command_help.show(sub if argv and argv[0] == sub else "", rest):
-        return 0
-    mod_name, entry = ENTRY.get(sub, (sub, "main"))
-    module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
-    owner.mark(f"ak {sub}")
     try:
+        config.migrate_policy()
+        if sub not in SUBS:
+            print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)
+            return 2
+        if command_help.show(sub if argv and argv[0] == sub else "", rest):
+            return 0
+        mod_name, entry = ENTRY.get(sub, (sub, "main"))
+        module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
+        owner.mark(f"ak {sub}")
         if sub == "run" and rest[:1] == ["gc"]:
             from agentkit import gc
             return gc.cmd_gc(rest[1:])

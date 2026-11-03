@@ -14,8 +14,8 @@ from fixtures.gitrig import Rig
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from agentkit import config, gitcall
 
-FIRST = {"rounds": 3, "review_lines": 100, "seat_lines": 50}
-SECOND = {"rounds": 3, "review_lines": 300, "seat_lines": 200}
+FIRST = {"review_rounds": 3, "executor_lines": 100, "orchestrator_lines": 50}
+SECOND = {"review_rounds": 3, "executor_lines": 300, "orchestrator_lines": 200}
 
 
 def front(numbers):
@@ -26,7 +26,7 @@ def front(numbers):
 class OneCommit(unittest.TestCase):
     def test_a_fetch_between_the_reads_mixes_nothing(self):
         with Home() as home:
-            akconfig.write(home, ["opus", "astra"], settings={"rounds": 5})
+            akconfig.write(home, ["opus", "astra"], settings={"review_rounds": 5})
             rig = Rig(home, "widgets", files=front(FIRST))
             rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
             tip = rig.commit(front(SECOND), "more lines", push=False)
