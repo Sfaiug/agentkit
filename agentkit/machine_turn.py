@@ -30,7 +30,7 @@ from . import config, gitcall, helper
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
-# login and page the owner. A machine Google ends sooner takes no turn, which it would lose.
+# login. A harness may say fewer (`[worker] lent_for`). A machine Google ends sooner takes no turn.
 LENT_FOR = 3600
 # Seconds at most a bound found in a turn's container holds it before the machine is asked again:
 # past the silence limit the watchdog asks on every poll, and a command ending before its bound
@@ -84,7 +84,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
                                      env, cwd)]
     seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
-        lent = _lend(entry, cmd[0], env, home)
+        lasting = config.manifest(harness).get("worker", {}).get("lent_for", LENT_FOR)
+        lent = _lend(entry, cmd[0], env, home, lasting)
         if not lent:
             return None
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
@@ -212,13 +213,15 @@ def _following(entry, adapter, env, logins, seen, sent):
         os.close(renewals)
 
 
-def _lend(entry, adapter, env, home, lasting=LENT_FOR):
+def _lend(entry, adapter, env, home, lasting):
     """{path under `home`: its bytes} of the login the adapter lent there for the account `env`
     names, none where it lends none lasting `lasting` seconds. The account is `lend`'s alone: the
-    machine's adapter runs with none, reading the copy where the usual login lives."""
+    machine's adapter runs with none, reading the copy where the usual login lives. Which login it
+    read is its alone too, so it holds one whose renewal no file shows to LENT_FOR itself."""
     try:
-        done = config.run_adapter([adapter, "lend", home], 60,
-                                  env={**env, **config.provider_env([entry["provider"]])})
+        done = config.run_adapter([adapter, "lend", home], 60, env={
+            **env, **config.provider_env([entry["provider"]]),
+            "AK_UNFOLLOWED_LASTS": str(LENT_FOR)})
         if done.returncode or float(done.stdout or "inf") < time.time() + lasting:
             return {}
         return {str(path.relative_to(home)): path.read_bytes()
