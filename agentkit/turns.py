@@ -269,7 +269,7 @@ def open_review(round_dir):
     A review that fell back to another model writes under `reviewer-<model>`, so the
     attempt to continue is the newest reviewer directory of any name, not `reviewer`
     alone: a fallback cut off mid-turn would otherwise start its review over. Retries
-    belong to that same attempt.
+    belong to that same attempt. A finished fallback supersedes an earlier refusal.
     """
     rd = Path(round_dir)
     if not rd.is_dir():
@@ -279,17 +279,18 @@ def open_review(round_dir):
         if not path.is_dir() or "-retry" in path.name:
             continue
         base = role_base(path.name)
-        kind, sid = open_turn(rd, base)
-        if not kind:
-            continue
         latest = latest_turn(rd, base)
         try:
-            mtime = latest.stat().st_mtime
+            mtime = latest.stat().st_mtime_ns
         except OSError:
             mtime = 0
-        if best is None or mtime >= best[0]:
-            best = (mtime, base, kind, sid)
-    return (None, None, None) if best is None else (best[1], best[2], best[3])
+        candidate = (mtime, latest.name, base)
+        if best is None or candidate > best:
+            best = candidate
+    if best is None:
+        return None, None, None
+    kind, sid = open_turn(rd, best[2])
+    return (best[2], kind, sid) if kind else (None, None, None)
 
 
 def review_turn(round_dir, session, since=""):

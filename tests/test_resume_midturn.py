@@ -431,6 +431,19 @@ class ResumeMidturn(unittest.TestCase):
         self.assertIn("do not start over.", recorded[0]["prompt"])
         self.assertEqual(record.read_state(directory)["round_summaries"][-1]["verdict"], "PASS")
 
+    def test_a_finished_fallback_supersedes_an_earlier_unanswered_review(self):
+        directory = self.receipt("20260922-1315-finished-fallback", step="reviewer")
+        rd = directory / "round-1"
+        for name, pending, at in (("reviewer", True, 1), ("reviewer-astra", False, 2)):
+            out = rd / name
+            out.mkdir(parents=True)
+            (out / "final.md").write_text("refused" if pending else "VERDICT: PASS")
+            (out / "session_id").write_text(name)
+            if pending:
+                (out / "pending").touch()
+            os.utime(out, (at, at))
+        self.assertEqual(turns.open_review(rd), (None, None, None))
+
     def test_a_slot_wait_resumes_with_its_original_queued_at(self):
         waited_since = self.now - 3600
         directory = self.receipt("20260922-1311-slot", state="queued", slot_waiting=True,
