@@ -36,8 +36,7 @@ type piece struct {
 // silence window and the list's deadline, its output added to progress under its own header as it
 // ends.  A red piece goes once more alone after the others, which decides it, a pass then said by a
 // `flaky:` record; one stopped at its limit stops the rest.  The suite ends as its first red piece
-// did, and hands on each piece's share of piecesCap, at most outCap, the red ones sharing it among
-// themselves: one red piece keeps its whole outCap however many pieces ran.
+// did, and hands on what handedOn says.
 //
 // What Python does beyond that is not Go's yet and differs here: a heavy-suite turn and the suite
 // helper, a red piece's named tests run alone first (AK_ONLY), and the suite's pace and cost
@@ -116,15 +115,23 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 }
 
 // handedOn is how the pieces ended as one command, and what they hand on: the green pieces, then
-// the red ones last, where a failure's diagnostics read, then the flaky records.
+// the red ones last, where a failure's diagnostics read, then the flaky records.  They share one
+// piecesCap, each part at most outCap: the red pieces take their shares first, so one red piece
+// keeps its whole outCap however many ran, and the green pieces and flaky records share the rest.
 func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, error) {
-	reds := 0
+	reds, others := 0, 0
 	for _, at := range all {
-		if at.ended.code != 0 {
+		switch {
+		case at.ended.code != 0:
 			reds++
+		case at.failed != nil:
+			others += 2 // its output and its flaky record
+		default:
+			others++
 		}
 	}
-	share, redShare := int64(min(outCap, piecesCap/len(all))), int64(min(outCap, piecesCap/max(reds, 1)))
+	redShare := int64(min(outCap, piecesCap/max(reds, 1)))
+	share := min(outCap, (piecesCap-int64(reds)*redShare)/int64(max(others, 1)))
 	var green, red, flakes []string
 	var ended ran
 	for _, at := range all {
