@@ -589,7 +589,7 @@ def verify_work(lp, cmds=None):
             lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         # Landing rechecks a completed round; its own integration stays in charge there.
-        if lp.rnd > len(lp.state["round_summaries"]):
+        if lp.rnd > len(lp.state.get("round_summaries", [])):
             rebase_for_review(lp)
         check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)

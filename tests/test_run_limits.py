@@ -1003,7 +1003,8 @@ class Limits(unittest.TestCase):
         task = self.task(["true"])
 
         for verb in ("fetch origin", "push"):
-            (self.root / "slow-git").write_text(verb)
+            # Delivery fails after verification's own fetch and the review have passed.
+            self.plan({"arm_git_on_review": len(self.calls("reviewer")) + 1, "arm_git": verb})
             with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
                 code, directory, state = self.launch(str(task), "--exec", "opus", "--review",
                                                     "astra")
@@ -1022,6 +1023,26 @@ class Limits(unittest.TestCase):
             with redirect_stdout(io.StringIO()):
                 self.assertEqual(run.main(["merge", directory.name]), 0, verb)
             self.assertTrue(run_record.read_state(directory)["merged"], verb)
+
+    def test_v5f_a_stopped_verify_fetch_keeps_the_round_resumable(self):
+        self.repo()
+        task = self.task(["true"])
+        (self.root / "slow-git").write_text("fetch origin")
+        with self.git_shim(), patch.object(gitcall, "TOOL_CAP", 2):
+            code, directory, state = self.launch(str(task), "--exec", "opus", "--review", "astra")
+        self.assertEqual(code, 1)
+        self.assertEqual((state["state"], state["verdict"]), ("exhausted", None))
+        self.assertEqual(state["round_summaries"], [])
+        self.assertEqual(self.calls("reviewer"), [])
+        self.assertIn("was killed after 2s", state["error"])
+
+        (self.root / "slow-git").unlink()
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(run.main(["resume", directory.name]), 0)
+        state = run_record.read_state(directory)
+        self.assertEqual((state["state"], state["verdict"], state["merged"]), ("pass", "PASS", True))
+        self.assertEqual(len(state["round_summaries"]), 1)
+        self.assertEqual(len(self.calls("executor")), 1)
 
     def test_v5f_a_stop_before_launch_is_reported_with_its_relaunch(self):
         self.repo()
