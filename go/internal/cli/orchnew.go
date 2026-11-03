@@ -60,7 +60,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	scratch, err := os.MkdirTemp("", "ak-dry-run-")
 	defer os.RemoveAll(scratch)
 	rulebook := filepath.Join(scratch, "rulebook-"+name+".md")
-	if text, unread := seat.Rulebook(); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+	if text, unread := seat.Rulebook(name); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
 		return notImplemented(errOut, "orch")
 	}
 	cmd, _, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",

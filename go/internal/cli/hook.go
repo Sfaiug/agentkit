@@ -23,7 +23,7 @@ func hook(args []string, out io.Writer) (code int) {
 	switch {
 	case len(args) != 1:
 	case args[0] == "seat-state":
-		seatState(payload)
+		seatState(payload, out)
 	case args[0] == "orchestrator-stop" && err == nil:
 		return orchestratorStop(payload, out)
 	}
@@ -34,12 +34,13 @@ func hook(args []string, out io.Writer) (code int) {
 // reads them: its turn is not the seat's.
 var subAgent = []string{"agent_id", "agentId", "agent_type", "agentType", "subagentType", "subagent_type"}
 
-// seatState is hooks/seat-state.sh's facts: a prompt's turn, kept under the launch name the
-// harness carries, for the stop hook to judge that turn's end against, then the event as what
-// the seat is doing, under the name the seat goes by now, unless the fact standing keeps it
-// (`lifecycle.Keeps`).  A worker, a harness outside any seat, a sub-agent's turn and a
-// SessionStart write nothing.
-func seatState(payload []byte) {
+// seatState is hooks/seat-state.sh: a prompt's turn, kept under the launch name the harness
+// carries, for the stop hook to judge that turn's end against; what that prompt carries, read
+// before the fact below lets a look answer its question; then the event as what the seat is
+// doing, under the name the seat goes by now, unless the fact standing keeps it
+// (`lifecycle.Keeps`).  A worker, a harness outside any seat and a sub-agent's turn write
+// nothing; a SessionStart writes only what a compaction drops.
+func seatState(payload []byte, out io.Writer) {
 	seat := os.Getenv("AGENTKIT_SESSION")
 	read, _ := run.Decode(payload)
 	event, _ := read.(*run.Object)
@@ -47,7 +48,11 @@ func seatState(payload []byte) {
 		return
 	}
 	name := event.Str("hook_event_name")
-	if name == "" || name == "SessionStart" || (name == "UserPromptSubmit" || name == "Stop") && first(event, subAgent...) != nil {
+	if name == "SessionStart" {
+		compacted(seat, event)
+		return
+	}
+	if name == "" || (name == "UserPromptSubmit" || name == "Stop") && first(event, subAgent...) != nil {
 		return
 	}
 	at := float64(time.Now().UnixNano()) / 1e9
@@ -60,6 +65,7 @@ func seatState(payload []byte) {
 		if relatch(seat, string(data)) != nil {
 			return
 		}
+		tellPrompt(seat, event, out)
 	}
 	// `ak orch rename` leaves a pointer at the old name, and the harness carries its launch
 	// name for its whole life.
