@@ -218,7 +218,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 		return Seat{}, false
 	}
 	seat, known := recorded(state, name, record, models)
-	if !known {
+	if !known || !only(record, recordFields) {
 		return Seat{}, false
 	}
 	if seat.Warning == "" { // a record Python cannot read moves nothing
@@ -274,7 +274,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	created, dated := number(record.Get("created"))
 	// as launched, or as reconcile leaves a record whose harness proves no conversation it names
 	resumable := record.Get("resumable") == true || restart != "" && record.Get("resumable") == false
-	if !only(record, recordFields) || !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
+	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
 		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" || !resumable {
 		return Seat{}, false
 	}

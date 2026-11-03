@@ -207,32 +207,6 @@ func environment(name, server string) ([]field, error) {
 	return values, err
 }
 
-// shims puts each of ak's shims, tools/<name>-shim, in ~/.agentkit/bin as <name>, as Python's
-// guard.install_shim does: a link an older install left at a checkout since moved, or one at
-// another tool, is pointed at this install's again.  Their folder.
-func shims() (string, error) {
-	dir := filepath.Join(config.Home(), "bin")
-	if err := os.MkdirAll(dir, 0o777); err != nil {
-		return "", err
-	}
-	for _, target := range config.Glob(filepath.Join(config.Repo(), "tools"), "*-shim") {
-		name := strings.TrimSuffix(filepath.Base(target), "-shim")
-		link := filepath.Join(dir, name)
-		at, err := filepath.EvalSymlinks(link)
-		if want, _ := filepath.EvalSymlinks(target); err == nil && at == want {
-			continue
-		}
-		tmp := filepath.Join(dir, fmt.Sprintf(".%s.%d", name, os.Getpid()))
-		if err := os.Symlink(target, tmp); err != nil {
-			return "", err
-		}
-		if err := os.Rename(tmp, link); err != nil {
-			return "", err
-		}
-	}
-	return dir, nil
-}
-
 // unclaimed is whether nothing holds the name or the folder that Python's open takes over and
 // Go does not yet: a file a gone seat left under the name, but the locks its writers wait on, or
 // a checkout of the folder's own, whose git ak keeps from collecting.

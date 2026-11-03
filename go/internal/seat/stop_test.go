@@ -68,6 +68,25 @@ func TestStopsLeftToPython(t *testing.T) {
 	}
 }
 
+// What an opening writes into a record no stop of Python's reads; a key nothing here knows may be.
+func TestStopReadsARecordAnOpeningWrote(t *testing.T) {
+	home := sandbox(t)
+	opened := map[string]any{"account": "second", "home_account": "second", "efforts": map[string]any{"opus": map[string]any{"effort": "xhigh"}},
+		"reviewers": []any{"opus"}, "rulebook_sha": "ab", "launched": 2.5}
+	record(t, home, "acme", opened)
+	if _, known, err := Stop("acme", moment); !known || err != nil {
+		t.Fatalf("Go left it: known=%v err=%v", known, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agentkit", "state", "seat-acme.json")); err != nil {
+		t.Fatalf("no stop mark: %v", err)
+	}
+	opened["codex_launch"] = "x"
+	record(t, home, "beta", opened)
+	if _, known, err := Stop("beta", moment); known || err != nil {
+		t.Fatalf("Go stopped a record holding more: known=%v err=%v", known, err)
+	}
+}
+
 // the same seat with nothing of its own Python ends is Go's to stop
 func TestStopClosesARecordTmuxLost(t *testing.T) {
 	home := sandbox(t)

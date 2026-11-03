@@ -33,6 +33,10 @@ var waits = []string{"usage_wait", "usage_refusal", "midturn", "owed_lines"}
 // watchKeys are the maps Python's watch.load_state reads watch.json into, in its order.
 var watchKeys = []string{"reviewed", "own", "stalls", "seen_at", "after_merge"}
 
+// stoppable are what a record may hold for Go to stop its seat: all Read follows and the rest an
+// opening writes there (Open), none of which Python's stop reads, for a word or anything else.
+var stoppable = slices.Concat(recordFields, []string{"reviewers", "account", "home_account", "efforts", "rulebook_sha", "launched"})
+
 // A seen is what a stop finds under Python's watch.state_lock.
 type seen struct {
 	live, recorded, closed bool     // tmux holds the seat's session; a record keeps it; the owner stopped it
@@ -131,7 +135,7 @@ func look(state, name string, now time.Time) (seen, bool) {
 			continue
 		}
 		seat, known := recorded(state, each, held, models)
-		if !known {
+		if !known || !only(held, stoppable) {
 			return seen{}, false
 		}
 		found.records = append(found.records, seat)
