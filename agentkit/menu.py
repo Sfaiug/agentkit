@@ -4725,11 +4725,12 @@ def opened_line(told, kind, texts, on, room):
 
 def page_body(rows, at=None, moves=None):
     """The lines of a page `c` opens -- `Models`, `Discord`, `Weekly audit`, `Limits` -- and the
-    row each is, {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its value,
-    lined up past the widest label as `c`'s own rows are, or with no label a choice of a list
-    opened under the row above it, indented as `add a subscription`'s are.  A value is text, or
-    parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s own
-    values are, never cut; `at` is the row lit, and `moves` is handed each mark leading a value
+    row each is, {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its
+    value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
+    list opened under the row above it, indented as `add a subscription`'s are.  A value is
+    text, or parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s
+    own values are, never cut: one with a word too wide beside its label folds under it,
+    indented as a choice; `at` is the row lit, and `moves` is handed each mark leading a value
     (`■`, `□`, `●`, `○`) as config_body hands its own."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
@@ -4738,10 +4739,18 @@ def page_body(rows, at=None, moves=None):
         # a label is never wider than `wide`, so padding it keeps its colour
         lead = "    " if label is None else f"  {label}{' ' * (wide - terminal.cells(label))}  "
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
+        parts, folded = [(value, None)] if isinstance(value, str) else value, False
+        if label is not None and any(terminal.cells(word) > left
+                                     for text, _ in parts for word in text.split()):
+            # a word too wide beside the label: the value folds under it, never cut in a word
+            line = "  " + terminal.cut(label, room - 2)
+            places[len(lines)] = (row, [])
+            lines.append(terminal.highlight(line) if row == at else line)
+            lead, left, folded = "    ", max(1, room - 4), True
         if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
                 value[0][0], 3, value[0][1], row == at, terminal.cells(lead))))
-        for text, kind in [(value, None)] if isinstance(value, str) else value:
+        for text, kind in parts:
             for piece in terminal.wrap(text, left):
                 if used and used + 1 + terminal.cells(piece) > left:
                     wrapped, used = [*wrapped, []], 0
@@ -4750,7 +4759,8 @@ def page_body(rows, at=None, moves=None):
         for number, parts in enumerate(wrapped):
             line = ((lead if number == 0 else " " * terminal.cells(lead)) + " ".join(parts)).rstrip()
             places[len(lines)] = (row, [])
-            lines.append(terminal.highlight(line, number == 0) if row == at else line)
+            lines.append(terminal.highlight(line, number == 0 and not folded) if row == at
+                         else line)
     return lines, places
 
 
@@ -4790,7 +4800,8 @@ def config_page(name, page):
         if not opened:                # a pick removed the last row: the highlight on the new last
             here = ("row", min(here[1], len(rows) - 1))
         drawn = [(("row", number), label, value) for number, (label, value, *_) in enumerate(rows)]
-        note = rows[here[1]][3] if len(rows[here[1]]) == 4 else note
+        # the pointed row's own note, none while the pointer is off every row
+        note = rows[here[1]][3] if len(rows[here[1]]) == 4 and not terminal.away() else note
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
                                                   for number, (value, _, _) in enumerate(listed)]

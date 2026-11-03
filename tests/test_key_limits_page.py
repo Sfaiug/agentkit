@@ -25,6 +25,8 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
 FAR = 6                # j presses from the first model to `Limits`: the other, then four rows
 NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task")
 WIDE = max(map(len, NAMES))
+MEANS = ("The review rounds a change has before it goes back to its orchestrator to split or "
+         "re-scope; it moves first round, unmerged, hours to merge.")
 
 
 def lines(screen):
@@ -43,13 +45,13 @@ class LimitsPage(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         fakeadapter.install(cls.home, claude="pass", codex="pass")
 
-    def c(self, settings=None):
+    def c(self, settings=None, size=(100, 40)):
         """`c` in a window of its own, over a config.toml setting `settings`."""
         akconfig.write(self.home, MODELS, settings=settings)
-        return self.opened()
+        return self.opened(size)
 
-    def opened(self):
-        term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
+    def opened(self, size):
+        term = Terminal(self.home, size=size, env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -88,10 +90,23 @@ class LimitsPage(unittest.TestCase):
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
                          [row(NAMES[0], "3", on=True), row(NAMES[1], "300"),
                           row(NAMES[2], "off default 50")])
-        self.assertIn("The review rounds a change has before it goes back to its orchestrator to "
-                      "split or re-scope; it moves first round, unmerged, hours to merge.",
-                      " ".join(line.strip() for line in shown))
+        self.assertIn(MEANS, " ".join(line.strip() for line in shown))
         self.assertEqual(akconfig.read(self.home)["seat_lines"], 0)
+
+    def test_the_pointer_off_every_row_takes_the_note_away(self):
+        term = self.c()
+        self.limits(term)
+        term.wait(lambda screen: MEANS in " ".join(screen.split()))
+        term.type("\x1b[<35;8;1M")      # onto the header: the highlight goes out, and the note
+        term.wait(lambda screen: MEANS not in " ".join(screen.split()))
+
+    def test_on_a_narrow_terminal_each_value_folds_under_its_name_never_cut(self):
+        shown = lines(self.limits(self.c(
+            {"rounds": 4, "review_lines": 1000, "seat_lines": 0}, size=(40, 50))))
+        at = shown.index(f"› {NAMES[0]}")
+        self.assertEqual(shown[at:at + 6], [
+            f"› {NAMES[0]}", "    4 default 3", f"  {NAMES[1]}", "    1000 default 300",
+            f"  {NAMES[2]}", "    off default 50"])
 
     def test_picking_1000_lines_per_executor_task_saves_it(self):
         term = self.c({"max_runs": 7, "custom_flag": True})
