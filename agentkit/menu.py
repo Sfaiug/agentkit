@@ -1309,6 +1309,10 @@ def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None, files=N
     jobs_cache = {}
     infos = []
     keeping = kept is not None and not look
+    if keeping and files is None:
+        # stat'ed after `found` was listed: a write between shows a minute late at most, which
+        # is why `rows` stats them first
+        files = seat_file_stats()
     stamped = stamps(cfg, found, mine, files) if keeping else {}
     clock, held = time.monotonic(), {}
     for number, session in enumerate(found, 1):
