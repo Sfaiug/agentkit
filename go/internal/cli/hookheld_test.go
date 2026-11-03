@@ -91,3 +91,38 @@ func TestAStopGoesBackToSayAQuestionItsMessageLeftOut(t *testing.T) {
 		t.Fatalf("the question said: %q", out)
 	}
 }
+
+// A conversation whose harness's manifest has no table to read its question cards with, Codex's,
+// may hold one unanswered: open work there is Python's to send back, the latch left as it was.
+func TestOpenWorkInAConversationGoCannotReadIsLeftToPython(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
+	t.Setenv("AGENTKIT_SESSION", "acme")
+	t.Setenv("AK_RUN_ROLE", "")
+	state := filepath.Join(home, ".agentkit", "state")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	latch := `{"session": "acme", "turn": 5, "blocks": 0}`
+	for name, text := range map[string]string{
+		"session-acme.json": `{"orchestrator": "astra", "cwd": "/code/acme", "conversation": "conv-1"}`,
+		"plan-acme.md":      "- [ ] Ship the parser\n",
+		"stop-acme.json":    latch,
+		"chat.jsonl":        `{"payload": {"type": "function_call", "name": "request_user_input", "call_id": "card-1"}}` + "\n",
+	} {
+		if err := os.WriteFile(filepath.Join(state, name), []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	stop := `{"hook_event_name": "Stop", "last_assistant_message": "Waiting for your answer.", "transcript_path": "` +
+		filepath.ToSlash(filepath.Join(state, "chat.jsonl")) + `"}`
+	if code := orchestratorStop([]byte(stop), &out); code != leftToPython || out.Len() > 0 {
+		t.Fatalf("exit %d, %q", code, out.String())
+	}
+	if data, _ := os.ReadFile(filepath.Join(state, "stop-acme.json")); string(data) != latch {
+		t.Fatalf("the latch: %s", data)
+	}
+}

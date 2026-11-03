@@ -20,10 +20,11 @@ import (
 )
 
 // An End is what a conversation's end says: what the model said last (`last_message`), and whether
-// a question card it asked since the owner's last prompt is unanswered (`questioned`).
+// a question card it asked since the owner's last prompt is unanswered (`questioned`); Unread where
+// there is a conversation whose harness's manifest has no table to read it with.
 type End struct {
-	Said   string
-	Asking bool
+	Said           string
+	Asking, Unread bool
 }
 
 // A kind is one entry the table names: an entry of its shape, or, with parts, each part of
@@ -39,10 +40,13 @@ type kind struct {
 func Read(name, path string) (end End) {
 	table, _ := config.Tree(name, "transcript")
 	file, err := os.Open(path)
-	if table == nil || err != nil {
+	if err != nil {
 		return end
 	}
 	defer file.Close()
+	if table == nil {
+		return End{Unread: true}
+	}
 	skip, _ := table["skip"].(map[string]any)
 	said, card, answer := named(table["said"]), named(table["card"]), named(table["answer"])
 	prompts := promptKinds(table)

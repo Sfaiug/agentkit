@@ -30,6 +30,10 @@ const (
 		"already passes is written done. If you only read there, end your turn again."
 )
 
+// errCards is a turn whose question cards Go cannot read, which only an unanswered one would let
+// end where Go sends it back or asks the owner.
+var errCards = errors.New("question cards in a conversation only Python reads")
+
 // errParked is a block naming runs parked undecided, whose words (`parked_reason`) only Python
 // says yet.
 var errParked = errors.New("a parked run's block, which Python words")
@@ -61,20 +65,25 @@ func stopHeld(launched, name string, record map[string]any, harness string, even
 	if err != nil {
 		return "", err
 	}
+	unsure := end.Unread && !asked // a card Go cannot see would have asked
 	if ends && delivery == "" {
-		return ended(launched, name, turned, asked, said)
+		return ended(launched, name, turned, asked, unsure, said)
 	}
-	return counted(launched, name, turned, ends, parked, delivery, said, record["unnamed"] == true)
+	return counted(launched, name, turned, ends, parked, unsure, delivery, said, record["unnamed"] == true)
 }
 
 // ended is a turn that may end: one that reached the live host and wrote nothing of it goes back
 // once to write it down, and one ending on a question in prose alone once to ask it.
-func ended(launched, name string, turned *run.Object, asked bool, said string) (string, error) {
-	if !asked && !turned.Truthy("live_back") && plan.LiveUnrecorded(name) {
-		return latched(launched, turned, "live_back", true, liveLine), nil
-	}
-	if asked || turned.Truthy("asked_back") || !trailsQuestion(said) {
+func ended(launched, name string, turned *run.Object, asked, unsure bool, said string) (string, error) {
+	live := !asked && !turned.Truthy("live_back") && plan.LiveUnrecorded(name)
+	if !live && (asked || turned.Truthy("asked_back") || !trailsQuestion(said)) {
 		return "", nil
+	}
+	if unsure {
+		return "", errCards
+	}
+	if live {
+		return latched(launched, turned, "live_back", true, liveLine), nil
 	}
 	if refused, err := seat.QuestionRefused(name); refused != "" || err != nil {
 		return "", err
@@ -84,9 +93,13 @@ func ended(launched, name string, turned *run.Object, asked bool, said string) (
 
 // counted is a turn that may not end, or must still say what it asked: it goes back limit times,
 // and the next stop stands, the owner asked how the seat goes on where it holds work open.
-func counted(launched, name string, turned *run.Object, ends, parked bool, delivery, said string, unnamed bool) (string, error) {
+func counted(launched, name string, turned *run.Object, ends, parked, unsure bool, delivery, said string, unnamed bool) (string, error) {
 	blocks, _ := turned.Int("blocks")
-	if blocks++; blocks > limit {
+	over := blocks+1 > limit
+	if unsure && (over && !ends && !parked || !over && delivery == "") {
+		return "", errCards
+	}
+	if blocks++; over {
 		if !ends && !parked {
 			askOwner(name, said)
 		}
