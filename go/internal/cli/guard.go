@@ -3,23 +3,24 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
-	"syscall"
+	"slices"
 
+	"agentkit/internal/commandhelp"
 	"agentkit/internal/guard"
 )
 
-// guardCall is what a shim hands a seat's own call to, `ak guard <tool> <real tool> <argv...>`,
-// unlisted as `adapter` and `hook` are: a refusal says why and exits 1, and anything else becomes
-// the real tool, in the caller's environment and in this process's place.
-func guardCall(args []string, errOut io.Writer) int {
-	real := args[1]
-	reason, run := guard.Decide(args[0], real, args[2:])
+// guardCall answers the shim asking about a seat's own call, `ak guard <tool> <real tool> <argv...>`,
+// unlisted as `adapter` and `hook` are: why it is refused, exiting 1, or the arguments to run it
+// with as words for its shell, where they are not the ones it gave.  The shim runs the tool, so
+// nothing that goes wrong here can keep it from running.
+func guardCall(args []string, out io.Writer) int {
+	reason, run := guard.Decide(args[0], args[1], args[2:])
 	if reason != "" {
-		fmt.Fprintln(errOut, reason)
+		fmt.Fprintln(out, reason)
 		return 1
 	}
-	err := syscall.Exec(real, append([]string{real}, run...), os.Environ())
-	fmt.Fprintf(errOut, "%s-shim: %v\n", args[0], err)
-	return 126
+	if !slices.Equal(run, args[2:]) {
+		fmt.Fprintln(out, commandhelp.ShellJoin(run))
+	}
+	return 0
 }
