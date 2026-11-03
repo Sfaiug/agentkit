@@ -17,6 +17,7 @@ import threading
 import time
 from contextlib import nullcontext
 from datetime import datetime
+from itertools import islice
 from pathlib import Path
 
 from . import (box, config, gitcall, hand_in, history, host, login_refusals, orch,
@@ -441,6 +442,26 @@ def cut_file(output, start, where, name, cap=OUT_CAP):
         line = f"{kept(output, where, name)}\n"
     # Replacement characters can grow the payload; ignore only the new cut's split character.
     return line + tail[max(0, len(tail) - cap):].decode("utf-8", errors="ignore")
+
+
+def first_lines(text):
+    """A check's first three nonempty lines, from its saved whole when `kept` cut it."""
+    shown = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        named = re.fullmatch(r"\[only part of this output is shown; all of it is in (.+)\]", line)
+        if named:
+            try:
+                with Path(named[1]).open(errors="replace") as source:
+                    shown.extend(islice((part.strip() for part in source if part.strip()), 3 - len(shown)))
+            except OSError:
+                shown.append(line.strip())
+        else:
+            shown.append(line.strip())
+        if len(shown) == 3:
+            break
+    return " ".join(shown)
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session

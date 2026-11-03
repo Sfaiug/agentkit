@@ -6,11 +6,12 @@ Offline: a temporary HOME (`Sandbox`) and its adapters' folds.
 """
 
 import re
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, gitcall, handback, record, run, watch
+from agentkit import config, deliver, gitcall, handback, prompts, record, run, turns, watch
 
 LINE = re.compile(r"run (\S+) ([A-Z ]+) \((\d) of 3\): (.+[.!?]) Next: ([^.]+)\. Result: (\S+)")
 FINDING = "- parse.py:12 - " + "The parser drops the last row of every acme table. " * 40   # past 2,000
@@ -98,17 +99,36 @@ class DecisionLine(Sandbox):
             final_check={"outcome": "failed", "where": "landing", "line": "check-live"})
         log = directory / "round-3/donewhen.log"
         log.parent.mkdir()
-        log.write_text("$ check-rows\n[exit 1]\nrows first\nrows second\nrows last\n\n"
+        log.write_text("$ check-rows\n[exit 1]\n" + turns.cut(
+                       "rows first\nrows second\n" + "later\n" * turns.OUT_CAP + "rows last\n",
+                       directory, "donewhen") + "\n\n"
                        "$ check-ok\n[exit 0]\nok\n\n"
                        "$ check-export\n[exit 1]\nexport first\nexport second\nexport last\n")
-        (directory / "final-check.log").write_text("$ check-live\n[exit 1]\nlive first\nlive last\n")
+        (directory / "final-check.log").write_text("$ check-live\n[exit 1]\n--- AK_SHARD=1/1 ---\n[exit 1]\n" + turns.cut(
+            "live first\n" + "later\n" * turns.OUT_CAP + "live last\n", directory, "final-check"))
         with patch.object(gitcall, "git", return_value="(fixture diff)"):
             run.write_result(directory, state, [])
         why = (directory / "result.md").read_text().splitlines()[1]
         for text in (state["error"], " ".join(CLAIM["what"].split()), CLAIM["why"], "rows[:-1]", other["what"],
                      other["why"], "`check-rows` — rows first rows second",
-                     "`check-export` — export first export second", "`check-live` — live first"):
+                     "`check-export` — export first export second", "`check-live` — --- AK_SHARD=1/1 --- [exit 1] live first"):
             self.assertIn(text, why)
+
+    def test_a_failed_pr_landing_opens_with_every_checks_first_diagnostics(self):
+        for suffix in ("", "-tests"):
+            directory, state = self.ending(f"acme-landing{suffix}", state="waiting", own_pr=True,
+                review_pr="https://github.com/acme/widgets/pull/7", landing_reds=3)
+            log = directory / f"lander-{'a' * 40}{suffix}.log"
+            text = ("$ check-rows\n[exit 1]\nrows first\nrows last\n\n"
+                    "$ check-export\n[exit 1]\nexport first\nexport last\n")
+            log.write_text(text)
+            lp = SimpleNamespace(run_dir=directory, state=state, rnd=3, rounds=3, write=lambda: None)
+            deliver.fail_pr_landing(lp, {"line": prompts.first_failure(text), "log": str(log)})
+            self.assertEqual(state["state"], "fail")
+            handback.record_result(directory, state, cfg=self.cfg)
+            why = (directory / "result.md").read_text().splitlines()[1]
+            for diagnostic in ("`check-rows` — rows first", "`check-export` — export first"):
+                self.assertIn(diagnostic, why)
 
     def test_what_the_line_cannot_hold_is_whole_in_its_result(self):
         cause = "a process stopped during a remote write " * 30 + "and nothing ended it"

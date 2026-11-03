@@ -1463,9 +1463,11 @@ def decision_reason(run_dir, state, why):
             text = path.read_text(errors="replace")
         except OSError:
             text = ""
+        if gate == "once" and state.get("review_pr"):
+            text = prompts.saved_findings(run_dir, state).rpartition("\n## Landing failed\n")[2] or text
         for cmd, said in prompts.failing_checks(text) or history.get(gate) or []:
-            output = text.partition(f"$ {cmd}\n")[2].split("\n\n$ ", 1)[0].splitlines()[1:]
-            first = " ".join([line.strip() for line in output if line.strip()][:3])
+            output = text.partition(f"$ {cmd}\n")[2].split("\n\n$ ", 1)[0].partition("\n")[2]
+            first = turns.first_lines(output)
             parts.append(f"`{cmd}` — {first or said}" if first or said else f"`{cmd}`")
     return " ".join("; ".join(dict.fromkeys(parts)).split())
 
