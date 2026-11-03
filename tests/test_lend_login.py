@@ -163,11 +163,12 @@ class Lend(unittest.TestCase):
                 self.fixture(harness, ends=LAPSED)
                 self.assert_none(*self.lend(harness))
 
-    def test_a_keychain_login_must_last_the_hour_and_a_file_s_need_not(self):
-        _, login = self.fixture("claude", ends=int(time.time()) + 1800)
-        self.assertEqual(self.lend("claude")[0].returncode, 0)
+    def test_a_keychain_login_is_lent_until_it_lapses(self):
+        ends = int(time.time()) + 1800
+        file, login = self.fixture("claude", ends=ends)
+        file.unlink()
         (self.root / "bin/security").write_text(f"#!/bin/sh\necho '{json.dumps(login)}'\n")
-        self.assert_none(*self.lend("claude"))
+        self.assert_lent("claude", *self.lend("claude"), login, ends)
 
     def test_this_home_and_a_taken_place_are_refused(self):
         for harness, spec in LOGINS.items():

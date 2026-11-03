@@ -47,10 +47,11 @@ effort = "/effort {effort}"
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]
-# Seconds a login must have left for a turn to go to a machine: Claude Code renews a login only
-# in its last 5 minutes (2.1.316, 2 Nov 2026), so the first turn then, kept on this host, renews it,
-# and the renewal reaches every turn out there (machine_turn._following).  One outliving the login
-# with no such turn to renew it ends on the server's 401, and its retry runs here.
+# Seconds a login in one of those files must have left for a turn to go to a machine: Claude Code
+# renews a login only in its last 5 minutes (2.1.316, 2 Nov 2026), so the first turn then, kept on
+# this host, renews it, and the renewal reaches every turn out there (machine_turn._following).
+# One outliving the login with no such turn to renew it ends on the server's 401, and its retry
+# runs here.
 lent_for = 300
 # where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
 # (agentkit/machine_turn.py); a harness without this takes no turns there

@@ -54,8 +54,9 @@ exec "$0.real" "$@"
 
 
 class ATurnLendsItsLogin(unittest.TestCase):
-    def run_task(self, lend=None, lasts=None):
-        """The finished run's directory, and the machine with its logs."""
+    def run_task(self, lend=None, lasts=None, in_file=False):
+        """The finished run's directory, and the machine with its logs; `in_file`, Claude's login
+        has a file here, which a renewal would change."""
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
@@ -71,6 +72,10 @@ class ATurnLendsItsLogin(unittest.TestCase):
                 fake.answer("lend", *lend)
             if lasts:
                 fake.lasts(lasts)
+        if in_file:
+            (home.root / "login").touch()
+            with fakes["claude"].manifest.open("a") as manifest:
+                manifest.write(f"logins = {json.dumps([str(home.root / 'login')])}\n")
         machine = akmachine.install(home)
         for harness, version in (("claude", "1.2.3"), ("codex", "4.5.6")):
             home.fake(harness, f"#!/bin/sh\necho {version}\n")
@@ -129,11 +134,11 @@ class ATurnLendsItsLogin(unittest.TestCase):
                           if path.is_dir() and path.name not in ("harness", "mirrors")], [])
 
     def test_half_an_hour_of_login_takes_a_claude_turn_out_and_keeps_another_harness_s_here(self):
-        run, _ = self.run_task(lasts=1800)
+        run, _ = self.run_task(lasts=1800, in_file=True)
         self.assertEqual(self.said(run, "where"), ["docker", "here"])
 
-    def test_a_login_about_to_lapse_or_that_cannot_be_lent_keeps_the_turn_here(self):
-        for given in ({"lasts": 200}, {"lend": ("", 1)}):
+    def test_a_login_about_to_lapse_in_no_file_or_that_cannot_be_lent_keeps_the_turn_here(self):
+        for given in ({"lasts": 200, "in_file": True}, {"lasts": 1800}, {"lend": ("", 1)}):
             with self.subTest(**given):
                 run, machine = self.run_task(**given)
                 self.assertEqual(self.said(run, "where"), ["here"] * 2)

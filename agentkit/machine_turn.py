@@ -85,7 +85,10 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     logins = [*config.manifest_paths(facts.get("logins", ()), env, cwd)]
     seen = [*map(_stamp, logins)]    # before the lend: a renewal as it prepares is sent too
     with tempfile.TemporaryDirectory() as home:
-        lent = _lend(entry, cmd[0], env, home, facts.get("lent_for", LENT_FOR))
+        # `lent_for` counts on `_following`, and only a login's file tells it of a renewal: a
+        # login in none (macOS's Keychain) must last the hour.
+        lent = _lend(entry, cmd[0], env, home,
+                     facts.get("lent_for", LENT_FOR) if any(seen) else LENT_FOR)
         if not lent:
             return None
         # 2048: twice this is 4 GiB, as on 30 Oct 2026 this host's runs peaked at a median of 768
