@@ -126,6 +126,19 @@ func translated(source string, folding bool) (string, error) {
 			}
 			out.WriteString(said)
 			size = length
+		case strings.HasPrefix(rest, "(?#"):
+			// a comment, to its first `)` not escaped as Python reads it: no escape in it is
+			// translated, and the engine, ending one at any `)`, sees it empty
+			for size = 3; size < len(rest) && rest[size] != ')'; size++ {
+				if rest[size] == '\\' {
+					size++
+				}
+			}
+			if size >= len(rest) {
+				return "", fmt.Errorf("missing ), unterminated comment")
+			}
+			out.WriteString("(?#)")
+			size++
 		case flagged.MatchString(rest):
 			flags := flagged.FindStringSubmatch(rest)
 			if flags[3] == ":" {
