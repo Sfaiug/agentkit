@@ -36,8 +36,9 @@ FIX = ("Your checkout starts on the target branch's tip, fetched when this run s
        'decide, run `ak hand-in blocked "<question>"`.')
 
 
-# A refused call can leave GitHub unchanged even when the tick ignores its exit.
+# A refused or interrupted call can leave GitHub unchanged: null records its start.
 GH_EXITS = """#!/bin/sh
+printf 'null\\n' >>{log}
 (
 {delegate}
 )
@@ -182,7 +183,9 @@ class SettledRuns(unittest.TestCase):
         self.assertTrue(self.worlds[-1]["gh-exits"], "no tick asked GitHub anything")
         for tick, world in enumerate(self.worlds, 1):
             self.assertEqual(world["github"], self.before["github"], f"tick {tick}")
-            self.assertEqual(world["gh-exits"], [0] * len(world["gh-exits"]), f"tick {tick}")
+            calls = world["gh-exits"]
+            # Every start needs a zero exit, in any order for concurrent calls.
+            self.assertCountEqual(calls, [None, 0] * calls.count(None), f"tick {tick}")
 
     def test_the_checkout_keeps_its_branches_and_work_tree(self):
         for tick, world in enumerate(self.worlds, 1):
