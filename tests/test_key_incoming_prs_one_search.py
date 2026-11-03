@@ -90,11 +90,21 @@ class IncomingSearch(unittest.TestCase):
         launched, calls = self.tick()
         self.assertEqual((launched, len(calls)), ([], 1), calls)
 
+    def test_github_alternate_hosts_match_the_canonical_pr_host(self):
+        expected = []
+        for name, origin in (("api", "ssh://git@ssh.github.com:443/acme/api.git"),
+                             ("docs", "https://www.github.com/acme/docs.git")):
+            expected.append(["run", "--review-pr", self.open_pr(name), "--bg"])
+            self.rigs[name].git("remote", "set-url", "origin", origin)
+        self.assertCountEqual(self.tick()[0], expected)
+
     def test_an_origin_on_another_host_does_not_make_a_github_checkout(self):
         self.open_pr()
         for count, origin in enumerate(("https://gitlab.com/acme/web.git",
                                         "git@gitlab.com:acme/web.git",
-                                        "ssh://git@gitlab.com/acme/web.git"), 1):
+                                        "ssh://git@gitlab.com/acme/web.git",
+                                        "ssh://git@ssh.github.com.example:443/acme/web.git",
+                                        "https://www.github.com.example/acme/web.git"), 1):
             with self.subTest(origin=origin):
                 self.rigs["web"].git("remote", "set-url", "origin", origin)
                 launched, calls = self.tick()

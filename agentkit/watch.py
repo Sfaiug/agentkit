@@ -7064,7 +7064,9 @@ def incoming(state, me, dry_run, log):
         name, key = gitcall.owner_name(origin), remote_key(origin)
         if name.split("/", 1)[0] == me.lower():
             # Local origins follow the owner/name convention of run.local_checkout.
-            repos[key if key != origin else name] = repo
+            key = name if key == origin else re.sub(
+                r"^(?:ssh|www)\.github\.com/", "github.com/", key)
+            repos[key] = repo
     prs, why = pages(config.RUNS, "search/issues", "items", "-X", "GET", "-f",
                      f"q=is:pr is:open draft:false user:{me} -author:{me}", "-f", "per_page=100")
     if not isinstance(prs, list):
