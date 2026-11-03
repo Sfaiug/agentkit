@@ -393,7 +393,7 @@ class LiveStatus(unittest.TestCase):
                 patch.object(watch.notify, "shaped", return_value=0), \
                 patch.object(watch, "window_ends", return_value=None):
             tick = threading.Thread(target=watch.health, name="tick", daemon=True,
-                                    args=({}, watch.load_state(), False, lambda _line: None))
+                                    args=(self.cfg, watch.load_state(), False, lambda _line: None))
             tick.start()
             self.assertTrue(decided.wait(5))            # `working`, not written down yet
             self.hook("Stop")
