@@ -205,17 +205,20 @@ def tick_lock():
 
 
 def tick_holder():
-    """(pid, seconds it has been holding) of whoever has the lock, off the file it wrote."""
+    """(pid, start stamp) from one observation of the file the holder wrote."""
     path = tick_lock_path()
     try:
-        pid = int(path.read_text(encoding="utf-8").strip() or 0)
-    except (OSError, ValueError):
-        pid = 0
-    try:
-        holding = max(0.0, time.time() - path.stat().st_mtime)
+        with path.open(encoding="utf-8") as handle:
+            stamp = os.fstat(handle.fileno())
+            try:
+                pid = int(handle.read().strip() or 0)
+            except ValueError:
+                pid = 0
+            if os.fstat(handle.fileno()).st_mtime_ns == stamp.st_mtime_ns:
+                return pid, stamp.st_mtime
     except OSError:
-        holding = 0.0
-    return pid, holding
+        pass
+    return 0, time.time()   # missing or changing: no evidence of a long-running holder
 
 
 def tick_running():
@@ -232,7 +235,8 @@ def tick_running():
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            return tick_holder()
+            pid, began = tick_holder()
+            return pid, max(0.0, time.time() - began)
         fcntl.flock(handle, fcntl.LOCK_UN)
     return None
 
@@ -250,6 +254,10 @@ def tick_notice(*, since=None, line=None, ended=None, log=print):
             except (OSError, ValueError):
                 stop = {}
             if since is not None:
+                # A holder may have finished while this observer was paused. The completion
+                # clock survives deleting its notice, so a late look cannot reopen it.
+                if since < generation(load_state().get("tick_completed_at")):
+                    return
                 if not stop or stop.get("back"):
                     stop = {"since": since}
                     # Keep the episode before sending: a sender killed after delivery still
@@ -8226,7 +8234,8 @@ def main(argv):
             previous = None
         held = tick_lock()
         if held is None:
-            pid, holding = tick_holder()
+            pid, started = tick_holder()
+            holding = max(0.0, time.time() - started)
             minutes = int(holding // 60)
             log(f"tick already running (pid {pid}, for {minutes} min)")
             if holding >= TICK_HUNG:
@@ -8234,7 +8243,7 @@ def main(argv):
                     "look at it, and kill it if it is hung")
             # An hour is the page floor: a 36-minute tick has ended unaided here.
             if holding >= 2 * TICK_HUNG:
-                tick_notice(since=tick_lock_path().stat().st_mtime,
+                tick_notice(since=started,
                             line=f"🔴 ak ticks stopped ending · pid {pid} has held the lock "
                                  f"for {minutes} min", log=log)
             return 0
@@ -8255,10 +8264,14 @@ def main(argv):
                     log(f"{name} took {took:.1f} s")
                 slowest = max(slowest, (took, name))
 
+        crashed = False
         try:
             if not dry_run:
                 tick = state.get("tick")
-                since = generation(tick.get("ended_at")) if isinstance(tick, dict) else 0
+                last = generation(tick.get("ended_at")) if isinstance(tick, dict) else 0
+                # The doctor's end records an exit even on an exception. Paging needs a
+                # clock only a tick without an uncaught failure can advance.
+                since = generation(state.setdefault("tick_completed_at", last or began))
                 # A recent start distinguishes repeated failures from a host or cron gap.
                 if (since and began - since >= 2 * TICK_HUNG and previous is not None
                         and began - previous < TICK_HUNG):
@@ -8292,6 +8305,9 @@ def main(argv):
             timed("incoming prs", lambda: incoming(state, me, dry_run, log))
             timed("outgoing prs", lambda: outgoing(state, me, dry_run, log))
             return 0
+        except BaseException:
+            crashed = True
+            raise
         finally:
             # However the tick ends, the next one and `ak doctor` find when it ran and what
             # held it up most; a dry run writes nothing.
@@ -8299,5 +8315,8 @@ def main(argv):
                 took, name = slowest
                 state["tick"] = {"started_at": began, "ended_at": time.time(),
                                  "slowest": {"pass": name, "seconds": round(took, 1)}}
+                if not crashed:
+                    state["tick_completed_at"] = state["tick"]["ended_at"]
                 save_state(state)
-                tick_notice(ended=state["tick"]["ended_at"], log=log)
+                if not crashed:
+                    tick_notice(ended=state["tick"]["ended_at"], log=log)
