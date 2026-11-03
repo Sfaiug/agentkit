@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -181,13 +182,12 @@ func (r *repoPlace) land(l *loop, upstream string, deliver func() error) error {
 // landingMark marks the run `landing` while landing runs, however it ends, Python's landing_mark:
 // its checks wait as a lander's, and a landing counts from its own first wait.
 func (r *repoPlace) landingMark(l *loop, landing func() error) error {
-	since := filepath.Join(l.dir, "landing_since")
-	os.Remove(since)
+	host.ClearLandingWait(l.dir)
 	if err := l.save(func(record *run.Object) { record.Set("landing", true) }); err != nil {
 		return err
 	}
 	err := landing()
-	os.Remove(since)
+	host.ClearLandingWait(l.dir)
 	write(l.dir, func(record *run.Object) { record.Delete("landing") })
 	return err
 }

@@ -2,6 +2,7 @@ package host
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -250,4 +251,10 @@ func StatusLines() (string, error) {
 	free, ok := readings.Number("free_mb", "mem_available_mb")
 	return fmt.Sprintf("host: %d cpus%s · %s G free%s · %s\n%s",
 		int(cpus), signal, G(free, ok), segment, admitted, heavy), nil
+}
+
+// ClearLandingWait forgets when the run at dir began waiting for a heavy suite turn as a lander,
+// Python's gate.clear_landing_wait: a fresh or finished landing counts from its own first wait.
+func ClearLandingWait(dir string) {
+	os.Remove(filepath.Join(dir, "landing_since"))
 }
