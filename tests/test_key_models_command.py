@@ -44,7 +44,9 @@ class ModelsCommand(unittest.TestCase):
 
     def test_json_gives_each_role_s_front_and_ak_s_own_numbers(self):
         found = json.loads(self.models("--json"))
-        self.assertEqual(sorted(found), ["execute", "live", "orchestrate", "review", "usage"])
+        # The usage key owns subscription measurements; this key remains Go's older claim.
+        self.assertEqual(sorted(found.keys() - {"usage"}),
+                         ["execute", "live", "orchestrate", "review"])
         self.assertEqual(round(found["execute"]["best"], 1), 100.0)
         self.assertEqual([(row["name"], row["effort"], round(row["quality"], 1), row["cost"],
                            row["notes"]) for row in found["execute"]["front"]], [
