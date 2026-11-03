@@ -3,8 +3,10 @@
 // same failure twice, and a worker that goes silent, fails on its provider or is blocked.
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
 // terminal what that driver does until it is gone, Drive is that driver, End is its ending in
-// error, Clean takes a run's checkout, StopRun ends a run, and Pickup and Reopen hand a dead one
-// to a new driver.  A review of somebody else's pull request takes the same driver, with no executor.
+// error, Clean takes a run's checkout, StopRun ends a run, Pickup and Woken say which dead or
+// woken one Reopen hands to a new driver, CheckLine is a landing line's lander, and Logging says a
+// process writes into a run's log.  A review of somebody else's pull request takes the same
+// driver, with no executor.
 //
 // It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
@@ -136,8 +138,9 @@ func spawn(dir string, detached bool) (int, error) {
 }
 
 // Follow shows out what the run's log holds past offset until its driver is gone, then answers
-// from the record, `ak run`'s exit status as Python's follow_run says it.  A run still going with
-// its driver gone is left as it is for Python's tick, which Python's follow waits on.
+// from the record, `ak run`'s exit status as Python's follow_run says it.  A run parked in its
+// landing line is followed through its lander's wake; any other still going with its driver gone
+// is left as it is for Python's tick, which Python's follow waits on.
 func Follow(dir string, offset int64, out, errOut io.Writer) int {
 	log, err := os.Open(filepath.Join(dir, "log.txt"))
 	if err != nil {
