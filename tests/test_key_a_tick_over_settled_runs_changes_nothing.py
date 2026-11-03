@@ -6,15 +6,15 @@ ended and handed back: one passed and merged, one failed with its rounds spent, 
 stopped, one ended not needed and one passed with `--no-merge`.  After each of three ticks: the
 tick exited 0; every run's record and result.md are as they were, byte for byte, but for what
 the first tick keeps on a record once (`kept`); nothing was typed into the seat; no run, review
-or seat started; GitHub was asked nothing that changes it; and the checkout keeps its branches
-and work tree.  Black-box: the program `AK_BIN` names runs from outside through
+or seat started; GitHub's state stayed the same and every gh call exited 0; and the checkout
+keeps its refs and work tree.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, each tick in the box `home.tick()` builds, on a project from gitrig.py
 with the GitHub of fakegh.py, the seat of akseat.py and harnesses of fakeadapter.py.
 """
 
 import json
 from pathlib import Path
-import re
+import shlex
 import sys
 import time
 import unittest
@@ -36,50 +36,15 @@ FIX = ("Your checkout starts on the target branch's tip, fetched when this run s
        'decide, run `ak hand-in blocked "<question>"`.')
 
 
-# What gh asks GitHub without changing it, beside an API read.
-READS = {("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "status"), ("pr", "diff"),
-         ("repo", "view"), ("repo", "list"), ("auth", "status"), ("run", "list"), ("run", "view")}
-METHOD = re.compile(r"^(?:-X|--method=?)(.*)$")
-FIELDS = ("--raw-field", "--field", "-f", "-F")
-# A GraphQL operation that reads: a query, named or the bare `{ ... }` shorthand.
-QUERY = re.compile(r"(?:\s|#[^\n]*)*(?:\{|query\b)")
-
-
-def changes_github(argv):
-    """Whether a gh call may change GitHub, refused or not: any call but a read above, an API
-    call whose method as gh picks it (GET, unless one is named or fields or --input are sent) is
-    not GET, and GraphQL but for a query the key reads, inline or from a file still there."""
-    if argv[:1] != ["api"]:
-        return tuple(argv[:2]) not in READS
-    sent = fields(argv)
-    given = any(word.startswith("--input") for word in argv)
-    if "graphql" in argv:
-        queries = [value.partition("=")[2] for value in sent if value.startswith("query=")]
-        return given or not queries or not all(QUERY.match(read(query)) for query in queries)
-    methods = [found[1] or after for word, after in zip(argv, [*argv[1:], ""])
-               if (found := METHOD.match(word))]
-    method = methods[-1] if methods else "POST" if sent or given else "GET"
-    return method.upper() != "GET"
-
-
-def fields(argv):
-    """The `key=value` fields a gh api call sends, however their flag is spelled."""
-    sent = []
-    for word, after in zip(argv, [*argv[1:], ""]):
-        flag = next((flag for flag in FIELDS if word.startswith(flag)), None)
-        if flag:
-            sent.append(word[len(flag):].removeprefix("=") or after)
-    return sent
-
-
-def read(value):
-    """A field's text: inline, or the file `@path` names; "" where that file is gone."""
-    if not value.startswith("@"):
-        return value
-    try:
-        return Path(value[1:]).read_text()
-    except OSError:
-        return ""
+# A refused call can leave GitHub unchanged even when the tick ignores its exit.
+GH_EXITS = """#!/bin/sh
+(
+{delegate}
+)
+code=$?
+printf '%s\\n' "$code" >>{log}
+exit "$code"
+"""
 
 
 def work(name):
@@ -113,6 +78,9 @@ class SettledRuns(unittest.TestCase):
         # housekeeping ran on it just now
         cls.rig.git("fetch", "-q", "--prune")
         (cls.rig.path / ".git" / "ak-gc").write_text(f"{time.time()}\n")
+        delegate = (home.bin / "gh").read_text().split("\n", 1)[1]
+        home.fake("gh", GH_EXITS.format(delegate=delegate,
+                                        log=shlex.quote(str(home.log("gh-exits")))))
         cls.before, cls.ticks, cls.worlds = cls.world(), [], []
         for _ in range(3):
             cls.ticks.append(home.tick())
@@ -162,7 +130,7 @@ class SettledRuns(unittest.TestCase):
             "turns": {harness: fake.n for harness, fake in cls.fakes.items()},
             "seats": home.tmux("list-sessions", "-F", "#{session_name}").out.split(),
             "github": json.loads(cls.gh.file.read_text()),
-            "asked": home.calls("gh"),
+            "gh-exits": home.calls("gh-exits"),
             "branches": [where("for-each-ref", "--format=%(refname) %(objectname)")
                          for where in (rig.git, rig.origin)],
             "tree": (rig.git("rev-parse", "HEAD"), rig.git("status", "--porcelain", "-uall"),
@@ -210,12 +178,11 @@ class SettledRuns(unittest.TestCase):
             for part in ("typed", "turns", "seats"):
                 self.assertEqual(world[part], self.before[part], f"{part}, tick {tick}")
 
-    def test_github_is_asked_nothing_that_changes_it(self):
-        asked = self.home.calls("gh")[len(self.before["asked"]):]
-        self.assertTrue(asked, "no tick asked GitHub anything")
-        self.assertEqual([argv for argv in asked if changes_github(argv)], [])
+    def test_github_stays_the_same_and_refuses_no_call(self):
+        self.assertTrue(self.worlds[-1]["gh-exits"], "no tick asked GitHub anything")
         for tick, world in enumerate(self.worlds, 1):
             self.assertEqual(world["github"], self.before["github"], f"tick {tick}")
+            self.assertEqual(world["gh-exits"], [0] * len(world["gh-exits"]), f"tick {tick}")
 
     def test_the_checkout_keeps_its_branches_and_work_tree(self):
         for tick, world in enumerate(self.worlds, 1):
