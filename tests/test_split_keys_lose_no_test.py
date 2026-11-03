@@ -32,6 +32,10 @@ class SplitKeys(unittest.TestCase):
                      if isinstance(cls, ast.ClassDef) for method in cls.body
                      if isinstance(method, ast.FunctionDef)
                      and f"{cls.name}.{method.name}" in NAMES]
+            if names:
+                suite = unittest.defaultTestLoader.loadTestsFromModule(importlib.import_module(path.stem))
+                names = [case.id().split(".", 1)[1] for group in suite for case in group
+                         if case.id().split(".", 1)[1] in NAMES]
             self.assertLessEqual(len(names), 1, str(path))
             found.extend(names)
         self.assertCountEqual(found, NAMES)
