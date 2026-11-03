@@ -81,25 +81,41 @@ func TestCodexAnswerIsTheTurnContextOfTheLatestAnswer(t *testing.T) {
 	}
 }
 
-// TestCodexOwnsAndReconcilesTheThreadItsReceiptProves: a listing writes down the proven thread as the
-// seat's own and resumable (codex.py `reconcile`), and only that thread is the seat's (orch.owns).
-func TestCodexOwnsAndReconcilesTheThreadItsReceiptProves(t *testing.T) {
+func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
 	token, write := codexSeat(t)
 	write("")
 	record := run.NewObject()
 	record.Set("codex_launch", token)
-	if fields := Reconciled("codex", record); fields.Get("resumable") != true || fields.Str("conversation") != "t1" || fields.Str("id_source") != "codex-session-start" {
-		t.Errorf("reconciled %v", fields.Keys())
-	}
 	if owned, known := Owns("codex", record, "t1"); !owned || !known {
 		t.Error("its proven thread is not its own")
 	}
 	if owned, _ := Owns("codex", record, "t2"); owned {
 		t.Error("another thread is its own")
 	}
+	for _, each := range []struct {
+		conversation, source string
+		resumable            any
+		ready                bool
+	}{
+		{"", "", false, false},
+		{"old", "launcher", true, false},
+		{"t1", "launcher", true, false},
+		{"t1", "codex-session-start", false, false},
+		{"t1", "codex-session-start", nil, false},
+		{"t1", "codex-session-start", true, true},
+		{"newer", "codex-session-start", true, true}, // Python never binds an older receipt over this
+	} {
+		record.Set("conversation", each.conversation)
+		record.Set("id_source", each.source)
+		record.Set("resumable", each.resumable)
+		before := run.Encode(record)
+		if RecordReady("codex", record) != each.ready || run.Encode(record) != before {
+			t.Errorf("record changed or readiness differs: %+v", each)
+		}
+	}
 	record.Set("codex_launch", strings.Repeat("b", 32))
-	if fields := Reconciled("codex", record); fields.Get("resumable") != false || fields.Has("conversation") {
-		t.Errorf("an unproven thread reconciled %v", fields.Keys())
+	if !RecordReady("codex", record) || !RecordReadOnly("codex") {
+		t.Error("a record with no proven thread cannot be read without reconciling it")
 	}
 	for entry, kept := range map[string]bool{"codex-launch-" + token + ".json": true, "codex-remote-" + token: true,
 		"codex-remote-" + token + ".forgotten": true, "codex-launch-x.json": false, "session-acme.json": false} {

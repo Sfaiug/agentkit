@@ -5,6 +5,6 @@ package harness
 // not reopen one on a receipt yet.
 func init() {
 	plugins["codex"] = plugin{seats: true, looks: true, recorded: codexError, answer: codexAnswer, owns: codexOwns,
-		reconcile: codexReconcile, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
+		record: codexRecord, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
 		fresh: "starts a new Codex conversation", receipt: codexLaunch, registerMCP: codexRegisterMCP}
 }

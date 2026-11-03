@@ -89,17 +89,12 @@ func codexOwns(record *run.Object, conversation string) bool {
 	return thread == conversation
 }
 
-// codexReconcile is what a listing writes down before anything claims the seat resumable (codex.py
-// `reconcile`): resumable only on a proven thread, and that thread then its own.
-func codexReconcile(record *run.Object) *run.Object {
+// codexRecord leaves binding a proven thread to Python's reconcile. Without one, including at
+// prepare's startup chooser, the screen still says the seat's word; legacy ids stay untouched.
+func codexRecord(record *run.Object) bool {
 	thread, _ := codexThread(record)
-	fields := run.NewObject()
-	fields.Set("resumable", thread != "")
-	if thread != "" {
-		fields.Set("conversation", thread)
-		fields.Set("id_source", codexSource)
-	}
-	return fields
+	return thread == "" || record.Get("conversation") == thread &&
+		record.Get("id_source") == codexSource && record.Get("resumable") == true
 }
 
 // codexError is the error Codex recorded as the end of the seat's thread's last turn (codex.py

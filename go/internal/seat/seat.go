@@ -53,9 +53,6 @@ type Seat struct {
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
 	mine                                              []ran    // its own runs, which its ladder reads
-
-	// what its harness writes into its record before a listing reads it
-	reconcileFields *run.Object
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -287,17 +284,15 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 // recorded is the seat a record holds as far as the record alone says; false where Go does not
 // follow that record.
 func recorded(state, name string, record *run.Object, models map[string]config.Model) (Seat, bool) {
-	restart, known := harness.Reopens(models[record.Str("orchestrator")].Harness)
+	own := models[record.Str("orchestrator")].Harness
+	restart, known := harness.Reopens(own)
 	workers, complaint, crewed := crew(record.Get("workers"), models)
 	created, dated := number(record.Get("created"))
-	// as launched, or as reconcile leaves a record whose harness proves no conversation it names
-	own := models[record.Str("orchestrator")].Harness
-	owned, _ := harness.Owns(own, record, record.Str("conversation"))
 	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
-		!text(record.Get("conversation")) {
+		!text(record.Get("conversation")) || !harness.RecordReady(own, record) {
 		return Seat{}, false
 	}
-	if owned { // a conversation its harness proves comes back with it (orch.listing's `restart`)
+	if owned, _ := harness.Owns(own, record, record.Str("conversation")); owned {
 		restart = ""
 	}
 	// what a record naming reviewers may hold otherwise is config._validate_session's to judge
@@ -308,8 +303,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	}
 	seat := Seat{Name: name, Word: "idle", Tally: "no runs yet", Orchestrator: record.Str("orchestrator"), Workers: workers,
 		Created: created, restart: restart, repo: record.Get("repo"), infer: !record.Has("repo"),
-		own:     models[record.Str("orchestrator")].Harness,
-		unowned: restart == "" && !conversationOwned(models[record.Str("orchestrator")].Harness, record), reconcileFields: harness.Reconciled(own, record)}
+		own: own, unowned: restart == "" && !conversationOwned(own, record)}
 	if complaint != "" {
 		seat.Orchestrator, seat.Workers = "?", "?"
 		seat.Warning = filepath.Join(state, "session-"+name+".json") + ": " + complaint
@@ -420,12 +414,11 @@ func (home Home) Announce(now time.Time) error {
 // names none.
 func reconcile(state string, records []Seat, infer bool) error {
 	for _, seat := range records {
+		if harness.RecordReadOnly(seat.own) {
+			continue
+		}
 		var fields []field
-		if seat.reconcileFields != nil {
-			for _, key := range seat.reconcileFields.Keys() {
-				fields = append(fields, field{key, seat.reconcileFields.Get(key)})
-			}
-		} else if seat.restart != "" && !seat.unowned {
+		if seat.restart != "" && !seat.unowned {
 			fields = append(fields, field{"resumable", false})
 		}
 		if infer && seat.infer {

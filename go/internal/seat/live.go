@@ -100,8 +100,8 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 		return Live{}, false
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
-	conversation, cwd, account := record.Str("conversation"), record.Str("cwd"), record.Str("account")
-	recorded, kept := harness.RecordedError(seat.own, conversation, cwd, account)
+	conversation, cwd := record.Str("conversation"), record.Str("cwd")
+	recorded, kept := harness.RecordedError(seat.own, record)
 	line := recorded
 	if !kept {
 		line = outputLine(seen.rules.Said(tail))

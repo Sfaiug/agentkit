@@ -29,11 +29,11 @@ type plugin struct {
 	conversation func(record map[string]any) string
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
 	owns func(record *run.Object, conversation string) bool
-	// reconcile is what a listing writes into a seat's record first (its plugin's `reconcile`), keys
-	// the record keys it writes beyond everyone's, and kept the state/ files it keeps beside them.
-	reconcile func(record *run.Object) *run.Object
-	keys      []string
-	kept      *regexp.Regexp
+	// record checks a record Go leaves to Python to reconcile; false hands it back before writing.
+	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
+	record func(record *run.Object) bool
+	keys   []string
+	kept   *regexp.Regexp
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
