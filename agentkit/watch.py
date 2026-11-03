@@ -7320,6 +7320,7 @@ def say(dry_run, log, text, url, session, merged=False):
 AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
 AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
+LIVE_INTERVAL = 15  # seconds after a probe ends, so slow probes never overlap
 # The spaces str.strip strips beyond ASCII, in UTF-8: those of three bytes, and all of them.
 WIDE_SPACE_3 = rb"\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80"
 WIDE_SPACE = rb"\xc2[\x85\xa0]|" + WIDE_SPACE_3
@@ -7383,9 +7384,9 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
 
 def awaiting_live(state, now=None):
     """A merged run whose project proves itself live (`health:`) and has not yet: ak's own
-    probe, read every tick, so its seat has nothing to do but wait on it -- the stop hook lets
-    the turn end on it and the seat's ladder reads it as working.  Whether the project proves
-    itself is the one record the merge left (`merge_record`) and the tick keeps until it
+    probe, followed until it passes, so its seat has nothing to do but wait on it -- the stop
+    hook lets the turn end on it and the seat's ladder reads it as working. Whether the project
+    proves itself is the one record the merge left (`merge_record`) and health followers keep until it
     passes (`after_merge_health`); nothing is read again here."""
     now = time.time() if now is None else now
     finished = state.get("finished_at")
@@ -7394,6 +7395,53 @@ def awaiting_live(state, now=None):
             or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
         return False
     return bool((state.get("health") or {}).get("command"))
+
+
+def start_live_probe(run_dir):
+    """Follow this merge independently of its run; a missed start leaves the tick as backstop."""
+    env = config.child_env()
+    for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
+                config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
+        env.pop(key, None)
+    env["AK_RUN_DEPTH"] = "0"
+    try:
+        orch.start_in_slice(
+            [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
+            f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
+            target_slice=orch.run_slice_name())
+    except (OSError, config.Error):
+        pass  # the tick still follows it
+
+
+def follow_live(run_dir):
+    """One follower per run, bounded by the same window and probe timeout as the tick.
+
+    Only health runs here: updating agentkit's live checkout remains the tick's go_live.
+    """
+    with (run_dir / "live.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+        began = time.time()
+        while True:
+            st, now = run_record.read_state(run_dir), time.time()
+            if not st:
+                return 0
+            ready = st.get("finished_at") is not None
+            if not awaiting_live(st if ready else {**st, "finished_at": began}, now):
+                return 0
+            if not ready:
+                # A merge precedes its ending; delivery must see that stable attempt.
+                time.sleep(0.1)
+                continue
+            sha = after_merge_sha(st.get("pr"), st, print)
+            if sha:
+                health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
+                                            now, False, print, {})
+                if health and health[0] == "passed":
+                    return 0
+            time.sleep(LIVE_INTERVAL)
 
 
 def merge_record(repo, sha, pr_url=None):
@@ -7460,14 +7508,14 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                                                checked=(run_dir, None, "health", sha))
             passed, output = probes[probe]
             with run_record.record(run_dir) as current:
-                if passed:
+                if passed or current.get("live_at"):
                     current.setdefault("live_at", now)
                     current.pop("health", None)
                 else:
                     current["health"] = {"command": command, "output": output}
                 st.clear()
                 st.update(current)
-            if not passed:
+            if not st.get("live_at"):
                 return "pending", None, None
         else:
             # One typed line: a line break would reach the seat as Enter and send half of it.
@@ -7478,6 +7526,11 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
         if not st.get("live_notified"):
             log(f"would tell its launching seat: {handback.live_sentence(st, run_dir)}")
         return "passed", None, None
+    return live_passed(run_dir, st, now, log, records)
+
+
+def live_passed(run_dir, st, now, log, records=None):
+    """The tick and the detached follower deliver a pass under the same delivery lock."""
     history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     # A prompt may have carried the notice since this tick read the run. The deciding,
     # typing and mark share its delivery lock, so either path tells it once.
@@ -8214,6 +8267,10 @@ def local_passes(state, dry_run, log):
 
 
 def main(argv):
+    if argv[:1] == ["--live"]:
+        if len(argv) != 2 or Path(argv[1]).name != argv[1] or argv[1] in (".", ".."):
+            raise config.Error("usage: ak watch --live RUN")
+        return follow_live(config.RUNS / argv[1])
     if command_help.show("watch", argv):
         return 0
     dry_run = argv == ["--dry-run"]

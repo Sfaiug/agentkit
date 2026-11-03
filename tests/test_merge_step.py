@@ -19,7 +19,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
 from fixtures.landing import landing
-from agentkit import config, deliver as delivery, gate, gc, gitcall, handback, host, land, notify, roundloop, run, usage
+from agentkit import config, deliver as delivery, gate, gc, gitcall, handback, host, land, notify, roundloop, run, usage, watch
 from agentkit import turns as model_turns     # `turns` is a list in the tests below
 from agentkit import record
 
@@ -149,6 +149,7 @@ class MergeStep(unittest.TestCase):
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
         config.ensure_dirs()
         self.stack.enter_context(patch.object(land, "start_line"))
+        self.stack.enter_context(patch.object(watch, "start_live_probe"))
         def checks(cmds, wt, out, *args, **kwargs):
             out.parent.mkdir(parents=True, exist_ok=True)
             return True, "$ true\n[exit 0]\n"
