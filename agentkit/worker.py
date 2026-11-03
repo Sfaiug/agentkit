@@ -666,23 +666,27 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
             stop(proc, KILL_GRACE)
 
     def watch_output():
-        last, seen, longest, held = started, previous, 0, started
+        last, seen, longest, held, bound = started, previous, 0, started, False
         starting = began is not None
         while not finished.is_set():
             now = time.monotonic()
             current = heard()
             if current != seen:
                 longest = max(longest, now - last)
-                last, seen = now, current
+                last, seen, bound = now, current, False
             if starting:
                 last = now
                 try:
                     starting = not began() and now - started < BOX_START
                 except OSError:     # the box's own directory closed: only its command can do that
                     starting = False
-            if (silence is not None and now - last >= silence
-                    and declared(proc.pid)):
-                held = now      # silence counts from the last poll a declared bound held
+            if silence is not None and now - last >= silence:
+                # A bound ends between the last scan that found it and the first that finds it
+                # gone, a poll and a slow scan of the process table apart on a busy host: silence
+                # counts from that first scan's end, never from before the bound's.
+                was, bound = bound, declared(proc.pid)
+                if was or bound:
+                    held = time.monotonic()
             reason = ("abort" if abort is not None and abort() else
                       "ceiling" if limit is not None and now - started >= limit else
                       "silence" if silence is not None and now - max(last, held) >= silence
