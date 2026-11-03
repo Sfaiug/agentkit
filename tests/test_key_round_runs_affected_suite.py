@@ -2,9 +2,9 @@
 
 A `tests:` line naming `AK_CHANGED` opts in: after the executor hands in, every round runs that
 suite besides the task's own checks, with `AK_CHANGED` naming a file of the paths the change
-edits relative to the target, on the round's tree merged onto the target as it is now, or as
-the run last integrated it where the target has since moved with a conflicting change, which
-landing resolves outside the task budget.  A red goes back to the executor as any failing
+edits relative to the target, on the round's tree merged onto the target as it is now.
+Overlapping moves are rebased in before the checks, outside the task budget.
+A red goes back to the executor as any failing
 check does, unless every test that failed fails on the target alone too (`AK_ONLY`), which ak
 names.  A line without `AK_CHANGED` runs nothing extra.
 The fake suite here treats each file in tests/ as a test failing when it says bad, and runs
@@ -165,8 +165,7 @@ class TargetsOwnRed(Round, unittest.TestCase):
 
 class ConflictingSibling(Round, unittest.TestCase):
     """A sibling merges a change to the file the executor edits while it works, and moves the
-    suite to a script only it holds: the conflict is landing's to resolve, so the round judges
-    the change on the target it started from, by that target's own suite."""
+    suite to a script only it holds: the round resolves the conflict before running that suite."""
 
     @classmethod
     def during(cls):
@@ -178,14 +177,15 @@ class ConflictingSibling(Round, unittest.TestCase):
                    "GIT_EDITOR=true git rebase --continue",
              "final": "Resolved.", "hand_in": [["done"]]})
 
-    def test_the_round_passes_and_landing_resolves_the_conflict_outside_the_task_budget(self):
+    def test_the_round_runs_the_new_suite_after_resolving_the_conflict_without_a_task_round(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
         self.assertEqual(len(self.state["round_summaries"]), 1)
         self.assertEqual(self.roles(), ["executor", "fixer"])
         log = (self.run_dir / "log.txt").read_text()
-        self.assertIn(f"origin/main moved to {self.sibling[:12]} with a change conflicting", log)
+        self.assertIn(f"rebasing onto origin/main ({self.sibling[:12]})", log)
         self.assertIn("conflict round 1/", log)
+        self.assertIn('$ sh suite-next.sh "$AK_CHANGED"', self.checks())
         self.assertEqual(self.rig.origin("show", "main:widget.txt"), "v3 v2")
 
 
