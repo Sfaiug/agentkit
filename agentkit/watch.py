@@ -6559,15 +6559,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # every pick below gives a role, so each harness is asked whether it can run:
                 # once a pass, and only when a run waits on a pick, never on an empty tick
                 providers, asked = usage.readiness(cfg, providers), True
-            bound, review_bound = config.role_groups(
-                cfg, staffing.run_workers(cfg, state), state.get("reviewers"))
-            bound = bound if bound is not None else workers
-            review_bound = review_bound if review_bound is not None else bound
             # one line per worker the pick leaves out, for the run's own log -- written only
             # when this pass resumes it, so a run waiting through tick after tick gets none
             skipped = []
-            available = staffing.executable_models(cfg, providers, bound, now, skipped.append,
-                                                 reviewers=review_bound)
             with run_record.record(run_dir) as state:
                 if state.get("state") != "exhausted":
                     continue
@@ -6605,47 +6599,29 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             f"{wt or '(none)'} is gone; leaving it for an explicit resume")
                     continue
                 saved = state.get("executor")
-                # a PR review runs no executor, and a run whose review is pending has its
-                # executor's work done: its reviewer is all either waits for
-                if transport or state.get("review_pr") or state.get("review_pending"):
+                if not staffing.resume_needs_executor(state):
                     if (transport and isinstance(last, (int, float)) and not isinstance(last, bool)
                             and 0 <= now - last < transitions.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
+                    bound, review_bound = config.role_groups(
+                        cfg, staffing.run_workers(cfg, state), state.get("reviewers"))
+                    bound = bound if bound is not None else workers
+                    review_bound = review_bound if review_bound is not None else bound
                     reviewers = staffing.reviewable_models(cfg, providers, review_bound, now,
                                                           executor=saved)
                     if not reviewers:
-                        continue  # no reviewer is eligible yet; the run keeps waiting, silently
-                    # the executor, if any, never died, so it stays: the resume re-picks the
-                    # reviewer, which is the one this run waited for.
-                    chosen, why = saved, f"reviewer {reviewers[0][0]} eligible again"
-                    reviewer = None
-                else:
-                    candidates = ([pair for pair in available if pair[0] != retry_model]
-                                  if retry_waiting else available)
-                    if not candidates:
-                        continue  # every eligible provider is still dry or is the waiting refuser
-                    kept = next(((n, p) for n, p in candidates if n == saved), None)
-                    if kept is not None:
-                        chosen, provider = kept
-                        reviewer = None          # a kept executor keeps its pair as it is
-                    else:
-                        # A handover re-picks both roles as one pair (`staffing.best_pair`):
-                        # keeping the reviewer would force a dearer executor on the run.
-                        # Nothing resumes until a legal pair exists; a run with none left
-                        # stays parked and waits for one.
-                        review_order = staffing.ready_order(cfg, providers, review_bound,
-                                                           role="reviewer", quiet=True)
-                        pair = staffing.best_pair(cfg, [n for n, _ in candidates],
-                                                 review_order)
-                        if pair is None:
-                            chosen, provider, reviewer = None, None, None
-                        else:
-                            chosen, reviewer = pair
-                            provider = next(p for n, p in candidates if n == chosen)
-                    if not chosen:
                         continue
-                    why = f"{provider} window refilled"
+                    chosen, reviewer = saved, None
+                    why = f"reviewer {reviewers[0][0]} eligible again"
+                else:
+                    try:
+                        chosen, reviewer = staffing.resume_models(
+                            cfg, providers, state, skipped.append, workers=workers, now=now,
+                            skip=(retry_model,) if retry_waiting else ())
+                    except turns.QuotaDry:
+                        continue
+                    why = f"{config.model(cfg, chosen)['provider']} window refilled"
                 if dry_run:
                     log(f"would resume {run_dir.name}: {why}")
                     continue

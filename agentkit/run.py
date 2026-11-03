@@ -40,7 +40,7 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
     start_followups, task_project, write_result)
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
-    refuse_unready, replace_reviewer, reviewer_order, run_workers, same_model, started_round)
+    refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
@@ -337,40 +337,18 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
         if not review_pass(state, cfg):
-            # A saved reviewer must still be eligible. The executor keeps its work's identity.
-            if reviewer not in reviewer_order(cfg, executor, order):
-                reviewer = None
-            # Nor is a saved executor: relaunching a model whose provider is spent would only
-            # earn the same refusal, so the work is handed over here exactly as it is mid-round,
-            # note and all -- the round it was cut off in resumes with another model in it.
-            spent, why = usage.model_exhausted(cfg, executor, providers)
-            gone = usage.unready(cfg, executor, providers)
-            if spent or gone:
-                log(f"saved executor {executor} cannot run: {why or gone}")
-                try:
-                    picked = next_executor(
-                        cfg, providers, {config.model(cfg, executor)["provider"]} if spent
-                        else set(), reviewer, log, workers=workers, reviewers=reviewers)
-                except (Exhausted, config.Error):
-                    # nowhere to hand the saved turn to: keep the saved pair and let the
-                    # round itself surface the quota, exactly as a fresh launch would.
-                    picked = None
-                if picked is None:
-                    handed = None
-                    executor, reviewer = pick_models(cfg, providers, executor, reviewer,
-                                                     log, resuming=True, repo=repo,
-                                                     workers=workers, reviewers=reviewers)
-                else:
-                    handed = executor
-                    executor, reviewer = picked
-                    note_handover(state, handed, "ran dry" if spent else gone,
-                                  started_round(run_dir, state), to=executor, reason="dry")
-                    log(f"handing executor to {executor}: {handed} "
-                        + ("ran dry" if spent else gone))
+            saved = executor
+            executor, reviewer = resume_models(cfg, providers, state, log, repo=repo)
+            if executor != saved:
+                spent, why = usage.model_exhausted(cfg, saved, providers)
+                gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
+                log(f"saved executor {saved} cannot run: {why or gone}")
+                handed = saved
+                note_handover(state, handed, "ran dry" if spent else gone,
+                              started_round(run_dir, state), to=executor, reason="dry")
+                log(f"handing executor to {executor}: {handed} "
+                    + ("ran dry" if spent else gone))
             else:
-                executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
-                                                 resuming=True, repo=repo, workers=workers,
-                                                 reviewers=reviewers)
                 if reviewer is not None and same_model(cfg, executor, reviewer):
                     # A saved self-review steps aside when a better pair is ready: its own
                     # model reviews only as the last choice, never while another pair runs.
@@ -1904,6 +1882,19 @@ def resume_run(argv):
     if not state.get("review_pr"):
         _, body, _ = taskfile.parse_task(run_dir / "task.md")
         taskfile.done_when(body, run_dir / "task.md")
+    if state.get("state") == "exhausted" and state.get("quota_dry"):
+        try:
+            resume_models(cfg, collect_usage(cfg), state)
+        except QuotaDry as exc:
+            log = logger(run_dir)
+            with gate.slot_lock(), run_record.recovery_lock(run_dir):
+                if run_record.read_state(run_dir) != expected:
+                    raise config.Error("the run changed while choosing recovery; select it again")
+                park_exhausted(state, exc)
+                state["slot_waiting"] = False
+                run_record.save_state(run_dir, state)
+            log(f"exhausted: {exc}")
+            return 1
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
