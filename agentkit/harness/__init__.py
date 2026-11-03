@@ -365,6 +365,13 @@ class Harness:
         facts["none"] = bool(facts.get("none"))
         return facts
 
+    def lost(self, said):
+        """Whether a failed turn's own output says the harness holds no such conversation: its
+        `[stall]` `lost` words, as `failure` reads the others."""
+        block = config.manifest(self.name).get("stall")
+        listed = block.get("lost") if isinstance(block, dict) else None
+        return any(isinstance(word, str) and says(said, word) for word in listed or ())
+
     def failure(self, said, ran=True):
         """What a failed turn's own output says, in its `[stall]` words: (outcome, word).
 
