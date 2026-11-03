@@ -196,13 +196,14 @@ def read(prompt, default=None):
     return default if answer is None else answer.strip()
 
 
-def rows(cfg):
-    """The seats, their runs and their groups, as the main screen reads them (`Live.read`)."""
+def rows(cfg, kept=None):
+    """The seats, their runs and their groups, as the main screen reads them (`Live.read`), its
+    rows `kept` between its reads (`v5o_groups`)."""
     with look.one_look():              # one look a read: filing, looking, drawing
         found = orch.listing()
         records = run_records(rest_may_lag=True)
         orch.file_projectless(found, [state for _, state in records])
-        return found, records, v5o_groups(cfg, found, records, look=False)
+        return found, records, v5o_groups(cfg, found, records, look=False, kept=kept)
 
 
 class Live:
@@ -241,6 +242,7 @@ class Live:
         self.asked, self.looking = threading.Event(), False   # a read asked for, and a look
         self.last = None                 # where each read leaves the seats and their groups
         self.read_from = None            # the seats and runs it read them from, a pass's too
+        self.kept = {}                   # each seat's row as its reads last decided it
         self.said = []                   # what maintenance said that no notice has shown yet
         self.tidied = threading.Event()  # a notice can land before maintenance's effects do
 
@@ -363,7 +365,7 @@ class Live:
             if not self.watching.is_set():
                 return
             leaves = self.leaves
-        found, records, groups = rows(self.cfg)
+        found, records, groups = rows(self.cfg, self.kept)
         with self.reading:
             if self.leaves != leaves:
                 return
@@ -1268,7 +1270,7 @@ def _silent(runs, now):
 FOLDS = Folds()
 
 
-def v5o_groups(cfg, found, records=None, now=None, look=True):
+def v5o_groups(cfg, found, records=None, now=None, look=True, kept=None):
     """The projects and their seats, in the order their numbers go (`orch.numbered`).
 
     A project is a checkout under ~/code, or agentkit's own at ~/agentkit -- one of
@@ -1286,6 +1288,14 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     conversation to resume into -- in its order, so every seat's number is its place on the
     screen; a seat the owner stopped (`closed`, `orch.ghost`) comes after them, numbered on
     the past screen (`show_past`), and has no row under its project.
+
+    `kept`, a screen's own between its reads, holds each seat's row as a read decided it, with the
+    stamp it was decided from (`stamps`) and when, on time.monotonic: a read without `look` draws
+    it again while the stamp is the same and it is younger than `open_runs.CEILING`, so the
+    seats whose inputs did not change cost a read next to nothing (the owner, 2 Nov 2026), and
+    what the stamp misses -- the clock, other seats' runs, the meters -- is a minute late at most.
+    Ages are drawn from `since`, so a kept row still ages on screen; a row is never changed once
+    made, so every read's list is its own.
     """
     at = time.time() if now is None else now
     records = run_records() if records is None else records
@@ -1294,17 +1304,59 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     index, mine, silent_map = FOLDS.of(records, at)
     jobs_cache = {}
     infos = []
+    keeping = kept is not None and not look
+    stamped, clock, held = (stamps(cfg, found, mine) if keeping else {}), time.monotonic(), {}
     for number, session in enumerate(found, 1):
         if session.get("closed"):
             continue          # stopped: numbered after every seat with a row, on the past screen
-        infos.append(v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
-                                   at, index, None, look, mine))
+        stamp, row = stamped.get(session["name"]), kept.get(session["name"]) if keeping else None
+        if row is None or row[0] != stamp or clock - row[2] >= open_runs.CEILING:
+            row = stamp, v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache,
+                                       at, index, None, look, mine), clock
+        held[session["name"]] = row
+        infos.append(row[1])
+    if keeping:
+        kept.clear()
+        kept.update(held)          # a seat no longer listed, or listed by a new name, goes
     stands = orch.listed()       # ~/code looked at once a read
     groups = by_project(infos, stands)
     for checkout in orch.checkouts(stands=stands):     # a project with no seat shown has no heading
         if str(checkout) in groups and switches_command(checkout):
             groups[str(checkout)]["switches"] = switches(checkout) or []
     return tallied(list(groups.values()), infos, silent_map)    # each where its first seat is
+
+
+def stamps(cfg, found, mine):
+    """Each listed seat's stamp of what its row is decided from (`v5o_groups`), taken before it
+    is: its number and listing, its runs (`mine`), the config and what the tick last found of
+    logins and of its stalls, and the stat of each of its files under STATE, under every name
+    that leads to it (`config.session_aliases`)."""
+    from . import watch   # here, not at the top: watch imports this module
+    leads, files = config.session_aliases(), {}
+    try:
+        listed = sorted(parsed.read(config.STATE, os.listdir))
+    except OSError:
+        listed = []
+    for entry in listed:
+        owner = config.seat_file_owner(entry)
+        if owner:
+            files.setdefault(leads.get(owner[1], owner[1]), []).append(entry)
+
+    state = os.fspath(config.STATE)
+
+    def stat(entry):
+        try:
+            info = os.stat(os.path.join(state, entry))     # no Path: a read stats every file
+        except OSError:
+            return entry, None
+        return entry, info.st_ino, info.st_mtime_ns, info.st_ctime_ns, info.st_size
+
+    saved = look.once("watch state", watch.load_state)
+    every = cfg, saved.get("auth_out"), saved.get("gh_out"), saved.get("worker_tokens")
+    return {session["name"]: (every, number, dict(session), saved["stalls"].get(session["name"]),
+                              tuple(mine.get(session["name"], ())),
+                              tuple(map(stat, files.get(session["name"], ()))))
+            for number, session in enumerate(found, 1)}
 
 
 def tallied(ordered, infos, silent_map):
