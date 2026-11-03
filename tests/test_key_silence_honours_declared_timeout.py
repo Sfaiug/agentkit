@@ -79,8 +79,10 @@ class SilenceHonoursDeclaredTimeout(unittest.TestCase):
 
     def test_a_declared_timeout_ends_the_command_by_itself(self):
         # By the signal its timer sends, once the silence is over: no timer can then race the limit.
+        # The shell becomes the sleep, the very process `timeout` signals: a child forked as its
+        # signal goes out can miss it, and live on holding the box's output open.
         verdict = self.check(
-            f"timeout 600 sh -c '{HUSH}; sleep 5; {SPEAK}; kill -ALRM $PPID; sleep 60'\n")
+            f"timeout 600 sh -c '{HUSH}; sleep 5; {SPEAK}; kill -ALRM $PPID; exec sleep 60'\n")
         self.assertEqual(verdict["fix"]["tests"], ["slow.sh"], verdict)
         self.assertNotIn(KILLED, verdict["fix"]["line"], verdict)
 
