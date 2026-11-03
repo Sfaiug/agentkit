@@ -1672,7 +1672,20 @@ def unnamed(code, only, ran, output):
     return 1
 
 
-def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
+def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwargs):
+    """Run a suite and keep its named reds and flakes beside its check rows."""
+    reds, flakes = {}, []
+    try:
+        return _run_suite(command, limit, confirmed=reds, flaky=flakes, checked=checked, **kwargs)
+    finally:
+        if confirmed is not None:
+            confirmed.update(reds)
+        if flaky is not None:
+            flaky.extend(flakes)
+        history.test_reds(checked, reds, flakes)
+
+
+def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, changed=None, flaky=None, named=None, checked=None, asked=None,
               raw=None, **kwargs):
