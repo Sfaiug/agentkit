@@ -21,7 +21,7 @@ from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
 from . import (beside_review, config, gitcall, hand_in, handback, history, prompts, record as run_record,
-               staffing, task as taskfile, transitions, turns, worker)
+               staffing, suite_times, task as taskfile, transitions, turns, worker)
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
@@ -2386,12 +2386,18 @@ def final_check(lp, upstream):
         else:
             ok_every, text_every = True, ""
         left = lp.done_when_limit - (time.monotonic() - began)
+        timings = {}
         ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
-            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
+            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True,
+            timings=timings) if cmds_once else (True, "")
         gate.split_suite_run(lp, suite)
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
+        if ok and (failure := suite_times.refusal(
+                lp.wt, lp.state.get("target_sha") or upstream, suite, timings)):
+            ok = False
+            text += "\n\n" + failure
         if (not clean or gitcall.commit_identity(lp.wt) != identity
                 or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
             ok = False
