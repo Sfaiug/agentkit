@@ -205,7 +205,10 @@ func liveSeat(name string, now time.Time) (Home, Seat, bool) {
 // LookedLive is the look at a seat its panes still run on, under its announce lock from the reading
 // to the word, as the wait for that lock can outlast what the home held: what the listing
 // reconciles, watch.announce_state's look, what its last answer moved, and the word published.
-func LookedLive(state, name string) (Seat, error) {
+func LookedLive(state, name string) (Seat, error) { return lookedLive(state, name, true) }
+
+// lookedLive is LookedLive, where `follow` has what the seat's last answer moved followed first.
+func lookedLive(state, name string, follow bool) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
 		now := time.Now()
@@ -227,6 +230,9 @@ func LookedLive(state, name string) (Seat, error) {
 		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
 		if err := seat.decided(state, found, seconds(now), attached != "" && attached != "0"); err != nil {
 			return err
+		}
+		if !follow {
+			return seat.published(state, now, home.models)
 		}
 		return seat.announced(state, now, home.models)
 	})

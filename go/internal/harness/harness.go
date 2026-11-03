@@ -56,6 +56,8 @@ type plugin struct {
 	recordTurn func(out, state, account string)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
 	registerMCP func(servers []Server) (string, error)
+	// title is SessionTitle's: nil where its conversation keeps no title Go reads.
+	title func(record *run.Object, cache string) (any, *run.Object)
 }
 
 var plugins = map[string]plugin{}

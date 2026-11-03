@@ -1,0 +1,172 @@
+package tick
+
+import (
+	"math"
+	"math/big"
+	"os"
+	"slices"
+	"strconv"
+	"time"
+
+	"agentkit/internal/config"
+	"agentkit/internal/notify"
+	"agentkit/internal/run"
+	"agentkit/internal/seat"
+	"agentkit/internal/usage"
+)
+
+// seenEvery is how long a live seat's record goes before it is stamped again (orch.SEEN_EVERY).
+const seenEvery = 300
+
+// every is whether the tick reads every seat the home holds, and each reads as ok says.
+func (t *ticking) every(ok func(seat.Live) bool) func() bool {
+	return func() bool {
+		lives, known := t.seats()
+		return known && !slices.ContainsFunc(lives, func(live seat.Live) bool { return !ok(live) })
+	}
+}
+
+// seatPaths is where each seat's session works, as tmux says.
+func (t *ticking) seatPaths() (paths []string) {
+	lives, _ := t.seats()
+	for _, live := range lives {
+		if live.Path != "" {
+			paths = append(paths, live.Path)
+		}
+	}
+	return paths
+}
+
+// midturn is whether the seat holds a line its reopening owes it, for a move to another account or
+// for anything else (watch.continue_turns).
+func midturn(live seat.Live, account bool) bool {
+	mark := live.File.Dict("midturn")
+	return mark != nil && mark.Truthy("account") == account
+}
+
+// waitsOnNothing is whether no `ak wait` of the seat's is left to end and tell (watch.wait_over).
+func waitsOnNothing(live seat.Live) bool {
+	wait := live.File.Dict("wait")
+	if wait == nil {
+		return true
+	}
+	_, named := wait.Get("on").(string)
+	return !named || wait.Truthy("told")
+}
+
+// healthy is whether the health row's look at the seat is all it does (watch.health): nothing it
+// stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
+// no notice to answer by its output, and no account to move it to or off.
+func healthy(live seat.Live) bool {
+	return live.Stall == nil && live.Login == nil && !live.Stuck && live.Bound && titleKept(live) &&
+		notify.Last(live.Name) == nil && stays(live)
+}
+
+// titleKept is whether the seat's title is the name it has, which the owner has not retitled
+// (watch.follow_title, sync_title).
+func titleKept(live seat.Live) bool {
+	if live.Record.Str("session_title") != live.Name || live.Record.Has("title_sync") {
+		return false
+	}
+	title, _ := live.Title.(string)
+	return title == "" || title == live.Name || slices.Contains(live.Record.List("title_superseded"), any(title))
+}
+
+// stays is whether watch.seat_account leaves the seat on its account: its provider lists one
+// subscription and the seat is on the one it opened on, with room on it, and its harness wrapped no
+// turn up for want of any.
+func stays(live seat.Live) bool {
+	models, err := config.Models()
+	if err != nil {
+		return false
+	}
+	model := live.Record.Str("orchestrator")
+	accounts, err := config.Accounts(models[model].Provider)
+	readings, unread := usage.Cached()
+	home := func(key string) string {
+		if account := live.Record.Str(key); account != "" {
+			return account
+		}
+		return "default"
+	}
+	return err == nil && len(accounts) == 0 && home("account") == home("home_account") && unread == nil &&
+		readings.Spent(model) == "" && !live.WrappedUp
+}
+
+// health is the seat health row on a home of seats with nothing to recover: each looked at and its
+// word published, as the later rows read it.
+func (t *ticking) health() error {
+	lives, _ := t.seats()
+	for _, live := range lives {
+		if err := seat.Health(live.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// revive is the seat revival row where every seat is up (watch.revive_seats): a seat seen live
+// again forgets the deaths it was reopened after, so its next is a new one.
+func (t *ticking) revive() error {
+	lives, _ := t.seats()
+	for _, live := range lives {
+		if live.File.Truthy("reopened_at") {
+			if err := seat.Write(live.Name, "reopened_at", nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// stamp is the exit clocks row where every seat is up (orch.stamp): a record not seen within
+// seenEvery, or holding an exit clock, is seen now, its clock gone.
+func (t *ticking) stamp() error {
+	lives, _ := t.seats()
+	now := t.clock().Unix()
+	for _, live := range lives {
+		err := seat.Update(live.Name, func(record *run.Object) bool {
+			seen, dated := run.Num(record.Get("seen"))
+			if !record.Truthy("exited_since") && dated && !(float64(now)-seen > seenEvery) {
+				return false
+			}
+			record.Set("seen", run.Number(strconv.FormatInt(now, 10)))
+			record.Delete("exited_since")
+			return true
+		})
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// awake is whether idle sleep leaves the seat be (sleep.tick): it does not rest at its prompt, with
+// nobody in it, past its harness's prompt cache, nor while memory may be tight, which Go does not
+// read and the tests' `AK_MAX_RUNS=0` turns off as it turns off Python's.
+func awake(live seat.Live) bool {
+	began, dated := run.Num(live.Began)
+	if live.State != "at_prompt" || live.Attached || !dated || began == 0 {
+		return true
+	}
+	if os.Getenv("AK_MAX_RUNS") != "0" {
+		return false
+	}
+	launched, _ := run.Num(live.Record.Get("launched"))
+	cache := math.Inf(1)
+	block, err := config.Section(live.Own, "sleep")
+	switch seconds := block["cache"].(type) {
+	case *big.Int:
+		cache, _ = new(big.Float).SetInt(seconds).Float64()
+	case float64:
+		cache = seconds
+	}
+	return err == nil && !(epoch(time.Now())-max(began, launched) > cache)
+}
+
+// declaresNoAlive is whether the project the seat is filed under declares no `alive:` on its
+// default branch as it stands, which the alive row would read (alive.tick).
+func declaresNoAlive(live seat.Live) bool {
+	repo := live.Record.Str("repo")
+	return repo == "" || !declares(repo, "alive")
+}

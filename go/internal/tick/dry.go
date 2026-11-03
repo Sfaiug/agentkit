@@ -19,7 +19,7 @@ func Dry(out io.Writer) bool {
 		return false
 	}
 	health, _, ok := Health()
-	if !ok || !idle(true) {
+	if !ok || !idle(&ticking{}, true) {
 		return false
 	}
 	value, why, err := gh.JSON(run.Runs(), "api", "user")

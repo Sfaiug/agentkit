@@ -25,12 +25,16 @@ import (
 // gcEvery is how often a repository is collected, Python's gc.GC_INTERVAL.
 const gcEvery = 86400
 
-// housekeeping is the git housekeeping row on a home with no run and no seat
-// (gc.git_housekeeping): each checkout's repository once, kept from collecting itself and
-// collected in the foreground once a day while nothing holds it; a busy one waits for a later
-// tick.
+// housekeeping is the git housekeeping row on a home with no run (gc.git_housekeeping): each
+// repository a checkout or a seat works in once, kept from collecting itself and collected in the
+// foreground once a day while nothing holds it; a busy one waits for a later tick.
 func (t *ticking) housekeeping() error {
 	checkouts, _ := seat.Checkouts()
+	for _, path := range t.seatPaths() {
+		if !slices.Contains(checkouts, path) {
+			checkouts = append(checkouts, path)
+		}
+	}
 	slices.Sort(checkouts)
 	seen := map[string]bool{}
 	for _, repo := range checkouts {
@@ -69,6 +73,8 @@ func (t *ticking) collect(repo, common string) error {
 	if err != nil {
 		return err
 	}
+	// a seat's session works where it says, whatever this tick can see of its processes
+	paths = append(paths, t.seatPaths()...)
 	trees := worktrees(repo)
 	if !known || len(trees) == 0 || slices.ContainsFunc(trees, func(tree string) bool {
 		return slices.ContainsFunc(paths, func(path string) bool { return path == tree || strings.HasPrefix(path, tree+"/") })
@@ -149,8 +155,8 @@ func worktrees(repo string) []string {
 	return trees
 }
 
-// busyPaths is every path a process of this user holds (gc.git_busy_paths, on a home with no run
-// and no seat): its working directory and open files, and of one hiding those, as a login's own
+// busyPaths is every path a process of this user holds (gc.git_busy_paths, on a home with no run):
+// its working directory and open files, and of one hiding those, as a login's own
 // daemons do, the absolute words of its command line. Not known where one hides even that.
 func busyPaths() (paths []string, known bool, err error) {
 	entries, err := os.ReadDir("/proc")

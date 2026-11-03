@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -37,11 +38,17 @@ func declares(checkout, key string) bool {
 	return err != nil || task.FrontValue(text, key) != ""
 }
 
-// fetchProjects is the project rules row on a home with no seat (orch.fetch_projects): each
-// checkout's every branch fetched and origin/HEAD set again to origin's default branch, which
-// the later rows read. One that fails is named, after every other is fetched.
-func fetchProjects() error {
+// fetchProjects is the project rules row (orch.fetch_projects): each checkout's, and each project's
+// a seat is filed under, every branch fetched and origin/HEAD set again to origin's default branch,
+// which the later rows read. One that fails is named, after every other is fetched.
+func (t *ticking) fetchProjects() error {
 	checkouts, _ := seat.Checkouts()
+	lives, _ := t.seats()
+	for _, live := range lives {
+		if repo := live.Record.Str("repo"); repo != "" && !slices.Contains(checkouts, filepath.Clean(repo)) {
+			checkouts = append(checkouts, filepath.Clean(repo))
+		}
+	}
 	slices.Sort(checkouts)
 	var failed []string
 	for _, repo := range checkouts {

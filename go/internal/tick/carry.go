@@ -28,6 +28,7 @@ type ticking struct {
 	clock       func() time.Time
 	slowest     time.Duration
 	slowestName string
+	seats       func() ([]seat.Live, bool) // read once a tick, before any step writes
 }
 
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding
@@ -40,7 +41,8 @@ func Carry(out, errOut io.Writer) bool {
 	if Overlap(out, errOut) {
 		return true
 	}
-	if runtime.GOOS == "windows" || !idle(false) {
+	t := &ticking{clock: time.Now}
+	if runtime.GOOS == "windows" || !idle(t, false) {
 		return false
 	}
 	// asked before any pass, where Python asks after them: whether Go carries the tick hangs on it,
@@ -70,7 +72,7 @@ func Carry(out, errOut io.Writer) bool {
 	if !ok || !quiet(state) {
 		return false
 	}
-	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
+	t.state, t.log = state, newLog(out, errOut)
 	t.through(table(t))
 	carried := t.github(user, why, asked)
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
