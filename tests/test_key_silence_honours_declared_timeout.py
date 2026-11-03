@@ -55,6 +55,11 @@ class SilenceHonoursDeclaredTimeout(unittest.TestCase):
         verdict = self.check(f"timeout 600 sh -c '{HUSH}; sleep 5; {SPEAK}'\n")
         self.assertIn("land", verdict, verdict)
 
+    def test_a_silence_after_a_declared_timeout_counts_from_its_end(self):
+        # Shorter than the limit after the bound's end, however long after the last look found it.
+        verdict = self.check(f"timeout 600 sh -c '{HUSH}; sleep 5'; sleep 1\n")
+        self.assertIn("land", verdict, verdict)
+
     def test_a_box_slow_to_build_is_no_silence_of_the_command(self):
         verdict = self.check("true\n", box_seconds=5)
         self.assertIn("land", verdict, verdict)
