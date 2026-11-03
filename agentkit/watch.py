@@ -237,6 +237,40 @@ def tick_running():
     return None
 
 
+def tick_notice(*, since=None, line=None, ended=None, log=print):
+    """One page per stop, then one unmentioned back line, retried only while each is due."""
+    path = config.STATE / "watch.tick.page.json"
+    try:
+        # The stopped tick may hold watch.json's lock inside a pass. Its page must not wait
+        # on it; this lock only serialises notices from overlapping cron processes.
+        with path.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                stop = json.loads(path.read_text())
+            except (OSError, ValueError):
+                stop = {}
+            if since is not None:
+                if not stop or stop.get("back"):
+                    stop = {"since": since}
+                    # Keep the episode before sending: a sender killed after delivery still
+                    # owes its back line, and the outbox already owns deduplication.
+                    orch.replace_file(path, json.dumps(stop).encode())
+                notify.page(f"tick-stopped:{stop['since']}", "ak ticks", line, line=line,
+                            owed=True)
+            elif stop:
+                if notify.paged(f"tick-stopped:{stop['since']}"):
+                    from .alive import lasted
+                    back = stop.setdefault("back", ended)
+                    orch.replace_file(path, json.dumps(stop).encode())
+                    line = f"ak ticks end again after {lasted(back - stop['since'])}"
+                    if notify.page(f"tick-back:{stop['since']}", "ak ticks", line, line=line,
+                                   owed=True, mention=False):
+                        return
+                path.unlink(missing_ok=True)
+    except PASS_ERRORS as exc:
+        log(f"WARN tick notification did not run: {exc}")
+
+
 def same_file(stream, found):
     """Is that stream's descriptor the file `found` was stat'ed from."""
     try:
@@ -8186,6 +8220,10 @@ def main(argv):
     else:
         stamp_log()
         config.ensure_dirs()
+        try:
+            previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start
+        except OSError:
+            previous = None
         held = tick_lock()
         if held is None:
             pid, holding = tick_holder()
@@ -8194,6 +8232,11 @@ def main(argv):
             if holding >= TICK_HUNG:
                 log(f"WARN the tick holding the lock has been running for {minutes} min; "
                     "look at it, and kill it if it is hung")
+            # An hour is the page floor: a 36-minute tick has ended unaided here.
+            if holding >= 2 * TICK_HUNG:
+                tick_notice(since=tick_lock_path().stat().st_mtime,
+                            line=f"🔴 ak ticks stopped ending · pid {pid} has held the lock "
+                                 f"for {minutes} min", log=log)
             return 0
     # one reading of the process table for the whole tick: every seat it looks at is told
     # from a watcher loop by the same `ps`
@@ -8213,6 +8256,14 @@ def main(argv):
                 slowest = max(slowest, (took, name))
 
         try:
+            if not dry_run:
+                tick = state.get("tick")
+                since = generation(tick.get("ended_at")) if isinstance(tick, dict) else 0
+                # A recent start distinguishes repeated failures from a host or cron gap.
+                if (since and began - since >= 2 * TICK_HUNG and previous is not None
+                        and began - previous < TICK_HUNG):
+                    tick_notice(since=since, line="🔴 ak ticks stopped ending · no tick has "
+                                f"ended for {int((began - since) // 60)} min", log=log)
             for name, step, also_dry in local_passes(state, dry_run, log):
                 if also_dry or not dry_run:
                     try:
@@ -8249,3 +8300,4 @@ def main(argv):
                 state["tick"] = {"started_at": began, "ended_at": time.time(),
                                  "slowest": {"pass": name, "seconds": round(took, 1)}}
                 save_state(state)
+                tick_notice(ended=state["tick"]["ended_at"], log=log)
