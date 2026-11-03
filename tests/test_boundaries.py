@@ -214,7 +214,7 @@ RULES = [
      "pattern": r"\"(send-keys|paste-buffer|send-prefix)\"|"
                 r"watch\.(_send_line|_send_enter|type_into|type_checked|type_at_prompt|revive|"
                 r"ask_inbox|after_merge_deliver|sync_title)\(",
-     "home": ("agentkit/watch.py", "agentkit/guard.py"),
+     "home": ("agentkit/watch.py", "agentkit/guard.py", "go/internal/guard/"),
      "max": 8},
     # Every unit ak starts is started by orch.py, which decides what ends it: a seat's scope
     # and detached work's end with what they started, and a run's is stopped by its reaper.
