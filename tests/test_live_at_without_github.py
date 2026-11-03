@@ -37,6 +37,7 @@ class LiveAtWithoutGitHub(unittest.TestCase):
         stack.enter_context(patch.object(watch, "LOG_OWNED", set()))
         config.ensure_dirs()
         self.github = stack.enter_context(patch.object(watch, "gh_json"))
+        stack.enter_context(patch.object(watch, "start_live_probe"))
         self.reached = []
         for name in ("incoming", "outgoing"):
             stack.enter_context(patch.object(

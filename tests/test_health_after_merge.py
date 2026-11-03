@@ -49,6 +49,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.logs = []
         self.remote = {}
         self.api = stack.enter_context(patch.object(watch, "gh_json", side_effect=self.github))
+        stack.enter_context(patch.object(watch, "start_live_probe"))
         stack.enter_context(patch.object(orch, "sessions", lambda: list(self.rows)))
         stack.enter_context(patch.object(orch, "find", lambda name: next(
             (seat for seat in self.rows if seat["name"] == name), None)))
@@ -337,6 +338,88 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(record.read_state(directory), before)
         self.assertEqual(self.lines, [])
         self.assertIsNone(history.get("run-a")["live_at"])
+
+    def test_follower_waits_after_each_probe_and_a_second_follower_exits(self):
+        directory = self.merged(self.declare("exit 0"), age=0)
+        with record.record(directory) as current:
+            current.update(health={"command": "exit 0"}, finished_at=None)
+        now, attempts = [NOW], []
+        clock = Mock(wraps=watch.time)
+        clock.time.side_effect = lambda: now[0]
+
+        def sleep(seconds):
+            now[0] += seconds
+            with record.record(directory) as current:
+                current["finished_at"] = NOW
+
+        clock.sleep.side_effect = sleep
+
+        def probe(*_args, **_kw):
+            attempts.append(now[0])
+            self.assertEqual(watch.follow_live(directory), 0)  # its singleton lock is held
+            now[0] += 10
+            return len(attempts) == 3, "deploying"
+
+        self.probes.side_effect = probe
+        with patch.object(watch, "time", clock), patch.object(watch.update, "go_live") as move:
+            self.assertEqual(watch.follow_live(directory), 0)
+        self.assertEqual(attempts, [NOW + 0.1 + offset for offset in (0, 25, 50)])
+        self.assertEqual([call.args for call in clock.sleep.call_args_list],
+                         [(0.1,), (15,), (15,)])
+        self.assertEqual(record.read_state(directory)["live_at"], attempts[-1])
+        move.assert_not_called()
+
+    def test_expired_follower_leaves_its_failure_for_the_tick(self):
+        directory = self.merged(self.declare("exit 1"), age=0)
+        with record.record(directory) as current:
+            current["health"] = {"command": "exit 1"}
+        self.probes.return_value = False, "deployment missing"
+        clock = Mock(wraps=watch.time)
+        clock.time.side_effect = [NOW, NOW, NOW + watch.AFTER_MERGE_WINDOW + 1]
+        clock.sleep.return_value = None
+        with patch.object(watch, "time", clock):
+            self.assertEqual(watch.follow_live(directory), 0)
+        self.assertEqual(self.probes.call_count, 1)
+        self.assertNotIn("live_at", record.read_state(directory))
+        self.assertEqual(self.lines, [])
+        self.tick(now=NOW + watch.AFTER_MERGE_WINDOW + 1)
+        self.assertEqual(self.probes.call_count, 1)
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("deployment missing", self.lines[0][1])
+
+    def test_common_record_write_starts_on_the_merge_without_waiting_for_its_ending(self):
+        directory = self.merged(self.declare("exit 0"), age=0)
+        with patch.object(record, "time", Mock(time=lambda: NOW)), \
+                patch.object(watch, "start_live_probe") as start:
+            with record.record(directory) as current:
+                current.update(health={"command": "exit 0"}, finished_at=None)
+            start.assert_called_once_with(directory)
+            with record.record(directory) as current:
+                current["finished_at"] = NOW
+            start.assert_called_once_with(directory)
+            with record.record(directory) as current:
+                current["health"]["output"] = "deploying"
+            with record.record(directory) as current:
+                current.update(live_at=NOW, health={})
+            with record.record(directory) as current:
+                current["health"] = {"command": "exit 0"}
+            start.assert_called_once_with(directory)
+
+    def test_a_late_failed_probe_keeps_another_probes_live_pass(self):
+        directory = self.merged(self.declare("exit 1"))
+
+        def another_pass(*_args, **_kw):
+            with record.record(directory) as current:
+                current["live_at"] = NOW - 1
+                current.pop("health", None)
+            return False, "old failure"
+
+        self.probes.side_effect = another_pass
+        self.tick()
+        self.assertEqual(record.read_state(directory)["live_at"], NOW - 1)
+        self.assertNotIn("health", record.read_state(directory))
+        self.tick(now=NOW + 60)
+        self.assertEqual(self.probes.call_count, 1)
 
     def test_timeout_kills_the_whole_group_and_bounds_reaping(self):
         proc = Mock(pid=12345, returncode=None)
