@@ -1,6 +1,9 @@
 """The prompt's Mac wait is shared by every pasted word, under an injected clock."""
 
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
+import shlex
 import sys
 from types import SimpleNamespace
 import unittest
@@ -42,6 +45,22 @@ class PastedMacPaths(unittest.TestCase):
         self.assertIn("permission denied", news)
         self.assertIn("ak fetch /Users/acme/a.pdf", news)
         self.assertIn("/Users/acme/b.pdf is at /tmp/report.pdf", news)
+
+    def test_retry_commands_preserve_the_original_shell_word(self):
+        paths = [r"/Users/acme/literal\ space.pdf", r"/Users/acme/literal\(one).pdf",
+                 r"/Users/acme/literal\\.pdf", "/Users/acme/owner's report.pdf",
+                 "/Users/acme/trailing space.pdf "]
+        for path in paths:
+            with self.subTest(path=path):
+                with patch.object(macbridge, "fetch_one", side_effect=config.Error("offline")):
+                    news = macbridge.pasted_context("Read " + shlex.quote(path))
+                command = news.split("try ", 1)[1].removesuffix(" later.")
+                argv = shlex.split(command)
+                self.assertEqual(argv[:2], ["ak", "fetch"])
+                with patch.object(macbridge, "fetch_one", return_value="/tmp/report.pdf") as fetch, \
+                        redirect_stdout(io.StringIO()):
+                    self.assertEqual(macbridge.fetch_main(argv[2:]), 0)
+                self.assertEqual(fetch.call_args.args[0], path)
 
 
 if __name__ == "__main__":

@@ -59,7 +59,22 @@ class PastedMacPath(unittest.TestCase):
         self.assertEqual(list((self.bridge / "requests").iterdir()), [])
 
     def test_a_backslash_escaped_screenshot_arrives_with_its_prompt(self):
-        self.fetched("Read " + SCREENSHOT.replace(" ", "\\ ") + " please", SCREENSHOT)
+        for text in (SCREENSHOT.replace(" ", "\\ "),
+                     "Read " + SCREENSHOT.replace(" ", "\\ ") + " please"):
+            with self.subTest(text=text):
+                self.fetched(text, SCREENSHOT)
+
+    def test_a_bare_users_path_arrives_with_its_prompt(self):
+        path = "/Users/acme/Desktop/report.pdf"
+        for text in (path, "  " + path):
+            with self.subTest(text=text):
+                self.fetched(text, path)
+
+    def test_slash_commands_still_fetch_nothing(self):
+        for text in ("/compact", "  /model opus", "/help /Users/acme/report.pdf"):
+            with self.subTest(text=text):
+                self.assertEqual(self.prompt(text), "")
+                self.assertFalse(self.bridge.exists())
 
     def test_shell_quotes_are_read_from_the_path_not_the_sentence(self):
         cases = [(r"'/Users/acme/Desktop/owner'\''s report.pdf'", REPORT),
@@ -87,10 +102,11 @@ class PastedMacPath(unittest.TestCase):
         self.assertFalse(self.bridge.exists())
 
     def test_a_mac_that_never_answers_leaves_a_command_for_later(self):
-        news = self.prompt(shlex.quote(REPORT))
-        self.assertIn(REPORT, news)
+        path = "/Users/acme/unanswered.pdf"
+        news = self.prompt(path)
+        self.assertIn(path, news)
         self.assertIn("Mac did not answer", news)
-        self.assertIn(f"ak fetch {shlex.quote(REPORT)}", news)
+        self.assertIn(f"ak fetch {shlex.quote(path)}", news)
         self.assertEqual(list((self.bridge / "requests").iterdir()), [])
 
 

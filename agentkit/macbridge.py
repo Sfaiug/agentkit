@@ -139,8 +139,10 @@ def pasted_context(said):
         try:
             local = fetch_one(path, max(0, deadline - time.monotonic()))
         except (config.Error, OSError) as exc:
+            # The invoking shell unquotes argv; ak fetch then normalizes the pasted word.
+            retry = shlex.quote(path.replace("\\", "\\\\"))
             lines.append(f"{path}: the Mac did not answer with a file ({exc}); "
-                         f"try ak fetch {shlex.quote(path)} later.")
+                         f"try ak fetch {shlex.quote(retry)} later.")
         else:
             lines.append(f"{path} is at {local}")
     return "\n".join(lines)
