@@ -18,7 +18,6 @@ from itertools import accumulate
 from pathlib import Path
 
 from . import config, gitcall, history, record as run_record, task as taskfile, turns
-from .harness import load as harness_plugin
 
 
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -469,11 +468,7 @@ def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
         harness = None
     out = Path(out)
     paths = [out, *sorted(out.parent.glob(f"{out.name}-retry*"))]
-    values = [harness_plugin(harness).tokens(path) for path in paths]
-    values = [value for value in values if value is not None]
-    if not values:
-        return
-    history.add_tokens(run_id, role, sum(values), log=log)
+    history.add_turn_tokens(run_id, role, paths, harness=harness, log=log)
 
 
 def park_exhausted(state, exc):
