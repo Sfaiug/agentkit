@@ -3,8 +3,9 @@
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
 // scratch task's or a repository's with --no-merge or --no-worktree, or a review of somebody else's
-// pull request from no seat, and that run goes on in package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
-// anything, so preflight is settled first.
+// pull request from no seat, and that run goes on in package loop.  A seat's launch it judges as
+// Python's run.parse does, up to its queue (seat.go).  Any other it leaves to Python (ErrPython),
+// deciding so before it writes anything, so preflight is settled first.
 package launch
 
 import (
@@ -180,33 +181,38 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: any that leaves unread surroundings to Python, one Python's rival check
-// may refuse, or a string for the record Python would write with a lone surrogate.  A count that
-// is none the gate never reads: Task refuses it.
+// cannot read as it does: any that leaves unread surroundings to Python, a seat's naming no
+// executor, one Python's rival check may refuse, which a seat's asks with its queue (preflight),
+// or a string for the record Python would write with a lone surrogate.  A count that is none the
+// gate never reads: Task refuses it.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	if unread() || len(bound.Workers) == 0 || !readable(path) ||
+	seat, record, unnamed := Seat()
+	if unnamed != nil || unread() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
+	}
+	if seat != "" {
+		return !staffed(record)
 	}
 	return !flags["--anyway"] && going()
 }
 
 // elsewhere is whether this process's surroundings leave any launch or resume to Python: those
-// unread, or a config Python refuses before its run.
+// unread, a seat's, or a config Python refuses before its run.
 func elsewhere() bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	return capped != nil || memory != nil || unread()
+	return capped != nil || memory != nil || unread() || seated()
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
-// start, a seat's, one a history.db that stands would record (no suite's sink marks it), one the
+// start, one a history.db that stands would record (no suite's sink marks it), one the
 // gate does not admit outright, a home HOME does not name, a local time Go reads otherwise, or text
 // Python would write with a lone surrogate.
 func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" && !run.Historyless() ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !run.Historyless() ||
 		os.Getenv("HOME") == "" || !localTime() ||
 		!known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
@@ -315,6 +321,10 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	// here, before any refusal a run records, as Python's launch_refusal is
 	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
 		return refuse("", "", &refusedOutright{why})
+	}
+	// a seat's launch is judged up to its queue, asked last before anything is created
+	if seat, _, _ := Seat(); seat != "" {
+		return refuse("", "", seatQueue(seat, repo))
 	}
 	if refused != "" {
 		return refuse(refused, "", nil)

@@ -137,6 +137,15 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`x{,2}`, "xxx", "xx"},
 		{`\bé`, "aé é", "é"},
 		{`\w`, "́", ""},
+		{`.\B́`, "x́ ́", " ́"},
+		{`(?#\B)w(?#\))`, "w", "w"},
+		{`a(?#\b)*`, "aaa", "aaa"},
+		{`x\b{}`, "x{}", "x{}"},
+		{"(?x)^ x *", "xx", "xx"},
+		{`(a)\1(?#)0`, "aa0", "aa0"},
+		{"(?x)w # (?#", "w", "w"},
+		{"(?x)w # (?#\n(?:x)", "w wx", "wx"},
+		{"(?x:w # (?#\n(?:x))x # ", "wxx # ", "wxx # "},
 		{`(?P<a>x)(?P=a)`, "yxx", "xx"},
 		{`a\Z`, "a\n", ""},
 		{`a$`, "a\n", "a"},
@@ -181,12 +190,39 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	if at := must(Compile(`\bé`, 0)).Find("aé é"); at.Start != 4 || at.End != 6 {
 		t.Errorf("é found at bytes %d to %d, not 4 to 6", at.Start, at.End)
 	}
+	if edge := must(Compile(`\B`, 0)); !edge.MatchString("́") || edge.MatchString("") {
+		t.Error(`\B is not Python's: inside a mark, never in an empty text`)
+	}
 	if _, err := Compile(`[^\S]`, 0); err == nil {
 		t.Error(`[^\S] compiled, though no class here can say it`)
 	}
-	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`} {
+	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`, `(?#\)`, `\400`, `[\777]`, `[a-\400]`,
+		`\b*`, `\B{2}`, `^?`, `$+`, `\A{,}`, `\Z{1,2}`, `\b(?#c)*`, "(?x)\\b *", "(?x)\\B #c\n*",
+		`(?P<a`, `(?P<`, `(?P=a`, `(?P=`} {
 		if _, err := Compile(refused, 0); err == nil {
 			t.Errorf("%s compiled, though Python refuses it", refused)
+		}
+	}
+}
+
+// Where an empty match ended, the search takes the pattern's other ways to match there, as
+// Python's re.finditer does.
+func TestFindAllMatchesWhereAnEmptyMatchEnded(t *testing.T) {
+	for _, each := range []struct {
+		pattern, text string
+		found         []string
+	}{
+		{`x*|a`, "a", []string{"", "a", ""}},
+		{`(?x)x*|b#c`, "ab", []string{"", "", "b", ""}},
+		{`a*`, "baa", []string{"", "aa", ""}},
+		{`\b|é`, "é a", []string{"", "é", "", "", ""}},
+	} {
+		var found []string
+		for _, match := range must(Compile(each.pattern, 0)).FindAll(each.text, -1) {
+			found = append(found, match.Text)
+		}
+		if !reflect.DeepEqual(found, each.found) {
+			t.Errorf("%s on %q found %q, not %q", each.pattern, each.text, found, each.found)
 		}
 	}
 }
