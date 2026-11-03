@@ -4,7 +4,6 @@
 # and a guard that fails in any way, runs the real <name>.  sh, not that program: git is hot, so no
 # seatless or worker call -- ak's own work, a test's sandbox -- pays for a start.
 name=${0##*/}
-name=${name%-shim}
 # The real <name>: the first file on PATH after this shim's own, so a wrapper ahead of it that calls
 # it never loops and one after it chains on; with this shim's own off PATH, the first that is not it.
 set -f
