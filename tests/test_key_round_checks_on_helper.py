@@ -112,7 +112,7 @@ class RedThere(Round, unittest.TestCase):
 
     def test_the_commands_run_here_which_decides(self):
         self.passed()
-        self.assertEqual(self.marks(), (["mark"] * 3, ["mark"]))
+        self.assertEqual(self.marks(), (["mark"] * 2, ["mark"]))
         self.assertEqual(self.calls()[-2:], ["run", "finish"])
         self.assertIn("done-when runs here: helper acme-mac failed (exit 1)", self.log)
 
