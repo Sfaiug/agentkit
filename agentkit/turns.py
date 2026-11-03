@@ -426,11 +426,14 @@ def cut_file(output, start, where, name, cap=OUT_CAP):
     """`cut` of a binary file's bytes from `start` to its end, at `cap`, never read whole: a check
     can print more than the run's memory holds."""
     size = output.seek(0, os.SEEK_END)
-    output.seek(start)
-    line = f"{kept(output, where, name)}\n" if size - start > cap else ""
     output.seek(max(start, size - cap))
-    # A tail can start inside UTF-8; replacement characters would exceed its byte share.
-    return line + output.read(cap).decode("utf-8", errors="ignore")
+    tail = output.read(cap).decode("utf-8", errors="replace").encode("utf-8")
+    line = ""
+    if size - start > cap or len(tail) > cap:
+        output.seek(start)
+        line = f"{kept(output, where, name)}\n"
+    # Replacement characters can grow the payload; ignore only the new cut's split character.
+    return line + tail[max(0, len(tail) - cap):].decode("utf-8", errors="ignore")
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session

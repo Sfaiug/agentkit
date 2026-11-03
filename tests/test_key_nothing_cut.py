@@ -25,9 +25,11 @@ from fixtures.gitrig import Rig
 
 HEADING = "## The done-when commands failed. Fix the root cause.\n```\n"
 SHORT = "seq -f 'café short %g' 1 40; test -f fixed.txt"
+LATIN1 = r"printf 'error: cannot open caf\351.txt\n'; test -f fixed.txt"
 # About 500 KB; its last 20 KiB start inside a three-byte character.
 LONG = "seq -f '€€ long %g' 1 30000; test -f fixed.txt"
 PRINTED = {SHORT: "".join(f"café short {n}\n" for n in range(1, 41)),
+           LATIN1: "error: cannot open caf�.txt\n",
            LONG: "".join(f"€€ long {n}\n" for n in range(1, 30001))}
 FIX = {"write": {"fixed.txt": "ok\n"}, "commit": "fix the checks",
        "final": "## Summary\nfixed", "hand_in": [["done"]]}
@@ -48,7 +50,7 @@ class FailedChecks(unittest.TestCase):
         rig = Rig(cls.home, "widgets")
         akconfig.write(cls.home, ["opus", "astra"])
         cls.fakes = fakeadapter.install(cls.home, claude=["work", FIX], codex="pass")
-        task = taskfile.write(cls.home, rig.path, "Add retry file", done_when=(SHORT, LONG),
+        task = taskfile.write(cls.home, rig.path, "Add retry file", done_when=(SHORT, LATIN1, LONG),
                               front={"rounds": 1})
         cls.done = cls.home.ak("run", str(task), "--no-merge", timeout=300)
         cls.run_dir = taskfile.only_run(cls.home)
@@ -69,7 +71,9 @@ class FailedChecks(unittest.TestCase):
                          ["executor", "fixer"])
 
     def test_output_that_fits_reaches_the_fixer_whole_under_its_command(self):
-        self.assertIn(f"$ {SHORT}\n[exit 1]\n{PRINTED[SHORT]}", self.block())
+        for command in (SHORT, LATIN1):
+            with self.subTest(command=command):
+                self.assertIn(f"$ {command}\n[exit 1]\n{PRINTED[command]}", self.block())
 
     def test_longer_output_is_its_end_under_a_line_naming_a_file_holding_all_of_it(self):
         record = f"$ {LONG}\n[exit 1]\n"
