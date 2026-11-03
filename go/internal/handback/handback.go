@@ -4,11 +4,11 @@
 // `handback_typed`, as mark_delivery writes them), the one line the seat is told in, and the send
 // that types it at the seat's quiet prompt (seat.TypeAtPrompt).
 //
-// Go tells what it decides as Python does and leaves the rest to Python's tick, which offers every
-// ending nobody has heard (owes_ending): an ending it delivered, which announce records, rides or
-// types; a seat not up on ak's own server; and a line Go does not build yet, every one but a
-// BLOCKED's decision line said whole.  An ending Go reads at a seat that takes no line now is
-// marked pending, and the tick types it at the next quiet prompt.
+// Go hands back as Python's hand_back does, to a seat up on ak's own server, an ending that did
+// not deliver; one it does not type is marked pending, which Python's tick types at the next quiet
+// prompt: a seat that takes no line now, and a line Go does not build yet, every one but a
+// BLOCKED's decision line said whole.  What announce settles before its hand-back, an ending that
+// delivered and a seat not up there, is the tick's, which offers every ending nobody has heard.
 package handback
 
 import (
@@ -44,10 +44,6 @@ func Give(dir string, say func(string)) bool {
 	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" || delivered(record) || !seat.Watching(session) {
 		return false
 	}
-	line := decisionLine(record, dir)
-	if line == "" {
-		return false
-	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return false
@@ -69,7 +65,8 @@ func Give(dir string, say func(string)) bool {
 		return true
 	}
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
-	if !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
+	line := decisionLine(record, dir)
+	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
 		return nil
 	}, say) {
@@ -204,7 +201,7 @@ func mark(dir string, snapshot *run.Object, pairs ...any) bool {
 			}
 		}
 	}
-	err := run.Change(dir, func(current *run.Object) error {
+	err := run.Deliver(dir, func(current *run.Object) error {
 		if !sameAttempt(snapshot, current) {
 			return errMoved
 		}
