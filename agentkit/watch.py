@@ -7914,8 +7914,8 @@ def runs_health():
         if processes is None:
             processes = {pid: args for pid, (_, status, args) in _proc_table().items()
                          if status not in ("Z", "X")}
-        # A path in argv can be a log reader; only the inherited marker proves ownership.
-        if any(pid in processes for pid in worker.marked_pids(str(run_dir))):
+        # Count ancestors too: doctor may be called by a surviving worker after its loop died.
+        if any(pid in processes for pid in worker.run_pids(str(run_dir))):
             continue
         resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
         if any(args == resume or args == [sys.executable, *resume]

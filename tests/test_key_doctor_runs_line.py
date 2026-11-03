@@ -15,17 +15,23 @@ from fixtures.akbin import AK, REPO, Home
 
 NOW = 1_800_000_000
 CLOCK = """
-import json, sys, time
+import io, json, os, sys, time
+from types import SimpleNamespace
 if sys.argv[:1] == [{ak!r}]:
     sys.path[:0] = [{repo!r}, {tests!r}]
     from fixtures.clock import Clock
     from agentkit import host, watch
     watch.time = Clock(time.sleep)
     watch.time.time = lambda: {now}
-    table = {{int(pid): row for pid, row in json.load(open({table!r})).items()}}
+    table = {{os.getpid() if pid == "self" else int(pid): row
+              for pid, row in json.load(open({table!r})).items()}}
     watch._proc_table = lambda: {{pid: row[:3] for pid, row in table.items()}}
-    watch.worker.marked_pids = lambda marker, **_kw: [
-        pid for pid, row in table.items() if len(row) > 3 and row[3] == marker]
+    watch.worker.os = SimpleNamespace(**vars(os))
+    watch.worker.os.listdir = lambda path: [str(pid) for pid in table]
+    def proc_open(path, *_args, **_kw):
+        row = table[int(path.split("/")[2])]
+        return io.BytesIO((f"AGENTKIT_RUN={{row[3]}}\\0" if len(row) > 3 else "").encode())
+    watch.worker.open = proc_open
     host.alive = lambda pid: pid in table
     host.process_identity = lambda pid: None
     host.proc_stat = lambda pid: (host.ProcStat(table[pid][1], table[pid][0], 0, 0)
@@ -112,6 +118,14 @@ class DoctorRunsLine(unittest.TestCase):
         directory = self.run_record("moving")
         self.home.write("fakes/processes.json", {
             42: [1, "S", ["sleep", "600"], str(directory)]})
+        self.doctor(0, "1 going · 0 ended today · 0 endings owed")
+
+    def test_a_marked_parent_worker_keeps_its_run_alive_when_it_calls_doctor(self):
+        directory = self.run_record("moving", pid=41)
+        marker = str(directory / "turn-acme")
+        self.home.write("fakes/processes.json", {
+            42: [1, "S", ["bash", "adapter.sh"], marker],
+            "self": [42, "S", [sys.executable, AK, "doctor"], marker]})
         self.doctor(0, "1 going · 0 ended today · 0 endings owed")
 
     def test_a_resume_starting_before_its_pid_is_recorded_is_live(self):
