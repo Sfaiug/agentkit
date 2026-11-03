@@ -64,7 +64,7 @@ func Lives(now time.Time) ([]Live, bool) {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
-		found, _ := observed(state, each.Name, each.own, pane, seconds(now))
+		found, _ := observed(state, each.Name, each.reader, pane, seconds(now))
 		live, ok := each.lived(state, pane, exited, found, now)
 		if !ok {
 			return nil, false
@@ -100,8 +100,8 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 		return Live{}, false
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
-	conversation, cwd, account := record.Str("conversation"), record.Str("cwd"), record.Str("account")
-	recorded, kept := harness.RecordedError(seat.own, conversation, cwd, account)
+	conversation, cwd := record.Str("conversation"), record.Str("cwd")
+	recorded, kept := seat.reader.RecordedError(record)
 	line := recorded
 	if !kept {
 		line = outputLine(seen.rules.Said(tail))
@@ -150,13 +150,13 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 	carried := false
 	err = announcing(state, name, func() error {
 		now := time.Now()
-		home, seat, known := liveSeat(name, now)
+		home, seat, known := liveSeat(name, now, nil)
 		if !known {
-			carried, err = healthGone(state, name, now)
+			carried, err = home.healthGone(state, name, now)
 			return err
 		}
 		pane, exited := harnessScreen(name)
-		found, previous := observed(state, name, seat.own, pane, seconds(now))
+		found, previous := observed(state, name, seat.reader, pane, seconds(now))
 		live, read := seat.lived(state, pane, exited, found, now)
 		if carried = read && ok(live); !carried {
 			return nil

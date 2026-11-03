@@ -8,8 +8,8 @@ import (
 	"agentkit/internal/run"
 )
 
-func conversationOwned(own string, record *run.Object) bool {
-	owned, _ := harness.Owns(own, record, record.Str("conversation"))
+func conversationOwned(reader harness.Reader, record *run.Object) bool {
+	owned, _ := reader.Owns(record, record.Str("conversation"))
 	return record.Str("conversation") != "" && (record.Str("id_source") == "launcher" || owned)
 }
 
@@ -17,7 +17,7 @@ func conversationOwned(own string, record *run.Object) bool {
 func (seat Seat) reconciled(fields []field) func(*run.Object) bool {
 	return func(record *run.Object) bool {
 		changes := fields
-		if seat.unowned && record.Truthy("conversation") && !conversationOwned(seat.own, record) {
+		if seat.unowned && record.Truthy("conversation") && !conversationOwned(seat.reader, record) {
 			changes = append(changes, field{"conversation", nil}, field{"resumable", false})
 		}
 		return set(changes)(record)

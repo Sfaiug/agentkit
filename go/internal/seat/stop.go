@@ -122,6 +122,7 @@ func look(state, name string, now time.Time) (seen, bool) {
 		return seen{}, false
 	}
 	found.going = going
+	readers := recordReaders{}
 	for _, entry := range entries {
 		each, ok := sessionFile(entry.Name())
 		if !ok {
@@ -134,11 +135,12 @@ func look(state, name string, now time.Time) (seen, bool) {
 		if held.Has(config.Renamed) {
 			continue
 		}
-		seat, known := recorded(state, each, held, models)
+		seat, known := recorded(state, each, held, models, nil)
 		if !known || !only(held, stoppable) {
 			return seen{}, false
 		}
 		found.records = append(found.records, seat)
+		readers[each] = seat.reader
 		found.recorded = found.recorded || each == name
 	}
 	found.closed = mark != nil && mark.Truthy("closed_by_owner")
@@ -147,7 +149,7 @@ func look(state, name string, now time.Time) (seen, bool) {
 	}
 	// a name nothing holds is refused with the seats the listing offers, once it has written
 	// into their records what it reconciles and infers
-	home, known := Read(now)
+	home, known := reading(now, false, readRuns, readers)
 	found.records = home.records
 	for _, each := range home.Seats {
 		found.running = append(found.running, each.Name)

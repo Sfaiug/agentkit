@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
 )
@@ -81,10 +82,10 @@ func news(launched, own, pane string) bool {
 		return false
 	}
 	now := time.Now()
-	found, previous := observed(filepath.Join(config.Home(), "state"), name, own, pane, seconds(now))
+	found, previous := observed(filepath.Join(config.Home(), "state"), name, harness.For(own), pane, seconds(now))
 	if run.Equal(previous.Get("word_from"), found.wordFrom()) {
 		return false
 	}
-	_, _, known := liveSeat(name, now)
+	_, _, known := liveSeat(name, now, nil)
 	return known
 }

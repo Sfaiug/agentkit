@@ -17,7 +17,7 @@ func Menu(now time.Time) (Home, bool) {
 	if !known {
 		return Home{}, false
 	}
-	home, known := reading(now, true, func([]string, time.Time) (map[string][]ran, bool) { return runs, true })
+	home, known := reading(now, true, func([]string, time.Time) (map[string][]ran, bool) { return runs, true }, nil)
 	if !known {
 		return Home{}, false
 	}
@@ -28,7 +28,7 @@ func Menu(now time.Time) (Home, bool) {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
-		found, _ := observed(state, each.Name, each.own, pane, seconds(now))
+		found, _ := observed(state, each.Name, each.reader, pane, seconds(now))
 		if exited {
 			found.stall, found.login = nil, nil
 		}
