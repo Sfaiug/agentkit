@@ -21,9 +21,7 @@ import (
 const (
 	killWindow = time.Minute // a second signal inside this parks the run for a person
 
-	finishInForeground = "The command you left in the background was stopped when your turn ended. Run it in the foreground now, wait for it, and report."
-	noVerdictAsk       = "Your previous turn ended without ak hand-in done. Review the diff now, hand in any remaining findings or follow-ups with ak hand-in, then run ak hand-in done. Earlier records have been carried into this turn. Do not start commands you will not wait for in this turn."
-	noClosingAsk       = `Your previous turn ended without a closing hand-in. Close it now with ak hand-in done, ak hand-in blocked "<why>" or ak hand-in not-needed "<why>" as instructed. Earlier records have been carried into this turn. Do not start commands you will not wait for in this turn.`
+	noVerdictAsk = "Your previous turn ended without ak hand-in done. Review the diff now, hand in any remaining findings or follow-ups with ak hand-in, then run ak hand-in done. Earlier records have been carried into this turn. Do not start commands you will not wait for in this turn."
 )
 
 // A transient answer is what a person answers by typing `continue`: the same session again, after
@@ -67,7 +65,7 @@ func (h *handedOver) Error() string {
 type try struct {
 	out, text, session, asked string // asked: the conversation it was told to go on, on a first attempt
 	code                      int
-	silent, unfinished        bool // stopped for streaming nothing; ended with a command still running
+	silent                    bool // stopped for streaming nothing
 }
 
 // A call is one turn of a model on the road Python's call_retrying takes: it goes again while the
@@ -86,14 +84,13 @@ type call struct {
 	attempts, calls    int                                 // the transient waits spent and the turns run
 	lastKill           time.Time
 	offered            bool // handover was tried: it is only tried once
-	foreground         bool // a turn of it was asked to finish in the foreground, which asks for the closing too
 	lastSession        string
 }
 
 // callFaults are what a turn's ending may be, in Python's order.  Each reads the attempt and goes
 // on to the next, or says to go again, or ends the call with its error.
 var callFaults = []func(*call, *try) (bool, error){
-	(*call).unopened, (*call).leftRunning, (*call).neverRan, (*call).harnessWords, (*call).signalled, (*call).silence,
+	(*call).unopened, (*call).neverRan, (*call).harnessWords, (*call).signalled, (*call).silence,
 }
 
 // run is the call to the attempt that answered, the attempt's directory holding its records.
@@ -180,7 +177,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 	case err != nil:
 		return nil, fmt.Errorf("%s %s: %w", c.role, c.name, err)
 	}
-	t.text, t.unfinished = handin.Answer(filepath.Join(target, "final.md")), unfinished(target)
+	t.text = handin.Answer(filepath.Join(target, "final.md"))
 	c.previous, c.lastSession = filepath.Join(target, handin.File), c.session
 	return t, nil
 }
@@ -213,35 +210,6 @@ func (c *call) unopened(t *try) (bool, error) {
 	}
 	c.calls++
 	*t = *fresh
-	return false, nil
-}
-
-// leftRunning asks a turn that ended with a command still running to finish it in the foreground:
-// the same session, no wait, the same round.  An ask for a missing closing or verdict is the turn's
-// one extra call already, and a second such ending is carried on from.
-func (c *call) leftRunning(t *try) (bool, error) {
-	if t.silent || !t.unfinished {
-		return false, nil
-	}
-	again := fmt.Sprintf("WARN %s %s ended its turn with a command still in the background again; carrying on with what it reported", c.role, c.name)
-	if strings.Contains(filepath.Base(c.out), "-retry-hand-in") || strings.HasSuffix(c.body, noVerdictAsk) {
-		c.l.say(again)
-		return false, nil
-	}
-	c.l.say(fmt.Sprintf("%s %s ended its turn with a command still in the background; asking it to finish in the foreground", c.role, c.name))
-	closing := noClosingAsk
-	if strings.HasPrefix(c.role, "reviewer") {
-		closing = noVerdictAsk
-	}
-	finished, err := c.attempt(finishInForeground+" "+closing, t.out+"-retry-foreground")
-	if err != nil {
-		return false, err
-	}
-	c.foreground = true
-	if !finished.silent && finished.unfinished {
-		c.l.say(again)
-	}
-	*t = *finished
 	return false, nil
 }
 
