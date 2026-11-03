@@ -29,16 +29,21 @@ var (
 // reason and the relaunch.
 func WriteResult(dir string, record *run.Object) error {
 	suffix := ""
-	if record.Truthy("worktree") && record.Has("round_summaries") {
+	if fullResult(record) {
 		_, cmds, err := task.Read(filepath.Join(dir, "task.md"))
 		if err == nil {
-			return save(dir, report(dir, record, cmds))
+			return save(dir, report(dir, record, declaredChecks(record, cmds)))
 		}
 		suffix = "\n\n(the full result could not be written: " + err.Error() + ")"
 	}
-	return save(dir, fmt.Sprintf("# %s — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: ak run %s%s\n\n",
+	return save(dir, fmt.Sprintf("# %s — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s%s\n\n",
 		run.Delivery(record, nil), cmp.Or(record.Str("title"), filepath.Base(dir)), cmp.Or(record.Str("verdict"), "none"),
-		cmp.Or(record.Str("error"), "no reason was recorded"), filepath.Join(dir, "task.md"), suffix))
+		cmp.Or(record.Str("error"), "no reason was recorded"), run.Relaunch(dir, record), suffix))
+}
+
+// fullResult is whether a run has a workspace to report on, and a review a verdict.
+func fullResult(record *run.Object) bool {
+	return record.Truthy("worktree") && record.Has("round_summaries") && (!record.Truthy("review_pr") || record.Truthy("verdict"))
 }
 
 func save(dir, text string) error {

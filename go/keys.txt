@@ -76,6 +76,7 @@ test_key_plan_needs_seat
 test_key_plan_rename PlanUnderTheOldName
 test_key_prompt_hook_fact
 test_key_resume_interrupted
+test_key_review_pr
 test_key_reviewer_fail_rounds
 test_key_rulebook_retold
 test_key_run_background
