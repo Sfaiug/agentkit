@@ -33,7 +33,8 @@ const sessionStale = 7 * 86400
 var (
 	// launchKeys are what a launch writes about the conversation it owns and the rulebook it hands
 	// over (orch.LAUNCH_KEYS and `kept`), which a harness that never started takes back.
-	launchKeys = []string{"conversation", "resumable", "id_source", "before", "session_title", "title_sync",
+	launchKeys = []string{"conversation", "resumable", "id_source", "before", "codex_launch", "codex_history",
+		"opencode_launch", "muse_launch", "antigravity_launch", "antigravity_open", "session_title", "title_sync",
 		"rulebook_sha", "rulebook_told", "rulebook_read"}
 	// cleared are what a seat launched under its name again no longer is, in its seat file: not the
 	// stopped one nor the one the owner closed, running none of the work the last one's screen showed
@@ -91,8 +92,26 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	if err != nil {
 		return false, nil
 	}
-	rulebook := filepath.Join(state, "rulebook-"+name+".md")
-	cmd, conversation, ok := seat.command(text, rulebook)
+	// a dry run's rulebook, and whatever its adapter makes beside it, in a folder of its own that is
+	// gone once the command is printed (orch.scratch)
+	dir, told := state, []string(nil)
+	if how.DryRun {
+		if dir, err = os.MkdirTemp("", "ak-dry-run-"); err != nil {
+			return false, nil
+		}
+		defer os.RemoveAll(dir)
+		told = []string{"AGENTKIT_RULEBOOK_DIR=" + dir}
+	}
+	// written before the adapter is asked, as resume_command writes it: a seat opens with its rules
+	// or not at all
+	rulebook := filepath.Join(dir, "rulebook-"+name+".md")
+	if err = os.MkdirAll(dir, 0o777); err == nil {
+		err = os.WriteFile(rulebook, []byte(text), 0o666)
+	}
+	if err != nil {
+		return true, Refusal(fmt.Sprintf("no rulebook for %s: %v", name, err))
+	}
+	cmd, conversation, ok := seat.command(append(told, "AGENTKIT_RULEBOOK="+rulebook))
 	if !ok {
 		return false, nil
 	}
@@ -101,7 +120,7 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 		fmt.Fprintln(out, commandhelp.ShellJoin(cmd))
 		return true, nil
 	}
-	settled, err := seat.launch(state, rulebook, text, cmd, conversation)
+	settled, err := seat.launch(state, rulebook, cmd, conversation)
 	if err != nil {
 		return true, err
 	}
@@ -319,30 +338,15 @@ func cutOff(name, own string, file *run.Object) bool {
 }
 
 // command is the seat's line and the conversation it owns on it (orch.resume, resume_command): the
-// one its record holds, or one a new launch can be told, "" for none.  Its adapter reads the rules
-// from a scratch folder, and may make things beside it, so that asking writes nothing of the
-// seat's and leaves nothing to take back; the line then names the file launch writes.
-func (seat reopening) command(text, rulebook string) ([]string, string, bool) {
-	scratch, err := os.MkdirTemp("", "ak-rulebook-")
-	if err != nil {
-		return nil, "", false
+// one its record holds, or one a new launch can be told, "" for none.  told is what else its adapter
+// is told: the rulebook written for it.
+func (seat reopening) command(told []string) ([]string, string, bool) {
+	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT="}, told)
+	if seat.conversation == "" {
+		return adapters.Command(seat.model, env)
 	}
-	defer os.RemoveAll(scratch)
-	asked := filepath.Join(scratch, filepath.Base(rulebook))
-	if os.WriteFile(asked, []byte(text), 0o666) != nil {
-		return nil, "", false
-	}
-	env := append(os.Environ(), "AGENTKIT_SESSION="+seat.name, "AGENTKIT_FIRST_PROMPT=", "AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+asked)
-	cmd, conversation, ok := []string(nil), seat.conversation, false
-	if conversation == "" {
-		cmd, conversation, ok = adapters.Command(seat.model, env)
-	} else {
-		cmd, ok = adapters.Resumed(seat.model, conversation, seat.opened, env)
-	}
-	for i, word := range cmd {
-		cmd[i] = strings.ReplaceAll(word, asked, rulebook)
-	}
-	return cmd, conversation, ok
+	cmd, ok := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
+	return cmd, seat.conversation, ok
 }
 
 // said is what the seat is told to be doing, as orch.resume logs it.
@@ -359,42 +363,34 @@ func (seat reopening) said() string {
 }
 
 // launch puts the harness in the seat and writes down what it was launched with, as orch.launch
-// does, all under the seat's lock: a rename going on keeps its record, and of two launches racing
-// the one that finds the other's session running writes and starts nothing.  The last harness's
-// hook facts are moved aside, then moved and linked back rather than rewritten, as its hooks
-// publish by rename.  A harness that never started leaves the rulebook, the record and the facts
-// as they were.  The name is the one the seat goes by now.
-func (seat reopening) launch(state, rulebook, text string, cmd []string, conversation string) (string, error) {
+// does, all under the seat's lock, so a rename going on keeps its record: the rulebook then on disk,
+// the hook facts the last harness left moved aside, then moved and linked back rather than
+// rewritten, as its hooks publish by rename.  A harness that never started leaves the record and
+// the facts as they were.  The name is the one the seat goes by now.
+func (seat reopening) launch(state, rulebook string, cmd []string, conversation string) (string, error) {
 	titled, _ := harness.Opens(seat.model.Harness)
 	var settled string
 	err := notify.Held(context.Background(), seat.name, func(current string) error {
 		settled = current
-		if held, exited, _ := find(current, nil); held && !exited {
-			return nil
-		}
-		kept, err := os.ReadFile(rulebook)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		had := err == nil
 		var before *run.Object
 		facts := filepath.Join(state, "hook-"+current+".json")
 		last := facts + ".last"
 		defer os.Remove(last)
-		started, err := false, os.WriteFile(rulebook, []byte(text), 0o666)
-		if err == nil {
-			// before the harness is up: its first prompt may be offered a newer rulebook already
-			err = update(state, current, func(data *run.Object) bool {
-				before = data.Copy()
-				issued := []field{{"conversation", nil}, {"id_source", nil}}
-				if conversation != "" {
-					issued = []field{{"conversation", conversation}, {"id_source", "launcher"}}
-				}
-				fill(data, append(issued, field{"resumable", conversation != ""}, field{"before", nil},
-					field{"rulebook_sha", digest([]byte(text))}, field{"rulebook_told", nil}, field{"rulebook_read", nil}))
-				return true
-			})
+		handed := any(nil)
+		if read, err := os.ReadFile(rulebook); err == nil {
+			handed = digest(read)
 		}
+		// before the harness is up: its first prompt may be offered a newer rulebook already
+		started, err := false, update(state, current, func(data *run.Object) bool {
+			before = data.Copy()
+			issued := []field{{"conversation", nil}, {"id_source", nil}}
+			if conversation != "" {
+				issued = []field{{"conversation", conversation}, {"id_source", "launcher"}}
+			}
+			fill(data, append(issued, field{"resumable", conversation != ""}, field{"before", nil},
+				field{"rulebook_sha", handed}, field{"rulebook_told", nil}, field{"rulebook_read", nil}))
+			return true
+		})
 		if err == nil {
 			if err = os.Rename(facts, last); errors.Is(err, fs.ErrNotExist) {
 				err = os.Remove(last) // a launch killed past its move left one
@@ -408,19 +404,10 @@ func (seat reopening) launch(state, rulebook, text string, cmd []string, convers
 		}
 		if err != nil {
 			if !started {
-				if had {
-					os.WriteFile(rulebook, kept, 0o666)
-				} else {
-					os.Remove(rulebook)
-				}
 				if before != nil { // nil where the record took nothing
 					update(state, current, func(data *run.Object) bool {
 						for _, key := range launchKeys {
-							if before.Has(key) {
-								data.Set(key, before.Get(key))
-							} else {
-								data.Delete(key)
-							}
+							fill(data, []field{{key, before.Get(key)}})
 						}
 						return true
 					})

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -14,14 +13,14 @@ import (
 )
 
 // fakeTmux puts a tmux on PATH holding that session, its only pane dead or not, that refuses a
-// respawn.
+// respawn unless $HOME/respawns is there.
 func fakeTmux(t *testing.T, home, session string, dead bool) {
 	t.Helper()
 	bin := filepath.Join(home, "fake")
 	flag := map[bool]string{true: "1", false: "0"}[dead]
 	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
 case "$*" in
-  *respawn-pane*) echo "can't find pane" >&2; exit 1 ;;
+  *respawn-pane*) [ -e "$HOME/respawns" ] || { echo "can't find pane" >&2; exit 1; } ;;
   *list-sessions*) printf '`+session+`\t1\n' ;;
   *list-panes*) printf '`+session+`\t`+flag+`\n' ;;
   *show-options*) echo %1 ;;
@@ -43,9 +42,9 @@ func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 	write(t, path, kept)
 	write(t, filepath.Join(state, "hook-acme.json"), `{"event": "Stop"}`)
 	rulebook := filepath.Join(state, "rulebook-acme.md")
-	write(t, rulebook, "rules\n")
+	write(t, rulebook, "new rules\n")
 	seat := reopening{name: "acme", held: true}
-	_, err := seat.launch(state, rulebook, "new rules\n", []string{"claude"}, "new-conversation")
+	_, err := seat.launch(state, rulebook, []string{"claude"}, "new-conversation")
 	var refused Refusal
 	if !errors.As(err, &refused) || string(refused) != "cannot resume the session acme: can't find pane" {
 		t.Fatalf("refused with %v", err)
@@ -54,7 +53,7 @@ func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 	if record.Str("conversation") != "conv-acme" || record.Has("rulebook_sha") || record.Dict("rulebook_read") == nil || record.Has("launched") || record.Has("seen") {
 		t.Errorf("the record is left %s", run.Encode(record))
 	}
-	if read, _ := os.ReadFile(rulebook); string(read) != "rules\n" {
+	if read, _ := os.ReadFile(rulebook); string(read) != "new rules\n" {
 		t.Errorf("the rulebook is left %q", read)
 	}
 	if read, _ := os.ReadFile(filepath.Join(state, "hook-acme.json")); !strings.Contains(string(read), "Stop") {
@@ -85,67 +84,24 @@ func TestReopenRefusals(t *testing.T) {
 	}
 }
 
-// Asking the adapter touches no rulebook a seat runs on: it reads the rules from a scratch file, a
-// refusal leaves the seat's own as it was, and the line it gives names the seat's own.
-func TestAskingTheAdapterTouchesNoRulebook(t *testing.T) {
+// The launch hands over the rulebook on disk as it starts: its digest is the record's, and nothing
+// has told or read it yet.
+func TestALaunchRecordsTheRulebookOnDisk(t *testing.T) {
 	home := sandbox(t)
+	fakeTmux(t, home, "acme", true)
+	write(t, filepath.Join(home, "respawns"), "")
 	state := filepath.Join(home, ".agentkit", "state")
+	path := filepath.Join(state, "session-acme.json")
+	write(t, path, `{"orchestrator": "opus", "rulebook_sha": "old", "rulebook_told": {"code": "c"}}`)
 	rulebook := filepath.Join(state, "rulebook-acme.md")
-	write(t, rulebook, "kept\n")
-	script := filepath.Join(home, "adapters", "claude.sh")
-	write(t, script, `#!/bin/sh
-cat "$AGENTKIT_RULEBOOK" >"$HOME/read"
-[ ! -e "$HOME/refuse" ] || exit 2
-printf 'claude --rules %s\n' "$AGENTKIT_RULEBOOK"
-`)
-	if err := os.Chmod(script, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("AGENTKIT_ADAPTER_DIR", filepath.Dir(script))
-	models, err := config.Models()
-	if err != nil {
-		t.Fatal(err)
-	}
-	seat := reopening{name: "acme", conversation: "conv-acme", model: models["opus"]}
-	cmd, _, ok := seat.command("new\n", rulebook)
-	if !ok || !slices.Contains(cmd, rulebook) {
-		t.Errorf("the line is %v, %v", cmd, ok)
-	}
-	if read, _ := os.ReadFile(filepath.Join(home, "read")); string(read) != "new\n" {
-		t.Errorf("the adapter read %q", read)
-	}
-	write(t, filepath.Join(home, "refuse"), "")
-	if _, _, ok := seat.command("new\n", rulebook); ok {
-		t.Error("a refusing adapter gave a line")
-	}
-	if read, _ := os.ReadFile(rulebook); string(read) != "kept\n" {
-		t.Errorf("the seat's rulebook is left %q", read)
-	}
-}
-
-// A launch that finds its seat running, another launch's, writes and starts nothing and hands over
-// the seat by the name it goes by now.
-func TestALaunchThatLostTheRaceTouchesNothing(t *testing.T) {
-	home := sandbox(t)
-	fakeTmux(t, home, "beta", false)
-	state := filepath.Join(home, ".agentkit", "state")
-	write(t, filepath.Join(state, "session-acme.json"), `{"renamed": "beta"}`)
-	kept := `{"orchestrator": "opus", "conversation": "conv-acme", "id_source": "launcher"}`
-	write(t, filepath.Join(state, "session-beta.json"), kept)
-	rulebook := filepath.Join(state, "rulebook-acme.md")
+	write(t, rulebook, "rules\n")
 	seat := reopening{name: "acme", held: true}
-	settled, err := seat.launch(state, rulebook, "rules\n", []string{"claude"}, "conv-acme")
-	if err != nil || settled != "beta" {
-		t.Fatalf("settled on %q, %v", settled, err)
+	if _, err := seat.launch(state, rulebook, []string{"claude"}, "conv-acme"); err != nil {
+		t.Fatal(err)
 	}
-	if read, _ := os.ReadFile(filepath.Join(state, "session-beta.json")); string(read) != kept {
-		t.Errorf("the record is left %s", read)
-	}
-	if left, _ := filepath.Glob(filepath.Join(state, "*.md")); len(left) > 0 {
-		t.Errorf("wrote %v", left)
-	}
-	if _, err := os.Lstat(seatFile("beta")); err == nil {
-		t.Error("wrote the seat file")
+	record, _ := run.ReadJSON(path)
+	if record.Str("rulebook_sha") != digest([]byte("rules\n")) || record.Has("rulebook_told") || !record.Has("launched") {
+		t.Errorf("the record is %s", run.Encode(record))
 	}
 }
 
