@@ -3,17 +3,20 @@ package notify
 import (
 	"context"
 	"errors"
+	"slices"
 
 	"agentkit/internal/run"
 )
 
-// Turned is the tick's card transition of a seat whose word is neither `needs you` nor `done`
-// (notify.transition), under the seat's lock: a card of another word gives way to a new episode of
-// this one, unsent, begun when the word did.  said reads the word and since when under that lock,
-// as the seat's last announce published them.  A card dated at or after that is the word the last
-// transition carded, so a word other than its began at this transition.
-func Turned(name string, said func(current string) (word string, since any)) error {
-	return Held(context.Background(), name, func(current string) error {
+// Turned is the tick's card transition of a seat (notify.transition), under the seat's lock, where
+// neither its card nor its word is one a card goes out for: a card of another word gives way to a
+// new episode of this one, unsent, begun when the word did.  said reads the word and since when
+// under that lock, as the seat's last announce published them.  A card dated at or after that is the
+// word the last transition carded, so a word other than its began at this transition.  False, with
+// nothing written, where the card or the word is `needs you` or `done`, or no word was published.
+func Turned(name string, said func(current string) (word string, since any)) (bool, error) {
+	carried := false
+	err := Held(context.Background(), name, func(current string) error {
 		card, err := readObject(seatFile("card", current, "json"))
 		if err != nil && !errors.Is(err, errNotObject) {
 			return err
@@ -22,24 +25,16 @@ func Turned(name string, said func(current string) (word string, since any)) err
 			card = run.NewObject()
 		}
 		word, since := said(current)
-		// a word a card goes out for, come since the tick read the seat, is the next tick's, whose
-		// reading leaves it to Python
-		if word == "" || word == "needs you" || word == "done" || run.Equal(card.Get("word"), word) {
+		carded := card.Get("word")
+		if carried = word != "" && !slices.Contains([]any{"needs you", "done"}, carded) && word != "needs you" && word != "done"; !carried ||
+			run.Equal(carded, word) {
 			return nil
 		}
 		at, _ := finite(since)
-		if _, dated := finite(since); !dated || len(card.Keys()) > 0 && card.Get("word") != nil && at <= number(card, "since") {
+		if _, dated := finite(since); !dated || len(card.Keys()) > 0 && carded != nil && at <= number(card, "since") {
 			since = run.Float(clock())
 		}
 		return writeCard(current, episode(card, word, since, since))
 	})
-}
-
-// CardWord is the word the seat's card holds, "" for none.
-func CardWord(name string) string {
-	card, _ := readObject(seatFile("card", name, "json"))
-	if card == nil {
-		return ""
-	}
-	return card.Str("word")
+	return carried, err
 }

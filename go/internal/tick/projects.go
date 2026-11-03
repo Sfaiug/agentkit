@@ -41,9 +41,12 @@ func declares(checkout, key string) bool {
 // fetchProjects is the project rules row (orch.fetch_projects): each checkout's, and each project's
 // a seat is filed under, every branch fetched and origin/HEAD set again to origin's default branch,
 // which the later rows read. One that fails is named, after every other is fetched.
-func (t *ticking) fetchProjects() error {
+func fetchProjects() error {
+	lives, err := lives()
+	if err != nil {
+		return err
+	}
 	checkouts, _ := seat.Checkouts()
-	lives, _ := t.seats()
 	for _, live := range lives {
 		if repo := live.Record.Str("repo"); repo != "" && !slices.Contains(checkouts, filepath.Clean(repo)) {
 			checkouts = append(checkouts, filepath.Clean(repo))

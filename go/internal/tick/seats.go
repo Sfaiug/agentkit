@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"cmp"
 	"math"
 	"math/big"
 	"os"
@@ -18,23 +19,22 @@ import (
 // seenEvery is how long a live seat's record goes before it is stamped again (orch.SEEN_EVERY).
 const seenEvery = 300
 
-// every is whether the tick reads every seat the home holds, and each reads as ok says.
-func (t *ticking) every(ok func(seat.Live) bool) func() bool {
+// every is whether every seat the home holds now is one Go reads, and each reads as ok says.
+func every(ok func(seat.Live) bool) func() bool {
 	return func() bool {
-		lives, known := t.seats()
+		lives, known := seat.Lives(time.Now())
 		return known && !slices.ContainsFunc(lives, func(live seat.Live) bool { return !ok(live) })
 	}
 }
 
-// seatPaths is where each seat's session works, as tmux says.
-func (t *ticking) seatPaths() (paths []string) {
-	lives, _ := t.seats()
-	for _, live := range lives {
-		if live.Path != "" {
-			paths = append(paths, live.Path)
-		}
+// lives is every seat the home holds, read now for a row's step; errLeft where any is one Go does
+// not read.
+func lives() ([]seat.Live, error) {
+	read, known := seat.Lives(time.Now())
+	if !known {
+		return nil, errLeft
 	}
-	return paths
+	return read, nil
 }
 
 // midturn is whether the seat holds a line its reopening owes it, for a move to another account or
@@ -93,13 +93,17 @@ func stays(live seat.Live) bool {
 		readings.Spent(model) == "" && !live.WrappedUp
 }
 
-// health is the seat health row on a home of seats with nothing to recover: each looked at and its
-// word published, as the later rows read it.
+// health is the seat health row (watch.health): each seat looked at and its word published, as the
+// later rows read it, while the look is all the row does there; the first it would do more at ends
+// the tick there, before its publish.
 func (t *ticking) health() error {
-	lives, _ := t.seats()
-	for _, live := range lives {
-		if err := seat.Health(live.Name); err != nil {
-			return err
+	names, known := seat.Seats(time.Now())
+	if !known {
+		return errLeft
+	}
+	for _, name := range names {
+		if carried, err := seat.Health(name, healthy); err != nil || !carried {
+			return cmp.Or(err, errLeft)
 		}
 	}
 	return nil
@@ -108,7 +112,10 @@ func (t *ticking) health() error {
 // revive is the seat revival row where every seat is up (watch.revive_seats): a seat seen live
 // again forgets the deaths it was reopened after, so its next is a new one.
 func (t *ticking) revive() error {
-	lives, _ := t.seats()
+	lives, err := lives()
+	if err != nil {
+		return err
+	}
 	for _, live := range lives {
 		if live.File.Truthy("reopened_at") {
 			if err := seat.Write(live.Name, "reopened_at", nil); err != nil {
@@ -122,7 +129,10 @@ func (t *ticking) revive() error {
 // stamp is the exit clocks row where every seat is up (orch.stamp): a record not seen within
 // seenEvery, or holding an exit clock, is seen now, its clock gone.
 func (t *ticking) stamp() error {
-	lives, _ := t.seats()
+	lives, err := lives()
+	if err != nil {
+		return err
+	}
 	now := t.clock().Unix()
 	for _, live := range lives {
 		err := seat.Update(live.Name, func(record *run.Object) bool {

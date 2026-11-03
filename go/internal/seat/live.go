@@ -21,10 +21,10 @@ import (
 var terminalFailure = regexp.MustCompile(`(?i)\b(?:cannot|can't|unable to) (?:proceed|continue)\b|` +
 	`\b(?:session|connection|stream|transport)\b.*\b(?:closed|lost|terminated)\b|\bunexpected status [45]\d\d\b`)
 
-// A Live is a seat its panes run on, as the tick reads it before any of its rows writes: what a look
-// would find on its screen and in its conversation, and the word its ladder would decide of that.
+// A Live is a seat its panes run on, as one capture shows it: what a look would find on its screen
+// and in its conversation, read with nothing written.
 type Live struct {
-	Name, Own, Word string // its name, the harness its screen is read as, and its word
+	Name, Own       string // its name, and the harness its screen is read as
 	State           string // what the look finds it doing, and since when
 	Began           any
 	Stall, Login    any      // the error the tick would type it back past, and its harness's words for a login out
@@ -39,20 +39,30 @@ type Live struct {
 	Record, File    *run.Object
 }
 
-// Lives is every seat the home holds, each read as Live reads it; false where any record is not a
-// seat its panes run on that Go reads.  A home with no record holds none where tmux holds no seat.
-func Lives(now time.Time) ([]Live, bool) {
-	if len(config.SeatFiles()) == 0 {
-		return nil, OnNoServer()
+// Seats is the name of every seat the home holds, false where any record is not a seat Go reads.
+// A home with no record holds none where tmux holds no seat.
+func Seats(now time.Time) ([]string, bool) {
+	home, known := seated(now)
+	var names []string
+	for _, each := range home.records {
+		names = append(names, each.Name)
 	}
-	home, known := Looking(now)
-	if !known || len(home.Seats) != len(home.records) {
+	return names, known
+}
+
+// Lives is every seat the home holds, each read as Live reads it; false where any is not a seat its
+// panes run on that Go reads.
+func Lives(now time.Time) ([]Live, bool) {
+	home, known := seated(now)
+	if !known {
 		return nil, false
 	}
 	state := filepath.Join(config.Home(), "state")
 	var lives []Live
 	for _, each := range home.records {
-		live, ok := each.dry(state, now)
+		pane, exited := harnessScreen(each.Name)
+		found, _ := observed(state, each.Name, each.own, pane, seconds(now))
+		live, ok := each.lived(state, pane, exited, found, now)
 		if !ok {
 			return nil, false
 		}
@@ -61,9 +71,18 @@ func Lives(now time.Time) ([]Live, bool) {
 	return lives, true
 }
 
-// dry is the seat as Live reads it, false where its panes no longer run its harness or its screen
-// reads blank, which says nothing.
-func (seat Seat) dry(state string, now time.Time) (Live, bool) {
+// seated is the home, false where any record is not a seat with a row that Go reads.
+func seated(now time.Time) (Home, bool) {
+	if len(config.SeatFiles()) == 0 {
+		return Home{}, OnNoServer()
+	}
+	home, known := Looking(now)
+	return home, known && len(home.Seats) == len(home.records)
+}
+
+// lived is the seat as Live reads it off that capture, false where its panes no longer run its
+// harness, its screen reads blank, which says nothing, or its ladder cannot be climbed.
+func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Time) (Live, bool) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json"))
 	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
 	if file == nil {
@@ -72,17 +91,10 @@ func (seat Seat) dry(state string, now time.Time) (Live, bool) {
 	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+seat.Name+":",
 		"#{session_attached}\t#{"+tmux.HarnessPane+"}\t#{session_path}")
 	session := strings.SplitN(said, "\t", 3)
-	if !seat.live || record == nil || err != nil || len(session) != 3 {
+	if !seat.live || record == nil || err != nil || len(session) != 3 || exited || strings.TrimFunc(pane, config.Space) == "" {
 		return Live{}, false
 	}
-	pane, exited := harnessScreen(seat.Name)
-	if exited || strings.TrimFunc(pane, config.Space) == "" {
-		return Live{}, false
-	}
-	at := seconds(now)
-	found, _ := observed(state, seat.Name, seat.own, pane, at)
-	decided, err := climbingOf(state, seat, found, at).climb()
-	if err != nil {
+	if _, err := climbingOf(state, seat, found, seconds(now)).climb(); err != nil {
 		return Live{}, false
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
@@ -99,22 +111,24 @@ func (seat Seat) dry(state string, now time.Time) (Live, bool) {
 	title, _ := harness.SessionTitle(seat.own, record, ownFile("title", seat.Name))
 	wrapped := harness.WrappedUp(seat.own, map[string]any{"conversation": conversation, "cwd": cwd, "account": record.Get("account")},
 		func(entry *run.Object) bool { return script.Prompted(seat.own, entry).Text != "" })
-	return Live{Name: seat.Name, Own: seat.own, Word: decided.word, State: found.state, Began: found.began,
+	return Live{Name: seat.Name, Own: seat.own, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line),
 		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2],
 		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: script.Moment(wrapped) != 0, Record: record, File: file}, true
 }
 
-// Health is the tick's look at a seat its panes run on where it has nothing to recover
-// (watch.health): its conversation's title read on from where the last reading stopped, then
-// watch.live_state's look and the word published, as announce_state publishes it with no look of
-// its own, so what its last answer moved stays as it is.
-func Health(name string) error {
+// Health is the tick's look at a seat its panes run on (watch.health): its conversation's title read
+// on from where the last reading stopped, then under its announce lock one capture, read as Live
+// reads it.  Where ok says the look is all the tick does there, that capture is kept as
+// watch.live_state keeps it and the word published, as announce_state publishes it with no look of
+// its own, so what its last answer moved stays as it is.  False, with nothing published, where the
+// seat is not one Go reads or ok says otherwise.
+func Health(name string, ok func(Live) bool) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
 	if err != nil {
-		return err
+		return false, err
 	}
 	// read under its typing lock, as watch.follow_title reads it
 	err = notify.Held(context.Background(), name, func(current string) error {
@@ -129,10 +143,37 @@ func Health(name string) error {
 		return nil
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
-	_, err = lookedLive(state, name, false)
-	return err
+	carried := false
+	err = announcing(state, name, func() error {
+		now := time.Now()
+		home, seat, known := liveSeat(name, now)
+		if !known {
+			return nil
+		}
+		pane, exited := harnessScreen(name)
+		found, previous := observed(state, name, seat.own, pane, seconds(now))
+		live, read := seat.lived(state, pane, exited, found, now)
+		if carried = read && ok(live); !carried {
+			return nil
+		}
+		if err := reconcile(state, home.records, true); err != nil {
+			return err
+		}
+		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
+		if err != nil {
+			return err
+		}
+		if err := seat.askKeptBack(found); err != nil {
+			return err
+		}
+		if err := seat.decided(state, found, seconds(now), live.Attached); err != nil {
+			return err
+		}
+		return seat.published(state, now, home.models)
+	})
+	return carried, err
 }
 
 // Published is the word the seat's file holds and since when, as its last announce wrote them.

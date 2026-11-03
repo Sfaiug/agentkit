@@ -28,25 +28,25 @@ type ticking struct {
 	clock       func() time.Time
 	slowest     time.Duration
 	slowestName string
-	seats       func() ([]seat.Live, bool) // read once a tick, before any step writes
+	dry         bool // a dry tick, which reads the dry rows and carries out none
 }
 
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding
-// the lock says so, and one on a home with nothing to act on goes through the passes and GitHub.
-// False leaves the tick to Python: with nothing written where a read says otherwise or cannot be
-// made, or where gh cannot be read or names who is logged in on a home holding a checkout, whose
-// pull requests Python's incoming asks; after what Python's next tick reads as its own where gh
-// names a pull request to act on; and on Windows, as Overlap.
+// the lock says so, and one under the lock goes through the passes, each read at its own turn,
+// and GitHub.  False leaves the tick to Python, the lock released: at the first row that finds what
+// Go does not carry, what the rows before did standing; after what Python's next tick reads as its
+// own where gh names a pull request to act on; with nothing written where gh cannot be read or
+// names who is logged in on a home holding a checkout, whose pull requests Python's incoming asks,
+// or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.
 func Carry(out, errOut io.Writer) bool {
 	if Overlap(out, errOut) {
 		return true
 	}
-	t := &ticking{clock: time.Now}
-	if runtime.GOOS == "windows" || !idle(t, false) {
+	if runtime.GOOS == "windows" {
 		return false
 	}
-	// asked before any pass, where Python asks after them: whether Go carries the tick hangs on it,
-	// and the tick begins with the asking
+	// asked before any pass, where Python asks after them: no row says whether Go carries the
+	// GitHub passes, and the tick begins with the asking
 	began := time.Now()
 	user, why, failed := gh.JSON(run.Runs(), "api", "user")
 	asked := time.Since(began)
@@ -68,12 +68,15 @@ func Carry(out, errOut io.Writer) bool {
 	if _, err := fmt.Fprintf(held, "%d\n", os.Getpid()); err != nil {
 		return false
 	}
+	// the passes' seat records are listed from the state folder
 	state, ok := loadState()
-	if !ok || !quiet(state) {
+	if !ok || !quiet(state) || !config.Listable(statePath("")) {
 		return false
 	}
-	t.state, t.log = state, newLog(out, errOut)
-	t.through(table(t))
+	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
+	if !t.through(table(t)) {
+		return false
+	}
 	carried := t.github(user, why, asked)
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
 	record, slowest := run.NewObject(), run.NewObject()
@@ -90,16 +93,26 @@ func epoch(at time.Time) float64 { return float64(at.UnixNano()) / 1e9 }
 
 func (t *ticking) save() error { return saveState(t.state) }
 
-// through runs the passes Go carries out, the one place that says of a pass that it raised.
-func (t *ticking) through(passes []pass) {
+// through runs the passes in order, each asked whether it has nothing to act on just before Go
+// carries out its step, the one place that says of a pass that it raised; false at the first that
+// finds what Go does not carry.
+func (t *ticking) through(passes []pass) bool {
 	for _, each := range passes {
+		if each.idle != nil && !each.idle() {
+			return false
+		}
 		if each.step == nil {
 			continue
 		}
-		if err := t.timed(each.name, each.step); err != nil {
+		err := t.timed(each.name, each.step)
+		if errors.Is(err, errLeft) {
+			return false
+		}
+		if err != nil {
 			t.log.line(fmt.Sprintf("WARN %s did not run: %s", each.name, config.PyError(err)))
 		}
 	}
+	return true
 }
 
 // timed runs a step and counts how long it took.

@@ -124,12 +124,17 @@ func harnessScreen(name string) (shown string, exited bool) {
 	return shown, false
 }
 
-// look is watch.look_at: one capture, classified and kept as watch.live_state keeps it.  A blank
-// capture says nothing of the screen, so it writes nothing but what a hook decided; a harness that
-// exited does say: the error it was retrying past ended with it.
+// look is watch.look_at: one capture, classified and kept.
 func (seat Seat) look(state string, now float64) (sight, error) {
 	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.own, pane, now)
+	return seat.keep(state, pane, exited, found, previous, now)
+}
+
+// keep is what a capture found kept as watch.live_state keeps it.  A blank capture says nothing of
+// the screen, so it writes nothing but what a hook decided; a harness that exited does say: the
+// error it was retrying past ended with it.
+func (seat Seat) keep(state, pane string, exited bool, found sight, previous *run.Object, now float64) (sight, error) {
 	if exited {
 		found.stall, found.login = nil, nil
 	} else if pane == "" && found.authority != "hook" {
@@ -206,10 +211,7 @@ func liveSeat(name string, now time.Time) (Home, Seat, bool) {
 // LookedLive is the look at a seat its panes still run on, under its announce lock from the reading
 // to the word, as the wait for that lock can outlast what the home held: what the listing
 // reconciles, watch.announce_state's look, what its last answer moved, and the word published.
-func LookedLive(state, name string) (Seat, error) { return lookedLive(state, name, true) }
-
-// lookedLive is LookedLive, where `follow` has what the seat's last answer moved followed first.
-func lookedLive(state, name string, follow bool) (Seat, error) {
+func LookedLive(state, name string) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
 		now := time.Now()
@@ -231,9 +233,6 @@ func lookedLive(state, name string, follow bool) (Seat, error) {
 		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
 		if err := seat.decided(state, found, seconds(now), attached != "" && attached != "0"); err != nil {
 			return err
-		}
-		if !follow {
-			return seat.published(state, now, home.models)
 		}
 		return seat.announced(state, now, home.models)
 	})

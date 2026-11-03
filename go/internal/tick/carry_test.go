@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
 
@@ -142,8 +143,24 @@ func TestALogoutIsRecordedAndAnOutageLeavesIt(t *testing.T) {
 	}
 }
 
-// What a read finds to act on leaves the tick to Python with nothing written.
-func TestAnythingToActOnWritesNothing(t *testing.T) {
+// endedThere is a tick that left the rest to Python: what the rows before it said all it printed,
+// no tick on record as ended, and the lock free.
+func endedThere(t *testing.T, ak, said string) {
+	t.Helper()
+	var out, errOut bytes.Buffer
+	if Carry(&out, &errOut) || out.String() != said || errOut.Len() != 0 {
+		t.Fatalf("carried it, printing %q %q", out.String(), errOut.String())
+	}
+	if text, err := os.ReadFile(filepath.Join(ak, "state", "watch.json")); err == nil && strings.Contains(string(text), `"tick"`) {
+		t.Errorf("the tick was recorded as ended: %s", text)
+	}
+	if lock.Held(lockPath()) {
+		t.Error("the lock is still held")
+	}
+}
+
+// What a row finds to act on ends the tick there, and leaves it as it was.
+func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 	for path, content := range map[string]string{
 		"runs/fix-api":                "",
 		"jobs/fix-api":                "",
@@ -172,21 +189,17 @@ func TestAnythingToActOnWritesNothing(t *testing.T) {
 			ak, _ := idleHome(t, answers)
 			path, _, _ := strings.Cut(path, "#")
 			put(t, filepath.Join(ak, path), content)
-			before := files(t, filepath.Dir(ak))
-			var out, errOut bytes.Buffer
-			if Carry(&out, &errOut) || out.Len()+errOut.Len() != 0 {
-				t.Fatalf("carried it, printing %q %q", out.String(), errOut.String())
-			}
-			if after := files(t, filepath.Dir(ak)); !reflect.DeepEqual(before, after) {
-				t.Errorf("wrote %v", after)
+			endedThere(t, ak, "")
+			if got := read(t, filepath.Join(ak, path)); got != content {
+				t.Errorf("%s holds %s", path, got)
 			}
 		})
 	}
 }
 
-// A folder a pass cannot read says nothing of what it holds, so the tick is left to Python with
-// nothing written, even where the record behind it would have said so itself.
-func TestAFailedReadWritesNothing(t *testing.T) {
+// A folder a row cannot read says nothing of what it holds, so the tick ends there, even where the
+// record behind it would have said so itself.
+func TestAFailedReadEndsTheTickThere(t *testing.T) {
 	for name, place := range map[string]struct {
 		file    string
 		blocked string
@@ -210,19 +223,7 @@ func TestAFailedReadWritesNothing(t *testing.T) {
 			if _, err := os.ReadDir(blocked); err == nil {
 				t.Skip("this user reads every folder")
 			}
-			var out, errOut bytes.Buffer
-			if Carry(&out, &errOut) || out.Len()+errOut.Len() != 0 {
-				t.Fatalf("carried it, printing %q %q", out.String(), errOut.String())
-			}
-			if err := os.Chmod(blocked, 0o700); err != nil {
-				t.Fatal(err)
-			}
-			if got := read(t, filepath.Join(ak, "state/watch.json")); got != "{}" {
-				t.Errorf("watch.json holds %s", got)
-			}
-			if _, err := os.Lstat(filepath.Join(ak, "state/watch.tick.lock")); err == nil {
-				t.Error("it took the lock")
-			}
+			endedThere(t, ak, "")
 		})
 	}
 }

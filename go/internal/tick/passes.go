@@ -5,8 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sync"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
@@ -21,31 +19,35 @@ import (
 type pass struct {
 	name string
 	dry  bool         // a dry tick reads it too
-	idle func() bool  // whether it has nothing to act on: false for a read Go cannot make
-	step func() error // what Go carries out of it: an error is its WARN line
+	idle func() bool  // whether it has nothing to act on, asked at its turn: false for a read Go cannot make
+	step func() error // what Go carries out of it: errLeft where it finds what Go does not carry, else an error is its WARN line
 }
+
+// errLeft is a row that found what Go does not carry: the tick ends there, what the rows before
+// did standing, and Python's tick, which runs next, finds that done, as every row does only what
+// is due.
+var errLeft = errors.New("left to Python")
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
 // that act whatever the home holds: usage refresh, login reminder, browser tidy, machine check, live
-// update and harness upgrade.  The seats are read once, before any step (t.seats), and a home
-// holding any other seat leaves every row that reads one to Python.
+// update and harness upgrade.  Each row reads the seats at its own turn, and a home holding a seat
+// Go does not read leaves the tick to Python at the first row that reads one.
 func table(t *ticking) []pass {
-	if t.seats == nil {
-		t.seats = sync.OnceValues(func() ([]seat.Live, bool) { return seat.Lives(time.Now()) })
-	}
-	seated := t.every(func(seat.Live) bool { return true })
+	seated := every(func(seat.Live) bool { return true })
 	return []pass{
 		{"merge checks", true, runless, nil},
 		// a boot it has not seen moves only its baseline, with every seat it would resume up
 		{"boot resume", true, all(configured, seated), bootBaseline},
-		{"held lines", false, all(configured, t.every(holdsNoLine)), nil},
+		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
-		{"rebooted turns", false, all(configured, t.every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
+		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
 		{"login resume", true, runless, nil},
 		// worker tokens are in secrets, and a run's parked login is on its run
-		{"seat health", true, all(configured, secretless, runless, t.every(healthy)), t.health},
-		{"switched turns", false, all(configured, t.every(func(live seat.Live) bool { return !midturn(live, true) })), nil},
+		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
+		// publishes nothing, reads them here
+		{"seat health", true, all(configured, secretless, runless, t.dryly(every(healthy))), t.health},
+		{"switched turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, true) })), nil},
 		{"dead loops", true, all(configured, runless), nil},
 		{"dead jobs", true, jobless, nil},
 		{"stall recovery", true, all(configured, runless), nil},
@@ -63,51 +65,42 @@ func table(t *ticking) []pass {
 		{"old endings", false, runless, nil},
 		{"endings", false, runless, nil},
 		{"job handbacks", false, jobless, nil},
-		{"ended waits", false, all(configured, t.every(waitsOnNothing)), nil},
-		{"owed lines", false, t.every(func(live seat.Live) bool { return !live.File.Truthy("owed_lines") }), nil},
+		{"ended waits", false, all(configured, every(waitsOnNothing)), nil},
+		{"owed lines", false, every(func(live seat.Live) bool { return !live.File.Truthy("owed_lines") }), nil},
 		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, run.Historyless, nil},
 		{"history sync", false, run.Historyless, nil},
 		{"history checkpoint", false, run.Historyless, nil},
 		{"weekly audit", false, all(configured, config.AuditOff), nil},
-		{"typed answers", false, t.every(unasked), nil},
-		{"card transitions", false, all(t.cardsHeld, t.every(uncarded)), t.cards},
+		{"typed answers", false, every(unasked), nil},
+		{"card transitions", false, cardsHeld, cards},
 		{"notification retry", true, func() bool {
 			return empty(filepath.Join(config.Home(), "state", "notification-outbox"))
 		}, nil},
 		{"end hook", false, nil, hookOptions},
-		{"seat revival", false, all(configured, runless, seated), t.revive},
-		{"idle sleep", false, all(configured, t.every(awake)), nil},
-		{"git housekeeping", false, all(runless, seated, checkoutsSeen), t.housekeeping},
+		{"seat revival", false, all(configured, runless), t.revive},
+		{"idle sleep", false, all(configured, every(awake)), nil},
+		{"git housekeeping", false, all(runless, checkoutsSeen), t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
 		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
 			gc.Schedule(t.log.line)
 			return nil
 		}},
-		{"exit clocks", false, seated, t.stamp},
+		{"exit clocks", false, nil, t.stamp},
 		{"seat sweep", false, all(runless, seated), nil},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},
-		{"project rules", false, all(seated, checkoutsSeen), t.fetchProjects},
+		{"project rules", false, checkoutsSeen, fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
-		{"alive checks", false, all(t.every(declaresNoAlive), outageless), nil},
+		{"alive checks", false, all(every(declaresNoAlive), outageless), nil},
 		{"night reads", false, noNights, t.nights},
 	}
 }
 
-// idle is whether watch.json and every pass the tick t runs say there is nothing to act on, read
-// with nothing written. The state folder comes first: the passes' seat records are listed from it.
-func idle(t *ticking, dry bool) bool {
-	if state, ok := loadState(); !ok || !quiet(state) || !config.Listable(statePath("")) {
-		return false
-	}
-	for _, each := range table(t) {
-		if (each.dry || !dry) && each.idle != nil && !each.idle() {
-			return false
-		}
-	}
-	return true
+// dryly is read where the tick is a dry one, which carries out no step to read it in.
+func (t *ticking) dryly(read func() bool) func() bool {
+	return func() bool { return !t.dry || read() }
 }
 
 func all(reads ...func() bool) func() bool {

@@ -1,6 +1,7 @@
 package tick
 
 import (
+	"cmp"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,27 +19,26 @@ func unasked(live seat.Live) bool {
 }
 
 // cardsHeld is whether every card is a seat's, none left of a seat gone (notify.tick_cards).
-func (t *ticking) cardsHeld() bool {
-	lives, _ := t.seats()
-	return !slices.ContainsFunc(config.SeatRecords("card"), func(path string) bool {
-		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "card-"), ".json")
-		return !slices.ContainsFunc(lives, func(live seat.Live) bool { return live.Name == name })
-	})
+func cardsHeld() bool {
+	seats := recorded("session")
+	return !slices.ContainsFunc(recorded("card"), func(name string) bool { return !slices.Contains(seats, name) })
 }
 
-// uncarded is whether neither the seat's word nor its card is one a card goes out for.
-func uncarded(live seat.Live) bool {
-	carded := notify.CardWord(live.Name)
-	return !slices.Contains([]string{"needs you", "done"}, live.Word) && carded != "needs you" && carded != "done"
+// recorded is the seat each record of that kind is named for.
+func recorded(kind string) (names []string) {
+	for _, path := range config.SeatRecords(kind) {
+		names = append(names, strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), kind+"-"), ".json"))
+	}
+	return names
 }
 
-// cards is the card transitions row where no seat reads `needs you` or `done`: each seat's card
-// follows the word its health look published.
-func (t *ticking) cards() error {
-	lives, _ := t.seats()
-	for _, live := range lives {
-		if err := notify.Turned(live.Name, seat.Published); err != nil {
-			return err
+// cards is the card transitions row (notify.tick_cards): each seat's card follows the word the
+// health row published, read under the card's lock and never off the screen again; the first seat
+// whose card or word is one a card goes out for ends the tick there.
+func cards() error {
+	for _, name := range recorded("session") {
+		if carried, err := notify.Turned(name, seat.Published); err != nil || !carried {
+			return cmp.Or(err, errLeft)
 		}
 	}
 	return nil

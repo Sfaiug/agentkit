@@ -29,8 +29,18 @@ const gcEvery = 86400
 // repository a checkout or a seat works in once, kept from collecting itself and collected in the
 // foreground once a day while nothing holds it; a busy one waits for a later tick.
 func (t *ticking) housekeeping() error {
+	lives, err := lives()
+	if err != nil {
+		return err
+	}
+	var seatPaths []string
+	for _, live := range lives {
+		if live.Path != "" {
+			seatPaths = append(seatPaths, live.Path)
+		}
+	}
 	checkouts, _ := seat.Checkouts()
-	for _, path := range t.seatPaths() {
+	for _, path := range seatPaths {
 		if !slices.Contains(checkouts, path) {
 			checkouts = append(checkouts, path)
 		}
@@ -43,14 +53,14 @@ func (t *ticking) housekeeping() error {
 			continue
 		}
 		seen[common] = true
-		if err := t.collect(repo, common); err != nil {
+		if err := t.collect(repo, common, seatPaths); err != nil {
 			t.log.line(fmt.Sprintf("WARN git gc could not run in %s: %s", repo, config.PyError(err)))
 		}
 	}
 	return nil
 }
 
-func (t *ticking) collect(repo, common string) error {
+func (t *ticking) collect(repo, common string, seatPaths []string) error {
 	if err := noAutoGC(repo, common); err != nil {
 		return err
 	}
@@ -74,7 +84,7 @@ func (t *ticking) collect(repo, common string) error {
 		return err
 	}
 	// a seat's session works where it says, whatever this tick can see of its processes
-	paths = append(paths, t.seatPaths()...)
+	paths = append(paths, seatPaths...)
 	trees := worktrees(repo)
 	if !known || len(trees) == 0 || slices.ContainsFunc(trees, func(tree string) bool {
 		return slices.ContainsFunc(paths, func(path string) bool { return path == tree || strings.HasPrefix(path, tree+"/") })

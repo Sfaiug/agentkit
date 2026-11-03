@@ -23,7 +23,14 @@ func TestTurnedCardsANewWordFromWhenItBegan(t *testing.T) {
 		}
 		return read
 	}
-	if err := Turned("acme", said("idle", run.Number("1000"))); err != nil {
+	turned := func(word string, since any) error {
+		carried, err := Turned("acme", said(word, since))
+		if !carried && err == nil {
+			t.Fatalf("%s was left", word)
+		}
+		return err
+	}
+	if err := turned("idle", run.Number("1000")); err != nil {
 		t.Fatal(err)
 	}
 	first := card()
@@ -31,21 +38,30 @@ func TestTurnedCardsANewWordFromWhenItBegan(t *testing.T) {
 		first.Get("sent") != false || len(first.Str("episode")) != 32 {
 		t.Fatalf("a first card: %s", run.Line(first))
 	}
-	if err := Turned("acme", said("idle", run.Number("2000"))); err != nil || card().Str("episode") != first.Str("episode") {
+	if err := turned("idle", run.Number("2000")); err != nil || card().Str("episode") != first.Str("episode") {
 		t.Fatalf("the same word keeps its episode: %v, %s", err, run.Line(card()))
 	}
-	if err := Turned("acme", said("working", run.Number("3000"))); err != nil || card().Get("since") != run.Number("3000") {
+	if err := turned("working", run.Number("3000")); err != nil || card().Get("since") != run.Number("3000") {
 		t.Fatalf("a word begun after the card is carded from then: %v, %s", err, run.Line(card()))
 	}
 	// the seat file's word began before the card's: the card is the newer, and its word is over now
-	if err := Turned("acme", said("idle", run.Number("2500"))); err != nil {
+	if err := turned("idle", run.Number("2500")); err != nil {
 		t.Fatal(err)
 	}
 	if since, _ := card().Num("since"); card().Get("word") != "idle" || since < 3000 {
 		t.Fatalf("a word read older than the card begins now: %s", run.Line(card()))
 	}
 	before := run.Line(card())
-	if err := Turned("acme", said("needs you", run.Number("4000"))); err != nil || run.Line(card()) != before {
-		t.Fatalf("a word a card goes out for is not this transition's: %v, %s", err, run.Line(card()))
+	for _, word := range []string{"needs you", "done", ""} {
+		if carried, err := Turned("acme", said(word, run.Number("4000"))); carried || err != nil || run.Line(card()) != before {
+			t.Fatalf("%q, a word a card goes out for or none, is left: %v %v, %s", word, carried, err, run.Line(card()))
+		}
+	}
+	// a card that went out for a word is closed by Python's transition, whatever the word now
+	if err := os.WriteFile(filepath.Join(state(), "card-acme.json"), []byte(`{"word": "needs you"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if carried, err := Turned("acme", said("idle", run.Number("4000"))); carried || err != nil {
+		t.Fatalf("a needs card was carried: %v %v", carried, err)
 	}
 }
