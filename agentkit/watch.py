@@ -7889,6 +7889,49 @@ def after_merge_checks(state, dry_run, log, now=None):
         close_health()
 
 
+def runs_health():
+    """The run census and whether any dead active run has outlasted the tick's recovery."""
+    now = time.time()
+    today = time.localtime(now)[:3]
+    try:
+        tick = load_state()["tick"]
+        took = tick["ended_at"] - tick["started_at"]
+    except (KeyError, TypeError):
+        took = 0
+    grace = max(180, 2 * took)   # cron's three-minute interval is the floor
+    going = ended = 0
+    owed, dead, stuck = [], [], False
+    processes = None
+    for run_dir, state in run_record.runs():
+        word, finished = state.get("state"), state.get("finished_at")
+        going += word in run_record.GOING
+        dated = isinstance(finished, (int, float)) and not isinstance(finished, bool)
+        ended += word in run_record.ENDED and dated and time.localtime(finished)[:3] == today
+        if handback.owes_ending(state):
+            owed.append(now - (finished if dated else run_last_write(run_dir)))
+        if word not in run_record.ACTIVE or run_record.process_active(state):
+            continue
+        if processes is None:
+            processes = [args for _, status, args in _proc_table().values()
+                         if status not in ("Z", "X")]
+        # A surviving worker or a resume not yet on the record still belongs to the run.
+        if any(arg == str(run_dir) or arg.startswith(f"{run_dir}/")
+               or (Path(arg).name == "ak"
+                   and args[i + 1:i + 4] == ["run", "resume", run_dir.name])
+               for args in processes for i, arg in enumerate(args)):
+            continue
+        age = now - run_last_write(run_dir)
+        dead.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")
+        stuck |= age >= grace
+    pending = f"{len(owed)} ending{'s' if len(owed) != 1 else ''} owed"
+    if owed:
+        pending += f", oldest {terminal_mod.format_age(max(owed))}"
+    line = f"{going} going · {ended} ended today · {pending}"
+    if dead:
+        line += f" · dead: {', '.join(dead)}"
+    return line, stuck
+
+
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
@@ -7898,16 +7941,18 @@ def doctor(argv):
     trouble -- which is the host this is typed on -- and come out before the efforts, which
     ask each harness for its models.  A model the owner set to an effort it does not take is
     named here and left as it is: the owner chose it, and the `c` screen is where it changes.
-    Exits 1 when the tick reads as hung, after everything else has been said.
+    Exits 1 when the tick reads as hung or a dead run outlasts two ticks, after everything else
+    has been said. Endings owed to a busy seat are shown, however old, and never fail it.
     """
     if command_help.show("doctor", argv):
         return 0
     if argv:
         raise config.Error(f"usage: ak doctor  (got {argv[0]!r})")
-    # the slice line says its own name, so only the tick's needs one
     print(orch.slice_line())
     tick, hung = tick_health()
     print(f"tick  {tick}", flush=True)
+    runs, stuck = runs_health()
+    print(f"runs  {runs}", flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)
@@ -7927,7 +7972,7 @@ def doctor(argv):
     except config.Error as exc:
         lines = [str(exc)]
     print("\n".join(f"rented machines: {line}" for line in lines))
-    return 1 if hung else 0
+    return 1 if hung or stuck else 0
 
 
 # What a pass of the tick may raise and leave the rest of the tick to run: the pass says so in
