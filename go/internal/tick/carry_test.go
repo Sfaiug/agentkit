@@ -164,7 +164,6 @@ func TestAnythingToActOnWritesNothing(t *testing.T) {
 		"config.toml#renting":         "[audit]\non = false\n[google_cloud]\nactive = true\n",
 		"../code/api/.git/HEAD":       "",
 		"../agentkit/.git/HEAD":       "",
-		"../.config/systemd/user/tick-test.slice.d/ceiling.conf": "[Slice]\nTasksMax=100\n",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)
@@ -195,8 +194,6 @@ func TestAFailedReadWritesNothing(t *testing.T) {
 		"code":         {"../code/api/.git/HEAD", "../code", 0},
 		"a code entry": {"../code/api/.git/HEAD", "../code/api", 0},
 		"own checkout": {"../agentkit/.git/HEAD", "../agentkit", 0},
-		"slice":        {"../.config/systemd/user/tick-test.slice.d/ceiling.conf", "../.config/systemd/user/tick-test.slice.d", 0},
-		"slice parent": {"../.config/systemd/user.control/tick-test.slice.d/ceiling.conf", "../.config/systemd", 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)

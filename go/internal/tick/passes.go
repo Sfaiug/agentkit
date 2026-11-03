@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
 	"agentkit/internal/run"
@@ -45,7 +44,7 @@ func table(t *ticking) []pass {
 		{"stall recovery", true, all(configured, runless), nil},
 		{"lease scan", false, runless, nil},
 		{"lease restart", false, runless, nil},
-		{"seat headroom", false, host.NoSliceCeiling, nil},
+		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		{"token reminder", false, nil, nil},
 		// its workers are the seat's own selection, which Go does not read yet
