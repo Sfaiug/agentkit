@@ -194,11 +194,7 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	if _, err := Compile(`[^\S]`, 0); err == nil {
 		t.Error(`[^\S] compiled, though no class here can say it`)
 	}
-<<<<<<< HEAD
-	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`} {
-=======
-	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `(?#\)`} {
->>>>>>> 05a77fd0b (Fix go/internal/pyre/pyre.go:100 - Translate non-word boundaries with Python's definition of a word - Only \b is translated. \B keeps regexp2's definition, which treats a combining acute accent as a word character. A newest=\B rule therefore fails on U+03…)
+	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`, `(?#\)`} {
 		if _, err := Compile(refused, 0); err == nil {
 			t.Errorf("%s compiled, though Python refuses it", refused)
 		}
