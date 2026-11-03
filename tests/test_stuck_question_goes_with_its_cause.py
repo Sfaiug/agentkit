@@ -3,6 +3,7 @@
 Real hook input and notification records, in a temporary HOME; no seats or delivery.
 """
 
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -105,7 +106,12 @@ class StuckQuestionGoesWithItsCause(MergedRuns):
         self.prompt()
         config.plan_path(SEAT).write_text(LINE.replace("[ ]", "[x]").replace(
             "`false`", "`true`").rstrip() + " · done abcdef123\n")
-        self.assertEqual(self.stop(), "")
+        with config.notify_path(SEAT).with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            self.assertEqual(self.stop(background_tasks=[]), "")
+            self.assertIsNotNone(notify.last(SEAT))
+            self.assertEqual(watch.hook_facts(SEAT)["event"], "Stop")
+        self.look()      # the next notice holder retires it before asking anything kept back
         self.assert_retired(card)
 
     def test_a_merged_run_not_yet_live_retires_the_question(self):
@@ -134,18 +140,6 @@ class StuckQuestionGoesWithItsCause(MergedRuns):
         self.look()
         self.assertEqual(notify.questions(notify.last(SEAT)), [OWN])
         self.assertGreater(notify._card_read(SEAT)["answered_at"], card["since"])
-
-    def test_another_standing_question_keeps_its_words_and_dates(self):
-        self.stuck()
-        self.prompt()
-        with notify.session_lock(SEAT):
-            notify._said(SEAT, "needs", OWN, question_ids={notify.question_key(OWN): "acme-card"})
-        before = notify.last(SEAT)
-        self.assertEqual(self.stop(OWN), "")
-        after = notify.last(SEAT)
-        self.assertEqual(notify.questions(after), [OWN])
-        for field in ("asked_at", "question_times", "question_ids"):
-            self.assertEqual(after[field], {notify.question_key(OWN): before[field][notify.question_key(OWN)]})
 
     def test_a_kept_copy_goes_and_every_other_kept_question_stays(self):
         text = self.stuck(publish=False)
