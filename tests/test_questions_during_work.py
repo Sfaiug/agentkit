@@ -84,6 +84,8 @@ class QuestionsDuringWork(Sandbox):
             notify.transition(SEAT, now=self.now, seat={"name": SEAT, "attached": False})
         return self.posts
 
+    # Every harness keeps its native question cards; independent work remains
+    # `working`, and an automatic update never resolves its question. [21 Oct 2026]
     def test_every_harness_holds_its_question_through_independent_work(self):
         for harness, _manifest in config.manifests():
             with self.subTest(harness=harness):

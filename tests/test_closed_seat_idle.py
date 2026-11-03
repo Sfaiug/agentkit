@@ -20,6 +20,9 @@ SEAT = "acme-api"
 OWED = "- [ ] the parser reads both schemas · check: `false` · acme · written 2026-10-14 09:00\n"
 
 
+# `idle`: nothing running, asked or owed: a new seat, a conversation that ended,
+# a seat they closed. An owner-closed seat reads `idle` even with an open plan.
+# [14, 20 Oct 2026]
 class ClosedSeatIdle(Sandbox):
     def decide(self, records=()):
         found = watch.session_state(SEAT, now=10000, session={"name": SEAT, "exited": True},

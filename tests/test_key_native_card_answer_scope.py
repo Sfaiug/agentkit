@@ -134,6 +134,8 @@ class NativeCardAnswerScope(unittest.TestCase):
         self.answer(seat, card(LAYOUT, answers={LAYOUT: "Compact (Recommended)"}))
         self.naming_remains(seat)
 
+    # An actual answer resolves its question, never an automatic update. [21 Oct 2026]
+    # A cancelled or empty card, or a card showing other choices, answers nothing.
     def test_a_cancelled_empty_or_other_card_answers_nothing(self):
         for name, payload in (("gamma", card(LAYOUT)),
                               ("delta", card(LAYOUT, answers={LAYOUT: " "})),

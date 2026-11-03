@@ -51,6 +51,10 @@ class AChooserOnScreen(unittest.TestCase):
                 return self.sink.pages()
             time.sleep(2)
 
+    # `needs you` begins only once questions are visible and the turn ends, or
+    # pauses on a blocking card. [21 Oct 2026]
+    # `needs you`: only the owner can unblock it: a question or permission on its
+    # screen, its own `ak notify needs`. [14, 20 Oct 2026]
     def test_it_reads_needs_you_at_once_and_pages_its_word_and_seat_once_later(self):
         seat = Seat(self.home, "acme", model="echo", screen=CHOOSER)
         self.tick()
