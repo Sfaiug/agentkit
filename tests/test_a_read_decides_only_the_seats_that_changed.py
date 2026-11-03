@@ -1,5 +1,5 @@
 """A screen's read decides again only the seats whose inputs changed, and every seat once its row is
-`open_runs.CEILING` old: each read decided all of a host's 68 seats, most of the read's CPU, though
+`open_runs.CEILING` old: each read decided all of a host's 68 seats, the largest part of the read's CPU, though
 almost every row was the one before.  In-process, on a temporary HOME with a fake tmux, counting
 the seats a read decides by the two things deciding one asks."""
 
