@@ -165,7 +165,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 			// tmux offers its row whatever its record owns, dates it by its own start where the
 			// record does not, and its bar shows the squares of any run going
 			record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
-			if at(record.Get("created")) == 0 || seat.Word != "idle" {
+			if at(record.Get("created")) == 0 {
 				return Home{}, false
 			}
 			seat.unowned = false
@@ -274,10 +274,6 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	}
 	if len(mine) > 0 {
 		seat.Tally = fmt.Sprintf("%d running · %d merged", len(going), merged)
-	}
-	if len(going) > 0 && !live {
-		seat.Word = "working"
-		seat.reason, seat.since = working(going)
 	}
 	return seat, true
 }

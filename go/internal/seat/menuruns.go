@@ -71,7 +71,7 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
 	// Parked recovery and an ending still owed to the seat need Python's hand-back reader.
-	if run.NeedsRecovery(record) && !view.going || record.Truthy("handback_pending") {
+	if !view.going && (run.NeedsRecovery(record) || state == "error" || state == "waiting") || record.Truthy("handback_pending") {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]
