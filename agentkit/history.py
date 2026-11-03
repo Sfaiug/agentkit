@@ -495,7 +495,7 @@ def add_landing_break(run_id, *, log=None):
         (run_id,)), log)
 
 
-def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
+def add_wait(run_id, wait, seconds, at=None, *, began=None, kind=None, log=None):
     """Add a wait's seconds, counted up to `at`, to its column and end its phase row there: the
     row of the wait that began at `began`, a wait counted whole without it.  A row from before
     the columns stays unrecorded."""
@@ -504,8 +504,8 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     seconds = max(0.0, seconds)
     at = time.time() if at is None else at
     began = at - seconds if began is None else began
-    state = (record.read_state(config.RUNS / str(run_id)) or {}) if wait == "slot" else {}
-    kind = state.get("slot_wait_kind")
+    if wait == "slot" and kind is None:
+        kind = (record.read_state(config.RUNS / str(run_id)) or {}).get("slot_wait_kind")
     _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at, kind), log)
 
 
