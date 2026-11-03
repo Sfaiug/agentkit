@@ -53,7 +53,7 @@ func (r *reads) staleWorktree(wt string) (Item, bool) {
 	dir := filepath.Join(runsDir(), filepath.Base(wt))
 	if !present(filepath.Join(dir, "run.json")) {
 		orphan := !run.Writing(dir) && !busy(dir, r.paths) && expired(lastUsed(wt), r.now, day) && !holdsWork(wt)
-		return Item{"remove", "orphan-worktree", wt, "no run record"}, orphan
+		return Item{"remove", "orphan-worktree", wt, "no run record", takeStale(wt, true)}, orphan
 	}
 	record := r.record(dir)
 	if record == nil || record.Get("worktree") != wt || record.Str("state") != "pass" || record.Truthy("merged") ||
@@ -63,7 +63,7 @@ func (r *reads) staleWorktree(wt string) (Item, bool) {
 	}
 	finished, _ := run.Num(record.Get("finished_at"))
 	why := fmt.Sprintf("passed, never merged, ended %d days ago", int(math.Floor((r.now-finished)/day)))
-	return Item{"remove", "unmerged-worktree", wt, why}, true
+	return Item{"remove", "unmerged-worktree", wt, why, takeStale(wt, false)}, true
 }
 
 // clearable is a tree gc may empty by hand: straight under ~/.agentkit/wt, work or tmp, this

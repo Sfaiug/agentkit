@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gc"
+	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
 	"agentkit/internal/run"
@@ -24,7 +26,7 @@ type pass struct {
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
-// that act whatever the home holds: usage refresh, login reminder, collection, browser tidy,
+// that act whatever the home holds: usage refresh, login reminder, browser tidy,
 // machine check, live update and harness upgrade.
 func table(t *ticking) []pass {
 	seatless := sync.OnceValue(func() bool { return len(config.SeatFiles()) == 0 && seat.OnNoServer() })
@@ -72,6 +74,11 @@ func table(t *ticking) []pass {
 		{"seat revival", false, all(configured, runless, seatless), nil},
 		{"idle sleep", false, all(configured, seatless), nil},
 		{"git housekeeping", false, all(runless, seatless, checkoutsSeen), t.housekeeping},
+		// a due collection's units are Python's to clear where a user manager runs
+		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
+			gc.Schedule(t.log.line)
+			return nil
+		}},
 		{"exit clocks", false, seatless, nil},
 		{"seat sweep", false, all(runless, seatless), nil},
 		{"ended logins", false, noLoginsToEnd, nil},

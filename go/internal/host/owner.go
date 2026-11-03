@@ -19,3 +19,15 @@ func Mark(name string) {
 		os.Setenv("AK_OWNER", fmt.Sprintf("%s %d %d %d %s", inode, os.Getpid(), stat.Start, stat.Session, name))
 	}
 }
+
+// Unmarked is an environment without the mark or a seat's tag, Python's owner.unmarked: what
+// ak starts to outlive it.
+func Unmarked(env []string) []string {
+	var kept []string
+	for _, pair := range env {
+		if !strings.HasPrefix(pair, "AK_OWNER=") && !strings.HasPrefix(pair, "AK_TMUX_OWNER=") {
+			kept = append(kept, pair)
+		}
+	}
+	return kept
+}
