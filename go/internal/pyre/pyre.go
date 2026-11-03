@@ -26,8 +26,9 @@ const (
 	Multiline                   // re.M
 )
 
-// A Regexp is one compiled pattern.
-type Regexp struct{ engine *regexp2.Regexp }
+// A Regexp is one compiled pattern, and the same pattern refusing to match empty where its search
+// starts (\G), as Python's re.finditer searches again where an empty match ended.
+type Regexp struct{ engine, advancing *regexp2.Regexp }
 
 // A Match is where a pattern matched, in bytes, and its named groups.
 type Match struct {
@@ -78,7 +79,12 @@ func Compile(pattern string, flags Flag) (*Regexp, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%q: %w", pattern, err)
 	}
-	return &Regexp{engine}, nil
+	// `)(?#\n)` closes the group once whether or not the pattern ends in a verbose comment
+	advancing, err := regexp2.Compile("(?:"+said+")(?#\n)"+`(?!\G)`, options)
+	if err != nil {
+		return nil, fmt.Errorf("%q: %w", pattern, err)
+	}
+	return &Regexp{engine, advancing}, nil
 }
 
 // translated is a Python pattern in the engine's syntax; folding is whether it ignores case where
@@ -333,9 +339,10 @@ func (r *Regexp) FindAll(text string, n int) []Match {
 		bytes = append(bytes, at)
 	}
 	bytes = append(bytes, len(text))
+	runes := []rune(text)
 	var found []Match
 	// an error is only a timeout, and none is set
-	match, _ := r.engine.FindStringMatch(text)
+	match, _ := r.engine.FindRunesMatch(runes)
 	for ; match != nil && n != 0; n-- {
 		start, end := bytes[match.Index], bytes[match.Index+match.Length]
 		each := Match{Start: start, End: end, Text: text[start:end], named: map[string]*string{}}
@@ -347,7 +354,11 @@ func (r *Regexp) FindAll(text string, n int) []Match {
 			}
 		}
 		found = append(found, each)
-		match, _ = r.engine.FindNextMatch(match)
+		next := r.engine
+		if match.Length == 0 {
+			next = r.advancing
+		}
+		match, _ = next.FindRunesMatchStartingAt(runes, match.Index+match.Length)
 	}
 	return found
 }

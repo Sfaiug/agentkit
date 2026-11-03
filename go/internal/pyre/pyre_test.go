@@ -191,6 +191,28 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	}
 }
 
+// Where an empty match ended, the search takes the pattern's other ways to match there, as
+// Python's re.finditer does.
+func TestFindAllMatchesWhereAnEmptyMatchEnded(t *testing.T) {
+	for _, each := range []struct {
+		pattern, text string
+		found         []string
+	}{
+		{`x*|a`, "a", []string{"", "a", ""}},
+		{`(?x)x*|b#c`, "ab", []string{"", "", "b", ""}},
+		{`a*`, "baa", []string{"", "aa", ""}},
+		{`\b|é`, "é a", []string{"", "é", "", "", ""}},
+	} {
+		var found []string
+		for _, match := range must(Compile(each.pattern, 0)).FindAll(each.text, -1) {
+			found = append(found, match.Text)
+		}
+		if !reflect.DeepEqual(found, each.found) {
+			t.Errorf("%s on %q found %q, not %q", each.pattern, each.text, found, each.found)
+		}
+	}
+}
+
 func must(compiled *Regexp, err error) *Regexp {
 	if err != nil {
 		panic(err)
