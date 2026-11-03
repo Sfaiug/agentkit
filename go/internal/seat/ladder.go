@@ -2,16 +2,14 @@ package seat
 
 import (
 	"cmp"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 )
@@ -256,23 +254,40 @@ func telling(facts climbing) (*answer, error) {
 	return &answer{word: "working", reason: fmt.Sprintf("telling it its wait on %v is over", wait.Get("on")), since: facts.found.began}, nil
 }
 
-// planned: a plan beside the seat, whose lines and proofs Go does not weigh on a live seat yet.
-func planned(facts climbing) (*answer, error) {
-	if _, err := os.Stat(filepath.Join(facts.state, "plan-"+facts.name+".md")); !errors.Is(err, fs.ErrNotExist) {
+// stillOwed: nothing running, asked or owed it news, it is the owner's while its plan owes a line,
+// unless the owner stopped its turn and so knows; and while a question it kept back is unasked.
+// Whether the tick has yet to send it back to that line (watch.goes_back) Go does not read: a seat
+// whose stop hook said a line may wait on it.
+func stillOwed(facts climbing) (*answer, error) {
+	line, owes := "", false
+	if !facts.found.interrupted {
+		var err error
+		if line, owes, err = plan.OwedLine(facts.name); err != nil {
+			return nil, ErrUnread
+		}
+	}
+	if line != "" && facts.file.Truthy("stop_said") {
 		return nil, ErrUnread
 	}
-	return nil, nil
-}
-
-// stillOwed: a question it kept back that no look has yet been able to ask is still the owner's.
-func stillOwed(facts climbing) (*answer, error) {
-	if _, err := planned(facts); err != nil {
-		return nil, err
-	}
-	if !facts.file.Truthy("unasked") {
+	if !owes && !facts.file.Truthy("unasked") {
 		return nil, nil
 	}
-	return &answer{word: "needs you", reason: "stopped with work open", since: facts.found.began}, nil
+	reason := "stopped with work open"
+	if line != "" {
+		reason += ": " + line
+	}
+	return &answer{word: "needs you", reason: reason, since: facts.found.began}, nil
 }
 
-func planFinished(facts climbing) (*answer, error) { return planned(facts) }
+// planFinished: a plan whose every line is proven is done, which ak reads and nobody declares; it
+// says what it did last.  A run of its own, which could still wait on the owner, aRunOfItsOwn reads.
+func planFinished(facts climbing) (*answer, error) {
+	finished, err := plan.Finished(facts.name)
+	if err != nil {
+		return nil, ErrUnread
+	}
+	if !finished {
+		return nil, nil
+	}
+	return &answer{word: "done", reason: config.Fold(plan.LastDone(facts.name)), since: facts.found.began}, nil
+}

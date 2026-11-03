@@ -1,8 +1,10 @@
 package plan
 
 import (
+	"iter"
 	"os"
 	"slices"
+	"strings"
 	"time"
 
 	"agentkit/internal/config"
@@ -12,30 +14,63 @@ import (
 // (`taken`), or a plan nothing can read, which proves nothing done.  ErrUnread, owing, where only
 // lines whose runs Go cannot read as Python does could owe.
 func Owes(name string) (bool, error) {
-	current, _, err := config.ResolveSession(name)
-	if err != nil {
-		return true, nil
-	}
-	lines, err := read(current)
-	if err != nil {
-		return true, nil
-	}
 	var unread error
-	for _, line := range lines {
-		if !open(line) {
-			continue
-		}
-		written, ok := parse(line)
-		if !ok || !written.Deferred {
+	for _, err := range owed(name) {
+		if err == nil {
 			return true, nil
 		}
-		if taken, err := taken(current, written); err != nil {
-			unread = err
-		} else if !taken {
-			return true, nil
-		}
+		unread = err
 	}
 	return unread != nil, unread
+}
+
+// OwedLine is the first line the seat owes, in its plan's own words (stop.owed_line): "" for a plan
+// nothing can read, and owes false where it owes nothing.  ErrUnread, owing, where Go cannot weigh
+// a line before it.
+func OwedLine(name string) (line string, owes bool, err error) {
+	for line, err := range owed(name) {
+		return line, true, err
+	}
+	return "", false, nil
+}
+
+// owed is each line the seat owes, in its plan's own words, in order: "" alone for a plan nothing
+// can read, and an error for a line whose runs Go cannot read as Python does.
+func owed(name string) iter.Seq2[string, error] {
+	return func(yield func(string, error) bool) {
+		current, _, err := config.ResolveSession(name)
+		var lines []string
+		if err == nil {
+			lines, err = read(current)
+		}
+		if err != nil {
+			yield("", nil)
+			return
+		}
+		for _, line := range lines {
+			if !open(line) {
+				continue
+			}
+			written, ok := parse(line)
+			if ok && written.Deferred {
+				if taken, err := taken(current, written); err != nil {
+					if !yield("", err) {
+						return
+					}
+					continue
+				} else if taken {
+					continue
+				}
+			}
+			if !ok {
+				line = strings.TrimFunc(line, config.Space)
+				written.What = strings.TrimFunc(line[boxLine.FindStringIndex(line)[1]:], config.Space)
+			}
+			if !yield(written.What, nil) {
+				return
+			}
+		}
+	}
 }
 
 // LiveUnrecorded is whether the seat's own ssh reached the live host this turn (ReachedLive) and
