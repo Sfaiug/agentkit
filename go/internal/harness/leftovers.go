@@ -33,19 +33,20 @@ type Store struct{ Root, Pattern string }
 
 // ConversationStores is every such harness's stores, in the plugins' order: agy 1.4.4's default
 // home; ~/.codex/sessions and each Codex seat's sessions and archived sessions, kept apart; each
-// Grok login home's sessions not linked to another's; Muse's session folders.
-func ConversationStores() []Store {
+// Grok login home's sessions not linked to another's; Muse's session folders.  `list` is a
+// folder's names in order, read as the caller's plan reads: HOME's own access time stays.
+func ConversationStores(list func(folder string) []string) []Store {
 	home := config.UserHome()
 	stores := []Store{{filepath.Join(home, ".gemini", "antigravity-cli", "conversations"), "*.db"}}
 	rollouts := "*/*/*/rollout-*.jsonl"
 	stores = append(stores, Store{filepath.Join(home, ".codex", "sessions"), rollouts})
-	for _, seat := range listed(filepath.Join(home, ".codex", "agentkit-seats"), func(path string) bool {
+	for _, seat := range listed(list, filepath.Join(home, ".codex", "agentkit-seats"), func(path string) bool {
 		info, err := os.Stat(path)
 		return err == nil && info.IsDir()
 	}) {
 		stores = append(stores, Store{filepath.Join(seat, "sessions"), rollouts}, Store{filepath.Join(seat, "archived_sessions"), rollouts})
 	}
-	grok := append([]string{filepath.Join(home, ".grok")}, listed(home, func(path string) bool {
+	grok := append([]string{filepath.Join(home, ".grok")}, listed(list, home, func(path string) bool {
 		return strings.HasPrefix(filepath.Base(path), ".grok-")
 	})...)
 	for _, each := range grok {
@@ -95,11 +96,10 @@ func share() string {
 }
 
 // listed is the entries of a folder that pass, in name order.
-func listed(folder string, passes func(string) bool) []string {
+func listed(list func(string) []string, folder string, passes func(string) bool) []string {
 	var found []string
-	entries, _ := os.ReadDir(folder)
-	for _, entry := range entries {
-		if path := filepath.Join(folder, entry.Name()); passes(path) {
+	for _, name := range list(folder) {
+		if path := filepath.Join(folder, name); passes(path) {
 			found = append(found, path)
 		}
 	}

@@ -434,7 +434,10 @@ func (r *reads) conversations() []Item {
 		return nil
 	}
 	var found []Item
-	for _, store := range harness.ConversationStores() {
+	for _, store := range harness.ConversationStores(func(folder string) []string {
+		names, _ := listdir(folder)
+		return names
+	}) {
 		for _, path := range glob(store.Root, store.Pattern) {
 			if why := r.conversationStale(path, paths); why != "" {
 				found = append(found, Item{"remove", "conversation", path, why})

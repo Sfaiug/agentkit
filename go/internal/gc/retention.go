@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"agentkit/internal/run"
 )
@@ -164,14 +165,17 @@ func readBytes(path string) ([]byte, error) {
 }
 
 // json is the object a safe file holds, as retention.read_json reads it; nil for none.  A
-// record Go does not read as Python does makes the plan Python's.
+// record Go does not read as Python does makes the plan Python's: Python reads the bytes in
+// UTF-16 or UTF-32 too, which a NUL byte marks where no BOM does, and lone surrogates, where Go
+// reads UTF-8 alone.
 func (r *reads) json(path string) *run.Object {
 	data, err := readBytes(path)
 	if err != nil {
 		return nil
 	}
-	value, err := run.DecodeLimited(bytes.TrimPrefix(data, []byte("\xef\xbb\xbf")))
-	if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	value, err := run.DecodeLimited(data)
+	if !utf8.Valid(data) || bytes.IndexByte(data, 0) >= 0 || errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
 		r.python = true
 	}
 	object, _ := value.(*run.Object)
@@ -296,7 +300,10 @@ func processPaths() []string {
 		}
 		proc := "/proc/" + entry.Name()
 		info, err := os.Stat(proc)
-		if st, ok := statOf(info); err != nil || !ok || st.uid != uint32(os.Getuid()) {
+		if err != nil {
+			continue // it exited
+		}
+		if st, ok := statOf(info); !ok || st.uid != uint32(os.Getuid()) {
 			continue
 		}
 		links := []string{proc + "/cwd"}
