@@ -79,7 +79,7 @@ func listed(script string, env []string) (rows [][]string) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, script, "models")
 	cmd.Env = env
-	stop := host.Group(cmd)
+	stop := host.AdapterCall(cmd)
 	var said strings.Builder
 	cmd.Stdout, cmd.Stderr = &said, io.Discard
 	if cmd.Start() != nil {

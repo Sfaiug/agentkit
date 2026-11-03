@@ -44,11 +44,18 @@ func (s Stat) Exited() bool {
 	return s.State == "Z" || s.State == "X" || s.Flags&0x4 != 0
 }
 
-// ReadStat counts the fields after the last `)`, as the command name may hold spaces or `)`.
 func ReadStat(pid int) (Stat, bool) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return Stat{}, false
+	}
+	return ParseStat(data)
+}
+
+// ParseStat counts the fields after the last `)`, as the command name may hold spaces or `)`.
+func ParseStat(data []byte) (Stat, bool) {
 	at := bytes.LastIndexByte(data, ')')
-	if err != nil || at < 0 {
+	if at < 0 {
 		return Stat{}, false
 	}
 	fields := strings.Fields(string(data[at+1:]))
