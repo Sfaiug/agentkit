@@ -90,17 +90,18 @@ type ran struct {
 	name   string
 	record *run.Object
 	quiet  float64
+	view   *runView
 }
 
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else
 // only seats on no tmux server or whose panes have all died there, with records, seat files and
 // runs it follows.  Looking also takes seats whose panes run on.
-func Read(now time.Time) (Home, bool) { return reading(now, false) }
+func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns) }
 
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
-func Looking(now time.Time) (Home, bool) { return reading(now, true) }
+func Looking(now time.Time) (Home, bool) { return reading(now, true, readRuns) }
 
-func reading(now time.Time, looking bool) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool)) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -164,7 +165,7 @@ func reading(now time.Time, looking bool) (Home, bool) {
 			// tmux offers its row whatever its record owns, dates it by its own start where the
 			// record does not, and its bar shows the squares of any run going
 			record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
-			if at(record.Get("created")) == 0 || seat.Word != "idle" {
+			if at(record.Get("created")) == 0 {
 				return Home{}, false
 			}
 			seat.unowned = false
@@ -274,10 +275,6 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if len(mine) > 0 {
 		seat.Tally = fmt.Sprintf("%d running · %d merged", len(going), merged)
 	}
-	if len(going) > 0 {
-		seat.Word = "working"
-		seat.reason, seat.since = working(going)
-	}
 	return seat, true
 }
 
@@ -370,7 +367,7 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 		}
 		running[seat] = running[seat] || state == "running"
 		if !run.SmokeRun(record) {
-			mine[seat] = append(mine[seat], ran{entry.Name(), record, now.Sub(info.ModTime()).Seconds()})
+			mine[seat] = append(mine[seat], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds()})
 		}
 	}
 	for _, going := range running {
@@ -602,7 +599,8 @@ func vote(mine []ran) any {
 }
 
 // crew is a record's workers joined by commas, or why config._validate_session refuses them
-// though each is a model; false where one is no model on a harness this reading follows.
+// though each is a model; false where one is no configured model. Only the orchestrator needs a
+// harness whose seat this reading can follow: a worker's full name is all a row reads.
 func crew(workers any, models map[string]config.Model) (string, string, bool) {
 	listed, isList := workers.([]any)
 	if !isList && workers != nil {
@@ -615,7 +613,7 @@ func crew(workers any, models map[string]config.Model) (string, string, bool) {
 	complaint := ""
 	for _, each := range listed {
 		name, ok := each.(string)
-		if _, known := harness.Reopens(models[name].Harness); !ok || !known {
+		if _, known := models[name]; !ok || !known {
 			return "", "", false
 		}
 		if slices.Contains(names, name) {

@@ -35,14 +35,14 @@ func (seat *Seat) goneAt(state string, place int, now time.Time) error {
 	return err
 }
 
-// goneRuns reads the runs Read already vetted; live seats still leave their runs to Python.
+// goneRuns reads the runs the home's reader vetted, including Menu's snapshots for live seats.
 func goneRuns(facts climbing) (*answer, error) {
-	if facts.gone == nil {
-		return aRunOfItsOwn(facts)
+	if _, err := aRunOfItsOwn(facts); err != nil {
+		return nil, err
 	}
 	var going []ran
 	for _, each := range facts.mine {
-		if each.record.Str("state") == "running" {
+		if each.view != nil && each.view.going || each.view == nil && each.record.Str("state") == "running" {
 			going = append(going, each)
 		}
 	}
