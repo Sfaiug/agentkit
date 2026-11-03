@@ -228,10 +228,11 @@ func TestACheckStillOwedIsPendingAndACancelledJobIsAskedAgain(t *testing.T) {
 	}
 	need := wanted{"ci": {"1": true}, "lint": {"1": true}, "other": {"1": true}}
 	rerun := map[string]int{}
-	states, why, err := p.checkStates(l, pull, need, rerun)
+	read, why, err := checkStates(l, pull, p.sha, need, rerun)
 	if err != nil || why != "" {
 		t.Fatalf("why=%s err=%v", why, err)
 	}
+	states := read.states
 	if strings.Join(states["ci"], ",") != "pending" || strings.Join(states["lint"], ",") != "pending" || len(states["other"]) != 0 {
 		t.Fatalf("states = %v", states)
 	}

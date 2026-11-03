@@ -65,7 +65,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 			looked, err = look(record)
 			return err
 		})
-		if errors.Is(err, errLeft) || errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLined) {
+		if errors.Is(err, errLeft) || errors.Is(err, run.ErrLoneSurrogate) {
 			return notImplemented(errOut, "run status")
 		}
 		looked = looked && err == nil

@@ -117,7 +117,7 @@ func holdsWork(wt string) bool {
 	}
 	code, _ = gitIn(wt, "symbolic-ref", "-q", "HEAD")
 	if code == 1 {
-		return !isFile(filepath.Join(private, "ak-lander-scratch"))
+		return !isFile(filepath.Join(private, gitcall.ScratchMark))
 	}
 	if code != 0 || locked || submoduleSetUp(wt, private) {
 		return true

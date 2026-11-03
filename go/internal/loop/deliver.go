@@ -24,8 +24,9 @@ import (
 
 // Delivery is Python's deliver.merge and what it stands on: a passed run's work is taken in on
 // the target's tip, checked there once more, and delivered under the repository's delivery lock.
-// Go delivers for an account that may only read the repository: a PR from a fork, which waits
-// for the maintainer.  A writable account's delivery is Python's (notYet).
+// An account that may only read the repository delivers a PR from a fork, which waits for the
+// maintainer; any other joins the landing line (line.go) and, woken on its verdict, pushes and
+// merges its own PR (merge.go).
 
 // forkRemote is the remote a run adds for its fork; `origin` stays the upstream.
 const forkRemote = "fork"
@@ -49,8 +50,15 @@ func (r *repoPlace) merge(l *loop) error {
 }
 
 func (r *repoPlace) deliver(l *loop) error {
-	if err := r.requireReviewPass(l); err != nil {
-		return err
+	record, err := run.Read(l.dir)
+	if record == nil {
+		return cmp.Or(err, errors.New("run.json cannot be read"))
+	}
+	// a member of the line answers to its lander's verdict, which its delivery checks again
+	if landingLine(record) == "" {
+		if err := r.requireReviewPass(l); err != nil {
+			return err
+		}
 	}
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "merged", false, "merge_failed", false, "merge_note", nil, "on_target", false)
@@ -84,7 +92,7 @@ func (r *repoPlace) deliver(l *loop) error {
 		l.say("WARN gh repo view could not say whether this account may push: " + tail(said, 200))
 	}
 	if repo == "" || gh.Writable(permission) {
-		return notYet("the review passed", "landing it")
+		return r.joinLine(l, upstream, func() error { return r.deliverOwn(l, target, upstream) })
 	}
 	return r.land(l, upstream, func() error { return r.forkAndPR(l, target, repo, permission) })
 }
@@ -219,7 +227,7 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	if record == nil {
 		return false, cmp.Or(err, errors.New("run.json cannot be read"))
 	}
-	merges, err := g.Try("rev-list", "--merges", r.baseSHA+"..HEAD")
+	how, err := r.how(record)
 	if err != nil {
 		return false, err
 	}
@@ -232,11 +240,6 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 		return false, err
 	}
 	held := code == 0
-	// a branch carrying merges, or a task asking for one, keeps its history
-	how, args := "rebase", []string{"rebase", tip}
-	if record.Str("merge_method") == "merge" || merges != "" {
-		how, args = "merge", []string{"merge", "--no-edit", tip}
-	}
 	saved, verdict := record.Dict("review"), record.Get("verdict")
 	if !held {
 		// before git rewrites HEAD: an interruption must not leave a PASS saved on it
@@ -250,7 +253,7 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	} else {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
-	if code, out, err := g.Out(args...); err != nil || code != 0 {
+	if code, out, err := g.Out(integration(how, tip)...); err != nil || code != 0 {
 		r.abort(l, how, err != nil)
 		return false, cmp.Or(err, notYet(fmt.Sprintf("its %s onto %s at %s stopped on a conflict: %s", how, upstream, tip[:12], tail(out, 400)), "resolving it"))
 	}
@@ -272,6 +275,24 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 		return false, err
 	}
 	return false, r.note(l, "its work is already on "+strings.TrimPrefix(upstream, "origin/"), false)
+}
+
+// how is the way the branch takes the target's tip in, Python's how_to_integrate: a branch carrying
+// merges, or a task asking for one, keeps its history with a merge; any other rebases.
+func (r *repoPlace) how(record *run.Object) (string, error) {
+	merges, err := r.git().Try("rev-list", "--merges", r.baseSHA+"..HEAD")
+	if record.Str("merge_method") == "merge" || merges != "" {
+		return "merge", err
+	}
+	return "rebase", err
+}
+
+// integration is git's arguments taking tip in that way.
+func integration(how, tip string) []string {
+	if how == "merge" {
+		return []string{"merge", "--no-edit", tip}
+	}
+	return []string{"rebase", tip}
 }
 
 // abort puts the branch back after an integration that stopped or conflicted, Python's
@@ -471,11 +492,10 @@ func firstFailure(text string) string {
 // Python's takes: the kernel releases a dead holder.  A delivery waiting on another, which can
 // spend an hour on PR checks, says so on its record, so nobody reads it as stalled.
 func (r *repoPlace) mergeLock(l *loop, upstream string) (*os.File, error) {
-	url, err := r.git().Try("remote", "get-url", "origin")
+	path, err := r.turn(upstream)
 	if err != nil {
 		return nil, err
 	}
-	path := filepath.Join(run.Runs(), fmt.Sprintf(".merge-%x.lock", sha256.Sum256([]byte(remoteKey(cmp.Or(url, r.repo))+"\n"+upstream))))
 	if err := os.MkdirAll(run.Runs(), 0o777); err != nil {
 		return nil, err
 	}
@@ -492,6 +512,13 @@ func (r *repoPlace) mergeLock(l *loop, upstream string) (*os.File, error) {
 		return nil, unmarked
 	}
 	return held, err
+}
+
+// turn is the delivery lock for the repository and target, Python's turn_path: the landing line
+// is named for it.
+func (r *repoPlace) turn(upstream string) (string, error) {
+	url, err := r.git().Try("remote", "get-url", "origin")
+	return filepath.Join(run.Runs(), fmt.Sprintf(".merge-%x.lock", sha256.Sum256([]byte(remoteKey(cmp.Or(url, r.repo))+"\n"+upstream)))), err
 }
 
 // remoteKey is `host/owner/repo` for a clone URL however it spells the repository, Python's
@@ -545,7 +572,13 @@ func (r *repoPlace) forkAndPR(l *loop, target, repo, permission string) error {
 		return cmp.Or(err, errors.New("run.json cannot be read"))
 	}
 	if record.Truthy("pr") {
-		return notYet("the PR is already open", "refreshing its description")
+		if ok, err := r.refreshPR(l, record); err != nil || !ok {
+			return err
+		}
+		if err := l.save(func(record *run.Object) { record.Set("foreign", true) }); err != nil {
+			return err
+		}
+		return r.note(l, "waiting for the maintainer", false)
 	}
 	code, me, err := asked(l.dir, "api", "user", "-q", ".login")
 	if err != nil {

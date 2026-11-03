@@ -30,6 +30,14 @@ const (
 // these waits, then hourly, indefinitely.  The run stays `running` throughout.
 var transientBackoff = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, 30 * time.Minute, time.Hour}
 
+// transientDelay is how long the attempt-th transient retry waits: the backoff's steps, then hourly.
+func transientDelay(attempt int) time.Duration {
+	if attempt <= len(transientBackoff) {
+		return transientBackoff[attempt-1]
+	}
+	return time.Hour
+}
+
 // A cannotRun is a harness that never ran the turn: another provider takes it, or the run is
 // blocked on this line, which is what it is wherever nobody catches it.
 type cannotRun struct{ name, line string }
@@ -343,10 +351,7 @@ func (c *call) waitOut(why string) (bool, error) {
 		}
 		c.l.say(fmt.Sprintf("WARN %s %s %s; no other worker can take it", c.role, c.name, detail))
 	}
-	delay := time.Hour
-	if c.attempts <= len(transientBackoff) {
-		delay = transientBackoff[c.attempts-1]
-	}
+	delay := transientDelay(c.attempts)
 	c.l.say(fmt.Sprintf("WARN %s %s %s (attempt %d); retrying in %ds%s", c.role, c.name, why, c.attempts, int(delay.Seconds()), c.resuming()))
 	c.attempts++
 	return true, c.l.wait(delay)
