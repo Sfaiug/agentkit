@@ -48,6 +48,10 @@ sys.exit(result.returncode)
 '''
 
 
+# A harness's settings are its own: every login of a harness reads one settings file (not yet
+# Antigravity's: 1.3.5 replaces links), so the change reaches every session and worker of that
+# harness. Reason: an edit made on one Claude login was reverted by the next launch.
+# [15 Oct 2026]
 class MuseOneSettings(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix="ak-muse-settings-")

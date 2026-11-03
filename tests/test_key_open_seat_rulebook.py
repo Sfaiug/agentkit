@@ -1,14 +1,14 @@
 """A seat opened from a terminal runs on its rulebook: ak's rules, the host's, then its project's.
 
-A seat's rules have three homes, each handed to it whole (owner rules): orchestrator.md, the
-host's ~/.agentkit/rules.md, and the project's AGENTS.md as merged on its default branch, never as
-one checkout, branch or edit holds it, front matter removed.  ak writes the rulebook before the
-seat's harness is asked for its command line and names the file to its adapter in
-$AGENTKIT_RULEBOOK; host rules that cannot be read refuse the launch, so no seat works to rules
-nobody chose.  The harness runs in the seat's tmux session as that seat, in the directory it was
-opened from, with ak's guard shims first on its PATH.  Black-box: the program `AK_BIN` names runs
-from outside through tests/fixtures/akbin.py, on an adapter of this test's own that keeps what it
-is told, for projects of tests/fixtures/gitrig.py; this test fails against `/bin/false`.
+A seat's rules have three homes, each handed to it whole (tests/test_key_open_seat_rulebook.py):
+orchestrator.md, the host's ~/.agentkit/rules.md, and the project's AGENTS.md as merged on its
+default branch, never as one checkout, branch or edit holds it, front matter removed.  ak writes
+the rulebook before the seat's harness is asked for its command line and names the file to its
+adapter in $AGENTKIT_RULEBOOK; host rules that cannot be read refuse the launch, so no seat works
+to rules nobody chose.  The harness runs in the seat's tmux session as that seat, in the directory
+it was opened from, with ak's guard shims first on its PATH.  Black-box: the program `AK_BIN` names
+runs from outside through tests/fixtures/akbin.py, on an adapter of this test's own that keeps what
+it is told, for projects of tests/fixtures/gitrig.py; this test fails against `/bin/false`.
 """
 
 import hashlib
@@ -101,6 +101,9 @@ class Opening:
                 time.sleep(0.05)
 
 
+# Instructions have four homes: `orchestrator.md` and the worker rules (ak's), the host's
+# `~/.agentkit/rules.md` (the owner's), and a project's `AGENTS.md` (what no code can hold),
+# each handed whole to every session and worker it concerns. [1 Oct, 4 Oct, 16 Oct, 20 Oct]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class SeatRulebook(Opening, unittest.TestCase):
     @classmethod

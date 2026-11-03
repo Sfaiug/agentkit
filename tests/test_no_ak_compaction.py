@@ -70,6 +70,8 @@ with open(os.environ["TYPED"], "wb") as handle:
 
 
 class Manifests(unittest.TestCase):
+    # ak compacts no seat itself: each harness's own compaction does; no adapter declares a
+    # `[compact]` table. [16 Oct 2026]
     def test_no_adapter_declares_a_compact_table(self):
         for path in sorted((REPO / "adapters").glob("*.toml")):
             with self.subTest(harness=path.stem):

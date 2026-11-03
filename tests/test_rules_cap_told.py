@@ -104,6 +104,8 @@ class RulesCapTold(unittest.TestCase):
         lp.round_dir.mkdir()
         return lp
 
+    # A project's `AGENTS.md` is handed whole to every worker it concerns, across rounds and
+    # resume. [1 Oct, 4 Oct, 16 Oct, 20 Oct]
     def test_workers_get_whole_base_rules_across_rounds_and_resume(self):
         body = "x" * OLD_CUT + "éLAST RULE"
         self.commit_rules("---\nusers: none\n---\n" + body)

@@ -61,6 +61,10 @@ def kept(path):
     return path.is_symlink(), path.read_bytes(), path.stat().st_mtime_ns
 
 
+# A harness's settings are its own: every login of a harness reads one settings file (not yet
+# Antigravity's: 1.3.5 replaces links), so the change reaches every session and worker of that
+# harness. Reason: an edit made on one Claude login was reverted by the next launch.
+# [15 Oct 2026]
 class Logins:
     """What every harness's launches answer.  A subclass names the harness's adapter and
     program, the variable naming the home it runs on and its usual home, the settings files
