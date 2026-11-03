@@ -155,6 +155,20 @@ def said(mb_per_cpu):
             f"month{since * (time.time() - at > 2 * PASS)}", *late]
 
 
+def summary():
+    """The config screen's reading, from the tick alone; no unrecorded money is shown."""
+    active, cap = _setting()
+    if not active:
+        return "off"
+    ledger = _ledger()
+    if not ledger or not ledger["answered"] or (
+            time.gmtime(ledger["answered"])[:2] != time.gmtime(time.time())[:2]):
+        return "on · spend unknown"
+    running = sum("from" not in one for one in ledger["machines"].values())
+    return (f"on · €{ledger['spent']:.2f} of €{cap:g} this month · "
+            f"{running} machine{'s' if running != 1 else ''} up")
+
+
 def watch():
     """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, ssh reaching the others, the

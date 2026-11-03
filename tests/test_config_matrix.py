@@ -503,7 +503,7 @@ class Matrix(unittest.TestCase):
         self.assertIn("Version abc1234 · 2026-09-29", [line.strip() for line in lines])      # and on the last
         self.assertNotIn("at least one model reviews", "\n".join(lines))   # until the next key
         # Wait for selection: the row is already visible on the first Up redraw.
-        lines = screen.press(UP * 4, lambda lines: highlighted(lines) == "› Models")
+        lines = screen.press(UP * 5, lambda lines: highlighted(lines) == "› Models")
         self.assertEqual(highlighted(lines), "› Models")
         self.assertLessEqual(len(lines), 23)
         screen.leave()
