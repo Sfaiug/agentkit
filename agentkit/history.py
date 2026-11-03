@@ -1081,6 +1081,26 @@ def ended_runs(since, until):
         return []
 
 
+def findings(since, until):
+    """Weighed rows of real runs by their own date, with whether an earlier blocking round
+    raised the same path and proof. Earlier rounds may predate the inclusive range."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT f.at, f.kind, f.outcome, EXISTS (SELECT 1 FROM findings earlier "
+                    "WHERE earlier.run_id=f.run_id AND earlier.path=f.path AND earlier.proof=f.proof "
+                    "AND earlier.kind='finding' AND earlier.round<f.round) AS raised_again "
+                    "FROM findings f JOIN runs USING (run_id) WHERE f.at >= ? AND f.at <= ? "
+                    f"AND {REAL_WORK}", (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def checks(since, until):
     """Check rows of runs ended in the inclusive range, including unfinished checks.
     No rows before checks were kept (30 Oct 2026), or where the database cannot answer."""

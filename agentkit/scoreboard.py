@@ -33,6 +33,7 @@ MEASURES = (
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "unknown")),
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
+    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
@@ -274,6 +275,7 @@ def compute(now=None):
     rows = [row for row in history.ended_runs(now - 2 * week, now)
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
     check_rows = history.checks(now - 2 * week, now)
+    finding_rows = history.findings(now - 2 * week, now)
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     moments = history.owner(now - 2 * week, now)
@@ -281,7 +283,7 @@ def compute(now=None):
     seats, not_counted = seat_tokens.read(now - 2 * week, now)
     board, waits, merged_changes, broken = {"products": [], "ak": [], "tokens": []}, [], [], []
     built, parks, sunk, owner, intent, check_costs = [], [], [], [], [], []
-    review_pairs = []
+    review_pairs, finding_counts = [], []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -309,6 +311,13 @@ def compute(now=None):
         check_costs.append(checked(grouped))
         broken.append(breaks(ended))
         review_pairs.append(pairs(ended))
+        weighed = [row for row in finding_rows if in_week(row["at"], end)]
+        blocking = [row for row in weighed if row["kind"] == "finding"]
+        finding_counts.append({
+            "blocking": len(blocking),
+            "disputed": sum(row["outcome"] is not None for row in weighed),
+            "conceded": sum(row["outcome"] in ("dropped", "conceded") for row in weighed),
+            "raised_again": sum(row["raised_again"] for row in blocking)} if weighed else None)
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         # the week's tokens that bought no merge: every ended run that delivered nothing
@@ -378,6 +387,7 @@ def compute(now=None):
     board["sunk"] = sunk
     board["broke"] = broken
     board["pairs"] = review_pairs
+    board["findings"] = finding_counts
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
 
@@ -452,6 +462,13 @@ def render(board=None):
                 f"{stats['same_provider']:.0%} reviewed by another model of the same provider "
                 f"({landing('same_provider')}); another provider: {landing('other')}")
 
+    def findings(stats):
+        if stats is None:
+            return "not recorded"
+        return (f"{stats['blocking']} blocking; {stats['disputed']} disputed; "
+                f"{stats['conceded']} of {stats['disputed']} conceded; "
+                f"{stats['raised_again']} of {stats['blocking']} raised again")
+
     def size(stats):
         if stats is None:
             return "size unavailable"
@@ -514,7 +531,7 @@ def render(board=None):
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True), "tokens": tokens,
              "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
-             "checks": checks, "sunk": sunk, "broke": broke, "pairs": pairs, "size": size}
+             "checks": checks, "sunk": sunk, "broke": broke, "pairs": pairs, "findings": findings, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
     label_width = max(len(label) for _, label, _ in MEASURES)

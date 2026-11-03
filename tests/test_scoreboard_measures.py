@@ -46,6 +46,8 @@ PINNED = (
     ("broke", "broke", ("merged", "after_merge", "landing", "unknown")),
     # pairs: the orchestrator's decision of 3 Nov 2026, changed on review under the Owner rule of 27 Oct 2026.
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
+    # findings: write-up task 18 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.
+    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
@@ -94,6 +96,8 @@ class Measures(unittest.TestCase):
                    "finished_at": NOW - 60} for row in rows]
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
                 patch.object(scoreboard.history, "checks", return_value=checks), \
+                patch.object(scoreboard.history, "findings", return_value=[{
+                    "at": NOW - 60, "kind": "finding", "outcome": None, "raised_again": False}]), \
                 patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
                 patch.object(scoreboard.history, "owner",
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),

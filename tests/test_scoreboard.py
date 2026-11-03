@@ -200,7 +200,7 @@ class Scoreboard(unittest.TestCase):
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
                                  "checks": [None, None],
                                  "parks": [None, None], "sunk": [None, None], "broke": [None, None],
-                                 "pairs": [None, None], "size": [None, None]})
+                                 "pairs": [None, None], "findings": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
         self.assertIn("size unavailable", text)
@@ -238,6 +238,25 @@ class Scoreboard(unittest.TestCase):
             {"self": 0, "self_landing": None, "same_provider": 1,
              "same_provider_landing": None, "other_landing": None}])
 
+    def test_findings_match_earlier_blocking_rounds_and_count_each_date_boundary_once(self):
+        history.start_run("fix-api", repo="acme", started_at=NOW - 3 * WEEK)
+        rows = [(1, "api.py", "finding", "first", NOW - 2 * WEEK - 1),
+                (2, "api.py", "finding", "first", NOW),
+                (2, "api.py", "finding", "first", NOW - WEEK),
+                (2, "api.py", "finding", "second", NOW - 1),
+                (2, "api.py", "finding", "second", NOW - 2),
+                (3, "other.py", "finding", "first", NOW - 3),
+                (1, "api.py", "note", "note proof", NOW - 10),
+                (2, "api.py", "finding", "note proof", NOW - 4),
+                (1, "before.py", "finding", "old", NOW - 2 * WEEK),
+                (3, "api.py", "finding", "first", NOW + 1)]
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.executemany("INSERT INTO findings (run_id, round, path, kind, proof, at) "
+                           "VALUES ('fix-api', ?, ?, ?, ?, ?)", rows)
+        self.assertEqual(scoreboard.compute(NOW)["findings"], [
+            {"blocking": 6, "disputed": 0, "conceded": 0, "raised_again": 2},
+            {"blocking": 1, "disputed": 0, "conceded": 0, "raised_again": 0}])
+
     def test_render_keeps_the_existing_text(self):
         board = {
             "products": [{"runs": 3, "merged": 2, "first_round": 1 / 3, "unmerged": 1 / 3,
@@ -259,6 +278,7 @@ class Scoreboard(unittest.TestCase):
             "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "unknown": 1}, None],
             "pairs": [{"self": .5, "self_landing": .25, "same_provider": .3,
                        "same_provider_landing": .4, "other_landing": .1}, None],
+            "findings": [{"blocking": 4, "disputed": 3, "conceded": 2, "raised_again": 1}, None],
         }
         expected = [
             "Scoreboard (reported tokens; size now and 7 days ago)",
@@ -295,6 +315,8 @@ class Scoreboard(unittest.TestCase):
             "              the same provider (40% went red at",
             "              landing); another provider: 10% went red",
             "              at landing",
+            "findings      4 blocking; 3 disputed; 2 of 3 conceded; 1  not recorded",
+            "              of 4 raised again",
             "ak size       17 code lines, 5 README words, 9 AGENTS.md  size unavailable",
             "              words",
         ]
