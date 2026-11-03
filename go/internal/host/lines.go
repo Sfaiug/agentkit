@@ -121,6 +121,19 @@ func (r Readings) heavyLimit() int {
 			running++
 		}
 	}
+	return r.fit(running, heavyCPUs, heavyMemMB, false)
+}
+
+// Pieces is how many pieces of a suite run here at once with no turn held, Python's
+// derived_heavy_limit(running=0, unit=True): each piece costs what the suite measured, never less
+// than a heavy suite's first estimate, and fits the unit's own memory room too.
+func Pieces(cpus, memMB float64) int {
+	return Read().fit(0, max(cpus, heavyCPUs), max(memMB, heavyMemMB), true)
+}
+
+// fit is running plus how many more jobs of that cost the headroom fits, at least one; with unit,
+// the unit's own memory room and the headroom under its hard caps bound memory too.
+func (r Readings) fit(running int, jobCPUs, jobMemMB float64, unit bool) int {
 	var cpuFree, cpuWhole float64
 	hasCPU := true
 	cpuQuota, hasCPUQuota := r.Number("slice_cpu_quota")
@@ -151,23 +164,39 @@ func (r Readings) heavyLimit() int {
 		memFree, hasMem = r.Number("free_mb", "mem_available_mb", "mem_available")
 		memWhole, hasWhole = r.Number("mem_total_mb")
 	}
+	if unit {
+		if own, ok := r.unitMemory(); ok {
+			memFree, hasMem = cappedBy(memFree, hasMem, own.high-own.used)
+		}
+		if room, ok := r.Number("unit_memory_max_headroom_mb"); ok {
+			memFree, hasMem = cappedBy(memFree, hasMem, room)
+		}
+	}
 	var candidates []int
 	if hasCPU {
-		candidates = append(candidates, int(cpuFree/heavyCPUs))
+		candidates = append(candidates, int(cpuFree/jobCPUs))
 	}
 	if hasMem {
-		candidates = append(candidates, int(memFree/heavyMemMB))
+		candidates = append(candidates, int(memFree/jobMemMB))
 	}
 	if len(candidates) == 0 {
 		return 1
 	}
 	if hasCPU {
-		candidates = append(candidates, int(cpuWhole/heavyCPUs)-running)
+		candidates = append(candidates, int(cpuWhole/jobCPUs)-running)
 	}
 	if hasWhole {
-		candidates = append(candidates, int(memWhole/heavyMemMB)-running)
+		candidates = append(candidates, int(memWhole/jobMemMB)-running)
 	}
 	return max(1, running+max(0, slices.Min(candidates)))
+}
+
+// cappedBy is free memory no more than room, room alone where free had no reading.
+func cappedBy(free float64, read bool, room float64) (float64, bool) {
+	if read {
+		return min(free, room), true
+	}
+	return room, true
 }
 
 // heavyLocks are the turn files on disk, a shrunk limit's higher ones included: the suites

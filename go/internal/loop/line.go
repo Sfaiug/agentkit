@@ -130,12 +130,12 @@ func (r *repoPlace) rejoinLine(l *loop, wait *run.Object, reason string) error {
 
 // landFromLine is a woken run taking its lander's verdict, Python's land_from_line: on green it
 // takes the target's tip in under the delivery lock and delivers, if that makes the tree the
-// lander checked.  A red is a landing fixer's, which is Python's.
+// lander checked; a red is its landing fixer's (landfix.go).
 func (r *repoPlace) landFromLine(l *loop, upstream string, record *run.Object, deliver func() error) error {
 	wait := record.Dict("waiting_on")
 	if !green(wait) {
-		if fix := wait.Dict("fix"); fix != nil {
-			return notYet(fmt.Sprintf("its landing failed: %s; see %s", fix.Str("line"), fix.Str("log")), "a landing fixer")
+		if wait.Has("fix") {
+			return r.fixLanding(l, upstream, record, wait)
 		}
 		return r.rejoinLine(l, wait, "waiting for the lander")
 	}
