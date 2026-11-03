@@ -35,6 +35,7 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 # Each counted in its `<wait>_wait_seconds` column (`waiter.add_wait`).
 WAITS = ("slot", "suite", "merge", "lander")
+SLOT_GATES = {"count": "admission", "load": "admission", "memory": "memory", "unit memory": "memory"}
 _OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
                # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
@@ -101,6 +102,7 @@ CREATE TABLE IF NOT EXISTS phases (
     PRIMARY KEY (run_id, phase, started_at)
 )
 """
+PHASE_MIGRATIONS = (("wait_kind", "TEXT"),)
 
 # One row per check a round, the lander or a merged run's live probe runs, written where it runs
 # (`check`): `kind` is a round's `done-when`, `rules`, `base-proof` or `replay`, the lander's
@@ -257,7 +259,8 @@ def _connect(*, readonly=False):
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
-    for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS),
+    for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
+                              ("reviews", REVIEW_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
@@ -492,7 +495,7 @@ def add_landing_break(run_id, *, log=None):
         (run_id,)), log)
 
 
-def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
+def add_wait(run_id, wait, seconds, at=None, *, began=None, kind=None, log=None):
     """Add a wait's seconds, counted up to `at`, to its column and end its phase row there: the
     row of the wait that began at `began`, a wait counted whole without it.  A row from before
     the columns stays unrecorded."""
@@ -501,7 +504,28 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     seconds = max(0.0, seconds)
     at = time.time() if at is None else at
     began = at - seconds if began is None else began
-    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at), log)
+    if wait == "slot" and kind is None:
+        kind = (record.read_state(config.RUNS / str(run_id)) or {}).get("slot_wait_kind")
+    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at, kind), log)
+
+
+def gate_holds():
+    """Last counted hold of each gate, retained when its run directory is collected."""
+    try:
+        with contextlib.closing(_connect(readonly=True)) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(phases)")}
+            kind = "wait_kind" if "wait_kind" in columns else "NULL"
+            last = {}
+            for phase, reason, at in connection.execute(
+                f"SELECT phase, {kind}, MAX(ended_at) "
+                "FROM phases WHERE phase IN ('slot wait', 'suite wait', 'lander wait') "
+                f"AND ended_at > started_at GROUP BY phase, {kind}"):
+                name = SLOT_GATES.get(reason) if phase == "slot wait" else "suite turns"
+                if name:
+                    last[name] = max(last.get(name, at), at)
+            return last
+    except (OSError, sqlite3.Error):
+        return {}
 
 
 @contextlib.contextmanager

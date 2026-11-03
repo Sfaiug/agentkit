@@ -33,7 +33,7 @@ ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT
             ("peak_rss_mb", "REAL"), ("session", "TEXT"))
 GAINED = {"runs": {"task_words", "orchestrator", "change", "merge_sha", "landing_breaks",
                    "broke_after_merge", "executor_effort", "own_orchestrator_effort"},
-          "reviews": {"round", "verdict", "effort"}, "dones": {"work"}}
+          "phases": {"wait_kind"}, "reviews": {"round", "verdict", "effort"}, "dones": {"work"}}
 # The Home's notify sink marks every run a test suite's, which ak never records: these runs go
 # without it, as the owner's, and with no webhook configured nothing is posted anywhere.
 OWNERS = {"AK_NOTIFY_SINK": None}
