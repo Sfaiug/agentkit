@@ -137,6 +137,13 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`x{,2}`, "xxx", "xx"},
 		{`\bé`, "aé é", "é"},
 		{`\w`, "́", ""},
+		{`.\B́`, "x́ ́", " ́"},
+		{`(?#\B)w(?#\))`, "w", "w"},
+		{`a(?#\b)*`, "aaa", "aaa"},
+		{`(a)\1(?#)0`, "aa0", "aa0"},
+		{"(?x)w # (?#", "w", "w"},
+		{"(?x)w # (?#\n(?:x)", "w wx", "wx"},
+		{"(?x:w # (?#\n(?:x))x # ", "wxx # ", "wxx # "},
 		{`(?P<a>x)(?P=a)`, "yxx", "xx"},
 		{`a\Z`, "a\n", ""},
 		{`a$`, "a\n", "a"},
@@ -181,10 +188,13 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	if at := must(Compile(`\bé`, 0)).Find("aé é"); at.Start != 4 || at.End != 6 {
 		t.Errorf("é found at bytes %d to %d, not 4 to 6", at.Start, at.End)
 	}
+	if edge := must(Compile(`\B`, 0)); !edge.MatchString("́") || edge.MatchString("") {
+		t.Error(`\B is not Python's: inside a mark, never in an empty text`)
+	}
 	if _, err := Compile(`[^\S]`, 0); err == nil {
 		t.Error(`[^\S] compiled, though no class here can say it`)
 	}
-	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`} {
+	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`, `(?#\)`} {
 		if _, err := Compile(refused, 0); err == nil {
 			t.Errorf("%s compiled, though Python refuses it", refused)
 		}

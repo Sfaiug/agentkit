@@ -1,7 +1,7 @@
 // Package pyre compiles a pattern written for Python's re, with Python's flags, and matches as
 // Python's re.search matches it.  It hides the backtracking engine it runs on (regexp2, vendored:
 // Go's own regexp has no lookaround or backreference), how Python's syntax is said to that engine
-// (named groups, `\Z`, `{,n}`, the classes and word edge Python reads over all of Unicode, and the
+// (named groups, `\Z`, `{,n}`, the classes and word edges Python reads over all of Unicode, and the
 // letters Python's ignore case pairs beyond upper and lower case), and that the engine counts runes
 // where every offset here is a byte of the Go string.
 package pyre
@@ -49,8 +49,11 @@ func (m Match) Group(name string) (string, bool) {
 // Python's \s and \w, as members of a class: the engine's own classes read other characters.
 var sets = map[byte]string{'s': `\t\n\v\f\r\x1c-\x1f \x85\p{Z}`, 'w': `\p{L}\p{N}_`}
 
-// edge is Python's word edge, \b, its \w on one side alone; the engine's own reads its \w.
-var edge = `(?:(?<=[` + sets['w'] + `])(?![` + sets['w'] + `])|(?<![` + sets['w'] + `])(?=[` + sets['w'] + `]))`
+// Python's word edge, \b, its \w on one side alone, and \B, on both or neither, never in an empty
+// text: the engine's own read its \w.
+var word = `[` + sets['w'] + `]`
+var edges = map[byte]string{'b': `(?:(?<=` + word + `)(?!` + word + `)|(?<!` + word + `)(?=` + word + `))`,
+	'B': `(?!\A\z)(?:(?<=` + word + `)(?=` + word + `)|(?<!` + word + `)(?!` + word + `))`}
 
 // The lower case letters Python's re pairs under ignore case (re._compiler's _EXTRA_CASES), each
 // matching all of its own: the engine pairs only a letter's upper and lower case.  Those a
@@ -87,11 +90,15 @@ func Compile(pattern string, flags Flag) (*Regexp, error) {
 	return &Regexp{engine, advancing}, nil
 }
 
+// The flags translating reads, as each group that sets them changes them until the group closes.
+type scope struct{ folding, verbose bool }
+
 // translated is a Python pattern in the engine's syntax; folding is whether it ignores case where
-// it opens, as each group that sets flags changes until the group closes.
+// it opens.
 func translated(source string, folding bool) (string, error) {
 	var out strings.Builder
-	var outer []bool // whether case is ignored around each open group
+	flags := scope{folding: folding}
+	var outer []scope // the flags around each open group
 	for at, size := 0, 0; at < len(source); at += size {
 		rest := source[at:]
 		size = 1
@@ -103,40 +110,65 @@ func translated(source string, folding bool) (string, error) {
 				out.WriteString("[" + set + "]")
 			case complement != "":
 				out.WriteString("[^" + complement + "]")
-			case rest[1] == 'b':
-				out.WriteString(edge)
+			case edges[rest[1]] != "":
+				out.WriteString(edges[rest[1]])
 			case rest[1] == 'Z':
 				out.WriteString(`\z`)
 			default:
 				var char rune
 				var known bool
 				if char, size, known = atom(rest, false); known {
-					out.WriteString(folded(char, folding, quoted(char)))
+					out.WriteString(folded(char, flags.folding, quoted(char)))
 				} else {
 					out.WriteString(rest[:size])
 				}
 			}
 		case rest[0] == '[':
-			said, length, err := class(rest, folding)
+			said, length, err := class(rest, flags.folding)
 			if err != nil {
 				return "", err
 			}
 			out.WriteString(said)
 			size = length
-		case flagged.MatchString(rest):
-			flags := flagged.FindStringSubmatch(rest)
-			if flags[3] == ":" {
-				outer = append(outer, folding)
+		case strings.HasPrefix(rest, "(?#"):
+			// a comment, to its first `)` not escaped as Python reads it: no escape in it is
+			// translated, and the engine, ending one at any `)`, sees it empty
+			for size = 3; size < len(rest) && rest[size] != ')'; size++ {
+				if rest[size] == '\\' {
+					size++
+				}
 			}
-			folding = strings.Contains(flags[1], "i") || folding && !strings.Contains(flags[2], "i")
-			out.WriteString(flags[0])
-			size = len(flags[0])
+			if size >= len(rest) {
+				return "", fmt.Errorf("missing ), unterminated comment")
+			}
+			out.WriteString("(?#)")
+			size++
+		case flags.verbose && rest[0] == '#':
+			// a verbose comment, to its line's end as Python reads it, empty for the same reason
+			for ; size < len(rest) && rest[size] != '\n'; size++ {
+				if rest[size] == '\\' {
+					size++
+				}
+			}
+			size = min(size, len(rest))
+			out.WriteByte('#')
+		case flagged.MatchString(rest):
+			set := flagged.FindStringSubmatch(rest)
+			if set[3] == ":" {
+				outer = append(outer, flags)
+			}
+			on := func(was bool, flag string) bool {
+				return strings.Contains(set[1], flag) || was && !strings.Contains(set[2], flag)
+			}
+			flags = scope{on(flags.folding, "i"), on(flags.verbose, "x")}
+			out.WriteString(set[0])
+			size = len(set[0])
 		case strings.HasPrefix(rest, "(?P<"):
 			// the name as written, never a letter of it folded
 			name, _, _ := strings.Cut(rest[4:], ">")
 			out.WriteString("(?<" + name + ">")
 			size = 4 + len(name) + 1
-			outer = append(outer, folding)
+			outer = append(outer, flags)
 		case strings.HasPrefix(rest, "(?("):
 			// a conditional's group, its name as written
 			name, _, closed := strings.Cut(rest[3:], ")")
@@ -145,24 +177,24 @@ func translated(source string, folding bool) (string, error) {
 			}
 			out.WriteString("(?(" + name + ")")
 			size = 3 + len(name) + 1
-			outer = append(outer, folding)
+			outer = append(outer, flags)
 		case strings.HasPrefix(rest, "(?P="):
 			name, _, _ := strings.Cut(rest[4:], ")")
 			out.WriteString(`\k<` + name + `>`)
 			size = 4 + len(name) + 1
 		case rest[0] == '(':
 			out.WriteByte('(')
-			outer = append(outer, folding)
+			outer = append(outer, flags)
 		case rest[0] == ')' && len(outer) > 0:
 			out.WriteByte(')')
-			folding, outer = outer[len(outer)-1], outer[:len(outer)-1]
+			flags, outer = outer[len(outer)-1], outer[:len(outer)-1]
 		case strings.HasPrefix(rest, "{,") && strings.HasPrefix(strings.TrimLeft(rest[2:], "0123456789"), "}"):
 			// Python's {,n} is {0,n}; the engine reads it as text
 			out.WriteString("{0")
 		default:
 			var char rune
 			char, size = utf8.DecodeRuneInString(rest)
-			out.WriteString(folded(char, folding, rest[:size]))
+			out.WriteString(folded(char, flags.folding, rest[:size]))
 		}
 	}
 	return out.String(), nil
