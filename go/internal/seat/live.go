@@ -158,9 +158,6 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 		if carried = read && ok(live); !carried {
 			return nil
 		}
-		if err := reconcile(state, home.records, true); err != nil {
-			return err
-		}
 		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
 		if err != nil {
 			return err

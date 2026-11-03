@@ -63,13 +63,14 @@ func healthy(live seat.Live) bool {
 }
 
 // titleKept is whether the seat's title is the name it has, which the owner has not retitled
-// (watch.follow_title, sync_title).
+// (watch.follow_title) and sync_title has nothing to send for: a title it superseded is one it
+// names the seat again.
 func titleKept(live seat.Live) bool {
 	if live.Record.Str("session_title") != live.Name || live.Record.Has("title_sync") {
 		return false
 	}
 	title, _ := live.Title.(string)
-	return title == "" || title == live.Name || slices.Contains(live.Record.List("title_superseded"), any(title))
+	return (title == "" || title == live.Name) && !slices.Contains(live.Record.List("title_superseded"), any(title))
 }
 
 // stays is whether watch.seat_account leaves the seat on its account: its provider lists one
