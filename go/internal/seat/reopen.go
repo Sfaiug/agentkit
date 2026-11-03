@@ -104,11 +104,16 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 		env = append(env, "AGENTKIT_RULEBOOK_DIR="+scratch)
 	}
 	text, err := Rulebook()
-	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+	if err != nil {
+		return false, nil
+	}
+	takeBack, ok := handRulebook(rulebook, text)
+	if !ok {
 		return false, nil
 	}
 	cmd, conversation, ok := seat.command(append(env, "AGENTKIT_RULEBOOK="+rulebook))
 	if !ok {
+		takeBack()
 		return false, nil
 	}
 	fmt.Fprintln(out, seat.said())
@@ -210,8 +215,33 @@ func attachLive(name string, how How, out, errOut io.Writer) (bool, error) {
 	return true, handOver(name, how, out, errOut)
 }
 
-// handOver gives the terminal to that seat, or with none to give says how to reach it (orch.attach).
+// handRulebook writes the rulebook a seat's adapter is asked about, which names its file, and what
+// puts back the one it replaced where no seat comes of the asking and all is left to Python.
+func handRulebook(path, text string) (func(), bool) {
+	kept, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, false
+	}
+	takeBack := func() {
+		if err != nil {
+			os.Remove(path)
+		} else {
+			os.WriteFile(path, kept, 0o666)
+		}
+	}
+	if os.WriteFile(path, []byte(text), 0o666) != nil {
+		takeBack()
+		return nil, false
+	}
+	return takeBack, true
+}
+
+// handOver gives the terminal to that seat, by the name it goes by now, or with none to give says
+// how to reach it (orch.attach).
 func handOver(name string, how How, out, errOut io.Writer) error {
+	if current, _, err := config.ResolveSession(name); err == nil {
+		name = current
+	}
 	if how.Terminal {
 		return Attach(name, out, errOut)
 	}

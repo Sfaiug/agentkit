@@ -3,6 +3,7 @@ package seat
 import (
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,41 @@ func TestReopenRefusals(t *testing.T) {
 	known, err = Reopen("acme", How{}, io.Discard, io.Discard)
 	if !known || !errors.As(err, &refused) || string(refused) != path+" does not say which model held 'acme'" {
 		t.Errorf("a session with no record answers %v, %v", known, err)
+	}
+}
+
+// An adapter that gives no line leaves it all to Python, the seat's rulebook as it found it.
+func TestARulebookIsTakenBack(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "rulebook-acme.md")
+	takeBack, ok := handRulebook(path, "new\n")
+	if read, _ := os.ReadFile(path); !ok || string(read) != "new\n" {
+		t.Fatalf("handed %q", read)
+	}
+	takeBack()
+	if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+		t.Error("a rulebook that was not there is left behind")
+	}
+	write(t, path, "kept\n")
+	takeBack, ok = handRulebook(path, "new\n")
+	if read, _ := os.ReadFile(path); !ok || string(read) != "new\n" {
+		t.Fatalf("handed %q", read)
+	}
+	takeBack()
+	if read, _ := os.ReadFile(path); string(read) != "kept\n" {
+		t.Errorf("left %q", read)
+	}
+}
+
+// A seat renamed while it came back is reached by the name it goes by now.
+func TestItIsHandedOverByItsNameNow(t *testing.T) {
+	home := sandbox(t)
+	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"renamed": "beta"}`)
+	var said strings.Builder
+	if err := handOver("acme", How{}, &said, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if want := "session beta is running; attach it with `tmux -L seat-test attach -t beta`\n"; said.String() != want {
+		t.Errorf("said %q", said.String())
 	}
 }
 
