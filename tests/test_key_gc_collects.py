@@ -3,12 +3,13 @@
 Each run, checkout, log, job and leftover the dry run names (tests/fixtures/garbage.py, whose
 lines tests/test_key_gc_plan_*.py pin) is gone after `ak run gc`: a merged log gzipped, a gone
 job stopped, a harness's entries pruned, a merged run's branch dropped with its checkout while an
-unmerged one's stays.  It prints the plan's line for each, then the sweep's count of merged
+unmerged one's stays.  All it never named, the records of runs whose checkouts went among them,
+stays byte for byte.  It prints the plan's line for each, then the sweep's count of merged
 checkouts and smoke sandboxes and the space they held; a second collection, and one on a Home
-with nothing to take, finds nothing and says so, and what the plan leaves off stays as it was.
-Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, and
-this test fails against `/bin/false`.  Each collection is boxed with a /tmp, a /var/tmp and
-processes of its own (`Leftovers.ak`), or, beside a run of the test's own process, a /tmp.
+with nothing to take, finds nothing and says so.  Black-box: the program `AK_BIN` names runs from
+outside through tests/fixtures/akbin.py, and this test fails against `/bin/false`.  Each
+collection is boxed with a /tmp, a /var/tmp and processes of its own (`Leftovers.ak`), or, beside
+a run of the test's own process, a /tmp.
 """
 
 import gzip
@@ -47,6 +48,7 @@ class Taken(unittest.TestCase):
         cls.plan += cls.leftovers.expected
         # a merged checkout goes whatever it holds: a mebibyte never committed is what it frees
         (cls.home.path / ".agentkit/wt/acme-merged/build.bin").write_bytes(os.urandom(1 << 20))
+        cls.before = cls.home.tree()
         cls.done = cls.leftovers.ak("run", "gc")
         cls.again = cls.leftovers.ak("run", "gc")
 
@@ -57,6 +59,21 @@ class Taken(unittest.TestCase):
                 with self.subTest(kind):
                     self.assertFalse(os.path.lexists(outside(self.leftovers,
                                                              path.removesuffix(":"))))
+
+    def test_what_the_plan_leaves_off_stays_byte_for_byte(self):
+        named = [outside(self.leftovers, line.split()[4].removesuffix(":")) for line in self.plan]
+
+        def taken(relative):
+            # a named path, what it holds, and its sidecars (a viewer's marker, a log's .gz);
+            # the repository's own records change as its checkouts go: its branches are judged
+            path = self.home.path / relative
+            return relative.startswith("code/") or any(
+                path.is_relative_to(name) or path.parent == name.parent
+                and path.name.startswith(f"{name.name}.") for name in named)
+        kept = {relative: data for relative, data in self.before.items() if not taken(relative)}
+        after = self.home.tree()
+        self.assertIn(".agentkit/runs/acme-merged/run.json", kept)
+        self.assertEqual({relative: after.get(relative, "gone") for relative in kept}, kept)
 
     def test_a_merged_log_is_gzipped_whole(self):
         log = self.home.path / ".agentkit/runs/acme-merged-log/log.txt"
