@@ -26,7 +26,6 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
-	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
@@ -201,12 +200,13 @@ func elsewhere() bool {
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
-// start, a seat's, one that history records, one the gate does not admit outright, a home HOME
-// does not name, a local time Go reads otherwise, or text Python would write with a lone surrogate.
+// start, a seat's, one a history.db that stands would record (no suite's sink marks it), one the
+// gate does not admit outright, a home HOME does not name, a local time Go reads otherwise, or text
+// Python would write with a lone surrogate.
 func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" && !run.Historyless() ||
 		os.Getenv("HOME") == "" || !localTime() ||
 		!known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
@@ -297,8 +297,7 @@ func Budget(path string) (int, error) {
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
-// Python a run that would land from a checkout of its own, unless gh says this account may only
-// read the repository.
+// Python a run whose suite is narrowed to its change, or whose landing checks run in pieces.
 func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
@@ -322,12 +321,6 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	at.repo = repo
 	landing := at.repo != "" && !flags["--no-merge"]
-	if landing && !flags["--no-worktree"] {
-		// Go lands only for an account that may only read: its delivery is a fork's PR
-		if repo, permission, _, err := gh.Rights(at.repo); err != nil || repo == "" || gh.Writable(permission) {
-			return refuse("", "", ErrPython)
-		}
-	}
 	at.target = cmp.Or(meta["target"], meta["base"])
 	suite := ""
 	if landing {
@@ -346,6 +339,9 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
+	if slices.ContainsFunc(at.once, namesShard.MatchString) {
+		return refuse("", "", ErrPython) // a landing check in pieces is Python's lander's
+	}
 	later := task.ChecksRefusal(at.every)
 	switch from := meta["from"]; {
 	case later != "" || from == "":

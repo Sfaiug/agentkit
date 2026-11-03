@@ -28,6 +28,10 @@ var Junk = []string{"__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", "
 // it unlocks leaves one gc knows holds nothing yet.
 const Making = "ak is making this checkout"
 
+// ScratchMark, a file in a detached checkout's own git directory, says a lander made it to check
+// a commit in, so gc may take it.
+const ScratchMark = "ak-lander-scratch"
+
 // CapSeconds is how many seconds a git may take, Python's TOOL_CAP.
 const CapSeconds = 120
 

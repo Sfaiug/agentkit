@@ -67,16 +67,16 @@ func View(url string) (*Pull, error) {
 	case pull.State == "":
 		pull.State = "?"
 	case pull.State == "OPEN":
-		if pull.Head, err = branchTip(head); err != nil {
+		if pull.Head, err = BranchTip(head); err != nil {
 			return nil, err
 		}
 	}
 	return pull, nil
 }
 
-// branchTip is an open pull request's head as git has it: its branch moves the moment a push
+// BranchTip is an open pull request's head as git has it: its branch moves the moment a push
 // succeeds, where GitHub's own read of it can show the head from before a push for seconds.
-func branchTip(head *run.Object) (string, error) {
+func BranchTip(head *run.Object) (string, error) {
 	ref := "refs/heads/" + head.Str("ref")
 	code, said := 1, "GitHub names no head repository"
 	if repo := head.Dict("repo"); repo != nil && repo.Truthy("clone_url") {

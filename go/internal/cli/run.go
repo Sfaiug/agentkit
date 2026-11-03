@@ -40,10 +40,14 @@ func runClean(args []string, out, errOut io.Writer) int {
 // launchRun is `ak run <task.md>` or `ak run --review-pr <url>` where Go makes the launch: one
 // preflight refuses, recorded as a run in error, or a run preflight passes, which it follows unless
 // told --bg.  Any other launch
-// it leaves to Python before it writes anything.  `--drive` is that run's own process.
+// it leaves to Python before it writes anything.  `--drive` is that run's own process, and
+// `--lander` a landing line's.
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {
 		return loop.Drive(args[1])
+	}
+	if len(args) == 2 && args[0] == "--lander" {
+		return loop.CheckLine(args[1], out)
 	}
 	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)
 	var code int
