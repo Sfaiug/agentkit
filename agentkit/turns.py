@@ -401,6 +401,9 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
 
 
 OUT_CAP = 20 * 1024
+# What a suite's pieces share: their number follows the machine, and on 3 Nov 128 of them at
+# OUT_CAP made a log the harnesses refused as too long.
+PIECES_CAP = 256 * 1024
 
 
 def kept(output, where, name):
@@ -419,14 +422,14 @@ def cut(text, where, name):
             f"{kept(io.BytesIO(text.encode()), where, name)}\n{text[-OUT_CAP:]}")
 
 
-def cut_file(output, start, where, name):
-    """`cut` of a binary file's bytes from `start` to its end, never read whole: a check can
-    print more than the run's memory holds."""
+def cut_file(output, start, where, name, cap=OUT_CAP):
+    """`cut` of a binary file's bytes from `start` to its end, at `cap`, never read whole: a check
+    can print more than the run's memory holds."""
     size = output.seek(0, os.SEEK_END)
     output.seek(start)
-    line = f"{kept(output, where, name)}\n" if size - start > OUT_CAP else ""
-    output.seek(max(start, size - OUT_CAP))
-    return line + output.read(OUT_CAP).decode("utf-8", errors="replace")
+    line = f"{kept(output, where, name)}\n" if size - start > cap else ""
+    output.seek(max(start, size - cap))
+    return line + output.read(cap).decode("utf-8", errors="replace")
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session
