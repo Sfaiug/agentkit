@@ -7988,7 +7988,8 @@ def runs_health():
         if any(pid in processes for pid in worker.run_pids(str(run_dir))):
             continue
         resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-        if any(args == resume or args == [sys.executable, *resume]
+        # The env python3 shebang leaves "python3" as argv[0].
+        if any(args in (resume, [sys.executable, *resume], ["python3", *resume])
                for args in processes.values()):
             continue
         age = now - run_last_write(run_dir)

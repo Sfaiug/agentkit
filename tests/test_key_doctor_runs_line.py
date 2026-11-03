@@ -129,16 +129,20 @@ class DoctorRunsLine(unittest.TestCase):
         self.doctor(0, "1 going · 0 ended today · 0 endings owed")
 
     def test_a_resume_starting_before_its_pid_is_recorded_is_live(self):
-        self.run_record("moving")
-        self.home.write("fakes/processes.json", {
-            42: [1, "S", [sys.executable, AK, "run", "resume", "moving"]]})
-        self.doctor(0, "1 going · 0 ended today · 0 endings owed")
+        self.run_record("moving", pid=41)
+        for prefix in ([], [sys.executable], ["python3"]):
+            with self.subTest(prefix=prefix):
+                self.home.write("fakes/processes.json", {
+                    42: [1, "S", [*prefix, AK, "run", "resume", "moving"]]})
+                self.doctor(0, "1 going · 0 ended today · 0 endings owed")
 
-    def test_log_readers_and_editors_do_not_hide_a_dead_run(self):
+    def test_unrelated_commands_do_not_hide_a_dead_run(self):
         directory = self.run_record("lost", pid=41)
         for args in (["tail", "-F", str(directory / "log.txt")],
                      ["vim", str(directory / "result.md")],
-                     ["tail", "-F", AK, "run", "resume", "lost"]):
+                     ["tail", "-F", AK, "run", "resume", "lost"],
+                     ["python3", AK, "run", "resume", "lost-other"],
+                     ["python3", AK, "run", "resume", "lost", "--extra"]):
             with self.subTest(args=args):
                 self.home.write("fakes/processes.json", {42: [1, "S", args]})
                 self.doctor(1, "1 going · 0 ended today · 0 endings owed · "
