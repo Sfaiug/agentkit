@@ -80,7 +80,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
+              ("review_pair", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -463,7 +464,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort", "kind"}
+               "executor_effort", "own_orchestrator_effort", "kind", "review_pair"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -835,7 +836,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, saved=None, log=None):
+               own_orchestrator_effort=None, review_pair=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -855,6 +856,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
               "own_orchestrator_effort": own_orchestrator_effort}
     values = {key: value for key, value in values.items() if value is not None}
+    values["review_pair"] = review_pair
     peak = values.pop("peak_rss_mb", None)
 
     def publish(connection):

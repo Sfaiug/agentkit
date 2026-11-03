@@ -394,9 +394,20 @@ def _windows(lines):
 def history_ending(state):
     """The ending a run's record holds, in `history.finish_run`'s terms: rounds unknown where
     it keeps none, never zero."""
+    from . import staffing
+    pair = None
+    if isinstance(state.get("review"), dict) and state["review"].get("reviewer"):
+        try:
+            cfg = config.load()
+            executor, reviewer = staffing.review_pair(state)
+            for name in (executor, reviewer):
+                config.model(cfg, name)  # even equal names must still be known
+            pair = ("other provider", "same provider", "self")[staffing.pair_tier(cfg, executor, reviewer)]
+        except config.Error:
+            pass
     rounds = state.get("round_summaries")
     return {"repo": state.get("repo"), "executor": state.get("executor"),
-            "reviewer": state.get("reviewer"),
+            "reviewer": state.get("reviewer"), "review_pair": pair,
             "rounds_used": len(rounds) if isinstance(rounds, list) else None,
             "final_state": state.get("state"), "verdict": state.get("verdict"),
             "started_at": state.get("started_at"),

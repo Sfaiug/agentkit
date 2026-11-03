@@ -122,8 +122,8 @@ class WhoBuilt(unittest.TestCase):
         board = scoreboard.compute(NOW)
         self.assertEqual((board["built"], board["parks"]), ([None, None], [None, None]))
         lines = scoreboard.render()
-        self.assertIn("built     no runs ended", "\n".join(lines))
-        self.assertIn("parks     not recorded", "\n".join(lines))
+        self.assertIn("built         no runs ended", "\n".join(lines))
+        self.assertIn("parks         not recorded", "\n".join(lines))
 
 
 class OverlappingScans(LiveRuns):

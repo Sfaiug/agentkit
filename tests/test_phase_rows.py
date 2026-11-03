@@ -132,7 +132,7 @@ class TimeSplit(PhaseRows):
                          {"model": 1.875, "ak": 0.625, "waiting": 1.375, "seat": 1.0})
         self.assertIsNone(before)
         with patch.object(scoreboard.terminal, "content_width", return_value=300):
-            self.assertIn("merged    median hours per merged change: 1.9 in model turns, 0.6 ak's own "
+            self.assertIn("merged        median hours per merged change: 1.9 in model turns, 0.6 ak's own "
                           "work, 1.4 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
 
     def test_a_change_whose_run_ended_before_any_step_counts_with_that_run_at_zero(self):
