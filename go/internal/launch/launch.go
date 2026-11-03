@@ -379,14 +379,19 @@ func holdSlots() (*os.File, error) {
 	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
 }
 
-// receive writes the launch's receipt, its first record, as Python's capture_launch writes it
-// under the slots lock, with the gate's outright admission.
+// receive writes the launch's receipt under the slots lock.
 func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
+	return receipt(dir, path, values, flags, bound)
+}
+
+// receipt is the launch's first record, as Python's capture_launch writes it, with the gate's
+// outright admission; its caller holds the slots lock.
+func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
 	depth, _ := runDepth()
 	var parent, identity any
 	if value, set := os.LookupEnv("AK_PARENT_RUN"); set {
@@ -405,13 +410,13 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 	for _, flag := range Switches {
 		launched.Set(flag, flags[flag])
 	}
-	receipt := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
+	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
 		"launched_session", nil, "started_at", now(), "queued_at", now(), "slot_waiting", false,
 		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
 		"unattended", os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
 		"process_identity", identity, "launch_opts", launched}
 	if bound.Reviewers != nil {
-		receipt = append(receipt, "workers", bound.Workers, "reviewers", bound.Reviewers)
+		first = append(first, "workers", bound.Workers, "reviewers", bound.Reviewers)
 	}
 	for _, model := range bound.Models {
 		keys := run.NewObject()
@@ -425,15 +430,15 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 	if url, given := values["--review-pr"]; given {
 		reviewed, proof = url, nil
 	}
-	receipt = append(receipt, "efforts", efforts, "review_pr", reviewed, "reported", false, "base_proof", proof,
+	first = append(first, "efforts", efforts, "review_pr", reviewed, "reported", false, "base_proof", proof,
 		"notify_sink", sink())
 	if path != "" {
-		receipt = append(receipt, "task_file", path)
+		first = append(first, "task_file", path)
 	}
 	if flags["--first"] {
-		receipt = append(receipt, "first", true)
+		first = append(first, "first", true)
 	}
-	return run.Create(dir, run.Fields(append(receipt, "slot_started_at", now())...))
+	return run.Create(dir, run.Fields(append(first, "slot_started_at", now())...))
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

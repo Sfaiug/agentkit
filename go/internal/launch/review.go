@@ -20,13 +20,13 @@ import (
 )
 
 // Review launches a review of somebody else's pull request at url, Python's review_pr_main, from no
-// seat: `ak run`'s exit status, and why the launch is refused.  Whose PR a seat is reviewing, and a
-// launch a run on that PR refuses, stay with Python, decided before anything is written.
+// seat: `ak run`'s exit status, and why the launch is refused.  Whose PR a seat is reviewing stays
+// with Python, decided before anything is written.
 func Review(url string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	bound, unbound := config.Bind()
 	_, rules := pick.Load()
 	if unbound != nil || elsewhere() || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
-		values["--review"] != "" || !rules || !driverHere(nil) || reviewGoing(url) {
+		values["--review"] != "" || !rules || !driverHere(nil) || unreadRun() {
 		return 0, "", ErrPython
 	}
 	parts := gh.PullURL.FindStringSubmatch(url)
@@ -43,15 +43,29 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 		return 0, "", err
 	}
 	log, unstopped := logger(dir, out), guarded(dir, out)
+	taken := ""
 	for _, step := range []func() error{
 		config.EnsureDirs,
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(filepath.Join(dir, "log.txt"), nil, 0o666) },
-		func() error { return receive(dir, "", values, flags, bound) },
+		func() error {
+			// read under the lock its receipt is written in: of two launches at once, the second sees
+			// the first, as two reviews of one PR would each post and offer it
+			slots, err := holdSlots()
+			if err != nil {
+				return err
+			}
+			defer slots.Close()
+			taken = runOn(url)
+			return receipt(dir, "", values, flags, bound)
+		},
 	} {
 		if err := step(); err != nil {
 			return 0, "", err
 		}
+	}
+	if taken != "" {
+		return refuse(dir, fmt.Sprintf("run %s on %s has not ended; `ak wait %s`, then launch again if it is still needed", taken, url, taken), "", log)
 	}
 	if unread != nil {
 		return refuse(dir, unread.Error(), "", log)
@@ -70,19 +84,24 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	return code, "", err
 }
 
-// reviewGoing is whether a run on that pull request has not ended, whatever its URL's spelling,
-// which Python refuses in its own words, or a record Go cannot read may be one.
-func reviewGoing(url string) bool {
+// unreadRun is whether a run's record holds what Go cannot read: it may be on this pull request.
+func unreadRun() bool {
+	return slices.ContainsFunc(run.Dirs(), func(dir string) bool {
+		_, err := run.Read(dir)
+		return errors.Is(err, run.ErrLoneSurrogate)
+	})
+}
+
+// runOn is the id of a run on that pull request that has not ended, whatever its URL's spelling, ""
+// for none.
+func runOn(url string) string {
 	for _, dir := range run.Dirs() {
-		record, err := run.Read(dir)
-		if errors.Is(err, run.ErrLoneSurrogate) {
-			return true
-		}
+		record, _ := run.Read(dir)
 		if record != nil && !run.Ended(record) && (samePull(record.Str("review_pr"), url) || samePull(record.Str("pr"), url)) {
-			return true
+			return filepath.Base(dir)
 		}
 	}
-	return false
+	return ""
 }
 
 // samePull is whether two URLs name one pull request: owner and repository case-folded, a trailing
