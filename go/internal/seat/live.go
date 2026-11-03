@@ -24,19 +24,19 @@ var terminalFailure = regexp.MustCompile(`(?i)\b(?:cannot|can't|unable to) (?:pr
 // A Live is a seat its panes run on, as one capture shows it: what a look would find on its screen
 // and in its conversation, read with nothing written.
 type Live struct {
-	Name, Own       string // its name, and the harness its screen is read as
-	State           string // what the look finds it doing, and since when
-	Began           any
-	Stall, Login    any      // the error the tick would type it back past, and its harness's words for a login out
-	Stuck           bool     // what it stopped on is login trouble or a blocked operation (watch.stuck_on)
-	Bound           bool     // its session names the pane its launch created (orch.bind_pane has done its work)
-	Attached        bool     // a client is in it
-	Path            string   // where tmux says its session works
-	Draft           string   // what its composer holds, whitespace aside: "" for nothing, or no composer found
-	Typed           []string // the lines ak typed there last, whitespace aside, that its draft is all of
-	Title           any      // its conversation's custom title: "" for none, nil where none is read
-	WrappedUp       bool     // its harness ended its last turn for a spent subscription (watch.limit_ended)
-	Record, File    *run.Object
+	Name, Own    string // its name, and the harness its screen is read as
+	State        string // what the look finds it doing, and since when
+	Began        any
+	Stall, Login any      // the error the tick would type it back past, and its harness's words for a login out
+	Stuck        bool     // what it stopped on is login trouble or a blocked operation (watch.stuck_on)
+	Bound        bool     // its session names the pane its launch created (orch.bind_pane has done its work)
+	Attached     bool     // a client is in it
+	Path         string   // where tmux says its session works
+	Draft        string   // what its composer holds, whitespace aside: "" for nothing, or no composer found
+	Typed        []string // the lines ak typed there last, whitespace aside, that its draft is all of
+	Title        any      // its conversation's custom title: "" for none, nil where none is read
+	WrappedUp    bool     // its harness ended its last turn for a spent subscription (watch.limit_ended)
+	Record, File *run.Object
 }
 
 // Seats is the name of every seat the home holds, false where any record is not a seat Go reads.

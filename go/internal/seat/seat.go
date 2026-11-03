@@ -118,11 +118,12 @@ func reading(now time.Time, looking bool) (Home, bool) {
 	var planned []string
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
-		// home is given, the usage the screen's grid shows, and the tick's lock, its log's and the
-		// hourly stamps of its reads say nothing a word hangs on: a seat's own wait on its usage is
-		// in its seat file
+		// home is given, the usage the screen's grid shows, the tick's lock, its log's and the
+		// hourly stamps of its reads, and what the collection keeps say nothing a word hangs on: a
+		// seat's own wait on its usage is in its seat file
 		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json"}, entry.Name()) ||
+			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || entry.Name() == "usage.json" ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
