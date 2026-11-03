@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/plan"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
+	"agentkit/internal/usage"
 )
 
 // rereadEvery is the longest the frame goes unread (menu.TICK).
@@ -79,26 +80,45 @@ func akScreen(errOut io.Writer) int {
 	keyboard.Sense()
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)
+	reread := func() {
+		if found, known := readFrame(time.Now()); known {
+			latest.Store(&found)
+			keyboard.Wake()
+		}
+	}
 	go func() {
 		for {
 			time.Sleep(rereadEvery)
-			if found, known := readFrame(time.Now()); known {
-				latest.Store(&found)
-				keyboard.Wake()
+			reread()
+		}
+	}()
+	go func() { // behind the frame, which draws from the cache and waits on no adapter
+		for {
+			if usage.Refresh() == nil {
+				reread()
 			}
+			time.Sleep(usage.RefreshEvery)
 		}
 	}()
 	painter := terminal.NewPainter(os.Stdout)
-	opened := time.Now()
+	clock, cursor := &motion.Clock{}, ""
+	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
 	for {
-		screen, shown, up := keyboard.Screen(), latest.Load(), time.Since(opened)
+		screen, shown := keyboard.Screen(), latest.Load()
+		clock.Draw(time.Now())
 		painter.Write(menu.Lines(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menu.Keys(screen, shown.past), Up: up}, screen.Width(), screen.Height()), screen)
-		if menu.Growing(shown.seats, up) { // its next frame
-			time.AfterFunc(motion.Frame, keyboard.Wake)
+			Clock: time.Now().Format("15:04"), Keys: menu.Keys(screen, shown.past), Cursor: cursor, Motion: clock}, screen.Width(), screen.Height()), screen)
+		if next, due := clock.Next(); due {
+			frame.Reset(next)
+		} else {
+			frame.Stop()
 		}
 		key := keyboard.ReadKey()
 		switch {
+		case key.Name == "up" || key.Char == "k":
+			cursor = menu.Step(shown.seats, cursor, -1)
+		case key.Name == "down" || key.Char == "j":
+			cursor = menu.Step(shown.seats, cursor, 1)
 		case key.Name == "esc" || key.Name == "eof":
 			keyboard.Give()
 			return 0
@@ -116,14 +136,12 @@ func opensSomething(key terminal.Key, rows, past bool) bool {
 	switch key.Name {
 	case "enter":
 		return true
-	case "up", "down", "left", "right":
+	case "left", "right":
 		return rows
 	case "char":
 		switch key.Char {
 		case "n", "N", "c", "C":
 			return true
-		case "j", "J", "k", "K":
-			return rows
 		case "p", "P":
 			return past
 		}
