@@ -18,9 +18,6 @@ import (
 // killed mid-way: never committed, and removed before the next turn.
 const sandboxPrefix = ".ak-test-"
 
-// junk is what a test run, a build or an editor drops next to the work.
-var junk = []string{"__pycache__/", "*.pyc", ".pytest_cache/", ".mypy_cache/", ".ruff_cache/", "node_modules/", ".DS_Store", "*.swp"}
-
 // excludeJunk hides the usual build junk from git in the checkout, Python's exclude_junk: the
 // executor's own __pycache__ is there when the leftover sweep looks.  `--git-path` names the
 // shared exclude file, which belongs to the repository: only the patterns it is missing are
@@ -55,7 +52,7 @@ func (r *repoPlace) excluded() (string, []string, error) {
 	text := gitcall.Decoded(string(data))
 	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
 	var missing []string
-	for _, pattern := range junk {
+	for _, pattern := range gitcall.Junk {
 		if !slices.Contains(lines, pattern) {
 			missing = append(missing, pattern)
 		}

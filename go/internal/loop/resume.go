@@ -45,6 +45,27 @@ func Pickup(dir string, record *run.Object) bool {
 	return point(dir, record) && pairReady(record)
 }
 
+// Woken is whether the run waits in its landing line on a verdict its lander wrote, which Go
+// carries on into its landing: one it holds no verdict for is the lander's, as Python's resume
+// refuses it.
+func Woken(record *run.Object) bool {
+	wait := record.Dict("waiting_on")
+	if !parkedInLine(record) || !wait.Has("land") && !wait.Has("fix") || run.ProcessActive(record) || !unitless(record) {
+		return false
+	}
+	for _, key := range pythonRoads {
+		if key != "waiting_on" && record.Truthy(key) {
+			return false
+		}
+	}
+	for _, key := range []string{"repo", "branch", "base", "base_sha"} {
+		if !record.Truthy(key) {
+			return false
+		}
+	}
+	return isDir(record.Str("worktree"))
+}
+
 // unitless is whether no systemd unit holds the run: Python's to stop by name and to read on a resume.
 func unitless(record *run.Object) bool {
 	return !record.Truthy("scope") || record.Str("scope") == "none"
@@ -101,7 +122,7 @@ func pairReady(record *run.Object) bool {
 	if err != nil {
 		return false
 	}
-	room := withRoom(readings)
+	room := ready{readings, unable()}
 	executor, reviewer := record.Str("executor"), record.Str("reviewer")
 	return room.Spent(executor) == "" && !rules.Same(executor, reviewer) && slices.Contains(rules.Order(room, true, io.Discard), reviewer)
 }
@@ -137,10 +158,19 @@ func Reopen(dir string, read *run.Object) error {
 		for _, key := range delivery {
 			record.Delete(key)
 		}
+		from := "interrupted"
+		if record.Str("state") == "waiting" {
+			// what the last attempt said did not deliver is what this one does again
+			from = "waiting"
+			if pending := record.Dict("review_pending"); pending == nil || pending.Get("record") != false {
+				record.Delete("review_pending")
+			}
+			run.SetAll(record, "merge_failed", false, "merge_note", nil)
+		}
 		for _, key := range []string{"waiting_resume_at", "slot_waited", "slot_wait_reason", "slot_wait_kind"} {
 			record.Delete(key)
 		}
-		run.SetAll(record, "resume_from", "interrupted", "state", "queued", "slot_waiting", true, "queued_at", clock(),
+		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", clock(),
 			"pid", os.Getpid(), "process_identity", identity(os.Getpid()), "recovery_pending", true,
 			"recovery_acknowledged_at", nil, "error", nil, "finished_at", nil, "reported", false)
 		return nil

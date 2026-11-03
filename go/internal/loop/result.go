@@ -82,9 +82,13 @@ func report(dir string, record *run.Object, cmds []string) string {
 			shown[i], once = bare+" (once)", true
 		}
 	}
-	final := "final check: none (no once-commands)"
-	if once {
+	final := run.FinalChecked(record)
+	switch {
+	case final != "":
+	case once:
 		final = "final check: not run"
+	default:
+		final = "final check: none (no once-commands)"
 	}
 	parts = append(parts, "", "## Done-when", "```", strings.Join(shown, "\n"), "```", "", final, "")
 	if line := baseProofLine(record); line != "" {

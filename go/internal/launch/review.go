@@ -26,7 +26,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	bound, unbound := config.Bind()
 	_, rules := pick.Load()
 	if unbound != nil || elsewhere() || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
-		values["--review"] != "" || !rules || !driverHere(nil) || unreadRun() {
+		values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}
 	parts := gh.PullURL.FindStringSubmatch(url)

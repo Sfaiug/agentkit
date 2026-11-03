@@ -187,7 +187,9 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
     it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
     `turn(tar)` adding its own files to the parcel. None goes to a machine Google ends within
-    `lasting` seconds of when it would start there."""
+    `lasting` seconds of when it would start there, and one placed where no machine with room
+    lasts a rent and a pass more (google_cloud.READY, PASS) asks for a machine, as none does:
+    the next is ready as the chosen one stops taking that work, not turns run here meanwhile."""
     try:
         aliases = machines.helpers()
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
@@ -196,10 +198,11 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
         return None, "no suite helper set up"
     ends = google_cloud.serving()
 
-    def lasts(alias):
-        """Whether Google ends `alias` `lasting` seconds from now or later: asked before its probe,
-        and again once it is prepared, which may take 30 minutes, as the work starts then."""
-        return ends.get(alias, math.inf) >= time.time() + lasting
+    def lasts(alias, more=0):
+        """Whether Google ends `alias` `lasting` and `more` seconds from now or later: asked before
+        its probe, and again once it is prepared, which may take 30 minutes, as the work starts
+        then."""
+        return ends.get(alias, math.inf) >= time.time() + lasting + more
     aliases = list(filter(lasts, aliases))
     repo = gitcall.repository_id(cwd)
     try:
@@ -222,7 +225,11 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
                       f"one argument holds ({MAX_ARG_STRLEN}, Linux's MAX_ARG_STRLEN)")
     rooms = {alias: room(alias, piece_cpus, piece_mem_mb, _least(repo), bool(turn))
              for alias in aliases}
-    why = {alias: reason for alias, (_, reason) in rooms.items()}
+
+    def need():
+        """Asks the tick for a machine, the MiB read now: `short` may raise them meanwhile."""
+        google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)))
+
     # A suite splits into as many pieces as fit, so most room first; a turn takes one place and
     # is as fast on a busy machine, so least first, and one it leaves empty goes back
     # (google_cloud.IDLE_FOR): 12 turns kept three 72-core machines a tenth busy at €46 a day
@@ -248,12 +255,15 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
             sent = LOST
         if not sent and lasts(alias):
             log(f"suite on {alias}: {fit[0]} pieces, {fit[1]} CPUs and {fit[2]} MiB each")
+            if not any(left and lasts(other, google_cloud.READY + google_cloud.PASS)
+                       for other, (left, _) in rooms.items()):
+                need()
             return away, ""
         finish(away)
-        why[alias] = failure(sent) if sent else "ends too soon"
-    google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)))
-    return None, " · ".join(f"helper {alias} {reason}" for alias, reason in why.items()) or (
-        "no suite helper set up")
+        rooms[alias] = None, failure(sent) if sent else "ends too soon"   # its room is gone
+    need()
+    return None, " · ".join(f"helper {alias} {reason}"
+                            for alias, (_, reason) in rooms.items()) or "no suite helper set up"
 
 
 def _least(repo):

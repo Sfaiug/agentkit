@@ -31,17 +31,25 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 	since := ""
 	if err := l.save(func(record *run.Object) {
 		j = judgingFrom(record)
+		pending := record.Dict("review_pending")
 		// where this review began on its reviewer's session, kept from its first entry across a death
-		if pending := record.Dict("review_pending"); pending != nil && pending.Has("since") {
+		if pending != nil && pending.Has("since") {
 			since = pending.Str("since")
 		} else {
 			since = reviewTurn(l.roundDir(), l.reviewSession, "")
 		}
+		if pending != nil && pending.Get("record") == false {
+			// the repair that brought it here is nobody's fix round: the whole change is judged again
+			j.uncounted, j.from, j.passed = true, "", passedReviewHead(record)
+		}
 	}); err != nil {
 		return false, err
 	}
-	if err := l.step("reviewer", "verdict", nil, "review", nil, "review_pending", run.Fields("round", l.rnd, "summary", summary,
-		"since", since, "earlier", j.earlierList(), "failed", []any{})); err != nil {
+	pending := run.Fields("round", l.rnd, "summary", summary, "since", since, "earlier", j.earlierList(), "failed", []any{})
+	if j.uncounted {
+		pending.Set("record", false)
+	}
+	if err := l.step("reviewer", "verdict", nil, "review", nil, "review_pending", pending); err != nil {
 		return false, err
 	}
 	passed, total := doneWhenCounts(checked, l.cmds)
@@ -197,7 +205,7 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 	if err != nil {
 		return false, err
 	}
-	return l.record(summary, done.out, reviewed, weighed, done.code, ok, checked, dropped)
+	return l.record(summary, done.out, reviewed, weighed, done.code, ok, checked, dropped, j)
 }
 
 // giveUp keeps what a reviewer that gave no verdict said, on the record for whoever reads it next.
@@ -250,10 +258,10 @@ func (l *loop) weigh(submitted *handin.Review, j *judging) (*handin.Review, erro
 }
 
 // record puts the verdict on the record: review.md and findings.json beside the reviewer's turn,
-// the round's summary and the evidence delivery is decided on: whether it passed.  What the
-// reviewer passed the loop fails where its turn exited non-zero, a check is failing, or the checkout
-// moved after verification.
-func (l *loop) record(summary, out string, reviewed config.Model, submitted *handin.Review, code int, ok bool, checked string, dropped []any) (bool, error) {
+// the round's summary unless the review spends no round, and the evidence delivery is decided on:
+// whether it passed.  What the reviewer passed the loop fails where its turn exited non-zero, a
+// check is failing, or the checkout moved after verification.
+func (l *loop) record(summary, out string, reviewed config.Model, submitted *handin.Review, code int, ok bool, checked string, dropped []any, j *judging) (bool, error) {
 	verdict := submitted.Verdict()
 	overridden := ""
 	if code != 0 && verdict == "PASS" {
@@ -293,13 +301,23 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		"reviewer_provider", reviewed.Provider, "returncode", code, "verdict", verdict, "done_when", ok)
 	run.SetAll(entry, evidence...)
 	run.SetAll(review, evidence...)
+	if j.uncounted && len(l.once) > 0 {
+		// checks deferred to landing have not run on this head yet: the task's checks last passed
+		// on the head they did
+		review.Delete("passed_head_sha")
+		if j.passed != "" {
+			review.Set("passed_head_sha", j.passed)
+		}
+	}
 	entry.Delete("overridden")
 	if overridden != "" && !review.Has("overridden") {
 		review.Set("overridden", overridden)
 	}
 	checks, commits, defects := submitted.FollowupRecords()
 	err = l.save(func(record *run.Object) {
-		record.Set("round_summaries", append(record.List("round_summaries"), entry))
+		if !j.uncounted {
+			record.Set("round_summaries", append(record.List("round_summaries"), entry))
+		}
 		run.SetAll(record, said...)
 		record.Set("notes", submitted.Notes())
 		keepFollowups(record, checks, commits, defects)

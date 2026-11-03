@@ -239,26 +239,8 @@ func FinalCheck(dir string, record *Object) string {
 	if err != nil {
 		return ""
 	}
-	if check := record.Dict("final_check"); check != nil {
-		outcome := check.Str("outcome")
-		where := check.Str("where")
-		if (outcome == "passed" || outcome == "failed") && (check.Truthy("sha") || where == "round" || where == "landing") {
-			sha := ""
-			if check.Truthy("sha") {
-				sha = " on " + Text(check.Get("sha"))
-			}
-			switch {
-			case where == "round" && check.Truthy("round"):
-				return "final check: " + outcome + " in round " + Text(check.Get("round")) + sha
-			case where == "round":
-				return "final check: " + outcome + " in round" + sha
-			case where == "landing" && check.Truthy("tested") && !Equal(check.Get("tested"), check.Get("tree_sha")):
-				return "final check: " + outcome + " at landing on tree " + Text(check.Get("tested"))
-			case where == "landing":
-				return "final check: " + outcome + " at landing" + sha
-			}
-			return "final check: " + outcome + sha
-		}
+	if line := FinalChecked(record); line != "" {
+		return line
 	}
 	landing := !record.Truthy("scratch") && !record.Truthy("no_merge")
 	any := false
@@ -277,6 +259,34 @@ func FinalCheck(dir string, record *Object) string {
 		return "final check: not run"
 	}
 	return "final check: none (no once-commands)"
+}
+
+// FinalChecked is the `final check:` line of what the record's final check came to, and where,
+// Python's final_check_line before it reads the commands; "" where it came to nothing.
+func FinalChecked(record *Object) string {
+	check := record.Dict("final_check")
+	if check == nil {
+		return ""
+	}
+	outcome, where := check.Str("outcome"), check.Str("where")
+	if outcome != "passed" && outcome != "failed" || !check.Truthy("sha") && where != "round" && where != "landing" {
+		return ""
+	}
+	sha := ""
+	if check.Truthy("sha") {
+		sha = " on " + Text(check.Get("sha"))
+	}
+	switch {
+	case where == "round" && check.Truthy("round"):
+		return "final check: " + outcome + " in round " + Text(check.Get("round")) + sha
+	case where == "round":
+		return "final check: " + outcome + " in round" + sha
+	case where == "landing" && check.Truthy("tested") && !Equal(check.Get("tested"), check.Get("tree_sha")):
+		return "final check: " + outcome + " at landing on tree " + Text(check.Get("tested"))
+	case where == "landing":
+		return "final check: " + outcome + " at landing" + sha
+	}
+	return "final check: " + outcome + sha
 }
 
 // realpath resolves what exists of a path and keeps the rest as written, as Python's does.

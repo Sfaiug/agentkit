@@ -3,8 +3,10 @@
 // same failure twice, and a worker that goes silent, fails on its provider or is blocked.
 // Its interface is small: Start gives a launched run a driver process of its own, Follow shows a
 // terminal what that driver does until it is gone, Drive is that driver, End is its ending in
-// error, Clean takes a run's checkout, StopRun ends a run, and Pickup and Reopen hand a dead one
-// to a new driver.  A review of somebody else's pull request takes the same driver, with no executor.
+// error, Clean takes a run's checkout, StopRun ends a run, Pickup and Woken say which dead or
+// woken one Reopen hands to a new driver, CheckLine is a landing line's lander, and Logging says a
+// process writes into a run's log.  A review of somebody else's pull request takes the same
+// driver, with no executor.
 //
 // It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
@@ -54,6 +56,9 @@ var ErrStopped = errors.New("a run a stop ended")
 // followEvery is how often a terminal following a run looks for more: reading a file is cheap,
 // and a run that just ended should not hold the terminal.
 const followEvery = 200 * time.Millisecond
+
+// landerAgain is how often a terminal following a run parked in its line starts its lander again.
+const landerAgain = time.Minute
 
 // errStop is a run a stop landed on: the record says so, and nothing is written over it.
 var errStop = errors.New("the run was stopped")
@@ -133,8 +138,9 @@ func spawn(dir string, detached bool) (int, error) {
 }
 
 // Follow shows out what the run's log holds past offset until its driver is gone, then answers
-// from the record, `ak run`'s exit status as Python's follow_run says it.  A run still going with
-// its driver gone is left as it is for Python's tick, which Python's follow waits on.
+// from the record, `ak run`'s exit status as Python's follow_run says it.  A run parked in its
+// landing line is followed through its lander's wake; any other still going with its driver gone
+// is left as it is for Python's tick, which Python's follow waits on.
 func Follow(dir string, offset int64, out, errOut io.Writer) int {
 	log, err := os.Open(filepath.Join(dir, "log.txt"))
 	if err != nil {
@@ -142,11 +148,18 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 	}
 	defer log.Close()
 	log.Seek(offset, io.SeekStart)
+	asked := time.Now()
 	for {
 		io.Copy(out, log)
 		record, _ := run.Read(dir)
-		if record == nil || !run.ProcessActive(record) {
+		if record == nil || !run.ProcessActive(record) && !parkedInLine(record) {
 			break
+		}
+		// its lander is started again now and then, as Python's job_await does: the one its run
+		// started on leaving can die, and a sandbox runs no tick at all
+		if parkedInLine(record) && time.Since(asked) >= landerAgain {
+			asked = time.Now()
+			startLine(filepath.Join(run.Runs(), landingLine(record)), io.Discard)
 		}
 		time.Sleep(followEvery)
 	}
@@ -207,14 +220,15 @@ type loop struct {
 	efforts       *run.Object
 	silence       time.Duration
 	ceiling       time.Duration
-	budget        int    // the rounds this run may spend
-	rnd           int    // the round under way, the rounds spent before it
-	execSession   string // the conversation a fixer resumes, "" before any
-	reviewSession string // and a later review
-	findings      string // the last review's whole text, for its fixer
-	findingsFile  string // and where it is
-	prior         bool   // the record already names its workplace: this driver carries the run on
-	pull          string // the pull request this run reviews alone, "" for a run of a task
+	budget        int       // the rounds this run may spend
+	rnd           int       // the round under way, the rounds spent before it
+	execSession   string    // the conversation a fixer resumes, "" before any
+	reviewSession string    // and a later review
+	findings      string    // the last review's whole text, for its fixer
+	findingsFile  string    // and where it is
+	prior         bool      // the record already names its workplace: this driver carries the run on
+	pull          string    // the pull request this run reviews alone, "" for a run of a task
+	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
@@ -247,7 +261,9 @@ func Drive(dir string) (code int) {
 		l.say(fmt.Sprintf("%s %s: %s", word, l.id, filepath.Join(dir, "task.md")))
 		err = l.work()
 	}
-	return l.finish(err)
+	code = l.finish(err)
+	endWord(dir)
+	return code
 }
 
 // adopt takes the run over from its launch, as Python's wait_for_slot finds a slot already
@@ -310,6 +326,10 @@ func (l *loop) stopCheck() error {
 
 // say is one line of the run's log, with its time.
 func (l *loop) say(message string) {
+	if l.voice != nil {
+		io.WriteString(l.voice, message+"\n")
+		return
+	}
 	appendLog(l.dir, stamped(message))
 }
 
@@ -502,11 +522,15 @@ func (l *loop) pick() error {
 	if !ok {
 		return notYet("the models cannot be picked here", "a pick Python makes")
 	}
+	cannot := unable()
+	if why := rules.Unstaffed(cannot); why != "" {
+		return errors.New(why)
+	}
 	readings, err := usage.Read()
 	if err != nil {
 		return notYet("the meters cannot be read: "+err.Error(), "a pick without them")
 	}
-	room := withRoom(readings)
+	room := ready{readings, cannot}
 	logged := rawLog{l.dir}
 	rules.Order(room, false, logged)
 	rules.Order(room, true, logged)
@@ -566,12 +590,22 @@ func (l *loop) finish(err error) int {
 			case run.ReviewPass(record, run.Models()):
 				state = "pass"
 			}
-			run.SetAll(record, "state", state, "finished_at", clock())
+			// one in its landing line has not ended: it is the lander's until it does
+			var finished any = clock()
+			if parkedInLine(record) {
+				finished = nil
+			}
+			run.SetAll(record, "state", state, "finished_at", finished)
 			record.Delete("transient_wait") // a wait that ended, which nothing reads now
 		})
 	}
 	if errors.Is(err, errStop) {
 		return 1
+	}
+	if record, _ := run.Read(l.dir); parkedInLine(record) {
+		WriteResult(l.dir, record)
+		releaseLine(l.dir, stampedLog{l.dir})
+		return 0
 	}
 	return conclude(l.dir)
 }
@@ -620,6 +654,10 @@ func settle(dir string) *run.Object {
 	said := stampedLog{dir}
 	recordResult(dir, record)
 	host.EndMarked(dir, said)
+	if record.Truthy("merged") {
+		// a merged run's work is on its remote: its checkout and its branch go
+		stopCheckout(dir, record, func(line string) { fmt.Fprintln(said, line) }, false)
+	}
 	// said on the record, so nothing reaps it again
 	write(dir, func(record *run.Object) {
 		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})

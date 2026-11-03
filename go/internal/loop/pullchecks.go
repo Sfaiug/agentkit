@@ -115,27 +115,31 @@ func requiredOf(l *loop, pull *gh.Pull, target string) (wanted, string, error) {
 	return need, "", nil
 }
 
-// requiredChecks waits for the target's required names on the reviewed commit, Python's checks,
-// counting those that have not registered yet: whether they went green, and why not.
-func (p *pullPlace) requiredChecks(l *loop, pull *gh.Pull) (bool, string, error) {
-	need, why, err := requiredOf(l, pull, p.target)
+// requiredChecks waits for the target's required names on the commit sha, Python's checks,
+// counting those that have not registered yet: whether they went green, and why not.  For a run in
+// its landing line a red names what failed in full, for its fixer.
+func requiredChecks(l *loop, pull *gh.Pull, target, sha string, line bool) (bool, string, error) {
+	need, why, err := requiredOf(l, pull, target)
 	if err != nil || why != "" {
 		return false, why, err
 	}
 	if len(need) == 0 {
-		l.say("checks: " + p.target + " requires no status checks")
+		l.say("checks: " + target + " requires no status checks")
 		return true, "", nil
 	}
-	l.say(fmt.Sprintf("--- checks: %s requires %s", p.target, strings.Join(slices.Sorted(maps.Keys(need)), ", ")))
+	l.say(fmt.Sprintf("--- checks: %s requires %s", target, strings.Join(slices.Sorted(maps.Keys(need)), ", ")))
+	if sha == "" {
+		return false, "cannot verify required checks without the PR head SHA", nil
+	}
 	deadline := time.Now().Add(checksCap)
 	rerun := map[string]int{} // a check GitHub cancelled ran nothing: asked again until GitHub takes it
 	for {
-		states, why, err := p.checkStates(l, pull, need, rerun)
+		read, why, err := checkStates(l, pull, sha, need, rerun)
 		if err != nil || why != "" {
 			return false, why, err
 		}
 		var failed, missing, pending []string
-		for name, buckets := range states {
+		for name, buckets := range read.states {
 			if slices.Contains(buckets, "fail") {
 				failed = append(failed, name)
 			}
@@ -150,7 +154,11 @@ func (p *pullPlace) requiredChecks(l *loop, pull *gh.Pull) (bool, string, error)
 		slices.Sort(missing)
 		slices.Sort(pending)
 		if len(failed) > 0 {
-			return false, "required checks failed: " + strings.Join(failed, ", "), nil
+			why := "required checks failed: " + strings.Join(failed, ", ")
+			if line {
+				why += "\n\n" + run.Encode(read.failed(failed))
+			}
+			return false, why, nil
 		}
 		if len(missing) == 0 && len(pending) == 0 {
 			l.say("checks: required checks green")
@@ -174,14 +182,38 @@ func (p *pullPlace) requiredChecks(l *loop, pull *gh.Pull) (bool, string, error)
 	}
 }
 
+// A reading is one look at a commit's checks: each required name's as pass, fail or pending, and
+// the latest check run of each name and app and status of each context they were read from.
+type reading struct {
+	states   map[string][]string
+	latest   map[[2]string]*run.Object
+	statuses map[string]*run.Object
+}
+
+// failed is the check runs and statuses of those names, as GitHub gave them.
+func (r *reading) failed(names []string) *run.Object {
+	runs, statuses := []any{}, []any{}
+	for _, key := range slices.SortedFunc(maps.Keys(r.latest), func(a, b [2]string) int { return strings.Compare(a[0]+"\x00"+a[1], b[0]+"\x00"+b[1]) }) {
+		if slices.Contains(names, key[0]) {
+			runs = append(runs, r.latest[key])
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(r.statuses)) {
+		if slices.Contains(names, name) {
+			statuses = append(statuses, r.statuses[name])
+		}
+	}
+	return run.Fields("check_runs", runs, "statuses", statuses)
+}
+
 // checkStates is each required name's check runs and statuses on the commit, as pass, fail or
 // pending; none for a name not registered, or registered by another app than it requires.
-func (p *pullPlace) checkStates(l *loop, pull *gh.Pull, need wanted, rerun map[string]int) (map[string][]string, string, error) {
-	value, why, err := gh.JSON(l.dir, "api", "--paginate", pull.API()+"/commits/"+p.sha+"/check-runs?filter=latest&per_page=100")
+func checkStates(l *loop, pull *gh.Pull, sha string, need wanted, rerun map[string]int) (*reading, string, error) {
+	value, why, err := gh.JSON(l.dir, "api", "--paginate", pull.API()+"/commits/"+sha+"/check-runs?filter=latest&per_page=100")
 	if err != nil {
 		return nil, "", err
 	}
-	unread := func(why string) (map[string][]string, string, error) {
+	unread := func(why string) (*reading, string, error) {
 		return nil, "cannot read required check runs: " + why, nil
 	}
 	pages, ok := value.([]any)
@@ -223,7 +255,7 @@ func (p *pullPlace) checkStates(l *loop, pull *gh.Pull, need wanted, rerun map[s
 			}
 			seen[key[1]] = true
 			states[name] = append(states[name], checkBucket(check))
-			if err := p.askAgain(l, pull, name, check, rerun); err != nil {
+			if err := askAgain(l, pull, name, check, rerun); err != nil {
 				return nil, "", err
 			}
 		}
@@ -235,9 +267,9 @@ func (p *pullPlace) checkStates(l *loop, pull *gh.Pull, need wanted, rerun map[s
 		}
 	}
 	if !anyApp {
-		return states, "", nil
+		return &reading{states, latest, nil}, "", nil
 	}
-	value, why, err = gh.JSON(l.dir, "api", "--paginate", pull.API()+"/commits/"+p.sha+"/statuses?per_page=100")
+	value, why, err = gh.JSON(l.dir, "api", "--paginate", pull.API()+"/commits/"+sha+"/statuses?per_page=100")
 	if err != nil {
 		return nil, "", err
 	}
@@ -250,7 +282,7 @@ func (p *pullPlace) checkStates(l *loop, pull *gh.Pull, need wanted, rerun map[s
 			states[name] = append(states[name], statusBucket(status.Str("state")))
 		}
 	}
-	return states, "", nil
+	return &reading{states, latest, statuses}, "", nil
 }
 
 // checkBucket is how a check run stands: a cancelled one ran nothing, so it is still owed.
@@ -306,7 +338,7 @@ func latestStatuses(value any, why string) (map[string]*run.Object, string) {
 
 // askAgain asks GitHub to run a job it cancelled once more: it refuses while its workflow still
 // runs, so that is asked again at the next poll.
-func (p *pullPlace) askAgain(l *loop, pull *gh.Pull, name string, check *run.Object, rerun map[string]int) error {
+func askAgain(l *loop, pull *gh.Pull, name string, check *run.Object, rerun map[string]int) error {
 	id := run.Text(check.Get("id"))
 	last, asked := rerun[id]
 	if check.Str("conclusion") != "cancelled" || check.Dict("app").Str("slug") != "github-actions" || asked && last == 0 {

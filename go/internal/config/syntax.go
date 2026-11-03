@@ -8,7 +8,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
@@ -637,7 +636,7 @@ func (p *parser) value() (any, error) {
 	}
 	if match := localTime.FindStringSubmatch(rest); match != nil {
 		p.pos += len(match[0])
-		return timeOn(0, 1, 1, match[1:], time.UTC), nil
+		return moment(onClock(match[1:5])), nil
 	}
 	if match := number.FindStringSubmatch(rest); match != nil {
 		p.pos += len(match[0])
@@ -662,33 +661,4 @@ func (p *parser) value() (any, error) {
 		}
 	}
 	return nil, p.problem(p.pos, "Invalid value")
-}
-
-// dated is what a date and time match holds; false where Python's date holds no such day.
-func dated(match []string) (time.Time, bool) {
-	year, _ := strconv.Atoi(match[1])
-	month, _ := strconv.Atoi(match[2])
-	day, _ := strconv.Atoi(match[3])
-	zone := time.UTC
-	if match[9] != "" {
-		hours, _ := strconv.Atoi(match[10])
-		minutes, _ := strconv.Atoi(match[11])
-		offset := hours*3600 + minutes*60
-		if match[9] == "-" {
-			offset = -offset
-		}
-		zone = time.FixedZone("", offset)
-	}
-	moment := timeOn(year, month, day, match[4:8], zone)
-	return moment, year >= 1 && moment.Day() == day
-}
-
-// timeOn is the day at a clock's hour, minute, second and fraction, none where they are empty.
-func timeOn(year, month, day int, parts []string, zone *time.Location) time.Time {
-	var at [3]int
-	for i := range at {
-		at[i], _ = strconv.Atoi(parts[i])
-	}
-	micros, _ := strconv.Atoi((parts[3] + "000000")[:6])
-	return time.Date(year, time.Month(month), day, at[0], at[1], at[2], micros*1000, zone)
 }

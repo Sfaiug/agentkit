@@ -26,7 +26,6 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
-	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
@@ -60,6 +59,10 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	bound, unbound := config.Bind()
 	if err != nil || unbound != nil || python(path, values, flags, bound) {
 		return 0, "", ErrPython
+	}
+	// read before the receipt, as Python's capture_launch does: a refusal here leaves no run
+	if _, err := config.MaxRuns(); err != nil {
+		return 2, err.Error(), nil
 	}
 	stem := filepath.Base(path)
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
@@ -156,7 +159,9 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 			return run.Change(dir, func(record *run.Object) error {
 				// a stop that landed first stands, as Python's mark_state leaves it
 				if record.Str("state") != "stopped" {
-					run.SetAll(record, "state", "error", "finished_at", now(), "error", reason)
+					// and this launch started nothing to sweep, so nothing reaps it
+					run.SetAll(record, "state", "error", "finished_at", now(), "error", reason,
+						"tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
 				}
 				ended = record
 				return nil
@@ -175,25 +180,35 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: any that leaves elsewhere, one Python's rival check may refuse, a config
-// Python refuses before its run, or a string for the record Python would write with a lone surrogate.
+// cannot read as it does: any that leaves unread surroundings to Python, one Python's rival check
+// may refuse, or a string for the record Python would write with a lone surrogate.  A count that
+// is none the gate never reads: Task refuses it.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	if elsewhere() || len(bound.Workers) == 0 || !readable(path) ||
+	if unread() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
 	return !flags["--anyway"] && going()
 }
 
-// elsewhere is whether this process's surroundings leave any launch or resume to Python: a queued
-// run's start, a seat's, one that history records, one the gate does not admit outright, a home HOME
-// does not name, a local time Go reads otherwise, or text Python would write with a lone surrogate.
+// elsewhere is whether this process's surroundings leave any launch or resume to Python: those
+// unread, or a config Python refuses before its run.
 func elsewhere() bool {
+	_, capped := config.MaxRuns()
+	_, _, memory := config.RunMemoryMaxMB()
+	return capped != nil || memory != nil || unread()
+}
+
+// unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
+// start, a seat's, one a history.db that stands would record (no suite's sink marks it), one the
+// gate does not admit outright, a home HOME does not name, a local time Go reads otherwise, or text
+// Python would write with a lone surrogate.
+func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" && !run.Historyless() ||
 		os.Getenv("HOME") == "" || !localTime() ||
-		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
+		!known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
 
@@ -282,8 +297,7 @@ func Budget(path string) (int, error) {
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
-// Python a run that would land from a checkout of its own, unless gh says this account may only
-// read the repository.
+// Python a run whose suite is narrowed to its change, or whose landing checks run in pieces.
 func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
@@ -307,12 +321,6 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	at.repo = repo
 	landing := at.repo != "" && !flags["--no-merge"]
-	if landing && !flags["--no-worktree"] {
-		// Go lands only for an account that may only read: its delivery is a fork's PR
-		if repo, permission, _, err := gh.Rights(at.repo); err != nil || repo == "" || gh.Writable(permission) {
-			return refuse("", "", ErrPython)
-		}
-	}
 	at.target = cmp.Or(meta["target"], meta["base"])
 	suite := ""
 	if landing {
@@ -331,6 +339,9 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
+	if slices.ContainsFunc(at.once, namesShard.MatchString) {
+		return refuse("", "", ErrPython) // a landing check in pieces is Python's lander's
+	}
 	later := task.ChecksRefusal(at.every)
 	switch from := meta["from"]; {
 	case later != "" || from == "":
@@ -349,7 +360,7 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(at.every, path, values); err != nil {
+		if err := drivable(path, values); err != nil {
 			return refuse("", "", err)
 		}
 		// a helper takes a repository's checks in Python, and Go has none

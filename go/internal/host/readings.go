@@ -4,9 +4,7 @@ package host
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"math"
 	"os"
 	"path/filepath"
@@ -48,17 +46,7 @@ func Read() Readings {
 		return injected
 	}
 	readings := Readings{"cpus": float64(cpuCount())}
-	meminfo := map[string]float64{}
-	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			key, value, _ := strings.Cut(line, ":")
-			if fields := strings.Fields(value); len(fields) > 0 {
-				if kb, err := strconv.ParseFloat(fields[0], 64); err == nil {
-					meminfo[key] = kb / 1024
-				}
-			}
-		}
-	}
+	meminfo := memInfo()
 	free, ok := meminfo["MemAvailable"]
 	readings.set("free_mb", free, ok)
 	total, ok := meminfo["MemTotal"]
@@ -176,10 +164,12 @@ func SliceLine() string {
 	if !UserManager() {
 		return "no slice (no user systemd manager)"
 	}
-	return sliceLine(sliceCgroup(), sliceCeiling())
+	ceiling, _ := dropInTasksMax(tmux.Own() + ".slice")
+	return sliceLine(sliceCgroup(), float64(ceiling))
 }
 
-// sliceLine reads the slice's tasks, and its ceiling, else the drop-ins' `ceiling`. A slice
+// sliceLine reads the slice's tasks, and its ceiling, else the drop-ins' `ceiling`, 0 where none
+// sets one: the live one appears with the slice's first process. A slice
 // with nothing in it has no directory, so holds no tasks.
 func sliceLine(cgroup string, ceiling float64) string {
 	tasks, counted := number(filepath.Join(cgroup, "pids.current"))
@@ -199,60 +189,92 @@ func sliceLine(cgroup string, ceiling float64) string {
 	return fmt.Sprintf("slice %s.slice · %v task%s · %s", tmux.Own(), tasks, plural, room)
 }
 
-// sliceCeiling is the task ceiling the drop-ins set, 0 where none does: the live one appears
-// with the slice's first process. The last file to name it wins, as systemd reads them.
-func sliceCeiling() float64 {
-	found := 0.0
-	for _, file := range sliceDropIns() {
-		data, _ := os.ReadFile(file)
-		for _, line := range strings.Split(string(data), "\n") {
-			key, value, _ := strings.Cut(line, "=")
-			if ceiling, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64); err == nil && strings.TrimSpace(key) == "TasksMax" {
-				found = float64(ceiling)
-			}
-		}
+// dropIns are a slice's drop-in files, in the order systemd reads them.
+func dropIns(slice string) []string {
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		home, _ := os.UserHomeDir()
+		configHome = filepath.Join(home, ".config")
 	}
-	return found
-}
-
-// sliceDropIns are the slice's drop-in files, in the order systemd reads them.
-func sliceDropIns() []string {
 	var found []string
-	for _, dir := range sliceDropInDirs() {
-		files := config.Glob(dir, "*.conf")
+	for _, base := range []string{"systemd/user", "systemd/user.control"} {
+		files := config.Glob(filepath.Join(configHome, base, slice+".d"), "*.conf")
 		sort.Strings(files)
 		found = append(found, files...)
 	}
 	return found
 }
 
-func sliceDropInDirs() []string {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, _ := os.UserHomeDir()
-		configHome = filepath.Join(home, ".config")
+// SliceMemory is ak's slice's MemoryMax in MiB and what the slice holds outside its runs, cache
+// included, as MemoryMax counts it; false where no drop-in sets a ceiling or the slice's memory is
+// unread. The ceiling is the drop-ins', real before the slice's first process.
+func SliceMemory() (ceiling, seats int, ok bool) {
+	ceiling, set := dropInMemoryMax(tmux.Own() + ".slice")
+	held, read := megabytes(filepath.Join(sliceCgroup(), "memory.current"))
+	if !set || !read {
+		return 0, 0, false
 	}
-	own := tmux.Own() + ".slice.d"
-	return []string{filepath.Join(configHome, "systemd/user", own), filepath.Join(configHome, "systemd/user.control", own)}
+	runs, _ := megabytes(filepath.Join(RunsCgroup(), "memory.current"))
+	return ceiling, int(held - runs), true
 }
 
-// NoSliceCeiling is whether the slice holds no task ceiling and no drop-in that could set one,
-// false where a read of either fails: a tick's seat headroom pass holds the runs under ceilings
-// alone.
-func NoSliceCeiling() bool {
-	limit := filepath.Join(sliceCgroup(), "pids.max")
-	if _, err := os.ReadFile(limit); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return false
+// SliceTasks is ak's slice's task ceiling, the kernel's else its drop-ins', false where neither
+// sets one.
+func SliceTasks() (int, bool) {
+	if ceiling, ok := tasksMax(sliceCgroup()); ok {
+		return ceiling, true
 	}
-	if _, limited := number(limit); limited {
-		return false
-	}
-	for _, dir := range sliceDropInDirs() {
-		if !config.Listable(dir) {
-			return false
+	return dropInTasksMax(tmux.Own() + ".slice")
+}
+
+// RunsTasks is the runs slice's TasksMax in its drop-ins, 0 where none names one, and the one
+// the kernel holds, false where it holds none.
+func RunsTasks() (dropIn, held int, holds bool) {
+	dropIn, _ = dropInTasksMax(filepath.Base(RunsCgroup()))
+	held, holds = tasksMax(RunsCgroup())
+	return dropIn, held, holds
+}
+
+// OthersTasksPeak is the most tasks each child of ak's slice but the runs has held, added up: a
+// child's peak counts what is under it. A pids.peak unread counts 0, as on a kernel without one.
+func OthersTasksPeak() int {
+	slice, runs, sum := sliceCgroup(), RunsCgroup(), 0
+	for _, child := range config.Glob(slice, "*") {
+		if peak, ok := number(filepath.Join(child, "pids.peak")); ok && child != runs {
+			sum += int(peak)
 		}
 	}
-	return len(sliceDropIns()) == 0
+	return sum
+}
+
+// tasksMax is a cgroup's pids.max, false where it says `max` or is unread.
+func tasksMax(cgroup string) (int, bool) {
+	data, err := os.ReadFile(filepath.Join(cgroup, "pids.max"))
+	text := strings.TrimFunc(string(data), config.Space)
+	value, failed := strconv.Atoi(text)
+	return value, err == nil && failed == nil && config.Digits(text)
+}
+
+// memInfo is /proc/meminfo's counters in MiB.
+func memInfo() map[string]float64 {
+	meminfo := map[string]float64{}
+	if data, err := os.ReadFile("/proc/meminfo"); err == nil {
+		for _, line := range strings.Split(string(data), "\n") {
+			key, value, _ := strings.Cut(line, ":")
+			if fields := strings.Fields(value); len(fields) > 0 {
+				if kb, err := strconv.ParseFloat(fields[0], 64); err == nil {
+					meminfo[key] = kb / 1024
+				}
+			}
+		}
+	}
+	return meminfo
+}
+
+// memTotalMB is the host's MemTotal in whole MiB.
+func memTotalMB() (int, bool) {
+	total, ok := memInfo()["MemTotal"]
+	return int(total), ok
 }
 
 // RunsCgroup is where detached runs and their lander take CPU, apart from the seats.

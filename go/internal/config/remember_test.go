@@ -7,6 +7,8 @@ import (
 	"testing"
 )
 
+func noKeep() error { return nil }
+
 func rememberIn(t *testing.T, text string) string {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -71,7 +73,7 @@ size = 4
 [google_cloud.deep.deeper]
 x = 1
 `)
-	if err := RememberDefaults("mimo", []string{"opus"}, []string{"mimo"}); err != nil {
+	if err := RememberDefaults("mimo", []string{"opus"}, []string{"mimo"}, noKeep); err != nil {
 		t.Fatal(err)
 	}
 	// as Python ak's config.remember_defaults wrote it from the same file
@@ -139,7 +141,7 @@ x = 1
 // A file holding no table reads as the shipped config, its own keys over it.
 func TestRememberDefaultsKeepsAModelessFilesKeys(t *testing.T) {
 	path := rememberIn(t, "max_runs = 3\nextra = \"x\"\n")
-	if err := RememberDefaults("opus", []string{"opus"}, nil); err != nil {
+	if err := RememberDefaults("opus", []string{"opus"}, nil, noKeep); err != nil {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
@@ -155,7 +157,7 @@ func TestRememberDefaultsLeavesAFileMeaningThem(t *testing.T) {
 	text := "# mine\n[defaults]\norchestrator = \"opus\"\nworkers = [\"opus\"]\nreviewers = [\"opus\"]\n" +
 		"[models.opus]\nharness = \"claude\"\nmodel = \"m\"\neffort = \"high\"\nprovider = \"p\"\n[providers.p]\n"
 	path := rememberIn(t, text)
-	if err := RememberDefaults("opus", []string{"opus"}, nil); err != nil {
+	if err := RememberDefaults("opus", []string{"opus"}, nil, noKeep); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != text {

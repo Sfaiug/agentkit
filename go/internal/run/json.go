@@ -480,7 +480,15 @@ func (p *parser) unit() (rune, error) {
 // indents, `": "` between key and value, every character past ASCII escaped.
 func Encode(value any) string {
 	var out strings.Builder
-	encode(&out, value, ",", "\n")
+	encode(&out, value, ",", "\n", true)
+	return out.String()
+}
+
+// EncodeText is Encode with every character past ASCII written as itself, as Python's
+// json.dumps(value, indent=2, ensure_ascii=False) writes it.
+func EncodeText(value any) string {
+	var out strings.Builder
+	encode(&out, value, ",", "\n", false)
 	return out.String()
 }
 
@@ -488,13 +496,13 @@ func Encode(value any) string {
 // between items and `": "` between key and value, every character past ASCII escaped.
 func Line(value any) string {
 	var out strings.Builder
-	encode(&out, value, ", ", "")
+	encode(&out, value, ", ", "", true)
 	return out.String()
 }
 
 // encode writes the value with comma between items, each on a line of its own two spaces past
-// newline's indent where newline breaks the line.
-func encode(out *strings.Builder, value any, comma, newline string) {
+// newline's indent where newline breaks the line, every character past ASCII escaped where ascii.
+func encode(out *strings.Builder, value any, comma, newline string, ascii bool) {
 	inner := newline
 	if newline != "" {
 		inner += "  "
@@ -507,7 +515,7 @@ func encode(out *strings.Builder, value any, comma, newline string) {
 	case Number:
 		out.WriteString(written(value))
 	case string:
-		out.WriteString(quote(value))
+		out.WriteString(quoted(value, ascii))
 	case []any:
 		if len(value) == 0 {
 			out.WriteString("[]")
@@ -519,7 +527,7 @@ func encode(out *strings.Builder, value any, comma, newline string) {
 				out.WriteString(comma)
 			}
 			out.WriteString(inner)
-			encode(out, item, comma, inner)
+			encode(out, item, comma, inner, ascii)
 		}
 		out.WriteString(newline + "]")
 	case *Object:
@@ -532,8 +540,8 @@ func encode(out *strings.Builder, value any, comma, newline string) {
 			if i > 0 {
 				out.WriteString(comma)
 			}
-			out.WriteString(inner + quote(key) + ": ")
-			encode(out, value.values[key], comma, inner)
+			out.WriteString(inner + quoted(key, ascii) + ": ")
+			encode(out, value.values[key], comma, inner, ascii)
 		}
 		out.WriteString(newline + "}")
 	}
@@ -541,7 +549,11 @@ func encode(out *strings.Builder, value any, comma, newline string) {
 
 // quote is the string as json.dumps writes it, every character past ASCII escaped; a byte of
 // a path no UTF-8 holds is the surrogate Python reads it as (os.fsdecode).
-func quote(text string) string {
+func quote(text string) string { return quoted(text, true) }
+
+// quoted is quote with characters past ASCII written as themselves where not ascii, as
+// ensure_ascii=False writes them, but for a byte no UTF-8 holds.
+func quoted(text string, ascii bool) string {
 	var out strings.Builder
 	out.WriteByte('"')
 	for len(text) > 0 {
@@ -563,7 +575,7 @@ func quote(text string) string {
 			out.WriteString(`\b`)
 		case r == '\f':
 			out.WriteString(`\f`)
-		case r >= ' ' && r <= '~':
+		case r >= ' ' && r <= '~', !ascii && r >= 0x7f && (r < 0xdc80 || r > 0xdcff):
 			out.WriteRune(r)
 		case r > 0xffff:
 			high, low := utf16.EncodeRune(r)

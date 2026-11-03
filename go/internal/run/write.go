@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"agentkit/internal/lock"
 )
@@ -21,11 +23,19 @@ import (
 // json.dumps(record, indent=2) lays it out, into run.tmp and renamed over run.json, so it
 // lands whole or not at all.
 
-// ErrLined is a write Python ak does more for than write the file (`Lined`).
-var ErrLined = errors.New("a record with a place in a line")
+// Writing is whether a write of the run's record, or of its delivery, is under way: its temporary
+// file is there, a link left dangling among them (record.writing).
+func Writing(dir string) bool {
+	for _, name := range []string{"run.tmp", "delivery.tmp"} {
+		if _, err := os.Lstat(filepath.Join(dir, name)); err == nil {
+			return true
+		}
+	}
+	return false
+}
 
 // Lined is whether the record holds a place in a landing line, or a wait in one to count: a
-// write to it Python ak times or adds to history.db.
+// write to it Python ak times, and adds to history.db as it ends, which Go has none of.
 func Lined(record *Object) bool {
 	return InLine(record) || record.Has("line_since")
 }
@@ -45,21 +55,41 @@ func hold(dir, name string) (func(), error) {
 // RecoveryLock is the lock file a run's record is written under, which no commit of a checkout takes.
 const RecoveryLock = "recovery.lock"
 
+// holding is each directory whose recovery lock this process holds through Hold.
+var holding sync.Map
+
+// Hold waits for a run's or job's recovery lock and holds it until release, a Change of that
+// run inside taking it as its own, as Python's recovery_lock is reentrant: the collector holds it
+// across a checkout's removal, which records a checkout kept.
+func Hold(dir string) (func(), error) {
+	release, err := hold(dir, RecoveryLock)
+	if err != nil {
+		return nil, err
+	}
+	holding.Store(filepath.Clean(dir), true)
+	return func() {
+		holding.Delete(filepath.Clean(dir))
+		release()
+	}, nil
+}
+
 // Change is Python's `record`: change changes the record as it stands under recovery.lock,
 // and what it changed is written, the old time budgets gone with the write as Python's
 // record_limits drops them.  Nothing is written where change returns an error or changes
-// nothing, nor with ErrLoneSurrogate, ErrLined or a record that cannot be read.
+// nothing, nor with ErrLoneSurrogate or a record that cannot be read.
 func Change(dir string, change func(*Object) error) error {
 	return ChangeThen(dir, change, func() {})
 }
 
 // ChangeThen is Change with what then follows a write that landed, still under recovery.lock.
 func ChangeThen(dir string, change func(*Object) error, then func()) error {
-	release, err := hold(dir, RecoveryLock)
-	if err != nil {
-		return err
+	if _, held := holding.Load(filepath.Clean(dir)); !held {
+		release, err := hold(dir, RecoveryLock)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
-	defer release()
 	path := filepath.Join(dir, "run.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -118,8 +148,14 @@ func write(dir string, data []byte, before map[string]string, record *Object) er
 			current.Set(key, record.Get(key))
 		}
 	}
-	if Lined(current) {
-		return ErrLined
+	// a place in the line counts from the write that gives it to the write that ends it, as
+	// Python's _write_state counts it, its start read from the record as it stands
+	if wait := current.Dict("waiting_on"); Member(current) && !wait.Has("fix") {
+		if !current.Has("line_since") {
+			current.Set("line_since", seconds(time.Now()))
+		}
+	} else {
+		current.Delete("line_since")
 	}
 	for _, key := range []string{"done_when_minutes", "turn_hours", "stall_minutes"} {
 		current.Delete(key)

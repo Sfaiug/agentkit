@@ -21,6 +21,8 @@ class GoBoundaries(unittest.TestCase):
             copies = 'var harness = "claude"\nvar pointer = "renamed"\nvar receipt = "job.json"\n'
             files["go/internal/cli/refusals_test.go"] = copies
             files["go/internal/config/duplicate.go"] = copies
+            files["go/vendor/github.com/acme/regex/regex.go"] = copies
+            files["go/internal/config/testdata/cases.json"] = copies
             for name, text in files.items():
                 path = repo / name
                 path.parent.mkdir(parents=True, exist_ok=True)

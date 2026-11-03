@@ -266,7 +266,10 @@ func TestWhatItsConversationRecordedSpeaksForTheScreen(t *testing.T) {
 
 func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T, home string){
-		"a plan": func(t *testing.T, home string) { write(t, stateFile(home, "plan-acme.md"), openLine) },
+		"a plan line its stop said, which the tick may send it back to": func(t *testing.T, home string) {
+			write(t, stateFile(home, "plan-acme.md"), openLine)
+			write(t, stateFile(home, "seat-acme.json"), `{"stop_said": "Your plan owes a line"}`)
+		},
 		"a run of its own": func(t *testing.T, home string) {
 			runRecord(t, home, "going", map[string]any{"state": "running", "started_at": 1, "finished_at": nil})
 		},
@@ -330,7 +333,7 @@ func TestARuleGoCannotSayLeavesTheHarnessToPython(t *testing.T) {
 	record(t, home, "acme", nil)
 	drawn(t, home, "acme", prompting)
 	adapters := filepath.Join(home, "adapters")
-	write(t, filepath.Join(adapters, "claude.toml"), "[[rule]]\nid = \"x\"\nstate = \"working\"\nnewest = '(?!x)y'\n")
+	write(t, filepath.Join(adapters, "claude.toml"), "[[rule]]\nid = \"x\"\nstate = \"working\"\nnewest = '[^\\S]'\n")
 	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
 	eyes.Delete("claude")
 	t.Cleanup(func() { eyes.Delete("claude") })

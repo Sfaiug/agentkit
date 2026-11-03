@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gc"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
@@ -26,9 +27,9 @@ type pass struct {
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
-// that act whatever the home holds: usage refresh, login reminder, collection, browser tidy,
-// machine check, live update and harness upgrade.  The seats are read once, before any step
-// (t.seats), and a home holding any other seat leaves every row that reads one to Python.
+// that act whatever the home holds: usage refresh, login reminder, browser tidy, machine check, live
+// update and harness upgrade.  The seats are read once, before any step (t.seats), and a home
+// holding any other seat leaves every row that reads one to Python.
 func table(t *ticking) []pass {
 	if t.seats == nil {
 		t.seats = sync.OnceValues(func() ([]seat.Live, bool) { return seat.Lives(time.Now()) })
@@ -50,7 +51,7 @@ func table(t *ticking) []pass {
 		{"stall recovery", true, all(configured, runless), nil},
 		{"lease scan", false, runless, nil},
 		{"lease restart", false, runless, nil},
-		{"seat headroom", false, host.NoSliceCeiling, nil},
+		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		{"token reminder", false, nil, nil},
 		// its workers are the seat's own selection, which Go does not read yet
@@ -78,6 +79,11 @@ func table(t *ticking) []pass {
 		{"seat revival", false, all(configured, runless, seated), t.revive},
 		{"idle sleep", false, all(configured, t.every(awake)), nil},
 		{"git housekeeping", false, all(runless, seated, checkoutsSeen), t.housekeeping},
+		// a due collection's units are Python's to clear where a user manager runs
+		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
+			gc.Schedule(t.log.line)
+			return nil
+		}},
 		{"exit clocks", false, seated, t.stamp},
 		{"seat sweep", false, all(runless, seated), nil},
 		{"ended logins", false, noLoginsToEnd, nil},

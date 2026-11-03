@@ -25,13 +25,10 @@ const (
 	noTestsRun   = "(AGENTS.md declares no `tests:` command; nothing was run)"
 	// githubBodyCap is below GitHub's 65,536-character body limit, UTF-8 included.
 	githubBodyCap = 60_000
-	// githubRetries is how often a pull ref GitHub has not published yet is waited out.
+	// githubRetries is how often GitHub's own refusal is waited out and tried again: a pull ref it
+	// has not published yet, a push or a merge it refused for a reason of its own.
 	githubRetries = 3
 )
-
-// transientDelay is how long the attempt-th wait for that ref takes, Python's transient_delay for
-// the retries a fetch takes.
-var transientDelay = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute}
 
 // pullPlace is a review of somebody else's pull request: its head checked out for the run, judged by
 // the reviewer alone, and the verdict posted back on the commit it judged.  It has no executor stage.
@@ -89,7 +86,7 @@ func fetchPull(l *loop, repo string, pull *gh.Pull) error {
 		if said != "fatal: couldn't find remote ref "+ref || tried == githubRetries {
 			return fmt.Errorf("git fetch origin %s %s failed in %s: %s", ref, pull.Base, repo, said)
 		}
-		delay := transientDelay[tried]
+		delay := transientDelay(tried + 1)
 		l.say(fmt.Sprintf("WARN GitHub has not published %s; fetching again in %ds (%d/%d)", ref, int(delay.Seconds()), tried+1, githubRetries))
 		select {
 		case <-l.ctx.Done():
@@ -236,7 +233,7 @@ func (l *loop) pickReviewer() error {
 	if err != nil {
 		return notYet("the meters cannot be read: "+err.Error(), "a pick without them")
 	}
-	order := rules.Order(withRoom(readings), true, rawLog{l.dir})
+	order := rules.Order(ready{readings, unable()}, true, rawLog{l.dir})
 	if len(order) == 0 {
 		return notYet("no reviewer can run now", "an exhausted run")
 	}
@@ -443,7 +440,7 @@ func githubBody(text, id string) string {
 // Asking needs a seat, so the question goes on the record as Python's ask leaves one to retry, and
 // Python's tick asks it (`offer_endings`).
 func (p *pullPlace) offer(l *loop, pull *gh.Pull) error {
-	green, why, err := p.requiredChecks(l, pull)
+	green, why, err := requiredChecks(l, pull, p.target, p.sha, false)
 	if err != nil {
 		return err
 	}
