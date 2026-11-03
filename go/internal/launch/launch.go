@@ -288,17 +288,22 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 		return reason, warning, at, err
 	}
 	repo, refused, err := checkout(meta, path, copied)
-	if refused != "" || err != nil {
-		return refuse(refused, "", err)
+	if err != nil {
+		return refuse("", "", err)
 	}
-	at.repo = repo
-	if at.numbers, err = numbers(at.repo); err != nil {
+	// a refused checkout is none (repo ""), so the host's numbers are in force, as in Budget
+	if at.numbers, err = numbers(repo); err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
-	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged here
+	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged
+	// here, before any refusal a run records, as Python's launch_refusal is
 	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
 		return refuse("", "", &refusedOutright{why})
 	}
+	if refused != "" {
+		return refuse(refused, "", nil)
+	}
+	at.repo = repo
 	landing := at.repo != "" && !flags["--no-merge"]
 	if landing && !flags["--no-worktree"] {
 		return refuse("", "", ErrPython)
