@@ -100,10 +100,10 @@ func (t *ticking) collect(repo, common string) error {
 
 // noAutoGC keeps git from collecting the repository by itself (gitcall.no_auto_gc): a turn's
 // detached gc can lock every linked worktree's HEAD, then leave those locks behind when the
-// worker stops its leftover processes. Python holds the repository's lock shared for it; on a
-// home with no run, nothing else holds it but for a moment.
+// worker stops its leftover processes. Shared, as a worktree being made holds it: only a
+// collection waits for nobody.
 func noAutoGC(repo, common string) error {
-	held, err := lock.Wait(context.Background(), common)
+	held, err := lock.Shared(common)
 	if err != nil {
 		return err
 	}
