@@ -90,6 +90,17 @@ class IncomingSearch(unittest.TestCase):
         launched, calls = self.tick()
         self.assertEqual((launched, len(calls)), ([], 1), calls)
 
+    def test_an_origin_on_another_host_does_not_make_a_github_checkout(self):
+        self.open_pr()
+        for count, origin in enumerate(("https://gitlab.com/acme/web.git",
+                                        "git@gitlab.com:acme/web.git",
+                                        "ssh://git@gitlab.com/acme/web.git"), 1):
+            with self.subTest(origin=origin):
+                self.rigs["web"].git("remote", "set-url", "origin", origin)
+                launched, calls = self.tick()
+                self.assertEqual(launched, [])
+                self.assertEqual(len(calls), count, calls)
+
     def test_a_pr_on_a_later_search_page_is_reviewed_but_an_uncloned_repo_is_not_read(self):
         url = self.open_pr()
         found = {"number": 1, "pull_request": {"html_url": url}}

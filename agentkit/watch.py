@@ -7056,11 +7056,15 @@ def launch(*words):
 
 def incoming(state, me, dry_run, log):
     """Other people's open PRs on this account's repos: review each head once."""
+    from .deliver import remote_key
+
     repos = {}
     for repo in checkouts():
-        name = gitcall.owner_name(gitcall.git(repo, "remote", "get-url", "origin", check=False))
+        origin = gitcall.git(repo, "remote", "get-url", "origin", check=False)
+        name, key = gitcall.owner_name(origin), remote_key(origin)
         if name.split("/", 1)[0] == me.lower():
-            repos[name] = repo
+            # Local origins follow the owner/name convention of run.local_checkout.
+            repos[key if key != origin else name] = repo
     prs, why = pages(config.RUNS, "search/issues", "items", "-X", "GET", "-f",
                      f"q=is:pr is:open draft:false user:{me} -author:{me}", "-f", "per_page=100")
     if not isinstance(prs, list):
@@ -7068,11 +7072,13 @@ def incoming(state, me, dry_run, log):
         return
     for found in prs:
         url = (found.get("pull_request") or {}).get("html_url")
-        name = "/".join(urlsplit(url or "").path.strip("/").split("/")[:2]).lower()
-        if (not url or not found.get("number") or name not in repos or found.get("draft")
+        parts = urlsplit(url or "")
+        name = "/".join(parts.path.strip("/").split("/")[:2]).lower()
+        repo = repos.get(f"{parts.hostname}/{name}") or repos.get(name)
+        if (not url or not found.get("number") or repo is None or found.get("draft")
                 or (found.get("user") or {}).get("login", "").lower() == me.lower()):
             continue
-        pr, why = gh_json(repos[name], "api", f"repos/{name}/pulls/{found['number']}")
+        pr, why = gh_json(repo, "api", f"repos/{name}/pulls/{found['number']}")
         if not isinstance(pr, dict):
             log(f"WARN {url}: PR discovery failed: {why}")
             continue
