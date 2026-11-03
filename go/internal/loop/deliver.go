@@ -192,9 +192,11 @@ func (r *repoPlace) landingMark(l *loop, landing func() error) error {
 	return err
 }
 
-// integrate takes in the target's tip, Python's integrate where the tip is already in the branch,
-// so its review stands: a target that moved past the review is Python's to take in, and a branch
-// with nothing left over the tip ends PASS as already on the target.
+// integrate takes in the target's tip, Python's integrate: a branch that does not hold it yet is
+// rebased onto it, or merged with it, and checked again there, and its review stands when the
+// checks pass on the commit the integration made.  A conflict, a red, or checks that leave work to
+// review again are Python's; a branch with nothing left over the tip ends PASS as already on the
+// target.
 func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	g := r.git()
 	// --prune: a merged PR's branch, deleted on origin, otherwise leaves its tracking ref behind,
@@ -221,30 +223,49 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if code, _, err := g.Out("merge-base", "--is-ancestor", tip, "HEAD"); err != nil || code != 0 {
-		return false, cmp.Or(err, notYet(upstream+" moved since the review", "taking it in at landing"))
+	head, _, err := r.identity()
+	if err != nil {
+		return false, err
 	}
+	code, _, err = g.Out("merge-base", "--is-ancestor", tip, "HEAD")
+	if err != nil {
+		return false, err
+	}
+	held := code == 0
 	// a branch carrying merges, or a task asking for one, keeps its history
-	args := []string{"rebase", tip}
+	how, args := "rebase", []string{"rebase", tip}
 	if record.Str("merge_method") == "merge" || merges != "" {
+		how, args = "merge", []string{"merge", "--no-edit", tip}
+	}
+	saved, verdict := record.Dict("review"), record.Get("verdict")
+	if !held {
+		// before git rewrites HEAD: an interruption must not leave a PASS saved on it
+		if err := r.pendingReview(l, "Re-review after the "+how+" of "+upstream+"."); err != nil {
+			return false, err
+		}
+	}
+	if how == "merge" {
 		l.say(fmt.Sprintf("--- merge: merging %s (%s) into %s", upstream, tip[:12], r.branch))
 		l.say(fmt.Sprintf("--- merge: merging %s into %s", upstream, r.branch))
-		args = []string{"merge", "--no-edit", tip}
 	} else {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
 	if code, out, err := g.Out(args...); err != nil || code != 0 {
-		return false, cmp.Or(err, fmt.Errorf("git %s %s failed in %s: %s", args[0], tip, r.wt, out))
+		if err == nil {
+			_, _, err = g.Out(how, "--abort")
+		}
+		return false, cmp.Or(err, notYet(fmt.Sprintf("its %s onto %s at %s stopped on a conflict: %s", how, upstream, tip[:12], tail(out, 400)), "resolving it"))
 	}
 	// the tip the work is checked and delivered on, whatever a later fetch moves the ref to
 	r.baseSHA = tip
 	if err := l.save(func(record *run.Object) { run.SetAll(record, "base_sha", tip, "target_sha", tip) }); err != nil {
 		return false, err
 	}
-	if _, current, err := r.reviewed(l); err != nil || !current {
-		return false, cmp.Or(err, notYet("the "+args[0]+" changed the reviewed commit", "checking it again"))
+	if held {
+		l.say("--- merge: unchanged commit; reusing done-when and review evidence")
+	} else if err := r.recheck(l, upstream, how, head, saved, verdict); err != nil {
+		return false, err
 	}
-	l.say("--- merge: unchanged commit; reusing done-when and review evidence")
 	code, _, err = g.Out("diff", "--quiet", tip, "HEAD")
 	if err != nil || code != 0 {
 		return err == nil, err // a diff left over the tip is work to deliver
@@ -253,6 +274,71 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 		return false, err
 	}
 	return false, r.note(l, "its work is already on "+strings.TrimPrefix(upstream, "origin/"), false)
+}
+
+// pendingReview takes the passed review off the record until the integrated commit earns it,
+// Python's pending_review: a landing review spends no round.
+func (r *repoPlace) pendingReview(l *loop, reason string) error {
+	return l.save(func(record *run.Object) {
+		summary := ""
+		if entries := record.List("round_summaries"); len(entries) > 0 {
+			if entry, ok := entries[len(entries)-1].(*run.Object); ok {
+				summary = entry.Str("summary")
+			}
+		}
+		pending := run.Fields("round", l.rnd, "record", false, "summary", summary, "reason", reason)
+		if passed := passedReviewHead(record); passed != "" {
+			pending.Set("passed_head_sha", passed)
+		}
+		run.SetAll(record, "verdict", nil, "review", nil, "review_pending", pending)
+	})
+}
+
+// passedReviewHead is the last reviewed head whose task checks passed, Python's passed_review_head.
+func passedReviewHead(record *run.Object) string {
+	pending, reviewed := cmp.Or(record.Dict("review_pending"), run.NewObject()), cmp.Or(record.Dict("review"), run.NewObject())
+	if passed := cmp.Or(pending.Str("passed_head_sha"), reviewed.Str("passed_head_sha")); passed != "" {
+		return passed
+	}
+	if reviewed.Str("verdict") == "PASS" && reviewed.Truthy("done_when") {
+		return cmp.Or(reviewed.Str("rebased_from"), reviewed.Str("head_sha"))
+	}
+	entries := record.List("round_summaries")
+	for i := len(entries) - 1; i >= 0; i-- {
+		if entry, ok := entries[i].(*run.Object); ok && entry.Str("verdict") == "PASS" && entry.Truthy("done_when") && entry.Truthy("head_sha") {
+			return cmp.Or(entry.Str("passed_head_sha"), entry.Str("head_sha"))
+		}
+	}
+	return ""
+}
+
+// recheck runs the round's checks on the commit an integration made, Python's integrate after a
+// clean one: passing on that same commit, the review saved before it stands for it.
+func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Object, verdict any) error {
+	head, tree, err := r.identity()
+	if err != nil {
+		return err
+	}
+	ok, text, err := l.verify()
+	if err != nil {
+		return err
+	}
+	if !ok {
+		l.say("done-when after the " + how + ": FAILED")
+		return notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
+	}
+	l.say("done-when after the " + how + ": all passed")
+	if moved, err := r.changedSince(head, tree); err != nil || moved {
+		return cmp.Or(err, notYet("the checks after the "+how+" changed the commit", "reviewing it again at landing"))
+	}
+	l.say(fmt.Sprintf("--- merge: clean %s of %s; done-when passed again, review kept", how, upstream))
+	return l.save(func(record *run.Object) {
+		// patch_id, which nothing reads, is left out
+		review := run.SetAll(saved, "head_sha", head, "tree_sha", tree, "passed_head_sha", passedReviewHead(record), "rebased_from", before)
+		run.SetAll(record, "review", review, "verdict", verdict)
+		keepFlakes(record, text)
+		record.Delete("review_pending")
+	})
 }
 
 // finalCheck runs the round's checks and those deferred to landing on the commit about to be
@@ -278,7 +364,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 		return false, err
 	}
 	path := filepath.Join(l.dir, "final-check.log")
-	ok, text, _, err := l.checksIn(r.wt, append(every, once...), path)
+	ok, text, err := r.checks(l, append(every, once...), path)
 	if err != nil {
 		return false, err
 	}
