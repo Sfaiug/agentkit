@@ -44,16 +44,15 @@ func (s Stat) Exited() bool {
 	return s.State == "Z" || s.State == "X" || s.Flags&0x4 != 0
 }
 
-func ReadStat(pid int) (Stat, bool) {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+func ReadStat(pid int) (Stat, bool) { return ReadStatIn("/proc", pid) }
+
+// ReadStatIn is ReadStat of a /proc at proc, so a test can hand one of its own. It counts the
+// fields after the last `)`, as the command name may hold spaces or `)`.
+func ReadStatIn(proc string, pid int) (Stat, bool) {
+	data, err := os.ReadFile(proc + "/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
 		return Stat{}, false
 	}
-	return ParseStat(data)
-}
-
-// ParseStat counts the fields after the last `)`, as the command name may hold spaces or `)`.
-func ParseStat(data []byte) (Stat, bool) {
 	at := bytes.LastIndexByte(data, ')')
 	if at < 0 {
 		return Stat{}, false

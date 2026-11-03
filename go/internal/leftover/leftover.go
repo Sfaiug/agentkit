@@ -151,13 +151,7 @@ func signal(pid int, start int64, number syscall.Signal) bool {
 	return held.Signal(number) == nil
 }
 
-func readStat(pid int) (host.Stat, bool) {
-	data, err := os.ReadFile(filepath.Join(proc, strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return host.Stat{}, false
-	}
-	return host.ParseStat(data)
-}
+func readStat(pid int) (host.Stat, bool) { return host.ReadStatIn(proc, pid) }
 
 // environ is that process's environment as it was started, by name, a later one of a name
 // winning as in Python's dict; empty where it cannot be read.
