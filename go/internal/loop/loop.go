@@ -509,11 +509,11 @@ func (l *loop) rules() (*pick.Rules, bool) {
 // pick chooses who executes and who reviews, as Python's pick_models and best_pair: a harness that
 // cannot run a turn here is left out before any budget rule reads the list.
 func (l *loop) pick() error {
+	record, err := run.Read(l.dir)
+	if record == nil {
+		return cmp.Or(err, errors.New("run.json cannot be read"))
+	}
 	if l.prior {
-		record, err := run.Read(l.dir)
-		if record == nil {
-			return cmp.Or(err, errors.New("run.json cannot be read"))
-		}
 		l.executor, l.reviewer = record.Str("executor"), record.Str("reviewer")
 		l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", l.executor, l.reviewer, l.budget))
 		return nil
@@ -522,8 +522,13 @@ func (l *loop) pick() error {
 	if !ok {
 		return notYet("the models cannot be picked here", "a pick Python makes")
 	}
+	// the launch's --exec, a worker of the run (launch.drivable): whether it can run is asked of it alone
+	named := ""
+	if opts := launchOpts(record); opts != nil {
+		named = opts.Str("--exec")
+	}
 	cannot := unable()
-	if why := rules.Unstaffed(cannot); why != "" {
+	if why := rules.Unstaffed(cannot); why != "" && cannot[named] == "" {
 		return errors.New(why)
 	}
 	readings, err := usage.Read()
@@ -533,12 +538,20 @@ func (l *loop) pick() error {
 	room := ready{readings, cannot}
 	logged := rawLog{l.dir}
 	rules.Order(room, false, logged)
+	if why := cannot[named]; why != "" {
+		return fmt.Errorf("%s cannot run here: %s", named, why)
+	}
 	rules.Order(room, true, logged)
 	executor, reviewer, found := rules.Pair(room)
-	if len(rules.Order(room, false, nil)) == 0 {
+	switch {
+	case named != "":
+		executor = named
+		if reviewer, found = rules.PairFor(room, named); !found {
+			return &exhausted{"no eligible reviewer: no worker with budget is left to review for executor " + named + "; waiting for review", true}
+		}
+	case len(rules.Order(room, false, nil)) == 0:
 		return &exhausted{"every worker has a gate meter at 100% used", true}
-	}
-	if !found {
+	case !found:
 		return &exhausted{"no eligible reviewer: no worker with budget is left to review; waiting for review", true}
 	}
 	l.executor, l.reviewer = executor, reviewer
