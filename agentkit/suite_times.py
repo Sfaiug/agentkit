@@ -61,17 +61,23 @@ def measured(log, offset=0):
 
 
 def refusal(cwd, base, command, timings):
-    """Only added files owe this passing suite's piece target, never earlier measurements."""
-    times, pieces = timings.get(command, ({}, 1))
-    if not times:
-        return ""
-    # Many pieces must not turn an ordinary test file of less than a minute into a refusal.
-    target = max(60, sum(times.values()) / pieces)
-    added = set(gitcall.git(cwd, "diff", "--diff-filter=A", "--name-only", "-z",
-                            f"{base}...HEAD").split("\0"))
-    slow = [f"FAIL  {name}: {seconds:g}s exceeds the piece target {target:g}s; split the test file."
-            for name, seconds in sorted(times.items()) if name in added and seconds > target]
-    return f"$ {command}\n[test file over piece target]\n" + "\n".join(slow) if slow else ""
+    """Added files owe each declared suite's own passing piece target, never earlier times."""
+    added, failures = None, []
+    # A rewritten declaration runs beside the target's; neither pass answers for the other.
+    for command in dict.fromkeys((command, gitcall.declared(cwd, "tests"))):
+        times, pieces = timings.get(command, ({}, 1))
+        if not times:
+            continue
+        if added is None:
+            added = set(gitcall.git(cwd, "diff", "--diff-filter=A", "--name-only", "-z",
+                                    f"{base}...HEAD").split("\0"))
+        # Many pieces must not turn an ordinary file of less than a minute into a refusal.
+        target = max(60, sum(times.values()) / pieces)
+        slow = [f"FAIL  {name}: {seconds:g}s exceeds the piece target {target:g}s; split the test file."
+                for name, seconds in sorted(times.items()) if name in added and seconds > target]
+        if slow:
+            failures.append(f"$ {command}\n[test file over piece target]\n" + "\n".join(slow))
+    return "\n\n".join(failures)
 
 
 def keep(cwd, log):

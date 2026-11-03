@@ -21,7 +21,8 @@ ANCHOR = "tests/test_anchor.py"
 SUITE = ': "$AK_SHARD"; sh suite.sh'
 RUNNER = f"""case ${{AK_SHARD:-1/1}} in
   1/*) printf 'PASS  {ANCHOR} (%ss)\\n' "$(cat {ANCHOR})" ;;
-  2/*) test ! -f {FILE} || printf 'PASS  {FILE} (%ss)\\n' "$(cat {FILE})" ;;
+  2/*) if [ "${{1:-}}" != anchor ] && [ -f {FILE} ]; then
+         printf 'PASS  {FILE} (%ss)\\n' "$(cat {FILE})"; fi ;;
 esac
 """
 # The fake helper runs the command in the throwaway checkout ssh was called from.
@@ -40,11 +41,12 @@ elif verb == "run":
 
 
 class LandingRefusesASlowTestFile(unittest.TestCase):
-    def land(self, seconds, *, existed=False, anchor=1000):
+    def land(self, seconds, *, existed=False, anchor=1000, revised=False):
         home = Home()
         self.addCleanup(home.close)
+        rules = f"---\ntests: {SUITE}\n---\n# sprouts\n"
         rig = Rig(home, "sprouts", files={
-            "AGENTS.md": f"---\ntests: {SUITE}\n---\n# sprouts\n",
+            "AGENTS.md": rules.replace(SUITE, SUITE + " anchor") if revised else rules,
             "suite.sh": RUNNER, ANCHOR: f"{anchor}\n",
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n",
             **({FILE: "600\n"} if existed else {})})
@@ -54,7 +56,8 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
                        workers=["maker"], reviewers=["judge"],
                        settings={"suite_helper": "acme-mac"})
         home.fake("ssh", SSH)
-        work = {"write": {FILE: f"{seconds}\n"}, "commit": "add sprout coverage",
+        work = {"write": {FILE: f"{seconds}\n", **({"AGENTS.md": rules} if revised else {})},
+                "commit": "add sprout coverage",
                 "final": "## Summary\nAdded sprout coverage.", "hand_in": [["done"]]}
         fix = {"write": {FILE: "100\n"}, "commit": "split sprout coverage",
                "final": "## Summary\nSplit sprout coverage.", "hand_in": [["done"]]}
@@ -81,8 +84,8 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
         self.assertEqual(heads[-1], state["delivery_sha"])
         return rig, directory, fakes, heads
 
-    def test_three_times_the_target_gets_one_fixer_then_review_and_a_green_suite(self):
-        rig, directory, fakes, heads = self.land(600)
+    def refused(self, *, revised=False):
+        rig, directory, fakes, heads = self.land(600, revised=revised)
         self.assertEqual([turn["role"] for turn in fakes["claude"].runs()],
                          ["executor", "fixer"], (directory / "log.txt").read_text())
         self.assertEqual(len(heads), 2)
@@ -100,8 +103,15 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
         self.assertIn(rig.git("rev-parse", f"{heads[1]}^{{tree}}"), trees)
         self.assertEqual(rig.origin("show", f"main:{FILE}"), "100")
 
+    def test_three_times_the_target_gets_one_fixer_then_review_and_a_green_suite(self):
+        self.refused()
+
+    def test_a_revised_suite_refuses_a_new_file_it_alone_covers(self):
+        self.refused(revised=True)
+
     def test_a_new_file_under_the_target_lands_without_a_fixer(self):
-        _, _, fakes, heads = self.land(100)
+        # 140s is above the old suite's 125s target, below this pass's own 142.5s.
+        _, _, fakes, heads = self.land(140, revised=True)
         self.assertEqual([turn["role"] for turn in fakes["claude"].runs()], ["executor"])
         self.assertEqual(len(heads), 1)
 
