@@ -439,23 +439,25 @@ def migrate_policy():
         if not POLICY_RENAMES.keys() & data.keys():
             return
         chunks, statement, in_table = [], "", False
-        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
-            statement += line
-            try:
-                declared = tomllib.loads(statement) if not in_table else {}
-            except tomllib.TOMLDecodeError:
-                continue    # a multiline value; only the parser decides where it ends
-            in_table = in_table or statement.lstrip().startswith("[")
-            for old, new in POLICY_RENAMES.items() if not in_table else ():
-                if old in declared:
-                    # Replace the first key component, including quoted or dotted keys.
-                    statement = (re.sub(r'''^(\s*)(?:[\w-]+|'[^']*'|"(?:\\.|[^"\\])*")''',
-                                        lambda m: m[1] + new, statement, count=1)
-                                 if new not in data else "")
-            chunks.append(statement)
-            statement = ""
+        # File iteration splits TOML newlines; Unicode separators inside comments stay text.
+        with path.open(encoding="utf-8") as source:
+            for line in source:
+                statement += line
+                try:
+                    declared = tomllib.loads(statement) if not in_table else {}
+                except tomllib.TOMLDecodeError:
+                    continue    # a multiline value; only the parser decides where it ends
+                in_table = in_table or statement.lstrip().startswith("[")
+                for old, new in POLICY_RENAMES.items() if not in_table else ():
+                    if old in declared:
+                        # Replace the first key component, including quoted or dotted keys.
+                        statement = (re.sub(r'''^(\s*)(?:[\w-]+|'[^']*'|"(?:\\.|[^"\\])*")''',
+                                            lambda m: m[1] + new, statement, count=1)
+                                     if new not in data else "")
+                chunks.append(statement)
+                statement = ""
         tmp = path.with_suffix(".tmp")
-        tmp.write_text("".join(chunks), encoding="utf-8")
+        tmp.write_text("".join(chunks) + statement, encoding="utf-8")
         os.chmod(tmp, 0o600)
         tmp.replace(path)
     finally:

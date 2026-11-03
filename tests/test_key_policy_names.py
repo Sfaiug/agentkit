@@ -82,6 +82,22 @@ class PolicyNames(unittest.TestCase):
             self.assertEqual(done.code, 0, done.err)
         self.assertEqual(path.read_text(), "review_rounds = 2\norchestrator_lines = 40\n")
 
+    def test_unicode_separators_in_comments_preserve_every_config_value(self):
+        for separator in ("\u0085", "\u2028", "\u2029"):
+            with self.subTest(separator=ascii(separator)):
+                path = akconfig.write(self.home, ["opus", "astra"], settings={
+                    "rounds": 2, "review_lines": 120, "seat_lines": 40, "custom_flag": 7})
+                comment = f"# A note{separator}continued here\n"
+                text = comment + path.read_text()
+                path.write_text(text)
+                expected = text
+                for old, new in (("rounds", "review_rounds"), ("review_lines", "executor_lines"),
+                                 ("seat_lines", "orchestrator_lines")):
+                    expected = expected.replace(f"\n{old} =", f"\n{new} =", 1)
+                done = self.home.ak("run", "--help")
+                self.assertEqual(done.code, 0, done.err)
+                self.assertEqual(path.read_text(), expected)
+
     def front(self, key, value):
         text = f"---\n{key}: {value}\n---\nA project.\n"
         self.rig.commit({"AGENTS.md": text}, "project policy")
