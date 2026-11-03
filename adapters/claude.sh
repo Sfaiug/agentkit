@@ -86,7 +86,10 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 # either reads it, a lapsed login that still holds a refresh token gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
 # one per login at a time: whoever waited finds it renewed and asks nothing.  A login that
-# has not lapsed is never touched, and one the turn could not renew is read as it was.
+# has not lapsed is never touched, and one the turn could not renew is read as it was.  Its last
+# 270 seconds count as lapsed: Claude Code renews only near a login's end (4.5 minutes left did,
+# 5.5 did not, 2.1.316, 2 Nov 2026), and before the end is when a machine's copy can still be
+# replaced (`machine_turn._following`) rather than refused.
 lapsed() {
   local blob exp
   blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
@@ -95,7 +98,7 @@ lapsed() {
       | .expiresAt // empty' 2>/dev/null)
   case "$exp" in ''|*[!0-9]*) return 1 ;; esac
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
-  [ "$exp" -le "$(( $(date +%s) * 1000 ))" ]
+  [ "$exp" -le "$(( ($(date +%s) + 270) * 1000 ))" ]
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0
@@ -139,9 +142,10 @@ run)
   cd -- "$ws" || { echo "claude.sh: no such workspace: $ws" >&2; exit 2; }
   [ -z "$ACCOUNT" ] || share
   # The long-lived worker token, where there is one: a headless turn authenticates with it and
-  # never reads or refreshes the seat's ~/.claude/.credentials.json.  No file, and the turn
-  # falls back to whatever the seat's own login leaves there, exactly as it always did.
-  tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && export CLAUDE_CODE_OAUTH_TOKEN="$tok"
+  # never reads or refreshes the seat's ~/.claude/.credentials.json, so an ending one is renewed
+  # first.  No file, and the turn falls back to whatever the seat's own login leaves there,
+  # exactly as it always did, renewing it as Claude Code does.
+  tok=$(cat "$TOKEN" 2>/dev/null) && [ -n "$tok" ] && { renew; export CLAUDE_CODE_OAUTH_TOKEN="$tok"; }
   if [ -n "$sid" ]; then set -- -p --resume "$sid"; else set -- -p; fi
   # The prompt goes down stdin.
   # shellcheck disable=SC2086 # OWN_RULES_OFF is one NAME=value per word

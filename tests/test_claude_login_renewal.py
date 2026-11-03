@@ -151,6 +151,25 @@ class LoginRenewal(unittest.TestCase):
         self.assertEqual(self.ask("second", "auth", "seat")[0], 1)
         self.assertEqual(self.turns(), [])
 
+    def test_a_login_ending_counts_as_lapsed_and_one_with_longer_left_does_not(self):
+        self.login("second", int((time.time() + 240) * 1000))
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(len(self.turns()), 1)
+        self.login("second", int((time.time() + 360) * 1000))
+        self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
+        self.assertEqual(self.turns(), [])
+
+    def test_a_turn_on_the_worker_token_renews_an_ending_login_first(self):
+        prompt = self.root / "prompt"
+        prompt.write_text("work\n")
+        for left, tokens in ((240, ["unset", "worker"]), (360, ["worker"])):
+            with self.subTest(left=left):
+                self.login("second", int((time.time() + left) * 1000))
+                code, said = self.ask("second", "run", "m-1", "high", str(self.root), str(prompt),
+                                      str(self.root / "out"))
+                self.assertEqual(code, 0, said)
+                self.assertEqual([turn[1] for turn in self.turns()], tokens)
+
     def test_logout_signs_out_its_own_login_and_worker_token_alone(self):
         usual, second = self.login("", FRESH), self.login("second", FRESH)
         secrets = self.root / ".agentkit" / "secrets"
