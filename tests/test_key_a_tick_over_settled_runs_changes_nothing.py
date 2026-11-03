@@ -40,20 +40,46 @@ FIX = ("Your checkout starts on the target branch's tip, fetched when this run s
 READS = {("pr", "view"), ("pr", "list"), ("pr", "checks"), ("pr", "status"), ("pr", "diff"),
          ("repo", "view"), ("repo", "list"), ("auth", "status"), ("run", "list"), ("run", "view")}
 METHOD = re.compile(r"^(?:-X|--method=?)(.*)$")
-FIELDS = ("-f", "-F", "--field", "--raw-field", "--input")
+FIELDS = ("--raw-field", "--field", "-f", "-F")
+# A GraphQL operation that reads: a query, named or the bare `{ ... }` shorthand.
+QUERY = re.compile(r"(?:\s|#[^\n]*)*(?:\{|query\b)")
 
 
 def changes_github(argv):
-    """Whether a gh call asks GitHub to change anything, refused or not: any call but a read
-    above, an API call with a method other than GET or with fields, and a GraphQL mutation."""
+    """Whether a gh call may change GitHub, refused or not: any call but a read above, an API
+    call whose method as gh picks it (GET, unless one is named or fields or --input are sent) is
+    not GET, and GraphQL but for a query the key reads, inline or from a file still there."""
     if argv[:1] != ["api"]:
         return tuple(argv[:2]) not in READS
+    sent = fields(argv)
+    given = any(word.startswith("--input") for word in argv)
     if "graphql" in argv:
-        return any("mutation" in word for word in argv)
+        queries = [value.partition("=")[2] for value in sent if value.startswith("query=")]
+        return given or not queries or not all(QUERY.match(read(query)) for query in queries)
     methods = [found[1] or after for word, after in zip(argv, [*argv[1:], ""])
                if (found := METHOD.match(word))]
-    return any(method.upper() != "GET" for method in methods) or any(
-        word.startswith(FIELDS) for word in argv)
+    method = methods[-1] if methods else "POST" if sent or given else "GET"
+    return method.upper() != "GET"
+
+
+def fields(argv):
+    """The `key=value` fields a gh api call sends, however their flag is spelled."""
+    sent = []
+    for word, after in zip(argv, [*argv[1:], ""]):
+        flag = next((flag for flag in FIELDS if word.startswith(flag)), None)
+        if flag:
+            sent.append(word[len(flag):].removeprefix("=") or after)
+    return sent
+
+
+def read(value):
+    """A field's text: inline, or the file `@path` names; "" where that file is gone."""
+    if not value.startswith("@"):
+        return value
+    try:
+        return Path(value[1:]).read_text()
+    except OSError:
+        return ""
 
 
 def work(name):
@@ -83,7 +109,9 @@ class SettledRuns(unittest.TestCase):
         cls.launch("Add api file", [work("api.txt")], ["pass"])
         # the seat's plan, read, ticks its one line: the merge proved it
         cls.seat_says("plan")
-        # git housekeeping ran on the checkout just now
+        # the checkout has fetched since, which forgot the merged branch origin deleted, and git
+        # housekeeping ran on it just now
+        cls.rig.git("fetch", "-q", "--prune")
         (cls.rig.path / ".git" / "ak-gc").write_text(f"{time.time()}\n")
         cls.before, cls.ticks, cls.worlds = cls.world(), [], []
         for _ in range(3):
@@ -135,7 +163,7 @@ class SettledRuns(unittest.TestCase):
             "seats": home.tmux("list-sessions", "-F", "#{session_name}").out.split(),
             "github": json.loads(cls.gh.file.read_text()),
             "asked": home.calls("gh"),
-            "branches": [where("for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
+            "branches": [where("for-each-ref", "--format=%(refname) %(objectname)")
                          for where in (rig.git, rig.origin)],
             "tree": (rig.git("rev-parse", "HEAD"), rig.git("status", "--porcelain", "-uall"),
                      rig.git("worktree", "list", "--porcelain")),
