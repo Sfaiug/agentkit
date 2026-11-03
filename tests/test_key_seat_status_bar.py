@@ -53,6 +53,8 @@ class Bar(unittest.TestCase):
         return [row.rstrip() for row in self.screen.rstrip("\n").split("\n")[-2:]]
 
 
+# A seat's own bar is that row, still, its line open, never repeating chat's question.
+# [2, 14, 19, 23, 26 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class AQuestionSeat(Bar):
     NAME, SCREEN = "acme", "claude-question-pane.txt"
@@ -92,6 +94,7 @@ class AWorkingSeatWithAPlan(Bar):
         self.assertRegex(self.bar()[0], r"^ *● working +wrk +Opus 5\.5 +\S+ 1 of 2$")
         self.assertRegex(self.bar()[1], r"^ *Opus 5\.5 ⚒◎ +" + KEY + "$")
 
+    # never a percentage or a finish time. [2, 14, 19, 23, 26 Oct 2026]
     def test_no_row_of_the_bar_is_a_percentage(self):
         for row in self.bar():
             self.assertNotIn("%", row)

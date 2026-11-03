@@ -34,6 +34,7 @@ def page_of(lines):
 
 
 class TurnInTheLoop(unittest.TestCase):
+    # more seats than fit turn pages with ←/→. [2, 14, 19, 23, 26 Oct 2026]
     def test_right_and_left_turn_the_page_and_a_click_on_an_arrow_does(self):
         child = Menu(self, [f"seat-{n:02d}" for n in range(1, 13)], rows=12, cols=60)
         lines = child.frame()

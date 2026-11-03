@@ -14,6 +14,8 @@ from fixtures.akterm import SERVER, Terminal
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class LeftAlone(unittest.TestCase):
+    # Something moves only while a model works on it, once when it changes, or under the pointer.
+    # [2, 14, 19, 23, 26 Oct 2026]
     def test_the_rule_holds_still_while_usage_is_asked(self):
         with Home() as home:
             Seat(home, "s-one")

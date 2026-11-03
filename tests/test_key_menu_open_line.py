@@ -2,7 +2,7 @@
 and three squares for each task in flight.
 
 The owner reads a seat's state from its row and opens the one line under it with the
-highlight (the screen approved on 14 Oct 2026, AGENTS.md).  A done seat says what got done,
+highlight (the screen approved on 14 Oct 2026).  A done seat says what got done,
 its plan's last done line; any other that is not asking names each model building ⚒ and
 reviewing ◎ its work once, then each task in flight as three squares, build, review and land,
 filled as far as it has come, furthest behind first: in working's colour while a model works
@@ -91,6 +91,9 @@ def groups(cells):
     return found
 
 
+# The row the owner points at (pointer or ↑/↓) opens one line under it: the question for
+# `needs you`, what got done for `done`, otherwise who builds, who reviews and each task in
+# flight as three squares (build, review, land). [2, 14, 19, 23, 26 Oct 2026]
 @unittest.skipUnless(REAL_TMUX and LIVE.exists(), "no tmux, or no /proc to fingerprint a run")
 class OpenLine(unittest.TestCase):
     @classmethod
@@ -145,6 +148,8 @@ class OpenLine(unittest.TestCase):
         self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor ⚒   Opus 5.5 ◎   "
                                "■□□  ■□□  ■■□  ■■■")
 
+    # blue while a model works on it, gray while it waits, with no mark.
+    # [2, 14, 19, 23, 26 Oct 2026]
     def test_a_square_is_working_s_colour_while_a_model_works_on_it_and_dim_while_it_waits(self):
         lines = self.coloured.splitlines()
         at = next(n for n, line in enumerate(lines) if "fix-api" in COLOURS.sub("", line))

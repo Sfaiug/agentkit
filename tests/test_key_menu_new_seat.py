@@ -78,6 +78,8 @@ class NewRow(unittest.TestCase):
         return rows(self.menu.wait(lambda shown: any(line[2:] == row
                                                      for line in rows(shown))))
 
+    # The normal way in is a session: open it, pick who orchestrates, executes and reviews,
+    # type the prompt. [1 Oct]
     def test_enter_on_a_typed_name_starts_the_seat_opens_it_and_lists_it(self):
         self.menu.type("fix-api")
         self.menu.keys("Enter")

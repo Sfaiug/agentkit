@@ -50,6 +50,7 @@ class Keyboard:
         pass
 
 
+# working without one: empty, `no plan yet`, a light circling. [2, 14, 19, 23, 26 Oct 2026]
 class Breathing(Sandbox):
     def setUp(self):
         super().setUp()
@@ -130,6 +131,8 @@ class Breathing(Sandbox):
             self.assertEqual({(int(r), int(c)) for r, c, *_ in found}, dots)
             self.assertEqual(len({dot[2:] for dot in found}), 1, written)   # in one phase
 
+    # Something moves only while a model works on it, once when it changes, or under the pointer.
+    # [2, 14, 19, 23, 26 Oct 2026]
     def test_only_the_working_dots_move_and_they_move_together(self):
         calls = iter(range(40))
 
