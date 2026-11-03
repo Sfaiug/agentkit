@@ -1,5 +1,6 @@
 """Policy names, automatic host migration and inclusive orchestrator limits, through AK_BIN."""
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
 import sys
@@ -54,6 +55,32 @@ class PolicyNames(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(akconfig.read(self.home), expected)
         self.two_rounds()
+
+    def test_migration_keeps_unrelated_toml_verbatim(self):
+        for extra in ("custom_number = nan\n", "[extra]\nitems = [1, {knob = 2}]\n",
+                      'note = """\nrounds = 99\nseat_lines = 12\n"""\n'):
+            with self.subTest(extra=extra):
+                path = self.home.write(".agentkit/config.toml", "'rounds' = 2\nseat_lines = 40\n" + extra)
+                done = self.home.ak("run", "--help")
+                self.assertEqual(done.code, 0, done.err)
+                self.assertEqual(path.read_text(), "review_rounds = 2\norchestrator_lines = 40\n" + extra)
+
+    def test_simultaneous_first_commands_all_migrate_safely(self):
+        path = self.home.write(".agentkit/config.toml", "rounds = 2\nseat_lines = 40\n")
+        hooks = self.home.path / "hooks"
+        hooks.mkdir()
+        (hooks / "sitecustomize.py").write_text(
+            "from pathlib import Path\nimport time\nreplace = Path.replace\n"
+            "def paused(self, target):\n"
+            "    if self.name == 'config.tmp':\n        time.sleep(0.5)\n"
+            "    return replace(self, target)\nPath.replace = paused\n")
+        def help_command(_):
+            return self.home.ak("run", "--help", env={"PYTHONPATH": str(hooks)}, timeout=15)
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results = list(pool.map(help_command, range(4)))
+        for done in results:
+            self.assertEqual(done.code, 0, done.err)
+        self.assertEqual(path.read_text(), "review_rounds = 2\norchestrator_lines = 40\n")
 
     def front(self, key, value):
         text = f"---\n{key}: {value}\n---\nA project.\n"

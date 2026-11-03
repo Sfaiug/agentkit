@@ -423,12 +423,43 @@ def rename_policy(data):
 
 def migrate_policy():
     """The first command replaces old keys in ak's own file; project files stay theirs."""
+    path = HOME / CONFIG_NAME
     try:
-        data = _read_toml(HOME / CONFIG_NAME)
+        data = _read_toml(path)
     except Error:
         return      # commands reading the config report it; help still opens
-    if data and POLICY_RENAMES.keys() & data.keys():
-        save(rename_policy(data))
+    if not data or not POLICY_RENAMES.keys() & data.keys():
+        return
+    # Lock the directory, which survives replacing the file, then read again: another first
+    # command may already have migrated it. No lock file or general config save is needed.
+    directory = os.open(HOME, os.O_RDONLY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        data = _read_toml(path) or {}
+        if not POLICY_RENAMES.keys() & data.keys():
+            return
+        chunks, statement, in_table = [], "", False
+        for line in path.read_text(encoding="utf-8").splitlines(keepends=True):
+            statement += line
+            try:
+                declared = tomllib.loads(statement) if not in_table else {}
+            except tomllib.TOMLDecodeError:
+                continue    # a multiline value; only the parser decides where it ends
+            in_table = in_table or statement.lstrip().startswith("[")
+            for old, new in POLICY_RENAMES.items() if not in_table else ():
+                if old in declared:
+                    # Replace the first key component, including quoted or dotted keys.
+                    statement = (re.sub(r'''^(\s*)(?:[\w-]+|'[^']*'|"(?:\\.|[^"\\])*")''',
+                                        lambda m: m[1] + new, statement, count=1)
+                                 if new not in data else "")
+            chunks.append(statement)
+            statement = ""
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("".join(chunks), encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+    finally:
+        os.close(directory)
 
 
 def policy(checkout=None):
