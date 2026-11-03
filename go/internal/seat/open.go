@@ -33,9 +33,9 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 
 // Open is Python's orch.create and launch of a new seat with both its models, unnamed where its
 // orchestrator is to name it, in a home Python's maintenance finds tidy, filed under no project
-// and on a provider listing no accounts: its rulebook, its command from its harness's adapter, its record, [defaults]
-// remembering its models, and its session on ak's server, ak's shims first on its harness's
-// PATH.  False where Python's open does what Go does not yet: a harness whose launch writes down
+// and on a provider listing no accounts: its rulebook, its command from its harness's adapter,
+// its record, [defaults] remembering its models, and its session on ak's server, ak's shims first
+// on its harness's PATH.  False where Python's open does what Go does not yet: a harness whose launch writes down
 // more than the conversation it hands out, a name a gone seat left files under, a folder that is
 // a checkout of its own, whose git ak keeps from collecting, reviewers Go binds otherwise, or an
 // adapter giving no command, where only the rulebook is written.
@@ -47,6 +47,24 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if !known || !unclaimed(state, name, cwd) || unbound != nil || err != nil {
 		return false, nil
 	}
+	// written before its adapter is asked, which may read it, and gone again where no seat comes
+	// of it: unclaimed takes a file left under the name for a gone seat's
+	rulebook := filepath.Join(state, "rulebook-"+name+".md")
+	text, err := Rulebook(name)
+	if unnamed {
+		text = namingItself(text) // what its record will say, kept only once a seat comes of it
+	}
+	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+		os.Remove(rulebook)
+		return false, nil
+	}
+	created := seconds(time.Now())
+	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
+		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
+	if !ok {
+		os.Remove(rulebook)
+		return false, nil
+	}
 	fields := []field{{"orchestrator", orchestrator}, {"workers", modelList(workers)}}
 	var reviewers []string
 	for _, each := range bound.Reviewers {
@@ -55,49 +73,21 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if reviewers != nil {
 		fields = append(fields, field{"reviewers", modelList(reviewers)})
 	}
-	fields = append(fields, field{"cwd", cwd}, field{"repo", nil}, field{"created", seconds(time.Now())}, field{"account", nil}, field{"home_account", nil})
-	record := filepath.Join(state, "session-"+name+".json")
-	save := func() error {
-		return put(record, filepath.Join(state, ".session-"+name+".lock"), run.Encode, true, func(data *run.Object) bool {
-			for _, f := range fields {
-				data.Set(f.key, f.value)
-			}
-			ownEfforts(data, name, models)
-			return true
-		})
-	}
+	fields = append(fields, field{"cwd", cwd}, field{"repo", nil}, field{"created", created}, field{"account", nil}, field{"home_account", nil})
 	if unnamed {
-		// its rulebook, which the adapter is handed, tells it to name itself from the record
 		fields = append(fields, field{"unnamed", true})
-		if err := save(); err != nil {
-			return true, err
-		}
-	}
-	// written before its adapter is asked, which may read it, and gone again where no seat comes
-	// of it: unclaimed takes a file left under the name for a gone seat's
-	rulebook := filepath.Join(state, "rulebook-"+name+".md")
-	gone := func() {
-		os.Remove(rulebook)
-		if unnamed {
-			os.Remove(record)
-		}
-	}
-	text, err := Rulebook(name)
-	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
-		gone()
-		return false, nil
-	}
-	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
-		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
-	if !ok {
-		gone()
-		return false, nil
 	}
 	if conversation != "" {
 		fields = append(fields, field{"conversation", conversation}, field{"id_source", "launcher"})
 	}
 	// where and when, and the conversation it owns: what opens the seat again once tmux has lost it
-	err = save()
+	err = put(filepath.Join(state, "session-"+name+".json"), filepath.Join(state, ".session-"+name+".lock"), run.Encode, true, func(data *run.Object) bool {
+		for _, f := range fields {
+			data.Set(f.key, f.value)
+		}
+		ownEfforts(data, name, models)
+		return true
+	})
 	if err != nil {
 		return true, err
 	}
