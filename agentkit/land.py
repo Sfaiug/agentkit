@@ -349,13 +349,15 @@ def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
                                     directory / f"tip-{sha}.log", log, suite=suite,
                                     shard=piece or None, only=only, kind="tip",
                                     exits=exits, flaky=flaky)
-                if flaky or (0 in exits and any(code != 0 for code in exits)):
+                if flaky or any(0 in attempts and any(code != 0 for code in attempts)
+                                for attempts in exits):
                     log(f"{sha[:12]} is flaky: nobody is blamed")
                     return
                 if not ok and only and not red.get("tests"):
                     continue
                 break
-            repeated = len(exits) >= 2 and all(code is not None and code > 0 for code in exits)
+            repeated = any(len(attempts) >= 2 and all(code is not None and code > 0
+                                                     for code in attempts) for attempts in exits)
             if not exits or red.get("short") or (not ok and not repeated):
                 log(f"{sha[:12]} has no repeated red: nobody is blamed")
                 return
@@ -675,8 +677,8 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     `suite` standing for a red no command showed); with `shard` every command runs as that
     one piece alone, on one turn, and with `only` just those tests, on none.  Each command, or
     piece of one, leaves its `kind` row in history under the member's run, on the commit
-    checked: `landing`, or `tip` for a probe of the target's. `exits` keeps every attempt's
-    exit and `flaky` the tests that failed, then passed; a moved checkout clears the exits."""
+    checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
+    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0

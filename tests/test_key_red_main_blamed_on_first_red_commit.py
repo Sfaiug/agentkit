@@ -27,7 +27,7 @@ UNSHARDED = ('[ -f "$(git rev-parse --git-common-dir)/red" ] || exit 0\n'
 
 class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
     def line(self, *, old=False, flaky=False, outside=False, blame="", dated=False, padding=0,
-             unsharded=False, partial=False):
+             unsharded=False, partial=False, whole=False):
         home = Home()
         self.addCleanup(home.close)
         if dated:
@@ -35,6 +35,10 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         files = ({"AGENTS.md": rules("sh suite.sh"), "suite.sh": UNSHARDED} if unsharded else
                  {"suite.sh": RUNNER.replace('[ $((i % n + 1)) = "$k" ]', '[ "$k" = "1" ]')}
                  if partial else {})
+        if whole:
+            files["t/hang.sh"] = '[ ! -f work.txt ] || sleep 30\n'
+            if flaky:
+                files["suite.sh"] = RUNNER.replace('echo "$t" >>', ': >>')
         line = Line({"t/ok.sh": "true\n", **({"t/bad.sh": RED} if old else {}), **files}, home=home)
         initial = line.base
         a = line.rig.commit({"a.txt": "a\n"}, "acme-a")
@@ -53,7 +57,8 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         line.home.write(".agentkit/state/session-seat.json",
                         {"orchestrator": "opus", "workers": ["opus"]})
         path = line.members[0] / "run.json"
-        path.write_text(json.dumps({**json.loads(path.read_text()), "launched_session": "seat"}))
+        path.write_text(json.dumps({**json.loads(path.read_text()), "launched_session": "seat",
+                                    **({"silence_minutes": 0.05} if whole else {})}))
         with closing(sqlite3.connect(line.home.path / ".agentkit/history.db")) as db, db:
             db.execute("CREATE TABLE runs (%s, merge_sha TEXT, broke_after_merge TEXT)" %
                        ", ".join(map(" ".join, ORIGINAL)))
@@ -124,6 +129,15 @@ class RedMainBlamedOnFirstRedCommit(unittest.TestCase):
         self.assertEqual(self.blame(line), {})
         self.assertEqual(self.probes(line, b), [1, 1])
         self.assertIn(f"{b[:12]} is flaky", self.output)
+
+    def test_whole_suite_retries_distinguish_stable_red_from_an_unnamed_flake(self):
+        for flaky in (False, True):
+            with self.subTest(flaky=flaky):
+                line, (_, _, b, _) = self.line(whole=True, flaky=flaky)
+                data = json.loads((line.members[0].parent / line.line).with_suffix(".green").read_text())
+                self.assertEqual({red["probe"]["piece"] for red in data["red"].values()}, {""})
+                self.assertEqual(self.blame(line), {} if flaky else {"acme-b": "tip"})
+                self.assertEqual(self.probes(line, b).count(1), 1 if flaky else 2)
 
     def test_a_merge_outside_ak_leaves_no_blame_row(self):
         line, (_, _, b, _) = self.line(outside=True)

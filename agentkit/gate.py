@@ -1701,12 +1701,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
     alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
     or `shard`) named as failed, confirmed or not.
-    `raw` receives a pinned piece's process exit before checking coverage of `only`.
+    `raw` receives each piece's process exits by share, before checking coverage of `only`.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
     """
+    def observed(share, code, killed):
+        if raw is not None and (code != SUITE_BUSY or killed):
+            raw.setdefault(share, []).append(None if killed else code)
+
     times = suite_times.handed(cwd)
     env = suite_env(changed, times)
     if shard is not None:
@@ -1722,8 +1726,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
             env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, flaky=flaky,
             **kwargs)
-        if raw is not None:
-            raw.append(code)
+        observed(shard, code, killed)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
         if named is not None and code > 0:
@@ -1749,6 +1752,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                               cpu=measured.cpu if measured else None,
                               quiet=measured.quiet if measured else None, failed=failed,
                               flaky=flaky, **kwargs)
+        observed("", result[0], result[2])
         if confirmed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
         if named is not None and result[0] > 0:
@@ -1877,6 +1881,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
                         ended.append(None if killed else code)
+                    if not there or code not in (*helper.GONE, helper.FULL):
+                        observed(shard, code, killed)
                     if not there and not killed and measure.starved(code, kills):
                         starved.add(shard)
                     else:
@@ -2245,8 +2251,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     `marks`, a list, gets each command's exit as the runner saw it, in order -- None for one
     killed at the limit or never run, and none for those after a kill: what decides a proof,
-    never the text, which a command can print anything into. `exits` also keeps command
-    retries (None for a kill), before coverage validation, so missing names cannot hide a flake.
+    never the text, which a command can print anything into. `exits` keeps each piece's attempt
+    exits as a list (None for a kill), before coverage validation, so names cannot hide a flake.
     `pieces`, a dict, gets the same
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
@@ -2293,13 +2299,13 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
             rest = silence - (window or 0)
             how = "failed"
+            raw = {} if exits is not None else None
             while True:
                 run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
                 if left <= 0:
                     break
                 # a suite split into pieces leaves a row for each piece (`run_suite`)
-                raw = [] if exits is not None else None
                 with log_path.open("ab") as progress, history.check(
                         None if split(cmd) else checked, cmd, asked) as ended:
                     progress.write(f"$ {cmd}\n".encode())
@@ -2327,8 +2333,6 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     busy = True
                     deadline += busy_turn(run_dir, log_path, log)
                     continue
-                if exits is not None:
-                    exits.append(None if killed else (raw[0] if raw else code))
                 asked = time.time()
                 if code == 0 or first_span is not None or split(cmd):
                     break
@@ -2338,6 +2342,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     how = f"was stopped after {window / 60:g} min of silence"
                     del reason[:], running[:]     # a stop of its second go is the one to name
                 first_span, first, named = (offset, end), named, []
+            if exits is not None:
+                exits.extend(raw.values())
             if left <= 0 and first_span is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
