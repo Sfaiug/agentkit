@@ -2,29 +2,48 @@ package plan
 
 import (
 	"os"
+	"slices"
 	"time"
 
 	"agentkit/internal/config"
 )
 
-// Owes is whether the seat's plan owes work: an open line, or a plan nothing can read, which
-// proves nothing done (stop.owed).  A deferred line counts whether or not a run has it: the runs
-// are not Go's to read here yet.
-func Owes(name string) bool {
+// Owes is whether the seat's plan owes work (stop.owed): an open line no run is on its way with
+// (`taken`), or a plan nothing can read, which proves nothing done.  ErrUnread, owing, where only
+// lines whose runs Go cannot read as Python does could owe.
+func Owes(name string) (bool, error) {
 	current, _, err := config.ResolveSession(name)
 	if err != nil {
-		return true
+		return true, nil
 	}
 	lines, err := read(current)
 	if err != nil {
-		return true
+		return true, nil
 	}
+	var unread error
 	for _, line := range lines {
-		if open(line) {
-			return true
+		if !open(line) {
+			continue
+		}
+		written, ok := parse(line)
+		if !ok || !written.Deferred {
+			return true, nil
+		}
+		if taken, err := taken(current, written); err != nil {
+			unread = err
+		} else if !taken {
+			return true, nil
 		}
 	}
-	return false
+	return unread != nil, unread
+}
+
+// LiveUnrecorded is whether the seat's own ssh reached the live host this turn (ReachedLive) and
+// its plan has no open line to say what it did there, a run's deferred one included
+// (stop.live_unrecorded); a plan nothing can read shows nothing missing from it.
+func LiveUnrecorded(current string) bool {
+	lines, err := read(current)
+	return err == nil && !slices.ContainsFunc(lines, open) && ReachedLive(current)
 }
 
 // DoneAt is when the seat's finished plan (Finished) was last written, which ticked its last

@@ -30,7 +30,8 @@ func TestAPlanOwesItsOpenLinesAndIsDoneOnlyWithDoneWork(t *testing.T) {
 			t.Fatal(err)
 		}
 		done, err := DoneAt("acme")
-		if got := map[bool]string{true: "owed", false: map[bool]string{true: "nothing", false: "done"}[done.IsZero()]}[Owes("acme")]; got != want {
+		owes, _ := Owes("acme")
+		if got := map[bool]string{true: "owed", false: map[bool]string{true: "nothing", false: "done"}[done.IsZero()]}[owes]; got != want {
 			t.Errorf("%q: %s, want %s", text, got, want)
 		}
 		if err != nil && !strings.Contains(text, "deferred") {
@@ -38,7 +39,10 @@ func TestAPlanOwesItsOpenLinesAndIsDoneOnlyWithDoneWork(t *testing.T) {
 		}
 	}
 	os.Remove(filepath.Join(state, "plan-acme.md"))
-	if done, err := DoneAt("acme"); Owes("acme") || !done.IsZero() || err != nil {
-		t.Error("no plan owes nothing and holds nothing done")
+	if done, err := DoneAt("acme"); !done.IsZero() || err != nil {
+		t.Error("no plan holds nothing done")
+	}
+	if owes, err := Owes("acme"); owes || err != nil {
+		t.Error("no plan owes nothing")
 	}
 }
