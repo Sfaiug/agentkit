@@ -97,12 +97,13 @@ func (seat Seat) dry(state string, now time.Time) (Live, bool) {
 		draft = ""
 	}
 	title, _ := harness.SessionTitle(seat.own, record, ownFile("title", seat.Name))
-	path, _ := harness.Conversation(seat.own, map[string]any{"conversation": conversation, "cwd": cwd, "account": record.Get("account")})
+	wrapped := harness.WrappedUp(seat.own, map[string]any{"conversation": conversation, "cwd": cwd, "account": record.Get("account")},
+		func(entry *run.Object) bool { return script.Prompted(seat.own, entry).Text != "" })
 	return Live{Name: seat.Name, Own: seat.own, Word: decided.word, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line),
 		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2],
-		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: path != "" && script.WrappedUp(seat.own, path), Record: record, File: file}, true
+		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: script.Moment(wrapped) != 0, Record: record, File: file}, true
 }
 
 // Health is the tick's look at a seat its panes run on where it has nothing to recover
