@@ -39,3 +39,14 @@ func noSeatAlive() bool {
 	}
 	return true
 }
+
+func waitsOnNothing() bool {
+	home, known := seat.Looking(time.Now())
+	return known && home.WaitsOnNothing()
+}
+
+func (t *ticking) retainedSeats() bool {
+	now := t.clock()
+	home, known := seat.Looking(now)
+	return known && home.Retained(now)
+}

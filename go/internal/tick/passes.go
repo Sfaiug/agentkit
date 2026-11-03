@@ -65,7 +65,7 @@ func table(t *ticking) []pass {
 		{"old endings", false, runless, nil},
 		{"endings", false, runless, nil},
 		{"job handbacks", false, jobless, nil},
-		{"ended waits", false, all(configured, every(waitsOnNothing)), nil},
+		{"ended waits", false, all(configured, seated, waitsOnNothing), nil},
 		{"owed lines", false, every(func(live seat.Live) bool { return !live.File.Truthy("owed_lines") }), nil},
 		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, run.Historyless, nil},
@@ -87,7 +87,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
-		{"seat sweep", false, all(runless, seated), nil},
+		{"seat sweep", false, all(runless, seated, t.retainedSeats), nil},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},

@@ -44,16 +44,6 @@ func midturn(live seat.Live, account bool) bool {
 	return mark != nil && mark.Truthy("account") == account
 }
 
-// waitsOnNothing is whether no `ak wait` of the seat's is left to end and tell (watch.wait_over).
-func waitsOnNothing(live seat.Live) bool {
-	wait := live.File.Dict("wait")
-	if wait == nil {
-		return true
-	}
-	_, named := wait.Get("on").(string)
-	return !named || wait.Truthy("told")
-}
-
 // healthy is whether the health row's look at the seat is all it does (watch.health): nothing it
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.

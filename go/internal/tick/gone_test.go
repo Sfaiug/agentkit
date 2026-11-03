@@ -4,10 +4,12 @@ package tick
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"agentkit/internal/run"
 )
@@ -32,7 +34,7 @@ func TestTickReadsGoneSeatsAndLeavesRevivalAndCardsToPython(t *testing.T) {
 		carried                      bool
 	}{
 		{"resting", "", `{}`, "", "idle", true},
-		{"closed owing", "- [ ] Last\n", `{"stopped_at":1,"closed_by_owner":true}`, "", "idle", true},
+		{"closed owing", "- [ ] Last\n", fmt.Sprintf(`{"stopped_at":%d,"closed_by_owner":true}`, time.Now().Unix()), "", "idle", true},
 		{"open work", "- [ ] Last\n", `{}`, "", "", false},
 		{"finished", "- [x] Last\n", `{}`, "", "done", false},
 		{"cut off turn", "", `{"state":"working"}`, "", "", false},
