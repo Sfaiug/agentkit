@@ -420,8 +420,11 @@ def history_ending(state, cfg=None):
         wt = state.get("worktree")
         repo = wt if wt and Path(wt).is_dir() else state.get("repo")
         head = state.get("delivery_sha") or (state.get("review") or {}).get("head_sha")
-        patch = (roundloop.patch_id(repo, state.get("base_sha"), head)
-                 if repo and head and state.get("base_sha") else None)
+        try:
+            patch = (roundloop.patch_id(repo, state.get("base_sha"), head)
+                     if repo and head and state.get("base_sha") else None)
+        except gitcall.Stopped:
+            patch = None
         # Only an unchanged patch proves a flake; failed git reads prove nothing.
         flakes = sum(bool(red) and red == patch for red in reds)
         ending.update(landing_breaks=len(reds) - flakes, landing_flakes=flakes)

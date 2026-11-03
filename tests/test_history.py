@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, run, status, transitions, turns, usage  # noqa: E402
-from agentkit import record, roundloop, staffing
+from agentkit import gitcall, record, roundloop, staffing
 
 
 class HistoryTests(unittest.TestCase):
@@ -142,6 +142,21 @@ class HistoryTests(unittest.TestCase):
             patch_id.assert_called_once_with(state["repo"], "base", "delivered")
             row = history.get("r1")
             self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (2, 2))
+
+    def test_a_timed_out_patch_read_does_not_prevent_a_merged_runs_terminal_receipt(self):
+        state = {"run_id": "r1", "state": "pass", "verdict": "PASS", "merged": True,
+                 "repo": str(self.home), "base_sha": "base", "delivery_sha": "delivered",
+                 "started_at": 1, "finished_at": 2, "landing_red_patches": ["same"]}
+        with patch.object(config, "RUNS", self.home / "runs"), \
+                patch.dict(os.environ, {"HOME": str(self.home)}):
+            history.start_run("r1", started_at=1)
+            with patch.object(gitcall, "git_out", side_effect=gitcall.Stopped("git diff timed out")), \
+                    patch.object(gitcall, "git", side_effect=gitcall.Stopped("git read timed out")):
+                transitions.history_finish(state)
+            row = history.get("r1")
+        self.assertEqual((row["final_state"], row["verdict"], row["finished_at"], row["total_seconds"]),
+                         ("pass", "PASS", 2, 1))
+        self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (1, 0))
 
     def test_review_pair_stays_with_its_ending_even_when_unknown(self):
         for n, pair in enumerate(("other provider", None)):
