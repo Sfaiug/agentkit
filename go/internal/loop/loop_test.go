@@ -291,6 +291,34 @@ mode = "subscription"
 	}
 }
 
+func TestANamedExecutorThatCannotRunIsRefusedBeforeAnyMeterIsRead(t *testing.T) {
+	l := rig(t, time.Minute)
+	t.Setenv("PATH", t.TempDir())
+	settings := `[defaults]
+orchestrator = "opus"
+workers = ["opus"]
+[models.opus]
+harness = "claude"
+model = "opus"
+effort = "high"
+provider = "anthropic"
+[providers.anthropic]
+mode = "subscription"
+`
+	if err := os.WriteFile(filepath.Join(os.Getenv("HOME"), ".agentkit", "config.toml"), []byte(settings), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Change(l.dir, func(record *run.Object) error {
+		record.Set("launch_opts", run.Fields("--exec", "opus"))
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.pick(); err == nil || err.Error() != "opus cannot run here: claude is not installed" {
+		t.Fatalf("refused with %v", err)
+	}
+}
+
 func TestReviewerRecordsAreWeighedAsPythonWeighsAScratchRun(t *testing.T) {
 	l := rig(t, time.Minute)
 	if err := os.MkdirAll(filepath.Join(l.roundDir()), 0o777); err != nil {

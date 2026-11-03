@@ -527,8 +527,12 @@ func (l *loop) pick() error {
 	if opts := launchOpts(record); opts != nil {
 		named = opts.Str("--exec")
 	}
+	// refused before the meters are read: nothing a meter says lets a harness that cannot run here run
 	cannot := unable()
-	if why := rules.Unstaffed(cannot); why != "" && cannot[named] == "" {
+	if why := cannot[named]; why != "" {
+		return fmt.Errorf("%s cannot run here: %s", named, why)
+	}
+	if why := rules.Unstaffed(cannot); why != "" {
 		return errors.New(why)
 	}
 	readings, err := usage.Read()
@@ -538,9 +542,6 @@ func (l *loop) pick() error {
 	room := ready{readings, cannot}
 	logged := rawLog{l.dir}
 	rules.Order(room, false, logged)
-	if why := cannot[named]; why != "" {
-		return fmt.Errorf("%s cannot run here: %s", named, why)
-	}
 	rules.Order(room, true, logged)
 	executor, reviewer, found := rules.Pair(room)
 	switch {
