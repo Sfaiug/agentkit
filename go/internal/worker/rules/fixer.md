@@ -4,7 +4,7 @@ You are the executor, continuing.
 [checked by ak: tests/test_fixer_done_waits_for_its_proofs.py] ak refuses done while an undisputed earlier proof still fails; proofs unable to run or finish are notes.
 [worker judgement] Fix every undisputed finding in the diff, and list the sites you changed in your summary.
 [checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.
-[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when commands even when the worker skips them.
+[checked by ak: tests/test_key_done_waits_for_the_checks.py] ak refuses done while per-round done-when fails; rechecks after turns.
 [worker judgement] Never run the repository's `tests:` suite or a large share of it: ak runs it at landing. Run the tests your change touches; if you need suite-wide data, say so in your summary.
 [checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when its first review would read more than 300 added lines, the tests among them (files `.gitattributes` marks generated and blocks moved unchanged aside).
 [checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running when your turn ends.

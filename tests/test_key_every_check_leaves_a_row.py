@@ -139,7 +139,7 @@ class EveryCheckLeavesARow(Rows, unittest.TestCase):
 
 class AScratchRun(Rows, unittest.TestCase):
     """A scratch run has no commit: its one workspace is the tree each of its checks runs on."""
-    once = "test -f .once || { touch .once; false; }"     # red, then green when run again at once
+    once = 'test -z "$AK_FAILED" || test -f .once || { touch .once; false; }'
 
     @classmethod
     def setUpClass(cls):
@@ -156,7 +156,7 @@ class AScratchRun(Rows, unittest.TestCase):
 
 class ACheckThatNeverReturns(Rows, unittest.TestCase):
     """A run stopped while its check runs keeps the check's row, written as it started."""
-    hangs = 'echo started >"$(git rev-parse --git-common-dir)/started"; sleep 300'
+    hangs = 'test -z "$AK_FAILED" || { echo started >"$(git rev-parse --git-common-dir)/started"; sleep 300; }'
 
     @classmethod
     def setUpClass(cls):

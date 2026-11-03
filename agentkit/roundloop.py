@@ -1251,6 +1251,9 @@ def execute(lp, role, text, name):
             code, summary, lp.exec_sid, dead = turns.call_retrying(lp.cfg, lp.executor, body, lp.wt,
                                                              out, lp.role(role), lp.exec_sid,
                                                              lp.log, lp.turn_limit,
+                                                             checks={"commands": own_checks(lp),
+                                                                     "limit": lp.done_when_limit,
+                                                                     "silence": lp.turn_limit},
                                                              handover=handover, **resume)
         except worker.LoginExpired as expired:
             lp.exec_sid = expired.session or lp.exec_sid

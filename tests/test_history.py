@@ -343,6 +343,7 @@ class HistoryTests(unittest.TestCase):
         class Fixture:
             state = {"run_id": "r1", "round_summaries": []}
             executor, exec_sid, wt, scratch, turn_limit = "opus", None, root, True, 1
+            every, done_when_limit = [], 1
 
             def __init__(self):
                 self.cfg = cfg

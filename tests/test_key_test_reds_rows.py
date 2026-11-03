@@ -99,6 +99,8 @@ class WholeCommand(SuiteRun, unittest.TestCase):
     runner = """\
 import os, subprocess, sys
 from pathlib import Path
+if 'AK_FAILED' not in os.environ:
+    raise SystemExit(0)  # Only the round's check consumes this fixture's first failure.
 code = subprocess.call([sys.executable, 'tests/test_web.py'])
 if code:
     Path(os.environ['AK_FAILED']).write_text('tests/test_web.py\\n')

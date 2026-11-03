@@ -903,7 +903,7 @@ def note_turn_meters(cfg, name, out_dir, account, before=(), role="executor"):
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
                   fresh_body=None, resume_note=None, handover=None, previous=None, findings=None,
-                  base=None):
+                  base=None, checks=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -964,6 +964,8 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                run_record.read_state(run_dir) or {})["review_lines"])}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
+    if checks is not None:
+        env[hand_in.CHECKS_ENV] = json.dumps(checks)
     if base:
         env[worker.BASE_ENV] = base
     attempt, calls, last_kill, account, span = 1, 0, None, None, None

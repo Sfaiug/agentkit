@@ -133,8 +133,8 @@ LEAST = ("[worker judgement] Minimum change that solves the task completely; the
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
              "when your turn ends.")
-CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
-          "commands even when the worker skips them.")
+CHECKS = ("[checked by ak: tests/test_key_done_waits_for_the_checks.py] ak refuses done while "
+          "per-round done-when fails; rechecks after turns.")
 # 24 Oct 2026: an ATLAS builder ran its repository's whole suite, 7,417 tests, in one 3-hour
 # command on a host already swapping; the gate runs that suite once, at landing.
 SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it: "
@@ -885,7 +885,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     (out_dir / "pending").touch()
     (out_dir / "harness").write_text(entry["harness"])
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
-                                       role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
+                                       role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None),
+                                       checks=json.loads(turn_env.pop(hand_in.CHECKS_ENV, "null")))
     base = turn_env.pop(BASE_ENV, None)
     preamble = (PREAMBLES[role].format(workspace=workspace)
                 .replace(SIZE, size_rule(turn_env.pop(REVIEW_LINES_ENV, None)

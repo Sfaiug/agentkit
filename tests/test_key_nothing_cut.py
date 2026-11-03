@@ -49,7 +49,7 @@ class FailedChecks(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         rig = Rig(cls.home, "widgets")
         akconfig.write(cls.home, ["opus", "astra"])
-        cls.fakes = fakeadapter.install(cls.home, claude=["work", FIX], codex="pass")
+        cls.fakes = fakeadapter.install(cls.home, claude=["work", "work", FIX], codex="pass")
         task = taskfile.write(cls.home, rig.path, "Add retry file", done_when=(SHORT, LATIN1, LONG),
                               front={"rounds": 1})
         cls.done = cls.home.ak("run", str(task), "--no-merge", timeout=300)
@@ -58,8 +58,8 @@ class FailedChecks(unittest.TestCase):
     def block(self):
         """The fixer's failed-checks block, as the prompt its harness was handed holds it."""
         turns = self.fakes["claude"].runs()
-        self.assertEqual(len(turns), 2, self.done.out + self.done.err)
-        prompt = Path(turns[1]["argv"][3]).read_text()
+        self.assertEqual(len(turns), 3, self.done.out + self.done.err)
+        prompt = Path(turns[2]["argv"][3]).read_text()
         self.assertEqual(prompt.count(HEADING), 1, prompt[-2000:])
         block = prompt.split(HEADING, 1)[1]
         self.assertIn("\n```", block)
@@ -68,7 +68,7 @@ class FailedChecks(unittest.TestCase):
     def test_the_fixer_runs_and_its_fix_passes(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual([turn["role"] for turn in self.fakes["claude"].runs()],
-                         ["executor", "fixer"])
+                         ["executor", "executor", "fixer"])
 
     def test_output_that_fits_reaches_the_fixer_whole_under_its_command(self):
         for command in (SHORT, LATIN1):
