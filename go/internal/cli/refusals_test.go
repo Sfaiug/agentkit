@@ -278,3 +278,14 @@ func TestModelsLeavesAHistoryToPython(t *testing.T) {
 		t.Fatal("a home left to Python was changed")
 	}
 }
+
+// A task's own `rounds:` over the budget is refused before anything is written, even when its
+// `repo:` is no git repository, a refusal a run records: the host's budget is in force there.
+func TestTaskRoundsBeforeCheckoutRefusal(t *testing.T) {
+	home := sandbox(t)
+	t.Setenv("AK_MAX_RUNS", "0")
+	t.Setenv("AK_NOTIFY_SINK", "dry-run")
+	task := filepath.Join(home, "task.md")
+	write(t, task, "---\nrepo: "+filepath.Join(home, "gone")+"\nrounds: 4\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
+	assertCall(t, []string{"run", task}, 2, "", "ak run: task rounds 4 is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope\n")
+}
