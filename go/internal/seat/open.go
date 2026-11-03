@@ -202,7 +202,7 @@ func start(state, name, cwd string, cmd []string) error {
 			args = append(args, ";", "set-environment", "-t", target, "-r", f.key)
 		}
 	}
-	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, "@ak_harness_pane", "#{pane_id}",
+	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, tmux.HarnessPane, "#{pane_id}",
 		";", "set-option", "-t", target, "remain-on-exit", "on")
 	if err := tmux.Spawn(tmux.Own(), shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
 		os.Remove(launch)

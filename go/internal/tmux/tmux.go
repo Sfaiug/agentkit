@@ -18,6 +18,9 @@ const Default = ""
 // Mark is the session option that says ak opened this seat.
 const Mark = "@ak_orch"
 
+// HarnessPane is the session option naming the pane a seat's launch created.
+const HarnessPane = "@ak_harness_pane"
+
 // Control is Go's own hidden session on ak's server: no caller is ever shown it.
 const Control = "_ak"
 
@@ -81,8 +84,14 @@ func Kill(server, name string) error {
 func run(server string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ceiling)
 	defer cancel()
-	out, err := command(ctx, server, args...).Output()
+	out, err := asked(ctx, server, args...)
 	return string(out), err
+}
+
+// asked is what one call answers, asked as a UTF-8 client whatever this process's locale: tmux shows
+// any other client a tab, as every format here divides its fields, and each letter past ASCII as `_`.
+func asked(ctx context.Context, server string, args ...string) ([]byte, error) {
+	return command(ctx, server, append([]string{"-u"}, args...)...).Output()
 }
 
 // command is one call to a server. $TMUX goes: inside somebody's tmux, a call to the default

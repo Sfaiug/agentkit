@@ -118,12 +118,32 @@ func observed(state, name, own, pane string, now float64) (found sight, previous
 	return found, previous
 }
 
+// harnessScreen is what the pane a seat's launch created shows, whichever window is active, or where
+// that pane was removed the session's current one, as older launches used (orch.harness_pane); and
+// whether its harness has exited, when the last frame it left is no turn in flight and it shows nothing.
+func harnessScreen(name string) (shown string, exited bool) {
+	target := "=" + name + ":"
+	said, _ := tmux.Ask(tmux.Own(), "list-panes", "-s", "-t", target, "-f", "#{==:#{pane_id},#{"+tmux.HarnessPane+"}}", "-F", "#{pane_id} #{pane_dead}")
+	pane, dead, saved := strings.Cut(said, " ")
+	if dead == "1" {
+		return "", true
+	}
+	if saved {
+		target = pane
+	}
+	shown, _ = tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", target)
+	return shown, false
+}
+
 // look is watch.look_at: one capture, classified and kept as watch.live_state keeps it.  A blank
-// capture says nothing of the screen, so it writes nothing.
+// capture says nothing of the screen, so it writes nothing; a harness that exited does say: the error
+// it was retrying past ended with it.
 func (seat Seat) look(state string, now float64) (sight, error) {
-	pane, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", "="+seat.Name+":")
+	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.own, pane, now)
-	if pane == "" {
+	if exited {
+		found.stall, found.login = nil, nil
+	} else if pane == "" {
 		return found, nil
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
