@@ -33,7 +33,7 @@ func HostNumbers() (Numbers, error) {
 		}
 		return fallback
 	}
-	return Numbers{rounds, number("review_lines", DefaultReviewLines), number("seat_lines", 50)}, nil
+	return Numbers{rounds, number("executor_lines", DefaultReviewLines), number("orchestrator_lines", 50)}, nil
 }
 
 // ProjectNumbers is the numbers in force for the checkout whose default branch declares what
@@ -51,9 +51,9 @@ func ProjectNumbers(checkout string, declared func(string) string) (Numbers, err
 		floor   int
 		meaning string
 	}{
-		{"rounds", &numbers.Rounds, 1, roundsMeaning},
-		{"review_lines", &numbers.ReviewLines, 1, reviewLines},
-		{"seat_lines", &numbers.SeatLines, 0, seatLines},
+		{"review_rounds", &numbers.Rounds, 1, roundsMeaning},
+		{"executor_lines", &numbers.ReviewLines, 1, reviewLines},
+		{"orchestrator_lines", &numbers.SeatLines, 0, seatLines},
 	} {
 		said := declared(each.key)
 		if said == "" {
@@ -70,7 +70,7 @@ func ProjectNumbers(checkout string, declared func(string) string) (Numbers, err
 		return numbers, fmt.Errorf("%s: %s must be a whole number of at least %d, %s (got %s)", path, each.key, each.floor, each.meaning, shown)
 	}
 	if numbers.SeatLines > numbers.ReviewLines {
-		return numbers, fmt.Errorf("%s: seat_lines %d, %s, is over review_lines %d, %s", path, numbers.SeatLines, seatLines, numbers.ReviewLines, reviewLines)
+		return numbers, fmt.Errorf("%s: orchestrator_lines %d, %s, is over executor_lines %d, %s", path, numbers.SeatLines, seatLines, numbers.ReviewLines, reviewLines)
 	}
 	return numbers, nil
 }
