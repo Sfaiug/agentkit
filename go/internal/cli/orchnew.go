@@ -57,7 +57,9 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		}
 		name, unnamed = typed, typed == ""
 		if unnamed {
-			name = characterName(seat.ReadNames().Taken)
+			if name, ok = characterName(seat.ReadNames().Taken); !ok {
+				return notImplemented(errOut, "orch")
+			}
 		}
 	}
 	if seat.ReadNames().Held(name) {

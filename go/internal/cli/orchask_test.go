@@ -11,16 +11,20 @@ func TestCharacterNameWithNoneFree(t *testing.T) {
 	taken := func(name string) (bool, bool) {
 		return slices.Contains(characters, name) || slices.Contains(held, name), true
 	}
-	if got := characterName(taken); got != "unnamed" {
+	if got, _ := characterName(taken); got != "unnamed" {
 		t.Errorf("every character taken: %q", got)
 	}
 	held = []string{"unnamed", "unnamed-2"}
-	if got := characterName(taken); got != "unnamed-3" {
+	if got, _ := characterName(taken); got != "unnamed-3" {
 		t.Errorf("`unnamed` taken too: %q", got)
 	}
 	free := func(name string) (bool, bool) { return false, name == "rex" }
-	if got := characterName(free); got != "rex" {
+	if got, _ := characterName(free); got != "rex" {
 		t.Errorf("a name only Python could call free was taken: %q", got)
+	}
+	unknown := func(string) (bool, bool) { return false, false }
+	if got, ok := characterName(unknown); ok {
+		t.Errorf("a number only Python could call free was taken: %q", got)
 	}
 }
 

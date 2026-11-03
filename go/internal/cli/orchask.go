@@ -73,20 +73,23 @@ func askName(out, errOut io.Writer) (name string, ok bool, code int) {
 
 // characterName is a name for a seat nobody named, read as its name is chosen, for the question
 // may have waited: a character no seat or rename has, at random; with none free `unnamed`, numbered
-// as a name a seat holds is.  A name only Python's listing could call free is passed over.
-func characterName(taken func(string) (bool, bool)) string {
+// as a name a seat holds is.  A character only Python's listing could call free is passed over; a
+// number it alone could, false, for only Python can say which number is the first free.
+func characterName(taken func(string) (bool, bool)) (string, bool) {
 	free := func(name string) bool {
 		held, known := taken(name)
 		return known && !held
 	}
 	if open := slices.DeleteFunc(slices.Clone(characters), func(name string) bool { return !free(name) }); len(open) > 0 {
-		return open[rand.IntN(len(open))]
+		return open[rand.IntN(len(open))], true
 	}
 	name := "unnamed"
-	for number := 2; !free(name); number++ {
+	for number := 2; ; number++ {
+		if held, known := taken(name); !known || !held {
+			return name, known
+		}
 		name = fmt.Sprintf("unnamed-%d", number)
 	}
-	return name
 }
 
 // askWorkers is Python's prompt_workers: the models named or numbered, Enter and the end of input
