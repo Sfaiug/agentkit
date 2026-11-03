@@ -1,6 +1,7 @@
 """An executor answer without a closing goes straight to checks and review."""
 
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sys
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, roundloop, run, staffing, transitions, turns, worker
+from agentkit import box, config, hand_in, roundloop, run, staffing, transitions, turns, worker
 
 
 class ExecutorTextIgnored(unittest.TestCase):
@@ -120,6 +121,20 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.assertEqual(roundloop.continuation(self.lp), "done-when")
         for call in review.call_args_list:
             self.assertIn(self.text, call.args[1])
+
+    def test_a_refusal_recorded_before_pending_markers_still_resumes_the_work(self):
+        self.text = "## Summary\ncontinued"
+        self.lp.rnd = 1
+        refused = self.lp.dir("executor")
+        refused.mkdir(parents=True)
+        (refused / "session_id").write_text("fixture-session")
+        (refused / "harness").write_text("claude")
+        (refused / "final.md").write_text("You have hit your usage limit.")
+        (refused / box.PROCESSES).write_text(json.dumps({"returncode": 1}))
+        self.lp.rnd = 0
+        self.checked()
+        self.assertIn("Continue this turn and finish it", self.calls[0][0])
+        self.assertEqual(self.calls[0][1], "fixture-session")
 
     def test_restart_after_a_handover_does_not_call_again(self):
         self.text = "## Summary\nwork"

@@ -19,7 +19,7 @@ from contextlib import nullcontext
 from datetime import datetime
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, history, host, login_refusals, orch,
+from . import (box, config, gitcall, hand_in, history, host, login_refusals, orch,
                record as run_record, update, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -197,7 +197,15 @@ def open_turn(round_dir, name):
     if latest is None:
         return None, None
     if (latest / "final.md").exists() and not (latest / "pending").exists():
-        return None, None
+        # Older calls have no pending marker, including refusals already waiting to resume.
+        code, text = box.returncode(latest, 0), read_answer(latest / "final.md") or ""
+        harness = tail(latest / "harness").strip()
+        failed = killed_word(code) or transient(code, text)
+        if harness:
+            failed = failed or worker.auth_scanner(harness)(latest) or harness_plugin(harness).failure(
+                harness_said(latest, text, harness, failures_only=code == 0))[0]
+        if not failed:
+            return None, None
     sid = session_of(latest)
     if sid:
         return "resume", sid
