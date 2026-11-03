@@ -140,6 +140,8 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`.\B́`, "x́ ́", " ́"},
 		{`(?#\B)w(?#\))`, "w", "w"},
 		{`a(?#\b)*`, "aaa", "aaa"},
+		{`x\b{}`, "x{}", "x{}"},
+		{"(?x)^ x *", "xx", "xx"},
 		{`(a)\1(?#)0`, "aa0", "aa0"},
 		{"(?x)w # (?#", "w", "w"},
 		{"(?x)w # (?#\n(?:x)", "w wx", "wx"},
@@ -194,7 +196,8 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 	if _, err := Compile(`[^\S]`, 0); err == nil {
 		t.Error(`[^\S] compiled, though no class here can say it`)
 	}
-	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`, `(?#\)`, `\400`, `[\777]`, `[a-\400]`} {
+	for _, refused := range []string{`[a-`, `[abc-`, `(?(s`, `[\d-a]`, `[\S-a]`, `[a-\w]`, `(?#\)`, `\400`, `[\777]`, `[a-\400]`,
+		`\b*`, `\B{2}`, `^?`, `$+`, `\A{,}`, `\Z{1,2}`, `\b(?#c)*`, "(?x)\\b *", "(?x)\\B #c\n*"} {
 		if _, err := Compile(refused, 0); err == nil {
 			t.Errorf("%s compiled, though Python refuses it", refused)
 		}
