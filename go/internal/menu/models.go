@@ -1,0 +1,339 @@
+// Package menu draws ak's screens.  This file is the models screen's answer per role, as `ak
+// models` prints it and as the `r recommended` screen will: each role's line of best quality for
+// the money, from its best, and the legend.
+package menu
+
+import (
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"agentkit/internal/config"
+	"agentkit/internal/quality"
+	"agentkit/internal/run"
+	"agentkit/internal/terminal"
+)
+
+const (
+	near  = 2         // the line's rows shown past those within `within` of the best
+	mark  = 7         // a row's mark's column, as wide as `r takes`
+	quiet = "#a6adc8" // what a row's line is drawn in while no company lights: Mocha's subtext0
+	named = 13        // the cells before a legend line's words: its name's column
+	gap   = " · "     // between two things said on one line
+)
+
+var (
+	heads  = map[string]string{"orchestrate": "orch", "execute": "builds", "review": "reviews"}
+	legend = [][2]string{{"as good", "{} within {} points of the best, then the cheapest"},
+		{"left out", "a row no better than a cheaper one, yours compared with yours"}}
+)
+
+// A Line is one row of a role's answer, or the words Said where it says something else.
+type Line struct {
+	Said, Mark, Name, Word, Quality, Cost string
+	Cells, Notes                          []string
+	Near                                  float64
+}
+
+// A Role is what the screen says of one role's answer: its head, its lines, and the rows past them
+// `within` = config.Points shows, which with them hold every row any `within` shows.
+type Role struct {
+	Head        string
+	Lines, More []Line
+}
+
+// ModelsSaid is what the screen says of the answer per role.  A head is the role's name, with its
+// best where its first row is not that, `none` with no front.  Its lines are each row of the front
+// within `within` of the best, so the pick and what `r` takes among them, and up to `near` rows
+// more, and under a pick where `r` takes nothing that no harness of yours runs a model this good.
+// With no pick, no priced row being within `within` of the best, the front from its best, said so.
+func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup []quality.Row, within float64) []Role {
+	levels := map[string][]string{} // each release's efforts on the boards, weakest first
+	for _, row := range lineup {
+		levels[row.Release] = append(levels[row.Release], row.Effort)
+	}
+	var said []Role
+	for _, role := range quality.Roles {
+		found := answer[role]
+		// how far down the front `points` shows
+		shows := func(points float64) int {
+			shown := near
+			for _, row := range found.Front {
+				if row.Quality >= *found.Best-points {
+					shown++
+				}
+			}
+			return shown
+		}
+		var out Role
+		if found.Pick == nil && len(found.Front) > 0 {
+			out.Lines = append(out.Lines, Line{Said: "no row with a cost is as good"})
+		}
+		shown, sized := 0, 0
+		if len(found.Front) > 0 {
+			shown, sized = shows(within), shows(config.Points)
+		}
+		for number, row := range found.Front[:min(sized, len(found.Front))] {
+			var notes []string
+			if missing := row.Missing(); missing > 0 {
+				notes = append(notes, screen.Styled(strconv.Itoa(missing)+" missing", "dim"))
+			}
+			if !row.Yours {
+				notes = append(notes, screen.Styled("no harness", "dim"))
+			}
+			taken := levels[row.Release]
+			line := Line{Name: row.Name, Word: row.Effort, Notes: notes,
+				Cells:   screen.EffortCells(len(taken), slices.Index(taken, row.Effort)+1),
+				Near:    max(0, 1-(*found.Best-row.Quality)/config.Points),
+				Quality: strconv.FormatFloat(row.Quality, 'f', 1, 64),
+				Cost:    "$" + strconv.FormatFloat(*row.Cost, 'f', 2, 64)}
+			switch row {
+			case found.Pick:
+				line.Mark = screen.Styled("★ pick", "working")
+			case found.Take:
+				line.Mark = "r takes"
+			}
+			if number < shown {
+				out.Lines = append(out.Lines, line)
+			} else {
+				out.More = append(out.More, line)
+			}
+			if row == found.Pick && found.Take == nil {
+				out.Lines = append(out.Lines, Line{Said: "no harness of yours runs a model this good"})
+			}
+		}
+		// the first row is the best but where the best has no cost, so the head says it then
+		out.Head = heads[role]
+		if len(found.Front) == 0 {
+			out.Head += gap + "none"
+		} else if found.Front[0].Quality < *found.Best {
+			out.Head += gap + "best " + strconv.FormatFloat(*found.Best, 'f', 1, 64)
+		}
+		said = append(said, out)
+	}
+	return said
+}
+
+// packed is parts on as few lines of room cells as hold them, separator between two on one line.
+func packed(parts []string, room int) []string {
+	var lines []string
+	for _, part := range parts {
+		if len(lines) > 0 && terminal.Cells(lines[len(lines)-1]+gap+part) <= room {
+			lines[len(lines)-1] += gap + part
+		} else {
+			lines = append(lines, part)
+		}
+	}
+	return lines
+}
+
+// ModelsBody is the screen's lines.  Per role, a blank line between two, its head, beside the first
+// with rows the columns' heads, then its lines: a row's mark in `mark` cells, its name, its effort
+// -- its cells, then its word, in one column after the most cells any row has -- its line, taking
+// the room the other columns leave, then its quality, cost and notes, these one under another in a
+// column as wide as the widest.  Every column fits the rows `within` = config.Points shows, so a
+// step of `within` moves none.  Where that leaves the line under 8 cells, the notes' column gives
+// way first, each row's notes going under it; where the line is still under 8 cells, each row's
+// mark, then its name and effort, take a line and its line, numbers and notes the next, the name
+// alone cut; the notes that do not fit beside the numbers then go under the row, broken only
+// between two.  Then the legend, opening on `within`'s knob, never broken, and how many of the
+// total models are compared and when the boards were read, broken only at ` · `.
+func ModelsBody(screen terminal.Screen, said []Role, within float64, compared map[string]bool, total int, fetched float64) []string {
+	room := screen.LayoutWidth()
+	var rows, sized []Line
+	for _, role := range said {
+		for _, line := range role.Lines {
+			if line.Said == "" {
+				rows = append(rows, line)
+			}
+		}
+	}
+	sized = slices.Clone(rows)
+	for _, role := range said {
+		sized = append(sized, role.More...)
+	}
+	tall := 0
+	for _, row := range sized {
+		tall = max(tall, len(row.Cells))
+	}
+	effort := func(row Line) string {
+		if row.Word == "" {
+			return ""
+		}
+		if tall == 0 {
+			return row.Word
+		}
+		return strings.Join(row.Cells, "") + strings.Repeat(" ", tall-len(row.Cells)+2) + row.Word
+	}
+	label, levelled, notesWide := 0, 0, 0
+	qualityWide, costWide := terminal.Cells("quality"), terminal.Cells("a task")
+	for _, row := range sized {
+		label = max(label, terminal.Cells(row.Name))
+		levelled = max(levelled, terminal.Cells(effort(row)))
+		qualityWide = max(qualityWide, terminal.Cells(row.Quality))
+		costWide = max(costWide, terminal.Cells(row.Cost))
+		for _, note := range row.Notes {
+			notesWide = max(notesWide, terminal.Cells(note))
+		}
+	}
+	after := 2 + qualityWide + 2 + costWide + 2 + notesWide // the columns after the line
+	before := 2 + mark + 2 + label + 2 + levelled + 2       // the cells before a row's line
+	if room-before-after < 8 && 8 <= room-before-after+2+notesWide {
+		after -= 2 + notesWide // notes are rare, so they go under their row before it folds
+	}
+	wide := room-before-after >= 8
+	if !wide {
+		before = 4 // folded, the line under the name
+	}
+	size := max(8, room-before-after)
+	under := 6 // 2 cells in from a row's name
+	if wide {
+		under = 2 + mark + 2 + 2
+	}
+	first := slices.IndexFunc(said, func(role Role) bool { return len(role.Lines) > 0 })
+	var lines []string
+	put := func(line string) { lines = append(lines, strings.TrimRight(line, " ")) }
+	fill := func(text string, width int) string { return strings.Repeat(" ", max(0, width-terminal.Cells(text))) }
+	for number, role := range said {
+		if number > 0 {
+			put("")
+		}
+		if number != first || !wide {
+			put("  " + role.Head)
+		}
+		if number == first {
+			head := ""
+			if wide {
+				head = role.Head
+			}
+			put("  " + terminal.Pad(head, before+size-2) + "  " +
+				fill("quality", qualityWide) + screen.Styled("quality", "dim") + "  " +
+				fill("a task", costWide) + screen.Styled("a task", "dim"))
+		}
+		for _, line := range role.Lines {
+			if line.Said != "" { // the words under the pick, wrapped at words, are its row's
+				for _, part := range terminal.Wrap(line.Said, room-under) {
+					put(strings.Repeat(" ", under) + part)
+				}
+				continue
+			}
+			text := effort(line)
+			nameRoom := label
+			if !wide {
+				nameRoom = min(label, room-6-levelled)
+			}
+			lead := terminal.Pad(line.Name, nameRoom) + "  " + text + fill(text, levelled) + "  "
+			if wide {
+				lead = "  " + line.Mark + fill(line.Mark, mark) + "  " + lead
+			} else {
+				if line.Mark != "" {
+					put("    " + line.Mark)
+				}
+				put("    " + lead)
+				lead = "    "
+			}
+			tail := lead + screen.ShareLine(line.Near, size, quiet) + "  " +
+				fill(line.Quality, qualityWide) + line.Quality + "  " + fill(line.Cost, costWide) + line.Cost + "  "
+			fit := 0 // the notes that fit, the rest under
+			for n := range len(line.Notes) + 1 {
+				if terminal.Cells(tail+strings.Join(line.Notes[:n], gap)) <= room {
+					fit = n
+				}
+			}
+			put(tail + strings.Join(line.Notes[:fit], gap))
+			column := terminal.Cells(tail) // the notes', one under another where it fits
+			if column+notesWide > room {
+				column = under
+			}
+			for _, part := range packed(line.Notes[fit:], room-column) {
+				put(strings.Repeat(" ", column) + part)
+			}
+		}
+	}
+	put("")
+	knob := pointsKnob(screen, within)
+	word := strings.Repeat("_", terminal.Cells(knob)+1) // one word, so the knob never breaks, and its gap
+	points := strings.TrimSuffix(string(run.Float(within)), ".0")
+	for _, entry := range legend {
+		text := strings.Replace(strings.Replace(entry[1], "{}", word, 1), "{}", points, 1)
+		for number, part := range terminal.Wrap(text, room-named) {
+			name := entry[0]
+			if number > 0 {
+				name = ""
+			}
+			words, knobbed := strings.CutPrefix(part, word)
+			line := "  " + screen.TableRow([]string{name, words}, []int{9, room - named}, []string{"", "dim"})
+			if knobbed { // the knob's cells are drawn as they are, not dimmed with the words after them
+				at := min(named, len(line)) // a narrow screen's knob alone on its line left no words
+				line = line[:at] + knob + "  " + line[at:]
+			}
+			put(line)
+		}
+	}
+	shown := "all"
+	if compared != nil {
+		shown = strconv.Itoa(len(compared)) + " of"
+	}
+	parts := []string{"comparing " + shown + " " + strconv.Itoa(total) + " models"}
+	if fetched != 0 {
+		read, now := time.Unix(0, int64(fetched*1e9)), time.Now()
+		layout := "02 Jan 15:04"
+		if read.Format(time.DateOnly) == now.Format(time.DateOnly) {
+			layout = "15:04"
+		}
+		parts = append(parts, "boards read "+read.Format(layout))
+	}
+	for _, part := range packed(parts, room-2) {
+		put("  " + screen.Styled(part, "dim"))
+	}
+	return lines
+}
+
+// pointsKnob is `within` between the arrows that step it, a cell a point: its whole points full and
+// the rest dim, `‹ ▰▰▰▰▰▱▱▱▱▱ ›` for 5.
+func pointsKnob(screen terminal.Screen, within float64) string {
+	left, right := "‹ ", " ›"
+	if screen.ASCII() {
+		left, right = "< ", " >"
+	}
+	return left + strings.Join(screen.EffortCells(config.Points, int(within)), "") + right
+}
+
+// LiveLines is the second table: each configured model's own numbers per role, `55% of 320`, rows
+// holding its name and a cell per role.
+func LiveLines(screen terminal.Screen, rows [][]string) []string {
+	table := append([][]string{{"model", "orch", "exec", "review"}}, rows...)
+	widths := make([]int, 4)
+	for _, row := range table {
+		for i, text := range row {
+			widths[i] = max(widths[i], terminal.Cells(text))
+		}
+	}
+	room := screen.LayoutWidth()
+	drawn := make([]string, len(table))
+	for n, row := range table {
+		cells := make([]string, 4)
+		for i, text := range row {
+			cells[i] = terminal.Pad(text, widths[i])
+		}
+		drawn[n] = strings.TrimRight(strings.Join(cells, " "), " ")
+	}
+	// a row wider than the terminal wraps rather than run past its edge
+	fit := func(text string) []string {
+		if terminal.Cells(text) <= room {
+			return []string{text}
+		}
+		return terminal.Wrap(text, room)
+	}
+	var lines []string
+	head := terminal.Wrap("ak's own runs, never ranking: merged in round 1 of the runs it executed, let "+
+		"through in round 1 of those it reviewed, merged in round 1 of its seat's own pull requests", room)
+	for _, part := range append(head, fit(drawn[0])...) {
+		lines = append(lines, screen.Styled(part, "dim"))
+	}
+	for _, line := range drawn[1:] {
+		lines = append(lines, fit(line)...)
+	}
+	return lines
+}

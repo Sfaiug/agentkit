@@ -36,7 +36,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{},
 		{"attach", "--client"},
 		{"usage", "--json"},
-		{"models", "--refresh"},
 		{"worker", "acme", task},
 		{"run", task},
 		{"run", "gc", "--dry-run"},
