@@ -1645,6 +1645,16 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
     return "\n".join([note, f"failed output: {Path(saved.name).resolve()}", *diff])
 
 
+def flakes_within(records, room):
+    """Every record, as each becomes a follow-up (`prompts.record_flakes`): whole while `room`
+    lasts, after it just its note and the file holding its failure."""
+    kept = []
+    for record in records:
+        room -= len(record)
+        kept.append(record if room >= 0 else "\n".join(record.split("\n")[:2]))
+    return kept
+
+
 def unnamed(code, only, ran, output):
     """`code`, or 1 for a run of just the tests `only` lists that exited 0 without naming each
     one as run (`AK_RAN`): a runner may skip a name it does not know and exit 0."""
@@ -2132,8 +2142,9 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not any(where) and not any(killed for _, _, killed, _ in results):
                 measure.paced(path, count)
             measure.overflowed(path, mem)
-            text = turns.cut("\n\n".join(chunks + red + flakes), run_dir or activity.parent,
+            text = turns.cut("\n\n".join(chunks + red), run_dir or activity.parent,
                              f"{activity.stem}-pieces", turns.PIECES_CAP)
+            text = "\n\n".join([text, *flakes_within(flakes, turns.PIECES_CAP - len(text))])
             output.write(("\n" + text + "\n").encode())
             output.flush()
             if pieces is not None:
