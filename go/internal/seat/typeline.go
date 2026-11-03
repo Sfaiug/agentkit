@@ -201,7 +201,7 @@ func (at seatAt) capture() string {
 
 // sight is what that capture shows of the seat, as watch.live_state reads it, writing nothing.
 func (at seatAt) sight(shown string) sight {
-	found, _ := observed(filepath.Join(config.Home(), "state"), at.name, at.own, shown, seconds(time.Now()))
+	found, _ := observed(filepath.Join(config.Home(), "state"), at.name, harness.For(at.own), shown, seconds(time.Now()))
 	return found
 }
 

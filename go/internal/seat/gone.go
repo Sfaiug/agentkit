@@ -57,7 +57,7 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 		return Seat{}, nil, false
 	}
 	if complaint == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, file, models, offered); !known {
+		if seat.follow, known = follows(record, file, models, offered, harness.For(own)); !known {
 			return Seat{}, nil, false
 		}
 	}

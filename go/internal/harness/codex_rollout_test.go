@@ -54,7 +54,7 @@ func TestCodexErrorIsTheLastTurnsEndInTheThreadItsLaunchReported(t *testing.T) {
 		{"a thread the record replaced", failed, record("codex_launch", token, "id_source", "codex-session-start", "conversation", "t2"), "", false},
 	} {
 		write(each.rollout)
-		if said, recorded := RecordedError("codex", each.record); said != each.said || recorded != each.recorded {
+		if said, recorded := For("codex").RecordedError(each.record); said != each.said || recorded != each.recorded {
 			t.Errorf("%s: %q, %v", each.name, said, recorded)
 		}
 	}
@@ -72,11 +72,11 @@ func TestCodexAnswerIsTheTurnContextOfTheLatestAnswer(t *testing.T) {
 	answer := `{"type": "event_msg", "timestamp": "2026-11-03T10:00:00Z", "payload": {"type": "item_completed", ` +
 		`"item": {"type": "AgentMessage", "content": [{"type": "Text", "text": "done"}]}}}` + "\n"
 	write(turn("gpt-a") + answer + turn("gpt-b"))
-	if model, effort, at, found := LastAnswer("codex", record); model != "gpt-a" || effort != "high" || at != "2026-11-03T10:00:00Z" || !found {
+	if model, effort, at, found := For("codex").LastAnswer(record); model != "gpt-a" || effort != "high" || at != "2026-11-03T10:00:00Z" || !found {
 		t.Errorf("%v %v %v %v", model, effort, at, found)
 	}
 	write(turn("gpt-a"))
-	if _, _, _, found := LastAnswer("codex", record); found {
+	if _, _, _, found := For("codex").LastAnswer(record); found {
 		t.Error("a turn that never answered shows a model")
 	}
 }
@@ -109,12 +109,12 @@ func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
 		record.Set("id_source", each.source)
 		record.Set("resumable", each.resumable)
 		before := run.Encode(record)
-		if RecordReady("codex", record) != each.ready || run.Encode(record) != before {
+		if _, ready := For("codex").Reconciled(record); ready != each.ready || run.Encode(record) != before {
 			t.Errorf("record changed or readiness differs: %+v", each)
 		}
 	}
 	record.Set("codex_launch", strings.Repeat("b", 32))
-	if !RecordReady("codex", record) || !RecordReadOnly("codex") {
+	if _, ready := For("codex").Reconciled(record); !ready || !RecordReadOnly("codex") {
 		t.Error("a record with no proven thread cannot be read without reconciling it")
 	}
 	for entry, kept := range map[string]bool{"codex-launch-" + token + ".json": true, "codex-remote-" + token: true,
@@ -122,5 +122,37 @@ func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
 		if KeptInState(entry) != kept {
 			t.Errorf("%s kept: %v", entry, !kept)
 		}
+	}
+}
+
+func TestCodexListingKeepsItsReceiptButReadsTheRolloutOn(t *testing.T) {
+	token, write := codexSeat(t)
+	write("")
+	record := run.NewObject()
+	for key, value := range map[string]any{"codex_launch": token, "conversation": "t1",
+		"id_source": "codex-session-start", "resumable": true} {
+		record.Set(key, value)
+	}
+	reader, ready := For("codex").Reconciled(record)
+	if !ready {
+		t.Fatal("the bound receipt needs no reconciliation")
+	}
+	if err := os.Remove(filepath.Join(os.Getenv("HOME"), ".agentkit", "state", "codex-launch-"+token+".json")); err != nil {
+		t.Fatal(err)
+	}
+	write(`{"type":"turn_context","payload":{"model":"gpt-a","effort":"high"}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text","text":"done"}]}}}` + "\n" +
+		`{"type":"event_msg","payload":{"type":"task_complete","error":{"message":"stream disconnected"}}}` + "\n")
+	if owned, _ := reader.Owns(record, "t1"); !owned {
+		t.Fatal("this listing lost the receipt it read")
+	}
+	if said, recorded := reader.RecordedError(record); said != "stream disconnected" || !recorded {
+		t.Fatalf("the rollout's newer error: %q, %v", said, recorded)
+	}
+	if model, _, _, found := reader.LastAnswer(record); model != "gpt-a" || !found {
+		t.Fatalf("the rollout's newer answer: %v, %v", model, found)
+	}
+	if owned, _ := Owns("codex", record, "t1"); owned {
+		t.Fatal("the next reading kept the removed receipt")
 	}
 }

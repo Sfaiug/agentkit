@@ -7,12 +7,22 @@ import (
 	"agentkit/internal/run"
 )
 
-// RecordReady is whether Go can read this record without Python first reconciling it.
-func RecordReady(name string, record *run.Object) bool {
-	if hook := plugins[name].record; hook != nil {
-		return hook(record)
+// A Reader keeps a harness's evidence at the start of one listing, apart from Python's record.
+type Reader struct {
+	Name string
+	own  plugin
+}
+
+func For(name string) Reader { return Reader{name, plugins[name]} }
+
+// Reconciled reads the evidence once, where Python's orch.records calls plugin.reconcile.
+// False leaves a record owed reconciliation to Python, before the listing writes anything.
+func (reader Reader) Reconciled(record *run.Object) (Reader, bool) {
+	if hook := reader.own.record; hook != nil {
+		own, ready := hook(record)
+		return Reader{reader.Name, own}, ready
 	}
-	return true
+	return reader, true
 }
 
 // RecordReadOnly keeps a harness's own reconciliation entirely in Python, including when the

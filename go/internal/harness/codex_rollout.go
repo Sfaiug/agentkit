@@ -91,10 +91,24 @@ func codexOwns(record *run.Object, conversation string) bool {
 
 // codexRecord leaves binding a proven thread to Python's reconcile. Without one, including at
 // prepare's startup chooser, the screen still says the seat's word; legacy ids stay untouched.
-func codexRecord(record *run.Object) bool {
-	thread, _ := codexThread(record)
-	return thread == "" || record.Get("conversation") == thread &&
+func codexRecord(record *run.Object) (plugin, bool) {
+	thread, rollout := codexThread(record)
+	ready := thread == "" || record.Get("conversation") == thread &&
 		record.Get("id_source") == codexSource && record.Get("resumable") == true
+	launch := record.Str(codexLaunch)
+	path := func(current *run.Object) string {
+		if current.Str(codexLaunch) != launch || current.Str("id_source") == codexSource && current.Get("conversation") != thread {
+			return ""
+		}
+		return rollout
+	}
+	own := plugins["codex"]
+	own.owns = func(current *run.Object, conversation string) bool {
+		return path(current) != "" && conversation == thread
+	}
+	own.recorded = func(current *run.Object) (string, bool) { return codexErrorAt(path(current)) }
+	own.answer = func(current *run.Object) (any, any, any, bool) { return codexAnswerAt(path(current)) }
+	return own, ready
 }
 
 // codexError is the error Codex recorded as the end of the seat's thread's last turn (codex.py
@@ -103,6 +117,10 @@ func codexRecord(record *run.Object) bool {
 // the same.  False where the seat owns no thread or its rollout cannot be read.
 func codexError(record *run.Object) (string, bool) {
 	_, rollout := codexThread(record)
+	return codexErrorAt(rollout)
+}
+
+func codexErrorAt(rollout string) (string, bool) {
 	if rollout == "" {
 		return "", false
 	}
@@ -131,6 +149,10 @@ func codexError(record *run.Object) (string, bool) {
 // answered shows nothing.
 func codexAnswer(record *run.Object) (model, effort, at any, found bool) {
 	_, rollout := codexThread(record)
+	return codexAnswerAt(rollout)
+}
+
+func codexAnswerAt(rollout string) (model, effort, at any, found bool) {
 	if rollout == "" {
 		return nil, nil, nil, false
 	}

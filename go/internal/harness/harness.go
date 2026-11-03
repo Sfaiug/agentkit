@@ -29,9 +29,10 @@ type plugin struct {
 	conversation func(record map[string]any) string
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
 	owns func(record *run.Object, conversation string) bool
-	// record checks a record Go leaves to Python to reconcile; false hands it back before writing.
+	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
+	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
-	record func(record *run.Object) bool
+	record func(record *run.Object) (plugin, bool)
 	keys   []string
 	kept   *regexp.Regexp
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
@@ -107,8 +108,8 @@ func Opens(name string) (titled, known bool) {
 
 // LastAnswer is the model, effort and time of the last answer a seat's conversation records, as
 // Python's plugin `running` reads them; false where that harness records none Go reads.
-func LastAnswer(name string, record *run.Object) (model, effort, at any, found bool) {
-	if hook := plugins[name].answer; hook != nil {
+func (reader Reader) LastAnswer(record *run.Object) (model, effort, at any, found bool) {
+	if hook := reader.own.answer; hook != nil {
 		return hook(record)
 	}
 	return nil, nil, nil, false

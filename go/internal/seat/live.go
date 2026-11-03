@@ -64,7 +64,7 @@ func Lives(now time.Time) ([]Live, bool) {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
-		found, _ := observed(state, each.Name, each.own, pane, seconds(now))
+		found, _ := observed(state, each.Name, each.reader, pane, seconds(now))
 		live, ok := each.lived(state, pane, exited, found, now)
 		if !ok {
 			return nil, false
@@ -101,7 +101,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
 	conversation, cwd := record.Str("conversation"), record.Str("cwd")
-	recorded, kept := harness.RecordedError(seat.own, record)
+	recorded, kept := seat.reader.RecordedError(record)
 	line := recorded
 	if !kept {
 		line = outputLine(seen.rules.Said(tail))
@@ -113,9 +113,6 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	title, _ := harness.SessionTitle(seat.own, record, ownFile("title", seat.Name))
 	wrapped := harness.WrappedUp(seat.own, map[string]any{"conversation": conversation, "cwd": cwd, "account": record.Get("account")},
 		func(entry *run.Object) bool { return script.Prompted(seat.own, entry).Text != "" })
-	if !harness.RecordReady(seat.own, record) {
-		return Live{}, false
-	}
 	return Live{Name: seat.Name, Own: seat.own, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line),
@@ -153,13 +150,13 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 	carried := false
 	err = announcing(state, name, func() error {
 		now := time.Now()
-		home, seat, known := liveSeat(name, now)
+		home, seat, known := liveSeat(name, now, nil)
 		if !known {
-			carried, err = healthGone(state, name, now)
+			carried, err = home.healthGone(state, name, now)
 			return err
 		}
 		pane, exited := harnessScreen(name)
-		found, previous := observed(state, name, seat.own, pane, seconds(now))
+		found, previous := observed(state, name, seat.reader, pane, seconds(now))
 		live, read := seat.lived(state, pane, exited, found, now)
 		if carried = read && ok(live); !carried {
 			return nil

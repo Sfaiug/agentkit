@@ -1,7 +1,6 @@
 package seat
 
 import (
-	"errors"
 	"maps"
 	"os"
 	"os/exec"
@@ -11,10 +10,13 @@ import (
 	"time"
 
 	"agentkit/internal/commandhelp"
+	"agentkit/internal/run"
 )
 
 func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
 	home := sandbox(t)
+	other := map[string]any{"conversation": "legacy", "id_source": nil, "repo": nil}
+	record(t, home, "aaa", other)
 	token := strings.Repeat("a", 32)
 	fields := map[string]any{"orchestrator": "astra", "workers": []string{"astra"},
 		"codex_launch": token, "conversation": nil, "id_source": nil, "resumable": false}
@@ -45,18 +47,22 @@ func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
 	receipt["event"] = map[string]any{"hook_event_name": "SessionStart", "source": "startup",
 		"session_id": "t1", "cwd": cwd, "transcript_path": rollout}
 	writeReceipt()
+	record(t, home, "aaa", other) // the earlier record has a reconcile to write too
 	before := stateFiles(t, home)
 	if _, known := Looking(time.Now()); known {
 		t.Fatal("Go took a receipt Python has not bound")
 	}
-	if _, _, err := waited.Explain("acme", time.Now()); !errors.Is(err, ErrUnread) {
-		t.Fatalf("a receipt arriving during the wait was looked past: %v", err)
-	}
-	if err := waited.Announce(time.Now()); !errors.Is(err, ErrUnread) {
-		t.Fatalf("a listing looked past the new receipt: %v", err)
-	}
 	if after := stateFiles(t, home); !maps.Equal(before, after) {
 		t.Fatalf("handing over wrote: %v, then %v", before, after)
+	}
+	if _, _, err := waited.Explain("acme", time.Now()); err != nil {
+		t.Fatalf("the receipt belongs to the next listing: %v", err)
+	}
+	if err := waited.Announce(time.Now()); err != nil {
+		t.Fatalf("the receipt belongs to the next listing: %v", err)
+	}
+	if after := stateFiles(t, home)["session-acme.json"]; before["session-acme.json"] != after {
+		t.Fatalf("listing changed the record: %s", after)
 	}
 	// The next look reads the record Python's reconcile leaves.
 	fields["conversation"], fields["id_source"], fields["resumable"] = "t1", "codex-session-start", true
@@ -74,7 +80,7 @@ func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
 	}
 }
 
-func TestCodexReceiptArrivingDuringCaptureIsHandedToPython(t *testing.T) {
+func TestCodexReceiptAfterReconciliationWaitsForTheNextListing(t *testing.T) {
 	for name, publish := range map[string]func(Home, string) error{
 		"live look": func(_ Home, state string) error {
 			_, err := LookedLive(state, "acme")
@@ -84,17 +90,22 @@ func TestCodexReceiptArrivingDuringCaptureIsHandedToPython(t *testing.T) {
 			_, _, err := home.Explain("acme", time.Now())
 			return err
 		},
-		"list": func(home Home, _ string) error { return home.Announce(time.Now()) },
+		"list":               func(home Home, _ string) error { return home.Announce(time.Now()) },
+		"after another word": func(home Home, _ string) error { return home.Announce(time.Now()) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
 			record(t, home, "other", map[string]any{"created": 1})
+			if name == "after another word" {
+				drawn(t, home, "other", prompting)
+			}
 			token := strings.Repeat("a", 32)
 			record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"},
 				"codex_launch": token, "conversation": nil, "id_source": nil, "resumable": false})
-			drawn(t, home, "acme", "Choose a model\n› 1. First\n  2. Second\n\n  Press enter to continue\n")
+			drawn(t, home, "acme", "› Ask Codex to do anything\n\n  default default · ~\n")
 			cwd, rollout := filepath.Join(home, "work", "acme"), filepath.Join(home, "rollout.jsonl")
-			write(t, rollout, encoded(t, map[string]any{"type": "session_meta", "payload": map[string]any{"id": "t1", "cwd": cwd}})+"\n")
+			write(t, rollout, encoded(t, map[string]any{"type": "session_meta", "payload": map[string]any{"id": "t1", "cwd": cwd}})+"\n"+
+				`{"type":"event_msg","payload":{"type":"task_complete","error":{"message":"stream disconnected"}}}`+"\n")
 			launch := "codex-launch-" + token + ".json"
 			prepared := encoded(t, map[string]any{"launch": token, "cwd": cwd})
 			write(t, stateFile(home, launch), prepared)
@@ -107,7 +118,11 @@ func TestCodexReceiptArrivingDuringCaptureIsHandedToPython(t *testing.T) {
 				t.Fatal(err)
 			}
 			fake := filepath.Join(home, "bin", "tmux")
-			write(t, fake, "#!/bin/sh\nfor arg do\n  if [ \"$arg\" = capture-pane ]; then\n    "+
+			when := `[ "$arg" = capture-pane ]`
+			if name == "after another word" {
+				when = `[ "$arg" = list-sessions ] && ` + commandhelp.ShellJoin([]string{"test", "-f", stateFile(home, "seat-other.json")})
+			}
+			write(t, fake, "#!/bin/sh\nfor arg do\n  if "+when+"; then\n    "+
 				commandhelp.ShellJoin([]string{"cp", ready, stateFile(home, launch)})+"\n  fi\ndone\nexec "+
 				commandhelp.ShellJoin([]string{real})+" \"$@\"\n")
 			if err := os.Chmod(fake, 0o700); err != nil {
@@ -119,21 +134,29 @@ func TestCodexReceiptArrivingDuringCaptureIsHandedToPython(t *testing.T) {
 				t.Fatal("Go did not read the prepared seat beside the other record")
 			}
 			before := stateFiles(t, home)
-			if err := publish(found, stateFile(home, "")); !errors.Is(err, ErrUnread) {
-				t.Fatalf("the capture bypassed the new receipt: %v", err)
+			if err := publish(found, stateFile(home, "")); err != nil {
+				t.Fatalf("the capture's receipt belongs to the next listing: %v", err)
 			}
 			after := stateFiles(t, home)
 			if after[launch] != arrived {
-				t.Fatal("the hook did not arrive during capture")
+				t.Fatal("the hook did not arrive")
 			}
-			before[launch] = arrived
-			delete(after, "seat-acme.announce") // the empty lock the look took
-			if !maps.Equal(before, after) {
-				t.Fatalf("handing over wrote: %v, then %v", before, after)
+			if after["session-acme.json"] != before["session-acme.json"] {
+				t.Fatal("publishing the word changed the record")
+			}
+			file, _ := run.ReadJSON(stateFile(home, "seat-acme.json"))
+			if file.Str("word") != "idle" || file.Str("rule") != "prompt.composer" || file.Get("stall") != nil {
+				t.Fatalf("the word used evidence after reconciliation: %s", run.Encode(file))
+			}
+			if _, known := Looking(time.Now()); known {
+				t.Fatal("the next listing must hand the receipt to Python")
+			}
+			if name == "after another word" {
+				return
 			}
 			write(t, stateFile(home, launch), prepared)
-			if _, known := Lives(time.Now()); known {
-				t.Fatal("the tick took a reading whose capture owes Python a reconcile")
+			if lives, known := Lives(time.Now()); !known || len(lives) != 1 || lives[0].Stall != nil {
+				t.Fatalf("the tick did not keep its initial evidence: known=%v, %+v", known, lives)
 			}
 		})
 	}

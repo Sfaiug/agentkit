@@ -13,8 +13,8 @@ func Looks(name string) bool { return plugins[name].looks }
 // RecordedError is the error a seat's conversation ends on, "" where it went on after one, as
 // Python's plugin `error` reads it; false where its harness keeps no record of that conversation
 // or it cannot be read, and only then is the screen the one to say.
-func RecordedError(name string, record *run.Object) (string, bool) {
-	if hook := plugins[name].recorded; hook != nil {
+func (reader Reader) RecordedError(record *run.Object) (string, bool) {
+	if hook := reader.own.recorded; hook != nil {
 		return hook(record)
 	}
 	return "", false

@@ -25,10 +25,10 @@ type move struct{ chosen, effort, conversation, cwd string }
 // a move in place went in (the seat file's `switched`) counts, so the old model's last answer
 // undoes no move. The models run at the efforts the record holds for them. False where Python's
 // answer hangs on a configured model or a manifest this reading cannot read.
-func follows(record, file *run.Object, models map[string]config.Model, offered []string) (move, bool) {
+func follows(record, file *run.Object, models map[string]config.Model, offered []string, reader harness.Reader) (move, bool) {
 	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, at, answered := harness.LastAnswer(own.Harness, record)
+	model, effort, at, answered := reader.LastAnswer(record)
 	var switched any
 	if file != nil {
 		switched = file.Get("switched")
