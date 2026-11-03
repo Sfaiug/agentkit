@@ -4,11 +4,11 @@
 // `handback_typed`, as mark_delivery writes them), the one line the seat is told in, and the send
 // that types it at the seat's quiet prompt (seat.TypeAtPrompt).
 //
-// Go hands back as Python's hand_back does, to a seat up on ak's own server, an ending that did
-// not deliver; one it does not type is marked pending, which Python's tick types at the next quiet
+// Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
+// does not type is marked pending, which Python's tick types at the next quiet
 // prompt: a seat that takes no line now, and a line Go does not build yet, every one but a
-// BLOCKED's decision line said whole.  What announce settles before its hand-back, an ending that
-// delivered and a seat not up there, is the tick's, which offers every ending nobody has heard.
+// BLOCKED's decision line said whole. A seat not up there is the tick's, which offers every
+// ending nobody has heard.
 package handback
 
 import (
@@ -41,7 +41,7 @@ func Give(dir string, say func(string)) bool {
 		return false
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
-	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" || delivered(record) || !seat.Watching(session) {
+	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" || !seat.Watching(session) {
 		return false
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
@@ -143,11 +143,6 @@ func tilde(path string) string {
 		return "~/" + rest
 	}
 	return path
-}
-
-// delivered is an ending that delivered its change, merged or found not needed.
-func delivered(record *run.Object) bool {
-	return record.Truthy("merged") || record.Str("state") == "not_needed"
 }
 
 // sameAttempt is whether two records are one attempt of the run, not either side of a resume.
