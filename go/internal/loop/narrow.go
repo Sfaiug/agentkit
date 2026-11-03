@@ -58,13 +58,18 @@ func redBehind(wait *run.Object, members []member) bool {
 }
 
 func narrowLine(turn, code, repo, tip, upstream string, members []member, said io.Writer) error {
-	if len(config.MachineNames()) > 0 || slices.ContainsFunc(members, func(m member) bool {
-		return m.record.Truthy("review_pr") || m.record.Truthy("repair")
-	}) {
+	if len(config.MachineNames()) > 0 {
 		return nil
 	}
 	var prefix, pending []member
 	for _, m := range members {
+		if m.record.Truthy("review_pr") || m.record.Truthy("repair") {
+			break
+		}
+		review := m.record.Dict("review")
+		if review == nil || review.Str("verdict") != "PASS" {
+			break
+		}
 		wait := m.record.Dict("waiting_on")
 		if green(wait) {
 			if m.record.Str("state") == "waiting" {
@@ -73,15 +78,15 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 			prefix = append(prefix, m)
 			continue
 		}
-		if m.record.Str("state") != "waiting" || !unchanged(m.dir, m.record) || m.record.Dict("review").Str("verdict") != "PASS" {
-			return nil
+		if m.record.Str("state") != "waiting" || !unchanged(m.dir, m.record) {
+			break
 		}
 		if wait.Has("fix") {
 			if wait.Has("land") {
-				if landingFixHandoff(wait) == "" {
+				if len(pending) == 0 && landingFixHandoff(wait) == "" {
 					publish(m.dir, m.record, wait, said)
 				}
-				return nil // required checks failed during delivery: its own fixer verdict stands
+				break // required checks failed during delivery: its own fixer verdict stands
 			}
 			if redBehind(wait, members) {
 				continue
@@ -101,7 +106,7 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 				current.Dict("waiting_on").Delete("after")
 				return nil
 			}); err != nil {
-				return nil
+				break
 			}
 			m.record, _ = run.Read(m.dir)
 		}
@@ -113,7 +118,7 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 			return nil
 		}
 		stacks, err := buildNarrowing(repo, tip, upstream, prefix, pending, said)
-		if err != nil || len(stacks) != len(pending) {
+		if err != nil || len(stacks) == 0 {
 			closeNarrowing(stacks)
 			return err
 		}
