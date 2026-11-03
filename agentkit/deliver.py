@@ -552,11 +552,23 @@ PICKUP_HELD = threading.local()   # delivery locks this thread holds or waits fo
 def merged(lp, url, method):
     """Record the PR as merged, with what proving it live stands on; True, for the merge step
     to return."""
-    from . import watch  # here, not at the top: it reaches run
-    lp.state.update(merged=True, **watch.merge_record(lp.wt, lp.state.get("delivery_sha")))
-    lp.write()
+    record_merge(lp, lp.state.get("delivery_sha"))
     lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
     return True
+
+
+def record_merge(lp, sha):
+    """A landing red is a review miss only if the patch had to change before it merged."""
+    from . import watch  # here, not at the top: it reaches run
+    lp.state.update(merged=True, **watch.merge_record(lp.wt, sha))
+    reds = lp.state.get("landing_red_patches")
+    if reds:
+        patch = roundloop.patch_id(lp.wt, lp.base_sha)
+        # Failed git reads cannot prove that a red was a flake.
+        flakes = sum(bool(red) and red == patch for red in reds)
+        history.update_run(lp.state.get("run_id"), landing_breaks=len(reds) - flakes,
+                           landing_flakes=flakes, log=lp.log)
+    lp.write()
 
 
 def is_delivery(lp, current, upstream):
@@ -872,7 +884,7 @@ def land_from_line(lp, upstream, deliver):
     if not wait.get("fixing"):
         lp.state[count] = lp.state.get(count, 0) + 1
         if suite_red(lp.state, failure):
-            history.add_landing_break(lp.state.get("run_id"), log=lp.log)
+            lp.state.setdefault("landing_red_patches", []).append(roundloop.patch_id(lp.wt, lp.base_sha))
         lp.state["waiting_on"] = {**wait, "fixing": True}
         lp.write()
     if lp.state[count] > roundloop.CONFLICT_ROUNDS:
@@ -1046,9 +1058,7 @@ def merge_own_pr(lp, url):
         ours = (remote["sha"] in expected
                 and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
         if current.get("merged") and ours:
-            from . import watch  # here, not at the top: it reaches run
-            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
-            lp.write()
+            record_merge(lp, remote["sha"])
             return True
         if current.get("state") != "open" or not ours:
             path = lp.run_dir / "pr-changed.log"
@@ -1162,7 +1172,7 @@ def fail_pr_landing(lp, failure, landing=True):
     if landing:
         reds = lp.state[count] = reds + 1
         if suite_red(lp.state, failure):
-            history.add_landing_break(lp.state.get("run_id"), log=lp.log)
+            lp.state.setdefault("landing_red_patches", []).append(roundloop.patch_id(lp.wt, lp.base_sha))
     if lp.state.get("own_pr") and (reds <= roundloop.CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
         if landing:

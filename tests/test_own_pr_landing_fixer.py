@@ -117,12 +117,13 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertIn("Re-review after the landing fix", self.reviews[-1])
         self.assertIn("Landing failed", self.reviews[-1])
         self.assertEqual(len(self.checks), checks, "the re-review ran a suite")
-        # its suite went red after review passed it: one break at landing, on its row
-        self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
+        # The red is judged only once the changed patch merges.
+        self.assertEqual(history.get(directory.name)["landing_breaks"], 0)
         land.check_line(self.turn)
         self.assertEqual(len(self.checks), checks + 1, "the line checks the fixed tree once")
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
+        self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertEqual(len(self.reviews), 2)
         self.assertEqual(len(self.checks), checks + 1, "delivery repeated the suite")
@@ -160,10 +161,11 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertIn("required checks failed: fence", self.reviews[-1])
-        self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
+        self.assertEqual(history.get(directory.name)["landing_breaks"], 0)
         land.check_line(self.turn)
         state = self.review(directory, url)
         self.assertTrue(state["merged"])
+        self.assertEqual(history.get(directory.name)["landing_breaks"], 1)
 
     def test_a_rebase_the_tip_conflicts_with_is_a_landing_red_of_the_fixers(self):
         directory, url = self.own_pr("second", 1)

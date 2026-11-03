@@ -85,7 +85,8 @@ class HistoryTests(unittest.TestCase):
         history.finish_run("r1", final_state="pass", finished_at=4)
         row = history.get("r1")
         # its landing failures were never counted: NULL, never the 0 and '' of an unbroken row
-        self.assertEqual((row["landing_breaks"], row["broke_after_merge"]), (None, None))
+        self.assertEqual((row["landing_breaks"], row["landing_flakes"], row["broke_after_merge"]),
+                         (None, None, None))
 
     def test_review_pairs_migrate_as_unknown_and_resolve_the_recorded_pair_at_ending(self):
         with closing(sqlite3.connect(history.path())) as db, db:
@@ -270,8 +271,7 @@ class HistoryTests(unittest.TestCase):
         # a row started since breaks are recorded was followed for them: none is 0 and ''
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (0, ""))
-        history.add_landing_break("merged")
-        history.update_run("merged", broke_after_merge="health")
+        history.update_run("merged", landing_breaks=1, broke_after_merge="health")
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (1, "health"))

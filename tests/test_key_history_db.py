@@ -31,7 +31,7 @@ ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT
             ("reviewer_seconds", "REAL"), ("merge_seconds", "REAL"), ("total_seconds", "REAL"),
             ("executor_tokens", "INTEGER"), ("reviewer_tokens", "INTEGER"),
             ("peak_rss_mb", "REAL"), ("session", "TEXT"))
-GAINED = {"runs": {"task_words", "orchestrator", "change", "merge_sha", "landing_breaks",
+GAINED = {"runs": {"task_words", "orchestrator", "change", "merge_sha", "landing_breaks", "landing_flakes",
                    "broke_after_merge", "executor_effort", "own_orchestrator_effort"},
           "phases": {"wait_kind"}, "reviews": {"round", "verdict", "effort"}, "dones": {"work"}}
 # The Home's notify sink marks every run a test suite's, which ak never records: these runs go
@@ -126,9 +126,9 @@ class AFailedRun(unittest.TestCase):
         self.assertEqual(len(rows), 1, rows)
         row, run_id = rows[0], self.run_dir.name
         self.assertEqual({key: row[key] for key in (
-            "run_id", "repo", "final_state", "change", "landing_breaks", "broke_after_merge")}, {
+            "run_id", "repo", "final_state", "change", "landing_breaks", "landing_flakes", "broke_after_merge")}, {
             "run_id": run_id, "repo": None, "final_state": "error", "change": run_id,
-            "landing_breaks": 0, "broke_after_merge": ""})
+            "landing_breaks": 0, "landing_flakes": 0, "broke_after_merge": ""})
         for key in ("task_words", "task_points", "task_checks"):
             with self.subTest(key):
                 self.assertEqual(row[key], self.state.get(key))
