@@ -119,26 +119,26 @@ func TestTheWordComesOffTheScreen(t *testing.T) {
 	}
 }
 
-// A spare window the owner selected is not the seat's screen, and its harness's last frame, once
-// it has exited, is no turn in flight.
-func TestALookReadsTheHarnessPaneWhicheverWindowIsActive(t *testing.T) {
-	home := sandbox(t)
-	record(t, home, "acme", nil)
-	// a row above the spinner, as tmux scrolls one off the top to say the pane is dead
-	drawn(t, home, "acme", "earlier output\n"+spinning)
-	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "=acme:", "#{pane_id}")
+// harnessBesideSpare marks the seat's pane as its harness's, left on exit, and selects a spare window.
+func harnessBesideSpare(t *testing.T, name string) (pane string) {
+	t.Helper()
+	target := "=" + name + ":"
+	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", target, "#{pane_id}")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tmux.Ask(tmux.Own(), "set-option", "-t", "=acme:", tmux.HarnessPane, pane, ";", "set-option", "-t", "=acme:", "remain-on-exit", "on"); err != nil {
+	if _, err := tmux.Ask(tmux.Own(), "set-option", "-t", target, tmux.HarnessPane, pane, ";", "set-option", "-t", target, "remain-on-exit", "on"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := tmux.Ask(tmux.Own(), "new-window", "-t", "=acme:", "printf 'spare\\n'; sleep 600"); err != nil {
+	if _, err := tmux.Ask(tmux.Own(), "new-window", "-t", target, "printf 'spare\\n'; sleep 600"); err != nil {
 		t.Fatal(err)
 	}
-	if lines := explained(t, "acme"); lines[0] != "acme  working" {
-		t.Fatal(lines)
-	}
+	return pane
+}
+
+// harnessExits kills what that pane runs, as a crash does, its last frame left on the screen.
+func harnessExits(t *testing.T, pane string) {
+	t.Helper()
 	pid, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_pid}")
 	if err != nil {
 		t.Fatal(err)
@@ -147,16 +147,48 @@ func TestALookReadsTheHarnessPaneWhicheverWindowIsActive(t *testing.T) {
 		t.Fatal(string(out), err)
 	}
 	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-		dead, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_dead}")
-		if dead == "1" {
-			break
+		if dead, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_dead}"); dead == "1" {
+			return
 		}
 		if time.Now().After(deadline) {
 			t.Fatal("the harness never exited")
 		}
 	}
+}
+
+// A spare window the owner selected is not the seat's screen, and its harness's last frame, once
+// it has exited, is no turn in flight.
+func TestALookReadsTheHarnessPaneWhicheverWindowIsActive(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	// a row above the spinner, as tmux scrolls one off the top to say the pane is dead
+	drawn(t, home, "acme", "earlier output\n"+spinning)
+	pane := harnessBesideSpare(t, "acme")
+	if lines := explained(t, "acme"); lines[0] != "acme  working" {
+		t.Fatal(lines)
+	}
+	harnessExits(t, pane)
 	if lines := explained(t, "acme"); lines[0] != "acme  idle" {
 		t.Fatal(lines)
+	}
+}
+
+// A blank capture keeps the error a seat was retrying past; a harness that exited retries nothing,
+// and the seat file says so too.
+func TestAHarnessThatExitedRetriesNothing(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	drawn(t, home, "acme", "API Error: 529 Overloaded\n"+prompting)
+	pane := harnessBesideSpare(t, "acme")
+	if lines := explained(t, "acme"); lines[0] != "acme  working" {
+		t.Fatal(lines)
+	}
+	harnessExits(t, pane)
+	if lines := explained(t, "acme"); lines[0] != "acme  idle" {
+		t.Fatal(lines)
+	}
+	if got, _ := run.ReadJSON(stateFile(home, "seat-acme.json")); got == nil || got.Get("stall") != nil {
+		t.Fatal(run.Line(got))
 	}
 }
 
