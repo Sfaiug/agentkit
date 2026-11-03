@@ -119,6 +119,58 @@ func TestTheWordComesOffTheScreen(t *testing.T) {
 	}
 }
 
+// A spare window the owner selected is not the seat's screen, and its harness's last frame, once
+// it has exited, is no turn in flight.
+func TestALookReadsTheHarnessPaneWhicheverWindowIsActive(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	// a row above the spinner, as tmux scrolls one off the top to say the pane is dead
+	drawn(t, home, "acme", "earlier output\n"+spinning)
+	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "=acme:", "#{pane_id}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmux.Ask(tmux.Own(), "set-option", "-t", "=acme:", tmux.HarnessPane, pane, ";", "set-option", "-t", "=acme:", "remain-on-exit", "on"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := tmux.Ask(tmux.Own(), "new-window", "-t", "=acme:", "printf 'spare\\n'; sleep 600"); err != nil {
+		t.Fatal(err)
+	}
+	if lines := explained(t, "acme"); lines[0] != "acme  working" {
+		t.Fatal(lines)
+	}
+	pid, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_pid}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("kill", "-9", pid).CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		dead, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_dead}")
+		if dead == "1" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the harness never exited")
+		}
+	}
+	if lines := explained(t, "acme"); lines[0] != "acme  idle" {
+		t.Fatal(lines)
+	}
+}
+
+// A tick's environment may name no UTF-8 locale, where tmux would answer every format without its tabs.
+func TestASeatIsReadOutsideAUTF8Locale(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	drawn(t, home, "acme", spinning)
+	t.Setenv("LC_ALL", "C")
+	if lines := explained(t, "acme"); lines[0] != "acme  working" {
+		t.Fatal(lines)
+	}
+}
+
 func TestTheSeatFileIsPythonsAndMovesOnlyWithTheWord(t *testing.T) {
 	home := sandbox(t)
 	record(t, home, "acme", nil)

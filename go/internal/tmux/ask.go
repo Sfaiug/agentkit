@@ -16,6 +16,6 @@ func Ask(server string, args ...string) (string, error) {
 func AskWithin(bound time.Duration, server string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), bound)
 	defer cancel()
-	out, err := command(ctx, server, args...).Output()
+	out, err := asked(ctx, server, args...)
 	return strings.TrimSpace(string(out)), err
 }
