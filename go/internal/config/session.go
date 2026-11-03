@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -26,6 +27,9 @@ const Renamed = "renamed"
 func Fold(text string) string {
 	return strings.Join(strings.FieldsFunc(text, Space), " ")
 }
+
+// Inbox is the seat other people's pull requests are offered in, Python's inbox.
+func Inbox() string { return cmp.Or(os.Getenv("AGENTKIT_INBOX_SESSION"), "inbox") }
 
 func sessionPath(name string) (string, error) {
 	if name == "" || name == "." || name == ".." || filepath.Base(name) != name {

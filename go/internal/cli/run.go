@@ -7,12 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"agentkit/internal/box"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/gh"
 	"agentkit/internal/job"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
@@ -22,8 +22,6 @@ import (
 
 const runFlagsUsage = "ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] [--first] [--bg]"
 const runUsage = "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N] | ak run --review-pr <url> | ak run status [<runid>] | ak run resume <runid> | ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc"
-
-var pullURL = regexp.MustCompile(`^https://github\.com/[^/\s]+/[^/\s]+/pull/[0-9]+/?$`)
 
 func init() {
 	commands["run"] = launchRun
@@ -39,18 +37,28 @@ func runClean(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// launchRun is `ak run <task.md>` where Go makes the launch: one task preflight refuses, recorded
-// as a run in error, or a run preflight passes, which it follows unless told --bg.  Any other launch
+// launchRun is `ak run <task.md>` or `ak run --review-pr <url>` where Go makes the launch: one
+// preflight refuses, recorded as a run in error, or a run preflight passes, which it follows unless
+// told --bg.  Any other launch
 // it leaves to Python before it writes anything.  `--drive` is that run's own process.
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {
 		return loop.Drive(args[1])
 	}
 	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)
-	if runSubcommand(args) || problem != "" || len(parsed.words) != 1 {
+	var code int
+	var reason string
+	var err error
+	switch url := parsed.values["--review-pr"]; {
+	case runSubcommand(args) || problem != "":
+		return notImplemented(errOut, "run")
+	case url != "":
+		code, reason, err = launch.Review(url, parsed.values, parsed.flags, out, errOut)
+	case len(parsed.words) == 1:
+		code, reason, err = launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
+	default:
 		return notImplemented(errOut, "run")
 	}
-	code, reason, err := launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return notImplemented(errOut, "run")
@@ -98,7 +106,7 @@ func validateRun(args []string) string {
 		if len(parsed.words) > 0 || parsed.values["--rounds"] != "" || parsed.values["--exec"] != "" || parsed.flags["--no-worktree"] || parallel {
 			return "usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: no task file, no executor, no rounds"
 		}
-		if !pullURL.MatchString(url) {
+		if !gh.PullURL.MatchString(url) {
 			return fmt.Sprintf("--review-pr needs a GitHub PR URL (got %s)", commandhelp.Quote(url))
 		}
 	} else if len(parsed.words) == 0 {

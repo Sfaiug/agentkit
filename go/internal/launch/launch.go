@@ -2,8 +2,8 @@
 // its loop: the run's id and directory, the task's copy, the receipt, the gate's admission,
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
-// scratch task's or a repository's with --no-merge or --no-worktree, and that run goes on in
-// package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
+// scratch task's or a repository's with --no-merge or --no-worktree, or a review of somebody else's
+// pull request from no seat, and that run goes on in package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
 // anything, so preflight is settled first.
 package launch
 
@@ -64,13 +64,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
 		stem = stem[:dot]
 	}
-	id := time.Now().Format("20060102-1504-") + task.Slug(task.Title(text, stem))
-	dir := filepath.Join(run.Runs(), id)
-	taken, err := exists(dir)
-	for n := 2; taken && err == nil; n++ {
-		dir = filepath.Join(run.Runs(), id+"-"+strconv.Itoa(n))
-		taken, err = exists(dir)
-	}
+	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(task.Title(text, stem)))
 	if err != nil {
 		return 0, "", err
 	}
@@ -83,31 +77,9 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if err != nil {
 		return 0, "", err
 	}
-	// a reader that stops reading ends the reading, never the launch: a line to a closed
-	// stdout goes nowhere, as Python's say has it, where Go's runtime would die of SIGPIPE
-	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+	log, unstopped := logger(dir, out), guarded(dir, out)
 	logged := filepath.Join(dir, "log.txt")
-	log := func(message string) error {
-		line := time.Now().Format("[15:04:05] ") + message + "\n"
-		io.WriteString(out, line)
-		file, err := os.OpenFile(logged, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-		if err != nil {
-			return err
-		}
-		_, err = file.WriteString(line)
-		return cmp.Or(err, file.Close())
-	}
 	title := task.Title(text, "task")
-	unstopped := func(change func(*run.Object)) error {
-		return run.Change(dir, func(record *run.Object) error {
-			if record.Str("state") == "stopped" {
-				io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
-				return ErrStopped
-			}
-			change(record)
-			return nil
-		})
-	}
 	for _, step := range []func() error{
 		config.EnsureDirs,
 		func() error { return os.Mkdir(dir, 0o777) },
@@ -124,6 +96,53 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		code, err := drive(dir, meta, place, warning, flags, unstopped, log, out, errOut)
 		return code, "", err
 	}
+	return refuse(dir, reason, warning, log)
+}
+
+// freeDir is the run's directory under that id, `-N` after it where the id is taken.
+func freeDir(id string) (string, error) {
+	dir := filepath.Join(run.Runs(), id)
+	taken, err := exists(dir)
+	for n := 2; taken && err == nil; n++ {
+		dir = filepath.Join(run.Runs(), id+"-"+strconv.Itoa(n))
+		taken, err = exists(dir)
+	}
+	return dir, err
+}
+
+// logger says a line on out and in the run's log.  A reader that stops reading ends the reading,
+// never the launch: a line to a closed stdout goes nowhere, as Python's say has it, where Go's
+// runtime would die of SIGPIPE.
+func logger(dir string, out io.Writer) func(string) error {
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+	return func(message string) error {
+		line := time.Now().Format("[15:04:05] ") + message + "\n"
+		io.WriteString(out, line)
+		file, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		if err != nil {
+			return err
+		}
+		_, err = file.WriteString(line)
+		return cmp.Or(err, file.Close())
+	}
+}
+
+// guarded changes the record unless a stop landed, which it says on out.
+func guarded(dir string, out io.Writer) func(func(*run.Object)) error {
+	return func(change func(*run.Object)) error {
+		return run.Change(dir, func(record *run.Object) error {
+			if record.Str("state") == "stopped" {
+				io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
+				return ErrStopped
+			}
+			change(record)
+			return nil
+		})
+	}
+}
+
+// refuse ends a launch its receipt already records, as a run in error.
+func refuse(dir, reason, warning string, log func(string) error) (int, string, error) {
 	var ended *run.Object // the record as the refusal leaves it
 	for _, step := range []func() error{
 		func() error {
@@ -155,12 +174,10 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: a pull request's review, any that leaves elsewhere, one Python's rival
-// check may refuse, a config Python refuses before its run, or a string for the record Python
-// would write with a lone surrogate.
+// cannot read as it does: any that leaves elsewhere, one Python's rival check may refuse, a config
+// Python refuses before its run, or a string for the record Python would write with a lone surrogate.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	_, review := values["--review-pr"]
-	if review || elsewhere() || len(bound.Workers) == 0 || !readable(path) ||
+	if elsewhere() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
@@ -362,14 +379,19 @@ func holdSlots() (*os.File, error) {
 	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
 }
 
-// receive writes the launch's receipt, its first record, as Python's capture_launch writes it
-// under the slots lock, with the gate's outright admission.
+// receive writes the launch's receipt under the slots lock.
 func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
+	return receipt(dir, path, values, flags, bound)
+}
+
+// receipt is the launch's first record, as Python's capture_launch writes it, with the gate's
+// outright admission; its caller holds the slots lock.
+func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
 	depth, _ := runDepth()
 	var parent, identity any
 	if value, set := os.LookupEnv("AK_PARENT_RUN"); set {
@@ -388,13 +410,13 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 	for _, flag := range Switches {
 		launched.Set(flag, flags[flag])
 	}
-	receipt := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
+	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
 		"launched_session", nil, "started_at", now(), "queued_at", now(), "slot_waiting", false,
 		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
 		"unattended", os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
 		"process_identity", identity, "launch_opts", launched}
 	if bound.Reviewers != nil {
-		receipt = append(receipt, "workers", bound.Workers, "reviewers", bound.Reviewers)
+		first = append(first, "workers", bound.Workers, "reviewers", bound.Reviewers)
 	}
 	for _, model := range bound.Models {
 		keys := run.NewObject()
@@ -403,12 +425,20 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 		}
 		efforts.Set(model, keys)
 	}
-	receipt = append(receipt, "efforts", efforts, "review_pr", nil, "reported", false, "base_proof", "owed",
-		"notify_sink", sink(), "task_file", path)
-	if flags["--first"] {
-		receipt = append(receipt, "first", true)
+	// a review's proof is its plan's lines, and it has no task file
+	var reviewed, proof any = nil, "owed"
+	if url, given := values["--review-pr"]; given {
+		reviewed, proof = url, nil
 	}
-	return run.Create(dir, run.Fields(append(receipt, "slot_started_at", now())...))
+	first = append(first, "efforts", efforts, "review_pr", reviewed, "reported", false, "base_proof", proof,
+		"notify_sink", sink())
+	if path != "" {
+		first = append(first, "task_file", path)
+	}
+	if flags["--first"] {
+		first = append(first, "first", true)
+	}
+	return run.Create(dir, run.Fields(append(first, "slot_started_at", now())...))
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

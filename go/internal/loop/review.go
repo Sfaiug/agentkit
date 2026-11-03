@@ -234,14 +234,19 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 	for _, row := range submitted.Records {
 		records = append(records, row)
 	}
-	executed, err := l.model(l.executor)
-	if err != nil {
-		return false, err
+	// a review of somebody else's PR has no executor, nor its provider
+	var executedOn any
+	if l.executor != "" {
+		executed, err := l.model(l.executor)
+		if err != nil {
+			return false, err
+		}
+		executedOn = executed.Provider
 	}
 	tail := []rune(strings.TrimFunc(text, config.Space))
 	entry := run.Fields("round", l.rnd, "verdict", verdict, "done_when", ok, "finding_count", len(findings),
 		"summary", strings.TrimFunc(summary, config.Space))
-	review := run.Fields("executor", l.executor, "executor_provider", executed.Provider, "reviewer", l.reviewer,
+	review := run.Fields("executor", none(l.executor), "executor_provider", executedOn, "reviewer", l.reviewer,
 		"reviewer_provider", reviewed.Provider, "returncode", code, "verdict", verdict, "done_when", ok)
 	run.SetAll(entry, evidence...)
 	run.SetAll(review, evidence...)

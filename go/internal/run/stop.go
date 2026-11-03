@@ -106,10 +106,19 @@ func Report(dir string, record *Object) error {
 		return err
 	}
 	defer delivery.Close()
-	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: ak run %s\n\n",
+	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s\n\n",
 		cmp.Or(record.Str("title"), filepath.Base(dir)), cmp.Or(record.Str("verdict"), "none"),
-		cmp.Or(record.Str("error"), "no reason was recorded"), filepath.Join(dir, "task.md"))
+		cmp.Or(record.Str("error"), "no reason was recorded"), Relaunch(dir, record))
 	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(result), 0o666)
+}
+
+// Relaunch is the command that starts a run's work over: a review's task file, launched alone,
+// would build a change of its own titled after the review.
+func Relaunch(dir string, record *Object) string {
+	if record.Truthy("review_pr") {
+		return "ak run --review-pr " + record.Str("review_pr")
+	}
+	return "ak run " + filepath.Join(dir, "task.md")
 }
 
 // note is one line in the run's log; a log it cannot write costs the stop nothing.
