@@ -231,11 +231,6 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if !known || !only(record, recordFields) {
 		return Seat{}, false
 	}
-	if seat.Warning == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, models, offered); !known {
-			return Seat{}, false
-		}
-	}
 	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	fields := seatFields
 	if live {
@@ -244,6 +239,11 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || err == nil && (previous == nil || !only(previous, fields)) ||
 		!live && previous != nil && previous.Get("unasked") != nil {
 		return Seat{}, false
+	}
+	if seat.Warning == "" { // a record Python cannot read moves nothing
+		if seat.follow, known = follows(record, previous, models, offered); !known {
+			return Seat{}, false
+		}
 	}
 	// Python offers a stopped seat that owns no conversation a fresh start, which Go does not word yet
 	if seat.closed, known = stopped(previous); !known || seat.closed && seat.unowned {

@@ -53,14 +53,14 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	}
 	// the follow moves the seat from the model this record names, so both come from one reading
 	seat.Orchestrator = record.Str("orchestrator")
-	if complaint == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, models, offered); !known {
-			return Seat{}, nil, false
-		}
-	}
 	file, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || keptBack(file) {
 		return Seat{}, nil, false
+	}
+	if complaint == "" { // a record Python cannot read moves nothing
+		if seat.follow, known = follows(record, file, models, offered); !known {
+			return Seat{}, nil, false
+		}
 	}
 	if seat.handBacks, known = settled(name, now); !known {
 		return Seat{}, nil, false

@@ -20,6 +20,9 @@ type Kept struct {
 // Last is the seat's notice while it stands, nil otherwise (notify.last).
 func Last(seat string) *run.Object { return open(seat) }
 
+// Questions are those a needs notice asks, in the order asked.
+func Questions(notice *run.Object) []string { return questions(notice) }
+
 // OwnerQuestion is whether the notice is a question of the seat's: only a watcher's alerts are not,
 // which have their own latches (watch.owner_question).
 func OwnerQuestion(notice *run.Object) bool {

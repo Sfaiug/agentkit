@@ -23,7 +23,7 @@ type plugin struct {
 	seats   bool
 	fresh   string
 	receipt string
-	answer  func(conversation, cwd, account string) (model, effort any, found bool)
+	answer  func(conversation, cwd, account string) (model, effort, at any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
@@ -95,13 +95,13 @@ func Opens(name string) (titled, known bool) {
 	return plugins[name].titled && (!set || at), err == nil
 }
 
-// LastAnswer is the model and effort of the last answer a seat's conversation records, as
-// Python's plugin `running` reads it; false where that harness records none Go reads.
-func LastAnswer(name, conversation, cwd, account string) (model, effort any, found bool) {
+// LastAnswer is the model, effort and time of the last answer a seat's conversation records, as
+// Python's plugin `running` reads them; false where that harness records none Go reads.
+func LastAnswer(name, conversation, cwd, account string) (model, effort, at any, found bool) {
 	if hook := plugins[name].answer; hook != nil {
 		return hook(conversation, cwd, account)
 	}
-	return nil, nil, false
+	return nil, nil, nil, false
 }
 
 // PaysItsOwnWay is whether that harness's own config says how a model of it is paid, which Go
