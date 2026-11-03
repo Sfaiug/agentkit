@@ -13,14 +13,22 @@ import (
 	"agentkit/internal/run"
 )
 
+// codexLaunch is the record's key naming its launch's receipt, and codexSource the `id_source` of
+// a thread that receipt proves (codex.py SOURCE).
+const codexLaunch, codexSource = "codex_launch", "codex-session-start"
+
 // launchToken is a launch receipt's own name for itself (codex.py `path_for`).
 var launchToken = regexp.MustCompile(`^[0-9a-f]{32}$`)
+
+// codexKept are the files state/ holds for a Codex seat beside its record (codex.py `path_for`,
+// `remote_home` and its `.forgotten` mark), each named by a uuid4's hex.
+var codexKept = regexp.MustCompile(`^codex-(?:launch-[0-9a-f]{32}\.json|remote-[0-9a-f]{32}(?:\.forgotten)?)$`)
 
 // codexReceipt is the receipt of the launch the record names (codex.py `read`), read under the
 // lock its SessionStart hook writes it in place under, which never makes the file; nil where it
 // names none, another launch's, or none that reads.
 func codexReceipt(record *run.Object) *run.Object {
-	token := record.Str("codex_launch")
+	token := record.Str(codexLaunch)
 	if !launchToken.MatchString(token) {
 		return nil
 	}
@@ -41,28 +49,28 @@ func codexReceipt(record *run.Object) *run.Object {
 	return receipt
 }
 
-// codexRollout is the rollout Codex keeps the seat's own thread in (codex.py `conversation` and
-// `transcript`): the one its launch's SessionStart reported, unambiguous, opened in the receipt's
-// own directory, and so recorded in that rollout's first line.  "" for none.
-func codexRollout(record *run.Object) string {
+// codexThread is the thread the seat owns and the rollout Codex keeps it in (codex.py
+// `conversation` and `transcript`): the one its launch's SessionStart reported, unambiguous, opened
+// in the receipt's own directory, and so recorded in that rollout's first line.  "" for none.
+func codexThread(record *run.Object) (thread, rollout string) {
 	receipt := codexReceipt(record)
 	if receipt == nil || receipt.Truthy("ambiguous") || receipt.Dict("event") == nil {
-		return ""
+		return "", ""
 	}
 	event := receipt.Dict("event")
 	sid, _ := event.Get("session_id").(string)
-	rollout, _ := event.Get("transcript_path").(string)
+	rollout, _ = event.Get("transcript_path").(string)
 	cwd, _ := receipt.Get("cwd").(string)
 	source := event.Get("source")
 	if sid == "" || strings.HasPrefix(sid, "-") || !filepath.IsAbs(rollout) || !filepath.IsAbs(cwd) ||
 		event.Get("hook_event_name") != "SessionStart" || source != "startup" && source != "resume" ||
 		event.Get("cwd") != cwd || receipt.Get("expected") != nil && receipt.Get("expected") != sid ||
-		record.Str("id_source") == "codex-session-start" && record.Get("conversation") != sid {
-		return ""
+		record.Str("id_source") == codexSource && record.Get("conversation") != sid {
+		return "", ""
 	}
 	file, err := os.Open(rollout)
 	if err != nil {
-		return ""
+		return "", ""
 	}
 	defer file.Close()
 	first, _ := bufio.NewReader(file).ReadBytes('\n')
@@ -70,9 +78,28 @@ func codexRollout(record *run.Object) string {
 	meta, _ := value.(*run.Object)
 	if meta == nil || meta.Get("type") != "session_meta" || meta.Dict("payload") == nil ||
 		meta.Dict("payload").Get("id") != sid || meta.Dict("payload").Get("cwd") != cwd {
-		return ""
+		return "", ""
 	}
-	return rollout
+	return sid, rollout
+}
+
+// codexOwns is whether the receipt proves that thread the seat's (orch.owns).
+func codexOwns(record *run.Object, conversation string) bool {
+	thread, _ := codexThread(record)
+	return thread == conversation
+}
+
+// codexReconcile is what a listing writes down before anything claims the seat resumable (codex.py
+// `reconcile`): resumable only on a proven thread, and that thread then its own.
+func codexReconcile(record *run.Object) *run.Object {
+	thread, _ := codexThread(record)
+	fields := run.NewObject()
+	fields.Set("resumable", thread != "")
+	if thread != "" {
+		fields.Set("conversation", thread)
+		fields.Set("id_source", codexSource)
+	}
+	return fields
 }
 
 // codexError is the error Codex recorded as the end of the seat's thread's last turn (codex.py
@@ -80,7 +107,7 @@ func codexRollout(record *run.Object) string {
 // showed, a `task_started` after it is a newer prompt, and the last item of a turn in flight says
 // the same.  False where the seat owns no thread or its rollout cannot be read.
 func codexError(record *run.Object) (string, bool) {
-	rollout := codexRollout(record)
+	_, rollout := codexThread(record)
 	if rollout == "" {
 		return "", false
 	}
@@ -108,7 +135,7 @@ func codexError(record *run.Object) (string, bool) {
 // (`turn_context`), so `/model` typed in the seat shows at its next answer, and a turn that never
 // answered shows nothing.
 func codexAnswer(record *run.Object) (model, effort, at any, found bool) {
-	rollout := codexRollout(record)
+	_, rollout := codexThread(record)
 	if rollout == "" {
 		return nil, nil, nil, false
 	}

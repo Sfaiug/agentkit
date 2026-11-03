@@ -80,3 +80,31 @@ func TestCodexAnswerIsTheTurnContextOfTheLatestAnswer(t *testing.T) {
 		t.Error("a turn that never answered shows a model")
 	}
 }
+
+// TestCodexOwnsAndReconcilesTheThreadItsReceiptProves: a listing writes down the proven thread as the
+// seat's own and resumable (codex.py `reconcile`), and only that thread is the seat's (orch.owns).
+func TestCodexOwnsAndReconcilesTheThreadItsReceiptProves(t *testing.T) {
+	token, write := codexSeat(t)
+	write("")
+	record := run.NewObject()
+	record.Set("codex_launch", token)
+	if fields := Reconciled("codex", record); fields.Get("resumable") != true || fields.Str("conversation") != "t1" || fields.Str("id_source") != "codex-session-start" {
+		t.Errorf("reconciled %v", fields.Keys())
+	}
+	if owned, known := Owns("codex", record, "t1"); !owned || !known {
+		t.Error("its proven thread is not its own")
+	}
+	if owned, _ := Owns("codex", record, "t2"); owned {
+		t.Error("another thread is its own")
+	}
+	record.Set("codex_launch", strings.Repeat("b", 32))
+	if fields := Reconciled("codex", record); fields.Get("resumable") != false || fields.Has("conversation") {
+		t.Errorf("an unproven thread reconciled %v", fields.Keys())
+	}
+	for entry, kept := range map[string]bool{"codex-launch-" + token + ".json": true, "codex-remote-" + token: true,
+		"codex-remote-" + token + ".forgotten": true, "codex-launch-x.json": false, "session-acme.json": false} {
+		if KeptInState(entry) != kept {
+			t.Errorf("%s kept: %v", entry, !kept)
+		}
+	}
+}

@@ -52,6 +52,9 @@ type Seat struct {
 	home                                              []string // where the menu files it (orch.home_key)
 	follow                                            move     // what its last answer moves in its record
 	mine                                              []ran    // its own runs, which its ladder reads
+
+	// what its harness writes into its record before a listing reads it
+	reconciled *run.Object
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -120,7 +123,7 @@ func reading(now time.Time, looking bool) (Home, bool) {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
 		// home is given and the usage the screen's grid shows say nothing a word hangs on: a seat's
 		// own wait on its usage is in its seat file
-		if entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
+		if harness.KeptInState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || entry.Name() == "usage.json" ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
@@ -229,7 +232,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 		return Seat{}, false
 	}
 	seat, known := recorded(state, name, record, models)
-	if !known || !only(record, recordFields) {
+	if !known || !only(record, slices.Concat(recordFields, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
 		return Seat{}, false
 	}
 	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
@@ -291,10 +294,14 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	created, dated := number(record.Get("created"))
 	// as launched, or as reconcile leaves a record whose harness proves no conversation it names
 	resumable := record.Get("resumable") == true || restart != "" && record.Get("resumable") == false
-	owned, _ := harness.Owns(models[record.Str("orchestrator")].Harness, record, record.Str("conversation"))
+	own := models[record.Str("orchestrator")].Harness
+	owned, _ := harness.Owns(own, record, record.Str("conversation"))
 	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
 		!text(record.Get("conversation")) || record.Str("id_source") != "launcher" && !owned || !resumable {
 		return Seat{}, false
+	}
+	if owned { // a conversation its harness proves comes back with it (orch.listing's `restart`)
+		restart = ""
 	}
 	// what a record naming reviewers may hold otherwise is config._validate_session's to judge
 	if record.Has("reviewers") {
@@ -304,7 +311,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	}
 	seat := Seat{Name: name, Word: "idle", Tally: "no runs yet", Orchestrator: record.Str("orchestrator"), Workers: workers,
 		Created: created, restart: restart, repo: record.Get("repo"), infer: !record.Has("repo"),
-		unowned: restart == "" && record.Str("conversation") == ""}
+		unowned: restart == "" && record.Str("conversation") == "", reconciled: harness.Reconciled(own, record)}
 	if complaint != "" {
 		seat.Orchestrator, seat.Workers = "?", "?"
 		seat.Warning = filepath.Join(state, "session-"+name+".json") + ": " + complaint
@@ -416,8 +423,10 @@ func (home Home) Announce(now time.Time) error {
 func reconcile(state string, records []Seat, infer bool) error {
 	for _, seat := range records {
 		var fields []field
-		if seat.restart != "" {
-			fields = append(fields, field{"resumable", false})
+		if seat.reconciled != nil {
+			for _, key := range seat.reconciled.Keys() {
+				fields = append(fields, field{key, seat.reconciled.Get(key)})
+			}
 		}
 		if infer && seat.infer {
 			fields = append(fields, field{"repo", seat.repo})
