@@ -65,7 +65,8 @@ class HealthBreakBlamesFirstMerge(unittest.TestCase):
     def expire(self, *paths):
         for path in paths:
             record = json.loads(path.read_text())
-            self.assertEqual(record["health"]["output"], "down")
+            if not record.get("live_at"):
+                self.assertEqual(record["health"]["output"], "down")
             record["finished_at"] -= 3 * 3600
             path.write_text(json.dumps(record))
 
@@ -95,6 +96,41 @@ class HealthBreakBlamesFirstMerge(unittest.TestCase):
         self.assertEqual(self.blame(), {"acme-one": ""})
         self.assertFalse(any("/check-runs" in arg for call in self.home.calls("gh")
                              for arg in call))
+
+    def test_an_expired_pass_is_still_the_cutoff_for_retained_failures(self):
+        first, _ = self.merge("acme-one", 1, 1800, "echo down; exit 1")
+        green, _ = self.merge("acme-green", 2, 1200, "exit 0")
+        second, _ = self.merge("acme-two", 3, 600, "echo down; exit 1")
+        self.tick()
+        passed = json.loads(green.read_text())
+        self.assertIsInstance(passed.get("live_notified"), (int, float))
+        passed.pop("merge_sha")  # a known pass needs no further commit discovery
+        green.write_text(json.dumps(passed))
+        self.expire(first, green, second)
+        self.tick()
+        self.assertEqual(self.seats["acme-one"].typed(), "")
+        self.assertEqual(self.seats["acme-green"].typed(), "")
+        self.assertEqual(len(self.seats["acme-two"].lines()), 1)
+        self.assertEqual(self.blame(), {"acme-one": "", "acme-green": "",
+                                       "acme-two": "health"})
+
+    def test_a_queued_check_notice_is_retired_while_health_is_pending(self):
+        path, sha = self.merge("acme-one", 1, 600, "echo down; exit 1")
+        self.gh.check(sha, "nightly", conclusion="failure")
+        pending = {"sha": sha, "line": "nightly failed on main after this merge.",
+                   "typed": None, "run": "acme-one", "check": "nightly",
+                   "finished": json.loads(path.read_text())["finished_at"],
+                   "target": "main", "session": "acme-one"}
+        key = "github.com/acme/app"
+        for source in ({"source": "checks"}, {}):
+            with self.subTest(source=source):
+                self.home.write(".agentkit/state/watch.json", {
+                    "after_merge": {key: {"pending": {**pending, **source}}}})
+                self.tick()
+                state = json.loads((self.home.path / ".agentkit/state/watch.json").read_text())
+                self.assertNotIn(key, state["after_merge"])
+                self.assertEqual(self.seats["acme-one"].typed(), "")
+                self.assertEqual(self.blame(), {"acme-one": ""})
 
 
 if __name__ == "__main__":

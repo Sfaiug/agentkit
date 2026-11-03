@@ -7748,10 +7748,10 @@ def after_merge_checks(state, dry_run, log, now=None):
         if (not isinstance(finished, (int, float)) or isinstance(finished, bool)
                 or not 0 <= now - finished):
             continue
-        # past the window, only a probe that failed inside it is followed further: the
-        # `health:` a merge recorded and no probe ever ran is let go, the merge commit unasked
+        # Past the window, retain failed probes and passes that bound their episodes.
+        # A declaration no probe ever ran is let go, the merge commit unasked.
         if (now - finished > AFTER_MERGE_WINDOW and "output" not in (st.get("health") or {})
-                and not (st.get("live_at") and not st.get("live_notified"))):
+                and not st.get("live_at")):
             continue
         pr_url = st.get("pr")
         if not isinstance(pr_url, str) or not pr_url:
@@ -7760,9 +7760,8 @@ def after_merge_checks(state, dry_run, log, now=None):
         if not parsed:
             continue
         key = parsed[3]
-        sha = after_merge_sha(pr_url, st, log)
         grouped.setdefault(key, []).append(
-            (finished, run_dir.name, run_dir, st, sha or None, pr_url))
+            (finished, run_dir.name, run_dir, st, pr_url))
     for key in sorted(set(grouped) | set(episodes)):
         found = sorted(grouped.get(key, []))
         statuses = []
@@ -7775,7 +7774,14 @@ def after_merge_checks(state, dry_run, log, now=None):
                     with run_record.record(directory) as current:
                         current.pop("health", None)
 
-        for finished, name, run_dir, st, sha, pr_url in found:
+        for finished, name, run_dir, st, pr_url in found:
+            if (now - finished > AFTER_MERGE_WINDOW and st.get("live_at")
+                    and st.get("live_notified")):
+                # A recorded pass remains a cutoff without rediscovering its commit or health.
+                statuses.append((finished, name, run_dir, st, st.get("merge_sha"), pr_url,
+                                 "passed", None, None))
+                continue
+            sha = after_merge_sha(pr_url, st, log)
             if sha is None:
                 statuses.append((finished, name, run_dir, st, None, pr_url,
                                  "unknown", None, None))
@@ -7837,7 +7843,7 @@ def after_merge_checks(state, dry_run, log, now=None):
             sha = pending.get("sha")
             finished = _when(pending.get("finished"))
             run_name = pending.get("run")
-            if (not isinstance(line, str) or not line
+            if (pending.get("source") != "health" or not isinstance(line, str) or not line
                     or not isinstance(sha, str) or not sha or finished is None
                     or not isinstance(run_name, str) or not run_name):
                 episode.pop("pending", None)
