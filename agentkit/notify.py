@@ -415,10 +415,11 @@ def session_lock(session, wait=True):
                     continue       # a rename won while this writer waited for the lock
                 _HELD.names.add(session)
                 try:
-                    from . import watch
-                    prefix = watch.seat_read(session).get("clear_questions")
-                    if isinstance(prefix, str):
-                        clear(session, prefix=prefix)
+                    for path in outbox().glob("*.clear"):
+                        request = config._read_json(path)
+                        if request and _name_now(request["session"]) == session:
+                            clear(session, prefix=request["prefix"])
+                            path.unlink(missing_ok=True)
                     yield session
                 finally:
                     _HELD.names.discard(session)
@@ -792,11 +793,12 @@ def clear(session, *, notice=None, prefix=None, wait=True):
     standing or kept back; every other question keeps its words and dates. A hook's
     `wait=False` leaves retirement for the next lock holder if this one is busy."""
     if prefix is not None and not wait:
-        from . import watch
-        watch.seat_write(session, clear_questions=prefix)
+        outbox().mkdir(parents=True, exist_ok=True)
+        config._write_json(outbox() / f"{secrets.token_hex(16)}.clear",
+                           {"session": session, "prefix": prefix})
     with session_lock(session, wait=wait) as session:
         if session is None:
-            return False
+            return
         if notice is None:
             from . import watch    # here, not at the top: watch imports this module
             if prefix is None:
@@ -806,9 +808,8 @@ def clear(session, *, notice=None, prefix=None, wait=True):
                     data = watch.seat_read(session)
                     kept = watch.questions_kept(data.get("unasked"))
                     remaining = [q for q in kept if not q["text"].startswith(prefix)]
-                    if remaining != kept or data.get("clear_questions") == prefix:
-                        watch._seat_put(session, data, {"unasked": watch._kept(remaining),
-                                                       "clear_questions": None})
+                    if remaining != kept:
+                        watch._seat_put(session, data, {"unasked": watch._kept(remaining)})
         previous = dict(last(session, include_seen=True) or {})
         if not previous or previous.get("seen"):
             return

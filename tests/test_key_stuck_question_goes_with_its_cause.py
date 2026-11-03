@@ -1,7 +1,4 @@
-"""ak's third-stop question ends with its cause, leaving the seat's own questions standing.
-
-Black-box: AK_BIN's registered hooks and CLI, in a throwaway Home, judged by their records.
-"""
+"""AK_BIN's hooks retire only ak's stuck question when its cause ends, in an isolated HOME."""
 
 import json
 import sys
@@ -21,7 +18,6 @@ class StuckQuestionGoesWithItsCause(unittest.TestCase):
         for ending in ("wait", "plan", "question", "stuck"):
             with self.subTest(ending=ending), Home(tmux_log=False) as home:
                 hooks = Hooks(home)
-                state = home.path / ".agentkit/state"
                 plan = home.write(".agentkit/state/plan-acme.md", "- [ ] fix the parser\n")
 
                 def fire(event, **payload):
@@ -30,7 +26,7 @@ class StuckQuestionGoesWithItsCause(unittest.TestCase):
                     return result.said
 
                 def read(kind):
-                    return json.loads((state / f"{kind}-acme.json").read_text())
+                    return json.loads((home.path / f".agentkit/state/{kind}-acme.json").read_text())
 
                 fire("UserPromptSubmit", prompt="go")
                 for stop in range(3):

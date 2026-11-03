@@ -305,11 +305,16 @@ def held(launched, payload):
     ends, undecided = recorded_ending(seat, question=asked, since=turn)
     if any(q.startswith(STUCK) for q in pending):
         if ends or lifecycle.waits_on(payload):
-            if notify.clear(seat, prefix=STUCK, wait=False) is False:
-                return ""    # its own facts end the turn; the next notice lock retires the question
+            notify.clear(seat, prefix=STUCK, wait=False)
         else:
             return ""    # still stuck: the owner was asked once, and nothing has changed
+    pending = [q for q in questions.pending(seat) if q.startswith(STUCK)]
     delivery = questions.reminder(seat, last_message(payload))
+    if pending:
+        for question in pending:
+            delivery = delivery.replace("\n\n" + question, "", 1)
+        if "\n\n" not in delivery:
+            delivery = ""
     if not delivery and lifecycle.waits_on(payload):
         return ""
     if not delivery and last_message(payload) is None:
