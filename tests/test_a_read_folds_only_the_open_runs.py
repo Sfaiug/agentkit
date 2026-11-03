@@ -110,8 +110,10 @@ class ReadFoldsOnlyTheOpenRuns(Sandbox):
                   for age in [menu.silent_for_run(run_dir, state, now=NOW)] if age}
         self.assertEqual(menu.FOLDS.of(records, NOW), (
             transitions.supersession_index(records), transitions.runs_by_seat(records), silent))
-        self.assertEqual(self.groups, menu.v5o_groups(self.cfg, self.found, list(records),
-                                                      look=False))
+        for kind in (list, iter):
+            with self.subTest(records=kind.__name__):
+                self.assertEqual(self.groups, menu.v5o_groups(self.cfg, self.found, kind(records),
+                                                              look=False))
 
     def test_1_a_read_folds_each_open_run_once(self):
         calls = self.counted()
