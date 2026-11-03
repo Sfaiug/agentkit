@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 	"agentkit/internal/usage"
 )
@@ -21,13 +22,6 @@ const (
 	endsWithin = 7 * 86400 // how near its end a login's meter turns amber (logins.WARN_WITHIN)
 	tokenLife  = 365       // days a worker token lives from its file's date (watch.TOKEN_LIFE_DAYS)
 	tokenWarn  = 14        // days out the ak screen says it (watch.TOKEN_WARN_DAYS)
-)
-
-// Each company's own name and colour, a provider's `name` and `colour` keys winning; one named in
-// neither is its key capitalised, and the accent, Mocha's blue.
-var (
-	companyNames   = map[string]string{"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok", "google": "Gemini", "mimo": "MiMo"}
-	companyColours = map[string]string{"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3", "google": "#203B9B", "mimo": "#FB8046"}
 )
 
 // Cells is each subscription as the grid draws it from what usage.json and logins.json hold as they
@@ -61,8 +55,10 @@ func Cells(now time.Time) ([]Cell, error) {
 		if err != nil {
 			return nil, err
 		}
-		grey, place := hue(cmp.Or(colour, companyColours[sub.Name], "#89b4fa"))
-		rows = append(rows, shown{sub, cmp.Or(name, companyNames[sub.Name], titled(sub.Name)), grey, place})
+		// a provider named nowhere is its key capitalised, in the accent, Mocha's blue
+		ownName, ownColour := harness.Company(sub.Name)
+		grey, place := hue(cmp.Or(colour, ownColour, "#89b4fa"))
+		rows = append(rows, shown{sub, cmp.Or(name, ownName, titled(sub.Name)), grey, place})
 	}
 	slices.SortStableFunc(rows, func(a, b shown) int {
 		if a.grey != b.grey {
