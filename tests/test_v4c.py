@@ -557,7 +557,9 @@ sys.exit(item.get("rc", 0))
                 patch.object(gitcall, "fetch", return_value=(0, "")), \
                 contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(run.main(["merge", "passed"]), 1)
-            self.assertIn("# PASS, not merged: gh pr merge --squash failed", (d / "result.md").read_text())
+            lines = (d / "result.md").read_text().splitlines()
+            self.assertEqual(lines[0], "# NOT MERGED (0 of 1) — Test")
+            self.assertTrue(lines[1].startswith("Why: gh pr merge --squash failed"), lines[1])
             self.reply(key, {})
             self.assertEqual(run.main(["merge", "passed"]), 0)
             after = run_record.read_state(d)

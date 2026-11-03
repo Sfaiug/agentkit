@@ -120,7 +120,8 @@ class GoLaunches(unittest.TestCase):
                          {"state": "pass", "verdict": "PASS", "no_merge": True, "merged": False,
                           "branch": "ak/add-retry-file"})
         lines = (run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# PASS, not merged: --no-merge — Add retry file")
+        self.assertEqual(lines[0], "# NOT MERGED (1 of 3) — Add retry file")
+        self.assertEqual(lines[1], "Why: --no-merge")
         tree = home.run("git", "-C", state["worktree"], "ls-tree", "--name-only", "HEAD")
         self.assertIn("retry.txt", tree.out.split())
         self.assertEqual(marked(run_dir), [])
