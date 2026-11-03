@@ -8016,6 +8016,43 @@ def runs_health():
     return line, stuck
 
 
+def gates_health():
+    """Gate use from the ledger, with live waits taking precedence over their last poll."""
+    from . import gate
+    now, holding = time.time(), set()
+    last = history.gate_holds()
+    for _, state in run_record.runs():
+        if not run_record.process_active(state):
+            continue
+        if state.get("state") == "queued" and state.get("slot_waiting"):
+            if name := history.SLOT_GATES.get(state.get("slot_wait_kind")):
+                holding.add(name)
+        if gate.gate_turn_note(state):
+            holding.add("suite turns")
+    # A line's checker marks no run record. Its locked wait file lives only while it waits.
+    for path in config.RUNS.glob(".landing-wait-*"):
+        try:
+            with path.open() as file:
+                fcntl.flock(file, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            holding.add("suite turns")
+        except OSError:
+            pass
+    parts = []
+    for name in ("admission", "suite turns", "memory"):
+        at = last.get(name)
+        if name in holding:
+            status = "holding now"
+        elif at is None:
+            status = "never held"
+        else:
+            days = max(0, int((now - at) // 86400))
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(at))
+            status = f"{days} day{'s' if days != 1 else ''} idle, last held {when}"
+        parts.append(f"{name} {status}")
+    return " · ".join(parts)
+
+
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
@@ -8037,6 +8074,7 @@ def doctor(argv):
     print(f"tick  {tick}", flush=True)
     runs, stuck = runs_health()
     print(f"runs  {runs}", flush=True)
+    print(f"gates  {gates_health()}", flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)

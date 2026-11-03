@@ -7,6 +7,7 @@ second of a run's phase rows in one part.  Offline: a temporary HOME.
 """
 
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sys
@@ -17,7 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, history, run, scoreboard
+from agentkit import config, gate, history, run, scoreboard, waiter
 
 NOW = 1_800_000_000
 HOUR = 3600
@@ -32,6 +33,7 @@ class PhaseRows(unittest.TestCase):
         stack = ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(config, "HOME", self.root))
+        stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root)}))
         history._OPEN.clear()
         history.start_run("r1", repo="/home/fixture/code/acme", started_at=100)
@@ -84,6 +86,29 @@ class PhaseRows(unittest.TestCase):
         history.open_step("r1", "merge", 100)
         history.start_run("r1", repo="/home/fixture/.agentkit/tmp/sandbox")     # a sandbox's row goes
         self.assertEqual((history.get("r1"), history.phases("r1")), (None, []))
+
+    def test_slot_reasons_survive_changes_the_final_count_and_run_cleanup(self):
+        directory = self.root / "runs/r1"
+        directory.mkdir(parents=True)
+        path = directory / "run.json"
+        for at, kind in ((230, "memory"), (260, "unit memory"), (290, "count"), (320, "load")):
+            path.write_text(json.dumps({"slot_wait_kind": kind}))
+            history.add_wait("r1", "slot", 30, at, began=200)
+        path.unlink()   # admission cleared the reason; the final count keeps the last one
+        history.add_wait("r1", "slot", 10, 330, began=200)
+        self.assertEqual(history.gate_holds(), {"memory": 260, "admission": 330})
+        self.assertEqual(history.phases("r1"), [
+            {"phase": "slot wait", "started_at": 200, "ended_at": 230},
+            {"phase": "slot wait", "started_at": 230, "ended_at": 260},
+            {"phase": "slot wait", "started_at": 260, "ended_at": 290},
+            {"phase": "slot wait", "started_at": 290, "ended_at": 330}])
+        self.assertEqual(history.get("r1")["slot_wait_seconds"], 130)
+
+    def test_the_small_waiter_records_the_count_gate(self):
+        with patch.object(waiter.time, "monotonic", return_value=30), \
+                patch.object(waiter.time, "time", return_value=230):
+            self.assertEqual(waiter.count(history.path(), "r1", 200, 0), 30)
+        self.assertEqual(history.gate_holds(), {"admission": 230})
 
 
 class TimeSplit(PhaseRows):

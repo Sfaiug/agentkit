@@ -142,12 +142,25 @@ def checkpoint(database):
         pass
 
 
-def add_wait(connection, run_id, wait, seconds, began, at):
+def add_wait(connection, run_id, wait, seconds, began, at, kind=None):
     """Add a wait's seconds to its column and end its phase row, the one begun at `began`, at
     `at`."""
     column = f"{wait}_wait_seconds"
     connection.execute(f"UPDATE runs SET {column}={column}+? WHERE run_id=?", (seconds, run_id))
+    if wait == "slot":
+        previous = connection.execute(
+            "SELECT started_at, ended_at, wait_kind FROM phases WHERE run_id=? "
+            "AND phase='slot wait' AND started_at>=? ORDER BY started_at DESC LIMIT 1",
+            (run_id, began)).fetchone()
+        if previous:
+            # Admission clears the record's reason before the final count. Keep it; a change
+            # of reason starts a new row so neither gate's last hold is erased by the other.
+            kind = kind or previous[2]
+            began = previous[0] if kind == previous[2] else previous[1]
     phase(connection, run_id, f"{wait} wait", began, max(began, at))
+    if wait == "slot":
+        connection.execute("UPDATE phases SET wait_kind=? WHERE run_id=? "
+                           "AND phase='slot wait' AND started_at=?", (kind, run_id, began))
 
 
 def phase(connection, run_id, name, started_at, ended_at):
@@ -168,7 +181,7 @@ def count(database, run_id, began, since):
     now = time.monotonic()
     try:
         with writing(database, wait=False), contextlib.closing(connect(database)) as connection:
-            add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time())
+            add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time(), "count")
             connection.commit()
     except BlockingIOError:
         return since
