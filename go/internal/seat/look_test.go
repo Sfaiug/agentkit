@@ -188,7 +188,7 @@ func looked(t *testing.T, pane, name string) {
 	t.Setenv("TMUX", socket+",1,0")
 	t.Setenv("TMUX_PANE", pane)
 	t.Setenv("AGENTKIT_SESSION", name)
-	Look(name, "")
+	Look(name, "", nil)
 }
 
 func TestALookIsOnlyAtASeatInItsOwnPane(t *testing.T) {
@@ -235,7 +235,7 @@ func TestALookDecidesUnderTheAnnounceLock(t *testing.T) {
 			t.Setenv("AGENTKIT_SESSION", "acme")
 			go func() {
 				defer close(finished)
-				Look("acme", "")
+				Look("acme", "", nil)
 			}()
 			// long enough for a look that decides first to have decided; a slow one only passes
 			time.Sleep(300 * time.Millisecond)
@@ -271,7 +271,7 @@ func TestALookReadsAMergeMadeWhileItQueuedByTheClockOfItsDecision(t *testing.T) 
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	go func() {
 		defer close(finished)
-		Look("acme", "")
+		Look("acme", "", nil)
 	}()
 	// long enough for a look to have read its clock; a slow one only passes
 	time.Sleep(300 * time.Millisecond)

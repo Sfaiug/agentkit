@@ -66,11 +66,17 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 		return Seat{}, nil, false
 	}
 	seat.closed = file != nil && file.Truthy("closed_by_owner")
-	asleep, _ := number(record.Get("asleep"))
-	launched, _ := number(record.Get("launched"))
-	seat.asleep = asleep > launched && (file == nil || !file.Truthy("stopped_at"))
+	seat.asleep = putToSleep(record, file)
 	seat.Word, seat.reason = goneWord(seat, name, at+1)
 	return seat, models, true
+}
+
+// putToSleep is whether the seat was put to sleep since its harness launched, and not closed since
+// (sleep.asleep).
+func putToSleep(record, file *run.Object) bool {
+	asleep, _ := number(record.Get("asleep"))
+	launched, _ := number(record.Get("launched"))
+	return asleep > launched && (file == nil || !file.Truthy("stopped_at"))
 }
 
 // goneWord is the word and reason of a seat nobody is in: one the owner closed rests; one gone on

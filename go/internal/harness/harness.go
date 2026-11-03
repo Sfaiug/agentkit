@@ -23,7 +23,7 @@ type plugin struct {
 	seats   bool
 	fresh   string
 	receipt string
-	answer  func(conversation, cwd string) (model, effort any, found bool)
+	answer  func(conversation, cwd, account string) (model, effort any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
@@ -37,7 +37,10 @@ type plugin struct {
 	// looks is whether Go reads the screen of this harness's seats, and recorded the error its
 	// conversation ends on (Python's plugin `error`).
 	looks    bool
-	recorded func(conversation, cwd string) (string, bool)
+	recorded func(conversation, cwd, account string) (string, bool)
+	// last is the last message of the conversation, its owner's or its model's, nil for none, and
+	// notices above say which of them only record the owner interrupting.
+	last func(conversation, cwd, account string) *run.Object
 	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).
@@ -94,9 +97,9 @@ func Opens(name string) (titled, known bool) {
 
 // LastAnswer is the model and effort of the last answer a seat's conversation records, as
 // Python's plugin `running` reads it; false where that harness records none Go reads.
-func LastAnswer(name, conversation, cwd string) (model, effort any, found bool) {
+func LastAnswer(name, conversation, cwd, account string) (model, effort any, found bool) {
 	if hook := plugins[name].answer; hook != nil {
-		return hook(conversation, cwd)
+		return hook(conversation, cwd, account)
 	}
 	return nil, nil, false
 }

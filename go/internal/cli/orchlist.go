@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -19,16 +20,20 @@ var listHeaders = []string{"name", "project", "state", "tally", "orchestrator", 
 // run. Without `--why` alone: explaining a seat is still Python's.
 func orchList(args []string, out, errOut io.Writer) int {
 	now := time.Now()
-	home, known := seat.Read(now)
+	home, known := seat.Looking(now)
 	screen := terminal.For(out)
-	lines, fits := listTable(screen, home.Seats, now)
+	// a look may word a live seat `needs you`, and nothing is written past a no
+	_, fits := listTable(screen, home.AtWidest(), now)
 	if !known || !home.Seatless() && len(args) > 0 || len(home.Seats) > 0 && !fits {
 		return notImplemented(errOut, "orch list")
 	}
-	if err := home.Announce(now); err != nil {
+	if err := home.Announce(now); errors.Is(err, seat.ErrUnread) {
+		return notImplemented(errOut, "orch list")
+	} else if err != nil {
 		fmt.Fprintf(errOut, "ak orch: %v\n", err)
 		return 1
 	}
+	lines, _ := listTable(screen, home.Seats, now)
 	if len(home.Seats) == 0 {
 		lines = []string{"no orchestrator session; `ak orch <name>` starts one"}
 	}

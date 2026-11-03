@@ -13,9 +13,9 @@ func Looks(name string) bool { return plugins[name].looks }
 // RecordedError is the error a seat's conversation ends on, "" where it went on after one, as
 // Python's plugin `error` reads it; false where its harness keeps no record of that conversation
 // or it cannot be read, and only then is the screen the one to say.
-func RecordedError(name, conversation, cwd string) (string, bool) {
+func RecordedError(name, conversation, cwd, account string) (string, bool) {
 	if hook := plugins[name].recorded; hook != nil {
-		return hook(conversation, cwd)
+		return hook(conversation, cwd, account)
 	}
 	return "", false
 }
@@ -23,8 +23,8 @@ func RecordedError(name, conversation, cwd string) (string, bool) {
 // claudeError is the entry of its own a failed request ends in (claude.py `error`), its text and
 // the kind it types apart from those words; a prompt or an answer after it is the conversation
 // going on.
-func claudeError(conversation, cwd string) (string, bool) {
-	entry, err := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd}), func(entry *run.Object) bool {
+func claudeError(conversation, cwd, account string) (string, bool) {
+	entry, err := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd, "account": account}), func(entry *run.Object) bool {
 		return entry.Str("type") == "user" || entry.Str("type") == "assistant"
 	})
 	if err != nil {

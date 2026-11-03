@@ -24,7 +24,7 @@ type move struct{ chosen, effort, conversation, cwd string }
 func follows(record *run.Object, models map[string]config.Model, offered []string) (move, bool) {
 	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, answered := harness.LastAnswer(own.Harness, conversation, cwd)
+	model, effort, answered := harness.LastAnswer(own.Harness, conversation, cwd, record.Str("account"))
 	if own.ID == "" || own.ID == "default" || !answered {
 		return move{}, true
 	}

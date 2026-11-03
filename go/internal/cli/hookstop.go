@@ -60,6 +60,7 @@ func orchestratorStop(payload []byte, out io.Writer) int {
 	if _, listed := lifecycle.HandedOver(event); listed {
 		fact := lifecycle.StopFact(launched, event, heard, back != "")
 		hookfact.Record(name, fact, lifecycle.Keeps(harness, fact))
+		seat.LookSoon(nil)
 	}
 	if back != "" {
 		reply := run.NewObject()

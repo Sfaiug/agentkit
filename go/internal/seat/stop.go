@@ -331,12 +331,13 @@ func stopped(seat *run.Object) (bool, bool) {
 	if seat == nil {
 		return false, true
 	}
-	for _, key := range append([]string{"unasked"}, waits...) {
+	for _, key := range waits {
 		if seat.Get(key) != nil {
 			return false, false
 		}
 	}
-	if !seat.Has("stopped_at") && !seat.Has("closed_by_owner") {
+	// a reopening leaves its mark null
+	if !seat.Truthy("stopped_at") && !seat.Truthy("closed_by_owner") {
 		return false, true
 	}
 	at, finite := number(seat.Get("stopped_at"))
