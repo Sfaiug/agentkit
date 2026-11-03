@@ -224,8 +224,8 @@ func validateRunSubcommand(verb string, args []string) string {
 	}
 	if asked != "" {
 		// what the run holds to, the host's with no such run, as Python's policy_of
-		held, err := run.Read(filepath.Join(runs, args[0]))
-		if err != nil {
+		held, _ := run.Read(filepath.Join(runs, args[0]))
+		if held == nil { // missing, unreadable or no object
 			held = run.Fields()
 		}
 		budget, err := run.PolicyRounds(held)
