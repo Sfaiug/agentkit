@@ -81,7 +81,7 @@ func Rulebook(name string) (string, error) {
 		}
 	}
 	if record.Truthy("unnamed") {
-		body = rstrip(body) + "\n\n" + nameLine + "\n"
+		body = namingItself(body)
 	}
 	// where, not what: a harness may take its rulebook as one argument, which Linux caps at 128 KiB
 	handed := ownFile("handover", name)
@@ -91,6 +91,11 @@ func Rulebook(name string) (string, error) {
 			"far, oldest first, is in %s: read its end before anything else.\n", rstrip(body), handed)
 	}
 	return body, nil
+}
+
+// namingItself is a rulebook with an unnamed seat's instruction to name itself.
+func namingItself(body string) string {
+	return rstrip(body) + "\n\n" + nameLine + "\n"
 }
 
 // PromptNews is the context a seat's prompt carries (orch.prompt_news), "" for none: only for its
