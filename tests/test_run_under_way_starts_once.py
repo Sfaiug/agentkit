@@ -3,9 +3,9 @@
 Two seats once repaired the same red release gate at once because neither could see
 the other's in-flight run.  `ak run <task.md>` now refuses -- exit 2, before a run
 directory exists -- when a `running` or `queued` run with a live process in the same
-repository looks like the same job: a done-when naming the same test file, or four
-shared title words.  `--anyway` starts regardless and names the other run in the
-preflight; resume, --review-pr and a run's own child launch never check.
+repository looks like the same job: a done-when naming the same test file, or the
+same resolved source task file. `--anyway` starts regardless and names the other run in
+the preflight; resume, --review-pr and a run's own child launch never check.
 
 Offline: a temporary HOME with fabricated run directories (a live run fakes its
 liveness with this process's own pid and identity, the way the loop's own receipts
@@ -98,7 +98,7 @@ class Sandbox(unittest.TestCase):
         return path
 
     def running_run(self, name, title, cmds, repo, seat=SEAT, state="running", live=True,
-                    stub=False):
+                    stub=False, task_file=None):
         """A fabricated in-flight run; live ones carry this process's own identity.
 
         stub=True writes the receipt the way capture_launch leaves it: task.md on
@@ -115,6 +115,8 @@ class Sandbox(unittest.TestCase):
                   "reported": False, **owner}
         if not stub:
             record.update(title=title, repo=str(repo), scratch=False)
+        if task_file is not None:
+            record["task_file"] = str(task_file)
         run_record.save_state(directory, record)
         return directory
 
@@ -147,31 +149,31 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(run_record.run_dirs(), [rival])
         self.drive.assert_not_called()
 
-    def test_v5ad_shared_title_words_refused(self):
+    def test_v5ad_same_task_file_refused_with_a_resolved_receipt_path(self):
         repo = self.make_repo("atoll")
+        task = self.task("second", "Update checkout flow validation", ["make verify"], repo)
+        alias = self.root / "alias.md"
+        alias.symlink_to(task)
         rival = self.running_run("20260916-1535-release-gate",
                                  "Repair release gate failed for PR 1728",
-                                 ["make check"], repo, state="queued", stub=True)
-        task = self.task("second", "Release gate failed PR 1728 repair retry",
-                         ["make verify"], repo)
+                                 ["make check"], repo, state="queued", stub=True, task_file=alias)
         code, _, err = self.launch(str(task))
         self.assertEqual(code, 2, err)
         self.assertIn(rival.name, err)
-        self.assertIn("5 title words", err)
+        self.assertIn(f"shares task file {task};", err)
         self.assertEqual(run_record.run_dirs(), [rival])
         self.drive.assert_not_called()
 
     def test_v5ad_both_signals_names_only_the_files(self):
         repo = self.make_repo("atoll")
-        rival = self.running_run("20260916-1535-release-gate",
-                                 "Repair release gate failed for PR 1728",
-                                 ["pytest tests/test_gate.py"], repo)
         task = self.task("second", "Release gate failed PR 1728 repair retry",
                          ["pytest tests/test_gate.py"], repo)
+        rival = self.running_run("20260916-1535-release-gate",
+                                 "Repair release gate failed for PR 1728",
+                                 ["pytest tests/test_gate.py"], repo, task_file=task)
         code, _, err = self.launch(str(task))
         self.assertEqual(code, 2, err)
         self.assertIn("shares tests/test_gate.py;", err)
-        self.assertNotIn("title words", err)
         self.assertEqual(run_record.run_dirs(), [rival])
         self.drive.assert_not_called()
 
@@ -201,6 +203,14 @@ class Sandbox(unittest.TestCase):
         self.assertEqual(len(run_record.run_dirs()), 2)
 
     # --- what starts anyway --------------------------------------------------
+
+    def test_v5ad_same_title_without_a_recorded_task_file_starts(self):
+        repo = self.make_repo("atoll")
+        title = "Repair release gate failed for PR 1728"
+        rival = self.running_run("20260916-1535-release-gate", title, ["make check"], repo)
+        code, _, err = self.launch(str(rival / "task.md"))
+        self.assertEqual(code, 0, err)
+        self.drive.assert_called_once()
 
     def test_v5ad_other_repo_starts(self):
         first = self.make_repo("atoll")

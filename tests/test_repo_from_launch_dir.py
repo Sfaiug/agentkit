@@ -74,6 +74,7 @@ class RepoFromLaunchDir(Sandbox):
         with chdir(cwd or self.root), patch.dict(os.environ, env, clear=True), \
                 (directory / "log.txt").open("a") as output, redirect_stdout(output):
             self.assertEqual(run.main(argv), 0)
+        self.interrupt(directory)
         return directory
 
     def follow(self, directory, _cfg, _offset):
@@ -123,11 +124,15 @@ class RepoFromLaunchDir(Sandbox):
                     self.child()
                 self.assert_checkout(directory)
 
-    def resume(self, directory, background):
+    def interrupt(self, directory):
+        # Fake children use this process's pid, which stays alive after they exit.
         state = record.read_state(directory)
         run.interrupt(state, "fixture interrupted")
         state["pid"] = None
         record.save_state(directory, state)
+
+    def resume(self, directory, background):
+        self.interrupt(directory)
         self.starts.reset_mock()
         self.follows.reset_mock()
         # Neither the terminal doing the resume nor its child stands in the launch checkout.
@@ -197,6 +202,7 @@ class RepoFromLaunchDir(Sandbox):
                 directory = self.launch(background, cwd)
                 self.pending = None
                 self.assert_folder_repo(directory)
+                self.interrupt(directory)
 
     def test_resume_keeps_the_task_folder_checkout(self):
         self.folder_task()
