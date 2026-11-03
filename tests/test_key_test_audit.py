@@ -120,10 +120,14 @@ class TestAudit(unittest.TestCase):
         self.assertEqual(rows["tests/test_shaky.py"], ["–", "2", "0", "0", "fix", "or", "delete"])
 
     def test_narrow_rows_fold(self):
-        out = self.report(columns=40)
-        self.assertTrue(all(len(line) <= 40 and line == line.rstrip() for line in out.splitlines()), out)
-        self.assertIn("tests/test_slow.py", out)
-        self.assertIn("224.0s", out)
+        for columns in (40, 60):
+            with self.subTest(columns=columns):
+                out = self.report(columns=columns)
+                self.assertTrue(all(len(line) <= columns and line == line.rstrip()
+                                    for line in out.splitlines()), out)
+                self.assertIn("widgets tests: 8 files, 4.0 days of rows", " ".join(out.split()))
+                self.assertIn("tests/test_slow.py", out)
+                self.assertIn("224.0s", out)
 
     def test_help_names_the_flag(self):
         done = self.home.ak("run", "status", "--help")

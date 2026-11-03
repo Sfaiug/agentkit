@@ -943,5 +943,8 @@ def tests_status():
         else:
             for i, name in enumerate(terminal.wrap(row[0], widths[0])):
                 lines.append(terminal.table_row([name, *(row[1:] if i == 0 else [""] * 5)], widths))
-    terminal.frame(f"{repo.name} tests: {len(rows)} files, {days:.1f} days of rows", lines, keyline="")
+    summary = f"{repo.name} tests: {len(rows)} files, {days:.1f} days of rows"
+    if summary not in terminal.header_line(summary, time.strftime("%H:%M")):
+        lines[:0] = terminal.wrap(summary, room)
+    terminal.frame(summary, lines, keyline="")
     return 0
