@@ -12,7 +12,7 @@ func TestACommandInsideTheTimeItGaveIsDeclared(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("no process is found by its environment here")
 	}
-	marker := "acme-" + t.Name()
+	marker := "/acme/" + t.Name() // a path, as every run's marker is
 	cmd := exec.Command("timeout", "60", "sleep", "60")
 	cmd.Env = append(os.Environ(), Marker+"="+marker)
 	if err := cmd.Start(); err != nil {
@@ -31,6 +31,9 @@ func TestACommandInsideTheTimeItGaveIsDeclared(t *testing.T) {
 	}
 	if Declared(marker, now+61) {
 		t.Fatal("past its 60 seconds")
+	}
+	if Declared("", now) {
+		t.Fatal("no marker declares nothing: every run's processes are below an empty one")
 	}
 }
 
