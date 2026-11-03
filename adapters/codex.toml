@@ -205,6 +205,8 @@ none = ["esc to interrupt"]
 # capacity` the worker answers by typing `continue`, resuming the same session, never by
 # handing the round over.
 [stall]
+# Input over the app server's limit, 1 MiB on 3 Nov 2026: the same prompt never fits, so it is no wait.
+faults = ["input_too_large"]
 signatures = [
   "Selected model is at capacity",
   "Goal stalled",

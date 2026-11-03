@@ -82,11 +82,16 @@ err() { local m=${1//\\/}; m=${m//\"/\'}
 
 # The seat login lapses some eight hours after Claude Code last ran on it, and nothing but
 # Claude Code renews it.  A login no seat is open on stays lapsed: `auth seat` sent no seat
-# onto it and `usage` fell back to the worker token, which the usage page refuses.  So before
-# either reads it, a lapsed login that still holds a refresh token gets the smallest turn
+# onto it and `usage` fell back to the worker token, which the usage page refuses, and a turn on
+# that token never renews it.  So before `usage` reads it, and at every `auth` -- which a worker
+# asks before each turn, outside the box that keeps $TMPD read-only, wherever the turn then runs
+# and on whatever token -- a lapsed login that still holds a refresh token gets the smallest turn
 # Claude Code runs on it -- its smallest model, one word, no tools, no conversation kept --
 # one per login at a time: whoever waited finds it renewed and asks nothing.  A login that
-# has not lapsed is never touched, and one the turn could not renew is read as it was.
+# has not lapsed is never touched, and one the turn could not renew is read as it was.  Its last
+# 270 seconds count as lapsed: Claude Code renews only near a login's end (4.5 minutes left did,
+# 5.5 did not, 2.1.316, 2 Nov 2026), and before the end is when a machine's copy can still be
+# replaced (`machine_turn._following`) rather than refused.
 lapsed() {
   local blob exp
   blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
@@ -95,7 +100,7 @@ lapsed() {
       | .expiresAt // empty' 2>/dev/null)
   case "$exp" in ''|*[!0-9]*) return 1 ;; esac
   [ "${#exp}" -gt 11 ] || exp="${exp}000"
-  [ "$exp" -le "$(( $(date +%s) * 1000 ))" ]
+  [ "$exp" -le "$(( ($(date +%s) + 270) * 1000 ))" ]
 }
 renew() {
   lapsed && mkdir -p -- "$TMPD" 2>/dev/null || return 0
@@ -372,6 +377,7 @@ auth)
   # There are two logins here once a worker token exists, and they expire apart -- a box whose
   # workers are fine can still have a seat showing `Please run /login`, and answering that
   # seat with the worker's token would hide exactly the thing this is here to catch.
+  renew
   [ "${1:-}" = seat ] || {
     [ -n "${CLAUDE_CODE_OAUTH_TOKEN:-}" ] && { echo "claude: CLAUDE_CODE_OAUTH_TOKEN is set"; exit 0; }
     tok=$(cat "$TOKEN" 2>/dev/null) && case "$tok" in *[![:space:]]*)
@@ -390,7 +396,6 @@ auth)
       exit 0 ;;
     esac
   }
-  renew
   tok=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null) \
     || tok=$(cat "$CREDS" 2>/dev/null) || tok=
   case "$tok" in *accessToken*) ;; *)

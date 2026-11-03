@@ -110,19 +110,15 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 
 // standing is whether a client is attached to the seat, and whether Go knows its word, which
 // Python's session_state decides: `needs you`, the question asked now standing, for a name no
-// record and no tmux session holds, and for a seat ak's server holds alive with no turn, run or
-// watch record, on a harness whose chat Python does not read for the question (none `nudge`s).
+// record and no tmux session holds, and for a seat ak's server holds alive with no look, run or
+// watch record, whose word no hook fact or turn's latch decides, on a harness whose chat Python
+// does not read for the question (none `nudge`s).
 func standing(name string, record map[string]any) (attached, known bool) {
 	exists := func(path string) bool { _, err := os.Lstat(path); return !errors.Is(err, fs.ErrNotExist) }
 	if path, _ := config.SessionPath(name); record == nil && exists(path) {
 		return false, false // a record that is no object
 	}
-	for _, kind := range []string{"seat", "hook", "stop"} {
-		if exists(seatFile(kind, name, "json")) {
-			return false, false
-		}
-	}
-	if exists(filepath.Join(state(), "watch.json")) {
+	if exists(seatFile("seat", name, "json")) || exists(filepath.Join(state(), "watch.json")) {
 		return false, false
 	}
 	if runs, err := os.ReadDir(run.Runs()); len(runs) > 0 || err != nil && !errors.Is(err, fs.ErrNotExist) {
