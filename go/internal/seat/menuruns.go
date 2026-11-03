@@ -5,7 +5,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"agentkit/internal/run"
@@ -57,7 +56,7 @@ func menuRuns(now time.Time) (map[string][]ran, bool) {
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	state := record.Str("state")
-	if !slices.Contains([]string{"queued", "running", "waiting", "pass", "fail", "error", "blocked", "stopped", "not_needed", "interrupted"}, state) {
+	if !run.Active(record) && !run.Ended(record) && state != "waiting" {
 		return runView{}, false
 	}
 	for _, field := range []string{"waiting_on", "gate_turn", "transient_wait", "process_identity", "lease_wait", "health"} {
