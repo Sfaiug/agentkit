@@ -2,27 +2,17 @@ package loop
 
 import (
 	"cmp"
-	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/run"
 )
-
-// landingStack keeps only the green prefix: each next member is integrated on top of it.
-// The commit objects survive removal of scratch checkouts; noAutoGC protects this pass.
-type landingStack struct {
-	top      string
-	after    *run.Object
-	multiple bool
-}
 
 func checkTurn(turn, code string, said io.Writer) error {
 	members := lineMembers(filepath.Base(turn))
@@ -62,78 +52,17 @@ func checkTurn(turn, code string, said io.Writer) error {
 	if evidence(turn, "red").Has(target) {
 		return nil // the target's own red waits on its probes or its repair: Python's
 	}
-	stack := &landingStack{top: tip, after: run.NewObject(), multiple: len(members) > 1}
-	prefix := []member{}
-	for _, m := range members {
-		dir, saved := m.dir, m.record
-		wait := saved.Dict("waiting_on")
-		if saved.Truthy("review_pr") || saved.Truthy("repair") {
-			return nil // PR heads and target repairs are Python's
-		}
-		if wait.Has("fix") {
-			if !stack.multiple && landingFixHandoff(wait) == "" && saved.Str("state") == "waiting" && unchanged(dir, saved) {
-				publish(dir, saved, run.Fields("fix", wait.Get("fix")), said)
-			}
-			return nil
-		}
-		if review := saved.Dict("review"); review == nil || review.Str("verdict") != "PASS" {
-			return nil
-		}
-		l := &loop{ctx: context.Background(), dir: dir, id: filepath.Base(dir), voice: said,
-			silence: minutes(saved, "silence_minutes", run.SilenceMinutes), ceiling: time.Duration(number(saved, "ceiling_hours", run.CeilingHours) * float64(time.Hour))}
-		if green(wait) {
-			if tested := wait.Str("tested"); tested != "" && tested != wait.Str("land") {
-				return nil // a batch covering a different tree is Python's
-			}
-			// A moved target may invalidate the prefix; its saved delivery still wakes to rejoin.
-			if saved.Str("state") == "waiting" && unchanged(dir, saved) {
-				withPrefix(prefix, func() bool { return publish(dir, saved, wait, said) })
-			}
-			top, err := l.prefixTop(saved, repo, tip, upstream, stack.top)
-			if err != nil || top == "" {
-				return err
-			}
-			stack.top = top
-		} else {
-			if saved.Str("state") != "waiting" || !unchanged(dir, saved) || !withPrefix(prefix, func() bool { return true }) {
-				return nil
-			}
-			answer, err := l.checkMember(turn, code, saved, repo, tip, target, upstream, stack)
-			if err != nil || answer == nil {
-				return err
-			}
-			if answer.Has("fix") && stack.multiple {
-				return nil // conflicts and rules refusals on a stack are Python's too
-			}
-			answer.Set("after", stack.after.Copy())
-			if !withPrefix(prefix, func() bool { return publish(dir, saved, answer, said) }) {
-				return nil
-			}
-			wait = run.SetAll(wait.Copy(), pairs(answer)...)
-			saved = saved.Copy()
-			saved.Set("waiting_on", wait)
-			m.record = saved
-			if !green(wait) {
-				return nil
-			}
-			// A reparked member must retry red suffixes discarded during rebuilding.
-			note(turn, func(_, _, redStacks *run.Object) {
-				for _, key := range redStacks.Keys() {
-					redStacks.Delete(key)
-				}
-			})
-		}
-		stack.after.Set(filepath.Base(dir), wait.Get("land"))
-		prefix = append(prefix, m)
-	}
-	return nil
+	return narrowLine(turn, code, repo, tip, upstream, members, said)
 }
 
-// A persisted stack red stays Python's even after its predecessors have left the line.
+// A stack red waits for its predecessors, then narrowing rechecks it against the target.
 func landingFixHandoff(wait *run.Object) string {
 	fix := wait.Dict("fix")
-	if fix.Str("piece") != "" || fix.Has("tests") {
-		return "a landing red a helper or a shard reported"
+	if fix.Truthy("moved") {
+		return "a moved PR head"
+	}
+	if len(config.MachineNames()) > 0 {
+		return "a landing red with suite helpers"
 	}
 	if after := wait.Dict("after"); after != nil && len(after.Keys()) > 0 {
 		return "a landing red on a stack"
