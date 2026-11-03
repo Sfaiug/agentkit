@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	plugins["muse"] = plugin{identity: museIdentity, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded}
+	plugins["muse"] = plugin{identity: museIdentity, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn}
 }
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher

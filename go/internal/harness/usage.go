@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"agentkit/internal/config/adapters"
 	"agentkit/internal/run"
 )
 
@@ -25,12 +26,37 @@ func UsageRecorded(name, state string, now float64) []*run.Object {
 	return nil
 }
 
+// RecordTurn keeps what a turn in out reported of its refusal once its box closed, Python's plugin
+// `record_turn`: the box writes none of ak's records itself.
+func RecordTurn(name, out, state, account string) {
+	if hook := plugins[name].recordTurn; hook != nil {
+		hook(out, state, account)
+	}
+}
+
 // museStem is what one login's refusal record and probe cache are named after.
 func museStem(account string) string {
 	if account != "" {
 		return "usage-meta." + account
 	}
 	return "usage-meta"
+}
+
+// museRecordTurn moves the report to the login's own record; left behind, a retry whose box cannot
+// start would date an earlier refusal as new.
+func museRecordTurn(out, state, account string) {
+	report := filepath.Join(out, adapters.RefusalReport)
+	data, err := os.ReadFile(report)
+	if err != nil {
+		return
+	}
+	value, err := run.Decode(data)
+	if err != nil || os.MkdirAll(state, 0o777) != nil {
+		return
+	}
+	if os.WriteFile(filepath.Join(state, museStem(account)+".json"), []byte(run.Line(value)+"\n"), 0o666) == nil {
+		os.Remove(report)
+	}
 }
 
 // museUsageTaken matches the response to the file it came from before carrying that file's age: an

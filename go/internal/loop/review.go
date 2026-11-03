@@ -151,7 +151,7 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 			if err := l.saveSession(&l.reviewSession, c.session, "review_session"); err != nil {
 				return false, err
 			}
-			if err := l.giveUp(turn.out); err != nil {
+			if err := l.giveUp(refused.out); err != nil {
 				return false, err
 			}
 			if name, err = l.fallBack("ran dry", turn.out, true, true); err != nil {

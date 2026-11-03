@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/config/adapters"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
 	"agentkit/internal/worker"
@@ -129,6 +130,57 @@ func TestASpentWindowParksTheProviderAndGoesNoFurtherHere(t *testing.T) {
 	}
 	if !strings.Contains(l.logged(t), "WARN executor opus refused: You hit your usage limit.; nothing is picked on acme until ") {
 		t.Fatal(l.logged(t))
+	}
+}
+
+func TestARefusedReviewKeepsWhatItsFinishingTurnHandedIn(t *testing.T) {
+	l, _ := adapterRig(t, time.Minute, `1) echo "Background tasks still running" > "$out/stderr.log"; echo "## Partial" > "$out/final.md";;
+*) echo '{"kind":"finding","path":"a.txt","line":1,"what":"w","why":"y","evidence":{"run":"false","returncode":1,"output":""}}' >> "$AK_HAND_IN"
+   echo "You hit your usage limit." > "$out/final.md"; exit 1;;`)
+	l.executor, l.reviewer = "opus", "opus"
+	if err := os.WriteFile(filepath.Join(l.workspace, "a.txt"), []byte("a\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := l.review("work", true, "$ true\n[exit 0]", ""); err == nil {
+		t.Fatal("the review went on with nobody to give it")
+	}
+	record, _ := run.Read(l.dir)
+	if filepath.Base(filepath.Dir(record.Str("findings_file"))) != "reviewer-retry-foreground" || len(record.List("review_records")) != 1 {
+		t.Fatalf("record %s", run.Line(record))
+	}
+}
+
+func TestARefusalsOwnReportDatesTheProvidersPark(t *testing.T) {
+	until := time.Now().Unix() + 7200
+	_, c := adapterRig(t, time.Minute, fmt.Sprintf(`*) echo '{"meters":[{"name":"window","used":100,"resets_at":%d,"window_secs":18000}]}' > "$out/%s"
+   echo "You hit your usage limit." > "$out/final.md"; exit 1;;`, until, adapters.RefusalReport))
+	dir := os.Getenv("AGENTKIT_ADAPTER_DIR")
+	for _, kind := range []string{".sh", ".toml"} {
+		if err := os.Rename(filepath.Join(dir, "acme"+kind), filepath.Join(dir, "muse"+kind)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	settings := filepath.Join(config.Home(), "config.toml")
+	held, err := os.ReadFile(settings)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(settings, []byte(strings.ReplaceAll(strings.ReplaceAll(string(held), `"acme"`, `"muse"`), "providers.acme", "providers.muse")), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	if c.model, err = config.ModelNamed("opus"); err != nil {
+		t.Fatal(err)
+	}
+	var refused *ranDry
+	if _, err := c.run(); !errors.As(err, &refused) {
+		t.Fatalf("ended %v", err)
+	}
+	saved, err := run.ReadJSON(filepath.Join(config.Home(), "state", "usage.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if at, _ := saved.Dict("providers").Dict("muse").Num("exhausted_until"); at != float64(until) {
+		t.Fatalf("parked until %v, the report says %d", at, until)
 	}
 }
 

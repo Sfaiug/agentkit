@@ -14,6 +14,9 @@ var Failures = []struct {
 		"Service unavailable", "The service is busy", "idle timeout", "Can't reach the API server", "HTTP~5##", "status~5##", "API Error~5##"}},
 }
 
+// RefusalReport is the file in a turn's out directory an adapter writes the meters of a refusal to.
+const RefusalReport = "quota.json"
+
 // Faults are the words every harness's failures use, besides its manifest's `[stall] faults`, that
 // say a turn never ran, Python's harness.STALL.
 var Faults = []string{"command not found", "Argument list too long", "not installed", "unknown flag", "unknown flags",

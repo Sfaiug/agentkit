@@ -42,8 +42,8 @@ func (c *cannotRun) Unwrap() error {
 
 // A ranDry is a provider's refusal for a spent window: the work goes to another, not another try.
 type ranDry struct {
-	mark, text, message string
-	code                int
+	mark, out, message string // out: the attempt refused, which holds what the turn handed in
+	code               int
 }
 
 func (r *ranDry) Error() string { return "refused: " + r.message }
@@ -296,7 +296,7 @@ func (c *call) harnessWords(t *try) (bool, error) {
 	}
 	until := usage.MarkExhausted(c.model.Provider, tryAgainAt(said))
 	c.l.say(fmt.Sprintf("WARN %s %s refused: %s; nothing is picked on %s until %s", c.role, c.name, message, c.model.Provider, time.Unix(int64(until), 0).Format("2006-01-02 15:04")))
-	return false, &ranDry{mark, t.text, message, t.code}
+	return false, &ranDry{mark, t.out, message, t.code}
 }
 
 // signalled is a worker dead by signal, neither on the provider nor on the task: it resumes once, at
