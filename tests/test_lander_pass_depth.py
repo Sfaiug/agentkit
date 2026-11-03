@@ -3,6 +3,7 @@
 Offline: real Git and checks, sandbox records, fake process ownership and wakes.
 """
 
+from concurrent.futures import Future
 import json
 import threading
 import unittest
@@ -12,12 +13,38 @@ from test_lander import LanderFixture, config, gate, land, record, run
 from agentkit import status
 
 
+class QueuedCheck(Future):
+    def __init__(self, check, *args, **kw):
+        super().__init__()
+        self.check = lambda: check(*args, **kw)
+
+    def finish(self):
+        if not self.done():
+            try:
+                self.set_result(self.check())
+            except BaseException as exc:
+                self.set_exception(exc)
+        return self
+
+    def result(self, timeout=None):
+        # The lander's cleanup also drains checks the completion iterator never reached.
+        self.finish()
+        return super().result(timeout)
+
+
 class LanderPassDepth(LanderFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.capacity = self.stack.enter_context(patch.object(
             gate, "derived_heavy_limit", return_value=2))
         self.checked = []
+
+    def finish_checks_in_order(self):
+        # Finish the head with suffix checks pending, regardless of the host's speed.
+        pool = self.stack.enter_context(patch.object(land, "ThreadPoolExecutor"))
+        pool.return_value.__enter__.return_value.submit.side_effect = QueuedCheck
+        self.stack.enter_context(patch.object(land, "as_completed", side_effect=lambda futures:
+            (check.finish() for check in futures)))
 
     def check(self, cmds, cwd, log_path, *args, **kw):
         self.checked.append((run.git(cwd, "rev-parse", "HEAD^{tree}"),
@@ -83,6 +110,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assert_cleaned()
 
     def test_the_head_gets_its_verdict_and_wake_before_the_second_check_finishes(self):
+        self.finish_checks_in_order()
         self.capacity.return_value = 5
         members = self.members()
         woken = threading.Event()
@@ -90,7 +118,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         def check(cmds, cwd, log_path, *args, **kw):
             files = run.git(cwd, "ls-tree", "--name-only", "HEAD").splitlines()
             if "member-2.txt" in files:
-                self.assertTrue(woken.wait(timeout=5), "the head waited for the suffix check")
+                self.assertTrue(woken.is_set(), "the head waited for the suffix check")
             return self.check(cmds, cwd, log_path, *args, **kw)
 
         def wake(name, _log):
@@ -120,6 +148,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
         self.assert_cleaned()
 
     def test_a_red_member_gets_its_verdict_after_the_head_records_its_new_owner_and_scope(self):
+        self.finish_checks_in_order()
         self.capacity.return_value = 5
         members = self.members(red=2)
         woken = threading.Event()
@@ -131,7 +160,7 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
 
         def check(cmds, cwd, log_path, *args, **kw):
             if "member-2.txt" in run.git(cwd, "ls-tree", "--name-only", "HEAD").splitlines():
-                self.assertTrue(woken.wait(timeout=5))
+                self.assertTrue(woken.is_set())
             return self.check(cmds, cwd, log_path, *args, **kw)
 
         self.wake.side_effect = wake
