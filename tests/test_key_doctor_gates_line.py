@@ -93,9 +93,12 @@ history.finish_run("fix-api", final_state="pass", finished_at={NOW})
         self.assertIn("suite turns 0 days idle", line)
 
     def test_current_slot_waits_name_the_gate_holding_them(self):
-        for kind, gate in (("count", "admission"), ("load", "admission"),
-                           ("memory", "memory"), ("unit memory", "memory")):
-            with self.subTest(kind=kind):
+        for kind, gate, behind in (("count", "admission", False), ("load", "admission", False),
+                                  ("memory", "memory", False), ("unit memory", "memory", False),
+                                  ("memory", "admission", True), ("unit memory", "admission", True)):
+            with self.subTest(kind=kind, behind=behind):
+                self.home.write(".agentkit/runs/.slots.queue", {
+                    "at": NOW, "running": 0, "queue": ["urgent-fix", "fix-api"] if behind else []})
                 line = self.doctor(f"""
 directory = config.RUNS / "fix-api"
 directory.mkdir(parents=True, exist_ok=True)
@@ -103,6 +106,7 @@ record.save_state(directory, {{"run_id": "fix-api", "state": "queued", "pid": os
     "slot_waiting": True, "slot_wait_kind": {kind!r}}})
 """)
                 self.assertIn(f"{gate} holding now", line)
+                self.assertIn(f"{'memory' if gate == 'admission' else 'admission'} never held", line)
 
     def test_a_line_checkers_locked_wait_is_live_until_it_leaves(self):
         line = self.doctor("""

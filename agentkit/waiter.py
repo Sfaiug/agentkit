@@ -183,10 +183,8 @@ def count(database, run_id, began, since):
         with writing(database, wait=False), contextlib.closing(connect(database)) as connection:
             add_wait(connection, run_id, "slot", max(0.0, now - since), began, time.time(), "count")
             connection.commit()
-    except BlockingIOError:
-        return since
     except (OSError, sqlite3.Error):
-        pass
+        return since
     return now
 
 

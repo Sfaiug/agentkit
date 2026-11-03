@@ -8021,11 +8021,13 @@ def gates_health():
     from . import gate
     now, holding = time.time(), set()
     last = history.gate_holds()
+    behind = gate.slot_queue()[2][1:]
     for _, state in run_record.runs():
         if not run_record.process_active(state):
             continue
         if state.get("state") == "queued" and state.get("slot_waiting"):
-            if name := history.SLOT_GATES.get(state.get("slot_wait_kind")):
+            kind = "count" if state.get("run_id") in behind else state.get("slot_wait_kind")
+            if name := history.SLOT_GATES.get(kind):
                 holding.add(name)
         if gate.gate_turn_note(state):
             holding.add("suite turns")

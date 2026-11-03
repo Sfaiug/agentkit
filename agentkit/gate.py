@@ -1279,6 +1279,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
 
     @contextmanager
     def queued():
+        counted = (time.time(), time.monotonic())
         with landing_wait(is_landing, place, self_id, line):
             if run_dir:
                 mark_gate_wait(run_dir, repo, place)
@@ -1287,6 +1288,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
+                if run_dir or is_landing:
+                    count_wait(self_id, "suite" if run_dir else "lander", counted)
     return _GateHold(files, slot, context, limit, more, queued)
 
 
