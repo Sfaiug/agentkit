@@ -120,7 +120,7 @@ func Refusal(meta map[string]string, cmds []string) string {
 			return fmt.Sprintf("done-when line %s opens a heredoc, but each line runs as a command of its own: put the script in a file the change adds, or on one line", commandhelp.Quote(cmd))
 		}
 	}
-	return RoundsRefusal(meta["rounds"], "task rounds")
+	return ""
 }
 
 // ChecksRefusal is the sentence for more than 3 checks a round runs, or "": every as the loop
@@ -132,13 +132,8 @@ func ChecksRefusal(every []string) string {
 	return fmt.Sprintf("%d done-when checks: a task has at most 3, one behaviour a reviewer holds in one read; split it", len(every))
 }
 
-// RoundsRefusal is the sentence for a round budget over three, or "": three rounds is the
-// budget, never a default to raise. A value that is no number is left to the check that says so.
-func RoundsRefusal(value, what string) string {
-	return RoundsOver(value, what, 3)
-}
-
-// RoundsOver is that for the budget in force.
+// RoundsOver is the sentence for a round budget over the one in force, or "": it is never a default
+// to raise. A value that is no number is left to the check that says so.
 func RoundsOver(value, what string, budget int) string {
 	rounds := config.Int(value)
 	if rounds == nil || rounds.Cmp(big.NewInt(int64(budget))) <= 0 {

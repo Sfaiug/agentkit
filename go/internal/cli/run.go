@@ -117,8 +117,18 @@ func validateRun(args []string) string {
 			if !positive(value) {
 				return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
 			}
-			if flag == "--rounds" {
-				if problem := task.RoundsRefusal(value, "--rounds"); problem != "" {
+			// a launch from inside a run is Python's (launch.elsewhere), which judges it
+			for _, word := range parsed.words {
+				if flag != "--rounds" || os.Getenv("AGENTKIT_RUN_DIR") != "" {
+					break
+				}
+				budget, err := launch.Budget(config.Absolute(word))
+				if errors.Is(err, launch.ErrPython) {
+					continue // Python finds its checkout, and judges it at the launch
+				} else if err != nil {
+					return err.Error()
+				}
+				if problem := task.RoundsOver(value, "--rounds", budget); problem != "" {
 					return problem
 				}
 			}
@@ -183,7 +193,7 @@ func validateRunSubcommand(verb string, args []string) string {
 		return ""
 	}
 	usage := "usage: ak run " + verb + " <runid>"
-	budget := ""
+	asked := ""
 	switch verb {
 	case "status", "show":
 		usage = commandhelp.Usage("run status") + " [--pending]"
@@ -201,17 +211,31 @@ func validateRunSubcommand(verb string, args []string) string {
 		usage += " [--rounds N] [--bg]"
 		args = without(args, "--bg")
 		if len(args) == 3 && args[1] == "--rounds" && positive(args[2]) {
-			budget = task.RoundsRefusal(args[2], "--rounds")
+			asked = args[2]
 			args = args[:1]
 		}
 	}
 	if len(args) != 1 || (verb != "status" && verb != "show" && !runID(args[0])) {
 		return usage
 	}
-	if budget != "" {
-		return budget
-	}
 	runs := filepath.Join(config.Home(), "runs")
+	if verb == "resume" && isFile(job.ReceiptPath(args[0])) {
+		return "" // a job's, which Python resumes and judges (runResume)
+	}
+	if asked != "" {
+		// what the run holds to, the host's with no such run, as Python's policy_of
+		held, err := run.Read(filepath.Join(runs, args[0]))
+		if err != nil {
+			held = run.Fields()
+		}
+		budget, err := run.PolicyRounds(held)
+		if err != nil {
+			return err.Error()
+		}
+		if problem := task.RoundsOver(asked, "--rounds", budget); problem != "" {
+			return problem
+		}
+	}
 	if !runID(args[0]) {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)
 	}
