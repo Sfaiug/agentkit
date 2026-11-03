@@ -31,8 +31,8 @@ BOARD = {
     "owner": [None, None], "built": [None, None],
     "waits": [None, None], "merged": [None, None], "checks": [None, None],
     "parks": [{"parked": 1}, {"parked": 0}], "sunk": [None, None],
-    "broke": [{"merged": 6, "after_merge": 3, "landing": 0, "unknown": 0},
-              {"merged": 5, "after_merge": 3, "landing": 0, "unknown": 0}],
+    "broke": [{"merged": 6, "after_merge": 3, "landing": 0, "flakes": 0, "unknown": 0},
+              {"merged": 5, "after_merge": 3, "landing": 0, "flakes": 0, "unknown": 0}],
     "pairs": [None, None], "findings": [None, None], "size": [None, None],
 }
 EMPTY = {key: [None, None] for key in BOARD}
