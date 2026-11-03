@@ -401,6 +401,9 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
 
 
 OUT_CAP = 20 * 1024
+# What all of a suite's pieces hand on together: each is cut to OUT_CAP and their number is the
+# machines'. 128 red on one test made 2.6 MB, which no harness took as a prompt (3 Nov 2026).
+PIECES_CAP = 256 * 1024
 
 
 def kept(output, where, name):
@@ -413,10 +416,10 @@ def kept(output, where, name):
     return f"[only part of this output is shown; all of it is in {Path(whole.name).resolve()}]"
 
 
-def cut(text, where, name):
-    """`text` as a model is handed it: whole up to OUT_CAP, else its end under `kept`'s line."""
-    return (text if len(text) <= OUT_CAP else
-            f"{kept(io.BytesIO(text.encode()), where, name)}\n{text[-OUT_CAP:]}")
+def cut(text, where, name, cap=OUT_CAP):
+    """`text` as a model is handed it: whole up to `cap`, else its end under `kept`'s line."""
+    return (text if len(text) <= cap else
+            f"{kept(io.BytesIO(text.encode()), where, name)}\n{text[-cap:]}")
 
 
 def cut_file(output, start, where, name):

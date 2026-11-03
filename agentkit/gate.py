@@ -2132,7 +2132,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if not any(where) and not any(killed for _, _, killed, _ in results):
                 measure.paced(path, count)
             measure.overflowed(path, mem)
-            text = "\n\n".join(chunks + red + flakes)
+            text = turns.cut("\n\n".join(chunks + red + flakes), run_dir or activity.parent,
+                             f"{activity.stem}-pieces", turns.PIECES_CAP)
             output.write(("\n" + text + "\n").encode())
             output.flush()
             if pieces is not None:
