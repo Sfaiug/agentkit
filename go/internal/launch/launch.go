@@ -30,7 +30,6 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -46,8 +45,8 @@ var ErrStopped = errors.New("a launch a stop ended")
 
 // Values and Switches are a launch's options, in the order Python's launch_opts records them.
 var (
-	Values   = []string{"--rounds", "--exec", "--review", "--review-pr", "--parallel"}
-	Switches = []string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first"}
+	Values   = run.LaunchValues
+	Switches = run.LaunchSwitches
 )
 
 // Task launches the task file at the absolute path with the options given, saying on out what
@@ -422,17 +421,8 @@ func asPython(err error) error {
 	return nil
 }
 
-// numbers is the numbers in force for a repository's run: the front matter of AGENTS.md on the
-// default branch of its checkout, one commit for all of them, else the host's.
 func numbers(repo string) (config.Numbers, error) {
-	if repo == "" {
-		return config.HostNumbers()
-	}
-	commit, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD")
-	if err != nil || commit == "" {
-		return config.HostNumbers()
-	}
-	return config.ProjectNumbers(repo, func(key string) string { return gitcall.DeclaredAt(repo, commit, key) })
+	return run.LaunchPolicy(repo)
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it
@@ -448,7 +438,11 @@ func git(repo string, args ...string) (string, string, bool, error) {
 
 // holdSlots waits for the lock every run's admission changes under.
 func holdSlots() (*os.File, error) {
-	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+	return holdAdmission(context.Background())
+}
+
+func holdAdmission(ctx context.Context) (*os.File, error) {
+	return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
 }
 
 // receive writes the launch's receipt under the slots lock.
@@ -461,65 +455,8 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 	return receipt(dir, path, values, flags, bound, seat)
 }
 
-// receipt is the launch's first record, as Python's capture_launch writes it, with the gate's
-// outright admission, owned by the seat that launched it, "" for none; its caller holds the slots
-// lock.
 func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
-	depth, _ := runDepth()
-	var parent, identity any
-	if value, set := os.LookupEnv("AK_PARENT_RUN"); set {
-		parent = value
-	}
-	if born, ok := host.ReadIdentity(os.Getpid()); ok {
-		identity = run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
-	}
-	launched, efforts := run.NewObject(), run.NewObject()
-	for _, flag := range Values {
-		launched.Set(flag, nil)
-		if value, given := values[flag]; given {
-			launched.Set(flag, value)
-		}
-	}
-	for _, flag := range Switches {
-		launched.Set(flag, flags[flag])
-	}
-	var owner any
-	if seat != "" {
-		owner = seat
-	}
-	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
-		"launched_session", owner, "started_at", now(), "queued_at", now(), "slot_waiting", false,
-		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
-		"unattended", seat == "" && os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
-		"process_identity", identity, "launch_opts", launched}
-	// a seat binds its own lists, and the config its own where it names reviewers apart
-	if seat != "" || bound.Reviewers != nil {
-		first = append(first, "workers", bound.Workers)
-	}
-	if bound.Reviewers != nil {
-		first = append(first, "reviewers", bound.Reviewers)
-	}
-	for _, model := range bound.Models {
-		keys := run.NewObject()
-		for _, effort := range bound.Efforts[model] {
-			keys.Set(effort[0], effort[1])
-		}
-		efforts.Set(model, keys)
-	}
-	// a review's proof is its plan's lines, and it has no task file
-	var reviewed, proof any = nil, "owed"
-	if url, given := values["--review-pr"]; given {
-		reviewed, proof = url, nil
-	}
-	first = append(first, "efforts", efforts, "review_pr", reviewed, "reported", false, "base_proof", proof,
-		"notify_sink", sink())
-	if path != "" {
-		first = append(first, "task_file", path)
-	}
-	if flags["--first"] {
-		first = append(first, "first", true)
-	}
-	return run.Create(dir, run.Fields(append(first, "slot_started_at", now())...))
+	return run.Create(dir, run.Capture(dir, path, values, flags, bound, seat))
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

@@ -59,11 +59,6 @@ func (r *repoPlace) deliver(l *loop) error {
 			return err
 		}
 	}
-	// a seat's merge settles the seat's plan and hands its follow-ups on as it lands, which only
-	// Python's `ak run merge` does yet: the passed work waits there, nothing pushed
-	if run.Seat(record) != "" {
-		return r.note(l, "a seat's merge is not Go's yet", true)
-	}
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "merged", false, "merge_failed", false, "merge_note", nil, "on_target", false)
 	}); err != nil {

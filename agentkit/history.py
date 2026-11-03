@@ -125,6 +125,19 @@ CREATE TABLE IF NOT EXISTS checks (
 )
 """
 
+# One row per test a suite named as confirmed red or flaky, once its retries end.
+TEST_REDS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS test_reds (
+    run_id TEXT,
+    round INTEGER,
+    kind TEXT,
+    tree TEXT,
+    test TEXT,
+    flaky INTEGER,
+    at REAL
+)
+"""
+
 CONFLICTS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS conflicts (
     run_id TEXT,
@@ -236,6 +249,7 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(CHECKS_SCHEMA)
+    connection.execute(TEST_REDS_SCHEMA)
     connection.execute(CONFLICTS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(FINDINGS_SCHEMA)
@@ -521,6 +535,23 @@ def _started(connection, values):
         "FROM runs WHERE run_id=?1", values)
     # an insert of no row leaves the connection's last rowid, another table's
     return cursor.lastrowid if cursor.rowcount else None
+
+
+def test_reds(checked, confirmed, flaky):
+    """Keep a suite's named outcomes with its check's identity; a run with no row keeps none."""
+    if checked is None:
+        return
+    tests = [(test, 0) for names in confirmed.values() for test in names]
+    tests.extend((test, 1) for test in flaky)
+    if not tests:
+        return
+    run_dir, round_no, kind, tree = checked
+    at = time.time()
+    _write(lambda connection: connection.executemany(
+        "INSERT INTO test_reds (run_id, round, kind, tree, test, flaky, at) "
+        "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+        [(round_no, kind, tree, test, flake, at, Path(run_dir).name)
+         for test, flake in dict.fromkeys(tests)]))
 
 
 @contextlib.contextmanager

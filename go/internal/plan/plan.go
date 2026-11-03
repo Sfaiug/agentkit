@@ -12,10 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"agentkit/internal/config"
@@ -221,7 +219,7 @@ func write(current string, lines []string) error {
 
 // List proves the seat's plan (`verify`), then is its box lines, as a listing numbers them.
 func List(ctx context.Context, name string) ([]string, error) {
-	if err := verifying(ctx, name, func() error { return verify(ctx, name) }); err != nil {
+	if err := verifying(ctx, name, func() error { return verify(ctx, name, "") }); err != nil {
 		return nil, err
 	}
 	var box []string
@@ -249,7 +247,7 @@ func listed(lines []string) (at []int) {
 // ticks those that pass there, naming the commit; a line ticked by hand that nothing proved
 // opens again.  The checks run outside the plan's lock, and the results go onto the plan as it
 // reads after them, each onto its own line, so a line added meanwhile stays.
-func verify(ctx context.Context, name string) error {
+func verify(ctx context.Context, name, check string) error {
 	var snapshot []string
 	if err := notify.Held(ctx, name, func(current string) (err error) {
 		snapshot, err = read(current)
@@ -264,7 +262,7 @@ func verify(ctx context.Context, name string) error {
 	results, branches := map[string]string{}, map[string]*branch{}
 	for _, text := range snapshot {
 		line, ok := parse(text)
-		if _, done := results[line.bare]; !ok || line.Check == "" || line.proven() || done {
+		if _, done := results[line.bare]; !ok || line.Check == "" || check != "" && line.Check != check || line.proven() || done {
 			continue // lines alike are one check, run once
 		}
 		on, seen := branches[line.Project]
@@ -329,7 +327,7 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 	}
 	passed, found := false, ""
 	if err := on.checkout(ctx, func(tree string) (err error) {
-		found = rootOf(on.clean, tree)
+		found = rootOf(on.clean, tree, "HEAD")
 		passed, err = on.passes(ctx, tree, check)
 		return err
 	}); err != nil {
@@ -348,26 +346,8 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 			}
 			base, done = "", base
 		}
-		where := named(repo, found)
-		if strings.Contains(where, "·") {
-			return fmt.Errorf("%s: a project a line names holds no `·`", where)
-		}
-		lines, err := read(current)
-		if err != nil {
-			return err
-		}
-		for i, text := range lines {
-			if old, ok := parse(text); ok && old.Check == check && old.Project == where && !old.proven() {
-				// the open line already holding this check here is kept, the seat's own
-				line = added(old.What, check, where, old.When, old.Base).ticked(done)
-				if line == strings.TrimFunc(text, config.Space) {
-					return nil
-				}
-				return write(current, slices.Replace(lines, i, i+1, line))
-			}
-		}
-		line = added(what, check, where, time.Now().Format("2006-01-02 15:04"), base).ticked(done)
-		return write(current, append(lines, line))
+		line, err = addLine(current, repo, what, check, found, base, done, false)
+		return err
 	})
 	return line, err
 }
