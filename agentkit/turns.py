@@ -264,12 +264,13 @@ def open_worker(lp, name=""):
 
 
 def open_review(round_dir):
-    """`(name, kind, session)` of the open reviewer attempt, or three Nones.
+    """`(name, kind, session)` of the latest reviewer attempt, or three Nones.
 
     A review that fell back to another model writes under `reviewer-<model>`, so the
     attempt to continue is the newest reviewer directory of any name, not `reviewer`
     alone: a fallback cut off mid-turn would otherwise start its review over. Retries
-    belong to that same attempt. A finished fallback supersedes an earlier refusal.
+    belong to that same attempt. Its name stays after it answers: the verdict may
+    still be pending, and a finished fallback supersedes an earlier refusal.
     """
     rd = Path(round_dir)
     if not rd.is_dir():
@@ -290,7 +291,7 @@ def open_review(round_dir):
     if best is None:
         return None, None, None
     kind, sid = open_turn(rd, best[2])
-    return (best[2], kind, sid) if kind else (None, None, None)
+    return best[2], kind, sid
 
 
 def review_turn(round_dir, session, since=""):

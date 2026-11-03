@@ -441,7 +441,7 @@ class ResumeMidturn(unittest.TestCase):
             if answered:
                 (out / "final.md").write_text("VERDICT: PASS")
             os.utime(out, (at, at))
-        self.assertEqual(turns.open_review(rd), (None, None, None))
+        self.assertEqual(turns.open_review(rd), ("reviewer-astra", None, None))
 
     def test_a_slot_wait_resumes_with_its_original_queued_at(self):
         waited_since = self.now - 3600

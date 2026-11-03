@@ -230,6 +230,42 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.background = True
         self.checked()
 
+    def test_an_answered_fallback_keeps_its_session_and_findings_after_restart(self):
+        lp = self.lp
+        lp.rnd, lp.review_sid = 1, "fallback-session"
+        lp.state["review_pending"] = {"round": 1, "since": "", "summary": "work", "failed": ["fable"]}
+        refused, fallback = lp.dir("reviewer"), lp.dir("reviewer-astra")
+        refused.mkdir(parents=True)
+        for name, text in {"session_id": "refused-session", "harness": "claude", "pending": "",
+                           "final.md": "You have hit your usage limit.",
+                           box.PROCESSES: json.dumps({"returncode": 1})}.items():
+            (refused / name).write_text(text)
+        fallback.mkdir()
+        (fallback / "session_id").write_text(lp.review_sid)
+        (fallback / "final.md").write_text("A defect was handed in.")
+        (lp.wt / "api.py").write_text("wrong result\n")
+        finding = {"kind": "finding", "path": "api.py", "line": 1, "what": "wrong result",
+                   "why": "breaks callers", "evidence": {"run": "test ! -f api.py",
+                                                         "returncode": 1, "output": ""}}
+        with Path(hand_in.start(fallback, lp.wt, role="reviewer")).open("a") as records:
+            records.write(json.dumps(finding) + '\n{"kind": "done"}\n')
+        calls = []
+
+        def answer(_cfg, model, _body, cwd, out, role, sid, _log, *_args, previous=None, **_kw):
+            calls.append((model, sid, previous))
+            out.mkdir()
+            with Path(hand_in.start(out, cwd, previous / hand_in.FILE if previous else None,
+                                    role=role)).open("a") as records:
+                records.write('{"kind": "done"}\n')
+            (out / "final.md").write_text("Closed.")
+            (out / "session_id").write_text(sid or "new-session")
+            return 0, "Closed.", sid, False
+
+        with patch.object(turns, "call_retrying", side_effect=answer):
+            verdict = roundloop.review(lp, "work", True, "$ true\n[exit 0]\n")
+        self.assertEqual(verdict, "FAIL", "the fallback's finding must survive the restart")
+        self.assertEqual(calls, [("astra", "fallback-session", fallback)])
+
     def test_turn_can_hand_in_blocked(self):
         self.text = "## Summary\nWork cannot finish."
         self.closing = ["blocked", "the task requires an unavailable file"]
