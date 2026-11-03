@@ -83,9 +83,11 @@ def boxable():
 
 
 def _binds(*paths):
-    """What keeps those of `paths` under /tmp in the box, whose own /tmp hides the host's."""
+    """What keeps those of `paths` under /tmp or /var/tmp in the box, whose own /tmp, or
+    /var/tmp a test gives it, hides the host's."""
     return [arg for path in sorted(map(str, paths), key=len)
-            if Path(path).is_relative_to("/tmp") for arg in ("--bind", path, path)]
+            if Path(path).is_relative_to("/tmp") or Path(path).is_relative_to("/var/tmp")
+            for arg in ("--bind", path, path)]
 
 
 BOXED = "AKBIN_BOXED" in os.environ
