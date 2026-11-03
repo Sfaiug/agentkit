@@ -2,13 +2,9 @@ package loop
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/handin"
@@ -50,11 +46,10 @@ func (l *loop) model(name string) (config.Model, error) {
 
 // execute is one turn of the round's executor under the name given (executor or fixer, word its
 // rules, name its directory), resuming its conversation, handed the findings file if any: its
-// summary once it closed, Python's execute.  A provider that fails or cannot run mid-round does not
+// summary once it answered, Python's execute.  A provider that fails or cannot run mid-round does not
 // end the round: the turn goes to a model on a provider that refused nothing yet, in a fresh
-// directory on a fresh session.  A turn with no closing is asked once more on its own conversation,
-// and a second silence goes on as if done.  One that says the task cannot be done as written ends
-// the run blocked, with nothing to judge.
+// directory on a fresh session.  An answer with no closing goes on as if done.  One that says the
+// task cannot be done as written ends the run blocked, with nothing to judge.
 func (l *loop) execute(word, name, body, findings string) (string, error) {
 	turn, err := l.goOn(name, word, body, l.execSession)
 	if err != nil {
@@ -78,7 +73,6 @@ func (l *loop) execute(word, name, body, findings string) (string, error) {
 	if previous != "" { // only a turn whose body was replaced has a conversation that can be refused
 		fresh, shown = body, turn.shown
 	}
-	asked := false
 	dry := map[string]bool{}
 	handover := func(detail string) (string, error) { return l.handExecutor("transient", detail, dry) }
 	for {
@@ -134,32 +128,17 @@ func (l *loop) execute(word, name, body, findings string) (string, error) {
 				return "", err
 			}
 			submitted, _ := handin.Read(filepath.Join(done.out, handin.File))
-			if (submitted == nil || submitted.Closing() == nil) && !asked && !c.foreground {
-				l.say(fmt.Sprintf("%s %s gave no closing; asking once more", word, l.executor))
-				told, asked, previous = noClosingAsk, true, filepath.Join(done.out, handin.File)
-				out = freeDir(l.roundDir(), filepath.Base(done.out)+"-retry-hand-in")
-				continue
-			}
 			return workerResult(done, submitted)
 		}
-		asked = false
 		out = freeDir(l.roundDir(), name+"-"+l.executor)
 	}
 }
 
-// workerResult is the summary a turn that closed leaves, Python's worker_result: a closing reply may
-// be only an acknowledgement, so the work's own prose stays beside it.
+// workerResult is the summary an answered turn leaves, Python's worker_result.
 func workerResult(done *try, submitted *handin.Review) (string, error) {
 	if submitted != nil && submitted.Closing() != nil && submitted.Closing().Str("kind") == "blocked" {
 		why := submitted.Closing().Str("why")
 		return "", &blocked{why, "## Blocked\n\n" + why}
-	}
-	first := filepath.Base(done.out)
-	if at := askedTurn.FindStringIndex(first); at != nil {
-		first = first[:at[0]]
-	}
-	if work := handin.Answer(filepath.Join(filepath.Dir(done.out), first, "final.md")); work != "" && work != done.text {
-		return work + "\n\n" + done.text, nil
 	}
 	return done.text, nil
 }
@@ -170,38 +149,12 @@ func (l *loop) saveSession(held *string, session, key string) error {
 	return l.save(func(record *run.Object) { record.Set(key, none(session)) })
 }
 
-// askedTurn is what a turn asked once more adds to the name of the one it asks.
-var askedTurn = regexp.MustCompile(`-retry-(?:hand-in|foreground)`)
-
 // none is a conversation as the record holds it, null before there is one.
 func none(session string) any {
 	if session == "" {
 		return nil
 	}
 	return session
-}
-
-// unfinished is whether a turn ended with a command still running, Python's worker.turn and
-// turn_unfinished: its box stopped one, or its harness says so on stderr or in the last list of
-// background tasks it streamed.  A file missing or unreadable is no signal.
-func unfinished(out string) bool {
-	if data, err := os.ReadFile(filepath.Join(out, "box-processes.json")); err == nil {
-		var report struct{ Processes []any }
-		if json.Unmarshal(data, &report) == nil && len(report.Processes) > 0 {
-			return true
-		}
-	}
-	if strings.Contains(handin.Answer(filepath.Join(out, "stderr.log")), "Background tasks still running") {
-		return true
-	}
-	tasks := false
-	for _, line := range strings.Split(handin.Answer(filepath.Join(out, "events.jsonl")), "\n") {
-		value, _ := run.Decode([]byte(line))
-		if event, _ := value.(*run.Object); event != nil && (event.Str("type") == "background_tasks_changed" || event.Str("subtype") == "background_tasks_changed") {
-			tasks = len(event.List("tasks")) > 0 || !event.Has("tasks") && len(event.List("background_tasks")) > 0
-		}
-	}
-	return tasks
 }
 
 // verify is the checks of the round on what the workplace holds: whether they passed, what they said.

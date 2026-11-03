@@ -82,7 +82,7 @@ class HarnessSwap(unittest.TestCase):
         self.assertEqual([args[6] for args in self.calls], ["sess-1", "sess-1"])
         self.assertTrue(any("being swapped" in line for line in self.logs), self.logs)
 
-    def test_a_fresh_turn_failing_during_a_swap_waits_before_finishing_in_the_foreground(self):
+    def test_a_fresh_turn_failing_during_a_swap_waits_before_retrying(self):
         swap = update.swapping("claude")
         self.addCleanup(swap.__exit__, None, None, None)
         begun = []
@@ -103,7 +103,6 @@ class HarnessSwap(unittest.TestCase):
                                        (0, "## Summary\nDone.\n", "")], "sess-0")
         self.assertEqual(code, 0)
         self.assertEqual(len(self.sleeps), 1)
-        # no call to finish in the foreground went out while the swap ran
         self.assertEqual([Path(args[4]).name for args in self.calls],
                          ["executor", "executor-retry1", "executor-retry2"])
 

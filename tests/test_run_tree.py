@@ -533,8 +533,7 @@ class RunTree(unittest.TestCase):
                 if foreground or len(calls) == 2:
                     self._leave_marked_sleep(left, env["AGENTKIT_RUN"])
                 if len(calls) == 2:
-                    self.assertIn(turns.FINISH_IN_FOREGROUND if foreground else turns.NO_VERDICT_ASK,
-                                  body)
+                    self.assertIn(turns.NO_VERDICT_ASK, body)
                 return 0, "rambling at length but never judging anything", None, False
             return 0, "## Findings\nnone\n\nVERDICT: PASS", None, False
 
@@ -549,8 +548,7 @@ class RunTree(unittest.TestCase):
 
     def test_no_verdict_fallback_leaves_no_children(self):
         # A reviewer that never gives a verdict falls back to a spare; the silent
-        # turn's detached children die with it -- whether the silence needed the
-        # extra ask or had already spent it finishing background work.
+        # turn's detached children die with it, on either turn.
         self.enter_run_context()
         for foreground in (False, True):
             with self.subTest(foreground=foreground):

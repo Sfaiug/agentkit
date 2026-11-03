@@ -1,10 +1,7 @@
-"""A worker turn that ends without its closing hand-in is asked once more, in its own session.
+"""An executor without a closing goes to checks and review; a reviewer still owes a verdict.
 
-A model that stops talking before `ak hand-in done` has not answered, and taking its silence as
-an answer would either throw away finished work or pass a change nobody judged.  So ak asks the
-same conversation once, in the same round: an executor silent twice has its work go on to the
-checks and review as if done, and a reviewer silent twice is gone, so the review goes to the next
-model.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
+A reviewer is asked once more in its own conversation, then the review goes to the next model.
+Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 on a project from gitrig.py, a config from akconfig.py, a task from taskfile.py and scripted
 harnesses from fakeadapter.py.
 """
@@ -22,7 +19,6 @@ from fixtures.gitrig import Rig
 # The work committed and summed up, and no closing handed in.
 NO_CLOSING = {"write": {"retry.txt": "hello\n"}, "commit": "add retry.txt",
               "final": "## Summary\nwrote retry.txt"}
-CLOSING_ASK = "Your previous turn ended without a closing hand-in."
 VERDICT_ASK = "Your previous turn ended without ak hand-in done."
 CLOSINGS = ("done", "blocked", "not-needed")
 
@@ -64,24 +60,14 @@ class Silence:
 class SilentExecutor(Silence, unittest.TestCase):
     steps = {"claude": NO_CLOSING, "codex": "pass"}
 
-    def test_an_executor_without_a_closing_is_asked_once_more_in_the_same_conversation(self):
-        self.assertEqual(self.log.count("executor opus gave no closing; asking once more"), 1,
-                         self.log)
-        self.assertEqual(self.fakes["claude"].n, 2)
-        (first, first_out, first_session), (ask, _, ask_session) = self.turns("claude")
+    def test_an_executor_without_a_closing_is_called_once(self):
+        self.assertEqual(self.fakes["claude"].n, 1)
+        (_, first_out, first_session), = self.turns("claude")
         self.assertIsNone(first_session)
-        self.assertEqual(ask_session, (first_out / "session_id").read_text().strip())
-        self.assertNotIn(CLOSING_ASK, first)
-        self.assertIn(CLOSING_ASK, ask)
-
-    def test_the_ask_writes_beside_the_first_turn_and_keeps_its_record(self):
-        (_, first_out, _), (_, ask_out, _) = self.turns("claude")
         self.assertEqual(first_out, self.run_dir / "round-1/executor")
-        self.assertEqual(ask_out.parent, self.run_dir / "round-1")
-        self.assertNotEqual(ask_out, first_out)
         self.assertEqual((first_out / "final.md").read_text(), "## Summary\nwrote retry.txt\n")
 
-    def test_a_second_silence_goes_on_to_the_checks_and_review_as_if_done(self):
+    def test_an_answer_without_a_closing_goes_on_to_the_checks_and_review_as_if_done(self):
         self.assert_passed_in_one_round()
         self.assertEqual(self.fakes["codex"].n, 1)
         self.assertTrue(self.state["round_summaries"][0]["done_when"])

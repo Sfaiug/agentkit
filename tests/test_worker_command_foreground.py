@@ -20,10 +20,7 @@ from agentkit import record
 # The words the task pins, quoted here so the tests fail if the loop rewords them.
 HEADER = ("Run long commands, tests included, in the foreground and wait for them; "
           "a turn that ends with a command still running in the background is not finished.")
-FINISH = ("The command you left in the background was stopped when your turn ended. Run it in "
-          "the foreground now, wait for it, and report.")
 BACKGROUND = "Background tasks still running after 600s; terminating"
-ASKING = "ended its turn with a command still in the background; asking it to finish in the foreground"
 
 PASS = "VERDICT: PASS\n"
 FAIL = "VERDICT: FAIL\n"
@@ -264,53 +261,17 @@ sys.exit(1)
                 self.assertEqual(prompt.count(HEADER), 1)
                 self.assertEqual(self.numbers(prompt), [])
 
-    # --- (d) an unfinished turn gets exactly one foreground finish on the same session ---
-
-    def test_v5w_unfinished_turn_gets_one_foreground_finish_on_the_same_session(self):
-        self.exec_plan(
-            {"final": "I will report as soon as the gate finishes.", "stderr": BACKGROUND + "\n",
-             "events": [], "session": "sess-1"},
-            {"final": "## Summary\nRan the suite in the foreground.", "stderr": "",
-             "events": [], "session": "sess-1", "deliverable": True})
-        self.reviews(PASS)
-        with self.loop_sleeps() as sleep:
-            code, directory, state = self.launch(rounds=1)
-        self.assertEqual(code, 0, self.log(directory))
-        sleep.assert_not_called()
-        calls = self.calls("executor")
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[0]["session"], [])
-        self.assertEqual(calls[1]["session"], ["sess-1"])
-        self.assertIn(FINISH, calls[1]["prompt"])
-        self.assertEqual(len(state["round_summaries"]), 1)
-        self.assertIn(f"executor-scratch {self.executor} {ASKING}", self.log(directory))
-        self.assertIn("Ran the suite in the foreground.", state["round_summaries"][0]["summary"])
-        # each turn kept artifacts of its own: the first turn's diagnostics survived the
-        # second, whose answer lives beside them rather than over them
-        first = directory / "round-1" / "executor"
-        second = directory / "round-1" / "executor-retry-foreground"
-        self.assertIn(BACKGROUND, (first / "stderr.log").read_text())
-        self.assertNotIn(FINISH, (first / "prompt.md").read_text())
-        self.assertIn(FINISH, (second / "prompt.md").read_text())
-        self.assertIn("Ran the suite in the foreground.", (second / "final.md").read_text())
-
-    # --- (e) a second unfinished turn warns once and the loop carries on ---
-
-    def test_v5w_second_unfinished_turn_warns_once_and_carries_on(self):
-        self.exec_plan(
-            {"final": "I will report as soon as the gate finishes.", "stderr": BACKGROUND + "\n",
-             "events": [], "session": "sess-1"},
-            {"final": "I will report as soon as the gate finishes.", "stderr": BACKGROUND + "\n",
-             "events": [], "session": "sess-1"})
-        self.reviews(PASS)
-        code, directory, state = self.launch(rounds=1, done_when="true")
-        self.assertEqual(code, 0, self.log(directory))
-        self.assertEqual(len(self.calls("executor")), 2)
-        warns = [line for line in self.log(directory).splitlines() if "WARN" in line]
-        self.assertEqual(len(warns), 1, self.log(directory))
-        self.assertIn("still in the background", warns[0])
-        self.assertIn("done-when: all passed", self.log(directory))
-        self.assertEqual(state["verdict"], "PASS")
+    def test_v5w_background_signals_do_not_buy_another_turn(self):
+        for stderr, events in ((BACKGROUND, []), ("", [
+                {"type": "system", "subtype": "background_tasks_changed", "tasks": ["term-1"]}])):
+            with self.subTest(stderr=stderr, events=events):
+                self.exec_plan({**clean(), "stderr": stderr, "events": events})
+                self.reviews(PASS)
+                before = len(self.calls("executor"))
+                code, directory, state = self.launch(rounds=1)
+                self.assertEqual(code, 0, self.log(directory))
+                self.assertEqual(len(self.calls("executor")), before + 1)
+                self.assertEqual(state["verdict"], "PASS")
 
     # --- (f) a clean turn gets no extra call ---
 
@@ -322,15 +283,13 @@ sys.exit(1)
         self.assertEqual(len(self.calls("executor")), 1)
         self.assertNotIn("in the background", self.log(directory))
 
-    # --- (g) the unfinished turn does not consume a transport attempt ---
+    # A background signal cannot hide a provider failure.
 
-    def test_v5w_unfinished_turn_consumes_no_transport_attempt(self):
+    def test_v5w_background_failure_still_retries(self):
         self.exec_plan(
-            {"final": "placeholder", "stderr": BACKGROUND + "\n", "events": [],
+            {"final": "HTTP 500 Overloaded", "exit": 1, "stderr": BACKGROUND, "events": [],
              "session": "s1"},
-            {"final": "HTTP 500 Overloaded", "exit": 1, "stderr": "", "events": [],
-             "session": "s1"},
-            {"final": "HTTP 500 Overloaded", "exit": 1, "stderr": "", "events": [],
+            {"final": "HTTP 500 Overloaded", "exit": 1, "stderr": BACKGROUND, "events": [],
              "session": "s1"},
             clean())
         workspace = self.root / "ws"
@@ -342,36 +301,10 @@ sys.exit(1)
                                                  "executor", None, logged.append, limit=120)
         self.assertFalse(dead)
         self.assertEqual(code, 0)
-        # the finish call plus the transient waits ran, with a backoff only between
-        # the attempts themselves
-        self.assertEqual(len(self.calls("executor")), 4)
+        self.assertEqual(len(self.calls("executor")), 3)
         self.assertEqual(sleep.call_count, 2)
         sleep.assert_any_call(turns.TRANSIENT_BACKOFF[0])
         sleep.assert_any_call(turns.TRANSIENT_BACKOFF[1])
-        self.assertTrue(any(ASKING in line for line in logged))
-
-    # --- (h) a background_tasks_changed event with tasks is unfinished too ---
-
-    def test_v5w_background_event_with_tasks_gets_a_foreground_finish(self):
-        # what installed Claude 2.1.263 streams: the marker is the subtype, not the type
-        self.exec_plan(
-            {"final": "I will report as soon as the gate finishes.", "stderr": "",
-             "events": [{"type": "system", "subtype": "background_tasks_changed",
-                         "tasks": ["term-1"]}],
-             "session": "sess-1"},
-            {"final": "## Summary\nRan the suite in the foreground.", "stderr": "",
-             "events": [], "session": "sess-1", "deliverable": True})
-        self.reviews(PASS)
-        with self.loop_sleeps() as sleep:
-            code, directory, state = self.launch(rounds=1)
-        self.assertEqual(code, 0, self.log(directory))
-        sleep.assert_not_called()
-        calls = self.calls("executor")
-        self.assertEqual(len(calls), 2)
-        self.assertEqual(calls[1]["session"], ["sess-1"])
-        self.assertIn(FINISH, calls[1]["prompt"])
-        self.assertEqual(len(state["round_summaries"]), 1)
-        self.assertIn(f"executor-scratch {self.executor} {ASKING}", self.log(directory))
 
     # --- (i) a background task list the turn emptied is finished ---
 
@@ -397,39 +330,6 @@ sys.exit(1)
         self.assertEqual(len(self.calls("executor")), 1)
         self.assertFalse(sleep.called)
         self.assertFalse(any("in the background" in line for line in logged))
-
-    # --- (j) a finish turn that leaves no answer retries on empty, not on stale text ---
-
-    def test_v5w_failed_finish_without_an_answer_retries_on_empty(self):
-        self.exec_plan(
-            {"final": "I will report as soon as the gate finishes.", "stderr": BACKGROUND + "\n",
-             "events": [], "session": "s1"},
-            {"exit": 1, "write_final": False, "stderr": "boom", "events": [],
-             "session": "s1"},
-            {"final": "HTTP 500 Overloaded", "exit": 1, "stderr": "", "events": [],
-             "session": "s1"},
-            {"final": "HTTP 500 Overloaded", "exit": 1, "stderr": "", "events": [],
-             "session": "s1"},
-            clean())
-        workspace = self.root / "ws"
-        workspace.mkdir()
-        out = self.root / "run" / "round-1" / "executor"
-        logged = []
-        with self.loop_sleeps() as sleep:
-            code, text, _, dead = turns.call_retrying(self.cfg, "opus", "task body", workspace,
-                                                    out, "executor", None, logged.append,
-                                                    limit=120)
-        self.assertFalse(dead)
-        self.assertEqual(code, 0)
-        # the failed finish wrote no final.md of its own, so it retried on an empty answer --
-        # never the first turn's placeholder -- and the answer carries the successful
-        # attempt's own work rather than anything stale
-        self.assertIn("Fixture work", text)
-        self.assertNotIn("report as soon as the gate", text)
-        self.assertEqual(len(self.calls("executor")), 5)
-        self.assertEqual(sleep.call_count, 3)
-        self.assertTrue(any(ASKING in line for line in logged))
-
 
 if __name__ == "__main__":
     unittest.main()
