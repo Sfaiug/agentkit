@@ -24,9 +24,14 @@ var endGrace = 10 * time.Second
 // environment, so nothing detached outlives the run, and found anew on every look: a process told
 // to end can start another on its way out.
 func EndMarked(marker string, told io.Writer) {
+	end(func() []int { return Marked(marker) }, told)
+}
+
+// end is TERM to every process find finds, then KILL after the grace.
+func end(find func() []int, told io.Writer) {
 	seen := map[int]int64{}
 	left := func() (found []int) {
-		for _, pid := range Marked(marker) {
+		for _, pid := range find() {
 			if stat, ok := ReadStat(pid); ok {
 				seen[pid] = stat.Start
 			}

@@ -15,6 +15,7 @@ const File = "hand-in.jsonl"
 // A Review is what a turn handed in, Python's hand_in.Review, its turn's row aside.
 type Review struct {
 	Records []*run.Object
+	Handed  any // the blocking findings handed to the turn
 }
 
 var closings = []string{"done", "blocked", "not-needed"}
@@ -71,7 +72,7 @@ func Read(path string) (*Review, bool) {
 			return empty, true
 		}
 	}
-	return &Review{records}, true
+	return &Review{records, rows[0].Get("findings")}, true
 }
 
 // allowed is whether a turn of that role hands in that kind of record.
@@ -199,7 +200,9 @@ func (r *Review) Text() string {
 	return strings.Join(parts, "\n\n") + "\n"
 }
 
-// itemText is a record in words, Python's hand_in.item_text.
+// ItemText is a record in words, Python's hand_in.item_text.
+func ItemText(row *run.Object) string { return itemText(row) }
+
 func itemText(row *run.Object) string {
 	var text string
 	if row.Str("kind") == "dispute" {
@@ -217,12 +220,21 @@ func itemText(row *run.Object) string {
 			text += "Commit " + evidence.Str("commit") + ":\n"
 		}
 		text += proofText(evidence)
+		if base := evidence.Dict("base"); base != nil {
+			text += "\nBase " + base.Str("sha") + ":\n" + proofText(base)
+		}
 	}
 	if row.Truthy("before") {
 		text += "\nBefore the task: " + row.Str("before")
 	}
 	if row.Truthy("dropped") {
 		text += "\nDropped follow-up: " + row.Str("dropped")
+	}
+	if row.Truthy("outside") {
+		text += "\nOutside " + row.Str("outside")
+	}
+	if row.Truthy("replayed") {
+		text += "\nRe-proven by ak on this commit: " + row.Str("replayed")
 	}
 	return strings.TrimFunc(text, config.Space)
 }

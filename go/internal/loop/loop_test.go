@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,16 +53,16 @@ func rig(t *testing.T, silence time.Duration) *loop {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTKIT_RUN", dir)
-	return &loop{ctx: context.Background(), dir: dir, id: "acme", workspace: workspace, place: scratch{}, silence: silence, ceiling: time.Hour}
+	return &loop{ctx: context.Background(), dir: dir, id: "acme", workspace: workspace, place: scratch{}, silence: silence, ceiling: time.Hour, rnd: 1}
 }
 
 func (l *loop) checked(t *testing.T, cmds ...string) (bool, string) {
 	t.Helper()
-	ok, text, err := l.checks(cmds, filepath.Join(l.dir, roundName, "donewhen.log"))
+	ok, text, err := l.checks(cmds, filepath.Join(l.roundDir(), "donewhen.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	written, _ := os.ReadFile(filepath.Join(l.dir, roundName, "donewhen.log"))
+	written, _ := os.ReadFile(filepath.Join(l.roundDir(), "donewhen.log"))
 	if string(written) != text {
 		t.Fatalf("the log holds %q, the checks said %q", written, text)
 	}
@@ -141,7 +142,7 @@ func TestAStopOnTheRecordEndsTheChecksAndEveryWrite(t *testing.T) {
 	if err := run.Change(l.dir, func(record *run.Object) error { record.Set("state", "stopped"); return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := l.checks([]string{"touch never"}, filepath.Join(l.dir, roundName, "donewhen.log")); err != errStop {
+	if _, _, err := l.checks([]string{"touch never"}, filepath.Join(l.roundDir(), "donewhen.log")); err != errStop {
 		t.Fatalf("got %v", err)
 	}
 	if code := l.finish(l.save(func(record *run.Object) { record.Set("title", "acme") })); code != 1 {
@@ -152,21 +153,19 @@ func TestAStopOnTheRecordEndsTheChecksAndEveryWrite(t *testing.T) {
 	}
 }
 
-func TestASignalWithNoStopEndsTheRunInErrorNamingIt(t *testing.T) {
+func TestASignalWithNoStopLeavesAnOrdinaryDeadLoop(t *testing.T) {
 	l := rig(t, time.Minute)
 	ctx, cancel := context.WithCancelCause(context.Background())
 	cancel(errors.New("the driver got SIGTERM"))
 	l.ctx = ctx
-	if code := l.finish(l.stopCheck()); code != 2 {
+	if code := l.finish(l.stopCheck()); code != 1 {
 		t.Fatalf("exit %d", code)
 	}
-	record, _ := run.Read(l.dir)
-	if record.Str("state") != "error" || record.Str("error") != "the driver got SIGTERM" {
+	if record, _ := run.Read(l.dir); record.Str("state") != "running" || record.Truthy("error") {
 		t.Fatalf("record %s", run.Line(record))
 	}
-	result, _ := os.ReadFile(filepath.Join(l.dir, "result.md"))
-	if !strings.HasPrefix(string(result), "# FAIL — 20260101-0000-acme") || !strings.Contains(string(result), "## Why this run stopped\n\nthe driver got SIGTERM") {
-		t.Fatalf("result %q", result)
+	if _, err := os.Stat(filepath.Join(l.dir, "result.md")); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a result: %v", err)
 	}
 }
 
@@ -191,7 +190,7 @@ func TestEndLeavesAStopAndAnEndingAsTheyStand(t *testing.T) {
 func TestFollowLeavesARunItsDriverLeftGoingAndSaysSo(t *testing.T) {
 	l := rig(t, time.Minute)
 	t.Setenv("AGENTKIT_RUN", "")
-	if err := Start(l.dir, io.Discard); err != nil {
+	if err := Start(l.dir, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	before, _ := run.Read(l.dir)
@@ -287,14 +286,14 @@ mode = "subscription"
 	if executor, reviewer, _ := rules.Pair(room{}); executor != "opus" || reviewer != "opus" {
 		t.Fatalf("picked %q and %q", executor, reviewer)
 	}
-	if other := rules.Independent(room{}, "opus"); other != "" {
-		t.Fatalf("took review over: %q", other)
+	if writers := []string{"opus"}; !rules.Wrote(rules.Beside(room{}, writers)[0], writers) {
+		t.Fatal("no other reviewer to take the review over, yet one is offered")
 	}
 }
 
 func TestReviewerRecordsAreWeighedAsPythonWeighsAScratchRun(t *testing.T) {
 	l := rig(t, time.Minute)
-	if err := os.MkdirAll(filepath.Join(l.dir, roundName), 0o777); err != nil {
+	if err := os.MkdirAll(filepath.Join(l.roundDir()), 0o777); err != nil {
 		t.Fatal(err)
 	}
 	finding := func(kind string, evidence *run.Object) *run.Object {
@@ -304,7 +303,7 @@ func TestReviewerRecordsAreWeighedAsPythonWeighsAScratchRun(t *testing.T) {
 	weighed, err := l.weigh(&handin.Review{Records: []*run.Object{
 		finding("finding", run.Fields("quote", "q")), finding("finding", proof("true")), finding("finding", proof("false")),
 		finding("follow-up", proof("false")), run.Fields("kind", "done"),
-	}})
+	}}, &judging{})
 	if err != nil {
 		t.Fatal(err)
 	}

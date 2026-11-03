@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"agentkit/internal/config"
+	"agentkit/internal/run"
 )
 
 // Antigravity's plugin keeps its conversation by its own evidence, which Go does not read yet.
@@ -22,8 +23,18 @@ func Owned(name string, record map[string]any) (string, bool) {
 		return "", false
 	}
 	conversation, isText := record["conversation"].(string)
-	source := record["id_source"]
-	if !isText && record["conversation"] != nil || conversation != "" && source != "launcher" && (own.source == "" || source != own.source) {
+	if !isText && record["conversation"] != nil {
+		return "", false
+	}
+	vouched := record["id_source"] == "launcher"
+	if own.owns != nil {
+		data := run.NewObject()
+		for key, value := range record {
+			data.Set(key, value)
+		}
+		vouched = own.owns(data, conversation)
+	}
+	if conversation != "" && !vouched {
 		return "", false
 	}
 	return conversation, true

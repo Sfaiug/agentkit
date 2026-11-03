@@ -17,6 +17,11 @@ func acquire(path string, wait bool) (*os.File, error) {
 	return open(path, syscall.GENERIC_WRITE, syscall.OPEN_ALWAYS, wait)
 }
 
+// Shared is Wait: no Python ak shares a lock with Go's here.
+func Shared(path string) (*os.File, error) {
+	return acquire(path, true)
+}
+
 // Edit opens path's file, which it never makes, to read and write shared with nobody, waiting its
 // turn; the lock lasts until the file closes.
 func Edit(path string) (*os.File, error) {

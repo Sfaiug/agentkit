@@ -1,0 +1,44 @@
+#!/bin/sh
+# The body of every PATH shim: ak links it as ~/.agentkit/bin/<name>, first on a seat's PATH.  A
+# seat's own call is asked of the program beside this file, which may refuse it; everything else,
+# and a guard that fails in any way, runs the real <name>.  sh, not that program: git is hot, so no
+# seatless or worker call -- ak's own work, a test's sandbox -- pays for a start.
+name=${0##*/}
+# The real <name>: the first file on PATH after this shim's own, so a wrapper ahead of it that calls
+# it never loops and one after it chains on; with this shim's own off PATH, the first that is not it.
+set -f
+IFS=:
+past= first= real=
+for dir in $PATH; do
+    [ -n "$dir" ] && [ -f "$dir/$name" ] && [ -x "$dir/$name" ] || continue
+    if [ "$dir/$name" -ef "$0" ]; then
+        past=1
+    elif [ -n "$past" ]; then
+        real=$dir/$name
+        break
+    else
+        first=${first:-$dir/$name}
+    fi
+done
+unset IFS
+set +f
+[ -n "$past" ] || real=$first
+if [ -z "$real" ]; then
+    echo "$name-shim: no real $name on PATH" >&2
+    exit 127
+fi
+# A seat's own call only: a worker (AK_RUN_ROLE=worker) and whatever runs seatless pass.  The program
+# is asked and this shell runs the tool, so a program that is gone, cannot start or dies leaves the
+# call as it was.  It says why on stdout and exits 1 to refuse; any arguments it says replace them.
+if [ -n "$AGENTKIT_SESSION" ] && [ "$AK_RUN_ROLE" != worker ]; then
+    shim=$(readlink "$0") || shim=$0
+    said=$(exec 2>/dev/null; "${shim%/*}/ak" guard "$name" "$real" "$@"; exit $?)
+    case $? in
+    0) [ -z "$said" ] || eval "set -- $said" ;;
+    1) if [ -n "$said" ]; then
+           printf '%s\n' "$said" >&2
+           exit 1
+       fi ;;
+    esac
+fi
+exec "$real" "$@"

@@ -8,6 +8,7 @@ import (
 	"unicode"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
@@ -24,6 +25,17 @@ func gateFlags(providers *run.Object, now float64, models map[string]config.Mode
 		prov, ok := providers.Get(name).(*run.Object)
 		if !ok {
 			continue
+		}
+		// meters the harness recorded when it refused a run are the reading at once: a file and no
+		// request, naming only the window it hit, so the week beside it stays
+		if recorded := harness.UsageRecorded(prov.Str("harness"), state(), now); len(recorded) > 0 {
+			fresh := []any{}
+			for _, meter := range recorded {
+				fresh = append(fresh, normalized(meter, now))
+			}
+			meters, _ := beside(prov.List("meters"), fresh, now)
+			prov.Set("meters", meters)
+			prov.Set("error", nil)
 		}
 		until, marked := number(prov.Get("exhausted_until"))
 		if !marked || until <= now || freshWindow(prov, prov, now) {

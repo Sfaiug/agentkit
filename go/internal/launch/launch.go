@@ -2,8 +2,8 @@
 // its loop: the run's id and directory, the task's copy, the receipt, the gate's admission,
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
-// scratch task's or a repository's with --no-merge or --no-worktree, and that run goes on in
-// package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
+// scratch task's or a repository's with --no-merge or --no-worktree, or a review of somebody else's
+// pull request from no seat, and that run goes on in package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
 // anything, so preflight is settled first.
 package launch
 
@@ -64,13 +64,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
 		stem = stem[:dot]
 	}
-	id := time.Now().Format("20060102-1504-") + task.Slug(task.Title(text, stem))
-	dir := filepath.Join(run.Runs(), id)
-	taken, err := exists(dir)
-	for n := 2; taken && err == nil; n++ {
-		dir = filepath.Join(run.Runs(), id+"-"+strconv.Itoa(n))
-		taken, err = exists(dir)
-	}
+	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(task.Title(text, stem)))
 	if err != nil {
 		return 0, "", err
 	}
@@ -83,31 +77,9 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if err != nil {
 		return 0, "", err
 	}
-	// a reader that stops reading ends the reading, never the launch: a line to a closed
-	// stdout goes nowhere, as Python's say has it, where Go's runtime would die of SIGPIPE
-	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+	log, unstopped := logger(dir, out), guarded(dir, out)
 	logged := filepath.Join(dir, "log.txt")
-	log := func(message string) error {
-		line := time.Now().Format("[15:04:05] ") + message + "\n"
-		io.WriteString(out, line)
-		file, err := os.OpenFile(logged, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-		if err != nil {
-			return err
-		}
-		_, err = file.WriteString(line)
-		return cmp.Or(err, file.Close())
-	}
 	title := task.Title(text, "task")
-	unstopped := func(change func(*run.Object)) error {
-		return run.Change(dir, func(record *run.Object) error {
-			if record.Str("state") == "stopped" {
-				io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
-				return ErrStopped
-			}
-			change(record)
-			return nil
-		})
-	}
 	for _, step := range []func() error{
 		config.EnsureDirs,
 		func() error { return os.Mkdir(dir, 0o777) },
@@ -124,6 +96,53 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		code, err := drive(dir, meta, place, warning, flags, unstopped, log, out, errOut)
 		return code, "", err
 	}
+	return refuse(dir, reason, warning, log)
+}
+
+// freeDir is the run's directory under that id, `-N` after it where the id is taken.
+func freeDir(id string) (string, error) {
+	dir := filepath.Join(run.Runs(), id)
+	taken, err := exists(dir)
+	for n := 2; taken && err == nil; n++ {
+		dir = filepath.Join(run.Runs(), id+"-"+strconv.Itoa(n))
+		taken, err = exists(dir)
+	}
+	return dir, err
+}
+
+// logger says a line on out and in the run's log.  A reader that stops reading ends the reading,
+// never the launch: a line to a closed stdout goes nowhere, as Python's say has it, where Go's
+// runtime would die of SIGPIPE.
+func logger(dir string, out io.Writer) func(string) error {
+	signal.Notify(make(chan os.Signal, 1), syscall.SIGPIPE)
+	return func(message string) error {
+		line := time.Now().Format("[15:04:05] ") + message + "\n"
+		io.WriteString(out, line)
+		file, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+		if err != nil {
+			return err
+		}
+		_, err = file.WriteString(line)
+		return cmp.Or(err, file.Close())
+	}
+}
+
+// guarded changes the record unless a stop landed, which it says on out.
+func guarded(dir string, out io.Writer) func(func(*run.Object)) error {
+	return func(change func(*run.Object)) error {
+		return run.Change(dir, func(record *run.Object) error {
+			if record.Str("state") == "stopped" {
+				io.WriteString(out, "stopped "+filepath.Base(dir)+"\n")
+				return ErrStopped
+			}
+			change(record)
+			return nil
+		})
+	}
+}
+
+// refuse ends a launch its receipt already records, as a run in error.
+func refuse(dir, reason, warning string, log func(string) error) (int, string, error) {
 	var ended *run.Object // the record as the refusal leaves it
 	for _, step := range []func() error{
 		func() error {
@@ -155,23 +174,26 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: a pull request's review, a queued run's start, a seat's launch, one
-// that history records, one the gate does not admit outright, one Python's rival check may
-// refuse, a config Python refuses before its run, a home HOME does not name, a local time Go
-// reads otherwise, or a string for the record Python would write with a lone surrogate.
+// cannot read as it does: any that leaves elsewhere, one Python's rival check may refuse, a config
+// Python refuses before its run, or a string for the record Python would write with a lone surrogate.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	depth, known := runDepth()
-	_, capped := config.MaxRuns()
-	_, review := values["--review-pr"]
-	if review || os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
-		os.Getenv("HOME") == "" || !localTime() ||
-		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
-		len(bound.Workers) == 0 ||
-		!readable(path, run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK")) ||
+	if elsewhere() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
 	return !flags["--anyway"] && going()
+}
+
+// elsewhere is whether this process's surroundings leave any launch or resume to Python: a queued
+// run's start, a seat's, one that history records, one the gate does not admit outright, a home HOME
+// does not name, a local time Go reads otherwise, or text Python would write with a lone surrogate.
+func elsewhere() bool {
+	depth, known := runDepth()
+	_, capped := config.MaxRuns()
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
+		os.Getenv("HOME") == "" || !localTime() ||
+		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
+		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
 
 // localTime is whether Go's local time is the C library's, which Python's datetime.now reads:
@@ -206,40 +228,76 @@ type place struct {
 	every, once        []string
 }
 
+// checkout is the checkout a launch of the task works in, "" for none, as Python's task_repo finds
+// it; the refusal for a named one that is no git repository; ErrPython where it is Python's to find.
+func checkout(meta map[string]string, path, copied string) (string, string, error) {
+	switch named := meta["repo"]; {
+	case strings.ToLower(named) == "none":
+		return "", "", nil
+	case named != "":
+		if account, _, _ := strings.Cut(named, "/"); account != "~" && strings.HasPrefix(account, "~") {
+			return "", "", ErrPython // a `~user`: that account's home is Python's to find
+		}
+		repo := config.Absolute(named)
+		if !readable(repo) {
+			return "", "", ErrPython
+		}
+		if found, err := exists(filepath.Join(repo, ".git")); err != nil || !found {
+			return "", fmt.Sprintf("%s: repo %s is not a git repository", copied, repo), err
+		}
+		return repo, "", nil
+	}
+	top, _, found, err := git("", "rev-parse", "--show-toplevel")
+	if err != nil || !found && filed(path) {
+		return "", "", ErrPython // the checkout a task folder is named for is Python's to find
+	}
+	if !found {
+		return "", "", nil
+	}
+	if repo := config.Resolve(top); readable(repo) {
+		return repo, "", nil
+	}
+	return "", "", ErrPython
+}
+
+// Budget is the rounds in force for a launch of the task at path, as Python's launch_policy reads
+// them before anything else is judged: its checkout's, the host's where the task does not read or
+// names a checkout that is none; ErrPython where the checkout is Python's to find.
+func Budget(path string) (int, error) {
+	repo := ""
+	if meta, _, err := task.Read(path); err == nil {
+		found, refused, err := checkout(meta, path, path)
+		if err != nil {
+			return 0, ErrPython
+		}
+		if refused == "" {
+			repo = found
+		}
+	}
+	numbers, err := numbers(repo)
+	return numbers.Rounds, err
+}
+
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
-// Python a run that would land from a checkout of its own, and one `from:` a branch.
+// Python a run that would land from a checkout of its own.
 func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		return reason, warning, at, err
 	}
-	switch named := meta["repo"]; {
-	case strings.ToLower(named) == "none":
-	case named != "":
-		if account, _, _ := strings.Cut(named, "/"); account != "~" && strings.HasPrefix(account, "~") {
-			return refuse("", "", ErrPython) // a `~user`: that account's home is Python's to find
-		}
-		at.repo = config.Absolute(named)
-		if !readable(at.repo) {
-			return refuse("", "", ErrPython)
-		}
-		found, err := exists(filepath.Join(at.repo, ".git"))
-		if err != nil || !found {
-			return refuse(fmt.Sprintf("%s: repo %s is not a git repository", copied, at.repo), "", err)
-		}
-	default:
-		top, _, found, err := git("", "rev-parse", "--show-toplevel")
-		if err != nil || !found && filed(path) {
-			return refuse("", "", ErrPython) // the checkout a task folder is named for is Python's to find
-		}
-		if found {
-			at.repo = config.Resolve(top)
-		}
-		if !readable(at.repo) {
-			return refuse("", "", ErrPython)
-		}
+	repo, refused, err := checkout(meta, path, copied)
+	if refused != "" || err != nil {
+		return refuse(refused, "", err)
+	}
+	at.repo = repo
+	if at.numbers, err = numbers(at.repo); err != nil {
+		return refuse("", "", &refusedOutright{err.Error()})
+	}
+	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged here
+	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
+		return refuse("", "", &refusedOutright{why})
 	}
 	landing := at.repo != "" && !flags["--no-merge"]
 	if landing && !flags["--no-worktree"] {
@@ -264,7 +322,6 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
 	later := task.ChecksRefusal(at.every)
-	branched := false
 	switch from := meta["from"]; {
 	case later != "" || from == "":
 	case at.repo == "":
@@ -279,18 +336,14 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 		if branch == "" {
 			later = fmt.Sprintf("%s: from: %s is not a local branch", copied, commandhelp.Quote(from))
 		}
-		branched = branch != ""
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if branched {
-			return refuse("", "", ErrPython)
-		}
 		if err := drivable(at.every, path, values); err != nil {
 			return refuse("", "", err)
 		}
 		// a helper takes a repository's checks in Python, and Go has none
-		if at.repo != "" && (len(config.MachineNames()) > 0 || config.MayRent()) {
+		if at.repo != "" && helped() {
 			return refuse("", "", ErrPython)
 		}
 	}
@@ -308,15 +361,6 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	at.target = cmp.Or(meta["target"], at.base)
 	if later != "" {
 		return refuse(later, warning, nil)
-	}
-	var err error
-	if at.numbers, err = numbers(at.repo); err != nil {
-		return refuse("", "", &refusedOutright{err.Error()})
-	}
-	for _, asked := range [][2]string{{values["--rounds"], "--rounds"}, {meta["rounds"], "rounds:"}} {
-		if why := task.RoundsOver(asked[0], asked[1], at.numbers.Rounds); why != "" {
-			return refuse("", "", &refusedOutright{why})
-		}
 	}
 	return refuse("", warning, nil)
 }
@@ -339,6 +383,9 @@ func asPython(err error) error {
 // numbers is the numbers in force for a repository's run: the front matter of AGENTS.md on the
 // default branch of its checkout, one commit for all of them, else the host's.
 func numbers(repo string) (config.Numbers, error) {
+	if repo == "" {
+		return config.HostNumbers()
+	}
 	commit, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD")
 	if err != nil || commit == "" {
 		return config.HostNumbers()
@@ -362,14 +409,19 @@ func holdSlots() (*os.File, error) {
 	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
 }
 
-// receive writes the launch's receipt, its first record, as Python's capture_launch writes it
-// under the slots lock, with the gate's outright admission.
+// receive writes the launch's receipt under the slots lock.
 func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
+	return receipt(dir, path, values, flags, bound)
+}
+
+// receipt is the launch's first record, as Python's capture_launch writes it, with the gate's
+// outright admission; its caller holds the slots lock.
+func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
 	depth, _ := runDepth()
 	var parent, identity any
 	if value, set := os.LookupEnv("AK_PARENT_RUN"); set {
@@ -388,13 +440,13 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 	for _, flag := range Switches {
 		launched.Set(flag, flags[flag])
 	}
-	receipt := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
+	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
 		"launched_session", nil, "started_at", now(), "queued_at", now(), "slot_waiting", false,
 		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
 		"unattended", os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
 		"process_identity", identity, "launch_opts", launched}
 	if bound.Reviewers != nil {
-		receipt = append(receipt, "workers", bound.Workers, "reviewers", bound.Reviewers)
+		first = append(first, "workers", bound.Workers, "reviewers", bound.Reviewers)
 	}
 	for _, model := range bound.Models {
 		keys := run.NewObject()
@@ -403,12 +455,20 @@ func receive(dir, path string, values map[string]string, flags map[string]bool, 
 		}
 		efforts.Set(model, keys)
 	}
-	receipt = append(receipt, "efforts", efforts, "review_pr", nil, "reported", false, "base_proof", "owed",
-		"notify_sink", sink(), "task_file", path)
-	if flags["--first"] {
-		receipt = append(receipt, "first", true)
+	// a review's proof is its plan's lines, and it has no task file
+	var reviewed, proof any = nil, "owed"
+	if url, given := values["--review-pr"]; given {
+		reviewed, proof = url, nil
 	}
-	return run.Create(dir, run.Fields(append(receipt, "slot_started_at", now())...))
+	first = append(first, "efforts", efforts, "review_pr", reviewed, "reported", false, "base_proof", proof,
+		"notify_sink", sink())
+	if path != "" {
+		first = append(first, "task_file", path)
+	}
+	if flags["--first"] {
+		first = append(first, "first", true)
+	}
+	return run.Create(dir, run.Fields(append(first, "slot_started_at", now())...))
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

@@ -57,13 +57,3 @@ func noLeftovers() bool {
 	}
 	return true
 }
-
-// retireRead reads the switch retirement record as Python's retire.read does: nothing there and
-// a record that is none cost only a read of the lists, and anything else it cannot read raises.
-func retireRead() error {
-	_, err := os.ReadFile(statePath("retire.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	}
-	return err
-}

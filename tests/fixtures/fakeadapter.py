@@ -4,7 +4,7 @@
 in the Home's AGENTKIT_ADAPTER_DIR, so every ak the test runs from then on calls these and no
 real harness.  The toml is the shipped manifest with the directory as its `[worker] state`, the
 one place a worker's box lets a turn write beside its workspace, and of the shipped `[worker]`
-only its `sessions`.  The script runs a copy of this file there, beside one of tools/lend.py:
+only its `sessions` and `lent_for`.  The script runs a copy of this file there, beside one of tools/lend.py:
 a worker's box empties the temporary directories, where a test's copy of the checkout may sit.
 
 A harness's script is a list of steps, one per `run` call in order, the last repeated.  A step
@@ -29,11 +29,12 @@ workspace), `sh` (a command run there), `commit` (a message for all of it), `han
 of argument lists for `ak hand-in`), `final` (final.md's text, where `{in N}` is the moment N
 seconds after the turn, as a refusal names when to come back), `session` (the id handed back:
 the one resumed, else `sid-<harness>-<n>`), `stderr` (what the harness says on its
-diagnostics, such as its logout words), `exit` (0; negative, as a returncode says it, the
-turn dies of that signal with nothing of it left).  A hand-in goes through the ak build
-under test, the one AK_BIN names.  Every other verb answers as `answer` set it, or as a harness
-that is logged in with no meter to read, its `lend` the real tools/lend.py fed a login of the
-call's account lasting a day: `lent(account)` at LENT under the home named.
+diagnostics, such as its logout words), `events` (what it streams), `exit` (0; negative, as a
+returncode says it, the turn dies of that signal with nothing of it left).  A hand-in goes
+through the ak build under test, the one AK_BIN names.  Every other verb answers as `answer` set
+it, or as a harness that is logged in with no meter to read, its `lend` the real tools/lend.py
+fed a login of the call's account lasting a day or `lasts(seconds)`: `lent(account)` at LENT
+under the home named.
 
 Each harness's Adapter: `n` counts its `run` calls, `runs()` and `calls(verb)` read its log,
 `behave(*steps)` scripts its next turns, `answer(verb, out, code, given)` sets what another verb
@@ -108,6 +109,9 @@ class Adapter:
         """Script the turns from the next `run` call on."""
         self._put("beh", json.dumps({"from": self.n, "steps": list(steps)}))
 
+    def lasts(self, seconds):
+        self._put("lasts", json.dumps(seconds))
+
     def answer(self, verb, out, code=0, given=()):
         """What a verb other than `run` prints, and its exit status, from now on: for its calls
         whose arguments end in `given`, every call when it is empty.  A `code` of None waits
@@ -170,10 +174,10 @@ def install(home, **harnesses):
         fake.script.chmod(0o755)
         shipped = REPO / "adapters" / f"{harness}.toml"
         text = shipped.read_text() if shipped.exists() else "version = 1\n"
-        sessions = "".join(re.findall(r"(?m)^sessions = .*\n", text))
+        kept = "".join(re.findall(r"(?m)^(?:sessions|lent_for) = .*\n", text))
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text).rstrip()
         fake.manifest.write_text(
-            f"{text}\n\n[worker]\nstate = {json.dumps([str(directory)])}\n{sessions}")
+            f"{text}\n\n[worker]\nstate = {json.dumps([str(directory)])}\n{kept}")
     return fakes
 
 
@@ -184,7 +188,7 @@ def main(directory, harness, ak, verb="", *args):
     if verb == "lend" and "lend" not in (fake._json("answers") or {}):
         code = subprocess.run(
             [sys.executable, "-I", Path(__file__).with_name("lend.py"), *args, LENT], text=True,
-            input=json.dumps({"ends": int(time.time()) + 86400,
+            input=json.dumps({"ends": int(time.time()) + (fake._json("lasts") or 86400),
                               "login": lent(os.environ.get("AGENTKIT_ACCOUNT"))})).returncode
     elif verb != "run":
         # the answer set for the most of the arguments this call ends in
@@ -223,6 +227,8 @@ def turn(fake, ak, call, model, effort, workspace, prompt, out, session=None):
     (out / "stderr.log").write_text(f"fake {fake.harness} adapter, call {n}\n"
                                     + todo.get("stderr", ""))
     (out / "session_id").write_text(todo.get("session", session or f"sid-{fake.harness}-{n}"))
+    if "events" in todo:
+        (out / "events.jsonl").write_text(todo["events"])
     for relative, text in todo.get("write", {}).items():
         path = Path(workspace, relative)
         path.parent.mkdir(parents=True, exist_ok=True)

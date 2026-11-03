@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"agentkit/internal/config"
 	"agentkit/internal/host"
 )
 
@@ -262,12 +263,10 @@ func DeathLines(record *Object) []string {
 // WorkspaceLocation is `present`, or what a missing checkout still leaves behind: its branch,
 // unless a stop without --keep, a merge, a run found not needed or a seat's stop took it.
 func WorkspaceLocation(record *Object, present bool) string {
-	state := record.Str("state")
 	switch {
 	case present:
 		return "present"
-	case state == "stopped" && !record.Truthy("stop_kept") || state == "not_needed" ||
-		record.Truthy("merged") || record.Truthy("branch_removed"):
+	case branchGone(record):
 		return "removed; branch removed"
 	}
 	return "removed; branch/PR retained"
@@ -285,9 +284,6 @@ func worktree(record *Object) string {
 	}
 	return ""
 }
-
-// TaskMaxRounds is a change's round budget across all its runs: past it, split or re-scope.
-const TaskMaxRounds = 3
 
 var pullRequest = regexp.MustCompile(`^https://github\.com/([^/\s]+)/([^/\s]+)/pull/(\d+)/?$`)
 
@@ -323,11 +319,11 @@ func roundsSpent(record *Object, now time.Time) int {
 	return recorded
 }
 
-// lineageCap is the rounds that run may have in all: the change's budget less what its other
-// runs, on its pull request or its change, spent.
-func lineageCap(record *Object, dir string, now time.Time) int {
+// spentElsewhere is the rounds the run's other runs, on its pull request or its change, spent, and
+// how many runs spent them.
+func spentElsewhere(record *Object, dir string, now time.Time) (spent, runs int) {
 	wanted := prKey(record.Get(firstKey(record, "pr", "review_pr")))
-	change, spent := changeOf(record), 0
+	change := changeOf(record)
 	for _, other := range Dirs() {
 		if filepath.Base(other) == filepath.Base(dir) {
 			continue
@@ -335,10 +331,62 @@ func lineageCap(record *Object, dir string, now time.Time) int {
 		state, _ := Read(other)
 		if state != nil && (wanted != "" && (prKey(state.Get("pr")) == wanted || prKey(state.Get("review_pr")) == wanted) ||
 			change != nil && Equal(changeOf(state), change)) {
-			spent += roundsSpent(state, now)
+			if rounds := roundsSpent(state, now); rounds > 0 {
+				spent, runs = spent+rounds, runs+1
+			}
 		}
 	}
-	return max(0, TaskMaxRounds-spent)
+	return spent, runs
+}
+
+// PolicyRounds is the rounds a run holds to: those on its record, else the host's it was launched
+// under, as Python's policy_of.
+func PolicyRounds(record *Object) (int, error) {
+	if policy := record.Dict("policy"); policy != nil {
+		if held, ok := policy.Int("rounds"); ok {
+			return held, nil
+		}
+	}
+	return config.Rounds()
+}
+
+// ChangeLeft is the rounds the run may still have, asked less what its other runs and its own
+// (own) spent of its change's budget, and why none, as Python's change_budget.
+func ChangeLeft(record *Object, dir string, asked, own int, now time.Time) (int, string, error) {
+	return left(record, dir, asked, own, "this change", now)
+}
+
+func left(record *Object, dir string, asked, own int, what string, now time.Time) (int, string, error) {
+	budget, err := PolicyRounds(record)
+	if err != nil {
+		return 0, "", err
+	}
+	spent, runs := spentElsewhere(record, dir, now)
+	if left := min(asked, budget-spent-own); left >= 1 {
+		return left, "", nil
+	}
+	if own > 0 {
+		runs++
+	}
+	plural := "s"
+	if runs == 1 {
+		plural = ""
+	}
+	return 0, fmt.Sprintf("%d review rounds spent on %s across %d run%s: %d per pull request is the budget; split or redesign it", spent+own, what, runs, plural, budget), nil
+}
+
+// lineageCap is the rounds that run may have in all: the change's budget less what its other
+// runs spent.
+func lineageCap(record *Object, dir string, now time.Time) int {
+	budget, err := PolicyRounds(record)
+	if err != nil {
+		return 0 // no budget can be read: nothing to offer
+	}
+	left, _, err := ChangeLeft(record, dir, budget, 0, now)
+	if err != nil {
+		return 0
+	}
+	return left
 }
 
 // judged is a review that failed a tree it names, with a done-when value.

@@ -18,13 +18,13 @@ not json
 	if err := os.WriteFile(filepath.Join(out, "events.jsonl"), []byte(events), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := conversation(out); got != "stream-3" {
+	if got := Conversation(out); got != "stream-3" {
 		t.Fatalf("a killed turn's conversation: %q", got)
 	}
 	if err := os.WriteFile(filepath.Join(out, "session_id"), []byte(" sid-acme-9\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := conversation(out); got != "sid-acme-9" {
+	if got := Conversation(out); got != "sid-acme-9" {
 		t.Fatalf("the adapter's conversation: %q", got)
 	}
 }

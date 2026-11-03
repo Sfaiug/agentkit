@@ -70,15 +70,7 @@ func Stop(dir string, now time.Time) error {
 		if !Alone(dir, record) {
 			return fmt.Errorf("%s moved on while its seat stopped", filepath.Base(dir))
 		}
-		for _, key := range settled {
-			record.Delete(key)
-		}
-		record.Set("state", "stopped")
-		record.Set("verdict", "STOPPED")
-		record.Set("finished_at", Float(float64(now.UnixNano())/1e9))
-		record.Set("error", Why)
-		record.Set("reported", true)
-		record.Set("stop_kept", true) // it has no checkout to take
+		MarkStopped(record, now, true) // it has no checkout to take
 		ended = record
 		return nil
 	})
@@ -97,6 +89,15 @@ func Stop(dir string, now time.Time) error {
 	return nil
 }
 
+// MarkStopped is what Python's stop.end writes on a record a person stopped.
+func MarkStopped(record *Object, now time.Time, kept bool) {
+	for _, key := range settled {
+		record.Delete(key)
+	}
+	SetAll(record, "state", "stopped", "verdict", "STOPPED", "finished_at", Float(float64(now.UnixNano())/1e9),
+		"error", Why, "reported", true, "stop_kept", kept)
+}
+
 // Report writes result.md for a run that ended before it had a checkout to report on, under the
 // delivery lock: Python's handback.record_result, whose heading such an ending always gets.
 func Report(dir string, record *Object) error {
@@ -105,10 +106,19 @@ func Report(dir string, record *Object) error {
 		return err
 	}
 	defer delivery.Close()
-	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: ak run %s\n\n",
+	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s\n\n",
 		cmp.Or(record.Str("title"), filepath.Base(dir)), cmp.Or(record.Str("verdict"), "none"),
-		cmp.Or(record.Str("error"), "no reason was recorded"), filepath.Join(dir, "task.md"))
+		cmp.Or(record.Str("error"), "no reason was recorded"), Relaunch(dir, record))
 	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(result), 0o666)
+}
+
+// Relaunch is the command that starts a run's work over: a review's task file, launched alone,
+// would build a change of its own titled after the review.
+func Relaunch(dir string, record *Object) string {
+	if record.Truthy("review_pr") {
+		return "ak run --review-pr " + record.Str("review_pr")
+	}
+	return "ak run " + filepath.Join(dir, "task.md")
 }
 
 // note is one line in the run's log; a log it cannot write costs the stop nothing.

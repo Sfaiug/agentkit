@@ -15,39 +15,69 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/seat"
-	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
 )
 
-// orchNew answers a person's new seat naming both its models, `ak orch NAME --model M --workers
-// W`, as Python's orch.main and orch.create do.  A preview (`--dry-run`) prints what the seat
-// would take and the command it would run, its rulebook written into a scratch folder gone once
-// that is printed, and saves and starts nothing; an open, from a person's terminal, opens the seat
-// and hands it that terminal.  The rest is Python's: a seat it would ask about, a name held, a
-// seat filed under a project, one on a provider's accounts, which opens on the one its login and
-// usage pick, and an open with no tmux, whose harness runs in the terminal itself, or with no
-// terminal on its output, which says how to attach instead.
+// orchNew answers a person's new seat, `ak orch [NAME] --model M [--workers W]`, as Python's
+// orch.main, orch.select and orch.create do: the flags refused before anything is asked, the name
+// and the workers asked where not given, a name tmux holds for no seat refused.  A preview
+// (`--dry-run`) prints what the seat would take and the command it would run, its rulebook written
+// into a scratch folder gone once that is printed, and saves and starts nothing; an open, from a
+// person's terminal, opens the seat and hands it that terminal.  The rest is Python's: a seat
+// tmux or a record holds under the name, the orchestrator question, a seat filed under a project,
+// one on a provider's accounts, which opens on the one its login and usage pick, and an open with
+// no tmux, whose harness runs in the terminal itself.
 func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
-	orchestrator := flags["--model"]
-	workers, listed := flags["--workers"]
-	cwd, err := os.Getwd()
-	cwd = config.Resolve(cwd)
-	if name == "" || orchestrator == "" || !listed || held(name) || err != nil || seat.Project(cwd) != "" {
+	if name != "" && held(name) {
 		return notImplemented(errOut, "orch")
 	}
-	model, crew, err := picked(orchestrator, workers)
+	orchestrator := flags["--model"]
+	workers, listed := flags["--workers"]
+	model, crew, err := picked(orchestrator, workers, listed)
 	if err != nil {
 		fmt.Fprintf(errOut, "ak orch: %s\n", err)
 		return 2
 	}
+	cwd, err := os.Getwd()
+	cwd = config.Resolve(cwd)
+	if orchestrator == "" || err != nil || seat.Project(cwd) != "" {
+		return notImplemented(errOut, "orch")
+	}
 	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 {
 		return notImplemented(errOut, "orch")
 	}
-	if !dryRun {
-		if _, err := exec.LookPath("tmux"); err != nil || !terminal.Attachable() {
+	if _, err := exec.LookPath("tmux"); err != nil && !dryRun {
+		return notImplemented(errOut, "orch")
+	}
+	unnamed := false
+	if name == "" {
+		typed, ok, code := askName(out, errOut)
+		if !ok {
+			return code
+		}
+		name, unnamed = typed, typed == ""
+		if unnamed {
+			if name, ok = characterName(seat.ReadNames().Taken); !ok {
+				return notImplemented(errOut, "orch")
+			}
+		}
+	}
+	if seat.ReadNames().Held(name) {
+		fmt.Fprintf(errOut, "ak orch: tmux already holds a session named %s, and it is no seat; pick another name\n", commandhelp.Quote(name))
+		return 2
+	}
+	if crew == nil {
+		asked, ok, err := askWorkers(out)
+		if err != nil {
 			return notImplemented(errOut, "orch")
 		}
-		opened, err := seat.Open(name, orchestrator, model, crew, cwd)
+		if !ok {
+			return 0
+		}
+		crew = asked
+	}
+	if !dryRun {
+		opened, err := seat.Open(name, orchestrator, model, crew, cwd, unnamed)
 		if !opened {
 			return notImplemented(errOut, "orch")
 		}
@@ -63,7 +93,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	scratch, err := os.MkdirTemp("", "ak-dry-run-")
 	defer os.RemoveAll(scratch)
 	rulebook := filepath.Join(scratch, "rulebook-"+name+".md")
-	if text, unread := seat.Rulebook(); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+	if text, unread := seat.Rulebook(name); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
 		return notImplemented(errOut, "orch")
 	}
 	cmd, _, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
@@ -79,29 +109,29 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	return 0
 }
 
-// held is whether something Python's open reads holds the name: a seat's file, its record or a
-// rename's pointer, or a session on ak's tmux server, or a seat on the person's own.
+// held is whether Python attaches or reopens that name, whatever the flags: its seat tmux holds,
+// or a file a seat's record or a rename's pointer keeps under it.
 func held(name string) bool {
 	path, err := config.SessionPath(name)
 	if _, missing := os.Lstat(path); err != nil || !errors.Is(missing, fs.ErrNotExist) {
 		return true
 	}
-	for _, server := range []string{tmux.Own(), tmux.Default} {
-		for _, session := range tmux.Sessions(server) {
-			if config.Fold(session.Name) == name && (server != tmux.Default || session.Mark == "1") {
-				return true
-			}
-		}
-	}
-	return false
+	return seat.ReadNames().Seat(name)
 }
 
 // picked is the seat's orchestrator and workers as Python's select reads the flags, or why the
-// config refuses them.
-func picked(orchestrator, workers string) (config.Model, []string, error) {
-	model, err := config.ModelNamed(orchestrator)
-	if err != nil {
-		return model, nil, err
+// config refuses them: the one home of a model's choosing, for a preview and an open alike.  Workers
+// not listed are nil, for the question.
+func picked(orchestrator, workers string, listed bool) (config.Model, []string, error) {
+	var model config.Model
+	if orchestrator != "" {
+		var err error
+		if model, err = config.ModelNamed(orchestrator); err != nil {
+			return model, nil, err
+		}
+	}
+	if !listed {
+		return model, nil, nil
 	}
 	names := strings.Split(workers, ",")
 	for i, each := range names {

@@ -1,5 +1,6 @@
-"""A run Go's ak launches is Python's to carry on: a driver that dies leaves an ordinary dead loop,
-which Python's `ak run resume` takes to its delivery, and Python's `ak run stop` ends one going.
+"""A run Go's ak launches is Python's to carry on too: a driver that dies leaves an ordinary dead
+loop, which Python's `ak run resume` takes to its delivery, and Python's `ak run stop` ends one
+going.  What Python then drives Go leaves to Python, and a driver going refuses a second.
 
 Go builds as tests/test_go.py builds it, into the Home's own directory; `home.ak` stays this
 checkout's `bin/ak`, so Go's program launches and Python's does all the rest."""
@@ -52,6 +53,15 @@ def driver_gone(state):
     return said[0] == "Z" or int(said[19]) != state["process_identity"]["ticks"]
 
 
+def built(home):
+    """Go's program in the Home's own directory, as tests/test_go.py builds it."""
+    go = home.root / "go-ak"
+    done = subprocess.run(["go", "build", "-o", go, "./cmd/ak"], cwd=GO, env=ENV,
+                          capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    return go
+
+
 class GoLaunches(unittest.TestCase):
     def launch(self, repo=None, *flags):
         """A run Go launched in the background, scratch unless `repo` makes the Home's project of
@@ -63,10 +73,7 @@ class GoLaunches(unittest.TestCase):
         fakes = fakeadapter.install(home, claude="work", codex="pass")
         began = fakes["claude"].dir / "began"
         fakes["claude"].behave({"sh": f"touch {began}; sleep 600"}, "work")
-        go = home.root / "go-ak"
-        built = subprocess.run(["go", "build", "-o", go, "./cmd/ak"], cwd=GO, env=ENV,
-                               capture_output=True, text=True)
-        self.assertEqual(built.returncode, 0, built.stderr)
+        go = built(home)
         task = taskfile.write(home, rig.path if rig else "none", "Add retry file")
         done = home.run(go, "run", str(task), *flags, "--bg")
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -75,8 +82,9 @@ class GoLaunches(unittest.TestCase):
         state = json.loads((run_dir / "run.json").read_text())
         self.assertEqual(state["state"], "running")
         self.assertNotIn("driver", state)
-        for verb in ("stop", "resume"):
-            self.assertEqual(home.run(go, "run", verb, run_dir.name).code, 3, verb)
+        again = home.run(go, "run", "resume", run_dir.name)
+        self.assertEqual(again.code, 2, again.out + again.err)
+        self.assertEqual(again.err, f"ak run: {run_dir.name} is still running as pid {state['pid']}\n")
         return home, run_dir, state
 
     def test_python_resumes_a_run_whose_driver_was_killed_and_delivers_it(self):
@@ -115,6 +123,49 @@ class GoLaunches(unittest.TestCase):
         self.assertEqual(lines[0], "# PASS, not merged: --no-merge — Add retry file")
         tree = home.run("git", "-C", state["worktree"], "ls-tree", "--name-only", "HEAD")
         self.assertIn("retry.txt", tree.out.split())
+        self.assertEqual(marked(run_dir), [])
+
+    def test_go_leaves_the_stop_of_a_run_python_took_over_to_python(self):
+        home, run_dir, state = self.launch()
+        os.kill(state["pid"], signal.SIGKILL)
+        wait_for("dead driver", lambda: driver_gone(state))
+        home.spawn("run", "resume", run_dir.name)
+        record = lambda: json.loads((run_dir / "run.json").read_text())
+        wait_for("Python's loop", lambda: record()["pid"] != state["pid"] and record()["state"] == "running")
+
+        done = home.run(home.root / "go-ak", "run", "stop", run_dir.name)
+
+        self.assertEqual(done.code, 3, done.out + done.err)
+        self.assertEqual(record()["state"], "running")
+        self.assertEqual(home.ak("run", "stop", run_dir.name).code, 0)
+        wait_for("end of what the run started", lambda: not marked(run_dir))
+
+    def test_a_foreground_run_dies_with_its_terminal_and_go_carries_it_on_its_session(self):
+        home = Home()
+        self.addCleanup(home.close)
+        akconfig.write(home, ["opus", "astra"])
+        fakes = fakeadapter.install(home, claude="work", codex="pass")
+        began = fakes["claude"].dir / "began"
+        fakes["claude"].behave({"sh": f"touch {began}; sleep 600"}, "work")
+        go = built(home)
+        task = taskfile.write(home, "none", "Add retry file")
+        terminal = subprocess.Popen([go, "run", str(task)], cwd=home.path, env=home._env(None),
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL, start_new_session=True)
+        self.addCleanup(terminal.wait)
+        wait_for("executor's turn", began.exists)
+        run_dir = taskfile.only_run(home)
+        state = json.loads((run_dir / "run.json").read_text())
+
+        os.killpg(terminal.pid, signal.SIGINT)
+
+        wait_for("dead driver", lambda: driver_gone(state))
+        left = json.loads((run_dir / "run.json").read_text())
+        self.assertEqual((left["state"], left["pid"], left.get("error")), ("running", state["pid"], None))
+        done = home.run(go, "run", "resume", run_dir.name)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(json.loads((run_dir / "run.json").read_text())["state"], "pass")
+        self.assertEqual([run["argv"][5:] for run in fakes["claude"].runs()], [["sid-claude-1"]])
         self.assertEqual(marked(run_dir), [])
 
     def test_python_stops_a_run_go_is_driving_and_nothing_of_it_stays(self):

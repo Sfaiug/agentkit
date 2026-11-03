@@ -69,7 +69,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 	if err := l.save(func(record *run.Object) { record.Set("artifacts", r.artifactList()) }); err != nil {
 		return false, "", err
 	}
-	moved, err := r.moved(head, tree)
+	moved, err := r.changedSince(head, tree)
 	if err != nil {
 		return false, "", err
 	}
@@ -110,8 +110,8 @@ func (r *repoPlace) identity() (string, string, error) {
 	return head, tree, err
 }
 
-// moved is whether the checkout is off that commit, or has tracked edits.
-func (r *repoPlace) moved(head, tree string) (bool, error) {
+// changedSince is whether the checkout is off that commit, or has tracked edits.
+func (r *repoPlace) changedSince(head, tree string) (bool, error) {
 	nowHead, nowTree, err := r.identity()
 	if err != nil {
 		return false, err
@@ -384,19 +384,37 @@ func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, n
 	return marks, nil
 }
 
-// view is a repository's review input: the change's whole diff, and the checks it changed.
-func (r *repoPlace) view(l *loop) (string, string, string, error) {
+// capped is a diff cut at diffCap, saying where the rest is.
+func (r *repoPlace) capped(diff string) string {
+	if len(diff) > diffCap {
+		return diff[:diffCap] + fmt.Sprintf("\n\n[diff truncated at %d bytes; use git in %s for the rest]", diffCap, r.wt)
+	}
+	return diff
+}
+
+// view is a repository's review input: the change's whole diff, or in a later round what changed
+// since the last review with ak's proof of that review's findings, and the checks it changed.
+func (r *repoPlace) view(l *loop, j *judging, passed, total int) (string, string, string, error) {
 	if err := r.commitLeftovers(l); err != nil {
 		return "", "", "", err
 	}
+	return r.viewOf(l, j, passed, total)
+}
+
+// viewOf is that view of the commit the checkout has out.
+func (r *repoPlace) viewOf(l *loop, j *judging, passed, total int) (string, string, string, error) {
 	diff, err := r.git().Try("diff", r.baseSHA+"...HEAD")
 	if err != nil {
 		return "", "", "", err
 	}
-	if len(diff) > diffCap {
-		diff = diff[:diffCap] + fmt.Sprintf("\n\n[diff truncated at %d bytes; use git in %s for the rest]", diffCap, r.wt)
+	at, err := r.git().Must("rev-parse", "HEAD")
+	if err != nil {
+		return "", "", "", err
 	}
-	section := fmt.Sprintf("## Diff (%s...HEAD in %s)\n```diff\n%s\n```", r.base, r.wt, diff)
+	section, err := r.earlierWork(l, j, fmt.Sprintf("## Diff (%s...HEAD in %s)\n```diff\n%s\n```", r.base, r.wt, r.capped(diff)), at)
+	if err != nil {
+		return "", "", "", err
+	}
 	checks := ""
 	tests, err := r.changedTests(l, "HEAD", true)
 	if err != nil {
@@ -421,13 +439,13 @@ func (r *repoPlace) view(l *loop) (string, string, string, error) {
 		return "", "", "", err
 	}
 	r.viewed = [2]string{head, tree}
-	return section, checks, fmt.Sprintf("## Done-when output (run by the loop on commit %s; %d of %d commands exited 0)", head[:12], len(l.every), len(l.every)), nil
+	return section, checks, fmt.Sprintf("## Done-when output (run by the loop on commit %s; %d of %d commands exited 0)", head[:12], passed, total), nil
 }
 
 // judged holds a verdict to the commit its checks ran on: a checkout changed since verifies nothing.
 func (r *repoPlace) judged(l *loop, verdict string) (string, []any, error) {
 	head, tree := r.checked[0], r.checked[1]
-	moved, err := r.moved(head, tree)
+	moved, err := r.changedSince(head, tree)
 	if err != nil {
 		return "", nil, err
 	}

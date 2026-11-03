@@ -20,7 +20,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		t.Setenv(key, value)
 	}
 	task := filepath.Join(home, "task.md")
-	turn := filepath.Join(home, "hand-in.jsonl")
 	// a run Python's maintenance would reap leaves even an open nobody typed to Python
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit", "runs", "acme-1"), 0700); err != nil {
 		t.Fatal(err)
@@ -28,19 +27,15 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(testConfig), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for path, content := range map[string]string{task: "# fix-api\n\nReturn 404 for a missing user.\n\n## Done when\n\n```bash\nmake test\n```\n", turn: `{"kind":"turn","role":"fixer","workspace":".","findings":[{"path":"task.md","line":1,"what":"x","evidence":{"run":"false"}}],"context":"` + strings.Repeat("x", 70_000) + `"}` + "\n"} {
-		if err := os.WriteFile(path, []byte(content), 0600); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.WriteFile(task, []byte("# fix-api\n\nReturn 404 for a missing user.\n\n## Done when\n\n```bash\nmake test\n```\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
-	t.Setenv("AK_HAND_IN", turn)
 	before := tree(t, home)
 	// One call a line: milestones in flight each take theirs out, and lines apart merge.
 	calls := [][]string{
 		{},
 		{"attach", "--client"},
 		{"usage", "--json"},
-		{"models", "--refresh"},
 		{"worker", "acme", task},
 		{"run", task},
 		{"run", "gc", "--dry-run"},
@@ -52,7 +47,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"plan", "check", "٣", "true"},
 		{"plan", "check", "²", "a\nb"},
 		{"plan", "check", "1", "true \xff"},
-		{"hand-in", "done"},
 		{"notify", "needs", "Which branch?"},
 		{"watch"},
 		{"watch", "--dry-run"},

@@ -46,28 +46,37 @@ func StartLook() {
 // startLook is the look at that seat, once the pane no longer runs that process, started as a
 // process of its own: nil where none could start.
 func startLook(seat, pid string) *exec.Cmd {
-	program, err := os.Executable()
-	if err != nil {
-		return nil
-	}
-	cmd := exec.Command(program, "seat-look", seat, pid)
-	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
-		return strings.HasPrefix(entry, "AK_OWNER=") || strings.HasPrefix(entry, "AK_TMUX_OWNER=")
-	})
-	host.Detach(cmd)
-	if cmd.Start() != nil {
+	cmd, err := lookCommand(seat, pid)
+	if err != nil || cmd.Start() != nil {
 		return nil
 	}
 	return cmd
 }
 
+// lookCommand is `ak seat-look` with those arguments, with no stdin or stdout, neither of ak's marks,
+// and a session of its own.
+func lookCommand(args ...string) (*exec.Cmd, error) {
+	program, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	cmd := exec.Command(program, append([]string{"seat-look"}, args...)...)
+	cmd.Env = slices.DeleteFunc(os.Environ(), func(entry string) bool {
+		return strings.HasPrefix(entry, "AK_OWNER=") || strings.HasPrefix(entry, "AK_TMUX_OWNER=")
+	})
+	host.Detach(cmd)
+	return cmd, nil
+}
+
 // Look waits until the pane this process was started from no longer runs that process, as only
 // then does tmux have the seat closed, where it names one, and then looks as watch.hook_look does:
-// only at a seat whose pane's socket and session are its own.  What it finds, on the screen of a
-// seat whose panes run on or else as a seat gone, is written and told as every Go announce does
-// (Seat.announce); where the look would do more than that, or Go does not read what it hangs on,
-// nothing is (lookedLive, lookedAt).
-func Look(launched, pid string) {
+// only at a seat whose pane's socket and session are its own.  A seat Go reads alive has the answer
+// to its question recorded first, the prompt `heard` among what may answer it.  What it finds, on the
+// screen of a seat whose panes run on or else as a seat gone, is written and told as every Go
+// announce does (Seat.announce); where the look would do more than that, or Go does not read what it
+// hangs on, nothing is (lookedLive, lookedAt).  A turn its harness says failed settles its account
+// first, which is the tick's in Go: this look leaves it.
+func Look(launched, pid string, heard *Prompt) {
 	_, server, pane, ok := paneOf()
 	if !ok {
 		return
@@ -87,6 +96,14 @@ func Look(launched, pid string) {
 		return
 	}
 	state := filepath.Join(config.Home(), "state")
+	if _, live, known := liveSeat(name, time.Now()); known {
+		if failed(name, live.own) {
+			return
+		}
+		if answering(state, name, heard) != nil {
+			return
+		}
+	}
 	if _, err := lookedLive(state, name); errors.Is(err, ErrUnread) {
 		lookAgain(state, name)
 	}

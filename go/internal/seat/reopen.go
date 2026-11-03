@@ -2,8 +2,6 @@ package seat
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -31,9 +29,6 @@ import (
 
 // sessionStale is how long a seat's record outlives its last sighting (config.SESSION_STALE).
 const sessionStale = 7 * 86400
-
-// rulesRef is the ref a seat's project's rules are read from (config.RULES_REF).
-const rulesRef = "refs/remotes/origin/HEAD"
 
 var (
 	// launchKeys are what a launch writes about the conversation it owns and the rulebook it hands
@@ -88,11 +83,11 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	if record == nil {
 		return true, Refusal(fmt.Sprintf("%s does not say which model held %s", path, commandhelp.Quote(name)))
 	}
-	seat, known := planned(state, name, record, held, how.DryRun)
+	seat, known := comingBack(state, name, record, held, how.DryRun)
 	if !known {
 		return false, nil
 	}
-	text, err := Rulebook()
+	text, err := Rulebook(name)
 	if err != nil {
 		return false, nil
 	}
@@ -106,10 +101,11 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 		fmt.Fprintln(out, commandhelp.ShellJoin(cmd))
 		return true, nil
 	}
-	if err := seat.launch(state, rulebook, text, cmd, conversation); err != nil {
+	settled, err := seat.launch(state, rulebook, text, cmd, conversation)
+	if err != nil {
 		return true, err
 	}
-	return true, handOver(seat.name, how, out, errOut)
+	return true, handOver(settled, how, out, errOut)
 }
 
 // There is whether `ak orch NAME` means a seat that is there, as Python's orch.main asks: one tmux
@@ -200,26 +196,21 @@ func attachLive(name string, how How, out, errOut io.Writer) (bool, error) {
 	return true, handOver(name, how, out, errOut)
 }
 
-// handOver gives the terminal to that seat, by the name it goes by now, or with none to give says
-// how to reach it (orch.attach).
+// handOver gives the terminal to that seat, or with none to give says how to reach it
+// (orch.attach).
 func handOver(name string, how How, out, errOut io.Writer) error {
-	if current, _, err := config.ResolveSession(name); err == nil {
-		name = current
-	}
 	if how.Terminal {
 		return Attach(name, out, errOut)
 	}
-	fmt.Fprintf(out, "session %s is running; attach it with `%s`\n", name,
-		commandhelp.ShellJoin([]string{"tmux", "-L", tmux.Own(), "attach", "-t", name}))
-	return nil
+	return sayWhere(name, out)
 }
 
-// planned is what the seat comes back as, or false where Go does not carry that out: a record it
+// comingBack is what the seat comes back as, or false where Go does not carry that out: a record it
 // would refuse or reconcile; a conversation only its harness's own evidence or store can name; a
 // login of an account's; a folder gone; a rulebook holding more than ak's and the host's rules.
 // A launch also leaves Python a harness whose launch writes more than its id, a project's fetch and
 // a checkout's git, a seat cut off that its relaunch tells so, and lines owed it.
-func planned(state, name string, record map[string]any, held, dryRun bool) (reopening, bool) {
+func comingBack(state, name string, record map[string]any, held, dryRun bool) (reopening, bool) {
 	orchestrator, _ := record["orchestrator"].(string)
 	models, err := config.Models()
 	model, named := models[orchestrator]
@@ -328,10 +319,9 @@ func cutOff(name, own string, file *run.Object) bool {
 }
 
 // command is the seat's line and the conversation it owns on it (orch.resume, resume_command): the
-// one its record holds, or one a new launch can be told, "" for none.  Its adapter reads the
-// rulebook from a scratch folder, and may make things beside it, so that asking changes nothing a
-// seat runs on and an adapter that gives no line leaves nothing to take back; the line then names
-// the file launch writes.
+// one its record holds, or one a new launch can be told, "" for none.  Its adapter reads the rules
+// from a scratch folder, and may make things beside it, so that asking writes nothing of the
+// seat's and leaves nothing to take back; the line then names the file launch writes.
 func (seat reopening) command(text, rulebook string) ([]string, string, bool) {
 	scratch, err := os.MkdirTemp("", "ak-rulebook-")
 	if err != nil {
@@ -369,44 +359,48 @@ func (seat reopening) said() string {
 }
 
 // launch puts the harness in the seat and writes down what it was launched with, as orch.launch
-// does: under the seat's lock, so a rename going on keeps its record and the rulebook on disk is
-// the one the record says it handed over, and with the last harness's
-// hook facts moved aside, moved and linked back rather than rewritten as its hooks publish by
-// rename.  A harness that never started leaves the record and the facts as they were.
-func (seat reopening) launch(state, rulebook, text string, cmd []string, conversation string) error {
-	sum := sha256.Sum256([]byte(text))
+// does, all under the seat's lock: a rename going on keeps its record, and of two launches racing
+// the one that finds the other's session running writes and starts nothing.  The last harness's
+// hook facts are moved aside, then moved and linked back rather than rewritten, as its hooks
+// publish by rename.  A harness that never started leaves the rulebook, the record and the facts
+// as they were.  The name is the one the seat goes by now.
+func (seat reopening) launch(state, rulebook, text string, cmd []string, conversation string) (string, error) {
 	titled, _ := harness.Opens(seat.model.Harness)
 	var settled string
 	err := notify.Held(context.Background(), seat.name, func(current string) error {
 		settled = current
-		if err := os.WriteFile(rulebook, []byte(text), 0o666); err != nil {
-			return fmt.Errorf("no rulebook for %s: %w", current, err)
+		if held, exited, _ := find(current, nil); held && !exited {
+			return nil
 		}
-		var before *run.Object
-		// before the harness is up: its first prompt may be offered a newer rulebook already
-		if err := update(state, current, func(data *run.Object) bool {
-			before = data.Copy()
-			issued := []field{{"conversation", nil}, {"id_source", nil}}
-			if conversation != "" {
-				issued = []field{{"conversation", conversation}, {"id_source", "launcher"}}
-			}
-			fill(data, append(issued, field{"resumable", conversation != ""}, field{"before", nil},
-				field{"rulebook_sha", hex.EncodeToString(sum[:])}, field{"rulebook_told", nil}, field{"rulebook_read", nil}))
-			return true
-		}); err != nil {
+		kept, err := os.ReadFile(rulebook)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
-		if before == nil { // no record left to write it down in, as config.update_session leaves it
-			before = run.NewObject()
-		}
+		had := err == nil
+		var before *run.Object
 		facts := filepath.Join(state, "hook-"+current+".json")
 		last := facts + ".last"
 		defer os.Remove(last)
-		started, err := false, os.Rename(facts, last)
-		if errors.Is(err, fs.ErrNotExist) {
-			err = os.Remove(last) // a launch killed past its move left one
-			if errors.Is(err, fs.ErrNotExist) {
-				err = nil
+		started, err := false, os.WriteFile(rulebook, []byte(text), 0o666)
+		if err == nil {
+			// before the harness is up: its first prompt may be offered a newer rulebook already
+			err = update(state, current, func(data *run.Object) bool {
+				before = data.Copy()
+				issued := []field{{"conversation", nil}, {"id_source", nil}}
+				if conversation != "" {
+					issued = []field{{"conversation", conversation}, {"id_source", "launcher"}}
+				}
+				fill(data, append(issued, field{"resumable", conversation != ""}, field{"before", nil},
+					field{"rulebook_sha", digest([]byte(text))}, field{"rulebook_told", nil}, field{"rulebook_read", nil}))
+				return true
+			})
+		}
+		if err == nil {
+			if err = os.Rename(facts, last); errors.Is(err, fs.ErrNotExist) {
+				err = os.Remove(last) // a launch killed past its move left one
+				if errors.Is(err, fs.ErrNotExist) {
+					err = nil
+				}
 			}
 		}
 		if err == nil {
@@ -414,24 +408,34 @@ func (seat reopening) launch(state, rulebook, text string, cmd []string, convers
 		}
 		if err != nil {
 			if !started {
-				update(state, current, func(data *run.Object) bool {
-					for _, key := range launchKeys {
-						if before.Has(key) {
-							data.Set(key, before.Get(key))
-						} else {
-							data.Delete(key)
+				if had {
+					os.WriteFile(rulebook, kept, 0o666)
+				} else {
+					os.Remove(rulebook)
+				}
+				if before != nil { // nil where the record took nothing
+					update(state, current, func(data *run.Object) bool {
+						for _, key := range launchKeys {
+							if before.Has(key) {
+								data.Set(key, before.Get(key))
+							} else {
+								data.Delete(key)
+							}
 						}
-					}
-					return true
-				})
+						return true
+					})
+				}
 				os.Link(last, facts) // refused where that harness wrote one since
 			}
 			return err
 		}
+		if before == nil { // no record left to write it down in, as config.update_session leaves it
+			before = run.NewObject()
+		}
 		now := time.Now()
 		// the moment from which an answer is this harness's, and the seat's title as Python's
 		// launch keeps it: both harnesses Go opens take a title line
-		return update(state, current, func(data *run.Object) bool {
+		if err := update(state, current, func(data *run.Object) bool {
 			fill(data, []field{{"launched", seconds(now)}, {"seen", int(now.Unix())}, {"title_sync", nil}})
 			echo := before.Str("session_title")
 			if conversation == "" || before.Str("conversation") != conversation || echo == "" || echo == current {
@@ -442,16 +446,16 @@ func (seat reopening) launch(state, rulebook, text string, cmd []string, convers
 				fill(data, []field{{"session_title", title}})
 			}
 			return true
-		})
+		}); err != nil {
+			return err
+		}
+		var fields []field
+		for _, key := range cleared {
+			fields = append(fields, field{key, nil})
+		}
+		return writeSeat(state, current, fields)
 	})
-	if err != nil {
-		return err
-	}
-	var fields []field
-	for _, key := range cleared {
-		fields = append(fields, field{key, nil})
-	}
-	return writeSeat(state, settled, fields)
+	return settled, err
 }
 
 // fill merges fields into a record as config.update_session does: a nil one is removed.
@@ -493,7 +497,7 @@ func (seat reopening) start(state, name string, cmd []string) (bool, error) {
 		return false, Refusal(fmt.Sprintf("cannot resume the session %s: %v", name, err))
 	}
 	// a refused respawn leaves the old harness up: only now do later panes take this one's home
-	kept := append(keptEnvironment("="+name+":", values), ";", "set-option", "-F", "-t", target, "@ak_harness_pane", "#{pane_id}")
+	kept := append(keptEnvironment("="+name+":", values), ";", "set-option", "-F", "-t", target, tmux.HarnessPane, "#{pane_id}")
 	if _, err := tmux.Ask(server, kept[1:]...); err != nil {
 		return true, Refusal(fmt.Sprintf("cannot set up the session %s: %v", name, err))
 	}
@@ -504,7 +508,7 @@ func (seat reopening) start(state, name string, cmd []string) (bool, error) {
 // removed, the session's current pane (orch.harness_pane).
 func harnessPane(name string) string {
 	session := "=" + name + ":"
-	pane, err := tmux.Ask(tmux.Own(), "show-options", "-qv", "-t", session, "@ak_harness_pane")
+	pane, err := tmux.Ask(tmux.Own(), "show-options", "-qv", "-t", session, tmux.HarnessPane)
 	if err == nil && paneName.MatchString(pane) {
 		if owner, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{session_name}"); err == nil && owner == name {
 			return pane

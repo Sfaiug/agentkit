@@ -13,15 +13,17 @@ import (
 	"agentkit/internal/run"
 )
 
-// fakeTmux puts a tmux on PATH holding acme, its only pane dead, that refuses a respawn.
-func fakeTmux(t *testing.T, home string) {
+// fakeTmux puts a tmux on PATH holding that session, its only pane dead or not, that refuses a
+// respawn.
+func fakeTmux(t *testing.T, home, session string, dead bool) {
 	t.Helper()
 	bin := filepath.Join(home, "fake")
+	flag := map[bool]string{true: "1", false: "0"}[dead]
 	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
 case "$*" in
   *respawn-pane*) echo "can't find pane" >&2; exit 1 ;;
-  *list-sessions*) printf 'acme\t1\n' ;;
-  *list-panes*) printf 'acme\t1\n' ;;
+  *list-sessions*) printf '`+session+`\t1\n' ;;
+  *list-panes*) printf '`+session+`\t`+flag+`\n' ;;
   *show-options*) echo %1 ;;
   *display-message*) echo acme ;;
 esac
@@ -34,7 +36,7 @@ esac
 
 func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 	home := sandbox(t)
-	fakeTmux(t, home)
+	fakeTmux(t, home, "acme", true)
 	state := filepath.Join(home, ".agentkit", "state")
 	path := filepath.Join(state, "session-acme.json")
 	kept := `{"orchestrator": "opus", "conversation": "conv-acme", "id_source": "launcher", "rulebook_read": {"sha": "old"}, "session_title": "acme"}`
@@ -43,7 +45,7 @@ func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 	rulebook := filepath.Join(state, "rulebook-acme.md")
 	write(t, rulebook, "rules\n")
 	seat := reopening{name: "acme", held: true}
-	err := seat.launch(state, rulebook, "rules\n", []string{"claude"}, "new-conversation")
+	_, err := seat.launch(state, rulebook, "new rules\n", []string{"claude"}, "new-conversation")
 	var refused Refusal
 	if !errors.As(err, &refused) || string(refused) != "cannot resume the session acme: can't find pane" {
 		t.Fatalf("refused with %v", err)
@@ -51,6 +53,9 @@ func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 	record, _ := run.ReadJSON(path)
 	if record.Str("conversation") != "conv-acme" || record.Has("rulebook_sha") || record.Dict("rulebook_read") == nil || record.Has("launched") || record.Has("seen") {
 		t.Errorf("the record is left %s", run.Encode(record))
+	}
+	if read, _ := os.ReadFile(rulebook); string(read) != "rules\n" {
+		t.Errorf("the rulebook is left %q", read)
 	}
 	if read, _ := os.ReadFile(filepath.Join(state, "hook-acme.json")); !strings.Contains(string(read), "Stop") {
 		t.Error("the last harness's facts did not come back")
@@ -67,7 +72,7 @@ func TestARefusedRespawnLeavesTheSeatAsItWas(t *testing.T) {
 // does not say which model held it.
 func TestReopenRefusals(t *testing.T) {
 	home := sandbox(t)
-	fakeTmux(t, home)
+	fakeTmux(t, home, "acme", true)
 	var refused Refusal
 	known, err := Reopen("beta", How{}, io.Discard, io.Discard)
 	if !known || !errors.As(err, &refused) || string(refused) != "no session 'beta' to resume and no record of one" {
@@ -118,16 +123,29 @@ printf 'claude --rules %s\n' "$AGENTKIT_RULEBOOK"
 	}
 }
 
-// A seat renamed while it came back is reached by the name it goes by now.
-func TestItIsHandedOverByItsNameNow(t *testing.T) {
+// A launch that finds its seat running, another launch's, writes and starts nothing and hands over
+// the seat by the name it goes by now.
+func TestALaunchThatLostTheRaceTouchesNothing(t *testing.T) {
 	home := sandbox(t)
-	write(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), `{"renamed": "beta"}`)
-	var said strings.Builder
-	if err := handOver("acme", How{}, &said, io.Discard); err != nil {
-		t.Fatal(err)
+	fakeTmux(t, home, "beta", false)
+	state := filepath.Join(home, ".agentkit", "state")
+	write(t, filepath.Join(state, "session-acme.json"), `{"renamed": "beta"}`)
+	kept := `{"orchestrator": "opus", "conversation": "conv-acme", "id_source": "launcher"}`
+	write(t, filepath.Join(state, "session-beta.json"), kept)
+	rulebook := filepath.Join(state, "rulebook-acme.md")
+	seat := reopening{name: "acme", held: true}
+	settled, err := seat.launch(state, rulebook, "rules\n", []string{"claude"}, "conv-acme")
+	if err != nil || settled != "beta" {
+		t.Fatalf("settled on %q, %v", settled, err)
 	}
-	if want := "session beta is running; attach it with `tmux -L seat-test attach -t beta`\n"; said.String() != want {
-		t.Errorf("said %q", said.String())
+	if read, _ := os.ReadFile(filepath.Join(state, "session-beta.json")); string(read) != kept {
+		t.Errorf("the record is left %s", read)
+	}
+	if left, _ := filepath.Glob(filepath.Join(state, "*.md")); len(left) > 0 {
+		t.Errorf("wrote %v", left)
+	}
+	if _, err := os.Lstat(seatFile("beta")); err == nil {
+		t.Error("wrote the seat file")
 	}
 }
 
@@ -146,7 +164,7 @@ func TestReopensLeftToPython(t *testing.T) {
 		}
 		return fields
 	}
-	if _, known := planned(state, "acme", record(nil), false, false); !known {
+	if _, known := comingBack(state, "acme", record(nil), false, false); !known {
 		t.Fatal("Go does not reopen a seat that holds nothing it leaves to Python")
 	}
 	for name, extra := range map[string]map[string]any{
@@ -159,7 +177,7 @@ func TestReopensLeftToPython(t *testing.T) {
 		"an id nothing vouches":  {"id_source": "guess"},
 		"efforts Python refuses": {"efforts": map[string]any{"opus": "high"}},
 	} {
-		if _, known := planned(state, "acme", record(extra), false, false); known {
+		if _, known := comingBack(state, "acme", record(extra), false, false); known {
 			t.Errorf("Go reopens %s", name)
 		}
 	}
@@ -169,20 +187,20 @@ func TestReopensLeftToPython(t *testing.T) {
 		"background work":       `{"holds": ["a watch"]}`,
 	} {
 		write(t, filepath.Join(state, "seat-acme.json"), file)
-		if _, known := planned(state, "acme", record(nil), false, false); known {
+		if _, known := comingBack(state, "acme", record(nil), false, false); known {
 			t.Errorf("Go relaunches %s", name)
 		}
-		if _, known := planned(state, "acme", record(nil), false, true); !known {
+		if _, known := comingBack(state, "acme", record(nil), false, true); !known {
 			t.Errorf("a dry run hangs on %s", name)
 		}
 	}
 	write(t, filepath.Join(state, "seat-acme.json"), `{"state": "asking", "closed_by_owner": true}`)
-	if _, known := planned(state, "acme", record(nil), false, false); !known {
+	if _, known := comingBack(state, "acme", record(nil), false, false); !known {
 		t.Error("a seat the owner closed ended on purpose, and is told nothing")
 	}
 	os.Remove(filepath.Join(state, "seat-acme.json"))
 	write(t, filepath.Join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n")
-	if _, known := planned(state, "acme", record(nil), false, false); known {
+	if _, known := comingBack(state, "acme", record(nil), false, false); known {
 		t.Error("Go relaunches in a checkout, whose git ak keeps from collecting")
 	}
 }

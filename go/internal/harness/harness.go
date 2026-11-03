@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/run"
 )
 
 // A plugin is one harness's own answers; a hook it leaves nil takes the default.
@@ -22,11 +23,11 @@ type plugin struct {
 	seats   bool
 	fresh   string
 	receipt string
-	// source is the `id_source` its own hooks write for a conversation that replaced the launch's.
-	source string
-	answer func(conversation, cwd string) (model, effort any, found bool)
+	answer  func(conversation, cwd, account string) (model, effort, at any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
+	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
+	owns func(record *run.Object, conversation string) bool
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
@@ -36,7 +37,10 @@ type plugin struct {
 	// looks is whether Go reads the screen of this harness's seats, and recorded the error its
 	// conversation ends on (Python's plugin `error`).
 	looks    bool
-	recorded func(conversation, cwd string) (string, bool)
+	recorded func(conversation, cwd, account string) (string, bool)
+	// last is the last message of the conversation, its owner's or its model's, nil for none, and
+	// notices above say which of them only record the owner interrupting.
+	last func(conversation, cwd, account string) *run.Object
 	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).
@@ -44,6 +48,12 @@ type plugin struct {
 	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool
+	// usageTaken and usageRecorded are UsageTaken's and UsageRecorded's: nil where a usage read
+	// says when it measured and the harness writes no refusal's meters down.
+	usageTaken    func(data *run.Object, state string) any
+	usageRecorded func(state string, now float64) []*run.Object
+	// recordTurn is RecordTurn's: nil where a turn reports no refusal of its own.
+	recordTurn func(out, state, account string)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
 	registerMCP func(servers []Server) (string, error)
 }
@@ -74,9 +84,10 @@ func Receipt(name string) string {
 
 // Opens is whether a launch of that harness's seat writes down its title, as Python's plugin
 // `title_command` and the manifest's `[title] at_launch` say; false where Go does not open that
-// harness's seats yet.
+// harness's seats yet.  A harness named nowhere here is a manifest and an adapter, whose every
+// hook is the default.
 func Opens(name string) (titled, known bool) {
-	if !plugins[name].opens {
+	if own, named := plugins[name]; named && !own.opens {
 		return false, false
 	}
 	title, err := config.Section(name, "title")
@@ -84,13 +95,13 @@ func Opens(name string) (titled, known bool) {
 	return plugins[name].titled && (!set || at), err == nil
 }
 
-// LastAnswer is the model and effort of the last answer a seat's conversation records, as
-// Python's plugin `running` reads it; false where that harness records none Go reads.
-func LastAnswer(name, conversation, cwd string) (model, effort any, found bool) {
+// LastAnswer is the model, effort and time of the last answer a seat's conversation records, as
+// Python's plugin `running` reads them; false where that harness records none Go reads.
+func LastAnswer(name, conversation, cwd, account string) (model, effort, at any, found bool) {
 	if hook := plugins[name].answer; hook != nil {
-		return hook(conversation, cwd)
+		return hook(conversation, cwd, account)
 	}
-	return nil, nil, false
+	return nil, nil, nil, false
 }
 
 // PaysItsOwnWay is whether that harness's own config says how a model of it is paid, which Go

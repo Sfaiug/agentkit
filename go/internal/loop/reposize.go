@@ -31,8 +31,12 @@ func (r *repoPlace) beforeReview(l *loop) error { return r.firstReviewCeiling(l)
 
 // firstReviewCeiling ends the run blocked with `split it` where its first review would read more
 // than `review_lines` added lines, before the reviewer reads a line; the branch it keeps holds the
-// work for the pieces.  Only a change's first review: a run Go drives is its change's first.
+// work for the pieces.  Only a change's first review: once a review of it handed in a verdict, in
+// this run or one it was launched `from:`, a later one reviews whatever the fix left.
 func (r *repoPlace) firstReviewCeiling(l *loop) error {
+	if record, _ := run.Read(l.dir); record != nil && run.ChangeReviewed(record) {
+		return nil
+	}
 	if err := r.commitLeftovers(l); err != nil {
 		return err
 	}

@@ -57,10 +57,26 @@ func checkoutOf(repo string, stands func() []stand) string {
 	return ""
 }
 
-// NoCheckouts is whether no checkout stands for a project on this machine, false where a look
-// fails: listed passes over a place it cannot read, which may hold one.
-func NoCheckouts() bool {
-	return checkoutsSeen() && len(listed()) == 0
+// Checkouts is every project's checkout on this machine, by name (orch.checkouts), and false
+// where a look fails: listed passes over a place it cannot read, which may hold one.
+func Checkouts() ([]string, bool) {
+	if !checkoutsSeen() {
+		return nil, false
+	}
+	var found []string
+	for _, each := range listed() {
+		if !slices.Contains(found, each.project) {
+			found = append(found, each.project)
+		}
+	}
+	slices.SortStableFunc(found, func(a, b string) int { return strings.Compare(base(a), base(b)) })
+	return found, true
+}
+
+// Common is the common git directory of the checkout at path (orch.git_dirs), false for none.
+func Common(path string) (string, bool) {
+	dirs := dirsOf(path)
+	return dirs.common, dirs.known
 }
 
 // checkoutsSeen is whether a look at every place a checkout may stand succeeded.

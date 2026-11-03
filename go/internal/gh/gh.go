@@ -43,16 +43,47 @@ func LoggedOut(why string) bool {
 // JSON is the JSON value `gh args...` prints, a list of its pages with --paginate, run from dir,
 // else from ak's checkout; or, where gh fails, why, in at most 300 characters.
 func JSON(dir string, args ...string) (any, string, error) {
+	code, out, said, why, err := call(dir, args)
+	if why != "" || err != nil {
+		return nil, why, err
+	}
+	if code != 0 {
+		both := []rune(strings.TrimFunc(out+said, config.Space))
+		return nil, string(both[:min(len(both), 300)]), nil
+	}
+	decode := run.Decode
+	if slices.Contains(args, "--paginate") {
+		decode = run.Pages
+	}
+	value, err := decode([]byte(out))
+	if err != nil {
+		return nil, "gh printed no JSON (" + err.Error() + ")", nil
+	}
+	return value, "", nil
+}
+
+// Call is `gh args...` for what it did, not what it printed, as Python's gitcall.gh: its exit code
+// and its output, or -1 and why it never answered.
+func Call(dir string, args ...string) (int, string, error) {
+	code, out, said, why, err := call(dir, args)
+	if why != "" {
+		return -1, why, err
+	}
+	return code, strings.TrimFunc(out+said, config.Space), err
+}
+
+// call runs gh: its exit code and both its outputs, or why it never answered.
+func call(dir string, args []string) (int, string, string, string, error) {
 	env, err := config.ChildEnv()
 	if err != nil {
-		return nil, "", ErrPython
+		return 0, "", "", "", ErrPython
 	}
 	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 		dir = config.Repo()
 	}
 	program, missing, err := find(dir)
 	if program == "" {
-		return nil, missing, err
+		return 0, "", "", missing, err
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
@@ -65,24 +96,15 @@ func JSON(dir string, args ...string) (any, string, error) {
 	var exited *exec.ExitError
 	switch {
 	case ctx.Err() != nil:
-		return nil, "gh timed out", nil
+		return 0, "", "", "gh timed out", nil
 	case err != nil && !errors.As(err, &exited), !utf8.Valid(stdout.Bytes()), !utf8.Valid(stderr.Bytes()):
-		return nil, "", ErrPython
+		return 0, "", "", "", ErrPython
 	}
-	out := task.Text(stdout.Bytes())
+	code := 0
 	if err != nil {
-		said := []rune(strings.TrimFunc(out+task.Text(stderr.Bytes()), config.Space))
-		return nil, string(said[:min(len(said), 300)]), nil
+		code = exited.ExitCode()
 	}
-	decode := run.Decode
-	if slices.Contains(args, "--paginate") {
-		decode = run.Pages
-	}
-	value, err := decode([]byte(out))
-	if err != nil {
-		return nil, "gh printed no JSON (" + err.Error() + ")", nil
-	}
-	return value, "", nil
+	return code, task.Text(stdout.Bytes()), task.Text(stderr.Bytes()), "", nil
 }
 
 // find is the gh Python's subprocess runs for a child working in dir: the first PATH entry, a

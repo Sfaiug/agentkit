@@ -47,6 +47,11 @@ effort = "/effort {effort}"
 [worker]
 state = ["~/.claude", "$CLAUDE_CONFIG_DIR", "~/.claude-$AGENTKIT_ACCOUNT"]
 logins = ["~/.claude/.credentials.json", "$CLAUDE_CONFIG_DIR/.credentials.json", "~/.claude-$AGENTKIT_ACCOUNT/.credentials.json"]
+# Seconds a login must have left for a turn to go to a machine: Claude Code renews a login only
+# near its end (2.1.316, 2 Nov 2026), so `auth`, asked before each turn, renews it then, on a worker
+# token too, and the renewal reaches every turn out there (machine_turn._following).  One outliving
+# the login with no such turn ends on the server's 401, and its retry runs here.
+lent_for = 300
 # where a turn's conversation lives, `{id}` its id: what travels with a turn on a machine
 # (agentkit/machine_turn.py); a harness without this takes no turns there
 sessions = ["~/.claude/projects/*/{id}*"]
@@ -344,6 +349,8 @@ signatures = ["API Error", "Overloaded", "rate limit", "rate_limit_error",
 refusals = ["usage limit", "rate limit", "rate_limit_error", "overloaded", "529",
             "500", "502", "503", "504", "Internal server error", "API Error",
             "Can't reach the API server", "at capacity"]
+# What 2.1.316 says resuming an id it does not hold (2 Nov 2026): `turns.resume_failed`.
+lost = ["No conversation found with session ID"]
 quotas = ["rate limit", "rate_limit_error", "Usage limit reached", "usage limit",
           "usage_limit_reached", "You've hit your", "429", "insufficient_quota", "insufficient quota"]
 # `terminal` is the event log's terminal record kind: the stream ends with a `result` event,

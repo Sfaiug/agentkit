@@ -104,9 +104,9 @@ func (s Screen) ContentWidth() int {
 	return max(1, min(s.width, 100))
 }
 
-// Styled is text in a state word's colour, or dim.
+// Styled is text in a state word's colour, or dim, or a caller's own `#RRGGBB`.
 func (s Screen) Styled(text, word string) string {
-	look := styles[word]
+	look := lookOf(word)
 	if s.depth == 0 || text == "" {
 		return text
 	}

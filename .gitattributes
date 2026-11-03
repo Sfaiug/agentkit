@@ -3,3 +3,6 @@
 # rule, 20 Oct 2026), while every reviewer still reads every line of it.  GitHub collapses these
 # diffs by default.
 go/** linguist-generated
+# Each milestone adds its own lines here: side by side they are both meant, never a conflict, so
+# neighbouring claims neither park a run behind another (leases.py) nor stop a rebase at landing.
+go/keys.txt merge=union

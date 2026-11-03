@@ -23,6 +23,7 @@ import (
 
 const (
 	probeCap   = 30 * time.Second // an adapter's `usage` that runs no model
+	captureCap = 50 * time.Second // one that does, past the 45 seconds it supervises itself to
 	probeEvery = 60.0             // seconds one ask answers for, where the harness names no cadence
 )
 
@@ -67,7 +68,11 @@ func probe(src source, now float64) *run.Object {
 			"resets", nil, "exhausted", false, "probed_at", now)
 	}
 	name := filepath.Base(adapter)
-	data, said := answer(adapter, name, src.Name)
+	limit := probeCap
+	if src.facts.Capture {
+		limit = captureCap
+	}
+	data, said := answer(adapter, name, src.Name, limit)
 	out := fields("provider", src.Name, "harness", src.Harness, "via", src.Via, "meters", []any{}, "error", data.Get("error"),
 		"pace", nil, "resets", src.resets(), "exhausted", false, "probed_at", now)
 	var credits any = "unlimited"
@@ -85,6 +90,10 @@ func probe(src source, now float64) *run.Object {
 	}
 	if retry, ok := number(data.Get("retry_after")); ok && retry > 0 {
 		out.Set("retry_after", retry)
+	}
+	if src.facts.StripsTimestamp {
+		// until its plugin recognises this response, it is not a response with an age
+		out.Set("fetched_at", harness.UsageTaken(src.Harness, data, state()))
 	}
 	meters := []any{}
 	for _, each := range data.List("meters") {
@@ -165,11 +174,11 @@ func (src source) resets() any {
 // answer is the JSON object the adapter's `usage` printed for the usual login of that provider,
 // or one saying why there is none, and whether it is the adapter's own answer, whose error the
 // `auth` question may be asked about.
-func answer(adapter, name, provider string) (*run.Object, bool) {
+func answer(adapter, name, provider string, limit time.Duration) (*run.Object, bool) {
 	failed := func(why string) (*run.Object, bool) {
 		return fields("meters", []any{}, "error", "unknown: "+name+" usage "+why), false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), probeCap)
+	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, adapter, "usage")
 	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+provider)
@@ -177,7 +186,7 @@ func answer(adapter, name, provider string) (*run.Object, bool) {
 	host.Group(cmd)
 	out, err := cmd.Output()
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return failed("timed out after 30s")
+		return failed(fmt.Sprintf("timed out after %ds", int(limit.Seconds())))
 	}
 	if err != nil && !errors.As(err, new(*exec.ExitError)) {
 		return failed("produced no JSON (" + err.Error() + ")")

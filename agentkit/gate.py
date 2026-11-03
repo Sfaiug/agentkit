@@ -1629,8 +1629,9 @@ class _SuiteMeasure:
             pass
 
 
-def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
-    """Keep the whole failure, even when its distinguishing lines precede the output cap."""
+def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed", cap=None):
+    """Keep the whole failure, even when its distinguishing lines precede the output cap; those
+    lines stop at `cap` bytes. No line ends blank: a record is what lies between two blank lines."""
     with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
                                      prefix=f"{log_path.stem}-failed-",
                                      suffix=".log", delete=False) as saved:
@@ -1638,11 +1639,12 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
     lines = [line for line in failed.decode("utf-8", errors="replace").splitlines()
              if line.strip()]
     reran = {flaky_key(line) for line in rerun.decode("utf-8", errors="replace").splitlines()}
-    diff = [line for line in lines if flaky_key(line) not in reran][:20]
+    diff = "\n".join([line for line in lines if flaky_key(line) not in reran][:20])
+    diff = diff.encode()[:cap].decode(errors="ignore").rstrip()
     note = f"flaky: {command} {how}, then passed on its re-run"
     if log is not None:
         log(f"done-when: {note}")
-    return "\n".join([note, f"failed output: {Path(saved.name).resolve()}", *diff])
+    return "\n".join(filter(None, [note, f"failed output: {Path(saved.name).resolve()}", diff]))
 
 
 def unnamed(code, only, ran, output):
@@ -2057,7 +2059,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             hold = getattr(_GATE_HELD, "hold", None)
             if hold is not None:
                 hold.alone()
-            chunks, red, flakes = [], [], []
+            chunks, red, flakes, alones = [], [], [], {}
+            share = min(turns.OUT_CAP, turns.PIECES_CAP // count)
             for index, (code, piece, killed, tests) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 failed = only = alone = None
@@ -2102,7 +2105,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         # passing alone, they failed, then passed, whatever the piece does next
                         piece.seek(0)
                         flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                                   piece.read(), activity, run_dir, log, how))
+                                                   piece.read(), activity, run_dir, log, how,
+                                                   share))
                         if flaky is not None:
                             flaky.extend(only)
                         only = None
@@ -2118,12 +2122,19 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                               piece.read(), activity, run_dir, log, how))
+                                               piece.read(), activity, run_dir, log, how, share))
                 results[index - 1] = code, piece, killed, tests
+                alones[shard] = alone
+            # A red piece's share rests on how many ended red, known only now, reruns included.
+            reds = sum(1 for code, _, _, _ in results if code)
+            red_share = min(turns.OUT_CAP, turns.PIECES_CAP // max(reds, 1))
+            for index, (code, piece, killed, _) in enumerate(results, 1):
+                shard = f"{index}/{count}"
                 text = turns.cut_file(piece, 0, run_dir or activity.parent,
-                                      f"{activity.stem}-AK_SHARD-{shard.replace('/', '-of-')}")
-                if code and not killed and alone:
-                    text = f"{alone}\n{text}"
+                                      f"{activity.stem}-AK_SHARD-{shard.replace('/', '-of-')}",
+                                      red_share if code else share)
+                if code and not killed and alones[shard]:
+                    text = f"{alones[shard]}\n{text}"
                 ended = ("killed at the limit" if killed else OUT_OF_MEMORY
                          if shard in starved else f"exit {code}")
                 # Existing failure diagnostics read the last output; leave a red piece last.
