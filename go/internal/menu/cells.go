@@ -1,0 +1,186 @@
+package menu
+
+import (
+	"cmp"
+	"fmt"
+	"math"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+	"unicode"
+
+	"agentkit/internal/config"
+	"agentkit/internal/run"
+	"agentkit/internal/usage"
+)
+
+const (
+	endsWithin = 7 * 86400 // how near its end a login's meter turns amber (logins.WARN_WITHIN)
+	tokenLife  = 365       // days a worker token lives from its file's date (watch.TOKEN_LIFE_DAYS)
+	tokenWarn  = 14        // days out the ak screen says it (watch.TOKEN_WARN_DAYS)
+)
+
+// Each company's own name and colour, a provider's `name` and `colour` keys winning; one named in
+// neither is its key capitalised, and the accent, Mocha's blue.
+var (
+	companyNames   = map[string]string{"anthropic": "Claude", "openai": "ChatGPT", "meta": "Muse", "xai": "Grok", "google": "Gemini", "mimo": "MiMo"}
+	companyColours = map[string]string{"anthropic": "#D97757", "openai": "#FFFFFF", "meta": "#3E9EFB", "xai": "#736CD3", "google": "#203B9B", "mimo": "#FB8046"}
+)
+
+// Cells is each subscription as the grid draws it from what usage.json and logins.json hold as they
+// stand, nothing probed: by company colour, red through violet and the near-greys last, a free
+// provider having none.
+func Cells(now time.Time) ([]Cell, error) {
+	subs, err := config.Subscriptions()
+	if err != nil {
+		return nil, err
+	}
+	readings, err := usage.Cached()
+	if err != nil {
+		return nil, err
+	}
+	logins, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "logins.json"))
+	if logins == nil {
+		logins = run.NewObject()
+	}
+	type shown struct {
+		sub   config.Subscription
+		name  string
+		grey  bool
+		place float64
+	}
+	var rows []shown
+	for _, sub := range subs {
+		if sub.Mode == "free" {
+			continue
+		}
+		name, colour, err := config.ProviderLook(sub.Name)
+		if err != nil {
+			return nil, err
+		}
+		grey, place := hue(cmp.Or(colour, companyColours[sub.Name], "#89b4fa"))
+		rows = append(rows, shown{sub, cmp.Or(name, companyNames[sub.Name], titled(sub.Name)), grey, place})
+	}
+	slices.SortStableFunc(rows, func(a, b shown) int {
+		if a.grey != b.grey {
+			if b.grey {
+				return -1
+			}
+			return 1
+		}
+		return cmp.Compare(a.place, b.place)
+	})
+	var cells []Cell
+	for _, each := range rows {
+		accounts, err := config.Accounts(each.sub.Name)
+		if err != nil {
+			return nil, err
+		}
+		if len(accounts) == 0 {
+			accounts = []string{""} // the provider's one login
+		}
+		for i, account := range accounts {
+			label := each.name
+			if len(accounts) > 1 {
+				label += " " + roman(i+1)
+			}
+			left, said := readings.Cell(each.sub.Name, account)
+			cells = append(cells, Cell{Label: label, Left: left, Said: said, Ending: loginEnding(logins, each.sub.Name, account, now)})
+		}
+	}
+	return cells, nil
+}
+
+// hue is where a colour sorts: red through violet by its hue, the near-greys by how light they are.
+func hue(colour string) (grey bool, place float64) {
+	var channel [3]float64
+	for i := range channel {
+		value, _ := strconv.ParseUint(colour[1+2*i:3+2*i], 16, 8)
+		channel[i] = float64(value) / 255
+	}
+	high, low := slices.Max(channel[:]), slices.Min(channel[:])
+	if high == 0 || (high-low)/high < 0.15 {
+		return true, -high
+	}
+	span := high - low
+	switch high {
+	case channel[0]:
+		place = (channel[1] - channel[2]) / span
+	case channel[1]:
+		place = 2 + (channel[2]-channel[0])/span
+	default:
+		place = 4 + (channel[0]-channel[1])/span
+	}
+	return false, math.Mod(place/6+1, 1)
+}
+
+// titled is a provider's key capitalised as Python's str.title does.
+func titled(name string) string {
+	out, start := []rune(name), true
+	for i, r := range out {
+		if start {
+			out[i] = unicode.ToUpper(r)
+		} else {
+			out[i] = unicode.ToLower(r)
+		}
+		start = !unicode.IsLetter(r)
+	}
+	return string(out)
+}
+
+// roman is one of several subscriptions' place in its provider's list.
+func roman(number int) string {
+	out := ""
+	for _, step := range []struct {
+		value  int
+		digits string
+	}{{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"}, {100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"}, {10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"}} {
+		out += strings.Repeat(step.digits, number/step.value)
+		number %= step.value
+	}
+	return out
+}
+
+// loginEnding is whether that login ends within endsWithin or has ended.
+func loginEnding(logins *run.Object, provider, account string, now time.Time) bool {
+	found := logins.Dict(provider)
+	if found == nil {
+		return false
+	}
+	login := found.Dict(cmp.Or(account, "default"))
+	if login == nil {
+		return false
+	}
+	ends, ok := login.Num("ends")
+	return ok && ends-float64(now.Unix()) <= endsWithin
+}
+
+// Standing is the worker token's note while the ak screen shows it, from tokenWarn days out and once
+// it has expired, else "": the first declared token whose file holds one (watch.token_standing).
+func Standing(now time.Time) (string, error) {
+	tokens, err := config.WorkerTokens()
+	if err != nil {
+		return "", err
+	}
+	for _, token := range tokens {
+		path := filepath.Join(config.Home(), "secrets", token[1])
+		info, statErr := os.Stat(path)
+		data, readErr := os.ReadFile(path)
+		if statErr != nil || readErr != nil || strings.TrimSpace(string(data)) == "" {
+			continue
+		}
+		ends := info.ModTime().Add(tokenLife * 24 * time.Hour)
+		when := ends.Format("2006-01-02")
+		if !now.Before(ends) {
+			return token[0] + " worker token expired " + when, nil
+		}
+		if days := int(ends.Sub(now) / (24 * time.Hour)); days <= tokenWarn {
+			return fmt.Sprintf("%s worker token expires %s (in %d days)", token[0], when, days), nil
+		}
+		return "", nil
+	}
+	return "", nil
+}

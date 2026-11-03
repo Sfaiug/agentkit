@@ -74,7 +74,7 @@ func lookCommand(args ...string) (*exec.Cmd, error) {
 // to its question recorded first, the prompt `heard` among what may answer it.  What it finds, on the
 // screen of a seat whose panes run on or else as a seat gone, is written and told as every Go
 // announce does (Seat.announce); where the look would do more than that, or Go does not read what it
-// hangs on, nothing is (lookedLive, lookedAt).  A turn its harness says failed settles its account
+// hangs on, nothing is (LookedLive, lookedAt).  A turn its harness says failed settles its account
 // first, which is the tick's in Go: this look leaves it.
 func Look(launched, pid string, heard *Prompt) {
 	_, server, pane, ok := paneOf()
@@ -104,7 +104,7 @@ func Look(launched, pid string, heard *Prompt) {
 			return
 		}
 	}
-	if _, err := lookedLive(state, name); errors.Is(err, ErrUnread) {
+	if _, err := LookedLive(state, name); errors.Is(err, ErrUnread) {
 		lookAgain(state, name)
 	}
 }
