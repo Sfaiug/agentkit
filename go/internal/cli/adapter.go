@@ -32,7 +32,8 @@ func adapter(args []string, out, errOut io.Writer) int {
 	case "lend":
 		return adapters.Lend(harness, rest, out, errOut)
 	case "hook":
-		// Muse's one hook verb, the shapes it hands on not Go's to read yet: a hook stays silent
+		// a hook verb handed on a launch's command line, what it hands on not Go's to read yet: a
+		// hook stays silent
 		io.Copy(io.Discard, os.Stdin)
 		return 0
 	case "hooks":
