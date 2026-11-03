@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -252,14 +251,10 @@ func validateRunSubcommand(verb string, args []string) string {
 		}
 		return ""
 	}
-	record := filepath.Join(runs, args[0], "run.json")
-	data, err := os.ReadFile(record)
 	if verb == "merge" {
-		var state map[string]any
-		if json.Unmarshal(data, &state) != nil || state["verdict"] != "PASS" || state["state"] != "pass" {
-			return args[0] + ": merge requires a finished PASS"
-		}
-	} else if err != nil {
+		return loop.MergeRefused(args[0])
+	}
+	if _, err := os.ReadFile(filepath.Join(runs, args[0], "run.json")); err != nil {
 		if verb == "stop" && isFile(job.ReceiptPath(args[0])) {
 			return ""
 		}

@@ -233,7 +233,23 @@ type loop struct {
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
 // nothing it runs hands in to one above it.
-func Drive(dir string) (code int) {
+func Drive(dir string) int {
+	return drive(dir, func(l *loop) error {
+		if l.pull != "" {
+			l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
+			return l.reviewPull()
+		}
+		word := "run"
+		if l.prior {
+			word = "resume"
+		}
+		l.say(fmt.Sprintf("%s %s: %s", word, l.id, filepath.Join(dir, "task.md")))
+		return l.work()
+	})
+}
+
+// drive is the run at dir driven by this process, job its work once the run is adopted.
+func drive(dir string, job func(*loop) error) (code int) {
 	defer func() {
 		if failure := recover(); failure != nil {
 			code = End(dir, fmt.Sprintf("the driver failed: %v", failure))
@@ -248,18 +264,8 @@ func Drive(dir string) (code int) {
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	err := l.adopt()
-	switch {
-	case err != nil:
-	case l.pull != "":
-		l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
-		err = l.reviewPull()
-	default:
-		word := "run"
-		if l.prior {
-			word = "resume"
-		}
-		l.say(fmt.Sprintf("%s %s: %s", word, l.id, filepath.Join(dir, "task.md")))
-		err = l.work()
+	if err == nil {
+		err = job(l)
 	}
 	code = l.finish(err)
 	endWord(dir)

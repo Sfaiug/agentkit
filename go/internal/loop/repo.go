@@ -367,6 +367,9 @@ func (r *repoPlace) head(_ string, record *run.Object) []string {
 	if record.Truthy("merge_note") {
 		parts = append(parts, "merge: "+record.Str("merge_note"))
 	}
+	if retry := retryCommand(record); retry != "" {
+		parts = append(parts, "retry delivery: "+retry)
+	}
 	executor := "-"
 	if record.Truthy("executor") {
 		executor = record.Str("executor")
