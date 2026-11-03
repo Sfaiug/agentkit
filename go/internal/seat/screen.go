@@ -13,9 +13,9 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/hookfact"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
-	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
 )
 
@@ -25,9 +25,10 @@ const turnSeconds = 3 * 3600
 // An eye is what one harness's seats are read with, compiled once, when a look first needs that
 // harness's manifest: whether it can be read at all is known before anything is written.
 type eye struct {
-	rules   *screen.Rules
-	wrapper *regexp.Regexp // the auth wrapper its login errors open with
-	bad     error
+	rules     *screen.Rules
+	wrapper   *regexp.Regexp // the auth wrapper its login errors open with
+	authority map[string]any // which states its hooks decide, and which its screen
+	bad       error
 }
 
 var eyes sync.Map
@@ -45,10 +46,11 @@ func compileEye(name string) eye {
 	chrome, err := config.Section(name, "screen")
 	rules, ruled := config.ScreenRules(name)
 	auth, authed := config.Section(name, "auth")
-	if err = cmp.Or(err, ruled, authed); err != nil {
+	authority, read := config.Section(name, "authority")
+	if err = cmp.Or(err, ruled, authed, read); err != nil {
 		return eye{bad: err}
 	}
-	found := eye{}
+	found := eye{authority: authority}
 	if found.rules, err = screen.Compile(chrome, rules); err != nil {
 		return eye{bad: err}
 	}
@@ -61,36 +63,20 @@ func compileEye(name string) eye {
 }
 
 // looksOn is whether Go reads a seat its panes still run on, one of that harness: one whose screen
-// it reads and whose rules it can say, the owner's stop mark gone.  What else its word would hang on
-// reading refuses for every seat: a hook fact, a notice, a plan, a run, a login out.
+// it reads and whose rules it can say, the owner's stop mark gone.  What else its word would hang on,
+// its ladder's rungs say.
 func (seat Seat) looksOn(own string) bool {
 	return harness.Looks(own) && eyeOf(own).bad == nil && !seat.closed
 }
 
-// A sight is what a look found on the seat's screen, watch.classify's with no hook fact beside it,
-// and the error it shows at its prompt.
+// A sight is what a look found of a seat, watch.classify's, and the error it shows at its prompt.
 type sight struct {
 	state, authority, rule, evidence string
 	since, began, stall, login       any
-}
-
-// sighted classifies the captured pane against the seat file as it stood.
-func sighted(found screen.Reading, previous *run.Object, now float64) sight {
-	if found.State == "" {
-		// nothing said anything: never `working` without evidence, and nothing knows since when
-		return sight{state: "at_prompt", rule: "none", evidence: "no hook fact and no screen rule matched"}
-	}
-	var began any = run.Float(now)
-	opened, dated := run.Num(previous.Get("opened_at"))
-	_, carried := run.Num(previous.Get("began"))
-	switch {
-	case previous.Str("state") == found.State && carried:
-		began = previous.Get("began")
-	case previous.Get("state") == nil && dated && opened <= now:
-		// first sight: it has been so at least since it was last opened
-		began = previous.Get("opened_at")
-	}
-	return sight{state: found.State, authority: "screen", rule: found.Rule, evidence: found.Evidence, since: began, began: began}
+	hooked, hookedEvent              string // what the hook alone said, kept where a rule overrode it, and which event
+	hookedAt                         any
+	interrupted                      bool // the owner stopped its last turn: until their next prompt it rests
+	typedByAk                        bool // its composer holds the line ak typed last, not the owner's
 }
 
 // observed is watch.observed: what a capture shows of a seat, against its files as they stand,
@@ -100,18 +86,20 @@ func observed(state, name, own, pane string, now float64) (found sight, previous
 	if previous == nil {
 		previous = run.NewObject()
 	}
+	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	if record == nil {
+		record = run.NewObject()
+	}
 	seen := eyeOf(own)
 	tail := screen.Tail(pane)
-	found = sighted(seen.rules.Read(tail), previous, now)
+	fact := hookfact.Standing(name)
+	found = classify(own, seen.rules.Read(tail), fact, previous, now, endedAt(name, own, record, seen.rules, pane, fact, now))
+	found.typedByAk = found.state == "draft" && typedByAk(name, seen.rules, pane)
 	switch {
 	case pane == "":
 		found.stall, found.login = previous.Get("stall"), previous.Get("login")
 	case found.state == "at_prompt":
-		record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
-		if record == nil {
-			record = run.NewObject()
-		}
-		said, recorded := harness.RecordedError(own, record.Str("conversation"), record.Str("cwd"))
+		said, recorded := harness.RecordedError(own, record.Str("conversation"), record.Str("cwd"), record.Str("account"))
 		found.stall = seen.stallOn(own, pane, tail, said, recorded)
 		found.login = seen.loginOn(own, tail, said, recorded)
 	}
@@ -136,21 +124,29 @@ func harnessScreen(name string) (shown string, exited bool) {
 }
 
 // look is watch.look_at: one capture, classified and kept as watch.live_state keeps it.  A blank
-// capture says nothing of the screen, so it writes nothing; a harness that exited does say: the error
-// it was retrying past ended with it.
+// capture says nothing of the screen, so it writes nothing but what a hook decided; a harness that
+// exited does say: the error it was retrying past ended with it.
 func (seat Seat) look(state string, now float64) (sight, error) {
 	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.own, pane, now)
 	if exited {
 		found.stall, found.login = nil, nil
-	} else if pane == "" {
+	} else if pane == "" && found.authority != "hook" {
 		return found, nil
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
 	fields := []field{{"state", found.state}, {"since", found.since}, {"began", found.began}, {"authority", found.authority},
-		{"rule", found.rule}, {"evidence", found.evidence}, {"hooked", nil}, {"hooked_at", nil}, {"hooked_event", nil},
-		{"interrupted", false}, {"stall", found.stall}, {"login", found.login}}
+		{"rule", found.rule}, {"evidence", found.evidence}, {"hooked", orNone(found.hooked)}, {"hooked_at", found.hookedAt}, {"hooked_event", orNone(found.hookedEvent)},
+		{"interrupted", found.interrupted}, {"stall", found.stall}, {"login", found.login}}
 	return found, writeSeat(state, seat.Name, append(fields, turnMarks(seen.rules, tail, found, previous, now)...))
+}
+
+// orNone is that text, or null for none, as the seat file keeps what a hook did not say.
+func orNone(text string) any {
+	if text == "" {
+		return nil
+	}
+	return text
 }
 
 // promptOpened is a row opening on a prompt mark, which is input and no output.
@@ -192,45 +188,6 @@ func turnMarks(rules *screen.Rules, tail string, found sight, previous *run.Obje
 	return marks
 }
 
-// decided sets the word of a seat with nothing but its screen to say what it is, the rungs of
-// watch._session_state the rest of what Read knows leaves: a question on its screen, a turn in
-// flight, an error the tick types it back past, and at rest otherwise.  Typed text nobody sent is
-// no word of its own: it goes beside it, once nobody is in the seat to see it.
-func (seat *Seat) decided(found sight, now float64, attached bool) {
-	seat.Word, seat.reason, seat.since = "idle", "", found.began
-	seat.question = false
-	switch {
-	case found.state == "asking":
-		seat.Word, seat.reason, seat.question = "needs you", cmp.Or(config.Fold(found.evidence), "waiting for you"), true
-	case found.state == "working":
-		seat.Word = "working"
-		if began, ok := run.Num(found.began); ok && now-began > turnSeconds {
-			seat.reason = "turn running " + terminal.FormatAge(now-began)
-		}
-	case found.stall != nil:
-		seat.Word, seat.reason = "working", fmt.Sprintf("retrying: %v", found.stall)
-	}
-	seat.unsent = ""
-	if found.state == "draft" && !attached {
-		seat.unsent = config.Fold(found.evidence)
-	}
-	seat.wordFrom = found.wordFrom()
-}
-
-// wordFrom is what of a sight a seat's word is decided from and kept beside it (watch.word_from).
-func (found sight) wordFrom() []any {
-	said := ""
-	switch {
-	case found.state == "asking" || found.state == "draft":
-		said = found.evidence
-	case found.stall != nil:
-		said, _ = found.stall.(string)
-	case found.login != nil:
-		said, _ = found.login.(string)
-	}
-	return []any{found.state, found.rule, said}
-}
-
 // ErrUnread is a seat that came to hold what Go does not read yet while its look waited: Python's
 // to answer, with nothing written.
 var ErrUnread = errors.New("Go does not read this seat yet")
@@ -264,8 +221,13 @@ func lookedLive(state, name string) (Seat, error) {
 		if err != nil {
 			return err
 		}
+		if err := seat.askKeptBack(found); err != nil {
+			return err
+		}
 		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
-		seat.decided(found, seconds(now), attached != "" && attached != "0")
+		if err := seat.decided(state, found, seconds(now), attached != "" && attached != "0"); err != nil {
+			return err
+		}
 		return seat.announced(state, now, home.models)
 	})
 	return seat, err

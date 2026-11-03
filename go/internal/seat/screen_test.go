@@ -265,18 +265,13 @@ func TestWhatItsConversationRecordedSpeaksForTheScreen(t *testing.T) {
 }
 
 func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
-	notice := `{"kind": "needs", "text": "which?", "time": 1}`
 	for name, setup := range map[string]func(t *testing.T, home string){
-		"a hook fact": func(t *testing.T, home string) {
-			write(t, stateFile(home, "hook-acme.json"), `{"session": "acme", "event": "Stop", "kind": "", "text": "", "at": 1}`)
-		},
-		"a plan":     func(t *testing.T, home string) { write(t, stateFile(home, "plan-acme.md"), openLine) },
-		"a question": func(t *testing.T, home string) { write(t, stateFile(home, "notify-acme.json"), notice) },
-		"a question kept back": func(t *testing.T, home string) {
-			write(t, stateFile(home, "seat-acme.json"), `{"unasked": {"text": "which?"}}`)
-		},
+		"a plan": func(t *testing.T, home string) { write(t, stateFile(home, "plan-acme.md"), openLine) },
 		"a run of its own": func(t *testing.T, home string) {
 			runRecord(t, home, "going", map[string]any{"state": "running", "started_at": 1, "finished_at": nil})
+		},
+		"a wait on its usage": func(t *testing.T, home string) {
+			write(t, stateFile(home, "seat-acme.json"), `{"usage_wait": {"reason": "spent", "since": 1}}`)
 		},
 		"a login to renew": func(t *testing.T, home string) {
 			write(t, stateFile(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`)

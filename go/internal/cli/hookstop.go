@@ -60,6 +60,7 @@ func orchestratorStop(payload []byte, out io.Writer) int {
 	if _, listed := lifecycle.HandedOver(event); listed {
 		fact := lifecycle.StopFact(launched, event, heard, back != "")
 		hookfact.Record(name, fact, lifecycle.Keeps(harness, fact))
+		seat.LookSoon(nil)
 	}
 	if back != "" {
 		reply := run.NewObject()
@@ -72,9 +73,10 @@ func orchestratorStop(payload []byte, out io.Writer) int {
 
 // sentBack is the reason the Stop goes back with, "" where it stands (the stop hook's `held`).
 // Go judges a turn whose plan owes nothing: a last message ending in a question that nothing
-// asked goes back once, and the turn's latch remembers it.  The Stop stands with no turn
-// written down, on work the seat waits on, with no last message read, after a question card
-// still unanswered or `ak notify needs`, and where a question would be refused
+// asked goes back once, and the turn's latch remembers it; one that leaves unsaid a question
+// recorded for the owner goes back to say it (`remind`).  The Stop stands with no turn written
+// down, on work the seat waits on, with no last message read, after a question card still
+// unanswered or `ak notify needs` its message says, and where a question would be refused
 // (`seat.QuestionRefused`), which holds only the owner; the error is that read Go cannot make.
 // What an open plan line, an unnamed seat or a reach of the live host would decide stands too,
 // until Go judges those.
@@ -84,12 +86,16 @@ func sentBack(launched, name string, record map[string]any, harness string, even
 		return "", nil
 	}
 	turn, ok := turned.Num("turn")
-	if !ok || turned.Truthy("asked_back") || lifecycle.WaitsOn(event) {
+	if !ok {
 		return "", nil
 	}
 	end := transcript.Read(harness, event.Str("transcript_path"))
 	said := lastSaid(event, end.Said)
-	if said == "" || end.Asking || notify.NeededSince(name, turn) || seat.Kept(name) || record["unnamed"] == true {
+	if unseen := seat.Reminder(name, said); unseen != "" {
+		return remind(launched, turned, unseen), nil
+	}
+	if turned.Truthy("asked_back") || lifecycle.WaitsOn(event) || said == "" || end.Asking ||
+		notify.NeededSince(name, turn) || seat.Kept(name) || record["unnamed"] == true {
 		return "", nil
 	}
 	if plan.Owes(name) || !turned.Truthy("live_back") && plan.ReachedLive(name) || !trailsQuestion(said) {

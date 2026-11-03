@@ -17,7 +17,7 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, answer: claudeAnswer, conversation: claudeConversation, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, conversation: claudeConversation, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true, registerMCP: claudeRegisterMCP}
 }
 
@@ -34,11 +34,11 @@ var claudeNotices = map[string][]string{"[Request interrupted by user": {"]", " 
 // projectCut is where Claude Code ends a project folder's name with a hash of the path.
 const projectCut = 200
 
-// claudeAnswer is the last answer a conversation records (claude.py `running`), read back from
+// claudeAnswer is the last answer a conversation records, and its time (claude.py `running`), read back from
 // its end: its own, never a subagent's or one Claude Code made up itself. Read anywhere else
 // Claude Code would keep it, or not read, there is none.
-func claudeAnswer(conversation, cwd string) (model, effort any, found bool) {
-	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd}), func(entry *run.Object) bool {
+func claudeAnswer(conversation, cwd, account string) (model, effort, at any, found bool) {
+	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd, "account": account}), func(entry *run.Object) bool {
 		if entry.Str("type") != "assistant" || entry.Truthy("isSidechain") || entry.Dict("message") == nil {
 			return false
 		}
@@ -46,9 +46,9 @@ func claudeAnswer(conversation, cwd string) (model, effort any, found bool) {
 		return model != nil && model != "<synthetic>"
 	})
 	if entry == nil {
-		return nil, nil, false
+		return nil, nil, nil, false
 	}
-	return model, entry.Get("effort"), true
+	return model, entry.Get("effort"), entry.Get("timestamp"), true
 }
 
 // lastEntry is the last line of that JSON-lines file `pick` takes, read back from its end, as a
