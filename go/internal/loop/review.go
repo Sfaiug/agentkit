@@ -282,19 +282,6 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 	if err != nil {
 		return false, err
 	}
-	if j.uncounted && len(l.once) > 0 {
-		// checks deferred to landing have not run on this head yet: the task's checks last passed
-		// on the head they did
-		kept := []any{}
-		for at := 0; at+1 < len(evidence); at += 2 {
-			if key := evidence[at]; key != "passed_head_sha" {
-				kept = append(kept, key, evidence[at+1])
-			} else if j.passed != "" {
-				kept = append(kept, key, j.passed)
-			}
-		}
-		evidence = kept
-	}
 	said, err := l.keepFindings(out, submitted)
 	if err != nil {
 		return false, err
@@ -314,6 +301,14 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		"reviewer_provider", reviewed.Provider, "returncode", code, "verdict", verdict, "done_when", ok)
 	run.SetAll(entry, evidence...)
 	run.SetAll(review, evidence...)
+	if j.uncounted && len(l.once) > 0 {
+		// checks deferred to landing have not run on this head yet: the task's checks last passed
+		// on the head they did
+		review.Delete("passed_head_sha")
+		if j.passed != "" {
+			review.Set("passed_head_sha", j.passed)
+		}
+	}
 	entry.Delete("overridden")
 	if overridden != "" && !review.Has("overridden") {
 		review.Set("overridden", overridden)

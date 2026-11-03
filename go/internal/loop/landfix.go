@@ -101,7 +101,11 @@ func (r *repoPlace) fixFinalCheck(l *loop, text string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	l.say("done-when after the final check: " + map[bool]string{true: "all passed", false: "FAILED"}[ok])
+	if ok {
+		l.say("done-when after the final check: all passed")
+	} else {
+		l.say("done-when after the final check: FAILED")
+	}
 	passed, err := l.review(summary, ok, checked, again)
 	if err != nil || passed {
 		return passed, err

@@ -126,11 +126,10 @@ func (l *loop) checksIn(cwd string, cmds []string, path string) (bool, string, [
 			code := outcome.code
 			marks = append(marks, &code)
 		}
-		said, err := cutFrom(progress, offset, l.dir, stem(path), outCap)
+		var said string
 		if pieced != nil {
 			said = *pieced
-		}
-		if err != nil {
+		} else if said, err = cutFrom(progress, offset, l.dir, stem(path), outCap); err != nil {
 			return false, "", nil, err
 		}
 		status := "exit " + strconv.Itoa(outcome.code)
