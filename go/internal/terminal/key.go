@@ -7,7 +7,10 @@ import "time"
 // is a report of the mouse, `other` a sequence no screen asks about and `eof` a keyboard that is
 // gone.  `again` asks for the whole frame anew (a resize, a return from a stop) and `wake` says
 // Keyboard.Wake was called.
-type Key struct{ Name, Char string }
+type Key struct {
+	Name, Char string
+	Mouse      Mouse
+}
 
 // A nextByte is the next byte the keyboard sent within wait, false where none came or it is gone.
 type nextByte func(wait time.Duration) (byte, bool)
@@ -88,7 +91,7 @@ func sequence(next nextByte) (Key, []byte, bool) {
 	case body[0] == '?' && final == 'c':
 		return Key{}, nil, false // its attributes (DA1), come after Sense stopped waiting
 	case body[0] == '<' && (final == 'M' || final == 'm'):
-		return Key{Name: "pointer"}, nil, true
+		return mouseKey(string(body)), nil, true
 	case kind == 'O' && final == 'M':
 		return Key{Name: "enter"}, nil, true // the keypad's own Enter
 	}
