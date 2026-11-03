@@ -123,7 +123,6 @@ class FollowupRuns(unittest.TestCase):
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(stop, "marker_pids", return_value=[]))
-        self.stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
         self.stack.enter_context(patch.object(gc, "disk_pressure", return_value=False))
         self.stack.enter_context(patch.object(browser, "close_owned"))
         self.stack.enter_context(patch.object(run, "announce", side_effect=lambda s, d, *a:
