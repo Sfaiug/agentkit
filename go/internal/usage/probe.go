@@ -59,7 +59,7 @@ func gently(src source) *run.Object {
 // probe is that provider's reading as its adapter's `usage` verb answers it now, Python's
 // usage._probe.
 func probe(src source, now float64) *run.Object {
-	adapter, err := config.Adapter(src.Harness)
+	adapter, err := src.adapter, src.broken
 	if src.Via == "" {
 		err = fmt.Errorf("~/.agentkit/config.toml: [providers.%s] has no model", src.Name)
 	}
@@ -145,13 +145,12 @@ func (src source) resets() any {
 	if !src.facts.Reset {
 		return 0.0
 	}
-	adapter, err := config.Adapter(src.Harness)
-	if err != nil {
+	if src.broken != nil {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), probeCap)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, adapter, "reset-status")
+	cmd := exec.CommandContext(ctx, src.adapter, "reset-status")
 	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+src.Name)
 	cmd.WaitDelay = time.Second
 	host.AdapterCall(cmd)

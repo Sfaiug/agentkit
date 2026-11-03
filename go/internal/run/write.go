@@ -110,6 +110,31 @@ func ChangeThen(dir string, change func(*Object) error, then func()) error {
 	return nil
 }
 
+// Deliver is Python's mark_delivery write: change changes the record as it stands, read and
+// written under the run directory's lock alone, into delivery.tmp, nothing written where it returns
+// an error.  Past recovery.lock on purpose: its caller holds delivery.lock, which Python's reap
+// takes inside recovery.lock, so taking that one here would invert their order.
+func Deliver(dir string, change func(*Object) error) error {
+	release, err := hold(dir, "")
+	if err != nil {
+		return err
+	}
+	defer release()
+	data, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		return errUnreadable
+	}
+	record, err := object(data)
+	if record == nil {
+		return cmp.Or(err, errUnreadable)
+	}
+	before := encoded(record)
+	if err := change(record); err != nil || maps.Equal(before, encoded(record)) {
+		return err
+	}
+	return lay(dir, data, before, record, "delivery.tmp")
+}
+
 // Create writes a run's first record as Change writes one, but without recovery.lock, as
 // Python's first save: a stop refuses a run with no record, so none races it.
 func Create(dir string, record *Object) error {
@@ -119,9 +144,7 @@ func Create(dir string, record *Object) error {
 // write puts what changed from before, the record data held, to record onto the record as it
 // stands under the run directory's lock.
 func write(dir string, data []byte, before map[string]string, record *Object) error {
-	path := filepath.Join(dir, "run.json")
-	after := encoded(record)
-	if maps.Equal(before, after) {
+	if maps.Equal(before, encoded(record)) {
 		return nil
 	}
 	release, err := hold(dir, "")
@@ -129,6 +152,13 @@ func write(dir string, data []byte, before map[string]string, record *Object) er
 		return err
 	}
 	defer release()
+	return lay(dir, data, before, record, "run.tmp")
+}
+
+// lay is a write of what changed under the run directory's lock its caller holds, through that
+// temporary file.
+func lay(dir string, data []byte, before map[string]string, record *Object, tmp string) error {
+	path, after := filepath.Join(dir, "run.json"), encoded(record)
 	if again, err := os.ReadFile(path); err == nil {
 		if current, err := object(again); errors.Is(err, ErrLoneSurrogate) {
 			return err
@@ -178,7 +208,7 @@ func write(dir string, data []byte, before map[string]string, record *Object) er
 		}
 		lines[i] = "  " + text[0] + ": " + laidOut(value, "  ")
 	}
-	temp := filepath.Join(dir, "run.tmp")
+	temp := filepath.Join(dir, tmp)
 	if err := os.WriteFile(temp, []byte("{\n"+strings.Join(lines, ",\n")+"\n}"), 0666); err != nil {
 		return err
 	}

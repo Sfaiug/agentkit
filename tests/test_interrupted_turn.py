@@ -35,6 +35,8 @@ INTERRUPT, TOOL_INTERRUPT = claude.INTERRUPTS
 OWED = "- [ ] the acme tests pass · check: `false` · acme · written 2026-10-14 09:00\n"
 
 
+# `idle`: a turn the owner stopped, even with an open plan; a kept question
+# still reads `needs you`. [14, 20 Oct 2026]
 class InterruptedTurn(Sandbox):
     def setUp(self):
         super().setUp()

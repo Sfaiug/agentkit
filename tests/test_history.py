@@ -40,6 +40,31 @@ class HistoryTests(unittest.TestCase):
         row = self.row()
         self.assertEqual(row[1:7], ("project", "opus", "astra", 2, "pass", "PASS"))
 
+    def test_launch_kind_follows_the_origin_before_review_ownership(self):
+        pr = {"review_pr": "https://github.com/acme/widgets/pull/1", "own_pr": True}
+        followup = {"followup": {"run": "earlier"}}
+        cases = (({}, "task"), ({"restarted": "earlier"}, "task"),
+                 ({**pr, "own_pr": False}, "PR"), (pr, "seat PR"),
+                 ({**pr, "night": "2026-11-03"}, "night"),
+                 ({**pr, "night": "2026-11-03", **followup}, "follow-up"),
+                 ({**followup, "split_suite": "python3 checks.py"}, "split"),
+                 ({**followup, "split_suite": "python3 checks.py",
+                   "repair": {"target": "main", "command": "python3 checks.py"}}, "repair"))
+        for n, (origin, expected) in enumerate(cases):
+            with self.subTest(expected=expected, origin=origin):
+                transitions.history_start({"run_id": f"r{n}", **origin})
+                self.assertEqual(history.get(f"r{n}")["kind"], expected)
+
+    def test_size_reads_only_tasks_and_unknown_kinds_before_taking_its_limit(self):
+        kinds = ((None, 1), ("task", 3), ("repair", 10), ("split", 10),
+                 ("follow-up", 10), ("night", 10), ("seat PR", 10), ("PR", 10))
+        for at, (kind, rounds) in enumerate(kinds, 1):
+            history.start_run(f"r{at}", repo="acme", kind=kind, started_at=0,
+                              task_words=500, task_points=4)
+            history.finish_run(f"r{at}", final_state="pass", finished_at=at, rounds_used=rounds)
+        self.assertEqual(history.size_summary("acme", limit=2), (2, 2, 2))
+        self.assertEqual(history.size_summary("acme", limit=1), (3, 3, 3))
+
     def test_live_at_migrates_an_existing_database_without_changing_its_ending(self):
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)

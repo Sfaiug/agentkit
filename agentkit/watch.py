@@ -5338,6 +5338,9 @@ def health(cfg, state, dry_run, log):
                 # The gates below read this pass's answer and never the last one's.
                 live = ({} if blank or dry_run or session.get("exited")
                         else live_state(session, harness, pane=pane, cfg=cfg))
+                if live:
+                    follow_model(cfg, name)
+                    harness, provider = seat_model(cfg, name)   # a harness can span providers
                 ask_kept_back(name, harness, live)
             at_prompt = (live or seat_read(name)).get("state") == "at_prompt"
             # Whether a login is expired is the `auth` verb's answer and never the pane's: a

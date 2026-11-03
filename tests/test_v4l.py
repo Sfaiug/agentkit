@@ -40,6 +40,7 @@ class Babysitter(unittest.TestCase):
         self.harness, self.provider = "claude", "anthropic"
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, self.provider)))
+        self.stack.enter_context(patch.object(watch, "follow_model", return_value=None))
         self.tail = "API Error: 500"
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.tail))
         self.typed = self.stack.enter_context(patch.object(watch, "type_into", return_value=True))

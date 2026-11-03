@@ -80,11 +80,12 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("own_orchestrator_effort", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
-DROPPED = ("suite_cpu_seconds", "suite_wall_seconds", "suite_peak_mb", "suite_repo")
+# `merged` was also made outside the schema and never written; `merged()` reads changed_lines.
+DROPPED = ("suite_cpu_seconds", "suite_wall_seconds", "suite_peak_mb", "suite_repo", "merged")
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAITS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -355,7 +356,7 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, kind=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
@@ -376,7 +377,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "")
+              change, 0, "", kind)
 
     def insert(connection):
         connection.execute(
@@ -385,8 +386,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge, kind) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -397,7 +398,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
-            "change=COALESCE(excluded.change,runs.change)", values)
+            "change=COALESCE(excluded.change,runs.change), "
+            "kind=COALESCE(excluded.kind,runs.kind)", values)
 
     _write(insert, log)
 
@@ -422,7 +424,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort"}
+               "executor_effort", "own_orchestrator_effort", "kind"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -871,6 +873,7 @@ def size_summary(repo, limit=SUMMARY_TASKS):
                 rows = connection.execute(
                     "SELECT rounds_used, task_words, task_points FROM runs "
                     "WHERE repo=? AND finished_at IS NOT NULL AND rounds_used IS NOT NULL "
+                    "AND (kind='task' OR kind IS NULL) "
                     f"AND {REAL_WORK} "
                     "ORDER BY finished_at DESC LIMIT ?", (Path(repo).name, limit)).fetchall()
             finally:

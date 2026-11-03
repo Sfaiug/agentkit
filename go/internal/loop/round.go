@@ -13,17 +13,22 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 // foreground is what every turn is told of its commands, Python's turns.shell_foreground_note.
 var foreground = fmt.Sprintf("Run long commands, tests included, in the foreground and wait for them; a turn that ends with a command still running in the background is not finished. A command that may print nothing for %d minutes starts with `timeout <seconds>`, or that silence stops it.", run.SilenceMinutes)
 
-// step says which step this run is in, since when and in which round.
+// step says which step this run is in, since when and in which round, and its seat's bar says it.
 func (l *loop) step(name string, more ...any) error {
-	return l.save(func(record *run.Object) {
+	seated := ""
+	err := l.save(func(record *run.Object) {
 		run.SetAll(record, "step", name, "step_at", clock(), "step_round", l.rnd)
 		run.SetAll(record, more...)
+		seated = run.Seat(record)
 	})
+	seat.Redress(seated)
+	return err
 }
 
 // model is a model as this run runs it: at the efforts it launched with, later edits aside.

@@ -1,0 +1,152 @@
+"""`c` shows `rounds`, `review_lines` and `seat_lines` on one `Limits` row, at a glance, and
+Enter there opens `config · limits`: a row each under a plain name, its value and `default N`
+where that is not ak's default, the pointed one's meaning and board rows under the rows.  Enter
+on a row opens its short list, the value in force marked, and a pick saves it to config.toml at
+once, every other key kept; a value the host's numbers refuse is not offered, and a save that
+fails changes nothing and says why.
+
+The owner's ask of 3 Nov 2026: the keys' names were unclear to users.  Black-box: the program
+`AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
+tests/fixtures/fakeadapter.py, judged by the screen and config.toml.  The terminal has no colour
+(NO_COLOR).  This test fails against `/bin/false`.
+"""
+
+import sys
+from pathlib import Path
+import unittest
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from fixtures import akconfig, fakeadapter
+from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akterm import SERVER, Terminal
+
+MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
+          "astra": {"harness": "codex", "effort": "high"}}
+FAR = 6                # j presses from the first model to `Limits`: the other, then four rows
+NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task")
+WIDE = max(map(len, NAMES))
+MEANS = ("The review rounds a change has before it goes back to its orchestrator to split or "
+         "re-scope; it moves first round, unmerged, hours to merge.")
+
+
+def lines(screen):
+    return [line.rstrip() for line in screen.split("\n")]
+
+
+def row(name, value, on=False):
+    return f"{'›' if on else ' '} {name:<{WIDE}}  {value}"
+
+
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+class LimitsPage(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.home = Home()
+        cls.addClassCleanup(cls.home.close)
+        fakeadapter.install(cls.home, claude="pass", codex="pass")
+
+    def c(self, settings=None, size=(100, 40)):
+        """`c` in a window of its own, over a config.toml setting `settings`."""
+        akconfig.write(self.home, MODELS, settings=settings)
+        return self.opened(size)
+
+    def opened(self, size):
+        term = Terminal(self.home, size=size, env={"NO_COLOR": "1"})
+        self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
+                        server=SERVER)
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait("r recommended")
+        return term
+
+    def limits(self, term):
+        """`config · limits` opened from `c`."""
+        term.keys(*["j"] * FAR)
+        term.wait("› Limits")
+        term.keys("Enter")
+        return term.wait("config · limits")
+
+    def picked(self, term, name, moves, value):
+        """`name`'s list opened, `moves` keys from the value in force, and that one picked."""
+        term.keys(*["j"] * NAMES.index(name))
+        term.wait(f"› {name}")
+        term.keys("Enter")
+        term.wait(lambda screen: f"› {name}" not in screen)     # the highlight on a choice
+        term.keys(*moves)
+        term.wait(f"›   ○ {value}")
+        term.keys("Enter")
+        return lines(term.wait(f"› {name}"))
+
+    def test_c_shows_one_limits_row_with_the_three_values(self):
+        shown = lines(self.c().wait("Limits"))
+        self.assertIn("  Limits        review 3 rounds · executor 300 lines · orchestrator 50 "
+                      "lines", shown)
+        for gone in ("rounds", "review_lines", "seat_lines"):
+            self.assertFalse([line for line in shown if line.split()[:1] == [gone]], shown)
+
+    def test_enter_on_limits_opens_the_page_with_the_three_plain_names(self):
+        shown = lines(self.limits(self.c({"seat_lines": 0})))
+        self.assertIn("agentkit · config · limits", shown[0])
+        self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
+                         [row(NAMES[0], "3", on=True), row(NAMES[1], "300"),
+                          row(NAMES[2], "off default 50")])
+        self.assertIn(MEANS, " ".join(line.strip() for line in shown))
+        self.assertEqual(akconfig.read(self.home)["seat_lines"], 0)
+
+    def test_the_pointer_off_every_row_takes_the_note_away(self):
+        term = self.c()
+        self.limits(term)
+        term.wait(lambda screen: MEANS in " ".join(screen.split()))
+        term.type("\x1b[<35;8;1M")      # onto the header: the highlight goes out, and the note
+        term.wait(lambda screen: MEANS not in " ".join(screen.split()))
+
+    def test_on_a_narrow_terminal_each_value_folds_under_its_name_never_cut(self):
+        shown = lines(self.limits(self.c(
+            {"rounds": 4, "review_lines": 1000, "seat_lines": 0}, size=(40, 50))))
+        at = shown.index(f"› {NAMES[0]}")
+        self.assertEqual(shown[at:at + 6], [
+            f"› {NAMES[0]}", "    4 default 3", f"  {NAMES[1]}", "    1000 default 300",
+            f"  {NAMES[2]}", "    off default 50"])
+
+    def test_picking_1000_lines_per_executor_task_saves_it(self):
+        term = self.c({"max_runs": 7, "custom_flag": True})
+        self.limits(term)
+        shown = self.picked(term, NAMES[1], ("j", "j"), "1000")
+        self.assertIn(row(NAMES[1], "1000 default 300", on=True), shown)
+        saved = akconfig.read(self.home)
+        self.assertEqual((saved["review_lines"], saved["max_runs"], saved["custom_flag"]),
+                         (1000, 7, True))
+        term.keys("Escape")
+        term.wait("executor 1000 lines")
+
+    def test_picking_off_lines_per_orchestrator_task_saves_zero(self):
+        term = self.c()
+        self.limits(term)
+        shown = self.picked(term, NAMES[2], ("k", "k", "k"), "off")
+        self.assertIn(row(NAMES[2], "off default 50", on=True), shown)
+        self.assertEqual(akconfig.read(self.home)["seat_lines"], 0)
+
+    def test_a_list_offers_what_the_host_takes_and_the_value_in_force(self):
+        term = self.c({"review_lines": 150, "seat_lines": 120})
+        self.limits(term)
+        term.keys("j", "Enter")
+        shown = lines(term.wait("›   ● 150"))
+        # 100 is under seat_lines: refused, so not offered
+        self.assertEqual([line.split()[-1] for line in shown if line[4:6] in ("● ", "○ ")],
+                         ["150", "200", "300", "500", "1000", "2000"])
+
+    def test_a_pick_that_cannot_be_saved_changes_nothing_and_says_why(self):
+        term = self.c()
+        given = (self.home.path / ".agentkit/config.toml").read_bytes()
+        blocked = self.home.path / ".agentkit/config.tmp"
+        blocked.mkdir()
+        self.addCleanup(blocked.rmdir)
+        self.limits(term)
+        term.keys("Enter", "j", "Enter")
+        shown = lines(term.wait("Is a directory"))
+        self.assertIn(row(NAMES[0], "3", on=True), shown)
+        self.assertEqual((self.home.path / ".agentkit/config.toml").read_bytes(), given)
+
+
+if __name__ == "__main__":
+    unittest.main()

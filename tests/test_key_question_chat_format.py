@@ -50,6 +50,8 @@ class QuestionChatFormat(unittest.TestCase):
         self.assertEqual(fired.code, 0, fired.err)
         return [out["reason"] for out in fired.said if out.get("decision") == "block"]
 
+    # Every harness writes the question, recommendation and choices as an assistant
+    # message in chat. [21 Oct 2026]
     def test_the_question_shown_inline_or_as_bullets_ends_the_turn(self):
         for form, closing in SHOWN.items():
             with self.subTest(form):
