@@ -427,10 +427,9 @@ func head(s terminal.Screen, seat Seat, w widths) string {
 	number := terminal.Cut(strconv.Itoa(seat.Number), w.num)
 	number = "  " + strings.Repeat(" ", max(0, w.num-terminal.Cells(number))) + s.Styled(number, "dim")
 	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.Model, w.orch, "dim")}
-	if w.count > 0 && seat.mark != "" {
-		rest = append(rest, seat.mark+" "+cell(s, seat.Word, w.count-2, tone(seat.Word)))
-	} else if w.count > 0 {
-		rest = append(rest, cell(s, s.StateText(seat.Word), w.count, tone(seat.Word)))
+	if w.count > 0 {
+		text := terminal.Cut(s.StateText(seat.Word), w.count)
+		rest = append(rest, state(s, seat, text)+strings.Repeat(" ", w.count-terminal.Cells(text)))
 	}
 	line := strings.Join(append([]string{number}, rest...), "  ")
 	if terminal.Cells(line) <= w.room {
@@ -448,6 +447,15 @@ func tone(word string) string {
 		return "dim"
 	}
 	return word
+}
+
+// state is a seat's state text, or a piece of it, in its word's colour, its mark as the clock draws
+// it this frame (moving).
+func state(s terminal.Screen, seat Seat, text string) string {
+	if rest, marked := strings.CutPrefix(text, s.Glyph(seat.Word)); marked && seat.mark != "" {
+		return seat.mark + s.Styled(rest, tone(seat.Word))
+	}
+	return s.Styled(text, tone(seat.Word))
 }
 
 // cell is text cut, then styled, then padded, so the pads land outside the escapes.
@@ -480,11 +488,11 @@ func seatBlocks(s terminal.Screen, seats []Seat, w widths, most int) [][]row {
 			}
 		}
 		if w.count == 0 {
-			var state []string
+			var under []string
 			for _, each := range terminal.Wrap(s.StateText(seat.Word), w.room-4) {
-				state = append(state, "    "+s.Styled(each, tone(seat.Word)))
+				under = append(under, "    "+state(s, seat, each))
 			}
-			lines = slices.Insert(lines, 1, state...)
+			lines = slices.Insert(lines, 1, under...)
 		}
 		if most >= 0 && len(lines) > max(1, most) {
 			keep := max(1, most)
