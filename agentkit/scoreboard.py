@@ -28,9 +28,11 @@ MEASURES = (
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    ("checks", "checks", ("suites", "hours")),
     ("parks", "parks", ("parked",)),
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "unknown")),
+    ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
@@ -151,21 +153,22 @@ def compute(now=None):
     now = time.time() if now is None else now
     week = 7 * 86400
 
-    def per_change(ended):
-        """The median hours a change merged this week spent in model turns, in ak's own work,
-        waiting, and with its seat between its runs (the wall time from its first run's start to
-        its last run's end less its runs' time): every run of the change that ended in the two
-        weeks, grouped by `change`, each second in one part (`split_hours`); time in no part,
-        such as a park while its provider's window is spent, is in none, and a change with a run
-        from before the phase rows were kept is not recorded (`split_hours`)."""
+    def changes(ended):
+        """Every run ended in the two weeks of each change merged this week, grouped by change."""
         by_change = {}
         for row in rows:
             if row.get("started_at") is not None and row["started_at"] <= row["finished_at"]:
                 by_change.setdefault(row.get("change") or row["run_id"], []).append(row)
         merged = {row.get("change") or row["run_id"] for row in ended if history.merged(row)}
+        return [by_change.get(key) or [] for key in merged]
+
+    def per_change(changes):
+        """The median hours a merged change spent in model turns, in ak's own work, waiting,
+        and with its seat between runs (its first start to last end less its runs' time), each
+        second in one part (`split_hours`); time in no part, such as a park, is in none, and a
+        change from before the phase rows were kept is not recorded (`split_hours`)."""
         splits = []
-        for key in merged:
-            runs = by_change.get(key) or []
+        for runs in changes:
             parts = [split_hours(row) for row in runs]
             if not runs or None in parts:
                 continue
@@ -176,6 +179,18 @@ def compute(now=None):
         if not splits:
             return None
         return {part: median(split[part] for split in splits) for part in ("model", "ak", "waiting", "seat")}
+
+    def checked(changes):
+        """Suite runs and summed check hours per merged change; no rows means not recorded."""
+        run_ids = {row["run_id"] for runs in changes for row in runs}
+        pieces = [row for row in check_rows if row["run_id"] in run_ids]
+        if not pieces:
+            return None
+        suites = {(row["run_id"], row["round"], row["kind"], row["tree"]) for row in pieces
+                  if row["command"].startswith("AK_SHARD=")}
+        seconds = sum(row["finished_at"] - row["started_at"] for row in pieces
+                      if row["finished_at"] is not None and row["started_at"] is not None)
+        return {"suites": len(suites) / len(changes), "hours": seconds / 3600 / len(changes)}
 
     def settled(row):
         """Whether the run's record still ends where its row does, or is gone."""
@@ -201,6 +216,23 @@ def compute(now=None):
                 "after_merge": sum(1 for row in known if row.get("broke_after_merge")),
                 "landing": sum(1 for row in known if row["landing_breaks"]),
                 "unknown": len(merged) - len(known)}
+
+    def pairs(ended):
+        """The week's merged changes by their recorded pair; unknown pairs count in none,
+        and unknown landing results count in no landing share."""
+        merged = {row.get("change") or row["run_id"]: row
+                  for row in sorted(ended, key=lambda row: row["finished_at"]) if history.merged(row)}
+        merged = [row for row in merged.values() if row.get("review_pair") is not None]
+        if not merged:
+            return None
+        stats = {}
+        for key, pair in (("self", "self"), ("same_provider", "same provider"), ("other", "other provider")):
+            group = [row for row in merged if row["review_pair"] == pair]
+            if key != "other":
+                stats[key] = len(group) / len(merged)
+            landings = [row["landing_breaks"] for row in group if row.get("landing_breaks") is not None]
+            stats[key + "_landing"] = sum(bool(n) for n in landings) / len(landings) if landings else None
+        return stats
 
     def who_built(ended):
         """The week's merged runs by who built the change: a seat, whose change comes as a
@@ -241,13 +273,15 @@ def compute(now=None):
         own_names.add((config.REPO / os.fsdecode(common).strip()).resolve().parent.name)
     rows = [row for row in history.ended_runs(now - 2 * week, now)
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
+    check_rows = history.checks(now - 2 * week, now)
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     moments = history.owner(now - 2 * week, now)
     dones = history.dones(now - 2 * week, now)
     seats, not_counted = seat_tokens.read(now - 2 * week, now)
     board, waits, merged_changes, broken = {"products": [], "ak": [], "tokens": []}, [], [], []
-    built, parks, sunk, owner, intent = [], [], [], [], []
+    built, parks, sunk, owner, intent, check_costs = [], [], [], [], [], []
+    review_pairs = []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -270,8 +304,11 @@ def compute(now=None):
                       "merge_hours": sum(row["merge_wait_seconds"] for row in recorded) / 3600,
                       "lander_hours": None if None in checks else sum(checks) / 3600}
                      if run_time else None)
-        merged_changes.append(per_change(ended))
+        grouped = changes(ended)
+        merged_changes.append(per_change(grouped))
+        check_costs.append(checked(grouped))
         broken.append(breaks(ended))
+        review_pairs.append(pairs(ended))
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         # the week's tokens that bought no merge: every ended run that delivered nothing
@@ -336,9 +373,11 @@ def compute(now=None):
     board["built"] = built
     board["waits"] = waits
     board["merged"] = merged_changes
+    board["checks"] = check_costs
     board["parks"] = parks
     board["sunk"] = sunk
     board["broke"] = broken
+    board["pairs"] = review_pairs
     board["size"] = [size("HEAD"), size(before.decode().strip() if before else None)]
     return board
 
@@ -386,6 +425,12 @@ def render(board=None):
                 f"{stats['ak']:.1f} ak's own work, {stats['waiting']:.1f} waiting, "
                 f"{stats['seat']:.1f} with its seat between runs")
 
+    def checks(stats):
+        if stats is None:
+            return "not recorded"
+        return (f"{stats['suites']:.2f} suite runs and {stats['hours']:.2f} check hours "
+                "per merged change")
+
     def broke(stats):
         if stats is None:
             return "no merged change"
@@ -394,6 +439,18 @@ def render(board=None):
         if stats["unknown"]:
             text += f"; {stats['unknown']} merged before breaks were recorded"
         return text
+
+    def pairs(stats):
+        if stats is None:
+            return "not recorded"
+
+        def landing(key):
+            value = stats[key + "_landing"]
+            return "landing not recorded" if value is None else f"{value:.0%} went red at landing"
+
+        return (f"{stats['self']:.0%} self-reviewed ({landing('self')}); "
+                f"{stats['same_provider']:.0%} reviewed by another model of the same provider "
+                f"({landing('same_provider')}); another provider: {landing('other')}")
 
     def size(stats):
         if stats is None:
@@ -457,15 +514,16 @@ def render(board=None):
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True), "tokens": tokens,
              "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
-             "sunk": sunk, "broke": broke, "size": size}
+             "checks": checks, "sunk": sunk, "broke": broke, "pairs": pairs, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
-    room = max(1, (terminal.content_width() - 12) // 2)
+    label_width = max(len(label) for _, label, _ in MEASURES)
+    room = max(1, (terminal.content_width() - label_width - 4) // 2)
     lines = terminal.wrap("Scoreboard (reported tokens; size now and 7 days ago)", terminal.content_width())
     for label, current, previous in rows:
         left, right = terminal.wrap(current, room), terminal.wrap(previous, room)
         for i in range(max(len(left), len(right))):
             lines.append(terminal.table_row(
                 [label if i == 0 else "", left[i] if i < len(left) else "",
-                 right[i] if i < len(right) else ""], [8, room, room]))
+                 right[i] if i < len(right) else ""], [label_width, room, room]))
     return lines

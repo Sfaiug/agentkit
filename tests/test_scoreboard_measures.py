@@ -37,11 +37,15 @@ PINNED = (
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
+    # checks: write-up task 1 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.
+    ("checks", "checks", ("suites", "hours")),
     ("parks", "parks", ("parked",)),
     ("sunk", "sunk", ("share", "tokens")),
     # a review miss counts only when it breaks, at landing or after merge, never a rewrite
     # later: the owner's yes, 16 Oct 2026, in place of `escaped`
     ("broke", "broke", ("merged", "after_merge", "landing", "unknown")),
+    # pairs: the orchestrator's decision of 3 Nov 2026, changed on review under the Owner rule of 27 Oct 2026.
+    ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
@@ -83,8 +87,13 @@ class Measures(unittest.TestCase):
                  "started_at": NOW - 3600, "finished_at": NOW - 60, "changed_lines": 1,
                  "executor_tokens": 1, "reviewer_tokens": 1, "total_seconds": 3540,
                  "slot_wait_seconds": 0, "suite_wait_seconds": 0, "merge_wait_seconds": 0,
-                 "lander_wait_seconds": 0} for repo in ("acme", "toolkit")]
+                 "lander_wait_seconds": 0, "review_pair": "self", "landing_breaks": 0}
+                for repo in ("acme", "toolkit")]
+        checks = [{"run_id": row["run_id"], "round": 1, "kind": "rules", "tree": "cedar",
+                   "command": "AK_SHARD=0/2 suite", "started_at": NOW - 300,
+                   "finished_at": NOW - 60} for row in rows]
         with patch.object(scoreboard.history, "ended_runs", return_value=rows), \
+                patch.object(scoreboard.history, "checks", return_value=checks), \
                 patch.object(scoreboard.history, "parks", return_value=[NOW - 60]), \
                 patch.object(scoreboard.history, "owner",
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
@@ -101,7 +110,8 @@ class Measures(unittest.TestCase):
                 patch.object(terminal, "content_width", return_value=100):
             lines = scoreboard.render()
         # the title, the two weeks' heading, then one line a row: an empty row says so in one
-        self.assertEqual([line[:8].strip() for line in lines[2:]], [label for _, label, _ in PINNED])
+        width = max(len(label) for _, label, _ in PINNED)
+        self.assertEqual([line[:width].strip() for line in lines[2:]], [label for _, label, _ in PINNED])
 
 
 if __name__ == "__main__":

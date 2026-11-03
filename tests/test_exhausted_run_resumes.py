@@ -66,7 +66,8 @@ class ExhaustedResume(unittest.TestCase):
     def providers(self, openai_used=10, anthropic_used=100, meta_used=100, resets_in=None):
         """Fake usage providers: openai refilled, the rest dry, unless told otherwise."""
         resets_in = WEEK if resets_in is None else resets_in
-        return {
+        return {name: {"meters": [meter("weekly", 100, self.now + WEEK)]}
+                for name in self.cfg["providers"]} | {
             "anthropic": {"meters": [meter("weekly_all", anthropic_used, self.now + WEEK),
                                      meter("weekly_scoped", anthropic_used, self.now + WEEK)]},
             "openai": {"meters": [meter("weekly", openai_used, self.now + resets_in)]},

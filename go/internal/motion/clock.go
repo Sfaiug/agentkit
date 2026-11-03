@@ -16,6 +16,7 @@ type Clock struct {
 	at     time.Duration
 	seen   map[string]shown
 	still  time.Duration // when all this draw holds is still; forever while something breathes
+	grown  bool          // the opening lines reached their lengths, or a key finished them
 }
 
 // shown is a value a draw showed, what it showed before and since when, where it changed while
@@ -48,7 +49,7 @@ func (c *Clock) until(end time.Duration) {
 // Grown is how far the nth progress line down the screen has grown to its length as it opened,
 // 0 to 1, each Stagger after the one above it.
 func (c *Clock) Grown(nth int) float64 {
-	if c == nil {
+	if c == nil || c.grown {
 		return 1
 	}
 	began := time.Duration(nth) * Stagger

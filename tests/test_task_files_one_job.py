@@ -515,7 +515,8 @@ sys.exit(1)
 
     def test_v5q_anyway_starts_beside_a_live_rival(self):
         repo = self.git_repo()
-        # a live rival run in the same repo whose title shares four words
+        # a live rival run launched from the same task file
+        newcomer = str(self.root / "newcomer.md")
         rival_dir = jobs.job_allocate_run_dir("Orange orangutan orchestrates operations daily")
         (rival_dir / "task.md").write_text(
             f"---\nrepo: {repo}\nbase: main\n---\n"
@@ -524,17 +525,17 @@ sys.exit(1)
         rival_state = {"run_id": rival_dir.name,
                        "title": "Orange orangutan orchestrates operations daily",
                        "state": "running", "repo": str(repo), "started_at": time.time(),
+                       "task_file": newcomer,
                        "launched_session": "seat-v5q", **record.process_owner()}
         (rival_dir / "run.json").write_text(json.dumps(rival_state))
         lines = ["---", f"repo: {repo}", "base: main",
                  "---", "# Orange orangutan orchestrates operations nightly", "",
                  "## Done when", "```bash", "test -f deliverable", "```", ""]
-        newcomer = str(self.root / "newcomer.md")
         Path(newcomer).write_text("\n".join(lines))
         other = self.task("other.md", "Unrelated scratch piece")
         base = ["--exec", self.executor, "--review", self.reviewer]
         with redirect_stdout(io.StringIO()):
-            with self.assertRaisesRegex(config.Error, "already under way.*--anyway"):
+            with self.assertRaisesRegex(config.Error, "already under way.*shares task file.*--anyway"):
                 run.main([newcomer, other, *base])
         self.assertEqual(self.job_dirs(), [])
         with self.fake_delivery(), redirect_stdout(io.StringIO()):

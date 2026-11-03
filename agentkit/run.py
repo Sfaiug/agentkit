@@ -38,9 +38,9 @@ from .roundloop import (Loop, note, pin_checkout, pinned_head,
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
-    refuse_unready, replace_reviewer, reviewer_order, run_workers, same_model, started_round)
+    refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
@@ -337,40 +337,18 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
         if not review_pass(state, cfg):
-            # A saved reviewer must still be eligible. The executor keeps its work's identity.
-            if reviewer not in reviewer_order(cfg, executor, order):
-                reviewer = None
-            # Nor is a saved executor: relaunching a model whose provider is spent would only
-            # earn the same refusal, so the work is handed over here exactly as it is mid-round,
-            # note and all -- the round it was cut off in resumes with another model in it.
-            spent, why = usage.model_exhausted(cfg, executor, providers)
-            gone = usage.unready(cfg, executor, providers)
-            if spent or gone:
-                log(f"saved executor {executor} cannot run: {why or gone}")
-                try:
-                    picked = next_executor(
-                        cfg, providers, {config.model(cfg, executor)["provider"]} if spent
-                        else set(), reviewer, log, workers=workers, reviewers=reviewers)
-                except (Exhausted, config.Error):
-                    # nowhere to hand the saved turn to: keep the saved pair and let the
-                    # round itself surface the quota, exactly as a fresh launch would.
-                    picked = None
-                if picked is None:
-                    handed = None
-                    executor, reviewer = pick_models(cfg, providers, executor, reviewer,
-                                                     log, resuming=True, repo=repo,
-                                                     workers=workers, reviewers=reviewers)
-                else:
-                    handed = executor
-                    executor, reviewer = picked
-                    note_handover(state, handed, "ran dry" if spent else gone,
-                                  started_round(run_dir, state), to=executor, reason="dry")
-                    log(f"handing executor to {executor}: {handed} "
-                        + ("ran dry" if spent else gone))
+            saved = executor
+            executor, reviewer = resume_models(cfg, providers, state, log, repo=repo)
+            if executor != saved:
+                spent, why = usage.model_exhausted(cfg, saved, providers)
+                gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
+                log(f"saved executor {saved} cannot run: {why or gone}")
+                handed = saved
+                note_handover(state, handed, "ran dry" if spent else gone,
+                              started_round(run_dir, state), to=executor, reason="dry")
+                log(f"handing executor to {executor}: {handed} "
+                    + ("ran dry" if spent else gone))
             else:
-                executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
-                                                 resuming=True, repo=repo, workers=workers,
-                                                 reviewers=reviewers)
                 if reviewer is not None and same_model(cfg, executor, reviewer):
                     # A saved self-review steps aside when a better pair is ready: its own
                     # model reviews only as the last choice, never while another pair runs.
@@ -1537,7 +1515,7 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
         log(f"WARN could not redraw the seat's bar: {exc}")
     announce(state, run_dir, log, cfg)
-    history_finish(state, log)
+    history_finish(state, log, cfg=cfg)
     worktrees.settle_run(run_record.read_state(run_dir) or state, run_dir, log)
     if state["state"] == "error":
         log(f"FAIL -> {run_dir / 'result.md'} (error)")
@@ -1904,6 +1882,19 @@ def resume_run(argv):
     if not state.get("review_pr"):
         _, body, _ = taskfile.parse_task(run_dir / "task.md")
         taskfile.done_when(body, run_dir / "task.md")
+    if state.get("state") == "exhausted" and state.get("quota_dry"):
+        try:
+            resume_models(cfg, collect_usage(cfg), state)
+        except QuotaDry as exc:
+            log = logger(run_dir)
+            with gate.slot_lock(), run_record.recovery_lock(run_dir):
+                if run_record.read_state(run_dir) != expected:
+                    raise config.Error("the run changed while choosing recovery; select it again")
+                park_exhausted(state, exc)
+                state["slot_waiting"] = False
+                run_record.save_state(run_dir, state)
+            log(f"exhausted: {exc}")
+            return 1
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
@@ -2879,16 +2870,13 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
     (`process_active`), in the task's repository, launched by anybody, where either a
     done-when of the new task and of the running run name the same test file -- not a
     general check, which three other jobs there whose titles do not name it ran too,
-    unless both titles name it -- or their titles share at least four significant words, at
-    least half of the shorter title's.  Each match is a dict with the run's
+    unless both titles name it -- or the new task's resolved path is the `task_file`
+    recorded at launch.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
-    title-word count.  Read-only: run state comes only from run_dirs(), read_state()
+    task file.  Read-only: run state comes only from run_dirs(), read_state()
     and process_active(), and a run's done-when from its own task.md.  A
     scratch task, or one whose repository cannot be resolved, is never checked.
     """
-    stop = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with",
-            "is", "are", "that", "this", "from", "into"}
-
     def test_files(commands):
         """Done-when tokens naming a test file, quotes stripped for the comparison.
 
@@ -2907,14 +2895,6 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 if stem.startswith("test_") or base.endswith("_test"):
                     found.add(name)
         return found
-
-    def significant_words(text, repo_name):
-        """Lowercased words of four or more letters outside the stop list."""
-        words = (text or "").lower()
-        if repo_name and words.startswith(repo_name.lower() + ":"):
-            words = words[len(repo_name) + 1:]
-        return {word for word in re.findall(r"[a-z0-9]+", words)
-                if len(word) >= 4 and word not in stop}
 
     try:
         repo = task_repo(meta, task_path)
@@ -2991,7 +2971,7 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 or len(named.get(name, set()) - {title, other_title}) < 3}
 
     mine_files = test_files(cmds)
-    mine_words = significant_words(title, repo.name)
+    task_path = Path(task_path).expanduser().resolve()
     matches = []
     for directory in run_record.run_dirs():
         if exclude is not None and Path(directory) == Path(exclude):
@@ -3010,12 +2990,9 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             continue
         other_title = state.get("title") or parsed_title or directory.name
         shared = sorted(specific(mine_files & test_files(other_cmds), other_title))
-        theirs = (significant_words(other_title, repo.name)
-                  if state.get("title") or parsed_title else set())
-        words = len(mine_words & theirs)
-        # Long titles share four common words (`line`, `turn`, `only`, `wait`) without being
-        # one job: 20 of 27 refusals on title words alone in a week of Oct 2026 named other work.
-        if not shared and (words < 4 or 2 * words < min(len(mine_words), len(theirs))):
+        same_task = bool(state.get("task_file")) and \
+            Path(state["task_file"]).expanduser().resolve() == task_path
+        if not shared and not same_task:
             continue
         try:
             seat = launched_session(state)
@@ -3025,7 +3002,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         started = state.get("started_at")
         matches.append({"id": directory.name, "seat": seat,
                         "started": started if isinstance(started, (int, float)) else None,
-                        "title": other_title, "files": shared, "words": words})
+                        "title": other_title, "files": shared,
+                        "task_file": str(task_path) if same_task else None})
     matches.sort(key=lambda match: (match["started"] if match["started"] is not None
                                     else float("-inf"), match["id"]), reverse=True)
     return matches
@@ -3250,7 +3228,7 @@ def main(argv):
                 if first["files"]:
                     detail = ", ".join(first["files"])
                 else:
-                    detail = f"{first['words']} title words"
+                    detail = f"task file {first['task_file']}"
                 if len(rivals) > 1:
                     detail += f" and {len(rivals) - 1} more"
                 try:

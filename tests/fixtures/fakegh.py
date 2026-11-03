@@ -324,6 +324,8 @@ def _default_body(pr, commits, method):
 
 
 def _api(state, opts, endpoint):
+    if "--input" in opts:
+        raise Refused("fake gh: --input is not supported")
     fields = {}
     for flag in ("-f", "--raw-field", "-F", "--field"):
         for pair in opts.get(flag, ()):
@@ -344,21 +346,32 @@ def _api(state, opts, endpoint):
     if path == "graphql" and "branchProtectionRule" in asked:
         return {"data": {"repository": {"ref": {"branchProtectionRule": None}}}}
     if path == "search/issues":
+        query = fields.get("q", query)
         found = [pr for pr in state["prs"] if pr["state"] == "OPEN"
-                 and ("author:@me" not in query or pr["author"]["login"] == state["login"])]
+                 and ("author:@me" not in query or pr["author"]["login"] == state["login"])
+                 and (f"user:{state['login']}" not in query
+                      or pr["repo"].split("/")[0] == state["login"])
+                 and (f"-author:{state['login']}" not in query
+                      or pr["author"]["login"] != state["login"])
+                 and ("draft:false" not in query or not pr["isDraft"])]
         return {"total_count": len(found), "incomplete_results": False, "items": [
             {"number": pr["number"], "title": pr["title"], "state": "open", "user": pr["author"],
-             "html_url": pr["url"], "pull_request": {"html_url": pr["url"]}} for pr in found]}
+             "html_url": pr["url"], "draft": pr["isDraft"],
+             "pull_request": {"html_url": pr["url"]}} for pr in found]}
     parts = path.split("/", 3)
     slug, rest = ("/".join(parts[1:3]), parts[3]) if len(parts) == 4 else ("", "")
     if parts[0] != "repos":
         rest = ""
-    if rest == "pulls":
+    if rest == "pulls" and method == "GET":
         return [_rest(pr) for pr in state["prs"] if (pr["repo"], pr["state"]) == (slug, "OPEN")]
-    if (pull := re.fullmatch(r"pulls/(\d+)(/reviews)?", rest)):
+    if ((pull := re.fullmatch(r"pulls/(\d+)(/reviews)?", rest))
+            and method in (("GET", "POST") if pull[2] else ("GET", "PATCH"))):
         pr = _find(state, slug, pull[1])
         if not pull[2]:
-            pr.update({key: fields[key] for key in ("title", "body") if key in fields})
+            if method == "PATCH":
+                if not fields or fields.keys() - {"title", "body"}:
+                    raise Refused("fake gh: PATCH supports only title and body fields")
+                pr.update(fields)
             return _rest(pr)
         if method == "POST":
             state["ids"] += 1

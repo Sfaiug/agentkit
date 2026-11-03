@@ -145,8 +145,12 @@ func loginOut(facts climbing) (*answer, error) {
 
 // aRunOfItsOwn: any run of the seat's own, at each of the rungs a run decides.
 func aRunOfItsOwn(facts climbing) (*answer, error) {
-	if facts.gone == nil && len(facts.mine) > 0 {
-		return nil, ErrUnread
+	if facts.gone == nil {
+		for _, each := range facts.mine {
+			if each.view == nil {
+				return nil, ErrUnread
+			}
+		}
 	}
 	return nil, nil
 }
@@ -154,7 +158,7 @@ func aRunOfItsOwn(facts climbing) (*answer, error) {
 func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
 func runsGoing(facts climbing) (*answer, error)   { return goneRuns(facts) }
 func runParked(facts climbing) (*answer, error)   { return aRunOfItsOwn(facts) }
-func liveCheck(facts climbing) (*answer, error)   { return aRunOfItsOwn(facts) }
+func liveCheck(facts climbing) (*answer, error)   { return runsAwaitingLive(facts) }
 
 // everySeatsNews: the login no harness owns, or a worker token, dead.
 func everySeatsNews(facts climbing) (*answer, error) {

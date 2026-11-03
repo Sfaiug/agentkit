@@ -23,8 +23,8 @@ from fixtures.akbin import AK, Home
 from fixtures.gitrig import Rig
 
 TITLE = "Scoreboard (reported tokens; size now and 7 days ago)"
-LABELS = ["products", "ak", "tokens", "intent", "owner", "built", "waits", "merged", "parks", "sunk",
-          "broke", "ak size"]
+LABELS = ["products", "ak", "tokens", "intent", "owner", "built", "waits", "merged", "checks", "parks", "sunk",
+          "broke", "review pairs", "ak size"]
 # The host's own load never holds a run back or shows in the header: its readings are a roomy
 # machine's.
 ROOMY = json.dumps({"free_mb": 8192, "mem_total_mb": 16384, "load": 0, "cpus": 4})
@@ -81,8 +81,8 @@ class AnEmptyBoard(unittest.TestCase):
         empty = {"products": "no runs ended", "ak": "no runs ended",
                  "tokens": "no tokens recorded", "intent": "not recorded",
                  "owner": "not recorded", "built": "no runs ended", "waits": "not recorded",
-                 "merged": "no merged change", "parks": "not recorded",
-                 "sunk": "no tokens recorded", "broke": "no merged change"}
+                 "merged": "no merged change", "checks": "not recorded", "parks": "not recorded",
+                 "sunk": "no tokens recorded", "broke": "no merged change", "review pairs": "not recorded"}
         rows = {label: (this, last) for label, this, last in scoreboard(self.done.out)}
         for label, words in empty.items():
             with self.subTest(label):

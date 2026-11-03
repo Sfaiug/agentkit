@@ -426,10 +426,14 @@ def cut_file(output, start, where, name, cap=OUT_CAP):
     """`cut` of a binary file's bytes from `start` to its end, at `cap`, never read whole: a check
     can print more than the run's memory holds."""
     size = output.seek(0, os.SEEK_END)
-    output.seek(start)
-    line = f"{kept(output, where, name)}\n" if size - start > cap else ""
     output.seek(max(start, size - cap))
-    return line + output.read(cap).decode("utf-8", errors="replace")
+    tail = output.read(cap).decode("utf-8", errors="replace").encode("utf-8")
+    line = ""
+    if size - start > cap or len(tail) > cap:
+        output.seek(start)
+        line = f"{kept(output, where, name)}\n"
+    # Replacement characters can grow the payload; ignore only the new cut's split character.
+    return line + tail[max(0, len(tail) - cap):].decode("utf-8", errors="ignore")
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session
@@ -910,7 +914,7 @@ def resume_failed(out_dir, killed, text, harness, asked=True, failures_only=Fals
     return asked and not (text or "").strip() and worker.said_nothing(out_dir)
 
 
-def note_turn_meters(cfg, name, out_dir, account, before=()):
+def note_turn_meters(cfg, name, out_dir, account, before=(), role="executor"):
     """The meters the turn in `out_dir` reported about the account it ran on are the reading,
     and what it spent beside how far it moved them from `before` is a pair of what a window
     holds in tokens (`usage.record_pairs`).
@@ -929,7 +933,9 @@ def note_turn_meters(cfg, name, out_dir, account, before=()):
     try:
         if meters:
             usage.record_turn_meters(cfg, entry["provider"], meters, account)
-        usage.record_pairs(cfg, name, account, before, tokens, meters)
+        role = "reviewer" if role.startswith("reviewer") else "executor"
+        usage.record_pairs(cfg, name, account, before, tokens, meters,
+                           run_id=Path(out_dir).parent.parent.name, role=role)
     except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError):
         pass
 
@@ -1042,7 +1048,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             span = (began, time.time())
         finally:
             memory_cap_note(run_dir, log)     # however the turn ended
-        note_turn_meters(cfg, name, target, account, before)
+        note_turn_meters(cfg, name, target, account, before, role)
         last_dir, last_sid = target, result[2] or session
         return result
 

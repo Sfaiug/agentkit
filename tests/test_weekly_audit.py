@@ -29,11 +29,11 @@ BOARD = {
                          "hours": 2.0, "tokens": 900}],
     "ak": [None, None], "tokens": [None, None], "intent": [None, None],
     "owner": [None, None], "built": [None, None],
-    "waits": [None, None], "merged": [None, None],
+    "waits": [None, None], "merged": [None, None], "checks": [None, None],
     "parks": [{"parked": 1}, {"parked": 0}], "sunk": [None, None],
     "broke": [{"merged": 6, "after_merge": 3, "landing": 0, "unknown": 0},
               {"merged": 5, "after_merge": 3, "landing": 0, "unknown": 0}],
-    "size": [None, None],
+    "pairs": [None, None], "size": [None, None],
 }
 EMPTY = {key: [None, None] for key in BOARD}
 BROKE = "merged changes that broke main or live after merge"
@@ -89,7 +89,7 @@ class Weekly(unittest.TestCase):
         report = config.STATE / "audit" / f"{week}.md"
         text = report.read_text()
         self.assertTrue(text.startswith(f"# ak's week {week}\n\nScoreboard"), text)
-        self.assertIn("products  10 runs ended; 50% merged in round 1", text)
+        self.assertIn("products      10 runs ended; 50% merged in round 1", text)
         self.assertTrue(text.endswith("The largest loss is product runs ended without merging, "
                                       "30% against 20% the week before.\n"), text)
         self.assertEqual((state["week"], state["report"], state["typed"], state["delivered"]),

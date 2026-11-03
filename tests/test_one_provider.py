@@ -17,7 +17,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, handback, job as jobs, run, staffing, status, terminal, transitions, turns, usage
+from agentkit import config, handback, history, job as jobs, run, staffing, status, terminal, transitions, turns, usage
 from agentkit import record
 
 
@@ -32,6 +32,11 @@ class OneProvider(unittest.TestCase):
         # processes carrying the hosting run's inherited marker.
         self.stack.enter_context(patch.object(run.worker, "kill_marked", return_value=True))
         self.stack.enter_context(patch.object(config, "active_session", return_value=None))
+        self.stack.enter_context(patch.object(config, "HOME", self.root / "home"))
+        self.stack.enter_context(patch.dict(os.environ, {
+            "HOME": str(self.root), "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
+            "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
         # the usage table reads ak's state: this temporary one's, never the caller's
         self.stack.enter_context(patch.object(config, "STATE", self.root / "state"))
         self.stack.enter_context(redirect_stderr(io.StringIO()))
@@ -393,6 +398,7 @@ class OneProvider(unittest.TestCase):
         lp = self.loop()
         state = {**lp.state, **self.evidence(), "title": "Fixture", "finished_at": time.time()}
         with patch.object(config, "load", side_effect=AssertionError("must use the run's config")):
+            history.start_run(state["run_id"])
             run.write_result(lp.run_dir, state, [], cfg=self.cfg)
             self.assertTrue((lp.run_dir / "result.md").read_text().startswith("# PASS, delivered"))
             # No task file: the fallback writer must use the same config as the full report.
@@ -402,6 +408,7 @@ class OneProvider(unittest.TestCase):
             self.assertEqual(jobs.job_classify(state, self.cfg), "passed")
             with patch.object(run, "announce") as announce:
                 self.assertEqual(run.finish(state, lp.run_dir, self.logs.append, self.cfg), 0)
+            self.assertEqual(history.get(state["run_id"])["review_pair"], "same provider")
             announce.assert_called_once_with(state, lp.run_dir, self.logs.append, self.cfg)
             with patch.object(transitions, "launched_session", return_value="orphan"), \
                     patch.object(handback, "launcher_watched", return_value=False), \

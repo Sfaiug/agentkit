@@ -1289,6 +1289,8 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     """
     at = time.time() if now is None else now
     records = run_records() if records is None else records
+    if not isinstance(records, list):
+        records = list(records)
     index, mine, silent_map = FOLDS.of(records, at)
     jobs_cache = {}
     infos = []

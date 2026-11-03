@@ -229,7 +229,8 @@ class RedOnTheTip(unittest.TestCase):
         with patch.object(gate, "derived_heavy_limit", return_value=2):
             land.check_line(self.turn, said.append)
             # a red that repeats: no step of the ladder would clear it, nor the piece add to it
-            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"])])
+            self.assertEqual(self.probes(), [("2/2", ["test_tax.sh"])] +
+                             [("2/2", ["test_tax.sh"]), ("2/2", None)] * 2)
             self.assertIn("fails test_tax.sh of its piece AK_SHARD=2/2 again, run alone: the "
                           "target's own red, repaired", "\n".join(said))
             self.assertEqual(len(self.prepared), 1)
@@ -237,7 +238,7 @@ class RedOnTheTip(unittest.TestCase):
             # kept as the ladder climbed, whoever takes it: a PR's fixer notes no repair run
             self.assertEqual(self.red()["probes"], len(turns.TRANSIENT_BACKOFF) + 1)
             land.check_line(self.turn)      # the repair holds the line from here
-        self.assertEqual((len(self.probes()), len(self.prepared)), (1, 1))
+        self.assertEqual((len(self.probes()), len(self.prepared)), (5, 1))
         self.wake.assert_not_called()
 
     def ladder(self, suite):
@@ -306,7 +307,7 @@ class RedOnTheTip(unittest.TestCase):
             held[0] += turns.transient_delay(step)
             land.check_line(self.turn)
             self.assertEqual(self.red()["probes"], step + 1)
-        self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))
+        self.assertEqual(len(self.checks), 4 + len(turns.TRANSIENT_BACKOFF))
         self.assertEqual(len(self.prepared), 1)
         directory, opts = self.prepared[0]
         self.assertTrue(opts["--first"])
@@ -316,7 +317,7 @@ class RedOnTheTip(unittest.TestCase):
         self.assertEqual(self.red()["run"], directory.name)
         self.wake.assert_not_called()
         land.check_line(self.turn)       # the repair holds the line from here, as before
-        self.assertEqual(len(self.checks), 2 + len(turns.TRANSIENT_BACKOFF))
+        self.assertEqual(len(self.checks), 4 + len(turns.TRANSIENT_BACKOFF))
         self.assertEqual(len(self.prepared), 1)
 
     def test_green_on_the_tip_is_the_members_own_red_whatever_pass_the_target_has(self):

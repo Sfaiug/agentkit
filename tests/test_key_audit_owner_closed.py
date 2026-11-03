@@ -62,6 +62,7 @@ class OwnerClosedAudit(unittest.TestCase):
         except FileNotFoundError:
             return {}
 
+    # The owner closing it keeps it closed. [4 Oct, 14 Oct, 17 Oct]
     def test_a_tick_leaves_it_closed_and_says_the_week_s_line_waits_for_the_owner(self):
         done, sessions, state = self.ticks[0]
         self.assertEqual(done.code, 0, done.out + done.err)

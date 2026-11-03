@@ -78,11 +78,13 @@ class AClaudeSeat(unittest.TestCase):
                 return word.split("=", 1)[1]
         self.fail(f"claude was not given {flag}: {self.argv}")
 
+    # A seat keeps its conversation. [4 Oct, 14 Oct, 17 Oct]
     def test_it_opens_the_conversation_its_record_names_in_the_seats_folder(self):
         self.assertTrue(self.record["conversation"])
         self.assertEqual(self.value("--session-id"), self.record["conversation"])
         self.assertEqual(Path(self.where), self.cwd)
 
+    # Seats never message one another. [4 Oct, 9 Oct]
     def test_it_refuses_messages_from_other_sessions(self):
         given = self.value("--settings")
         settings = json.loads(given if given.lstrip().startswith("{")

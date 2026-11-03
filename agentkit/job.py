@@ -231,7 +231,7 @@ def job_create(cfg, task_paths, opts, parallel):
             if rivals:
                 first = rivals[0]
                 detail = ", ".join(first["files"]) if first["files"] \
-                    else f"{first['words']} title words"
+                    else f"task file {first['task_file']}"
                 if len(rivals) > 1:
                     detail += f" and {len(rivals) - 1} more"
                 try:

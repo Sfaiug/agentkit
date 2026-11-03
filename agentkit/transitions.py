@@ -18,7 +18,6 @@ from itertools import accumulate
 from pathlib import Path
 
 from . import config, gitcall, history, record as run_record, task as taskfile, turns
-from .harness import load as harness_plugin
 
 
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -392,12 +391,23 @@ def _windows(lines):
             for at, end in enumerate(ends)]
 
 
-def history_ending(state):
+def history_ending(state, cfg=None):
     """The ending a run's record holds, in `history.finish_run`'s terms: rounds unknown where
-    it keeps none, never zero."""
+    it keeps none, never zero. Use the run's config when supplied; recovery loads it afresh."""
+    from . import staffing
+    pair = None
+    if isinstance(state.get("review"), dict) and state["review"].get("reviewer"):
+        try:
+            cfg = config.load() if cfg is None else cfg
+            executor, reviewer = staffing.review_pair(state)
+            for name in (executor, reviewer):
+                config.model(cfg, name)  # even equal names must still be known
+            pair = ("other provider", "same provider", "self")[staffing.pair_tier(cfg, executor, reviewer)]
+        except config.Error:
+            pass
     rounds = state.get("round_summaries")
     return {"repo": state.get("repo"), "executor": state.get("executor"),
-            "reviewer": state.get("reviewer"),
+            "reviewer": state.get("reviewer"), "review_pair": pair,
             "rounds_used": len(rounds) if isinstance(rounds, list) else None,
             "final_state": state.get("state"), "verdict": state.get("verdict"),
             "started_at": state.get("started_at"),
@@ -407,9 +417,9 @@ def history_ending(state):
             "own_orchestrator_effort": state.get("own_orchestrator_effort")}
 
 
-def history_finish(state, log=None):
+def history_finish(state, log=None, cfg=None):
     """Publish a terminal receipt and close the step this process was running, if any."""
-    ending = history_ending(state)
+    ending = history_ending(state, cfg)
     history.close_step(state.get("run_id"), ending["finished_at"], log=log)
     files = changed_files(state)
     # git is read from the run's worktree while it exists, else from its repository
@@ -469,11 +479,7 @@ def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
         harness = None
     out = Path(out)
     paths = [out, *sorted(out.parent.glob(f"{out.name}-retry*"))]
-    values = [harness_plugin(harness).tokens(path) for path in paths]
-    values = [value for value in values if value is not None]
-    if not values:
-        return
-    history.add_tokens(run_id, role, sum(values), log=log)
+    history.add_turn_tokens(run_id, role, paths, harness=harness, log=log)
 
 
 def park_exhausted(state, exc):

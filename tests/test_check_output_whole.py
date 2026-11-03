@@ -10,6 +10,7 @@ Offline: a temporary HOME, injected host readings and short fixture commands.
 """
 
 from contextlib import ExitStack
+import io
 import json
 import os
 from pathlib import Path
@@ -95,6 +96,17 @@ class CheckOutputWhole(unittest.TestCase):
         self.assertTrue(ok, text)
         self.assertEqual(text, f"$ {SHORT}\n[exit 0]\nall of it")
         self.assertEqual(list(self.run_dir.glob("*.log")), [self.run_dir / "donewhen.log"])
+
+    def test_replacement_characters_that_require_a_cut_keep_the_raw_whole(self):
+        raw = b"\xff" * 4
+        for cap, expected in ((0, ""), (2, ""), (3, "�"), (8, "��")):
+            with self.subTest(cap=cap):
+                text = turns.cut_file(io.BytesIO(raw), 0, self.run_dir, "fixture", cap)
+                header, _, payload = text.partition("\n")
+                self.assertEqual(payload, expected)
+                self.assertLessEqual(len(payload.encode()), cap)
+                [path] = NAMED.findall(header)
+                self.assertEqual(Path(path).read_bytes(), raw)
 
     def test_each_long_suite_piece_names_its_own_whole(self):
         ok, text = self.check(PIECES)

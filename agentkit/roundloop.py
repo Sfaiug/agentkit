@@ -20,7 +20,7 @@ import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, handback, history, prompts, record as run_record,
+from . import (beside_review, config, gitcall, hand_in, handback, history, prompts, record as run_record,
                staffing, task as taskfile, transitions, turns, worker)
 
 
@@ -446,7 +446,7 @@ def own_checks(lp):
 def fails_on_base(lp):
     """Why no check of the task's own was shown to fail on the old code, or "" once one was:
     a check that finishes failing on base with the branch's tests laid over, and passes on base
-    with every file the branch changed laid over, proves it (`base_proof` turns `proven`).
+    with every file the branch changed laid over, proves it (the caller records `proven`).
 
     It never fails a round, by the owner's rule (7 Oct): ak proves the failing test wherever
     it can and records why when it cannot, as no path tells every project's tests from its
@@ -498,8 +498,6 @@ def fails_on_base(lp):
     # a check finishes failing as a reviewer's proof does (`hand_in.proof_failed`)
     if any(after == 0 and before is not None and hand_in.proof_failed({"returncode": before})
            for before, after in zip(on_base, on_head)):
-        lp.state["base_proof"] = "proven"
-        lp.save()
         return ""
     if any(after != 0 for after in on_head):
         return ("a check fails in a checkout made from git alone even with the branch's changes: "
@@ -625,11 +623,6 @@ def verify_work(lp, cmds=None):
         if failure:
             ok = False
             text += f"\n\n$ regression.sh must fail on base\n[exit 1]\n{failure}"
-    if ok and needs_base_proof(lp):
-        # recorded, never a failure: the owner's rule (7 Oct)
-        lp.state["base_proof_note"] = fails_on_base(lp) or None
-        lp.save()
-        text += "\n\n" + prompts.base_proof_line(lp.state)
     if lp.validation:
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)
@@ -1332,6 +1325,12 @@ def execute(lp, role, text, name):
 
 
 def review(lp, summary, ok, dw_log, preface="", record=True):
+    action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
+    with beside_review.check("base-proof", action) as start_check:
+        return _review(lp, summary, ok, dw_log, preface, record, start_check)
+
+
+def _review(lp, summary, ok, dw_log, preface, record, start_check):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
     A repo run is judged on its diff.  A scratch run has no commits at all -- what it produced
@@ -1525,6 +1524,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
         lp.log(f"WARN reviewer fell back to {lp.reviewer}")
         return f"reviewer-{lp.reviewer}"
+    # Earlier finding replays have finished cleaning the run's scope before this check starts.
+    proof = start_check() if start_check else None
     ask = None      # where the answer that gave no verdict is, for the call asking once more
     while True:
         if not lp.executor and not lp.state.get("review_pr"):
@@ -1622,6 +1623,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
         ask = prompts.written_answer(out, text).parent
+
+    if proof is not None:
+        # Join before saving any verdict: a death while waiting must resume the proof too.
+        why = proof()
+        lp.state["base_proof_note"] = why or None
+        if not why:
+            lp.state["base_proof"] = "proven"
+        lp.save()
 
     checkout_changed = not lp.scratch and (
         identity != validation or gitcall.commit_identity(lp.wt) != identity
@@ -1946,6 +1955,36 @@ def fix_after_failed_review(lp, upstream, how):
     return False
 
 
+def conflict_added_only(wt, path):
+    """Every diff3 conflict must have an empty base; never read or rewrite the worktree."""
+    try:
+        with tempfile.TemporaryDirectory(prefix="ak-conflict-") as work:
+            stages = [Path(work) / str(n) for n in (1, 2, 3)]
+            call = dict(cwd=wt, env=gitcall.tool_env(), timeout=gitcall.TOOL_CAP,
+                        stderr=subprocess.DEVNULL)
+            for n, stage in enumerate(stages, 1):
+                with stage.open("wb") as output:
+                    if subprocess.run(["git", "show", f":{n}:{path}"], stdout=output,
+                                      **call).returncode:
+                        return 0
+            # A source line resembling a marker must never stand in for git's separator.
+            source = b"".join(stage.read_bytes() for stage in stages)
+            size = 7
+            while any(char * size in source for char in (b"<", b"|", b"=", b">")):
+                size += 1
+            merged = Path(work) / "merged"
+            with merged.open("wb") as output:
+                code = subprocess.run(["git", "merge-file", "-p", "--diff3",
+                                       f"--marker-size={size}", "-L", "ours", "-L", "base",
+                                       "-L", "theirs", str(stages[1]), str(stages[0]),
+                                       str(stages[2])], stdout=output, **call).returncode
+            bases = re.findall(re.escape(b"|" * size + b" base") + rb"\r?\n(.*?)"
+                               + re.escape(b"=" * size) + rb"\r?\n", merged.read_bytes(), re.S)
+            return int(0 < code < 128 and bool(bases) and not any(bases))
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+
+
 def resolve_conflicts(lp, upstream, out, how, tip=None):
     """Hand a conflicted rebase or merge back to the executor, then re-test and re-review it.
 
@@ -1978,26 +2017,41 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             + "\n".join(f"- {p}" for p in conflicts)
             + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
-    hand_to_writer(lp)
-    for attempt in range(1, CONFLICT_ROUNDS + 1):
-        lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
-               f"fixer {lp.executor} ({how} conflict)")
-        try:
-            summary = landing_fixer(lp, text, f"{how}-fixer")
-        except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
-            pending = lp.state.get("review_pending")
-            if isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired)) and pending:
-                # A stopped conflict fixer retries landing even at the task round budget.
-                pending.update(round=lp.rnd, record=False)
-            # whatever stops here, the retry starts from a clean tree: a rebase or merge
-            # left in progress behind it would be a conflict round nobody asked for
-            abort_integration(lp, how)
-            raise
-        if not gitcall.in_progress(lp.wt, how):
-            landed = integrated(lp.wt, tip)
-            break
-        if attempt < CONFLICT_ROUNDS:
-            lp.log(f"WARN the fixer did not finish {what}; another conflict round works it")
+    seen = set()
+    with history.conflicts(lp.state["run_id"], how, upstream, tip, log=lp.log) as (record, ended):
+        hand_to_writer(lp)
+        for attempt in range(1, CONFLICT_ROUNDS + 1):
+            # A later rebase commit can stop on new conflicts, including the same path again.
+            stop = (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet", "REBASE_HEAD",
+                                check=False) if how == "rebase" else None)
+            files = []
+            for entry in gitcall.git(lp.wt, "ls-files", "--unmerged", "-z", check=False).split("\0"):
+                if entry:
+                    path = entry.partition("\t")[2]
+                    key = (stop, path)
+                    if key not in seen:
+                        files.append((path, conflict_added_only(lp.wt, path)))
+                        seen.add(key)
+            record(files)
+            lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
+                   f"fixer {lp.executor} ({how} conflict)")
+            try:
+                summary = landing_fixer(lp, text, f"{how}-fixer")
+            except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
+                pending = lp.state.get("review_pending")
+                if isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired)) and pending:
+                    # A stopped conflict fixer retries landing even at the task round budget.
+                    pending.update(round=lp.rnd, record=False)
+                # whatever stops here, the retry starts from a clean tree: a rebase or merge
+                # left in progress behind it would be a conflict round nobody asked for
+                abort_integration(lp, how)
+                raise
+            if not gitcall.in_progress(lp.wt, how):
+                landed = integrated(lp.wt, tip)
+                break
+            if attempt < CONFLICT_ROUNDS:
+                lp.log(f"WARN the fixer did not finish {what}; another conflict round works it")
+        ended.append(landed)
     if not landed:
         # only an unfinished rebase or merge is aborted, and only then is it said to be:
         # a fixer that finished the `git` but left the tip out is reported the same way
