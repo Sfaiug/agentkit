@@ -121,6 +121,12 @@ func TestPythonsSyntaxAndClasses(t *testing.T) {
 		{`[x\S]+`, " x\x1cé ", "x"},
 		{`[[]`, "a[", "["},
 		{`\s+`, "a\x1c b", "\x1c "},
+		{`^❯\s+x$`, "❯\u00a0x", "❯\u00a0x"},
+		{`^\w+$`, "héllo_٣", "héllo_٣"},
+		{`^[\w-]+$`, "hé-llo", "hé-llo"},
+		{`^\d$`, "٣", "٣"},
+		{`^\S$`, "é", "é"},
+		{`^\S$`, "\u00a0", ""},
 	} {
 		compiled, err := Compile(each.pattern, 0)
 		if err != nil {
