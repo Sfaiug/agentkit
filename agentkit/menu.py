@@ -122,6 +122,7 @@ import copy
 import datetime
 import errno
 import hashlib
+import heapq
 import json
 import os
 import re
@@ -1159,6 +1160,95 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "word": word, "since": found["since"], "repo": session.get("repo")}
 
 
+class Folds:
+    """What `v5o_groups` folds out of every run -- the replacements by title and branch
+    (`transitions.supersession_index`), each seat's runs (`transitions.runs_by_seat`) and the
+    silent ones (`silent_for_run`) -- worked out from the open runs alone, equal to folding them
+    all.
+
+    It hides that the runs at rest at the last full read (`open_runs.Reader`) are folded once and
+    kept, by each key they are listed under and by the name each was launched from, so a read folds
+    only its other runs, resolves every name again, a rename showing on that very read, and merges
+    the two in `records`' order, never adding to a kept list; and that a pass over the records of
+    the read before it, with no read since, gets that read's answers.  Records no read of the
+    screen's gave out are folded whole.  Nothing it keeps is changed after: two threads asking at
+    once each get a whole answer.
+    """
+
+    def __init__(self):
+        self.kept = None, {}, {}, {}   # the runs at rest, their index, their runs by key and by name
+        self.last = None, None         # a read's `open_runs.Reader.split` and its answers
+
+    def of(self, records, now):
+        """(supersession_index, runs_by_seat, {run name: its silence}) of `records`."""
+        split = _RUN_RECORDS.reader.split if _RUN_RECORDS is not None else ((),)
+        if split[0] is not records:
+            return (transitions.supersession_index(records), transitions.runs_by_seat(records),
+                    _silent(records, now))
+        last = self.last
+        if last[0] is split:
+            return last[1]
+        _, rest, moving = split
+        kept = self.kept
+        if kept[0] is not rest:
+            kept = self.kept = rest, transitions.supersession_index(rest), _keyed(rest), _named(rest)
+        _, index, keyed, named = kept
+        index = dict(index)
+        for key, runs in _keyed(moving).items():
+            index[key] = transitions.supersession_index(_in_order(keyed.get(key), runs))[key]
+        lists = {}
+        for name, runs in named.items():
+            try:
+                lists.setdefault(config.resolve_session(name), []).append(runs)
+            except config.Error:
+                continue        # left out, as `runs_by_seat` leaves it
+        for seat, runs in transitions.runs_by_seat(moving).items():
+            lists.setdefault(seat, []).append(runs)
+        # a run at rest is never active, so only the others can be silent (`silent_for_run`)
+        answers = index, {seat: _in_order(*runs) for seat, runs in lists.items()}, _silent(moving, now)
+        self.last = split, answers
+        return answers
+
+
+def _keyed(runs):
+    """Those runs under each key `transitions.supersession_index` lists one under, in order."""
+    keyed = {}
+    for run in runs:
+        for key in transitions.supersession_index((run,)):
+            keyed.setdefault(key, []).append(run)
+    return keyed
+
+
+def _named(runs):
+    """Those runs under the name each was launched from (`transitions.launched_name`), in order."""
+    named = {}
+    for run in runs:
+        name = transitions.launched_name(run[1])
+        if name is not None:
+            named.setdefault(name, []).append(run)
+    return named
+
+
+def _in_order(*lists):
+    """The runs of lists each in a read's order, in that order: by name, as `open_runs` lists the
+    run directories under the one parent; one list alone is itself."""
+    lists = [runs for runs in lists if runs]
+    return lists[0] if len(lists) == 1 else list(heapq.merge(*lists, key=lambda run: run[0].name))
+
+
+def _silent(runs, now):
+    """{run name: its silence} of those runs silent for over an hour (`silent_for_run`)."""
+    silent = {}
+    for run_dir, state in runs:
+        age = silent_for_run(run_dir, state, now=now)
+        if age:
+            silent[run_dir.name] = age
+    return silent
+
+
+FOLDS = Folds()
+
+
 def v5o_groups(cfg, found, records=None, now=None, look=True):
     """The projects and their seats, in the order their numbers go (`orch.numbered`).
 
@@ -1179,17 +1269,10 @@ def v5o_groups(cfg, found, records=None, now=None, look=True):
     the past screen (`show_past`), and has no row under its project.
     """
     at = time.time() if now is None else now
-    records = run_records() if records is None else list(records)
-    all_states = [state for _, state in records]
-    index = transitions.supersession_index(all_states)
-    silent_map = {}
-    for run_dir, state in records:
-        age = silent_for_run(run_dir, state, now=at)
-        if age:
-            silent_map[run_dir.name] = age
+    records = run_records() if records is None else records
+    index, mine, silent_map = FOLDS.of(records, at)
     jobs_cache = {}
     infos = []
-    mine = transitions.runs_by_seat(records)
     for number, session in enumerate(found, 1):
         if session.get("closed"):
             continue          # stopped: numbered after every seat with a row, on the past screen
