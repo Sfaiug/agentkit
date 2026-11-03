@@ -185,6 +185,9 @@ func unanswered(why string) (string, bool) {
 // outgoing is what Python's outgoing asks of a home following no pull request: this account's
 // open ones anywhere. False where one is on another's repository, to follow.
 func (t *ticking) outgoing(me string) bool {
+	if !noSavedForeignPRs() {
+		return false
+	}
 	value, why, err := gh.JSON(run.Runs(), "api", "--paginate", authoredSearch)
 	if err != nil {
 		return false

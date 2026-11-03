@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -30,8 +29,12 @@ func TurnedPlan(name string, said func(string) (string, any), outcomes func(stri
 			return false, nil
 		}
 		var completion any
+		covered := false
 		if record.Get("created") != nil && len(work) > 0 {
-			completion = run.Fields("created", record.Get("created"), "outcomes", work)
+			completion, covered, err = doneCompletion(name, record.Get("created"), work, card)
+			if err != nil {
+				return false, err
+			}
 		}
 		if card.Has("completed") && !run.Equal(card.Get("completed"), completion) {
 			return false, nil
@@ -57,10 +60,6 @@ func TurnedPlan(name string, said func(string) (string, any), outcomes func(stri
 		if completion == nil {
 			return true, writeCard(name, card)
 		}
-		covered, err := doneCovered(name, completion)
-		if err != nil {
-			return false, err
-		}
 		if covered {
 			run.SetAll(card, "sent", true, "completed", completion)
 			return true, writeCard(name, card)
@@ -79,31 +78,6 @@ func sendDone(name string, card *run.Object, completion any) error {
 	}
 	_, err = sendEpisode(name, "done", card, run.Fields("text", seat.Str("reason")), completion, io.Discard)
 	return err
-}
-
-// A card can be lost while its queued completion survives, including through a seat's rename.
-func doneCovered(name string, completion any) (bool, error) {
-	entries, err := os.ReadDir(outbox())
-	if os.IsNotExist(err) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		event, err := run.ReadJSON(filepath.Join(outbox(), entry.Name()))
-		if err != nil || event == nil || event.Str("kind") != "done" || !run.Equal(event.Get("completion"), completion) {
-			continue
-		}
-		current, _, err := config.ResolveSession(event.Str("session"))
-		if err == nil && current == name {
-			return true, nil
-		}
-	}
-	return false, nil
 }
 
 // QuietOutbox leaves only unsettled events to Python's retry pass.
