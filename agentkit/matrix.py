@@ -337,10 +337,12 @@ def main(argv):
     marked = compared(cfg, current)
     found, own = answer(rows, within(cfg), marked), live(cfg)
     if "--json" in flags:
+        from . import usage     # only JSON asks for subscription measurements
         json.dump({**{role: {"best": said["best"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
              "notes": notes(row, said)} for row in said["front"]]}
-            for role, said in found.items()}, "live": own}, sys.stdout, indent=2)
+            for role, said in found.items()}, "live": own, "usage": usage.model_rates(cfg)},
+            sys.stdout, indent=2)
         print()
         return 0
     body, _ = menu.models_body(menu.models_said(found, rows, within(cfg)), within(cfg), marked,
