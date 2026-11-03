@@ -108,9 +108,9 @@ class CheckOutputWhole(unittest.TestCase):
             self.assertNotIn(f"first {shard}\n", text)
             self.assertIn(f"last {shard}", text)
 
-    def test_a_red_piece_shares_the_cap_among_the_red_any_other_among_all(self):
-        cap = 8 * 1024
-        for red, sizes in (("test \"$AK_SHARD\" != 2/2", [cap // 2, cap]),
+    def test_red_pieces_share_the_cap_first_and_the_rest_take_what_is_left(self):
+        cap = turns.OUT_CAP + 4096
+        for red, sizes in (("test \"$AK_SHARD\" != 2/2", [4096, turns.OUT_CAP]),
                            ("false", [cap // 2, cap // 2])):
             with self.subTest(red=red), patch.object(turns, "PIECES_CAP", cap):
                 ok, text = self.check(f"{PIECES}; {red}")
