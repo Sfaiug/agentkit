@@ -66,7 +66,7 @@ COMMANDS = {
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
-       ak run status [ID] [--history] [--why] [--plain] [--json]
+       ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]
        ak run resume ID [--rounds N] [--bg]
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
@@ -86,8 +86,10 @@ max_runs caps the count when positive; 0 leaves host memory as the gate
 PASS with green checks, anyone else's asks the inbox.
 Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
             "ak run task.md --bg"),
-    "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json]",
-                   "Show current work and result paths; --history includes older runs.",
+    "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]",
+                   "Show current work and result paths; --history includes older runs.\n"
+                   "--tests alone audits this checkout's test times, flakes, catches and main reds\n"
+                   "over its retained rows, proposing splits and fixes or deletions.",
                    "ak run status --history --json"),
     "run resume": ("usage: ak run resume ID [--rounds N] [--bg]",
                    "Resume interrupted or exhausted work; --rounds raises the round limit, at most $review_rounds.",

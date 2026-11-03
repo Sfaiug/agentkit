@@ -633,6 +633,10 @@ def size_summary_line(repo):
 
 
 def cmd_status(argv):
+    if "--tests" in argv:
+        if argv != ["--tests"]:
+            raise config.Error("usage: ak run status --tests")
+        return tests_status()
     show_history, machine = "--history" in argv, "--json" in argv
     plain, why = "--plain" in argv, "--why" in argv
     pending = "--pending" in argv
@@ -640,7 +644,7 @@ def cmd_status(argv):
             if arg not in ("--history", "--json", "--plain", "--why", "--pending")]
     if len(args) > 1 or any(arg.startswith("-") for arg in args):
         raise config.Error(
-            "usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--pending]")
+            "usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests] [--pending]")
     wanted = args[0] if args else None
     receipts = [(d, jobs.read_job(d)) for d in jobs.job_dirs()]
     receipts = [(d, job) for d, job in receipts if job and isinstance(job.get("tasks"), list)]
@@ -902,4 +906,42 @@ def cmd_status(argv):
         for directory, state in found:
             if directory in owed:
                 handback.printed_at_look(directory, state)
+    return 0
+
+
+def tests_status():
+    """An on-demand audit of existing records; proposals never change files."""
+    from . import suite_times, terminal
+    repo = Path(gitcall.git(Path.cwd(), "rev-parse", "--show-toplevel"))
+    times = suite_times.read(suite_times.handed(repo))
+    reds, target, days = history.test_audit(repo.name)
+    rows = []
+    for name in times.keys() | reds.keys():
+        seconds = times.get(name)
+        red = reds.get(name, {})
+        flakes, catches, main_red = (red.get(key, 0) for key in ("flakes", "catches", "main_red"))
+        proposals = []
+        if seconds is not None and target is not None and seconds > target:
+            proposals.append("split")
+        if flakes and not catches:
+            proposals.append("fix or delete")
+        rows.append([name, f"{seconds:.1f}s" if seconds is not None else "–",
+                     str(flakes), str(catches), str(main_red), "; ".join(proposals)])
+    rows.sort(key=lambda row: (not row[-1], -times.get(row[0], -1), row[0]))
+    heads = ["test", "time", "flakes", "catches", "main red", "proposal"]
+    widths = [max(terminal.cells(row[i]) for row in [heads, *rows]) for i in range(6)]
+    room = terminal.layout_width()
+    widths[0] = max(1, room - 10 - sum(widths[1:]))
+    narrow = room < 60 or widths[0] < 10
+    lines = [] if narrow else [terminal.table_row(heads, widths, kinds=["dim"] * 6)]
+    for row in rows:
+        if narrow:
+            lines.extend(terminal.wrap(row[0], room))
+            detail = (f"{row[1]}  {row[2]} flakes  {row[3]} catches  {row[4]} main red"
+                      + (f"  {row[5]}" if row[5] else ""))
+            lines.extend("  " + line for line in terminal.wrap(detail, room - 2))
+        else:
+            for i, name in enumerate(terminal.wrap(row[0], widths[0])):
+                lines.append(terminal.table_row([name, *(row[1:] if i == 0 else [""] * 5)], widths))
+    terminal.frame(f"{repo.name} tests: {len(rows)} files, {days:.1f} days of rows", lines, keyline="")
     return 0

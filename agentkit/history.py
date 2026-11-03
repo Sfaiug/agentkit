@@ -579,6 +579,36 @@ def test_reds(checked, confirmed, flaky):
          for test, flake in dict.fromkeys(tests)]))
 
 
+def test_audit(repo):
+    """Per-file outcomes, median piece seconds and the span in days of retained repo rows."""
+    reds, pieces = {}, []
+    try:
+        with contextlib.closing(_connect(readonly=True)) as connection:
+            connection.row_factory = sqlite3.Row
+            tables = {row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            if "test_reds" in tables:
+                reds = {row["test"]: dict(row) for row in connection.execute(
+                    "SELECT test, SUM(CASE WHEN flaky=1 THEN 1 ELSE 0 END) AS flakes, "
+                    "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind IN "
+                    "('done-when','rules','landing') THEN t.run_id END) AS catches, "
+                    "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind='tip' THEN t.run_id END) "
+                    "AS main_red, MIN(at) AS first, MAX(at) AS last "
+                    "FROM test_reds t JOIN runs r USING (run_id) WHERE r.repo=? GROUP BY test",
+                    (repo,))}
+            if "checks" in tables:
+                pieces = list(connection.execute(
+                    "SELECT c.finished_at-c.started_at, c.started_at, c.finished_at "
+                    "FROM checks c JOIN runs r USING (run_id) WHERE r.repo=? "
+                    "AND command GLOB 'AK_SHARD=*' AND c.finished_at>=c.started_at", (repo,)))
+    except (OSError, sqlite3.Error):
+        pass
+    moments = [at for row in reds.values() for at in (row["first"], row["last"])
+               if at is not None] + [at for piece in pieces for at in piece[1:]]
+    days = (max(moments) - min(moments)) / 86400 if moments else 0
+    return reds, median(piece[0] for piece in pieces) if pieces else None, days
+
+
 @contextlib.contextmanager
 def conflicts(run_id, how, target, tip, *, log=None):
     """One row per file handed to a conflict fixer; its outcome ends with the fixer rounds.

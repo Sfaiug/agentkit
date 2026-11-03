@@ -46,7 +46,7 @@ FLAGS = {
     "worker": ("--workspace", "--out", "--session", "--role"),
     "run": ("--rounds", "--exec", "--review", "--anyway", "--first", "--no-worktree",
             "--no-merge", "--bg", "--parallel", "--review-pr", "--history", "--why", "--plain",
-            "--json", "--dry-run", "--keep"),
+            "--json", "--tests", "--dry-run", "--keep"),
 }
 USAGE = {
     "browser": "usage: ak browser <status|login|mcp-register|install>",
@@ -54,7 +54,7 @@ USAGE = {
     "macbridge": "usage: ak macbridge [--reader]",
     "attach": "usage: ak attach [--client] [--overlay] [--dry-run]",
     "doctor": "usage: ak doctor",
-    "run status": "usage: ak run status [ID] [--history] [--why] [--plain] [--json]",
+    "run status": "usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]",
     "orch rules": "usage: ak orch rules CODE",
     "hand-in done": "usage: ak hand-in done",
     "notify needs": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]',
