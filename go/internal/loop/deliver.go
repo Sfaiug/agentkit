@@ -251,9 +251,7 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
 	if code, out, err := g.Out(args...); err != nil || code != 0 {
-		if err == nil {
-			_, _, err = g.Out(how, "--abort")
-		}
+		r.abort(l, how, err != nil)
 		return false, cmp.Or(err, notYet(fmt.Sprintf("its %s onto %s at %s stopped on a conflict: %s", how, upstream, tip[:12], tail(out, 400)), "resolving it"))
 	}
 	// the tip the work is checked and delivered on, whatever a later fetch moves the ref to
@@ -274,6 +272,22 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 		return false, err
 	}
 	return false, r.note(l, "its work is already on "+strings.TrimPrefix(upstream, "origin/"), false)
+}
+
+// abort puts the branch back after an integration that stopped or conflicted, Python's
+// abort_integration and abort_stopped_integration: whoever carries the run on starts from a clean
+// tree.  An abort that fails is said, never claimed clean.
+func (r *repoPlace) abort(l *loop, how string, stopped bool) {
+	code, out, err := r.git().Out(how, "--abort")
+	if err != nil {
+		out = err.Error()
+	}
+	switch {
+	case err != nil || code != 0:
+		l.say(fmt.Sprintf("WARN could not abort the %s of %s: %s; the retry starts from whatever the %s left behind", how, r.branch, tail(out, 200), how))
+	case stopped:
+		l.say(fmt.Sprintf("--- merge: aborted the stopped %s; %s back on its head", how, r.branch))
+	}
 }
 
 // pendingReview takes the passed review off the record until the integrated commit earns it,
