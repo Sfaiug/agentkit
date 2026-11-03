@@ -15,7 +15,7 @@ import (
 )
 
 // orchestratorStop judges a seat's Stop as hooks/orchestrator-stop.sh does.  One sent back gets
-// its reason on out (`sentBack`); one that stands marks ended the questions the seat kept back
+// its reason on out (`stopHeld`); one that stands marks ended the questions the seat kept back
 // for it.  Either way a Stop listing the harness's background tasks is written down, under the
 // name the seat goes by now: only this hook knows whether the turn ended there.  The PreToolUse
 // before a question card is `questionCard`'s.  A worker, a harness outside any seat, a path-like
