@@ -149,7 +149,7 @@ func (t *ticking) stamp() error {
 			return err
 		}
 	}
-	return nil
+	return stampGone(t.clock())
 }
 
 // awake is whether idle sleep leaves the seat be (sleep.tick): it does not rest at its prompt, with
@@ -173,11 +173,4 @@ func awake(live seat.Live) bool {
 		cache = seconds
 	}
 	return err == nil && !(epoch(time.Now())-max(began, launched) > cache)
-}
-
-// declaresNoAlive is whether the project the seat is filed under declares no `alive:` on its
-// default branch as it stands, which the alive row would read (alive.tick).
-func declaresNoAlive(live seat.Live) bool {
-	repo := live.Record.Str("repo")
-	return repo == "" || !declares(repo, "alive")
 }

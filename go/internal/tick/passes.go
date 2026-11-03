@@ -38,7 +38,7 @@ func table(t *ticking) []pass {
 	return []pass{
 		{"merge checks", true, runless, nil},
 		// a boot it has not seen moves only its baseline, with every seat it would resume up
-		{"boot resume", true, all(configured, seated), bootBaseline},
+		{"boot resume", true, all(configured, seated, restingGone), bootBaseline},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
@@ -78,7 +78,7 @@ func table(t *ticking) []pass {
 			return empty(filepath.Join(config.Home(), "state", "notification-outbox"))
 		}, nil},
 		{"end hook", false, nil, hookOptions},
-		{"seat revival", false, all(configured, runless), revive},
+		{"seat revival", false, all(configured, runless, restingGone), revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, all(runless, checkoutsSeen), t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
@@ -93,7 +93,7 @@ func table(t *ticking) []pass {
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"project rules", false, checkoutsSeen, fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
-		{"alive checks", false, all(every(declaresNoAlive), outageless), nil},
+		{"alive checks", false, all(noSeatAlive, outageless), nil},
 		{"night reads", false, noNights, t.nights},
 	}
 }
