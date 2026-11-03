@@ -401,6 +401,9 @@ def stop_run_tree(state, log=lambda _: None, wait=False):
 
 
 OUT_CAP = 20 * 1024
+# What a suite's pieces share: their number follows the machine, and on 3 Nov 128 of them at
+# OUT_CAP made a log the harnesses refused as too long.
+PIECES_CAP = 256 * 1024
 
 
 def kept(output, where, name):
@@ -419,14 +422,14 @@ def cut(text, where, name):
             f"{kept(io.BytesIO(text.encode()), where, name)}\n{text[-OUT_CAP:]}")
 
 
-def cut_file(output, start, where, name):
-    """`cut` of a binary file's bytes from `start` to its end, never read whole: a check can
-    print more than the run's memory holds."""
+def cut_file(output, start, where, name, cap=OUT_CAP):
+    """`cut` of a binary file's bytes from `start` to its end, at `cap`, never read whole: a check
+    can print more than the run's memory holds."""
     size = output.seek(0, os.SEEK_END)
     output.seek(start)
-    line = f"{kept(output, where, name)}\n" if size - start > OUT_CAP else ""
-    output.seek(max(start, size - OUT_CAP))
-    return line + output.read(OUT_CAP).decode("utf-8", errors="replace")
+    line = f"{kept(output, where, name)}\n" if size - start > cap else ""
+    output.seek(max(start, size - cap))
+    return line + output.read(cap).decode("utf-8", errors="replace")
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session
@@ -890,16 +893,21 @@ def try_again_at(said):
         return None
 
 
-def resume_failed(out_dir, killed, text):
-    """A resume the harness ended at once, with nothing streamed and nothing answered.
+def resume_failed(out_dir, killed, text, harness, asked=True, failures_only=False):
+    """A resume the harness says it holds no conversation for, or, of the conversation the caller
+    handed in (`asked`), one it ended at once with nothing streamed and nothing answered.
 
     A silence kill ran and was stopped; this one never started. The Codex session that
     exited before its first byte after a host freeze is the case, and retrying that id
-    spends the transport attempts on a conversation that will not come back.
+    spends the transport attempts on a conversation that will not come back. A harness may stream
+    a closing event for an id it does not hold, read as a provider's fault and retried for ever,
+    and its words may fill final.md: they are read first, as `harness_said` reads any refusal.
     """
-    if killed or (text or "").strip():
+    if killed:
         return False
-    return worker.said_nothing(out_dir)
+    if harness_plugin(harness).lost(harness_said(out_dir, text, harness, failures_only)):
+        return True
+    return asked and not (text or "").strip() and worker.said_nothing(out_dir)
 
 
 def note_turn_meters(cfg, name, out_dir, account, before=()):
@@ -1065,35 +1073,37 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
                 f"{spare}" + (f", resuming session {session}" if session else ""))
         return room and spare != account
 
+    def abandoned(target, code, text, killed, asked=None):
+        """Whether the call just made could not resume `session`: the role then continues in a
+        new conversation, and the dead id is not retried and does not spend the transport
+        attempts."""
+        nonlocal body, session
+        if not session or not resume_failed(target, killed, text, entry["harness"], asked,
+                                            failures_only=code == 0):
+            return False
+        log(f"resume of {session} failed; fresh conversation")
+        if isinstance(resume_note, dict):
+            resume_note["restarted"] = True
+            resume_note["at"] = time.time()
+        if fresh_body is not None:
+            body = fresh_body if note in fresh_body else f"{note}\n\n{fresh_body}"
+        session = None
+        return True
+
     while True:
         target = out_dir if not calls else out_dir.with_name(f"{out_dir.name}-retry{calls}")
-        # Only the conversation the caller handed in is a resume. An id this ladder's own
-        # first attempt left behind is a fresh turn's, and an empty exit on it is the
+        # An empty exit abandons only the conversation the caller handed in. An id this ladder's
+        # own first attempt left behind is a fresh turn's, and an empty exit on it is the
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
         code, text, sid, killed, unfinished = turn(body, target, session)
+        calls += 1
         if swapped(code, killed, sid or session):
-            session, calls = sid or session, calls + 1
+            session = sid or session
             continue
-        if asked and resume_failed(target, killed, text):
-            # One empty exit abandons the id. The role continues in a new conversation,
-            # and the dead id is not retried and does not spend the transport attempts.
-            log(f"resume of {asked} failed; fresh conversation")
-            if isinstance(resume_note, dict):
-                resume_note["restarted"] = True
-                resume_note["at"] = time.time()
-            if fresh_body is not None:
-                body = fresh_body if note in fresh_body else f"{note}\n\n{fresh_body}"
-            session = None
-            calls += 1
-            target = out_dir.with_name(f"{out_dir.name}-retry{calls}")
-            code, text, sid, killed, unfinished = turn(body, target, None)
-            session = sid or None
-            calls += 1
-            if swapped(code, killed, session):
-                continue
-        else:
-            session, calls = sid or session, calls + 1
+        if abandoned(target, code, text, killed, asked):
+            continue
+        session = sid or session
         # An ask for a missing closing or verdict is the turn's one extra call already.
         if (not killed and (unfinished or turn_unfinished(target))
                 and "-retry-hand-in" not in out_dir.name and not body.endswith(NO_VERDICT_ASK)):
@@ -1104,9 +1114,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             finish_body = (f"{FINISH_IN_FOREGROUND} "
                            f"{NO_VERDICT_ASK if role.startswith('reviewer') else NO_CLOSING_ASK}")
             code, text, sid, killed, unfinished = turn(finish_body, finish, session)
-            session = sid or session
-            if swapped(code, killed, session):
+            if swapped(code, killed, sid or session):
+                session = sid or session
                 continue
+            if abandoned(finish, code, text, killed):
+                continue
+            session = sid or session
             if not killed and (unfinished or turn_unfinished(finish)):
                 log(f"WARN {role} {name} ended its turn with a command still in the background "
                     "again; carrying on with what it reported")

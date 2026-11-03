@@ -22,8 +22,9 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import scripted, smoke, stateful
 from agentkit import config, handback, notify, orch, roundloop, run, status, watch
-from agentkit import record
+from agentkit import record, turns
 
+LOST = "No conversation found with session ID: gone"
 ADAPTER = """import json, os, sys
 from pathlib import Path
 record = Path(os.environ["RESUME_FIXTURE"]) / "calls.jsonl"
@@ -45,6 +46,13 @@ with record.open("a") as fh:
     fh.write(json.dumps({{"sid": sid, "prompt": prompt, "out": out.name}}) + "\\n")
 if sid and sid == os.environ.get("RESUME_DIE", ""):
     sys.exit(1)
+says = json.loads(os.environ.get("RESUME_SAYS", "[]"))
+asked = sum(json.loads(line)["sid"] == sid for line in record.read_text().splitlines())
+if sid and asked <= len(says):
+    say = says[asked - 1]
+    for name in ("events.jsonl", "final.md", "stderr.log"):
+        (out / name).write_text(say.get(name, ""))
+    sys.exit(say.get("exit", 1))
 (out / "events.jsonl").write_text('{{"type": "result"}}\\n')
 (out / "final.md").write_text(os.environ.get("RESUME_FINAL", "## Summary\\ncontinued\\n"))
 (out / "session_id").write_text(sid or "fresh-session")
@@ -288,6 +296,56 @@ class ResumeMidturn(unittest.TestCase):
                             for line in self.logs))
         self.assertTrue(record.read_state(directory)["resume_notice"]["restarted"])
         self.assertIn("original task text", recorded[1]["prompt"])
+
+    def resume_saying(self, name, *says):
+        """The executor's turn on `gone`, the harness saying each of `says` in turn; each call's
+        conversation and the waits between them."""
+        directory = self.receipt(name, exec_session="gone")
+        out = directory / "round-1" / "executor"
+        out.mkdir(parents=True)
+        (out / "session_id").write_text("gone")
+        (self.root / "calls.jsonl").unlink(missing_ok=True)
+        waits = []
+        with patch.dict(os.environ, {"RESUME_SAYS": json.dumps(says)}), patch.object(
+                turns, "transient_wait", lambda _out, delay: waits.append(delay)):
+            run.execute(self.loop(name), "executor", "original task text", "executor")
+        return self.calls(), waits
+
+    def test_a_resume_of_a_conversation_held_nowhere_starts_afresh_whatever_it_streamed(self):
+        closing = json.dumps({"type": "result", "is_error": True, "num_turns": 0, "result": LOST})
+        for n, said in enumerate(({"events.jsonl": '{"type": "result", "num_turns": 0}\n',
+                                   "stderr.log": LOST},
+                                  {"final.md": LOST},
+                                  {"events.jsonl": closing + "\n"})):
+            with self.subTest(said=said):
+                calls, waits = self.resume_saying(f"20260922-1311-lost-{n}", said)
+                self.assertEqual([call["sid"] for call in calls], ["gone", ""])
+                self.assertEqual(waits, [])
+                self.assertIn("original task text", calls[1]["prompt"])
+
+    def test_those_words_on_a_retry_of_the_resume_still_start_afresh(self):
+        calls, waits = self.resume_saying(
+            "20260922-1312-lost-retry",
+            {"stderr.log": "API Error: 500", "final.md": "API Error: 500"}, {"stderr.log": LOST})
+        self.assertEqual([call["sid"] for call in calls], ["gone", "gone", ""])
+        self.assertEqual(len(waits), 1)
+        self.assertIn("original task text", calls[2]["prompt"])
+
+    def test_those_words_on_the_ask_to_finish_in_the_foreground_still_start_afresh(self):
+        background = {"events.jsonl": json.dumps({"type": "system", "tasks": [{"id": "acme"}],
+                                                  "subtype": "background_tasks_changed"}) + "\n",
+                      "final.md": "## Summary\nstill running\n", "exit": 0}
+        calls, waits = self.resume_saying("20260922-1314-lost-finish", background,
+                                          {"stderr.log": LOST})
+        self.assertEqual([call["sid"] for call in calls], ["gone", "gone", ""])
+        self.assertEqual(waits, [])
+        self.assertIn("original task text", calls[2]["prompt"])
+
+    def test_an_answer_quoting_those_words_keeps_its_conversation(self):
+        calls, waits = self.resume_saying(
+            "20260922-1313-lost-quoted", {"final.md": LOST, "stderr.log": LOST, "exit": 0})
+        self.assertEqual({call["sid"] for call in calls}, {"gone"})
+        self.assertEqual(waits, [])
 
     def test_reviewer_resume_counts_its_verdict_for_the_round(self):
         os.environ["RESUME_FINAL"] = "VERDICT: PASS\n## Findings\n- none\n"

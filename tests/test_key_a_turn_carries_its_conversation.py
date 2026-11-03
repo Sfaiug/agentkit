@@ -134,5 +134,20 @@ class ATurnCarriesItsConversation(unittest.TestCase):
         return {name for name in found if not name.startswith((".agentkit/", "code/"))}
 
 
+class AResumeItsHarnessCannotOpen(unittest.TestCase):
+    def test_goes_to_a_fresh_conversation_at_once(self):
+        with Home() as home:
+            rig = Rig(home, "widgets", files={"AGENTS.md": "---\ntests: true\n---\n# widgets\n"})
+            akconfig.write(home, ["opus", "astra"])
+            lost = {"exit": 1, "events": '{"type": "result", "num_turns": 0}\n',
+                    "stderr": "No conversation found with session ID: sid-1\n"}
+            fakes = fakeadapter.install(
+                home, claude=[{**fakeadapter.WORK, "session": "sid-1"}, lost, fakeadapter.DISPUTE],
+                codex=[fakeadapter.FAIL, fakeadapter.PASS])
+            done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", timeout=200)
+            self.assertEqual(done.code, 0, done.out + done.err)
+            self.assertEqual([run["argv"][5:] for run in fakes["claude"].runs()[1:3]], [["sid-1"], []])
+
+
 if __name__ == "__main__":
     unittest.main()
