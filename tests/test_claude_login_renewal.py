@@ -163,7 +163,7 @@ class LoginRenewal(unittest.TestCase):
         self.assertEqual(self.ask("second", "auth", "seat")[0], 0)
         self.assertEqual(self.turns(), [])
 
-    def test_a_turn_on_a_worker_token_renews_an_ending_login_outside_its_box(self):
+    def test_a_turn_on_the_worker_token_renews_an_ending_login_first(self):
         cfg = {"models": {"w": {"harness": "claude", "model": "m-1", "effort": "high",
                                 "provider": "anthropic"}}, "providers": {"anthropic": {}}}
         secrets = self.root / ".agentkit" / "secrets"
