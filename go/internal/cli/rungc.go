@@ -6,17 +6,21 @@ import (
 	"io"
 
 	"agentkit/internal/gc"
+	"agentkit/internal/host"
 )
 
 func init() {
 	commands["run gc"] = runGC
 }
 
-// runGC is `ak run gc --dry-run`, its arguments checked already: the collector's plan, changing
-// nothing.  The collection itself is Python's.
+// runGC is `ak run gc`, its arguments checked already: the collection, or with `--dry-run` its
+// plan, changing nothing.
 func runGC(args []string, out, errOut io.Writer) int {
 	if len(args) == 0 {
-		return notImplemented(errOut, "run")
+		if errors.Is(gc.Collect(out), gc.ErrPython) {
+			return notImplemented(errOut, "run")
+		}
+		return 0
 	}
 	plan, err := gc.DryRun()
 	if errors.Is(err, gc.ErrPython) {
@@ -27,6 +31,15 @@ func runGC(args []string, out, errOut io.Writer) int {
 	}
 	if len(plan) == 0 {
 		fmt.Fprintln(out, "gc: no eligible artifacts")
+	}
+	return 0
+}
+
+// collect is `ak gc-collect`, the collection the tick starts to outlive it: 3 where it is Python's.
+func collect() int {
+	host.Mark("background cleanup")
+	if errors.Is(gc.Automatic(), gc.ErrPython) {
+		return 3
 	}
 	return 0
 }

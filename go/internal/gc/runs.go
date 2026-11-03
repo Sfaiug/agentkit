@@ -51,7 +51,7 @@ func (r *reads) sweep() []Item {
 		if config.UnderCode(wt) || !present(wt) || !safe(wt) || busy(wt, r.paths) || r.left[wt] {
 			continue
 		}
-		found = append(found, Item{"remove", "merged-worktree", wt, ""})
+		found = append(found, Item{"remove", "merged-worktree", wt, "", takeMerged(dir, wt)})
 	}
 	for _, path := range children(tmpDir()) {
 		if !strings.HasPrefix(filepath.Base(path), "smoke-") || !safe(path) || !isDir(path) {
@@ -70,7 +70,7 @@ func (r *reads) sweep() []Item {
 			at = mtime(info)
 		}
 		if expired(at, r.now, day) && !busy(path, r.paths) && !r.left[path] {
-			found = append(found, Item{"remove", "smoke-sandbox", path, ""})
+			found = append(found, Item{"remove", "smoke-sandbox", path, "", takeSandbox(path)})
 		}
 	}
 	return found
@@ -85,7 +85,11 @@ func (r *reads) goneJobs() []Item {
 	var found []Item
 	for _, dir := range children(job.Jobs()) {
 		if job := r.json(job.ReceiptPath(filepath.Base(dir))); job != nil && isList(job.Get("tasks")) && r.jobAgedOut(dir, job) {
-			found = append(found, Item{"stop", "gone-job", dir, "the job's launcher gone and nothing written for 30 days"})
+			stop := takeGoneJob(dir)
+			if r.goneJobPython(dir, job) {
+				stop = nil
+			}
+			found = append(found, Item{"stop", "gone-job", dir, "the job's launcher gone and nothing written for 30 days", stop})
 		}
 	}
 	return found
@@ -160,11 +164,12 @@ func (r *reads) runs() []Item {
 		if throwaway(record.Get("repo")) && expired(first(record, "finished_at", "started_at"), r.now, r.age()) &&
 			!record.Truthy("notification_pending") && !record.Truthy("pending_inbox") && !record.Truthy("handback_pending") &&
 			quiet && safe(dir) {
-			found = append(found, Item{"remove", "throwaway-run", dir, ""})
+			found = append(found, Item{"remove", "throwaway-run", dir, "", takeWhole(dir, false, nil)})
 			continue
 		}
 		// a seat that still exists keeps its runs however old: they are what it is made of
-		if (idleInterrupted(record, r.now) || provablyFinal(record) && runAgedOut(dir, record, r.now)) && quiet && safe(dir) {
+		interrupted := idleInterrupted(record, r.now)
+		if (interrupted != nil || provablyFinal(record) && runAgedOut(dir, record, r.now)) && quiet && safe(dir) {
 			seat, named := launchedSession(record)
 			lives := false
 			if named {
@@ -172,7 +177,7 @@ func (r *reads) runs() []Item {
 				lives = err != nil || r.sessionLives(name)
 			}
 			if !lives {
-				found = append(found, Item{"remove", "old-run", dir, ""})
+				found = append(found, Item{"remove", "old-run", dir, "", takeWhole(dir, true, interrupted)})
 				continue
 			}
 		}
@@ -181,7 +186,7 @@ func (r *reads) runs() []Item {
 			(expired(record.Get("finished_at"), r.now, gcAge) ||
 				handedBack(record) && !record.Truthy("checkout_kept") && !resumeHoldsTree(record, dir)) &&
 			disposable(dir, record) && !r.left[worktree] && !busy(pure(worktree), r.paths) {
-			found = append(found, Item{"remove", "ended-worktree", worktree, ""})
+			found = append(found, Item{"remove", "ended-worktree", worktree, "", takeCheckout(dir, pure(worktree), true)})
 		}
 		if record.Truthy("scratch") || record.Str("state") != "pass" || !record.Truthy("merged") || !provablyFinal(record) ||
 			record.Truthy("notification_pending") || record.Truthy("pending_inbox") || record.Truthy("handback_pending") ||
@@ -193,7 +198,7 @@ func (r *reads) runs() []Item {
 			continue
 		}
 		if present(wt) && !r.left[wt] {
-			found = append(found, Item{"remove", "merged-worktree", wt, ""})
+			found = append(found, Item{"remove", "merged-worktree", wt, "", takeCheckout(dir, wt, false)})
 		}
 		// a final run's generated streams are gzipped beside where they are, at the first pass
 		snapshot, _ := tree(dir, nil, nil)
@@ -203,7 +208,7 @@ func (r *reads) runs() []Item {
 				present(each.path+".gz") && !sameArchive(each.path) {
 				continue
 			}
-			found = append(found, Item{"compress", "merged-log", each.path, ""})
+			found = append(found, Item{"compress", "merged-log", each.path, "", takeLog(dir, each.path, each.stat)})
 		}
 	}
 	return found
@@ -217,14 +222,11 @@ func (r *reads) finishedJobs() []Item {
 	var found []Item
 	for _, dir := range children(job.Jobs()) {
 		job := r.json(job.ReceiptPath(filepath.Base(dir)))
-		if job == nil || len(job.List("tasks")) == 0 || slices.ContainsFunc(job.List("tasks"), func(each any) bool {
-			task, ok := each.(*run.Object)
-			return !ok || !slices.Contains(jobEnded, task.Str("state"))
-		}) || !expired(job.Get("finished_at"), r.now, r.age()) || job.Truthy("handback_pending") || writerActive(job) ||
+		if job == nil || !tasksEnded(job) || !expired(job.Get("finished_at"), r.now, r.age()) || job.Truthy("handback_pending") || writerActive(job) ||
 			busy(dir, r.paths) || present(filepath.Join(dir, "job.tmp")) {
 			continue
 		}
-		found = append(found, Item{"remove", "finished-job", dir, ""})
+		found = append(found, Item{"remove", "finished-job", dir, "", takeFinishedJob(dir)})
 	}
 	return found
 }
@@ -257,10 +259,13 @@ func throwaway(repo any) bool {
 	return ok && path != "" && (pure(path) == tmpDir() || below(path, tmpDir()))
 }
 
-// idleInterrupted is a run interrupted longer than a run directory's age, its loop gone.
-func idleInterrupted(record *run.Object, now float64) bool {
-	when, ok := run.Num(record.Get("interrupted_at"))
-	return record.Str("state") == "interrupted" && ok && when <= now-runAge && pidGone(record)
+// idleInterrupted is when a run interrupted longer than a run directory's age, its loop gone, was
+// interrupted, as its record says it; nil for any other.
+func idleInterrupted(record *run.Object, now float64) any {
+	if when, ok := run.Num(record.Get("interrupted_at")); record.Str("state") == "interrupted" && ok && when <= now-runAge && pidGone(record) {
+		return record.Get("interrupted_at")
+	}
+	return nil
 }
 
 // runAgedOut is the run's own clock, the newer of its start and finish, past a run directory's

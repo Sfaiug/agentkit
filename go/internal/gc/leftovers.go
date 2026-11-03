@@ -50,7 +50,7 @@ func (r *reads) ephemeral() []Item {
 			present(receipt+".part") || !leaseFree(receipt) {
 			continue
 		}
-		found = append(found, Item{"remove", record.Str("kind"), path, ""})
+		found = append(found, Item{"remove", record.Str("kind"), path, "", takeEphemeral(path, receipt, record.Str("kind") == "smoke", snapshot)})
 	}
 	return found
 }
@@ -92,7 +92,7 @@ func (r *reads) seatFiles() []Item {
 	var found []Item
 	for _, path := range children(folder) {
 		if name, ok := r.seatGone(path); ok && !launched[name] && !r.seated(name) {
-			found = append(found, Item{"remove", "seat-file", path, "seat " + name + " is gone"})
+			found = append(found, Item{"remove", "seat-file", path, "seat " + name + " is gone", takeSeatFile(path)})
 		}
 	}
 	return found
@@ -120,7 +120,7 @@ func (r *reads) harnessEntries() []Item {
 	for _, file := range harness.ConfigEntries() {
 		if trust, mcp := r.staleEntries(file.File, file.Trust, file.MCP); trust+mcp > 0 {
 			why := fmt.Sprintf("%d trust entries and %d MCP servers name a gone smoke sandbox or checkout", trust, mcp)
-			found = append(found, Item{"prune", "harness-entries", file.File, why})
+			found = append(found, Item{"prune", "harness-entries", file.File, why, takeHarness(file.File, file.Trust, file.MCP)})
 		}
 	}
 	return found
@@ -234,7 +234,7 @@ func (r *reads) tmpBase(base string) []Item {
 		}
 		path := filepath.Join(base, name)
 		if why := r.untouched(path, paths, tmpAge); why != "" {
-			found = append(found, Item{"remove", "tmp-entry", path, why})
+			found = append(found, Item{"remove", "tmp-entry", path, why, takeTmp(path)})
 		}
 	}
 	return found
@@ -330,7 +330,13 @@ func (r *reads) repoTmpEntries() []Item {
 		seen[value] = true
 		// only the plain case: canonical, so no link and no `..`, and directly under /var/tmp
 		if filepath.Dir(pure(value)) != "/var/tmp" || config.Resolve(value) != value {
-			found = append(found, Item{"skip", "repo-tmp", value, "not a canonical path directly under /var/tmp"})
+			// a TMPDIR gc never sweeps is named once a pass, and left alone
+			skipped := Item{"skip", "repo-tmp", value, "not a canonical path directly under /var/tmp", nil}
+			skipped.take = func(c *collection) (bool, error) {
+				c.report(skipped.said())
+				return false, nil
+			}
+			found = append(found, skipped)
 			continue
 		}
 		found = append(found, r.tmpBase(value)...)
@@ -389,7 +395,7 @@ func (r *reads) homeFolder(folder string, age float64, paths []string) []Item {
 			continue
 		}
 		if why := r.untouched(path, paths, age); why != "" {
-			found = append(found, Item{"remove", "home-entry", path, why})
+			found = append(found, Item{"remove", "home-entry", path, why, takeHomeEntry(path, age)})
 		} else if isDir(path) && safe(path) {
 			found = append(found, r.homeFolder(path, age, paths)...)
 		}
@@ -440,7 +446,7 @@ func (r *reads) conversations() []Item {
 	}) {
 		for _, path := range glob(store.Root, store.Pattern) {
 			if why := r.conversationStale(path, paths); why != "" {
-				found = append(found, Item{"remove", "conversation", path, why})
+				found = append(found, Item{"remove", "conversation", path, why, takeConversation(store.Harness, path)})
 			}
 		}
 	}
