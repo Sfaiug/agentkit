@@ -385,14 +385,11 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 	return mine, true
 }
 
-// Announce writes what Python's listing writes before it draws: into each record what it
-// infers (orch.records, orch.session_projects), then each seat's word into its seat file
-// (watch.announce_state), under the locks Python takes for each.
+// Announce looks at live seats before writing what the listing infers into records: a capture
+// can learn that Python must reconcile a record first. Then it publishes the remaining seats,
+// under the locks Python takes for each.
 func (home Home) Announce(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
-	if err := reconcile(state, home.records, true); err != nil {
-		return err
-	}
 	for at, seat := range home.Seats {
 		if seat.live { // its look decides its word, which every reader of this home reads
 			looked, err := LookedLive(state, seat.Name)
@@ -400,10 +397,16 @@ func (home Home) Announce(now time.Time) error {
 				return err
 			}
 			home.Seats[at] = looked
-			continue
 		}
-		if err := seat.announce(state, now, home.models); err != nil {
-			return err
+	}
+	if err := reconcile(state, home.records, true); err != nil {
+		return err
+	}
+	for _, seat := range home.Seats {
+		if !seat.live {
+			if err := seat.announce(state, now, home.models); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

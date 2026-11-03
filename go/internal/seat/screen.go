@@ -214,8 +214,9 @@ func liveSeat(name string, now time.Time) (Home, Seat, bool) {
 }
 
 // LookedLive is the look at a seat its panes still run on, under its announce lock from the reading
-// to the word, as the wait for that lock can outlast what the home held: what the listing
-// reconciles, watch.announce_state's look, what its last answer moved, and the word published.
+// to the word, as the wait for that lock can outlast what the home held: watch.announce_state's
+// look, what its last answer moved, and the word published. The home reconciles records only after
+// its live looks succeed.
 func LookedLive(state, name string) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
@@ -225,9 +226,6 @@ func LookedLive(state, name string) (Seat, error) {
 			return ErrUnread
 		}
 		seat = live
-		if err := reconcile(state, home.records, true); err != nil {
-			return err
-		}
 		found, err := seat.look(state, seconds(now))
 		if err != nil {
 			return err
