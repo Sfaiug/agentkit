@@ -513,27 +513,31 @@ def _started(connection, values):
 
 
 @contextlib.contextmanager
-def conflicts(run_id, how, target, tip, files, *, log=None):
+def conflicts(run_id, how, target, tip, *, log=None):
     """One row per file handed to a conflict fixer; its outcome ends with the fixer rounds.
 
     NULL means those rounds have not ended. A run with no history row keeps none here.
     """
-    at, ended = time.time(), []
+    rows, ended = [], []
 
-    def insert(connection):
-        rows = []
-        for path, added_only in files:
-            cursor = connection.execute(
-                "INSERT INTO conflicts (run_id, at, how, target, tip, path, added_only) "
-                "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
-                (at, how, target, tip, path, added_only, run_id))
-            if cursor.rowcount:
-                rows.append(cursor.lastrowid)
-        return rows
+    def record(files):
+        at = time.time()
 
-    rows = _write(insert, log)
+        def insert(connection):
+            added = []
+            for path, added_only in files:
+                cursor = connection.execute(
+                    "INSERT INTO conflicts (run_id, at, how, target, tip, path, added_only) "
+                    "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+                    (at, how, target, tip, path, added_only, run_id))
+                if cursor.rowcount:
+                    added.append(cursor.lastrowid)
+            return added
+
+        if files:
+            rows.extend(_write(insert, log) or [])
     try:
-        yield ended
+        yield record, ended
     finally:
         if rows:
             outcome = "resolved" if ended and ended[0] else "aborted"

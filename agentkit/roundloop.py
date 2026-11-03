@@ -1969,8 +1969,8 @@ def conflict_added_only(wt, path):
                                        f"--marker-size={size}", "-L", "ours", "-L", "base",
                                        "-L", "theirs", str(stages[1]), str(stages[0]),
                                        str(stages[2])], stdout=output, **call).returncode
-            bases = re.findall(re.escape(b"|" * size + b" base\n") + rb"(.*?)"
-                               + re.escape(b"=" * size + b"\n"), merged.read_bytes(), re.S)
+            bases = re.findall(re.escape(b"|" * size + b" base") + rb"\r?\n(.*?)"
+                               + re.escape(b"=" * size) + rb"\r?\n", merged.read_bytes(), re.S)
             return int(0 < code < 128 and bool(bases) and not any(bases))
     except (OSError, subprocess.TimeoutExpired):
         return 0
@@ -2008,10 +2008,22 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             + "\n".join(f"- {p}" for p in conflicts)
             + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
-    files = [(path, conflict_added_only(lp.wt, path)) for path in conflicts]
-    with history.conflicts(lp.state["run_id"], how, upstream, tip, files, log=lp.log) as ended:
+    seen = set()
+    with history.conflicts(lp.state["run_id"], how, upstream, tip, log=lp.log) as (record, ended):
         hand_to_writer(lp)
         for attempt in range(1, CONFLICT_ROUNDS + 1):
+            # A later rebase commit can stop on new conflicts, including the same path again.
+            stop = (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet", "REBASE_HEAD",
+                                check=False) if how == "rebase" else None)
+            files = []
+            for entry in gitcall.git(lp.wt, "ls-files", "--unmerged", "-z", check=False).split("\0"):
+                if entry:
+                    path = entry.partition("\t")[2]
+                    key = (stop, path)
+                    if key not in seen:
+                        files.append((path, conflict_added_only(lp.wt, path)))
+                        seen.add(key)
+            record(files)
             lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
                    f"fixer {lp.executor} ({how} conflict)")
             try:

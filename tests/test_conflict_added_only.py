@@ -18,6 +18,8 @@ class AddedOnly(unittest.TestCase):
         middle = b"".join(f"line {n}\n".encode() for n in range(10))
         cases = (
             (b"base\n", b"base\nleft\n", b"base\nright\n", 1),
+            (b"base\r\n", b"base\r\nleft\r\n", b"base\r\nright\r\n", 1),
+            (b"base\r\n", b"left\r\n", b"right\r\n", 0),
             (b"base\n", b"left\n", b"right\n", 0),
             (None, b"left\n", b"right\n", 0),
             (b"base\n", None, b"right\n", 0),
