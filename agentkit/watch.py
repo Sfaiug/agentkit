@@ -7912,13 +7912,14 @@ def runs_health():
         if word not in run_record.ACTIVE or run_record.process_active(state):
             continue
         if processes is None:
-            processes = [args for _, status, args in _proc_table().values()
-                         if status not in ("Z", "X")]
-        # A surviving worker or a resume not yet on the record still belongs to the run.
-        if any(arg == str(run_dir) or arg.startswith(f"{run_dir}/")
-               or (Path(arg).name == "ak"
-                   and args[i + 1:i + 4] == ["run", "resume", run_dir.name])
-               for args in processes for i, arg in enumerate(args)):
+            processes = {pid: args for pid, (_, status, args) in _proc_table().items()
+                         if status not in ("Z", "X")}
+        # A path in argv can be a log reader; only the inherited marker proves ownership.
+        if any(pid in processes for pid in worker.marked_pids(str(run_dir))):
+            continue
+        resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
+        if any(args == resume or args == [sys.executable, *resume]
+               for args in processes.values()):
             continue
         age = now - run_last_write(run_dir)
         dead.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")

@@ -23,7 +23,9 @@ if sys.argv[:1] == [{ak!r}]:
     watch.time = Clock(time.sleep)
     watch.time.time = lambda: {now}
     table = {{int(pid): row for pid, row in json.load(open({table!r})).items()}}
-    watch._proc_table = lambda: table
+    watch._proc_table = lambda: {{pid: row[:3] for pid, row in table.items()}}
+    watch.worker.marked_pids = lambda marker, **_kw: [
+        pid for pid, row in table.items() if len(row) > 3 and row[3] == marker]
     host.alive = lambda pid: pid in table
     host.process_identity = lambda pid: None
     host.proc_stat = lambda pid: (host.ProcStat(table[pid][1], table[pid][0], 0, 0)
@@ -106,23 +108,33 @@ class DoctorRunsLine(unittest.TestCase):
         self.run_record("stopped", "stopped")
         self.doctor(0, "0 going · 4 ended today · 2 endings owed, oldest 2d")
 
-    def test_a_worker_still_running_keeps_its_run_alive_without_the_loop(self):
+    def test_a_marked_worker_keeps_its_run_alive_without_the_loop(self):
         directory = self.run_record("moving")
         self.home.write("fakes/processes.json", {
-            42: [1, "S", ["bash", "adapter.sh", str(directory / "round-1/executor")]]})
+            42: [1, "S", ["sleep", "600"], str(directory)]})
         self.doctor(0, "1 going · 0 ended today · 0 endings owed")
 
     def test_a_resume_starting_before_its_pid_is_recorded_is_live(self):
         self.run_record("moving")
         self.home.write("fakes/processes.json", {
-            42: [1, "S", ["python", "/repo/bin/ak", "run", "resume", "moving"]]})
+            42: [1, "S", [sys.executable, AK, "run", "resume", "moving"]]})
         self.doctor(0, "1 going · 0 ended today · 0 endings owed")
+
+    def test_log_readers_and_editors_do_not_hide_a_dead_run(self):
+        directory = self.run_record("lost", pid=41)
+        for args in (["tail", "-F", str(directory / "log.txt")],
+                     ["vim", str(directory / "result.md")],
+                     ["tail", "-F", AK, "run", "resume", "lost"]):
+            with self.subTest(args=args):
+                self.home.write("fakes/processes.json", {42: [1, "S", args]})
+                self.doctor(1, "1 going · 0 ended today · 0 endings owed · "
+                               "dead: lost (4m since last write)")
 
     def test_zombies_and_another_runs_paths_do_not_keep_a_dead_run_alive(self):
         directory = self.run_record("lost", pid=41)
         self.home.write("fakes/processes.json", {
-            41: [1, "Z", ["ak", "run", "resume", "lost"]],
-            42: [1, "S", ["bash", "adapter.sh", str(directory) + "-other/round-1"]],
+            41: [1, "Z", ["ak", "run", "resume", "lost"], str(directory)],
+            42: [1, "S", ["sleep", "600"], str(directory) + "-other"],
             43: [1, "S", ["printf", "lost"]]})
         self.doctor(1, "1 going · 0 ended today · 0 endings owed · "
                        "dead: lost (4m since last write)")
