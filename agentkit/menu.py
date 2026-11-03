@@ -73,9 +73,9 @@ Those ten seconds hold whatever stdin is, a script's half-written line included,
 during a draw is read by the next wait.  At rest one thing moves: on a terminal of 256 colours or
 more each working seat's `●` breathes, all in one phase, on `motion`'s clock (`moving`); and
 news seen while the menu is up moves once on it -- a `!` pulses, a `✓` settles, a usage bar
-glides -- then is still.  The sub-screens are not live: they are read once, like any other
-question -- but a project's feature switches, which draw again within a second of their `list`
-landing.
+glides -- then is still.  A seat's `c` follows its record within a second; other sub-screens
+are read once, like any other question, except a project's feature switches, which draw again
+within a second of their `list` landing.
 
 Six keys: the numbers, `n`, `x` (in the popup only), `p` (the sessions you stopped, offered while there is one),
 `c` (the popup's own seat's models, else new seats', every model's effort,
@@ -3952,7 +3952,9 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
     there alone, for a seat not made yet; no row under the models, no `r` and no `a`; Enter on a
     mark or an effort starts the session, true, and Esc goes back to the row, false.
 
-    `selected` is `session`'s record, and its role marks are that seat's models: Space or a
+    `selected` follows `session`'s record every second while waiting for a key, on this thread
+    so a read cannot land over a save; the highlight and column stay where they are.
+    Its role marks are that seat's models: Space or a
     click flips one (session_mark), the orchestrator moving the seat once asked, the roles saved
     to the record for the runs it launches next, the mark filling or emptying over two frames
     and one refused shaking (motion.toggled).  With no `session` the marks are new seats',
@@ -4026,10 +4028,20 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
                                                        note_lines(told), keys, moves)
         act, here, clicked, top = matrix_key(title, body, places, rows, here, top,
                                             told, keys, marks=3,
+                                            timeout=STIR if session else None,
                                             clock=clock, moves=moves,
                                             over=over, over_places=meters, keyed=column)
         column = column if clicked is None else clicked
         if act is None:
+            if session and selected is not None:
+                try:
+                    current = config.load_session(cfg, session, required=False)
+                except (config.Error, OSError):
+                    pass              # keep the last readable record until it reads again
+                else:
+                    if current is not None:
+                        selected.clear()
+                        selected.update(current)
             continue                  # a resize or the pointer: drawn again
         note, saved = "", None
 

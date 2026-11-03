@@ -174,6 +174,7 @@ class SeatErrorRecord(unittest.TestCase):
         self.stack.enter_context(patch.object(orch, "tmux_out", return_value=(0, "")))
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, self.provider)))
+        self.stack.enter_context(patch.object(watch, "follow_model", return_value=None))
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
         self.stack.enter_context(patch.object(watch, "boot_id", return_value="boot"))
         self.typed, self.marked, self.lines = [], [], []
