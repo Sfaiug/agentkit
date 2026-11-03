@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, run, status, transitions, turns, usage  # noqa: E402
-from agentkit import record, staffing
+from agentkit import record, roundloop, staffing
 
 
 class HistoryTests(unittest.TestCase):
@@ -118,6 +118,30 @@ class HistoryTests(unittest.TestCase):
         state["review"] = {"executor": "cedar", "reviewer": "alias"}
         with patch.object(config, "load", side_effect=config.Error("unreadable")):
             self.assertIsNone(transitions.history_ending(state)["review_pair"])
+
+    def test_recovering_an_ending_judges_each_red_against_the_merged_patch(self):
+        directory = self.home / "runs" / "r1"
+        directory.mkdir(parents=True)
+        state = {"run_id": "r1", "state": "blocked", "finished_at": 2,
+                 "repo": str(self.home / "repo"), "worktree": str(self.home / "gone"),
+                 "base_sha": "base", "delivery_sha": "delivered",
+                 "landing_red_patches": ["changed", "same", None, "same"]}
+        with patch.object(config, "RUNS", directory.parent), \
+                patch.object(roundloop, "patch_id", return_value="same") as patch_id:
+            history.start_run("r1", started_at=1)
+            record.save_state(directory, state)
+            transitions.history_agree()
+            patch_id.assert_not_called()
+            row = history.get("r1")
+            self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (0, 0))
+            history.start_run("r1", started_at=3)
+            state.update(state="pass", merged=True, finished_at=4)
+            record.save_state(directory, state)
+            transitions.history_agree()
+            transitions.history_agree()
+            patch_id.assert_called_once_with(state["repo"], "base", "delivered")
+            row = history.get("r1")
+            self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (2, 2))
 
     def test_review_pair_stays_with_its_ending_even_when_unknown(self):
         for n, pair in enumerate(("other provider", None)):

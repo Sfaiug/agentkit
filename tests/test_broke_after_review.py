@@ -2,7 +2,7 @@
 
 A review miss counts only when something breaks (the owner's yes, 16 Oct 2026): the change's
 tests went red at landing, or main's checks or its live health broke after its merge, as its
-history row records it (`deliver.record_merge`, `watch.broke_after_merge`).  Code a later
+history row records it (`transitions.history_ending`, `watch.broke_after_merge`).  Code a later
 change rewrites is no break: it may be the next feature.  A row from before breaks were
 recorded is unknown, never unbroken.  Offline: a sandbox HOME's history.
 """

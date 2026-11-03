@@ -406,15 +406,26 @@ def history_ending(state, cfg=None):
         except config.Error:
             pass
     rounds = state.get("round_summaries")
-    return {"repo": state.get("repo"), "executor": state.get("executor"),
-            "reviewer": state.get("reviewer"), "review_pair": pair,
-            "rounds_used": len(rounds) if isinstance(rounds, list) else None,
-            "final_state": state.get("state"), "verdict": state.get("verdict"),
-            "started_at": state.get("started_at"),
-            "finished_at": state.get("finished_at") or time.time(),
-            "session": launched_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
-            "own_orchestrator": state.get("own_orchestrator"),
-            "own_orchestrator_effort": state.get("own_orchestrator_effort")}
+    ending = {"repo": state.get("repo"), "executor": state.get("executor"),
+              "reviewer": state.get("reviewer"), "review_pair": pair,
+              "rounds_used": len(rounds) if isinstance(rounds, list) else None,
+              "final_state": state.get("state"), "verdict": state.get("verdict"),
+              "started_at": state.get("started_at"),
+              "finished_at": state.get("finished_at") or time.time(),
+              "session": launched_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
+              "own_orchestrator": state.get("own_orchestrator"),
+              "own_orchestrator_effort": state.get("own_orchestrator_effort")}
+    if state.get("merged") and (reds := state.get("landing_red_patches")):
+        from . import roundloop
+        wt = state.get("worktree")
+        repo = wt if wt and Path(wt).is_dir() else state.get("repo")
+        head = state.get("delivery_sha") or (state.get("review") or {}).get("head_sha")
+        patch = (roundloop.patch_id(repo, state.get("base_sha"), head)
+                 if repo and head and state.get("base_sha") else None)
+        # Only an unchanged patch proves a flake; failed git reads prove nothing.
+        flakes = sum(bool(red) and red == patch for red in reds)
+        ending.update(landing_breaks=len(reds) - flakes, landing_flakes=flakes)
+    return ending
 
 
 def history_finish(state, log=None, cfg=None):

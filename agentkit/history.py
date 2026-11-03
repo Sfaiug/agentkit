@@ -883,7 +883,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, review_pair=None, saved=None, log=None):
+               own_orchestrator_effort=None, review_pair=None, landing_breaks=None,
+               landing_flakes=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -901,7 +902,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
               "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
-              "own_orchestrator_effort": own_orchestrator_effort}
+              "own_orchestrator_effort": own_orchestrator_effort,
+              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 

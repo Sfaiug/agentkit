@@ -205,7 +205,7 @@ def compute(now=None):
     def breaks(ended):
         """The merged changes of the week that broke after review passed them: their tests red
         at landing, or main's checks or live health after their merge, as each run's row records
-        it (`deliver.record_merge`, `watch.broke_after_merge`); a row from before breaks
+        it (`transitions.history_ending`, `watch.broke_after_merge`); a row from before breaks
         were recorded is unknown until one is recorded on it.  A rewrite later is no break: it
         may be the next feature.  None with no merged run."""
         merged = [row for row in ended if history.merged(row)]

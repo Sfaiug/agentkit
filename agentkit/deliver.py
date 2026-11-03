@@ -552,23 +552,11 @@ PICKUP_HELD = threading.local()   # delivery locks this thread holds or waits fo
 def merged(lp, url, method):
     """Record the PR as merged, with what proving it live stands on; True, for the merge step
     to return."""
-    record_merge(lp, lp.state.get("delivery_sha"))
+    from . import watch  # here, not at the top: it reaches run
+    lp.state.update(merged=True, **watch.merge_record(lp.wt, lp.state.get("delivery_sha")))
+    lp.write()
     lp.log(f"--- merge: merged {url} with --{method}, remote branch deleted")
     return True
-
-
-def record_merge(lp, sha):
-    """A landing red is a review miss only if the patch had to change before it merged."""
-    from . import watch  # here, not at the top: it reaches run
-    lp.state.update(merged=True, **watch.merge_record(lp.wt, sha))
-    reds = lp.state.get("landing_red_patches")
-    if reds:
-        patch = roundloop.patch_id(lp.wt, lp.base_sha)
-        # Failed git reads cannot prove that a red was a flake.
-        flakes = sum(bool(red) and red == patch for red in reds)
-        history.update_run(lp.state.get("run_id"), landing_breaks=len(reds) - flakes,
-                           landing_flakes=flakes, log=lp.log)
-    lp.write()
 
 
 def is_delivery(lp, current, upstream):
@@ -1058,7 +1046,9 @@ def merge_own_pr(lp, url):
         ours = (remote["sha"] in expected
                 and (current.get("base") or {}).get("ref") == upstream.removeprefix("origin/"))
         if current.get("merged") and ours:
-            record_merge(lp, remote["sha"])
+            from . import watch  # here, not at the top: it reaches run
+            lp.state.update(merged=True, **watch.merge_record(lp.wt, remote["sha"]))
+            lp.write()
             return True
         if current.get("state") != "open" or not ours:
             path = lp.run_dir / "pr-changed.log"
