@@ -20,7 +20,7 @@ import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, handback, history, prompts, record as run_record,
+from . import (beside_review, config, gitcall, hand_in, handback, history, prompts, record as run_record,
                staffing, task as taskfile, transitions, turns, worker)
 
 
@@ -446,7 +446,7 @@ def own_checks(lp):
 def fails_on_base(lp):
     """Why no check of the task's own was shown to fail on the old code, or "" once one was:
     a check that finishes failing on base with the branch's tests laid over, and passes on base
-    with every file the branch changed laid over, proves it (`base_proof` turns `proven`).
+    with every file the branch changed laid over, proves it (the caller records `proven`).
 
     It never fails a round, by the owner's rule (7 Oct): ak proves the failing test wherever
     it can and records why when it cannot, as no path tells every project's tests from its
@@ -498,8 +498,6 @@ def fails_on_base(lp):
     # a check finishes failing as a reviewer's proof does (`hand_in.proof_failed`)
     if any(after == 0 and before is not None and hand_in.proof_failed({"returncode": before})
            for before, after in zip(on_base, on_head)):
-        lp.state["base_proof"] = "proven"
-        lp.save()
         return ""
     if any(after != 0 for after in on_head):
         return ("a check fails in a checkout made from git alone even with the branch's changes: "
@@ -625,11 +623,6 @@ def verify_work(lp, cmds=None):
         if failure:
             ok = False
             text += f"\n\n$ regression.sh must fail on base\n[exit 1]\n{failure}"
-    if ok and needs_base_proof(lp):
-        # recorded, never a failure: the owner's rule (7 Oct)
-        lp.state["base_proof_note"] = fails_on_base(lp) or None
-        lp.save()
-        text += "\n\n" + prompts.base_proof_line(lp.state)
     if lp.validation:
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)
@@ -1332,6 +1325,12 @@ def execute(lp, role, text, name):
 
 
 def review(lp, summary, ok, dw_log, preface="", record=True):
+    action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
+    with beside_review.check("base-proof", action) as start_check:
+        return _review(lp, summary, ok, dw_log, preface, record, start_check)
+
+
+def _review(lp, summary, ok, dw_log, preface, record, start_check):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
     A repo run is judged on its diff.  A scratch run has no commits at all -- what it produced
@@ -1525,6 +1524,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
         lp.log(f"WARN reviewer fell back to {lp.reviewer}")
         return f"reviewer-{lp.reviewer}"
+    # Earlier finding replays have finished cleaning the run's scope before this check starts.
+    proof = start_check() if start_check else None
     ask = None      # where the answer that gave no verdict is, for the call asking once more
     while True:
         if not lp.executor and not lp.state.get("review_pr"):
@@ -1622,6 +1623,14 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
         ask = prompts.written_answer(out, text).parent
+
+    if proof is not None:
+        # Join before saving any verdict: a death while waiting must resume the proof too.
+        why = proof()
+        lp.state["base_proof_note"] = why or None
+        if not why:
+            lp.state["base_proof"] = "proven"
+        lp.save()
 
     checkout_changed = not lp.scratch and (
         identity != validation or gitcall.commit_identity(lp.wt) != identity

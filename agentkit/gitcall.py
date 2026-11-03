@@ -99,7 +99,7 @@ def tool_env():
         # detached or timeout-surviving descendants die with the run like any child.
         # An inherited marker already comes through child_env; this is the loop's own
         # context, which the loop never exports.
-        env[worker.RUN_MARKER] = worker.run_marker(run_id)
+        env[worker.RUN_MARKER] = worker.run_marker(run_id) + getattr(_RUN_CONTEXT, "process_suffix", "")
     return env
 
 
@@ -1175,7 +1175,8 @@ def run_child_env():
     if state.get("run_id"):
         # The marker every process of this run carries, so the run's end -- and every
         # killed turn, every retry and every finished gate -- finds them however detached.
-        env[worker.RUN_MARKER] = worker.run_marker(state["run_id"])
+        env[worker.RUN_MARKER] = (worker.run_marker(state["run_id"])
+                                  + getattr(_RUN_CONTEXT, "process_suffix", ""))
     return env
 
 
