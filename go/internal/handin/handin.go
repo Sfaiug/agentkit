@@ -44,10 +44,17 @@ const variable = "AK_HAND_IN"
 
 // Start opens a turn's record file in its out directory with the turn's row, the workspace and
 // role and the blocking findings handed to it, the list the file findings holds, none for "": the
-// variable naming that file to the turn.
-func Start(out, workspace, role, findings string) (string, error) {
+// variable naming that file to the turn.  A turn that resumes one cut off gets what that one's
+// record file, previous, holds: a session keeps its records, its completion being this turn's alone.
+func Start(out, workspace, role, findings, previous string) (string, error) {
 	path := filepath.Join(config.Resolve(out), File)
 	handed := any([]any{})
+	var before *Review
+	if previous != "" {
+		if before, _ = Read(previous); before != nil && before.Handed != nil {
+			handed = before.Handed
+		}
+	}
 	if findings != "" {
 		data, err := os.ReadFile(findings)
 		if err != nil {
@@ -62,7 +69,15 @@ func Start(out, workspace, role, findings string) (string, error) {
 	row.Set("workspace", config.Resolve(workspace))
 	row.Set("role", role)
 	row.Set("findings", handed)
-	return variable + "=" + path, os.WriteFile(path, []byte(run.Line(row)+"\n"), 0o666)
+	text := run.Line(row) + "\n"
+	if before != nil {
+		for _, each := range before.Records {
+			if !closing(each.Str("kind")) {
+				text += run.Line(each) + "\n"
+			}
+		}
+	}
+	return variable + "=" + path, os.WriteFile(path, []byte(text), 0o666)
 }
 
 // Hand checks what args hand in against the turn's record file and appends its row.

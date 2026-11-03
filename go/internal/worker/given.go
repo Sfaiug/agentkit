@@ -29,4 +29,6 @@ type Given struct {
 	ReviewLines int
 	// Findings is the file of blocking findings handed to the turn, "" for none.
 	Findings string
+	// Previous is the record file of the turn this one resumes, "" for none.
+	Previous string
 }

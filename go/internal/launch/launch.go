@@ -155,23 +155,28 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: a pull request's review, a queued run's start, a seat's launch, one
-// that history records, one the gate does not admit outright, one Python's rival check may
-// refuse, a config Python refuses before its run, a home HOME does not name, a local time Go
-// reads otherwise, or a string for the record Python would write with a lone surrogate.
+// cannot read as it does: a pull request's review, any that leaves elsewhere, one Python's rival
+// check may refuse, a config Python refuses before its run, or a string for the record Python
+// would write with a lone surrogate.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	depth, known := runDepth()
-	_, capped := config.MaxRuns()
 	_, review := values["--review-pr"]
-	if review || os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
-		os.Getenv("HOME") == "" || !localTime() ||
-		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
-		len(bound.Workers) == 0 ||
-		!readable(path, run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK")) ||
+	if review || elsewhere() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
 	return !flags["--anyway"] && going()
+}
+
+// elsewhere is whether this process's surroundings leave any launch or resume to Python: a queued
+// run's start, a seat's, one that history records, one the gate does not admit outright, a home HOME
+// does not name, a local time Go reads otherwise, or text Python would write with a lone surrogate.
+func elsewhere() bool {
+	depth, known := runDepth()
+	_, capped := config.MaxRuns()
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" ||
+		os.Getenv("HOME") == "" || !localTime() ||
+		!known || os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 || capped != nil || config.RunMemoryRefused() ||
+		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
 
 // localTime is whether Go's local time is the C library's, which Python's datetime.now reads:
@@ -209,7 +214,7 @@ type place struct {
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
-// Python a run that would land from a checkout of its own, and one `from:` a branch.
+// Python a run that would land from a checkout of its own.
 func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
@@ -264,7 +269,6 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
 	later := task.ChecksRefusal(at.every)
-	branched := false
 	switch from := meta["from"]; {
 	case later != "" || from == "":
 	case at.repo == "":
@@ -279,18 +283,14 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 		if branch == "" {
 			later = fmt.Sprintf("%s: from: %s is not a local branch", copied, commandhelp.Quote(from))
 		}
-		branched = branch != ""
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if branched {
-			return refuse("", "", ErrPython)
-		}
 		if err := drivable(at.every, path, values); err != nil {
 			return refuse("", "", err)
 		}
 		// a helper takes a repository's checks in Python, and Go has none
-		if at.repo != "" && (len(config.MachineNames()) > 0 || config.MayRent()) {
+		if at.repo != "" && helped() {
 			return refuse("", "", ErrPython)
 		}
 	}
