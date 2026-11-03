@@ -46,7 +46,7 @@ func table(t *ticking) []pass {
 		// worker tokens are in secrets, and a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
-		{"seat health", true, all(configured, secretless, runless, t.dryly(every(healthy))), t.health},
+		{"seat health", true, all(configured, secretless, runless, t.dryly(every(healthy))), health},
 		{"switched turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, true) })), nil},
 		{"dead loops", true, all(configured, runless), nil},
 		{"dead jobs", true, jobless, nil},
@@ -78,7 +78,7 @@ func table(t *ticking) []pass {
 			return empty(filepath.Join(config.Home(), "state", "notification-outbox"))
 		}, nil},
 		{"end hook", false, nil, hookOptions},
-		{"seat revival", false, all(configured, runless), t.revive},
+		{"seat revival", false, all(configured, runless), revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, all(runless, checkoutsSeen), t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs

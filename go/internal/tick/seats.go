@@ -96,7 +96,7 @@ func stays(live seat.Live) bool {
 // health is the seat health row (watch.health): each seat looked at and its word published, as the
 // later rows read it, while the look is all the row does there; the first it would do more at ends
 // the tick there, before its publish.
-func (t *ticking) health() error {
+func health() error {
 	names, known := seat.Seats(time.Now())
 	if !known {
 		return errLeft
@@ -111,7 +111,7 @@ func (t *ticking) health() error {
 
 // revive is the seat revival row where every seat is up (watch.revive_seats): a seat seen live
 // again forgets the deaths it was reopened after, so its next is a new one.
-func (t *ticking) revive() error {
+func revive() error {
 	lives, err := lives()
 	if err != nil {
 		return err
