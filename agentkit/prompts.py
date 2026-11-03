@@ -185,8 +185,9 @@ def without_followups(text):
 
 
 def record_flakes(state, text):
-    """Keep each gate's flaky evidence with the current review, including checks after PASS."""
-    for record in text.split("\n\n"):
+    """Keep each gate's flaky evidence with the current review, including checks after PASS,
+    every suite piece's though its output was cut to what a prompt can hold."""
+    for record in "\n\n".join([*turns.pieces_whole(text), text]).split("\n\n"):
         if record.startswith("flaky: ") and record not in state.get("followups", []):
             state.setdefault("followups", []).append(record)
 

@@ -26,6 +26,10 @@ ROOM = {"cpus": 16, "load": 0, "free_mb": 128000, "slice_cpu_quota": 16, "slice_
 WHOLE = re.compile(r"^\[only part of this output is shown; all of it is in (.+)\]$", re.M)
 
 
+def longest_prompt(home):
+    return max(len(path.read_text()) for path in taskfile.only_run(home).rglob("prompt.md"))
+
+
 class ARedSuite(unittest.TestCase):
     def test_the_next_turn_gets_a_part_small_enough_and_the_name_of_the_whole(self):
         with Home() as home:
@@ -52,8 +56,23 @@ class ARedSuite(unittest.TestCase):
             pieces = int(re.search(r"AK_SHARD=\d+/(\d+)", followups[0])[1])
             self.assertEqual(len(followups), pieces)
             self.assertGreater(pieces, 4)       # more than fit with their details
-            self.assertLess(len("".join(followups)), 300 * 1024)
-            self.assertTrue(all("failed output: " in record for record in followups))
+            self.assertTrue(all("detail 20 " in record for record in followups))
+            self.assertLess(longest_prompt(home), 300 * 1024)
+
+    def test_a_red_piece_stays_in_view_past_the_pieces_that_flaked(self):
+        with Home() as home:
+            akconfig.write(home, ["opus", "astra"])
+            fakeadapter.install(home, claude=fakeadapter.WORK, codex=fakeadapter.PASS)
+            red = f'[ "${{AK_SHARD%/*}}" = 1 ] && exit 1; {ONCE}'
+            task = taskfile.write(home, Rig(home, "widgets").path, done_when=(red,),
+                                  front={"rounds": 2})
+            home.ak("run", str(task), "--no-merge", timeout=300,
+                    env={"AK_HOST_READINGS": json.dumps(ROOM)})
+            prompts = [path.read_text() for path in taskfile.only_run(home).rglob("prompt.md")]
+            flaked = [text for text in prompts if re.search(r"^flaky: ", text, re.M)]
+            self.assertTrue(flaked)
+            self.assertTrue(all("--- AK_SHARD=1/" in text for text in flaked))
+            self.assertLess(longest_prompt(home), 300 * 1024)
 
 
 if __name__ == "__main__":

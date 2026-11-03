@@ -404,6 +404,7 @@ OUT_CAP = 20 * 1024
 # What all of a suite's pieces hand on together: each is cut to OUT_CAP and their number is the
 # machines'. 128 red on one test made 2.6 MB, which no harness took as a prompt (3 Nov 2026).
 PIECES_CAP = 256 * 1024
+KEPT_LINE = "[only part of this output is shown; all of it is in "
 
 
 def kept(output, where, name):
@@ -413,13 +414,25 @@ def kept(output, where, name):
     with tempfile.NamedTemporaryFile(dir=where, prefix=f"{name}-whole-", suffix=".log",
                                      delete=False) as whole:
         shutil.copyfileobj(output, whole)
-    return f"[only part of this output is shown; all of it is in {Path(whole.name).resolve()}]"
+    return f"{KEPT_LINE}{Path(whole.name).resolve()}]"
 
 
 def cut(text, where, name, cap=OUT_CAP):
     """`text` as a model is handed it: whole up to `cap`, else its end under `kept`'s line."""
     return (text if len(text) <= cap else
             f"{kept(io.BytesIO(text.encode()), where, name)}\n{text[-cap:]}")
+
+
+def cut_pieces(text, where, name):
+    """`cut` of what all of a suite's pieces hand on together, its whole for `pieces_whole`."""
+    return cut(text, where, f"{name}-pieces", PIECES_CAP)
+
+
+def pieces_whole(text):
+    """All of each suite's output `cut_pieces` cut in `text`."""
+    return [Path(path).read_text(errors="replace") for path in re.findall(
+        rf"^{re.escape(KEPT_LINE)}(.+-pieces-whole-[^/]*\.log)\]$", text, re.M)
+        if Path(path).is_file()]
 
 
 def cut_file(output, start, where, name):
