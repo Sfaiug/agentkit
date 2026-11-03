@@ -29,8 +29,10 @@ BLOCKED = ("the same checks fail the same way after a fix round: "
 
 def attempt(n):
     """A turn that changes the work, but never writes the file the failing check wants."""
+    # Bypass hand-in: the loop's independent checks must still fail this work.
     return {"write": {"other.txt": f"attempt {n}\n"}, "commit": f"attempt {n}",
-            "final": f"## Summary\nattempt {n}", "hand_in": [["done"]]}
+            "sh": 'echo \'{"kind": "done"}\' >> "$AK_HAND_IN"',
+            "final": f"## Summary\nattempt {n}"}
 
 
 class SameFailureBlocks(unittest.TestCase):
@@ -40,7 +42,7 @@ class SameFailureBlocks(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, "widgets")
         akconfig.write(cls.home, ["opus", "astra"])
-        cls.fakes = fakeadapter.install(cls.home, claude=[attempt(n) for n in range(1, 5) for _ in range(2)],
+        cls.fakes = fakeadapter.install(cls.home, claude=[attempt(n) for n in range(1, 5)],
                                         codex="pass")
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file",
                               done_when=(PASSING, FAILING))
@@ -67,7 +69,7 @@ class SameFailureBlocks(unittest.TestCase):
 
     def test_no_turn_runs_after_the_block(self):
         self.assertEqual([run["role"] for run in self.fakes["claude"].runs()],
-                         ["executor"] * 2 + ["fixer"] * 6)
+                         ["executor", "fixer", "fixer", "fixer"])
         self.assertEqual(self.fakes["codex"].n, 1)
         self.assertFalse((self.run_dir / "round-2/reviewer").exists())
         self.assertFalse((self.run_dir / "round-3").exists())
