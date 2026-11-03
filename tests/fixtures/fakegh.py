@@ -324,6 +324,8 @@ def _default_body(pr, commits, method):
 
 
 def _api(state, opts, endpoint):
+    if "--input" in opts:
+        raise Refused("fake gh: --input is not supported")
     fields = {}
     for flag in ("-f", "--raw-field", "-F", "--field"):
         for pair in opts.get(flag, ()):
@@ -360,12 +362,16 @@ def _api(state, opts, endpoint):
     slug, rest = ("/".join(parts[1:3]), parts[3]) if len(parts) == 4 else ("", "")
     if parts[0] != "repos":
         rest = ""
-    if rest == "pulls":
+    if rest == "pulls" and method == "GET":
         return [_rest(pr) for pr in state["prs"] if (pr["repo"], pr["state"]) == (slug, "OPEN")]
-    if (pull := re.fullmatch(r"pulls/(\d+)(/reviews)?", rest)):
+    if ((pull := re.fullmatch(r"pulls/(\d+)(/reviews)?", rest))
+            and method in (("GET", "POST") if pull[2] else ("GET", "PATCH"))):
         pr = _find(state, slug, pull[1])
         if not pull[2]:
-            pr.update({key: fields[key] for key in ("title", "body") if key in fields})
+            if method == "PATCH":
+                if not fields or fields.keys() - {"title", "body"}:
+                    raise Refused("fake gh: PATCH supports only title and body fields")
+                pr.update(fields)
             return _rest(pr)
         if method == "POST":
             state["ids"] += 1
