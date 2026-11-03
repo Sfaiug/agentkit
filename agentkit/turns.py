@@ -429,7 +429,8 @@ def cut_file(output, start, where, name, cap=OUT_CAP):
     output.seek(start)
     line = f"{kept(output, where, name)}\n" if size - start > cap else ""
     output.seek(max(start, size - cap))
-    return line + output.read(cap).decode("utf-8", errors="replace")
+    # A tail can start inside UTF-8; replacement characters would exceed its byte share.
+    return line + output.read(cap).decode("utf-8", errors="ignore")
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session

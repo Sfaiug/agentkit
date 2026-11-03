@@ -10,6 +10,7 @@ Offline: a temporary HOME, injected host readings and short fixture commands.
 """
 
 from contextlib import ExitStack
+import io
 import json
 import os
 from pathlib import Path
@@ -118,6 +119,18 @@ class CheckOutputWhole(unittest.TestCase):
                 ends = re.findall(r"(x+\nlast \d/2)$", text, re.M)
                 self.assertEqual(sorted(len(end) + 1 for end in ends), sizes)
                 self.assertEqual(len(NAMED.findall(text)), 2)
+
+    def test_utf8_piece_payload_stays_within_its_byte_share(self):
+        cap = turns.PIECES_CAP // 40
+        for char in ("é", "€", "🍎"):
+            with self.subTest(char=char):
+                raw = (char * 20000).encode()
+                text = turns.cut_file(io.BytesIO(raw), 0, self.run_dir, "fixture", cap)
+                header, _, payload = text.partition("\n")
+                self.assertLessEqual(len(payload.encode()), cap)
+                self.assertEqual(payload, char * (cap // len(char.encode())))
+                [path] = NAMED.findall(header)
+                self.assertEqual(Path(path).read_bytes(), raw)
 
     def test_a_check_printing_more_than_memory_holds_is_never_read_whole(self):
         for cmd in (FLOOD, FLOODS):
