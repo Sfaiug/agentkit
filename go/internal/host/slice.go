@@ -13,53 +13,10 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/tmux"
 )
 
-// What ak's slice says of its ceilings and what its runs and seats hold, as Python's orch and host
-// read them, and the one way a tick changes the runs slice.
-
-// SliceMemory is ak's slice's MemoryMax in MiB and what the slice holds outside its runs, cache
-// included, as MemoryMax counts it; false where no drop-in sets a ceiling or the slice's memory is
-// unread. The ceiling is the drop-ins', real before the slice's first process.
-func SliceMemory() (ceiling, seats int, ok bool) {
-	ceiling, set := dropInMemoryMax(tmux.Own() + ".slice")
-	held, read := megabytes(filepath.Join(sliceCgroup(), "memory.current"))
-	if !set || !read {
-		return 0, 0, false
-	}
-	runs, _ := megabytes(filepath.Join(RunsCgroup(), "memory.current"))
-	return ceiling, int(held - runs), true
-}
-
-// SliceTasks is ak's slice's task ceiling, the kernel's else its drop-ins', false where neither
-// sets one.
-func SliceTasks() (int, bool) {
-	if ceiling, ok := tasksMax(sliceCgroup()); ok {
-		return ceiling, true
-	}
-	return dropInTasksMax(tmux.Own() + ".slice")
-}
-
-// RunsTasks is the runs slice's TasksMax in its drop-ins, 0 where none names one, and the one
-// the kernel holds, false where it holds none.
-func RunsTasks() (dropIn, held int, holds bool) {
-	dropIn, _ = dropInTasksMax(filepath.Base(RunsCgroup()))
-	held, holds = tasksMax(RunsCgroup())
-	return dropIn, held, holds
-}
-
-// OthersTasksPeak is the most tasks each child of ak's slice but the runs has held, added up: a
-// child's peak counts what is under it. A pids.peak unread counts 0, as on a kernel without one.
-func OthersTasksPeak() int {
-	slice, runs, sum := sliceCgroup(), RunsCgroup(), 0
-	for _, child := range config.Glob(slice, "*") {
-		if peak, ok := number(filepath.Join(child, "pids.peak")); ok && child != runs {
-			sum += int(peak)
-		}
-	}
-	return sum
-}
+// What a slice's drop-ins set, as Python's orch reads them, and the one way a tick changes the runs
+// slice; what the kernel says of them is readings.go's.
 
 // ErrNoAnswer is a systemctl that did not answer within 5 seconds.
 var ErrNoAnswer = errors.New("systemctl did not answer")
@@ -96,14 +53,6 @@ func busEnv() []string {
 		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
 	}
 	return env
-}
-
-// tasksMax is a cgroup's pids.max, false where it says `max` or is unread.
-func tasksMax(cgroup string) (int, bool) {
-	data, err := os.ReadFile(filepath.Join(cgroup, "pids.max"))
-	text := strings.TrimFunc(string(data), config.Space)
-	value, failed := strconv.Atoi(text)
-	return value, err == nil && failed == nil && config.Digits(text)
 }
 
 // dropInTasksMax is the TasksMax a slice's drop-ins set, false where none does. The last file to
@@ -158,20 +107,6 @@ func dropInMemoryMax(slice string) (int, bool) {
 		set = true
 	}
 	return found, set
-}
-
-// memTotalMB is the host's MemTotal in whole MiB.
-func memTotalMB() (int, bool) {
-	data, _ := os.ReadFile("/proc/meminfo")
-	for _, line := range strings.Split(string(data), "\n") {
-		if rest, ok := strings.CutPrefix(line, "MemTotal:"); ok {
-			if fields := strings.Fields(rest); len(fields) > 0 {
-				kb, err := strconv.Atoi(fields[0])
-				return kb / 1024, err == nil
-			}
-		}
-	}
-	return 0, false
 }
 
 // dropInValues are the values a slice's drop-ins give key, stripped, in the order systemd reads
