@@ -16,6 +16,7 @@ import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -23,6 +24,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, job as jobs, orch, record, run, watch
 from fixtures.tick import only_passes
+from fixtures.sink import Sink
 from test_key_tick_time_is_visible import STAMP
 
 LOGGED_OUT = "GitHub is logged out: run `gh auth login -p https -w`"     # every seat's reason
@@ -60,6 +62,62 @@ class TickHealth(unittest.TestCase):
         with redirect_stdout(out):
             code = watch.main(list(argv))
         return code, out.getvalue()
+
+    def paging(self, ago=90):
+        self.stub_tick()
+        self.now = 1_000_000.0
+        self.stack.enter_context(patch.object(watch, "time", SimpleNamespace(
+            time=lambda: self.now, monotonic=time.monotonic)))
+        self.sink = self.stack.enter_context(Sink(SimpleNamespace(env=os.environ)))
+        watch.save_state({"tick": {"started_at": self.now - ago * 60 - 10,
+                                  "ended_at": self.now - ago * 60,
+                                  "slowest": {"pass": "", "seconds": 0}}})
+        self.lock = watch.tick_lock_path()
+        self.lock.write_text("4242\n")
+        os.utime(self.lock, (self.now - 180, self.now - 180))
+
+    def test_uncaught_crashes_never_advance_the_page_clock_or_announce_recovery(self):
+        self.paging(ago=36)
+
+        def crash():
+            raise RuntimeError("pass crashed before live update")
+
+        with patch.object(watch, "local_passes", return_value=[("broken pass", crash, False)]):
+            for _ in range(22):
+                os.utime(self.lock, (self.now - 180, self.now - 180))
+                with self.assertRaises(RuntimeError):
+                    self.tick()
+                self.now += 180
+        self.assertEqual(len(self.sink.pages()), 1)
+        self.assertTrue(self.sink.pages()[0].startswith("🔴 ak ticks stopped ending"))
+        self.tick()
+        self.assertEqual(len(self.sink.pages()), 2)
+        self.assertTrue(self.sink.pages()[1].startswith("ak ticks end again"))
+        self.tick()
+        self.assertEqual(len(self.sink.pages()), 2)
+
+    def test_late_observers_cannot_reopen_recovery_or_suppress_a_later_stop(self):
+        self.paging()
+        read_holder = watch.tick_holder
+        for index, same_stamp in enumerate((True, False), 1):
+            held = self.hold_the_lock(since=self.now - 3660)
+            self.tick()
+
+            def finish_before_notice():
+                snapshot = read_holder()
+                if same_stamp:
+                    with patch.object(watch, "tick_lock", return_value=held):
+                        self.tick()
+                else:
+                    held.close()
+                    self.tick()
+                return snapshot
+
+            with patch.object(watch, "tick_holder", finish_before_notice):
+                self.tick()
+            self.assertFalse((config.STATE / "watch.tick.page.json").exists())
+            self.assertEqual(len(self.sink.pages()), index * 2)
+            self.now += 7200
 
     @contextmanager
     def as_cron(self):

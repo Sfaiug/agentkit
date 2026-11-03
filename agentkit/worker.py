@@ -397,11 +397,20 @@ def _lineage():
 def marked_pids(run_id, exact=False):
     """Every pid carrying the given marker or below it, except this process and its ancestors.
 
+    A kill from inside a run must not take the run that asked for it.
+    """
+    if not run_id:
+        return []
+    skip = _lineage()
+    return [pid for pid in run_pids(run_id, exact=exact) if pid not in skip]
+
+
+def run_pids(run_id, exact=False):
+    """Every pid carrying the given marker or below it, including this process and its ancestors.
+
     Found by scanning /proc/*/environ, so a child that left its process group -- setsid,
     a double fork, a harness that starts each shell command as its own session leader --
-    is still one of the run's.  The caller and its ancestors are never among them,
-    whatever marker they carry and whatever marker was asked for: a kill from inside a run
-    must not take the run that asked for it.  Entries are matched whole, so one run marker
+    is still one of the run's. Entries are matched whole, so one run marker
     is never a prefix of another's -- except below a slash: `<marker>/suite` is the run's
     own suite, so a sweep of the run ends it too, while a sweep of the suite ends only
     the suite.  `exact` matches only the marker itself: a failed turn's cleanup ends
@@ -411,7 +420,6 @@ def marked_pids(run_id, exact=False):
     """
     if not run_id:
         return []
-    skip = _lineage()
     want = f"{RUN_MARKER}={run_id}".encode()
     prefix = want + b"/"
     try:
@@ -421,8 +429,6 @@ def marked_pids(run_id, exact=False):
     found = []
     for entry in entries:
         pid = int(entry)
-        if pid in skip:
-            continue
         try:
             with open(f"/proc/{pid}/environ", "rb") as fh:
                 env = fh.read()

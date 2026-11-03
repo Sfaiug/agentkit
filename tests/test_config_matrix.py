@@ -527,6 +527,31 @@ class Matrix(unittest.TestCase):
         self.assertLessEqual(top, 5)
         self.assertLess(5, top + room)
 
+    def test_many_notches_page_a_tall_row_before_moving_to_the_next_row(self):
+        rows = [("row", "before"), ("model", "acme"), ("row", "after")]
+        body = [""] * 15
+        places = {0: (rows[0], []), **{line: (rows[1], []) for line in range(1, 14)},
+                  14: (rows[2], [])}
+        for direction, start, last, next_row in (("down", 0, 13, rows[2]),
+                                                ("up", 10, 1, rows[0])):
+            with self.subTest(direction=direction), \
+                    mock.patch.object(terminal, "height", return_value=11), \
+                    mock.patch.object(terminal, "frame", return_value={}), \
+                    mock.patch.object(terminal, "read_key", return_value=terminal.Key(
+                        f"wheel-{direction}", notches=300)):
+                _, here, _, top = menu.matrix_key(
+                    "config", body, places, rows, rows[1], start, "", "esc back")
+                self.assertEqual(here, rows[1])
+                self.assertNotEqual(top, start)
+                _, room = menu.matrix_page(body, places, here, top, [], "esc back")
+                self.assertLessEqual(top, last)
+                self.assertLess(last, top + room)
+                # Only the next swipe can leave the row, then further swipes stay at the end.
+                for _ in range(2):
+                    _, here, _, top = menu.matrix_key(
+                        "config", body, places, rows, here, top, "", "esc back")
+                    self.assertEqual(here, next_row)
+
 
 if __name__ == "__main__":
     unittest.main()

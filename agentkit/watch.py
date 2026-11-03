@@ -205,17 +205,20 @@ def tick_lock():
 
 
 def tick_holder():
-    """(pid, seconds it has been holding) of whoever has the lock, off the file it wrote."""
+    """(pid, start stamp) from one observation of the file the holder wrote."""
     path = tick_lock_path()
     try:
-        pid = int(path.read_text(encoding="utf-8").strip() or 0)
-    except (OSError, ValueError):
-        pid = 0
-    try:
-        holding = max(0.0, time.time() - path.stat().st_mtime)
+        with path.open(encoding="utf-8") as handle:
+            stamp = os.fstat(handle.fileno())
+            try:
+                pid = int(handle.read().strip() or 0)
+            except ValueError:
+                pid = 0
+            if os.fstat(handle.fileno()).st_mtime_ns == stamp.st_mtime_ns:
+                return pid, stamp.st_mtime
     except OSError:
-        holding = 0.0
-    return pid, holding
+        pass
+    return 0, time.time()   # missing or changing: no evidence of a long-running holder
 
 
 def tick_running():
@@ -232,9 +235,48 @@ def tick_running():
         try:
             fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError:
-            return tick_holder()
+            pid, began = tick_holder()
+            return pid, max(0.0, time.time() - began)
         fcntl.flock(handle, fcntl.LOCK_UN)
     return None
+
+
+def tick_notice(*, since=None, line=None, ended=None, log=print):
+    """One page per stop, then one unmentioned back line, retried only while each is due."""
+    path = config.STATE / "watch.tick.page.json"
+    try:
+        # The stopped tick may hold watch.json's lock inside a pass. Its page must not wait
+        # on it; this lock only serialises notices from overlapping cron processes.
+        with path.with_suffix(".lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                stop = json.loads(path.read_text())
+            except (OSError, ValueError):
+                stop = {}
+            if since is not None:
+                # A holder may have finished while this observer was paused. The completion
+                # clock survives deleting its notice, so a late look cannot reopen it.
+                if since < generation(load_state().get("tick_completed_at")):
+                    return
+                if not stop or stop.get("back"):
+                    stop = {"since": since}
+                    # Keep the episode before sending: a sender killed after delivery still
+                    # owes its back line, and the outbox already owns deduplication.
+                    orch.replace_file(path, json.dumps(stop).encode())
+                notify.page(f"tick-stopped:{stop['since']}", "ak ticks", line, line=line,
+                            owed=True)
+            elif stop:
+                if notify.paged(f"tick-stopped:{stop['since']}"):
+                    from .alive import lasted
+                    back = stop.setdefault("back", ended)
+                    orch.replace_file(path, json.dumps(stop).encode())
+                    line = f"ak ticks end again after {lasted(back - stop['since'])}"
+                    if notify.page(f"tick-back:{stop['since']}", "ak ticks", line, line=line,
+                                   owed=True, mention=False):
+                        return
+                path.unlink(missing_ok=True)
+    except PASS_ERRORS as exc:
+        log(f"WARN tick notification did not run: {exc}")
 
 
 def same_file(stream, found):
@@ -7889,6 +7931,50 @@ def after_merge_checks(state, dry_run, log, now=None):
         close_health()
 
 
+def runs_health():
+    """The run census and whether any dead active run has outlasted the tick's recovery."""
+    now = time.time()
+    today = time.localtime(now)[:3]
+    try:
+        tick = load_state()["tick"]
+        took = tick["ended_at"] - tick["started_at"]
+    except (KeyError, TypeError):
+        took = 0
+    grace = max(180, 2 * took)   # cron's three-minute interval is the floor
+    going = ended = 0
+    owed, dead, stuck = [], [], False
+    processes = None
+    for run_dir, state in run_record.runs():
+        word, finished = state.get("state"), state.get("finished_at")
+        going += word in run_record.GOING
+        dated = isinstance(finished, (int, float)) and not isinstance(finished, bool)
+        ended += word in run_record.ENDED and dated and time.localtime(finished)[:3] == today
+        if handback.owes_ending(state):
+            owed.append(now - (finished if dated else run_last_write(run_dir)))
+        if word not in run_record.ACTIVE or run_record.process_active(state):
+            continue
+        if processes is None:
+            processes = {pid: args for pid, (_, status, args) in _proc_table().items()
+                         if status not in ("Z", "X")}
+        # Count ancestors too: doctor may be called by a surviving worker after its loop died.
+        if any(pid in processes for pid in worker.run_pids(str(run_dir))):
+            continue
+        resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
+        if any(args == resume or args == [sys.executable, *resume]
+               for args in processes.values()):
+            continue
+        age = now - run_last_write(run_dir)
+        dead.append(f"{run_dir.name} ({terminal_mod.format_age(age)} since last write)")
+        stuck |= age >= grace
+    pending = f"{len(owed)} ending{'s' if len(owed) != 1 else ''} owed"
+    if owed:
+        pending += f", oldest {terminal_mod.format_age(max(owed))}"
+    line = f"{going} going · {ended} ended today · {pending}"
+    if dead:
+        line += f" · dead: {', '.join(dead)}"
+    return line, stuck
+
+
 def doctor(argv):
     """`ak doctor`: where the agents run, whether the tick that watches them is alive, what each
     machine ak may use is, and any model set to an effort its model does not take, its `effort`
@@ -7898,16 +7984,18 @@ def doctor(argv):
     trouble -- which is the host this is typed on -- and come out before the efforts, which
     ask each harness for its models.  A model the owner set to an effort it does not take is
     named here and left as it is: the owner chose it, and the `c` screen is where it changes.
-    Exits 1 when the tick reads as hung, after everything else has been said.
+    Exits 1 when the tick reads as hung or a dead run outlasts two ticks, after everything else
+    has been said. Endings owed to a busy seat are shown, however old, and never fail it.
     """
     if command_help.show("doctor", argv):
         return 0
     if argv:
         raise config.Error(f"usage: ak doctor  (got {argv[0]!r})")
-    # the slice line says its own name, so only the tick's needs one
     print(orch.slice_line())
     tick, hung = tick_health()
     print(f"tick  {tick}", flush=True)
+    runs, stuck = runs_health()
+    print(f"runs  {runs}", flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)
@@ -7927,7 +8015,7 @@ def doctor(argv):
     except config.Error as exc:
         lines = [str(exc)]
     print("\n".join(f"rented machines: {line}" for line in lines))
-    return 1 if hung else 0
+    return 1 if hung or stuck else 0
 
 
 # What a pass of the tick may raise and leave the rest of the tick to run: the pass says so in
@@ -8140,14 +8228,24 @@ def main(argv):
     else:
         stamp_log()
         config.ensure_dirs()
+        try:
+            previous = tick_lock_path().stat().st_mtime   # before the lock stamps our start
+        except OSError:
+            previous = None
         held = tick_lock()
         if held is None:
-            pid, holding = tick_holder()
+            pid, started = tick_holder()
+            holding = max(0.0, time.time() - started)
             minutes = int(holding // 60)
             log(f"tick already running (pid {pid}, for {minutes} min)")
             if holding >= TICK_HUNG:
                 log(f"WARN the tick holding the lock has been running for {minutes} min; "
                     "look at it, and kill it if it is hung")
+            # An hour is the page floor: a 36-minute tick has ended unaided here.
+            if holding >= 2 * TICK_HUNG:
+                tick_notice(since=started,
+                            line=f"🔴 ak ticks stopped ending · pid {pid} has held the lock "
+                                 f"for {minutes} min", log=log)
             return 0
     # one reading of the process table for the whole tick: every seat it looks at is told
     # from a watcher loop by the same `ps`
@@ -8166,7 +8264,19 @@ def main(argv):
                     log(f"{name} took {took:.1f} s")
                 slowest = max(slowest, (took, name))
 
+        crashed = False
         try:
+            if not dry_run:
+                tick = state.get("tick")
+                last = generation(tick.get("ended_at")) if isinstance(tick, dict) else 0
+                # The doctor's end records an exit even on an exception. Paging needs a
+                # clock only a tick without an uncaught failure can advance.
+                since = generation(state.setdefault("tick_completed_at", last or began))
+                # A recent start distinguishes repeated failures from a host or cron gap.
+                if (since and began - since >= 2 * TICK_HUNG and previous is not None
+                        and began - previous < TICK_HUNG):
+                    tick_notice(since=since, line="🔴 ak ticks stopped ending · no tick has "
+                                f"ended for {int((began - since) // 60)} min", log=log)
             for name, step, also_dry in local_passes(state, dry_run, log):
                 if also_dry or not dry_run:
                     try:
@@ -8195,6 +8305,9 @@ def main(argv):
             timed("incoming prs", lambda: incoming(state, me, dry_run, log))
             timed("outgoing prs", lambda: outgoing(state, me, dry_run, log))
             return 0
+        except BaseException:
+            crashed = True
+            raise
         finally:
             # However the tick ends, the next one and `ak doctor` find when it ran and what
             # held it up most; a dry run writes nothing.
@@ -8202,4 +8315,8 @@ def main(argv):
                 took, name = slowest
                 state["tick"] = {"started_at": began, "ended_at": time.time(),
                                  "slowest": {"pass": name, "seconds": round(took, 1)}}
+                if not crashed:
+                    state["tick_completed_at"] = state["tick"]["ended_at"]
                 save_state(state)
+                if not crashed:
+                    tick_notice(ended=state["tick"]["ended_at"], log=log)
