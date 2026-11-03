@@ -880,7 +880,7 @@ def how_to_integrate(lp):
     brings origin in without touching what is already there.  Everything else rebases, so the
     common case still arrives at the PR as a straight line on top of the target.
     """
-    if lp.state["merge_method"] == "merge":
+    if lp.state.get("merge_method") == "merge":
         return "merge"
     merges = gitcall.git(lp.wt, "rev-list", "--merges", f"{lp.base_sha}..HEAD", check=False)
     return "merge" if merges else "rebase"
@@ -915,21 +915,24 @@ def rebase_for_review(lp):
     head = gitcall.git(lp.wt, "rev-parse", "HEAD")
     if integrated(lp.wt, tip) or target_disjoint_from_branch(lp.wt, lp.base_sha, head, tip):
         return
-    # The old reviewed commit leaves the branch. Review the whole change; never map it.
+    # Integration changes the review's base. Review the whole change; never map the old head.
     lp.state.pop("delta_from", None)
     lp.save()
-    lp.log(f"--- round {lp.rnd}: rebasing onto {lp.upstream} ({tip[:12]})")
+    how = how_to_integrate(lp)
+    verb = "merging" if how == "merge" else "rebasing"
+    lp.log(f"--- round {lp.rnd}: {verb} onto {lp.upstream} ({tip[:12]})")
     try:
-        code, out = gitcall.git_out(lp.wt, "rebase", "--rebase-merges", tip)
+        code, out = (gitcall.merge(lp.wt, tip) if how == "merge"
+                     else gitcall.git_out(lp.wt, "rebase", tip))
         if code:
             with released_gate_turn():
-                if not resolve_conflicts(lp, lp.upstream, out, "rebase", tip, recheck=False):
+                if not resolve_conflicts(lp, lp.upstream, out, how, tip, recheck=False):
                     raise turns.Exhausted(lp.state["merge_note"])
             lp.step("done-when")
     except gitcall.Stopped:
-        abort_stopped_integration(lp, "rebase")
+        abort_stopped_integration(lp, how)
         raise
-    lp.state.setdefault("rebases", []).append({"round": lp.rnd, "onto": tip})
+    lp.state.setdefault("rebases", []).append({"round": lp.rnd, "onto": tip, "method": how})
     set_base(lp, tip)
 
 
@@ -1406,7 +1409,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         # re-review (`record` off: the repair that brought it here is nobody's fix round),
         # the whole change is judged again
         delta = prompts.reviewed_before(lp, delta_from, at) if record and earlier else None
-        if record and delta_from and earlier:
+        if record and earlier:
             # a later round, on a new commit or the same again: ak re-proves the earlier findings.
             # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh:
             # listed, not replayed

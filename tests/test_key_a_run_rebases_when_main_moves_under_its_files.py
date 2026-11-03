@@ -28,7 +28,7 @@ def edit(text, command=None):
 
 
 class Round:
-    elsewhere = conflict = fix = False
+    elsewhere = conflict = fix = unfixed = merge = False
 
     @classmethod
     def setUpClass(cls):
@@ -56,7 +56,8 @@ class Round:
         git = f"git -C {shlex.quote(str(sibling))}"
         push = f"{git} add -A && {git} commit -qm sibling && {git} push -q origin HEAD:main"
         if cls.fix:
-            writer.behave(edit("worker broken\n" + TAIL), edit("worker fixed\n" + TAIL, push))
+            fixed = "worker broken\n" if cls.unfixed else "worker fixed\n"
+            writer.behave(edit("worker broken\n" + TAIL), edit(fixed + TAIL, push))
             fakes["codex"].behave({"hand_in": [
                 ["finding", "widget.txt:1", "broken widget", "the widget is broken", "--run",
                  "! grep -q broken widget.txt"], ["done"]], "final": "Found a defect."}, "pass")
@@ -66,6 +67,13 @@ class Round:
                 "sh": f"printf %s {resolved} > widget.txt && git add widget.txt && "
                       "GIT_EDITOR=true git rebase --continue",
                 "hand_in": [["done"]], "final": "Resolved both sides."})
+        elif cls.merge:
+            merge = (f"git add -A && git commit -qm worker && git checkout -qb side {cls.base} && "
+                     "printf side > side.txt && git add side.txt && git commit -qm side && "
+                     "git checkout -q - && git merge --no-ff --no-commit side && "
+                     "printf 'required merge work' > merge-only.txt && git add merge-only.txt && "
+                     "git commit -qm 'merge with work' && ")
+            writer.behave(edit("worker start\n" + TAIL, merge + push))
         else:
             writer.behave(edit("worker start\n" + TAIL, push))
         task = taskfile.write(home, rig.path, front={"rounds": 2 if cls.fix else 1})
@@ -74,10 +82,11 @@ class Round:
         cls.state = json.loads((cls.run_dir / "run.json").read_text())
         cls.sibling = home.run("git", "-C", str(sibling), "rev-parse", "HEAD").out.strip()
 
-    def test_the_run_passes_with_no_extra_task_round(self):
-        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
-        self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
-        expected = ["FAIL", "PASS"] if self.fix else ["PASS"]
+    def test_the_run_uses_no_extra_task_round(self):
+        self.assertEqual(self.done.code, int(self.unfixed), self.done.out + self.done.err)
+        self.assertEqual((self.state["state"], self.state["merged"]),
+                         ("fail", False) if self.unfixed else ("pass", True))
+        expected = ["FAIL", "FAIL" if self.unfixed else "PASS"] if self.fix else ["PASS"]
         self.assertEqual(self.state["rounds"], len(expected))
         self.assertEqual([r["verdict"] for r in self.state["round_summaries"]], expected)
         self.assertTrue(all(r["done_when"] for r in self.state["round_summaries"]))
@@ -100,7 +109,8 @@ class Round:
 
     def test_the_record_names_each_rebase_and_its_round(self):
         self.assertEqual(self.state.get("rebases", []), [] if self.elsewhere else [
-            {"round": 2 if self.fix else 1, "onto": self.sibling}])
+            {"round": 2 if self.fix else 1, "onto": self.sibling,
+             "method": "merge" if self.merge else "rebase"}])
 
 
 class SameFile(Round, unittest.TestCase):
@@ -109,6 +119,14 @@ class SameFile(Round, unittest.TestCase):
 
 class OtherFile(Round, unittest.TestCase):
     elsewhere = True
+
+
+class MergeWork(Round, unittest.TestCase):
+    merge = True
+
+    def test_work_recorded_in_the_merge_commit_reaches_the_review(self):
+        reviewed = self.state["round_summaries"][0]["head_sha"]
+        self.assertEqual(self.rig.git("show", f"{reviewed}:merge-only.txt"), "required merge work")
 
 
 class SameLines(Round, unittest.TestCase):
@@ -130,6 +148,16 @@ class FixRound(Round, unittest.TestCase):
         self.assertIn("diff --git a/retry.txt b/retry.txt", prompt)
         self.assertNotIn("## Fix delta (", prompt)
         self.assertNotIn("sibling tail", prompt)
+
+
+class UnfixedRound(Round, unittest.TestCase):
+    fix = unfixed = True
+
+    def test_a_done_only_review_cannot_drop_a_still_failing_earlier_proof(self):
+        prompt = (self.run_dir / "round-2/reviewer/prompt.md").read_text()
+        self.assertIn("## Earlier findings, re-proven by ak", prompt)
+        self.assertIn("broken widget - still fails", prompt)
+        self.assertEqual(self.state["round_summaries"][1]["finding_count"], 1)
 
 
 if __name__ == "__main__":
