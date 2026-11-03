@@ -88,9 +88,7 @@ func (r *repoPlace) deliver(l *loop) error {
 	return r.land(l, upstream, func() error { return r.forkAndPR(l, target, repo, permission) })
 }
 
-// requireReviewPass ends a delivery that has no review of the commit it would deliver.  A Go
-// driver is the program it started as, so Python's pickup of newer code before landing has
-// nothing to pick up.
+// requireReviewPass ends a delivery that has no review of the commit it would deliver.
 func (r *repoPlace) requireReviewPass(l *loop) error {
 	passed, current, err := r.reviewed(l)
 	switch {
@@ -147,7 +145,8 @@ func (r *repoPlace) park(l *loop, reason, ref, sha string) error {
 }
 
 // land is Python's land off a landing line: the work is verified on the target's tip, then
-// delivered under the delivery lock while that tip is still the one verified.
+// delivered under the delivery lock while that tip is still the one verified.  A Go driver is the
+// program it started as, so Python's pickup of newer code before landing has nothing to pick up.
 func (r *repoPlace) land(l *loop, upstream string, deliver func() error) error {
 	return r.landingMark(l, func() error {
 		if ok, err := r.integrate(l, upstream); err != nil || !ok {
