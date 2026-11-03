@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -147,6 +148,9 @@ func report(dir string, record *run.Object, cmds []string) string {
 				parts = append(parts, "") // Python's followup_report closes its own block too
 			}
 		}
+	}
+	if followups := handback.FollowupReport(record); followups != "" {
+		parts = append(parts, followups, "")
 	}
 	if onward := run.ContinueLine(record, dir, time.Now()); onward != "" {
 		parts = append(parts, onward, "")

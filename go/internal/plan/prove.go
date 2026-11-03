@@ -181,8 +181,8 @@ func (on *branch) passes(ctx context.Context, tree, check string) (bool, error) 
 }
 
 // rootOf is the repository a checkout holds, as no other one can: its first root commit, abbreviated.
-func rootOf(env []string, dir string) string {
-	out, _ := git(context.Background(), env, dir, "rev-list", "--max-parents=0", "HEAD")
+func rootOf(env []string, dir, at string) string {
+	out, _ := git(context.Background(), env, dir, "rev-list", "--max-parents=0", at)
 	roots := strings.Fields(out)
 	if len(roots) == 0 {
 		return ""
