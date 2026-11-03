@@ -738,14 +738,14 @@ def wait_line(timeout, wake=None):
     return True
 
 
-class Key(namedtuple("Key", "name char col row", defaults=("", 0, 0))):
+class Key(namedtuple("Key", "name char col row notches", defaults=("", 0, 0, 1))):
     """One key off a keyboard read a key at a time: `name` says which.
 
     up, down, left, right, home, end, enter, esc, backspace, tab, space; `char`, the one that
     carries a character; `click`, a left click at `col` and `row`, counted from 1 the way the
     terminal counts them, read when the button comes up; `point`, the pointer moved to `col` and
-    `row`, a button down or not; `wheel-up` and `wheel-down`; `eof`, a keyboard that is gone or
-    ^D; and `other` for a sequence no screen asks about.
+    `row`, a button down or not; `wheel-up` and `wheel-down`, `notches` of it (`wheel-side` is
+    none); `eof`, a keyboard that is gone or ^D; and `other` for a sequence no screen asks about.
     """
     __slots__ = ()
 
@@ -1076,6 +1076,8 @@ def read_key(timeout=None, wake=None):
         key = _key(fd)
         if key is None:            # the button went down: the click is when it comes up
             _PRESSED = True
+        elif key.name.startswith("wheel"):
+            key = _notches(key, fd)
         elif key.name == "answer":     # the terminal's, to `sense`, and no key at all
             key = None
         elif key.name == "click":  # and a button that went down before the keyboard was taken
@@ -1176,7 +1178,7 @@ def _sequence(fd):
         except ValueError:
             return Key("other")
         if button & 64:
-            return Key({0: "wheel-up", 1: "wheel-down"}.get(button & 3, "other"))
+            return Key({0: "wheel-up", 1: "wheel-down"}.get(button & 3, "wheel-side"))
         if button & 32:
             return Key("point", "", col - _PAD, row - _PAD)
         if not button & 99:        # the left button, not a drag: going down is half a click
@@ -1188,9 +1190,31 @@ def _sequence(fd):
                 b"H": "home", b"F": "end"}.get(final, "other"))
 
 
+def _notches(key, fd):
+    """`key`, off the wheel, and every wheel report already sent after it, read whole: one key
+    as far as all of them go, or None where they cancel out.  A trackpad swipe sends a report a
+    row of travel, faster than a screen draws; a draw each went on for seconds after the finger
+    stopped, 21 s past the top of the list (3 Nov 2026)."""
+    global _KEYED
+    notches = step(key)
+    while True:
+        raw = b""
+        while byte := _byte(fd, 0):
+            raw += byte
+            if raw[:1] != b"\x1b" or byte in b"Mm" or raw[1:] and byte not in b"[<0123456789;":
+                break
+        report = re.fullmatch(rb"\x1b\[<(\d+);\d+;\d+[Mm]", raw)
+        if not report or not int(report[1]) & 64:
+            _KEYED = raw + _KEYED          # the next key's, as it was sent
+            return notches and Key("wheel-down" if notches > 0 else "wheel-up",
+                                   notches=abs(notches)) or None
+        notches += step(Key({0: "wheel-up", 1: "wheel-down"}.get(int(report[1]) & 3, "")))
+
+
 def step(key):
-    """-1, 1 or 0: how far a key moves a highlight -- ↑/↓, k/j and the wheel -- through a list."""
-    return ({"up": -1, "wheel-up": -1, "down": 1, "wheel-down": 1}.get(key.name)
+    """How far a key moves a highlight through a list, up less than 0: ↑/↓ and k/j a row, the
+    wheel a row a notch."""
+    return ({"up": -1, "wheel-up": -key.notches, "down": 1, "wheel-down": key.notches}.get(key.name)
             or {"k": -1, "j": 1}.get(key.char, 0))
 
 
