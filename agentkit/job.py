@@ -225,6 +225,7 @@ def job_create(cfg, task_paths, opts, parallel):
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         gitcall.repo_line(info["meta"], info["path"])
+        run.require_project_contract(run.launch_checkout(info["path"]))
     if not opts.get("--anyway"):
         for info in infos:
             rivals = run.already_under_way(info["path"], info["meta"], info["title"], info["cmds"])
@@ -688,6 +689,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
                                       run.launch_policy(task_path)["review_rounds"])
     if refusal:
         raise RefusedTask(refusal)
+    run.require_project_contract(run.launch_checkout(task_path))
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()

@@ -65,7 +65,7 @@ class TurnedAwayForRoom(unittest.TestCase):
         home.fake("ssh", f"#!{sys.executable}\n" + SSH.format(calls=str(calls),
                                                                 turned=str(turned)))
         rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
+            "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
             "suite.py": SUITE.format(here=address),
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")

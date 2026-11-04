@@ -1163,7 +1163,9 @@ newrepo() {
   local d="$WORK/$1"; mkdir -p -- "$d"
   git init -q -b main -- "$d"
   git -C "$d" config user.email smoke@localhost; git -C "$d" config user.name smoke
+  printf -- '---\ntests: none\nhealth: none\n---\n' >"$d/AGENTS.md"
   : >"$d/.keep"; git -C "$d" add -A; git -C "$d" commit -qm init
+  git -C "$d" update-ref refs/remotes/origin/HEAD HEAD
   printf '%s' "$d"
 }
 echo "workdir: $WORK"

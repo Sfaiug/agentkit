@@ -41,7 +41,7 @@ exit $code
 
 def rules(suite):
     """An AGENTS.md declaring `suite` as the `tests:` line."""
-    return f"---\ntests: {suite}\n---\n# acme\n"
+    return f"---\ntests: {suite}\nhealth: none\n---\n# acme\n"
 
 
 class Line:

@@ -157,6 +157,7 @@ sys.exit(1)
         self.git(path, "config", "user.email", "fixture@localhost")
         self.git(path, "config", "user.name", "fixture")
         (path / "keep").write_text("seed\n")
+        (path / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
         self.git(path, "add", "-A")
         self.git(path, "commit", "-qm", "seed")
         bare = self.root / "repo.git"
@@ -164,6 +165,7 @@ sys.exit(1)
                        capture_output=True)
         self.git(path, "remote", "add", "origin", str(bare))
         self.git(path, "push", "-q", "origin", "main")
+        self.git(path, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
         return path
 
     def repo_task(self, name, title, repo, rounds=1):

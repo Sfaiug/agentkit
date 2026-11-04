@@ -63,7 +63,7 @@ class LostPiecesGoToAnotherMachine(unittest.TestCase):
         home.env.pop("AK_MAX_RUNS")
         home.fake("ssh", f"#!{sys.executable}\n" + SSH.format(calls=str(calls), room=str(room)))
         rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
+            "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
             "suite.py": SUITE.format(here=address),
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")

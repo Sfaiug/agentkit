@@ -84,7 +84,7 @@ class Round:
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        files = {"AGENTS.md": f"---\ntests: {cls.suite}\n---\n# widgets\n", "suite.sh": SUITE_SH,
+        files = {"AGENTS.md": f"---\nhealth: none\ntests: {cls.suite}\n---\n# widgets\n", "suite.sh": SUITE_SH,
                  "widget.txt": "v1\n", **{f"tests/{n}": t for n, t in cls.tests.items()}}
         cls.rig = Rig(cls.home, "widgets", files=files)
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
@@ -170,7 +170,7 @@ class ConflictingSibling(Round, unittest.TestCase):
     @classmethod
     def during(cls):
         conflicting = {"widget.txt": "v3\n", "suite-next.sh": SUITE_SH,
-                       "AGENTS.md": '---\ntests: sh suite-next.sh "$AK_CHANGED"\n---\n# widgets\n'}
+                       "AGENTS.md": '---\nhealth: none\ntests: sh suite-next.sh "$AK_CHANGED"\n---\n# widgets\n'}
         cls.fakes["claude"].behave(
             edit({"widget.txt": "v2\n"}, sibling(cls, conflicting)),
             {"sh": "echo v3 v2 > widget.txt && git add widget.txt && "

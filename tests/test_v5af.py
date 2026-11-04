@@ -130,6 +130,7 @@ class V5af(unittest.TestCase):
         run.git(self.root, "clone", str(self.remote), str(self.target))
         self.identity(self.target)
         (self.target / "base.txt").write_text("base\n")
+        (self.target / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
         run.git(self.target, "add", ".")
         run.git(self.target, "commit", "-m", "baseline")
         run.git(self.target, "push", "origin", "main")

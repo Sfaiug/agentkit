@@ -109,7 +109,7 @@ class BranchAddsAnUnreadLine(RunOn, unittest.TestCase):
 class BranchMakesItALink(RunOn, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.start(work(sh="ln -s RULES.md AGENTS.md"), "--no-merge",
+        cls.start(work(sh="ln -sf RULES.md AGENTS.md"), "--no-merge",
                   files={"RULES.md": "---\nusers: none\n---\n# widgets\n"})
 
     def test_the_round_fails_naming_the_link(self):
@@ -120,7 +120,7 @@ class BranchMakesItALink(RunOn, unittest.TestCase):
 class BaseAlreadyHoldsAnUnreadLine(RunOn, unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.start("work", "--no-merge", files={"AGENTS.md": "---\ncolour: red\n---\n# w\n"})
+        cls.start("work", "--no-merge", files={"AGENTS.md": "---\ntests: none\nhealth: none\ncolour: red\n---\n# w\n"})
 
     def test_a_run_that_leaves_agents_md_alone_passes(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)

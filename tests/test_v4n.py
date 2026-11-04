@@ -89,7 +89,7 @@ class CodexSeats(Sandbox):
 class LaunchAndCache(Sandbox):
     def test_launch_owner_precedes_preflight_and_survives_background_fork(self):
         task = self.root / "task.md"
-        task.write_text("---\nrounds: 1\n---\n# Task\n\n## Done when\n```bash\ntrue\n```\n")
+        task.write_text("---\nrepo: none\nrounds: 1\n---\n# Task\n\n## Done when\n```bash\ntrue\n```\n")
         for args in ([str(task), "--bg"], ["--review-pr", "https://github.com/o/r/pull/1", "--bg"]):
             with self.subTest(args=args), patch.object(config, "current_session", return_value="seat"):
                 def preflight(directory, *_):

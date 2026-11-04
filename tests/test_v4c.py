@@ -594,8 +594,10 @@ sys.exit(item.get("rc", 0))
         git("config", "user.email", "smoke@localhost")
         git("config", "user.name", "smoke")
         (repo / "seed").touch()
+        (repo / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
         git("add", ".")
         git("commit", "-m", "seed")
+        git("update-ref", config.RULES_REF, "HEAD")
         home = self.root / "worker-home"
         envdir = home / ".agentkit" / "env"
         envdir.mkdir(parents=True)
@@ -607,6 +609,7 @@ sys.exit(item.get("rc", 0))
             path = adapters / f"{harness}.sh"
             path.write_text(scripted('''#!/bin/sh
 if [ "$1" = usage ]; then echo '{"meters":[],"error":"offline"}'; exit 0; fi
+if [ "$1" = auth ]; then exit 0; fi
 mkdir -p "$6"
 printf '%s\\n' "$V4C_SECRET" >"$6/env-seen"
 case "$0" in

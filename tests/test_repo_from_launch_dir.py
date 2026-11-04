@@ -57,9 +57,12 @@ class RepoFromLaunchDir(Sandbox):
     def checkout(self, name):
         path = self.root / name
         subprocess.run(["git", "init", "-q", "-b", "main", str(path)], check=True)
+        (path / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
+        subprocess.run(["git", "-C", str(path), "add", "AGENTS.md"], check=True)
         subprocess.run(["git", "-C", str(path), "-c", "user.name=Fixture", "-c",
                         "user.email=fixture@localhost", "commit", "-q", "--allow-empty",
                         "-m", "fixture"], check=True)
+        subprocess.run(["git", "-C", str(path), "update-ref", config.RULES_REF, "HEAD"], check=True)
         return path
 
     def start(self, argv, _unit, env, _output, **_kw):

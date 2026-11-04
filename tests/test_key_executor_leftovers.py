@@ -42,7 +42,7 @@ class ExecutorLeftovers(unittest.TestCase):
     def test_the_uncommitted_work_is_committed_on_the_run_branch_without_the_junk(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
-        self.assertEqual(self.rig.files(BRANCH, remote=False), [".keep", "retry.txt"])
+        self.assertEqual(self.rig.files(BRANCH, remote=False), [".keep", "AGENTS.md", "retry.txt"])
         self.assertEqual(self.rig.git("rev-list", "--count", f"main..{BRANCH}"), "1")
         self.assertEqual(self.rig.git("log", "-1", "--format=%s", BRANCH), "Add retry file")
 

@@ -114,7 +114,9 @@ class SeatRulebook(Opening, unittest.TestCase):
 
     def project(self, name, body):
         """A project whose clone has not fetched since its first push: no origin/HEAD yet."""
-        return Rig(self.home, name, files={"AGENTS.md": FRONT + body + "\n"})
+        rig = Rig(self.home, name, files={"AGENTS.md": FRONT + body + "\n"})
+        rig.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+        return rig
 
     def merge_elsewhere(self, rig, body):
         """AGENTS.md changed on the origin's main by another clone, unseen by the project's."""
@@ -153,7 +155,10 @@ class SeatRulebook(Opening, unittest.TestCase):
         nowhere = self.home.path / "code" / "nowhere"
         nowhere.mkdir(parents=True)
         unruled = Rig(self.home, "unruled")
+        unruled.git("rm", "AGENTS.md")
+        unruled.commit({}, "remove rules")
         linked = Rig(self.home, "linked", files={"docs/rules.md": "Always FROBNICATE.\n"})
+        (linked.path / "AGENTS.md").unlink()
         (linked.path / "AGENTS.md").symlink_to("docs/rules.md")
         linked.commit({}, "link the rules")
         for seat, cwd in (("nowhere", nowhere), ("unruled", unruled.path),

@@ -143,7 +143,7 @@ class UsagePerModel(unittest.TestCase):
         self.assertIsNone(answer["anvil"]["high"])
 
     def test_new_pairs_record_the_turns_model_effort_run_and_role(self):
-        rig = Rig(self.home, "widgets", files={"AGENTS.md": "---\ntests: true\n---\n"})
+        rig = Rig(self.home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n"})
         events = "".join(json.dumps(event) + "\n" for event in [
             {"type": "rate_limit_event", "rate_limit_info": {"status": "allowed",
              "unifiedWindows": {"seven_day": {"utilization": .41, "resetsAt": ENDS}}}},

@@ -30,7 +30,7 @@ def over(asked, budget):
 
 
 def front(**numbers):
-    return {"AGENTS.md": "---\n" + "".join(f"{key}: {value}\n" for key, value in numbers.items())
+    return {"AGENTS.md": "---\ntests: none\nhealth: none\n" + "".join(f"{key}: {value}\n" for key, value in numbers.items())
                          + "---\nA project.\n"}
 
 
@@ -79,7 +79,7 @@ class Rounds(unittest.TestCase):
         cls.job = cls.home.ak("run", "resume", job.name, "--rounds", "8", timeout=60)
         cls.fakes["claude"].behave("blocked")
         cls.above = launched(cls.home, str(task), "--no-merge", "--anyway", "--rounds", "6")[2]
-        plain = Rig(cls.home, "gears")      # no origin/HEAD: its branch says nothing either
+        plain = Rig(cls.home, "gears")      # no project override: its branch says nothing either
         plain.git("checkout", "-q", "-b", "side")
         plain.commit(front(review_rounds=1), "on a side branch", push=False)
         cls.plain = launched(cls.home, str(taskfile.write(cls.home, plain.path, "Other")), "--no-merge")[2]

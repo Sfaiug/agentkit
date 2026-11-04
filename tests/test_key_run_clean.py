@@ -22,7 +22,7 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
 # It fails, with status 1, after leaving its mark outside the checkout.
-AGENTS = '---\ncleanup: pwd >>"$HOME/cleaned"; echo tidy; false\n---\n# widgets\n'
+AGENTS = '---\ntests: none\nhealth: none\ncleanup: pwd >>"$HOME/cleaned"; echo tidy; false\n---\n# widgets\n'
 
 
 class RunClean(unittest.TestCase):

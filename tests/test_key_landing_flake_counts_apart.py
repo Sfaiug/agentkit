@@ -42,7 +42,7 @@ class LandingFlakeCountsApart(unittest.TestCase):
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
-            "AGENTS.md": f"---\ntests: {SUITE}\n---\n# widgets\n",
+            "AGENTS.md": f"---\ntests: {SUITE}\nhealth: none\n---\n# widgets\n",
             "suite.py": RUNNER.replace("TRANSIENT", str(transient))})
         gh = GitHub(home)
         gh.grant(rig.slug, "WRITE")

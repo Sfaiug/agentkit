@@ -80,9 +80,10 @@ class ChecksOverridePass(unittest.TestCase):
             self.assertIn(line, lines)
         overridden = lines.index("## Overridden to FAIL")
         self.assertEqual(lines[overridden + 1], OVERRIDDEN)
-        # the check the reviewer's PASS ran into, as the task named it
+        # the task's check and the project's suite, reserved for landing
         checks = lines.index("## Done-when")
-        self.assertEqual(lines[checks + 1:checks + 4], ["```", "test -f retry.txt", "```"])
+        self.assertEqual(lines[checks + 1:checks + 5],
+                         ["```", "test -f retry.txt", "true (once)", "```"])
 
 
 if __name__ == "__main__":

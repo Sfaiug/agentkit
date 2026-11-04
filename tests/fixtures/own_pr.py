@@ -65,11 +65,12 @@ class OwnPr(unittest.TestCase):
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@localhost")
         self.git("remote", "add", "origin", str(self.remote))
-        (self.repo / "AGENTS.md").write_text("---\nusers: none\ntests: test -f fence.txt\n---\n# acme\n")
+        (self.repo / "AGENTS.md").write_text("---\nusers: none\ntests: test -f fence.txt\nhealth: none\n---\n# acme\n")
         (self.repo / "fence.txt").write_text("base\n")
         self.git("add", ".")
         self.git("commit", "-qm", "Base")
         self.git("push", "-q", "origin", "main")
+        self.git("symbolic-ref", config.RULES_REF, "refs/remotes/origin/main")
         self.git("checkout", "-qb", BRANCH)
         self.heads = []
         for n in range(1, 5):

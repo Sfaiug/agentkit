@@ -30,7 +30,7 @@ class ConflictRows(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         cls.rig = rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\ncontent: notes.md\n---\n# widgets\n",
+            "AGENTS.md": "---\ntests: none\nhealth: none\ncontent: notes.md\n---\n# widgets\n",
             cls.notes: "shared notes\n", "app.py": "value = 1\n",
             ".gitattributes": "notes.md merge\n"})
         gh = GitHub(home)

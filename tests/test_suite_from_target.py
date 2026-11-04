@@ -11,10 +11,17 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_lander import LanderFixture, ONCE, SUITE
 from test_repo_suite import RepoSuiteFixture
-from agentkit import config, deliver, handback, land, roundloop, run
+from agentkit import config, deliver, gitcall, handback, land, roundloop, run
 
 
 class FinalCheckFromTarget(RepoSuiteFixture, unittest.TestCase):
+    def test_target_none_does_not_fall_back_to_the_branch_suite(self):
+        self.commit("---\ntests: none\n---\n")
+        target = self.git("rev-parse", "HEAD")
+        self.commit("---\ntests: false\n---\n")
+        self.assertIsNone(gitcall.declared_suite(self.repo, ref=target))
+        self.assertEqual(gitcall.with_suite(["true"], self.repo, ref=target), ["true"])
+
     def test_branch_declaring_true_fails_the_targets_landing_check(self):
         self.add_origin()
         self.commit("---\ntests: false\n---\n# acme\n")

@@ -114,6 +114,20 @@ def from_refusal(task_path, from_branch, repo, no_worktree):
     return None
 
 
+def require_project_contract(repo):
+    """A task cannot supply its own contract: read the rules tip before allocating its run."""
+    if repo is None:
+        return
+    tip = git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF, check=False)
+    missing = [f"{key}: {meaning}" for key, meaning in (
+        ("tests", "the command that runs the whole suite at landing, or none where the project has no suite"),
+        ("health", "the command that checks the live product works, or none where nothing is live"))
+        if gitcall.declared_at(repo, tip or config.RULES_REF, key) is None]
+    if missing:
+        raise config.Error(f"{repo}/AGENTS.md on {config.RULES_REF} is missing "
+                           + "; ".join(missing) + ".")
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     fetched = False
@@ -1281,9 +1295,8 @@ def refused(run_dir, exc, log, cfg, printed=False):
         announce_safely(state, run_dir, log, cfg)
 
 
-def launch_policy(task_path=None, task_file=None, pr=None):
-    """The numbers in force (`config.policy`) for a launch of that task or pull request, from the
-    checkout it has.  A task that does not read is no checkout: its launch reports that."""
+def launch_checkout(task_path=None, task_file=None, pr=None):
+    """The launch's checkout, or None; preflight records repository errors as before."""
     try:
         if pr:
             owner, name, _ = PR_PARTS.match(pr).groups()
@@ -1293,6 +1306,13 @@ def launch_policy(task_path=None, task_file=None, pr=None):
             checkout = task_repo(taskfile.parse_task(path)[0], path, task_file)
     except Exception:
         checkout = None
+    return checkout
+
+
+def launch_policy(task_path=None, task_file=None, pr=None):
+    checkout = launch_checkout(task_path, task_file, pr)
+    if checkout and not git(checkout, "rev-parse", "--verify", "--quiet", config.RULES_REF, check=False):
+        default_base(checkout, lambda _: None)
     return config.policy(checkout)
 
 
@@ -3265,6 +3285,7 @@ def main(argv):
                       f"started {started}, \"{first['title']}\") shares {detail}; "
                       f"{rival_advice()}", file=sys.stderr)
                 return 2
+        require_project_contract(launch_checkout(task_path))
         check_seat_queue(1)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id

@@ -63,7 +63,7 @@ class LineCheckGoesFirst(unittest.TestCase):
         if name not in self.rigs:
             suite = f"python3 suite.py {name}" + (" # AK_CHANGED" if every_round else "")
             self.rigs[name] = Rig(self.home, name, files={
-                "AGENTS.md": f"---\ntests: {suite}\n---\n", "suite.py": self.suite})
+                "AGENTS.md": f"---\nhealth: none\ntests: {suite}\n---\n", "suite.py": self.suite})
             GitHub(self.home).grant(self.rigs[name].slug, "WRITE")
         before = set(taskfile.runs(self.home))
         task = taskfile.write(self.home, self.rigs[name].path, f"Add retry to {name}",

@@ -53,7 +53,7 @@ class LandingTrain(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
-        cls.rig = Rig(home, "widgets", files={"AGENTS.md": f"---\ntests: {SUITE}\n---\n"
+        cls.rig = Rig(home, "widgets", files={"AGENTS.md": f"---\nhealth: none\ntests: {SUITE}\n---\n"
                                                            "# widgets\n"})
         cls.base = cls.rig.head()
         cls.gh = GitHub(home)

@@ -341,7 +341,10 @@ sys.exit(row["code"])
         run.git(repo, "init", "-b", "main")
         run.git(repo, "config", "user.name", "fixture")
         run.git(repo, "config", "user.email", "fixture@localhost")
+        (repo / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
+        run.git(repo, "add", "AGENTS.md")
         run.git(repo, "commit", "--allow-empty", "-m", "fixture base")
+        run.git(repo, "update-ref", config.RULES_REF, "HEAD")
         self.task.write_text(f"---\nrepo: {repo}\nbase: main\nrounds: 1\n---\n# Repo review\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         self.eligible = ["opus"]     # no other reviewer for opus's own work to give way to

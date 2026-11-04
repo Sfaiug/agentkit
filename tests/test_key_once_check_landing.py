@@ -39,7 +39,7 @@ def noting(word):
 
 
 SUITE = noting("suite")
-DECLARED = {"AGENTS.md": f"---\ntests: {SUITE}\n---\n# widgets\n"}
+DECLARED = {"AGENTS.md": f"---\nhealth: none\ntests: {SUITE}\n---\n# widgets\n"}
 
 
 class Landing:
