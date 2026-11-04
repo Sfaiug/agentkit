@@ -115,10 +115,10 @@ class QualityErrors(unittest.TestCase):
         self.assertAlmostEqual(found(self.rated, "echo-1", "high")["se"],
                                math.hypot(0.8 * share(0.5, 132), 0.2 * share(0.5, 66)))
 
-    def test_pick_never_reads_an_error(self):
+    def test_execution_never_trades_cost_for_an_error(self):
         high, low = found(self.rated, "acme-5", "high"), found(self.rated, "acme-5", "low")
         for error in (0.0, 9.0):
-            self.assertEqual(quality.pick([high, dict(low, se=error)], 10)["effort"], "low")
+            self.assertEqual(quality.pick([high, dict(low, se=error)], "execute")["effort"], "high")
 
 
 if __name__ == "__main__":

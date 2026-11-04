@@ -1,7 +1,7 @@
 """`r recommended` on `c` answers each role over every current model on the boards: its line of
 best quality for the money around the pick, from its best, each row's notes, and the pick and
-what `r` takes marked before their names, the pointer on the first role's pick.  ←/→ step
-`within` and the answer follows, every line as long; on 40 cells each row's line, numbers and
+what `r` takes marked before their names, the pointer on the first role's pick.
+On 40 cells each row's line, numbers and
 notes take a line under its name, and its mark one above it.  `r` takes each role's take at its effort: into new seats' [defaults] in a
 window of its own, and into a seat's record alone, its orchestrator only said, over a seat; a
 save that fails changes nothing and says why.
@@ -26,7 +26,7 @@ from fixtures.akterm import SERVER, Terminal
 NOW = int(time.time())
 ENV = {"NO_COLOR": "1", "TZ": "UTC", **{name: "http://127.0.0.1:9" for name in (
     "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}}
-KEYS = "  ↑↓ move   ←→ points   ⏎ why   p pick   r take   esc back"
+KEYS = "  ↑↓ move   ⏎ why   p pick   r take   esc back"
 EVALUATIONS = ("aa-briefcase", "frontiercode-2-0")     # each role's cost a task
 # Per release and effort: intelligence index, frontier-code and terminal shares, Arena's agent
 # share and cost a task; each but Crux 2 with a terminal share, so Crux 2's is missing, and
@@ -78,17 +78,17 @@ ORCH = ["  orch".ljust(73) + HEAD,
         f"           Crux 2          low     {bar(3, 1)}     91.0   $1.00", ""]
 BUILDS = ["  builds",
           f"           Acme Max 5  ▰▰  max     {bar(36)}    100.0  $20.00  no harness",
-          f"  r takes  Acme Mid 5      high    {bar(28)}     97.8  $15.00",
-          f"  ★ pick   Acme Max 5  ▰▱  high    {bar(19)}     95.3  $10.00  no harness",
-          f"           Bolt 3          medium  {bar(11, 1)}     93.2   $3.00",
+          f"           Acme Mid 5      high    {bar(28)}     97.8  $15.00",
+          f"           Acme Max 5  ▰▱  high    {bar(19)}     95.3  $10.00  no harness",
+          f"  ★ pick   Bolt 3          medium  {bar(11, 1)}     93.2   $3.00",
           f"           Crux 2          low     {bar(0)}     74.0   $1.00  1 missing", ""]
 REVIEWS = ["  reviews",
            f"           Acme Max 5  ▰▰  max     {bar(36)}    100.0  $20.00  no harness",
-           f"  ★ pick   Acme Mid 5      high    {bar(27, 1)}     97.6  $15.00",
+           f"           Acme Mid 5      high    {bar(27, 1)}     97.6  $15.00",
            f"           Acme Max 5  ▰▱  high    {bar(17, 1)}     94.8  $10.00  no harness",
-           f"           Bolt 3          medium  {bar(7)}     92.0   $3.00"]
-LEGEND = ["  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5 points of the best, then the cheapest",
-          "  left out   a row no better than a cheaper one, yours compared with yours",
+           f"  ★ pick   Bolt 3          medium  {bar(7)}     92.0   $3.00",
+           f"           Crux 2          low     {bar(0)}     84.0   $1.00"]
+LEGEND = ["  left out   a row no better than a cheaper one, yours compared with yours",
           f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
 SEATS = ("acme-fix", "acme-ask")
 
@@ -146,38 +146,29 @@ class ModelsAnswer(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, what)
             time.sleep(0.05)
 
-    def test_each_role_is_answered_and_a_knob_step_moves_the_pick(self):
+    def test_each_role_is_answered_and_left_right_change_nothing(self):
         term, shown = self.models()
         at = shown.index(ORCH[0])
         pointed = [*ORCH[:3], "›" + ORCH[3][1:], *ORCH[4:]]    # the pointer starts on the pick
         answer = [*pointed, *BUILDS, *REVIEWS, "", *LEGEND]
         self.assertEqual(shown[at:at + len(answer)], answer)
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
-        term.keys("Left")
-        shown = lines(term.wait("within 4 points"))
-        at = shown.index("  builds")
-        # the pick is what `r` takes, and every line as long as it was
-        self.assertEqual(shown[at + 2:at + 5], [
-            f"  ★ pick   Acme Mid 5      high    {bar(28)}     97.8  $15.00",
-            f"           Acme Max 5  ▰▱  high    {bar(19)}     95.3  $10.00  no harness",
-            f"           Bolt 3          medium  {bar(11, 1)}     93.2   $3.00"])
-        self.assertEqual(akconfig.read(self.home)["within"], 4)
+        term.keys("Left", "Right", "Enter")
+        term.wait("why Bolt 3 medium orchestrates")
+        self.assertEqual(self.config.read_bytes(), self.given)
 
-    # `r` takes the best the owner's harnesses run: each role's take at its effort,
-    # the cheapest of yours within `within` of best, into new seats' defaults.
-    # [18 Sep - 26 Oct 2026]
     def test_r_takes_each_roles_take_at_its_effort(self):
         term, _ = self.models()
         term.keys("r")
-        self.until(lambda: akconfig.read(self.home)["defaults"].get("reviewers") == ["mid"],
+        self.until(lambda: akconfig.read(self.home)["defaults"].get("reviewers") == ["bolt"],
                    "r never took the answer")
         saved = akconfig.read(self.home)
-        self.assertEqual(saved["defaults"], {"orchestrator": "bolt", "workers": ["mid"],
-                                             "reviewers": ["mid"]})
+        self.assertEqual(saved["defaults"], {"orchestrator": "bolt", "workers": ["bolt"],
+                                             "reviewers": ["bolt"]})
         self.assertEqual(saved["models"]["bolt"]["effort"], "medium")
         self.assertEqual({key: saved["models"]["mid"].get(key) for key in (
             "effort", "exec_effort", "review_effort")},
-            {"effort": "low", "exec_effort": "high", "review_effort": "high"})
+            {"effort": "low", "exec_effort": None, "review_effort": None})
         self.assertTrue(all(self.kept(name) for name in SEATS), "an open seat changed")
 
     def test_a_config_that_cannot_be_saved_changes_nothing_and_says_why(self):
@@ -193,12 +184,13 @@ class ModelsAnswer(unittest.TestCase):
     def test_r_on_a_seat_s_c_takes_the_recommended_efforts_into_its_record_alone(self):
         term, _ = self.models(seat="acme-fix")
         term.keys("r")
-        self.until(lambda: self.record("acme-fix")["reviewers"] == ["mid"], "r never took it")
+        self.until(lambda: self.record("acme-fix").get("efforts", {}).get("bolt", {}).get(
+            "exec_effort") == "medium", "r never took it")
         record = self.record("acme-fix")
         # its orchestrator is only said: moving the seat is its orchestrator mark's
-        self.assertEqual((record["orchestrator"], record["workers"]), ("mid", ["mid"]))
-        self.assertEqual(record["efforts"]["mid"],
-                         {"effort": "low", "exec_effort": "high", "review_effort": "high"})
+        self.assertEqual((record["orchestrator"], record["workers"]), ("mid", ["bolt"]))
+        self.assertEqual(record["efforts"]["bolt"],
+                         {"effort": "low", "exec_effort": "medium", "review_effort": "medium"})
         self.assertEqual(self.config.read_bytes(), self.given)
         self.assertTrue(self.kept("acme-ask"), "another seat changed")
 
@@ -215,16 +207,15 @@ class ModelsAnswer(unittest.TestCase):
     def test_a_40_cell_screen_puts_each_rows_line_numbers_and_notes_under_its_name(self):
         shown = self.models(40)[1]
         at = shown.index("  builds")
-        self.assertEqual(shown[at - 1:at + 18], [
+        self.assertEqual(shown[at - 1:at + 17], [
             "", "  builds",
             "    Acme Max 5  ▰▰  max", f"    {bar(8, size=8)}    100.0  $20.00", "      no harness",
-            "    r takes", "    Acme Mid 5      high", f"    {bar(6, size=8)}     97.8  $15.00",
-            "    ★ pick", "    Acme Max 5  ▰▱  high", f"    {bar(4, size=8)}     95.3  $10.00",
+            "    Acme Mid 5      high", f"    {bar(6, size=8)}     97.8  $15.00",
+            "    Acme Max 5  ▰▱  high", f"    {bar(4, size=8)}     95.3  $10.00",
             "      no harness",
-            "    Bolt 3          medium", f"    {bar(2, 1, 8)}     93.2   $3.00",
+            "    ★ pick", "    Bolt 3          medium", f"    {bar(2, 1, 8)}     93.2   $3.00",
             "    Crux 2          low", f"    {bar(0, size=8)}     74.0   $1.00  1 missing",
             "", "  reviews", "    Acme Max 5  ▰▰  max"])
-        self.assertIn("  as good    ‹ ▰▰▰▰▰▱▱▱▱▱ ›  within 5", shown)
 
 
 if __name__ == "__main__":

@@ -117,8 +117,8 @@ class ConfigSave(unittest.TestCase):
 
     def test_known_top_level_keys_lead_in_their_order_and_unknown_ones_follow(self):
         self.assertEqual(self.section(None), ["max_runs", "max_gates", "min_free_mb", "max_load",
-                                              "run_memory_max_mb", "pace_margin", "within",
-                                              "acme_knob"])
+                                              "run_memory_max_mb", "pace_margin", "acme_knob",
+                                              "within"])
 
     def test_tables_go_defaults_models_providers_then_the_rest_as_the_file_had_them(self):
         self.assertEqual([line for line in self.lines if line.startswith("[")],

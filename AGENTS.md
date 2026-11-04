@@ -48,7 +48,8 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 
 ## Owner rules
 
-- Each run draws its executor and its reviewer at random from that role's marks that can run now, each on its own, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's own numbers never pick or recommend, and ak spends no turn testing models. The owner, 3 Nov 2026: "Data collection yes, no recommendation." [18 Sep, 28 Sep, 29 Sep, 14 Oct, 18 Oct, 20 Oct, 21 Oct, 26 Oct, 3 Nov]
+- Each run draws its executor and its reviewer at random from that role's marks that can run now, each on its own, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's own numbers never pick or recommend, and ak spends no turn testing models. The owner, 3 Nov 2026: "Data collection yes, no recommendation." [18 Sep–3 Nov 2026]
+- Models are plugins: `quality.pick` holds the 3 Nov 2026 recommendation rule.
 - ak is measured by what it delivers in every project: `ak run status --history` shows quality, speed, cost and size week by week, work on ak itself counts as cost, and these numbers never pick a model; what the board measures is pinned by `tests/test_scoreboard_measures.py`. [2 Oct, 14 Oct, 27 Oct]
 - No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from the machine ak runs on, for any user; correctness locks (one merge per repository) are not capacity and stay. [23 Sep, 28 Sep]
 - Done means live: a project's `health:` line says how to tell its live product works, and a merged change counts as done once that passes with the change deployed. [2 Oct]

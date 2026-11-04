@@ -120,10 +120,11 @@ class ModelsColour(unittest.TestCase):
         self.pointed("Bolt")
 
     def test_up_where_the_highlight_cannot_move_lights_its_maker(self):
-        # within no points of the best the first role's pick is its best, the first row
-        shown = self.models(within=0)
+        self.models()
+        self.term.keys("Up", "Up")
+        shown = settled(self.term, lambda screen: "›          Acme Max 5" in screen)
         self.assertTrue(next(plain(line) for line in shown if plain(line).startswith("› "))
-                        .startswith("› ★ pick   Acme"))
+                        .startswith("›          Acme"))
         self.term.keys("Up")
         self.pointed("Acme")
 

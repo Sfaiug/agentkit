@@ -1,8 +1,7 @@
 """The models screen marks the pick, and what `r` takes where that is another row, in a column
 before the name: `★ pick` and `r takes` on their rows, no words under the pick naming the take.
 A blank line parts two roles and the columns' heads stand once.  Every column is sized over the
-rows the widest `within` shows, so a knob step that brings in a row with a longer name and more
-efforts than any other leaves every row's line as long as it was.  On 80 cells, where the notes
+full frontier, including its longest name and most efforts, every row's line as long.  On 80 cells, where the notes
 leave a line under 8 cells, they go under their row and the row keeps one line.  On 40 cells a
 row folds and its mark takes a line of its own above its name, the pointer's on the first role's
 pick.
@@ -25,9 +24,9 @@ from test_key_models_answer import ENV, lines
 from test_key_models_rows_drawn_as_c import boards
 
 # Per release and effort Omniscience, which alone parts them on review, a point of it a fifth of
-# a point of quality, and cost a task.  Review within 4 of the best, 100: Bolt 3 at 98 the pick,
+# a point of quality, and cost a task.  Review's best is 100: Bolt 3 at 98 the pick,
 # no harness of yours running it, and Acme Max 5 high at 97 what `r` takes.  Zephyr's low, at 91,
-# is the sixth row of the front, shown from within 5 on, its other efforts dearer and worse: the
+# is the sixth row of the front, its other efforts dearer and worse: the
 # longest name and the most efforts of any row.
 ROWS = [("acme-max-5", "Acme Max 5", "medium", 36, 5.0),
         ("acme-max-5", "Acme Max 5", "high", 45, 10.0),
@@ -57,7 +56,7 @@ class ModelsLayout(unittest.TestCase):
 
     def setUp(self):
         akconfig.write(self.home, {"max": {"harness": "claude", "model": "acme-max-5",
-                                           "effort": "high"}}, settings={"within": 4})
+                                           "effort": "high"}})
         self.home.write(".agentkit/state/boards.json", boards(ROWS))
         (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)  # answered anew
 
@@ -92,16 +91,11 @@ class ModelsLayout(unittest.TestCase):
         self.assertEqual(sum("quality" in line for line in shown), 1)
         self.assertRegex(next(line for line in shown if "quality" in line), r"^  orch +quality")
 
-    def test_a_knob_step_that_brings_in_a_wider_row_moves_no_line(self):
-        term, shown = self.models(100)
-        names = lambda rows: [name.split("  ")[0] for _, name, *_ in rows]
-        before = drawn(shown)
-        self.assertNotIn("Zephyr Long Context 9", names(before))
-        term.keys("Right")
-        after = drawn(lines(term.wait("within 5 points")))
-        self.assertIn("Zephyr Long Context 9", names(after))
-        self.assertEqual({len(line) for _, _, line, _ in before + after},
-                         {len(before[0][2])})
+    def test_the_full_frontier_sizes_every_line(self):
+        _, shown = self.models(100)
+        rows = drawn(shown)
+        self.assertIn("Zephyr Long Context 9", [name.split("  ")[0] for _, name, *_ in rows])
+        self.assertEqual(len({len(line) for _, _, line, _ in rows}), 1)
 
     def test_on_80_cells_the_notes_go_under_their_row_before_it_folds(self):
         _, shown = self.models(80)
