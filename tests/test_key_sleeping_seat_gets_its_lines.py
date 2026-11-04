@@ -1,6 +1,6 @@
 """Every line for a sleeping seat wakes it and goes into it after the resume, at its prompt: its
-after-merge break, never into the other live seat on its repository, even once a failed wake let
-its merge leave the window, and its job's ending, which pages nobody.  A seat the owner closed as
+after-merge break, never into the other live seat on its repository, even after a failed wake
+past the health deadline, and its job's ending, which pages nobody.  A seat the owner closed as
 it slept stays closed, and its break goes to that other seat.  Black-box: `AK_BIN` runs from
 outside (tests/fixtures/akbin.py), each tick in the box `home.tick()` builds, a seat asleep as ak
 leaves one (its record marked asleep since its launch, gone from tmux, its conversation kept), on
@@ -27,8 +27,8 @@ JOB = "20261028-1200-acme-job"
 
 def told(repo, number):
     run = f"20261028-1200-{repo}-{number}"
-    return (f"run {run} NOT LIVE (0 of 0): ci failed on main after this merge. https://github.com/acme/{repo}/pull/"
-            f"{number}. Fix the target. Next: launch the fix the result names. Result: ~/.agentkit/runs/{run}/result.md")
+    return (f"run {run} NOT LIVE (0 of 0): health: false failed on main after this merge. https://github.com/acme/{repo}/pull/"
+            f"{number}; down. Fix the target. Next: launch the fix the result names. Result: ~/.agentkit/runs/{run}/result.md")
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
@@ -84,11 +84,11 @@ class AfterMergeBreak(Sleeping):
             rig = Rig(cls.home, repo)
             cls.seats[other] = Seat(cls.home, other, cwd=rig.path)
             cls.seats[sleeper] = cls.asleep(sleeper)
-            cls.merge(rig, other, 1, "success", age=1200)
-            cls.merge(rig, sleeper, 2, "failure", age=600)
+            cls.merge(rig, other, 1, True, age=4 * 3600)
+            cls.merge(rig, sleeper, 2, False, age=3 * 3600 + 600)
         done = cls.home.ak("orch", "stop", "gamma")    # the owner closes it as it sleeps
         assert done.code == 0, done.out + done.err
-        # acme's first wake fails, and its merge leaves the window before the next one
+        # acme's first wake fails; its pending health notice must survive until the next one
         acme = cls.seats["acme"].cwd
         gone = acme.rename(cls.home.path / "gone")
         cls.tick()
@@ -98,15 +98,16 @@ class AfterMergeBreak(Sleeping):
         cls.tick_until_told(cls.seats["acme"])
 
     @classmethod
-    def merge(cls, rig, seat, number, conclusion, age):
+    def merge(cls, rig, seat, number, healthy, age):
         sha = rig.commit({f"pr-{number}.txt": f"{number}\n"}, f"Merge {number}")
-        cls.gh.check(sha, "ci", conclusion=conclusion)
         now, run = time.time(), f"20261028-1200-{rig.name}-{number}"
         cls.home.write(f".agentkit/runs/{run}/run.json", {
             "run_id": run, "state": "pass", "verdict": "PASS", "merged": True,
             "finished_at": now - age, "started_at": now - age - 600, "repo": str(rig.path),
             "pr": f"https://github.com/acme/{rig.name}/pull/{number}", "merge_sha": sha,
-            "launched_session": seat})
+            "launched_session": seat,
+            **({"live_at": now - age + 60, "live_notified": now - age + 60} if healthy else
+               {"health": {"command": "false", "output": "down"}})})
 
     def test_a_sleeping_seat_is_woken_and_its_break_typed_in(self):
         self.assertTrue(self.awake("acme"))
