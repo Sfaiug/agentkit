@@ -30,6 +30,7 @@ func TestAntigravityScreenLeavesConversationEvidenceToPython(t *testing.T) {
 		{"invalid store id", `{"conversation":"../conv-acme","id_source":"launcher"}`, true},
 		{"pending launch", `{"antigravity_launch":"token"}`, false},
 		{"learned store", `{"antigravity_launch":"token","antigravity_open":{"launch":"token","conversation":"conv-acme"}}`, false},
+		{"learned id without a store", `{"antigravity_launch":"token","antigravity_open":{"launch":"token","conversation":"conv-other"}}`, false},
 		{"stale launch", `{"antigravity_launch":"new","antigravity_open":{"launch":"old","conversation":"conv-acme"}}`, false},
 	} {
 		t.Run(each.name, func(t *testing.T) {

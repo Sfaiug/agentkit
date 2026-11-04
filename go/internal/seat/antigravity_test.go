@@ -23,6 +23,18 @@ func TestAntigravityStoreIsReadAtTheListingBoundary(t *testing.T) {
 			}
 			record(t, home, "acme", fields)
 			write(t, stateFile(home, "antigravity-claim.lock"), "")
+			if learned {
+				// Without tmux or a store, the learned conversation must not disappear.
+				record(t, home, "aaa", map[string]any{"id_source": nil})
+				before := stateFiles(t, home)
+				if _, known := Looking(time.Now()); known {
+					t.Fatal("a learned conversation must stay with Python after tmux loses it")
+				}
+				if after := stateFiles(t, home); !maps.Equal(before, after) {
+					t.Fatal("handing over changed the home")
+				}
+				return
+			}
 			drawn(t, home, "acme", "────────\n>\n────────\n? for shortcuts\n")
 			listing, known := Looking(time.Now())
 			if !known {
