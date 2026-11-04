@@ -18,6 +18,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 	"agentkit/internal/task"
 )
 
@@ -197,6 +198,17 @@ func (g Git) Out(args ...string) (int, string, error) {
 // repository's refs, so a fetch that lost the race for a ref goes again at once, until it goes
 // through or its limit, counted from its first try, is spent.
 func (g Git) Fetch(args ...string) (int, string, error) {
+	// Git's connectivity check enumerates local refs: deleting one mid-read can turn it
+	// into a "bad object". Share preparation's directory lock; cleanup takes it exclusively.
+	common, err := g.Must("rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return 0, "", err
+	}
+	held, err := lock.Shared(common)
+	if err != nil {
+		return 0, "", err
+	}
+	defer held.Close()
 	deadline := time.Now().Add(CapSeconds * time.Second)
 	args = append([]string{"fetch"}, args...)
 	code, out, err := g.Out(args...)
