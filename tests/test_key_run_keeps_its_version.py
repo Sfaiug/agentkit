@@ -87,8 +87,11 @@ class RunKeepsItsVersion(unittest.TestCase):
             self.assertEqual(tick.code, 0, tick.out + tick.err)
             self.assertEqual(install.head(), second)
             release.touch()
-            wait_for(lambda: json.loads((directory / "run.json").read_text()).get("merged"))
+            wait_for(lambda: json.loads((directory / "run.json").read_text()).get("state")
+                     in ("pass", "fail", "error", "blocked", "exhausted"))
             state = json.loads((directory / "run.json").read_text())
+            self.assertTrue(state.get("merged"), (directory / "log.txt").read_text()
+                            + str([call["hand_ins"] for fake in fakes.values() for call in fake.runs()]))
             self.assertNotIn("pickup", state)
             for name in ("round-1.code", "round-2.code", "landing.code",
                          "round-1/executor/ak.code", "round-2/executor/ak.code"):

@@ -62,11 +62,18 @@ def checkout(commit=None):
     """One complete checkout per run version; collection waits until its process starts."""
     with holding() as directory:
         source = Path.home() / "agentkit"
-        if not (source / "bin" / "ak").is_file():
+        live = (source / "bin" / "ak").is_file()
+        if not live:
             source = config.REPO
         code, sha = git(source, "rev-parse", "--verify", f"{commit or 'HEAD'}^{{commit}}")
         if code:
             raise config.Error(f"cannot read ak version: {sha}")
+        if not live:
+            if not repository().exists():
+                code, said = git(source, "clone", "--quiet", "--bare", "--shared", str(source), str(repository()))
+                if code:
+                    raise config.Error(f"cannot keep ak repository: {said}")
+            source = repository()
         path = directory / sha
         if not path.exists():
             new = Path(tempfile.mkdtemp(prefix=f"{sha[:12]}.", dir=directory))
