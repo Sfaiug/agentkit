@@ -2,9 +2,9 @@
 
 A task relaunched `from:` a branch of an earlier run continues that run's change, so it has
 only the rounds the change has left, counted from the moment each round starts; a run that
-still has rounds of its own ends blocked rather than spend one another run of its change took;
-and once three are spent, no launch from any branch of it and no resume asking for more starts
-another turn.  A seat's own pull request has the same three across every review run of it.
+still has rounds of its own ends blocked rather than spend one another run of its change took,
+its seat told to rewrite the task with no `from:` launch; and once three are spent, no launch
+from any branch of it and no resume asking for more starts another turn.  A seat's own pull request has the same three across every review run of it.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 project from gitrig.py and the GitHub of fakegh.py, with scripted harnesses from fakeadapter.py
 whose reviewer files a finding every round.
@@ -19,7 +19,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import Home
+from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
@@ -54,8 +54,10 @@ class FromABranch(unittest.TestCase):
         hold = (f"touch {shlex.quote(str(held))}; while [ ! -f {shlex.quote(str(released))} ]"
                 f" && [ -d {shlex.quote(str(folder))} ]; do sleep 0.1; done")
         cls.fakes["claude"].behave("work", {**fakeadapter.DISPUTE, "sh": hold}, "work")
+        cls.seat = (Seat(home, "acme", cwd=cls.rig.path, record={"workers": ["opus", "astra"]},
+                         planned=True) if REAL_TMUX else None)
         launched = home.ak("run", str(taskfile.write(home, cls.rig.path, "Add retry file")),
-                           "--no-merge", "--bg")
+                           "--no-merge", "--bg", env=cls.seat and {"AGENTKIT_SESSION": "acme"})
         assert launched.code == 0, launched.out + launched.err
         cls.first = taskfile.only_run(home)
         deadline = time.monotonic() + 120
@@ -92,6 +94,12 @@ class FromABranch(unittest.TestCase):
         self.assertTrue(self.state["error"].startswith(SPENT.format("this change")),
                         self.state["error"])
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (3, 3))
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_its_seat_is_not_told_to_relaunch_from_its_spent_branch(self):
+        line = self.seat.wait_lines(1)[0]
+        self.assertRegex(line, rf"^run {self.first.name} BLOCKED \(2 of 3\): .* Next: "
+                         r"rewrite the task and relaunch it\. Result: \S+/result\.md$")
 
     def test_a_launch_from_any_branch_of_the_change_is_refused_before_any_turn(self):
         for branch, done in self.refused.items():

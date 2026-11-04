@@ -1453,13 +1453,13 @@ def next_move(state, run_dir):
     named = transitions.continue_line(state, run_dir).removeprefix("continue: ") or retry_command(state)
     if named:
         return RESULT_NAMES, f", `{named}`"
-    spent = len(state.get("round_summaries") or []) >= (state.get("rounds") or 0) > 0
-    if state.get("state") == "fail" and review_failed(state) and spent:
+    if (state.get("state") == "fail" and review_failed(state)
+            and len(state.get("round_summaries") or []) >= (state.get("rounds") or 0) > 0):
         return "split the task", ""
     if state.get("state") == "blocked" or failed_check(state):
-        # a branch whose rounds are spent takes no `from:` launch: transitions.spent_line refuses it
-        return "rewrite the task and relaunch it", (f" with `from: {state['branch']}`"
-                                                    if state.get("branch") and not spent else "")
+        # a launch `from:` the branch inherits its change's rounds, refused once none is left
+        left = transitions.change_budget(state, run_dir, 1, own=len(state.get("round_summaries") or []))[0]
+        return "rewrite the task and relaunch it", f" with `from: {state['branch']}`" if state.get("branch") and left else ""
     return "read the result", ""
 
 
