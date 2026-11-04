@@ -6,8 +6,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/hookfact"
-	"agentkit/internal/lifecycle"
 	"agentkit/internal/run"
 )
 
@@ -21,24 +19,7 @@ func goneKind(kind, suffix string) bool {
 // hold a turn or background work even where the gone seat's plan owes nothing.
 func (home Home) RestingGone() bool {
 	for _, seat := range home.Seats {
-		if seat.live || seat.closed {
-			continue
-		}
-		if seat.held || seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
-			return false
-		}
-		file, _ := run.ReadJSON(seatFile(seat.Name))
-		if file == nil {
-			file = run.NewObject()
-		}
-		fact := hookfact.Standing(seat.Name)
-		hooked, event, err := lifecycle.State(seat.own, fact)
-		found := sight{state: file.Str("state"), rule: file.Str("rule"), hooked: file.Str("hooked"), hookedEvent: file.Str("hooked_event")}
-		if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
-			found = sight{state: hooked, hooked: hooked, hookedEvent: event}
-		}
-		flight, _ := found.turnInFlight(seat.own)
-		if err != nil || found.state == "asking" || flight || len(fact.Holds) > 0 || file.Truthy("holds") || file.Truthy("reopened_at") {
+		if !seat.restingGone() {
 			return false
 		}
 	}
@@ -56,10 +37,11 @@ func (home Home) Repositories() []string {
 	return repos
 }
 
-// healthGone publishes a resting absent seat under Health's announce lock, with no screen read.
+// healthGone publishes an absent seat under Health's announce lock, with no screen read.
+// What its death cut off is the recovery rows' to judge later.
 func (home Home) healthGone(state, name string, now time.Time) (bool, error) {
 	at := slices.IndexFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
-	if at < 0 || home.Seats[at].live || home.Seats[at].held || !home.RestingGone() {
+	if at < 0 || home.Seats[at].live {
 		return false, nil
 	}
 	seat := home.Seats[at]
@@ -67,11 +49,17 @@ func (home Home) healthGone(state, name string, now time.Time) (bool, error) {
 }
 
 // StampGone starts an absent record's retention clock once, as orch.stamp does. Live records
-// are stamped by the tick; held panes still leave it to Python.
+// are stamped by the tick; dead panes start their exit clock without winding seen.
 func (home Home) StampGone(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
 	for _, seat := range home.records {
-		if seat.live || seat.held {
+		if seat.live {
+			continue
+		}
+		if seat.held {
+			if err := stampExited(seat.Name, now); err != nil {
+				return err
+			}
 			continue
 		}
 		if err := update(state, seat.Name, func(record *run.Object) bool {

@@ -36,7 +36,7 @@ var (
 	escape = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])`)
 )
 
-// TypeAtPrompt types one line into that seat, only while its harness sits at its own prompt with
+// typeAtPrompt types one line into that seat, only while its harness sits at its own prompt with
 // its composer read empty, through Python's confirmed send (watch.type_at_prompt): the prompt read
 // again under the seat's typing lock right before the first key, the line's entry in its input
 // file, its text, `receipt` handed the mark the ending keeps once the text is in, and an Enter only
@@ -47,7 +47,7 @@ var (
 // keeps no cursor of its own, a seat with no question kept back for its next turn and no text kept
 // by ak's editor.  Anywhere else, a composer holding text among them, which Python's own editor
 // types past, it puts nothing in and the line is the tick's.
-func TypeAtPrompt(name, line string, receipt func(mark *run.Object) error, log func(string)) bool {
+func typeAtPrompt(name, line string, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
 	own, record := seatHarness(name)
 	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
 		return false
@@ -69,7 +69,7 @@ func TypeAtPrompt(name, line string, receipt func(mark *run.Object) error, log f
 	ready := func() bool { return at.holds(text) == "line" }
 	err = notify.Held(context.Background(), name, func(current string) error {
 		at.name = current
-		if !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
+		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
 			return errUntyped
 		}
 		entry := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
@@ -107,7 +107,7 @@ func TypeAtPrompt(name, line string, receipt func(mark *run.Object) error, log f
 	if !poll(func() bool { return at.sent(text) }) {
 		again := notify.Held(context.Background(), name, func(current string) error {
 			at.name = current
-			if !ready() || !at.enter(log) {
+			if stale(current) || !ready() || !at.enter(log) {
 				return errUntyped
 			}
 			return nil

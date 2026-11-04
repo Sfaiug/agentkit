@@ -267,10 +267,8 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 	if dryRun {
 		return seat, true
 	}
-	_, opens := harness.Opens(model.Harness)
 	file, err := run.ReadJSON(seatFile(name))
-	_, checkout := os.Lstat(filepath.Join(cwd, ".git"))
-	if !opens || repo != "" || checkout == nil || err != nil && !errors.Is(err, fs.ErrNotExist) ||
+	if !seat.launchable(record) || err != nil && !errors.Is(err, fs.ErrNotExist) ||
 		file != nil && file.Truthy("owed_lines") || cutOff(name, model.Harness, file) {
 		return reopening{}, false
 	}

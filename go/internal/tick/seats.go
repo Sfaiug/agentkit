@@ -16,9 +16,6 @@ import (
 	"agentkit/internal/usage"
 )
 
-// seenEvery is how long a live seat's record goes before it is stamped again (orch.SEEN_EVERY).
-const seenEvery = 300
-
 // every is whether every seat the home holds now is one Go reads, and each reads as ok says.
 func every(ok func(seat.Live) bool) func() bool {
 	return func() bool {
@@ -100,28 +97,8 @@ func health() error {
 	return nil
 }
 
-// revive is the seat revival row where every seat is up (watch.revive_seats): a seat seen live
-// again forgets the deaths it was reopened after, so its next is a new one.
-func revive() error {
-	if !noRunRevival() && !seat.FileProjects(time.Now()) {
-		return errLeft
-	}
-	lives, err := lives()
-	if err != nil {
-		return err
-	}
-	for _, live := range lives {
-		if live.File.Truthy("reopened_at") {
-			if err := seat.Write(live.Name, "reopened_at", nil); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // stamp is the exit clocks row where every seat is up (orch.stamp): a record not seen within
-// seenEvery, or holding an exit clock, is seen now, its clock gone.
+// seat.SeenEvery, or holding an exit clock, is seen now, its clock gone.
 func (t *ticking) stamp() error {
 	lives, err := lives()
 	if err != nil {
@@ -131,7 +108,7 @@ func (t *ticking) stamp() error {
 	for _, live := range lives {
 		err := seat.Update(live.Name, func(record *run.Object) bool {
 			seen, dated := run.Num(record.Get("seen"))
-			if !record.Truthy("exited_since") && dated && !(float64(now)-seen > seenEvery) {
+			if !record.Truthy("exited_since") && dated && !(float64(now)-seen > seat.SeenEvery) {
 				return false
 			}
 			record.Set("seen", run.Number(strconv.FormatInt(now, 10)))

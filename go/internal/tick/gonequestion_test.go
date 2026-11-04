@@ -12,7 +12,7 @@ import (
 	"agentkit/internal/run"
 )
 
-func TestAResumableQuestionLeavesDeathAndBootRecoveryToPython(t *testing.T) {
+func TestAQuestionLeavesAnUnknownLaunchAndBootRecoveryToPython(t *testing.T) {
 	for _, boot := range []string{"", "previous-boot"} {
 		t.Run("boot="+boot, func(t *testing.T) {
 			ak, path := goneHome(t)

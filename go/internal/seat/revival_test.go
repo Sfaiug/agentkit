@@ -1,0 +1,228 @@
+//go:build unix
+
+package seat
+
+import (
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"agentkit/internal/config"
+	"agentkit/internal/harness"
+	"agentkit/internal/run"
+)
+
+func questionRecoveryHome(t *testing.T) (string, Seat) {
+	t.Helper()
+	home := sandbox(t)
+	for key, value := range map[string]string{"AGENTKIT_SESSION": "", "AK_RUN_ROLE": "", "AK_NOTIFY_SINK": "dry-run"} {
+		t.Setenv(key, value)
+	}
+	record(t, home, "acme", map[string]any{"session_title": "acme"})
+	if err := os.MkdirAll(filepath.Join(home, "work", "acme"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write(t, stateFile(home, "notify-acme.json"), `{"kind":"needs","text":"Which database?","time":100}`)
+	write(t, stateFile(home, "seat-acme.json"), `{"word":"needs you","reason":"session closed: press 1 to reopen"}`)
+	write(t, stateFile(home, "card-acme.json"), `{"word":"needs you","since":100,"began":100,"episode":"question","sent":true}`)
+	fakeTmux(t, home, "acme", true)
+	write(t, filepath.Join(home, "fake", "tmux"), `#!/bin/sh
+case "$*" in '-L seat-test '*) ;; *) exit 1 ;; esac
+case "$*" in
+  *new-session*|*respawn-pane*) printf '%s\n' "$*" >> "$HOME/started"; [ "$RECOVERY_REFUSE" != 1 ] ;;
+  *list-sessions*) [ "$RECOVERY_HELD" = 1 ] || exit 1; printf 'acme\t1\n' ;;
+  *'#{pane_id} #{pane_dead}') printf '%%1 %s\n' "$RECOVERY_DEAD" ;;
+  *list-panes*) printf 'acme\t%s\n' "$RECOVERY_DEAD" ;;
+  *show-options*) echo '%1' ;;
+  *session_activity*) printf '0\t1\n' ;;
+  *session_attached*) echo 0 ;;
+  *display-message*) echo acme ;;
+esac
+`)
+	repo, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(home, "fake", "git"), fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' %q\n", repo))
+	adapter := filepath.Join(home, "adapters", "claude.sh")
+	write(t, adapter, "#!/bin/sh\necho /bin/true\n")
+	for _, path := range []string{filepath.Join(home, "fake", "git"), adapter} {
+		if err := os.Chmod(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("AGENTKIT_ADAPTER_DIR", filepath.Dir(adapter))
+	t.Setenv("RECOVERY_HELD", "0")
+	t.Setenv("RECOVERY_DEAD", "1")
+	t.Setenv("RECOVERY_REFUSE", "0")
+	return home, Seat{Name: "acme", own: "claude"}
+}
+
+func TestQuestionRevivalKeepsItsConversationPaneAndContinuation(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		t.Run(fmt.Sprint(held), func(t *testing.T) {
+			home, seat := questionRecoveryHome(t)
+			seat.held = held
+			if held {
+				t.Setenv("RECOVERY_HELD", "1")
+			}
+			_, record, _ := config.ResolveSession("acme")
+			if held {
+				chat, known := harness.Conversation("claude", record)
+				if !known {
+					t.Fatal("conversation not readable")
+				}
+				write(t, chat, "")
+			}
+			if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+				t.Fatal(carried, err)
+			}
+			file := revivalFile("acme")
+			if !run.Equal(file.Get("reopened_at"), []any{run.Float(seconds(moment))}) || !revivalLines(file) {
+				t.Fatal(run.Line(file))
+			}
+			line := file.List("owed_lines")[0].(*run.Object)
+			want := QuestionContinue + freshContinue
+			verb := "new-session"
+			if held {
+				want, verb = QuestionContinue, "respawn-pane"
+			}
+			launched, _ := os.ReadFile(filepath.Join(home, "started"))
+			if line.Str("line") != want || len(line.Str("id")) != 16 || !strings.Contains(string(launched), verb) {
+				t.Fatalf("line=%s, launch=%s", run.Line(line), launched)
+			}
+			_, after, _ := config.ResolveSession("acme")
+			if after["conversation"] != record["conversation"] || after["id_source"] != "launcher" || after["rulebook_sha"] == nil || after["launched"] == nil {
+				t.Fatal(after)
+			}
+			if carried, err := seat.reviveQuestion(moment.Add(time.Second), func(string) {}, io.Discard); !carried || err != nil {
+				t.Fatal(carried, err)
+			}
+			second, _ := os.ReadFile(filepath.Join(home, "started"))
+			if string(second) != string(launched) || !run.Equal(file.Get("owed_lines"), revivalFile("acme").Get("owed_lines")) {
+				t.Fatal("a tick inside the backoff reopened or replaced its continuation")
+			}
+		})
+	}
+}
+
+func TestQuestionRevivalBoundsDeathsAndAcceptsTheOldScalar(t *testing.T) {
+	for _, deaths := range []any{
+		run.Float(seconds(moment) - 1),
+		[]any{run.Float(seconds(moment) - 1)},
+		[]any{run.Float(1), run.Float(2), run.Float(3)},
+	} {
+		t.Run(fmt.Sprint(deaths), func(t *testing.T) {
+			home, seat := questionRecoveryHome(t)
+			if err := Write("acme", "reopened_at", deaths); err != nil {
+				t.Fatal(err)
+			}
+			before := run.Line(revivalFile("acme"))
+			if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+				t.Fatal(carried, err)
+			}
+			if run.Line(revivalFile("acme")) != before {
+				t.Fatal("the same death was recorded again")
+			}
+			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) {
+				t.Fatal("a bounded death launched a harness")
+			}
+		})
+	}
+}
+
+func TestAThirdQuestionDeathAsksOnceWithoutReopening(t *testing.T) {
+	home, seat := questionRecoveryHome(t)
+	if err := Write("acme", "reopened_at", []any{run.Float(seconds(moment) - 1800), run.Float(seconds(moment) - 600)}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+			t.Fatal(carried, err)
+		}
+	}
+	if len(revivalFile("acme").List("reopened_at")) != 3 {
+		t.Fatal(run.Line(revivalFile("acme")))
+	}
+	notice, _ := run.ReadJSON(stateFile(home, "notify-acme.json"))
+	if !strings.Contains(notice.Str("text"), "died again both times") || len(notice.List("questions")) != 2 {
+		t.Fatal(run.Line(notice))
+	}
+	if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) {
+		t.Fatal("a third death launched a harness")
+	}
+}
+
+func TestARefusedQuestionRevivalKeepsItsDeathAndReportsTheFailure(t *testing.T) {
+	home, seat := questionRecoveryHome(t)
+	t.Setenv("RECOVERY_REFUSE", "1")
+	if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	if len(revivalFile("acme").List("reopened_at")) != 1 || revivalFile("acme").Truthy("owed_lines") {
+		t.Fatal(run.Line(revivalFile("acme")))
+	}
+	notice, _ := run.ReadJSON(stateFile(home, "notify-acme.json"))
+	if !strings.Contains(notice.Str("text"), "could not:") || !strings.HasPrefix(notice.Str("source"), "revive:acme:turn:") {
+		t.Fatal(run.Line(notice))
+	}
+	_, after, _ := config.ResolveSession("acme")
+	if after["conversation"] != "conv-acme" || after["launched"] != nil {
+		t.Fatal(after)
+	}
+}
+
+func TestQuestionRevivalLeavesOwnerStoppedAndSleepingSeatsAlone(t *testing.T) {
+	for _, kind := range []string{"stopped", "asleep"} {
+		t.Run(kind, func(t *testing.T) {
+			home, _ := questionRecoveryHome(t)
+			if kind == "stopped" {
+				write(t, stateFile(home, "seat-acme.json"), `{"stopped_at":1,"closed_by_owner":true}`)
+			} else {
+				record(t, home, "acme", map[string]any{"asleep": 1})
+			}
+			found, known := Looking(moment)
+			if !known {
+				t.Fatal("seat not readable")
+			}
+			if carried, err := found.ReviveQuestions(moment, func(string) {}, io.Discard); !carried || err != nil {
+				t.Fatal(carried, err)
+			}
+			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || revivalFile("acme").Truthy("reopened_at") {
+				t.Fatal("an intentional close was revived")
+			}
+		})
+	}
+}
+
+func TestOwedLinesHandOverLiveForeignOrPartlyTypedLinesAtTheirOwnTurn(t *testing.T) {
+	for _, kind := range []string{"foreign", "typed"} {
+		t.Run(kind, func(t *testing.T) {
+			home, _ := questionRecoveryHome(t)
+			t.Setenv("RECOVERY_HELD", "1")
+			t.Setenv("RECOVERY_DEAD", "0")
+			line := run.Fields("line", "other work", "id", "line")
+			if kind == "typed" {
+				line.Set("line", QuestionContinue)
+				line.Set("typed", run.Fields("line", QuestionContinue, "seat", 1))
+			}
+			if err := Write("acme", "owed_lines", []any{line}); err != nil {
+				t.Fatal(err)
+			}
+			before := run.Line(revivalFile("acme"))
+			if carried, err := TellRevivalLines(func(string) {}); carried || err != nil {
+				t.Fatal(carried, err)
+			}
+			if run.Line(revivalFile("acme")) != before {
+				t.Fatal("handover changed the pending line")
+			}
+			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) {
+				t.Fatal("delivering a line launched a harness")
+			}
+		})
+	}
+}
