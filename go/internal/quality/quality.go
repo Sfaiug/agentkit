@@ -401,6 +401,7 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 // the role's pick, Front those with a cost, best first, each better
 // than every cheaper one, a row of yours than every cheaper one of yours, as one no harness of
 // yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
+// Pick and Take stay visible even if rows outside their eligible pool beat them.
 type Said struct {
 	Front      []*Rating
 	Best       *float64
@@ -445,6 +446,11 @@ func Answer(rows []Row, compared map[string]bool) map[string]*Said {
 			}
 		}
 		said.Pick, said.Take = pick(priced, role), pick(yours, role)
+		for _, chosen := range []*Rating{said.Pick, said.Take} {
+			if chosen != nil && !slices.Contains(said.Front, chosen) {
+				said.Front = append(said.Front, chosen)
+			}
+		}
 		slices.SortStableFunc(said.Front, func(a, b *Rating) int { return cmp.Compare(b.Quality, a.Quality) })
 		out[role] = said
 	}
@@ -485,8 +491,9 @@ func pick(priced []*Rating, role string) *Rating {
 	}
 	rise := best.Quality - cheapest.Quality
 	chosen, largest := cheapest, 0.0
+	// Scale every distance by the same span: division can round equal gaps apart.
 	for _, row := range front[1:] {
-		above := row.Quality - cheapest.Quality - rise*((*row.Cost-*cheapest.Cost)/span)
+		above := (row.Quality-cheapest.Quality)*span - rise*(*row.Cost-*cheapest.Cost)
 		if above > largest {
 			chosen, largest = row, above
 		}

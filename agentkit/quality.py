@@ -237,5 +237,6 @@ def pick(rated, role):
     if not span:
         return best
     rise = best["quality"] - cheapest["quality"]
-    return max(front, key=lambda row: row["quality"] - cheapest["quality"]
-               - rise * ((row["cost"] - cheapest["cost"]) / span))
+    # Scale every distance by the same span: division can round equal gaps apart.
+    return max(front, key=lambda row: (row["quality"] - cheapest["quality"]) * span
+               - rise * (row["cost"] - cheapest["cost"]))

@@ -107,6 +107,15 @@ class QualityRatesEveryEffort(unittest.TestCase):
         for role in ("orchestrate", "review"):
             self.assertIs(quality.pick(rows, role), rows[2])
 
+    def test_equal_positive_line_distances_choose_cheaper(self):
+        rows = [{"quality": q, "cost": c, "se": 4} for q, c in
+                ((91, 0), (92, .125), (96.5, .75), (100, 1.25))]
+        for role in quality.ROLES:
+            self.assertIs(quality.pick(rows, role), rows[1])
+        rows[2]["quality"] += 1e-10
+        for role in quality.ROLES:
+            self.assertIs(quality.pick(rows, role), rows[2])
+
     def test_an_ineligible_row_cannot_dominate_an_eligible_one(self):
         rows = [{"quality": q, "cost": c, "se": se} for q, c, se in
                 ((94, 1, 0), (93, 2, 10), (100, 10, 0))]
