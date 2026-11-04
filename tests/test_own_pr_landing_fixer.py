@@ -87,7 +87,14 @@ class OwnPrLandingFixer(line.OwnPrLineFixture, unittest.TestCase):
             state["round_summaries"] = [{**first, "round": n} for n in range(1, spent + 1)]
         self.fixer_turns(self.rename)
         seen = len(self.reviews)
-        with patch.object(run, "pickup_new_code", side_effect=lambda *a, **k: self.push(url)):
+        fix = run.fix_own_pr
+
+        def pushed(*args, **kwargs):
+            result = fix(*args, **kwargs)
+            self.push(url)
+            return result
+
+        with patch.object(run, "fix_own_pr", side_effect=pushed):
             state = self.review(directory, url)
         return state, self.reviews[seen:], self.prs[url]["head"]
 

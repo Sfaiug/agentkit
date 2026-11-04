@@ -12,6 +12,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
+from fixtures.akinstall import Install
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
@@ -213,7 +214,9 @@ class FixOnTip(unittest.TestCase):
         # Now the target passes too; the saved work must still get its next round.
         self.rig.commit({"retry.txt": "already fixed\n"})
         before = (directory / "tip.log").read_bytes()
-        done = self.home.ak("run", "resume", directory.name, "--rounds", "2", timeout=300)
+        install = Install(self.home)
+        (install.path / "agentkit/run.py").write_text("raise AssertionError('resumed on another checkout')\n")
+        done = self.home.run(install.ak, "run", "resume", directory.name, "--rounds", "2", timeout=300)
         state = json.loads((directory / "run.json").read_text())
         self.assertEqual(done.code, 1, done.out + done.err)
         self.assertEqual(state["state"], "blocked")

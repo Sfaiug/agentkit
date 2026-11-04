@@ -69,7 +69,6 @@ class BaseFollowsWorkerRebase(Sandbox):
             (self.repo / "new.py").write_text("n = 1\n")
             return "built"
         with patch.object(roundloop, "execute", side_effect=build), \
-                patch.object(run, "pickup_new_code", return_value=None), \
                 patch.object(gate, "run_done_when", return_value=(True, "$ true\n[exit 0]")), \
                 patch.object(roundloop, "review", return_value="PASS") as review:
             try:

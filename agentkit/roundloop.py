@@ -1687,13 +1687,12 @@ def resume_review(lp, verified=None):
                   **({"record": False} if pending.get("record") is False else {}))
 
 
-def rounds(lp, execv=None):
+def rounds(lp):
     """Executor -> done-when -> reviewer, until PASS or the round budget is spent.
 
     Only a recorded successful review by an eligible model can skip straight to delivery.
     An unfinished review resumes on the saved work without spending another executor turn.
     """
-    from . import run  # here, not at the top: run imports roundloop
     transitions.invalidate_saved_pass(lp.state, lp.cfg, lp.log)
     lp.rounds = lp.state["rounds"]
     lp.save()
@@ -1731,7 +1730,6 @@ def rounds(lp, execv=None):
         if resume_review(lp) == "PASS":
             return
     while transitions.round_allowed(lp):
-        run.pickup_new_code(lp, execv=execv)
         lp.rnd += 1
         cut = continuation(lp)
         if cut in ("reviewer", "done-when"):

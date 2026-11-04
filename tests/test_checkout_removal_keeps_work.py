@@ -109,7 +109,6 @@ class CheckoutRemoval(unittest.TestCase):
         with patch.object(run, "collect_usage", return_value={}), \
                 patch.object(run, "ready_order", return_value=["opus", "astra"]), \
                 patch.object(run, "pick_models", return_value=("opus", "astra")), \
-                patch.object(run, "pickup_new_code"), \
                 patch.object(roundloop, "execute", side_effect=fixer):
             ended = run.loop(self.cfg, directory, directory / "task.md", opts,
                              lambda _: None, prior=state)

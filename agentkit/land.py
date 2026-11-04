@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update, versions
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -238,14 +238,16 @@ def start_line(turn, log=lambda _: None):
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
-        installed = Path.home() / ".local" / "bin" / "ak"
-        if not installed.is_file():
-            installed = config.REPO / "bin" / "ak"
-        return orch.start_in_slice(
-            [sys.executable, str(installed), "run", "--lander", turn.name],
-            f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
-            env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
-            properties=properties, nice=True)
+        with versions.checkout(waiting["ak_checkout"]) if waiting.get("ak_checkout") else nullcontext(config.REPO) as code:
+            installed = Path.home() / ".local" / "bin" / "ak"
+            if not installed.is_file():
+                installed = code / "bin" / "ak"
+            env["AK_RUN_CODE"] = str(code)
+            return orch.start_in_slice(
+                [sys.executable, str(installed), "run", "--lander", turn.name],
+                f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
+                env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
+                properties=properties, nice=True)
     except (OSError, config.Error) as exc:
         log(f"WARN could not start lander for {turn.name}: {exc}")
         return False
@@ -527,6 +529,8 @@ def check_line(turn, log=lambda _: None):
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
+            if state.get("ak_checkout") not in (None, str(config.REPO)):
+                return
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
                 gitcall.no_auto_gc(repo)
@@ -575,6 +579,8 @@ def check_line(turn, log=lambda _: None):
                     continue
                 candidates = [(directory, state)]
                 for later, saved in members[index + 1:] if not name else ():
+                    if saved.get("ak_checkout") != state.get("ak_checkout"):
+                        break
                     with record.recovery_lock(later):
                         if (record.read_state(later) != saved or record.process_active(saved)
                                 or saved.get("state") != "waiting"):

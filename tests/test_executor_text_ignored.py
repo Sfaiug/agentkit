@@ -27,8 +27,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         for key in ("HOME", "RUNS", "WT", "STATE", "SECRETS", "TMP", "ENV", "WORK", "CODE"):
             self.stack.enter_context(patch.object(config, key, self.root / key.lower()))
         for module, name in ((turns, "note_turn_meters"), (transitions, "history_role_tokens"),
-                             (turns, "memory_cap_note"), (run.history, "update_run"),
-                             (run, "pickup_new_code")):
+                             (turns, "memory_cap_note"), (run.history, "update_run")):
             self.stack.enter_context(patch.object(module, name, return_value=None))
         self.stack.enter_context(patch.object(turns, "transient_wait",
                                              side_effect=AssertionError("unexpected wait")))

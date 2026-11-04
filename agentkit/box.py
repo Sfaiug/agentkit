@@ -296,9 +296,14 @@ def _own(scratch, clean, cwd, writable, hidden):
 
 def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
+    from . import config, retention
+    readonly = {config.REPO} if config.REPO.is_dir() else set()
+    try:
+        readonly.update((retention.git_directory(config.REPO), retention.common_directory(config.REPO)))
+    except (OSError, ValueError):
+        pass
     clash = sorted(own.keys() & writable)
     if clash:
-        from . import config
         raise config.Error(f"{clash[0]} is a place the box keeps empty and one it writes through "
                            "to; give each a directory of its own")
     overlays = set(homes) - own.keys() - writable
@@ -307,7 +312,8 @@ def _bind(own, writable, homes=()):
     # Overlayfs refuses inherited child mounts. Leave those homes read-only rather than
     # rebuilding their contents: a box's arguments must not grow with directory entries.
     overlays = {path for path in overlays if not any(path in mount.parents for mount in mounts)}
-    binds = {**{path: path for path in overlays}, **own, **{path: path for path in writable}}
+    binds = {**{path: path for path in readonly | overlays}, **own,
+             **{path: path for path in writable}}
     args = []
     for path in sorted(binds):
         # What the nearest mounted parent already shows needs no mount of its own, and a
@@ -315,9 +321,10 @@ def _bind(own, writable, homes=()):
         parent = next((parent for parent in path.parents if parent in binds), None)
         if path in overlays:
             args.extend(["--overlay-src", str(path), "--tmp-overlay", str(path)])
-        elif (parent is None or parent in overlays
+        elif (parent is None or parent in overlays or (parent in readonly and path in writable)
               or binds[parent] / path.relative_to(parent) != binds[path]):
-            args.extend(["--bind", str(binds[path]), str(path)])
+            args.extend(["--ro-bind" if path in readonly - writable else "--bind",
+                         str(binds[path]), str(path)])
     return args
 
 

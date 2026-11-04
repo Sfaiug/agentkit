@@ -80,8 +80,7 @@ class DeliveryWait(unittest.TestCase):
 
         with path.open("a") as holder:
             flock(holder, fcntl.LOCK_EX)
-            with patch.object(run, "pickup_new_code", return_value=False), \
-                    patch.object(gitcall, "fetch", return_value=(0, "")), \
+            with patch.object(gitcall, "fetch", return_value=(0, "")), \
                     patch.object(delivery.fcntl, "flock", side_effect=observe_wait):
                 waiter = threading.Thread(target=land, daemon=True)
                 waiter.start()
@@ -126,7 +125,6 @@ class DeliveryWait(unittest.TestCase):
                 with delivery.merge_lock(self.lp, "origin/main"):
                     self.fail("an interrupted waiter cannot deliver")
         self.assertNotIn("delivery_wait", record.read_state(self.lp.run_dir))
-        self.assertEqual(getattr(run.PICKUP_HELD, "count", 0), 0)
 
 
 if __name__ == "__main__":

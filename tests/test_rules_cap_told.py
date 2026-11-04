@@ -417,7 +417,7 @@ class RulesCapTold(unittest.TestCase):
                 fixes.append(text)
             return "## Summary\nAcme work."
 
-        with patch.object(roundloop, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False):
+        with patch.object(roundloop, "execute", side_effect=execute):
             run.rounds(lp)
         self.assertEqual(len(fixes), 1)
         self.assertIn(f"AGENTS.md is {LIMIT + 1} bytes", fixes[0])

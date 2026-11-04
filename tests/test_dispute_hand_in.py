@@ -44,7 +44,7 @@ class DisputeHandIn(unittest.TestCase):
                 (worker, "kill_marked", True), (stop, "marker_pids", []),
                 (run.orch, "stop_scope", None), (turns, "note_turn_meters", None),
                 (transitions, "history_role_tokens", None), (turns, "memory_cap_note", None),
-                (run, "pickup_new_code", None), (run.history, "update_run", None)):
+                (run.history, "update_run", None)):
             self.stack.enter_context(patch.object(module, name, return_value=value))
         config.ensure_dirs()
         self.cfg = config.load()

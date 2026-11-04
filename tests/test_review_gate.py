@@ -113,8 +113,6 @@ sys.exit(1)
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(run.history, "sample_rss", return_value=None))
-        # A moving install must not replace this test process and discard its patches.
-        self.stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
         config.ensure_dirs()
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:

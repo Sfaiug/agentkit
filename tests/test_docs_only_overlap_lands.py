@@ -110,10 +110,6 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         config.ensure_dirs()
         self.counter = self.root / "counter"
         self.counter.touch()
-        self.pickups = []
-        self.stack.enter_context(patch.object(
-            run, "pickup_new_code",
-            side_effect=lambda lp, **kw: self.pickups.append(kw.get("extra")) or False))
         self.stack.enter_context(patch.object(
             run, "execute", side_effect=AssertionError("unexpected fixer turn")))
         self.stack.enter_context(patch.object(
@@ -157,7 +153,6 @@ class DocsOnlyOverlapLands(unittest.TestCase):
                                               NOTES: "1\n2\n3\n4\nfive\n"}))
         self.assert_untracked(lp, "extra.py")
         self.assertEqual(self.delivered, [True])
-        self.assertEqual(self.pickups, [])
         head = run.git(lp.wt, "rev-parse", "HEAD")
         tip = run.git(owner, "rev-parse", "main^{commit}")
         self.assertEqual(run.git_out(lp.wt, "merge-base", "--is-ancestor", tip, "HEAD")[0], 0)
@@ -178,7 +173,6 @@ class DocsOnlyOverlapLands(unittest.TestCase):
                       {GUIDE: "charlie\n2\n3\n4\n5\n"})
         self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n"}))
         head = run.git(lp.wt, "rev-parse", "HEAD")
-        self.assertEqual(self.pickups, [])
         self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every", "once"])
         self.assertEqual(lp.state["final_check"]["tree_sha"],
                          run.git(lp.wt, "rev-parse", "HEAD^{tree}"))
@@ -193,7 +187,6 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertFalse(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nbroken\n"},
                                    consume=lambda _: False))
         self.assertEqual(self.delivered, [])
-        self.assertEqual(self.pickups, [])
         self.assert_untracked(lp, "extra.py")
         self.assertIn("fix", record.read_state(lp.run_dir)["waiting_on"])
         self.assertEqual([row[0] for row in self.rows()].count("once"), 0)
@@ -215,7 +208,6 @@ class DocsOnlyOverlapLands(unittest.TestCase):
         self.assertTrue(self.land(lp, owner, {GUIDE: "1\n2\n3\n4\nfive\n",
                                               CODE: "1\n2\n3\n4\nfive\n"}))
         self.assertEqual(self.delivered, [True])
-        self.assertEqual(self.pickups, [])
         # the changed tree needs its own check
         self.assertEqual([row[0] for row in self.rows()], ["every", "once", "every", "once"])
 

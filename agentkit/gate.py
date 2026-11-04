@@ -1029,9 +1029,6 @@ class _GateHold:
                 fcntl.flock(slot, fcntl.LOCK_UN)
         finally:
             self.slots = []
-            held = getattr(_GATE_HELD, "count", 0)
-            if held:
-                _GATE_HELD.count = held - 1
             self.files.close()
 
 
@@ -1264,8 +1261,6 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
         raise
     finally:
         waiting.close()
-    held = getattr(_GATE_HELD, "count", 0)
-    _GATE_HELD.count = held + 1
     if not pieces:
         return _GateHold(files, slot, context)
 
@@ -2492,11 +2487,6 @@ def run_round(cmds, cwd, log_path, artifacts, limit, log, silence, run_dir, chec
         text = f"{there}\n\n{text}"
         log_path.write_text(text)
     return ok, text
-
-
-def turn_held():
-    """Whether this thread holds a heavy-suite turn, including a directly acquired hold."""
-    return bool(getattr(_GATE_HELD, "count", 0))
 
 
 def release_turn():

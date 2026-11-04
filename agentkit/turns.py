@@ -352,9 +352,8 @@ def _scope_units(scope):
     return (f"{scope}.scope", f"{scope}.service")
 
 
-# "<cgroup> <oom_kill count>" this loop has logged.  In the environment, because a loop that
-# picks up new code replaces its interpreter (`pickup_new_code`) in the same scope, and must
-# not say those kills again; a resume in a new scope is a new process that starts without it.
+# "<cgroup> <oom_kill count>" this loop has logged, kept across exec in the same scope.
+# A resume in a new scope is a new process that starts without it.
 OOM_LOGGED = "AK_MEMORY_CAP_LOGGED"
 
 

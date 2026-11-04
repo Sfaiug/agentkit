@@ -1210,6 +1210,7 @@ def run_child_env():
     """The next depth and the run's marker, including to a job thread's done-when commands."""
     state = getattr(_RUN_CONTEXT, "state", {})
     env = {**config.seatless_env(),
+           "AK_RUN_CODE": str(config.REPO),
            "AK_RUN_DEPTH": str(state.get("run_depth", run_depth()) + 1),
            "AK_PARENT_RUN": state.get("parent_run") or state.get("run_id") or
                             os.environ.get("AK_PARENT_RUN", "")}
