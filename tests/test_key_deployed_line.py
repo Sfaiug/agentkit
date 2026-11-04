@@ -32,11 +32,13 @@ class DeployedLine(unittest.TestCase):
         config.write_text(config.read_text() + "\n[audit]\non = false\n")
         gh = GitHub(cls.home)
         cls.projects = {}
-        for name, code in (("live", 0), ("waiting", 1), ("legacy", None)):
+        for name, code in (("live", 0), ("waiting", 1), ("rolled-back", 0), ("legacy", None)):
             # Output claims the opposite: only the exit decides whether the merge is live.
             deployed = (f'printf "%s\\n%s\\n" "$AK_MERGE_SHA" "$PWD" '
                         f'>>"$HOME/{name}-probes"; echo {WAITING if code == 0 else LIVE}; '
-                        f'exit {code}') if code is not None else None
+                        f'test -e "$HOME/{name}-released"') if code is not None else None
+            if code == 0:
+                cls.home.write(f"{name}-released", "")
             front = f"deployed: {deployed}\n" if deployed else ""
             rig = Rig(cls.home, name, files={
                 "AGENTS.md": f"---\nhealth: {HEALTH}\n{front}---\n"})
@@ -56,6 +58,7 @@ class DeployedLine(unittest.TestCase):
         cls.tick()
         cls.first = {name: json.loads(path.read_text())
                      for name, (_, _, path, _) in cls.projects.items()}
+        (cls.home.path / "rolled-back-released").unlink()
         cls.tick()
         for _, _, path, _ in cls.projects.values():
             state = json.loads(path.read_text())
@@ -74,6 +77,9 @@ class DeployedLine(unittest.TestCase):
     def test_an_unreleased_merge_is_told_it_is_not_live_yet(self):
         self.assertIn(WAITING, self.projects["waiting"][1].typed())
 
+    def test_a_rollback_is_told_the_merge_is_no_longer_live(self):
+        self.assertIn(WAITING, self.projects["rolled-back"][1].typed())
+
     def test_without_the_line_the_seat_gets_todays_notice(self):
         run = "20261104-1200-legacy"
         self.assertEqual(self.projects["legacy"][1].lines(), [
@@ -82,7 +88,7 @@ class DeployedLine(unittest.TestCase):
             f"Next: launch the fix the result names. Result: ~/.agentkit/runs/{run}/result.md"])
 
     def test_each_probe_uses_the_merge_sha_and_checkout_even_after_deployment_passes(self):
-        for name in ("live", "waiting"):
+        for name in ("live", "waiting", "rolled-back"):
             rig, _, path, command = self.projects[name]
             with self.subTest(project=name):
                 self.assertEqual((self.home.path / f"{name}-probes").read_text().splitlines(),
@@ -93,7 +99,7 @@ class DeployedLine(unittest.TestCase):
         for name, (_, _, path, _) in self.projects.items():
             state = json.loads(path.read_text())
             self.assertNotIn("live_at", state)
-            if name == "live":
+            if name in ("live", "rolled-back"):
                 self.assertIsInstance(self.first[name].get("deployed_at"), (int, float))
                 self.assertEqual(state["deployed_at"], self.first[name]["deployed_at"])
             else:

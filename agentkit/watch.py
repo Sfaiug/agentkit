@@ -7499,8 +7499,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                 probes[deployed_probe] = health_command(
                     st["repo"], sha, deployed, checked=(run_dir, None, "deployed", sha))
             with run_record.record(run_dir) as current:
-                if deployed and probes[deployed_probe][0]:
-                    current.setdefault("deployed_at", now)
+                if deployed:
+                    current["deployed_passed"] = probes[deployed_probe][0]
+                    if current["deployed_passed"]:
+                        current.setdefault("deployed_at", now)
                 if passed or current.get("live_at"):
                     current.setdefault("live_at", now)
                     current.pop("health", None)
@@ -7515,7 +7517,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
             output = health.get("output") or "command exited nonzero without output"
             deployment = []
             if st.get("deployed"):
-                deployment = ["this merge is live and its health fails" if st.get("deployed_at")
+                deployment = ["this merge is live and its health fails" if st.get("deployed_passed")
                               else "the live product does not run this merge yet"]
             return "failed", f"health: {command}", "; ".join(
                 [pr_url, *deployment, *(part for part in output.splitlines() if part.strip())])
