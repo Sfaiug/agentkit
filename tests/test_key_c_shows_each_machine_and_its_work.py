@@ -85,7 +85,7 @@ class MachinesOnC(unittest.TestCase):
             "acme-mac sometimes on · 4 cores · 8 GB · 25% busy · 2 of 8 GB used · tests",
             "acme-rental rented until 15:44 · 16 cores · 32 GB · 50% busy · "
             "10 of 32 GB used · builds, reviews, tests",
-            "Google Cloud on · €31.74 of €200 this month · 2 machines up").split())
+            "Google Cloud ● on · €31.74 of €200 this month · 2 machines up").split())
         self.assertIn("3 · Google Cloud on · €31.74 of €200 this month",
                       " ".join(self.config_screen.split()))
         self.assertLess(shown.index("this one"), shown.index("acme-mac"))
@@ -107,9 +107,13 @@ class MachinesOnC(unittest.TestCase):
 
     def test_inactive_cloud_says_off(self):
         self.write_config(active=False)
-        shown = " ".join(self.page("Google Cloud off").split())
+        shown = " ".join(self.page("Google Cloud ○ off · 2 machines going once idle").split())
         self.assertNotIn("€", shown)
         self.assertIn("2 · Google Cloud off", " ".join(self.config_screen.split()))
+        self.leave()
+        self.ledger.write_text('{"answered": 0, "spent": 0, "machines": {}}')
+        shown = " ".join(self.page("Google Cloud ○ off").split())
+        self.assertNotIn("going once idle", shown)
         self.leave()
 
     def test_unreadable_missing_or_old_ledger_never_invents_spend(self):
@@ -120,7 +124,7 @@ class MachinesOnC(unittest.TestCase):
                     self.ledger.unlink()
                 else:
                     self.ledger.write_text(content)
-                shown = " ".join(self.page("Google Cloud on · spend unknown").split())
+                shown = " ".join(self.page("Google Cloud ● on · spend unknown").split())
                 self.assertNotIn("€", shown + self.config_screen)
                 self.leave()
 

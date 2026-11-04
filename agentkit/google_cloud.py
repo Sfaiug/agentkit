@@ -159,7 +159,9 @@ def summary():
     """The config screen's reading, from the tick alone; no unrecorded money is shown."""
     active, cap = _setting()
     if not active:
-        return "off"
+        left = len((_ledger() or {}).get("machines", {}))
+        return (f"off · {left} machine{'s' if left != 1 else ''} going once idle"
+                if left else "off")
     ledger = _ledger()
     if not ledger or not ledger["answered"] or (
             time.gmtime(ledger["answered"])[:2] != time.gmtime(time.time())[:2]):
@@ -170,12 +172,12 @@ def summary():
 
 
 def watch():
-    """The tick's pass while ak may rent: the meter moved on to what Google lists, each machine
+    """The tick's pass: the meter moved on to what Google lists, each machine
     past its end, unpriced, past the cap or idle given back and said, ssh reaching the others, the
     ready ones serving; only then a stale price list, and a machine rented for a need noted while
     none comes up, with the quota the cheapest offer it skipped lacks asked for."""
     wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
-    if not active:
+    if not active and not (config.SECRETS / KEY).exists():
         return
     listed, now = rented(), time.time()
     try:
@@ -205,6 +207,8 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
+    if not active:
+        return
     if not _amount(at) or now - at >= FRESH_FOR or not all(one.zones for one in offered):
         offered = offers()
         config._write_json(config.STATE / OFFERS, {"at": now, "offers": offered})
@@ -239,19 +243,27 @@ def rented():
 def serving():
     """{name: its end} of the machines ak rents that serve, as the tick last found them ready,
     while ak may rent."""
+    if not renting():
+        return {}
     return {name: int(until) for name, until in re.findall(r"^Host (.+)\n  # until (\d+)$",
                                                              _routes(), re.M)}
 
 
+def not_serving():
+    """Rentals keeping a route but taking no work, even when explicitly named as helpers."""
+    return set(re.findall(r"^Host (.+)$", _routes(), re.M)) - {"*", *serving()}
+
+
 def _routes():
-    """The ssh config's text, while ak may rent."""
-    return (config.STATE / SSH_CONFIG).read_text() if ssh_config() else ""
+    """The ssh config's text, including routes finishing work while renting is off."""
+    path = config.STATE / SSH_CONFIG
+    return path.read_text() if path.exists() else ""
 
 
-def ssh_config():
-    """ssh's words reaching the machines ak rents and every other as ever, while ak may rent."""
-    path = config.STATE / SSH_CONFIG     # replaced whole, never removed
-    return ("-F", str(path)) if path.exists() and _setting()[0] else ()
+def ssh_config(alias=None):
+    """A rental's route, even while renting is off; other aliases keep SSH's own config."""
+    return (("-F", str(config.STATE / SSH_CONFIG))
+            if alias and f"Host {alias}\n" in _routes() else ())
 
 
 def give_back(machine):
@@ -321,7 +333,8 @@ def _login():
 def _setting():
     """Whether ak may rent, and the most a month may cost, 0 for no number: an owner's slip."""
     cap = (table := config.load().get("google_cloud") or {}).get("max_month")
-    return table.get("active") is True, cap if _amount(cap) else 0
+    return table.get("active") is True, cap if (
+        type(cap) is int and cap >= 0 or _amount(cap)) else 0
 
 
 def _amount(value):

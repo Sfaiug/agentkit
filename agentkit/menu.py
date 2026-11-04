@@ -4897,9 +4897,9 @@ def config_page(name, page):
     flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
 
     A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
-    flipping it; a list, (choices, several), Enter or a click opening it under the row, coming
-    up there (motion.fading), the
-    highlight on the first choice marked; or a field, Enter or a click calling it with `draw`,
+    flipping it, optionally a third item, a field Enter opens; a list, (choices, several),
+    Enter or a click opening it under the row, coming up there (motion.fading), the highlight
+    on the first choice marked; or a field, Enter or a click calling it with `draw`,
     which draws the page with lines under the row and returns the screen row of the first, as
     terminal.field takes it.  `choices()` gives (value, pick, mark) each, asked as the list
     opens and again after each pick, so a reading that moves underneath never moves the
@@ -4909,7 +4909,7 @@ def config_page(name, page):
     Enter or a click calling `pick()`, "" doing nothing.  Esc closes the list.  What a call
     returns is said under the rows, over the note, until the next key."""
     here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
-    listed = []                       # the open list's choices, as last asked
+    rows, listed = [], []              # the page and open list's choices, as last asked
     clock = motion.Clock(page=True)   # it comes up as `c` does, and its marks move as `c`'s
 
     def does(row):                    # what Space and Enter do on `row` (terminal.keys)
@@ -4920,11 +4920,14 @@ def config_page(name, page):
         act = rows[row[1]][2]
         if act is None:
             return None, None
-        return ("mark", None) if isinstance(act, tuple) and act[0] == "mark" else (None, "open")
+        return (("mark", "open" if len(act) == 3 else None)
+                if isinstance(act, tuple) and act[0] == "mark" else (None, "open"))
     while True:
+        label = rows[here[1]][0] if rows else None
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
-            here = ("row", min(here[1], len(rows) - 1))
+            here = ("row", next((number for number, row in enumerate(rows) if row[0] == label),
+                                 min(here[1], len(rows) - 1)))
         drawn = [(("row", number), label, value) for number, (label, value, *_) in enumerate(rows)]
         # the pointed row's own note, none while the pointer is off every row
         note = rows[here[1]][3] if len(rows[here[1]]) == 4 and not terminal.away() else note
@@ -4967,9 +4970,9 @@ def config_page(name, page):
                 listed = opened[1]()
                 # a login's list asked again can be shorter: the highlight stays on a choice
                 here = (*here[:2], min(here[2], max(0, len(listed) - 1)))
-        elif space:                   # a mark of the page's own
+        elif act == "space":         # a mark of the page's own
             said = rows[here[1]][2][1]() or ""
-        elif isinstance(rows[here[1]][2], tuple):
+        elif isinstance(rows[here[1]][2], tuple) and not space:
             opened = (here[1], *rows[here[1]][2])
             clock.forget()            # what it asks may draw a screen: the page back is up
             listed = opened[1]()
@@ -4979,11 +4982,13 @@ def config_page(name, page):
         else:
             # typed in, the arrows move nothing: Enter saves what was typed
             opened, at = None, here[1]
+            field_label = rows[at][0]
             clock.forget()            # drawn off the clock: the page back is drawn as it is
             keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
+                at = next(number for number, row in enumerate(rows) if row[0] == field_label)
                 body, places = page_body([(("row", number), label, value)
                                           for number, (label, value, *_) in enumerate(rows)])
                 # under the row's last line, a value that wrapped included
@@ -4992,7 +4997,8 @@ def config_page(name, page):
                 first, room = matrix_page(body, {end: ("lines", [])}, "lines", top, said, keys)
                 terminal.frame(title, [*body[first:first + room], *said], keys)
                 return 3 + end - first
-            said = rows[at][2](draw) or ""
+            field = rows[at][2][2] if space else rows[at][2]
+            said = field(draw) or ""
 
 
 # What `Models`, `Discord` and `Weekly audit` say under their rows.
@@ -5262,13 +5268,32 @@ def machine_value(machine, rented, turns):
 
 
 def config_machines(cfg):
-    """`Machines`: recorded readings only, with no row acts yet."""
+    """Recorded machines; Space switches Google renting, Enter sets its monthly cap."""
+    on, off = ("●", "○") if terminal.utf8() else ("*", ".")
+
+    def save(key, value):
+        before = copy.deepcopy(cfg)
+        cfg["google_cloud"] = {**(cfg.get("google_cloud") or {}), key: value}
+        return _saved(cfg, cfg, before)
+
+    def cap_field(draw):
+        value = terminal.field("    ", "whole euros per month, 0 or more",
+                               around=lambda line: draw([line]))
+        if value is None or terminal.is_esc(value):
+            return ""
+        if not re.fullmatch(r"[0-9]+", value.strip()):
+            return "the monthly cap must be a whole number of euros, 0 or more"
+        return save("max_month", int(value))
+
     def page():
+        active, _ = google_cloud._setting()
         rented = google_cloud.serving()
         rows = [(machine.name, machine_value(machine, rented,
                                              cfg.get("turns_on_machines") is True), None)
                 for machine in machines.known()]
-        return [*rows, ("Google Cloud", google_cloud.summary(), None)], ""
+        return [*rows, ("Google Cloud", [(on, "accent") if active else (off, "dim"),
+                                         (google_cloud.summary(), None)],
+                        ("mark", lambda: save("active", not active), cap_field))], ""
     config_page("machines", page)
 
 
