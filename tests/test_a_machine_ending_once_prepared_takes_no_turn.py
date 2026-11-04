@@ -33,6 +33,7 @@ class AMachineEndingOncePreparedTakesNoTurn(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(config, "STATE", Path(tmp)), \
                 patch.object(helper.machines, "helpers", return_value=[*CPUS]), \
+                patch.object(helper.machines, "work", return_value=["turns", "tests"]), \
                 patch.object(google_cloud, "serving", return_value={
                     "acme-narrow": now[0] + 3630, "acme-wide": now[0] + 21600}), \
                 patch.object(helper, "time", SimpleNamespace(time=lambda: now[0])), \
