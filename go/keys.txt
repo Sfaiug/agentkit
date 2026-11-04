@@ -90,6 +90,7 @@ test_key_merge_trailer
 test_key_model_typed_forms ModelNames
 test_key_models_command
 test_key_move_copies
+test_key_muse_words
 test_key_notice_hook
 test_key_notify_dry_run
 test_key_notify_mentions ASeatAsks
