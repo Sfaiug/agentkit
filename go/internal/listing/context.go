@@ -2,7 +2,6 @@ package listing
 
 import (
 	"context"
-	"io"
 	"os/exec"
 	"slices"
 	"strings"
@@ -10,7 +9,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 )
 
 // listingCap is how long one login's listing may take, after which that login lists nothing.
@@ -61,28 +59,12 @@ func listed(parent context.Context, script string, env []string) (rows [][]strin
 	ctx, cancel := context.WithTimeout(parent, listingCap)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, script, "models")
-	cmd.Env, cmd.WaitDelay = env, time.Second
-	stop := host.AdapterCall(cmd)
-	var said strings.Builder
-	cmd.Stdout, cmd.Stderr = &said, io.Discard
-	if cmd.Start() != nil {
+	cmd.Env = env
+	said, err := catalogOutput(ctx, cmd)
+	if err != nil {
 		return nil
 	}
-	// The cap holds to the end of the output, which a helper the adapter leaves can hold open past
-	// its exit, when the Context no longer reaches anything.
-	ended := make(chan error, 1)
-	go func() { ended <- cmd.Wait() }()
-	select {
-	case err := <-ended:
-		if err != nil {
-			return nil
-		}
-	case <-ctx.Done():
-		stop()
-		<-ended
-		return nil
-	}
-	for _, line := range config.SplitLines(strings.ToValidUTF8(said.String(), "�")) {
+	for _, line := range config.SplitLines(strings.ToValidUTF8(string(said), "�")) {
 		if fields := strings.Split(line, "\t"); len(fields) == 3 && fields[0] != "" {
 			rows = append(rows, []string{fields[0], fields[2], fields[1]})
 		}
