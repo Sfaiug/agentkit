@@ -118,10 +118,11 @@ def github_body(text, run_id):
 def pr_body(state):
     latest = state["round_summaries"][-1] if state["round_summaries"] else {}
     last = latest.get("summary", "").strip()
-    goal, cmds = "No task goal recorded.", []
+    goal, cmds, accepted = "No task goal recorded.", [], []
     path = Path(state["task"]) if state.get("task") else None
     if path and path.is_file():
         _, body, title = taskfile.parse_task(path)
+        accepted = [line for line in taskfile.decided(body) if line.startswith("Accepted:")]
         text = taskfile.goal_text(body)
         goal = title + "\n\n" + (text if text.strip() else "No Goal section recorded.")
         try:
@@ -138,6 +139,8 @@ def pr_body(state):
             lines += ["No passing done-when result on a reviewed commit recorded."]
     else:
         lines += ["No done-when commands recorded."]
+    if accepted:
+        lines += ["", "## Risk", "", *("- " + line for line in accepted)]
     lines += ["", "---", "",
              f"- verdict: {state['verdict']}",
              f"- rounds: {len(state['round_summaries'])} of {state['rounds']}",

@@ -2,8 +2,9 @@
 
 `write` puts it at `<root>/tasks/<slug>.md`, outside HOME and the repository: front matter
 between `---` lines (`repo:`, then each `front` key in order, a list repeating its key), then
-`# <title>`, `## Goal`, `## Constraints` as `- ` lines, `## Done when` holding a bash fence of
-one check a line, and `body`.  A part that would be empty is left out.
+`# <title>`, `## Goal`, `## Constraints` as `- ` lines, optional `## Decided` lines,
+`## Done when` holding a bash fence of one check a line, and `body`.
+A part that would be empty is left out.
 
 A run is found by listing HOME/.agentkit/runs, never by reading what ak printed.
 
@@ -20,7 +21,7 @@ import re
 GOAL = "Nothing: the fake adapters do the work."
 
 
-def write(home, repo, title="Add retry file", *, goal=GOAL, constraints=(),
+def write(home, repo, title="Add retry file", *, goal=GOAL, constraints=(), decided=(),
           done_when=("test -f retry.txt",), front=None, body="", name=None):
     """Write the task file and return its path; `body` is text after the last section."""
     lines = [f"repo: {repo}"] if repo is not None else []
@@ -32,6 +33,8 @@ def write(home, repo, title="Add retry file", *, goal=GOAL, constraints=(),
     lines += [f"# {title}", "", "## Goal", goal, ""]
     if constraints:
         lines += ["## Constraints", *(f"- {line}" for line in constraints), ""]
+    if decided:
+        lines += ["## Decided", *decided, ""]
     if done_when:
         lines += ["## Done when", "```bash", *done_when, "```", ""]
     path = home.root / "tasks" / f"{name or slug(title)}.md"

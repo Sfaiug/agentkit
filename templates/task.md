@@ -2,7 +2,7 @@
 
 <!-- One behaviour per task: $executor_size. -->
 ## Goal
-The outcome this task must achieve.
+The outcome.
 1. First checkable point.
 2. Second checkable point.
 
@@ -10,9 +10,14 @@ The outcome this task must achieve.
 - Boundaries the work must respect.
 - $Review_rounds round$s is the budget (`rounds` defaults to $review_rounds).
 
+<!-- Optional. -->
+## Decided
+Not wanted: add an archive browser.
+Accepted: the export skips archived rows.
+
 ## Done when
-Commands must exit 0. When the repository's AGENTS.md declares `tests:`, list only the checks for this change:
-ak runs that suite once, on the final commit. Otherwise mark the whole suite `# once` to run there.
+Commands must exit 0. If AGENTS.md declares `tests:`, list focused checks; ak runs that suite at landing.
+Otherwise mark the suite `# once`.
 
 ```bash
 python3 tests/test_foo.py

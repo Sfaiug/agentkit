@@ -1,4 +1,4 @@
-"""The task file: front matter, title, done-when commands and size."""
+"""The task file: front matter, title, decisions, done-when commands and size."""
 
 import os
 import re
@@ -64,12 +64,17 @@ def front_matter(path):
 
 def parse_task(path):
     pairs, body = front_matter(path)
+    decided(body)
     title = next((l[2:].strip() for l in body.splitlines() if l.startswith("# ")), path.stem)
     return dict(pairs), body, title
 
 
 def goal_text(body):
     """Keep the Goal's indentation and examples; headings inside fences are its text."""
+    return next(_sections(body, "Goal"), "")
+
+
+def _sections(body, heading):
     lines, found, fence = [], False, ""
     for line in body.splitlines(keepends=True):
         marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
@@ -80,18 +85,33 @@ def goal_text(body):
             fence = marker[1]
         elif re.match(r"##[ \t]+", line):
             if found:
-                break
-            found = bool(re.fullmatch(r"##[ \t]+Goal[ \t]*\n?", line, re.I))
+                yield "".join(lines).strip("\n")
+            found = bool(re.fullmatch(rf"##[ \t]+{heading}[ \t]*\n?", line, re.I))
+            lines = []
             continue
         if found:
             lines.append(line)
-    return "".join(lines).strip("\n")
+    if found:
+        yield "".join(lines).strip("\n")
 
 
 def task_files(path):
     """Allowed Git pathspecs from repeatable, comma-separated `files:` lines."""
     return [part.strip() for key, value in front_matter(path)[0] if key == "files"
             for part in value.split(",") if part.strip()]
+
+
+def decided(body):
+    """Settled decision lines, in order; malformed sections cannot launch."""
+    sections = list(_sections(body, "Decided"))
+    if len(sections) > 1:
+        raise config.Error("`## Decided` may appear only once; keep decisions in one section")
+    lines = [line.strip() for line in sections[0].splitlines() if line.strip()] if sections else []
+    invalid = next((line for line in lines if not line.startswith(("Not wanted:", "Accepted:"))), None)
+    if invalid is not None:
+        raise config.Error(f"`## Decided` lines must start with `Not wanted:` or `Accepted:`; "
+                           f"got {invalid!r}")
+    return lines
 
 
 def done_when(body, path):
