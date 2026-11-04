@@ -138,6 +138,8 @@ class CloudSettings(unittest.TestCase):
         # With no work marked, an idle rental goes back even with renting switched on.
         self.config.write_text(self.config.read_text().split("\n[google_cloud]")[0] +
                                '\n[google_cloud]\nactive = true\nmax_month = 200\nwork = []\n')
+        home.write(".agentkit/state/google-cloud-offers.json", {"at": NOW + 180, "offers": [
+            ["c4a-standard-8", "europe-west4", 8, 32768, 0.5, ["europe-west4-a"], "", ""]]})
         home.fake("ssh", "#!/bin/sh\necho 1\n")
         home.write(".agentkit/state/google-cloud-need", "456 tests\n789 turns\n")
         start = len(google.asked)
@@ -146,6 +148,8 @@ class CloudSettings(unittest.TestCase):
         self.assertEqual([one for one in google.asked[start:] if one.startswith("DELETE ")],
                          ["DELETE acme-busy"])
         self.assertEqual((google.made, google.asks), ([], []))
+        self.assertIn("acme-busy listed no work marked, given back", json.loads(
+            (home.path / ".agentkit/state/google-cloud-late.json").read_text()))
 
     def test_off_sends_no_new_work_to_a_rental(self):
         self.config.write_text(self.config.read_text().replace("active = true", "active = false"))
