@@ -207,6 +207,24 @@ def rated(rows, role):
     return out
 
 
+def frontier(rated, role):
+    """The priced frontier eligible for this role's recommendation, cheapest first."""
+    rows = sorted((row for row in rated if row["cost"] is not None),
+                  key=lambda row: (row["cost"], -row["quality"]))
+    if not rows:
+        return []
+    best = max(rows, key=lambda row: row["quality"])
+    if role != "execute":
+        rows = [row for row in rows if row is best or best["quality"] - row["quality"]
+                < 1.96 * math.hypot(best["se"], row["se"])]
+    front = []
+    for row in rows:
+        if front and (row["cost"] == front[-1]["cost"] or row["quality"] <= front[-1]["quality"]):
+            continue
+        front.append(row)
+    return front
+
+
 def pick(rated, role):
     """One recommendation from the priced rows, independent of usage or settings.
 
@@ -219,20 +237,10 @@ def pick(rated, role):
     its best; pick the row most quality points above it, cheaper on a tie. With one row
     or no cost span, pick the best; without a cost, nothing.
     """
-    rows = sorted((row for row in rated if row["cost"] is not None),
-                  key=lambda row: (row["cost"], -row["quality"]))
-    if not rows:
+    front = frontier(rated, role)
+    if not front:
         return None
-    best = max(rows, key=lambda row: row["quality"])
-    if role != "execute":
-        rows = [row for row in rows if row is best or best["quality"] - row["quality"]
-                < 1.96 * math.hypot(best["se"], row["se"])]
-    front = []
-    for row in rows:
-        if front and (row["cost"] == front[-1]["cost"] or row["quality"] <= front[-1]["quality"]):
-            continue
-        front.append(row)
-    cheapest = front[0]
+    cheapest, best = front[0], front[-1]
     span = best["cost"] - cheapest["cost"]
     if not span:
         return best

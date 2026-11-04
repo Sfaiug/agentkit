@@ -124,6 +124,7 @@ import errno
 import hashlib
 import heapq
 import json
+import math
 import os
 import re
 import select
@@ -139,7 +140,7 @@ from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import google_cloud, look, machines, open_runs, parsed, record
-from . import warm
+from . import chart, warm
 
 KEYS = "n new   c config   esc leave"
 STOP_ASK = "Stop {} and everything it runs?"   # what `x` asks under a seat that is not done
@@ -3215,8 +3216,9 @@ def model_cost(found, row):
 
 
 def models_said(answer, lineup):
-    """Each role's head and full frontier, with its pick and take marked. A quality line is
-    full at the best and empty ten points behind; efforts use the release's board rows."""
+    """Each role's head, chart points and full table frontier, its pick and take marked.
+    A quality line is full at the best and empty ten points behind; efforts use the release's
+    board rows."""
     levels = {}     # each release's efforts on the boards, weakest first, a row naming none one
     for row in lineup:
         levels.setdefault(row["release"], []).append(row["effort"])
@@ -3224,6 +3226,13 @@ def models_said(answer, lineup):
     for role, head in zip(quality.ROLES, orch.ROLE_HEADS):
         found = answer[role]
         front, pick, take = found["front"], found["pick"], found["take"]
+        edge = quality.frontier(found["compared"], role)
+        floor = pick["quality"] - 1.96 * math.sqrt(2) * pick["se"] if pick else math.inf
+        points = [(row["cost"], row["quality"], " ".join(filter(None, (row["name"], row["effort"]))),
+                   "★" if row is pick else "●" if row in edge else "·")
+                  for row in found["compared"] if row["cost"] is not None
+                  and row["quality"] >= floor]
+        baseline = [(row["cost"], row["quality"]) for row in (edge[0], edge[-1])] if edge else []
         lines = []
         for row in front:
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
@@ -3245,7 +3254,7 @@ def models_said(answer, lineup):
         said.append((f"{head} · none" if not front else f"{head} · best {found['best']:.1f}"
                      if front[0]["quality"] < found["best"] else head, lines,
                      {"share": "week %", "money": "plan $", "board_dollars": "a task"}[
-                         found["cost_unit"]]))
+                         found["cost_unit"]], (points, baseline)))
     return said
 
 
@@ -3253,8 +3262,8 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     """The models screen's lines, and the row each says, the row `at` marked, or the legend
     (LEGEND_ROW): {line: (row, [])}.
 
-    Per role (models_said), a blank line between two, its head, beside the first with rows the
-    columns' heads, then its lines: a row's mark in MARK cells, its name, its effort as `c` draws
+    Per role (models_said), a blank line between two, its head and chart from 60 columns up,
+    then its table: a row's mark in MARK cells, its name, its effort as `c` draws
     one -- its cells, then its word, in one column after the most cells any row has -- its line
     (terminal.share_line), taking the room the other columns leave, then its quality, cost and
     notes, these one under another in a column as wide as the widest.  Every line is QUIET and
@@ -3270,7 +3279,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     `compared` (matrix.compared) and when
     the boards were read, broken only at ` · `."""
     room = terminal.layout_width()
-    rows = [line for _, lines, _ in said for line in lines if isinstance(line, tuple)]
+    rows = [line for _, lines, *_ in said for line in lines if isinstance(line, tuple)]
     tall = max((len(cells) for _, _, _, cells, *_ in rows), default=0)
 
     def effort(cells, word):
@@ -3280,7 +3289,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     levelled = max((terminal.cells(effort(cells, word)) for _, _, _, cells, word, *_ in rows),
                    default=0)
     widths = [*(max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
-                for n, head in ((6, "quality"), (7, max((unit for _, _, unit in said),
+                for n, head in ((6, "quality"), (7, max((unit for _, _, unit, _ in said),
                                                        key=terminal.cells, default="a task")))),
               max((terminal.cells(note) for *_, notes, _ in rows for note in notes), default=0)]
     after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
@@ -3291,7 +3300,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     before = before if wide else 4                            # folded, the line under the name
     size = max(8, room - before - after)
     under = 2 + MARK + 2 + 2 if wide else 6                   # 2 cells in from a row's name
-    first = next((number for number, (_, lines, _) in enumerate(said) if lines), None)
+    first = next((number for number, (_, lines, *_) in enumerate(said) if lines), None)
     lines, places = [], {}
 
     def put(line, here=None):
@@ -3308,15 +3317,21 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
         moves.append((len(lines) - 1, LINES, None, lambda clock, row, since, _: grow_line(
             clock, row, drawn, slice(start, start + size), lambda cells: motion.growing(
                 cells, since + above * motion.STAGGER))))
-    for number, (head, said_lines, unit) in enumerate(said):
+    for number, (head, said_lines, unit, (points, baseline)) in enumerate(said):
         here = None
         if number:
             put("")
+        plot = chart.draw(points, baseline, ("board $" if unit == "a task" else unit) + " / task", room)
+        if plot:
+            for line in ["  " + head, *plot]:
+                # An empty span links scrolling to the first row without a pointer target.
+                places[len(lines)] = (None, [(1, 0, None, said_lines[0][0])])
+                put(line)
         headings = number == first or (said_lines and number and unit != said[number - 1][2])
-        if not (headings and wide):
+        if not plot and not (headings and wide):
             put("  " + head)
         if headings:
-            put(terminal.table_row([head if wide else "", "quality", unit],
+            put(terminal.table_row([head if wide and not plot else "", "quality", unit],
                                    [before + size - 2, *widths[:2]], indent="  ",
                                    kinds=(None, "dim", "dim"), right=(1, 2)))
         for line in said_lines:
@@ -3350,7 +3365,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
             for part in packed(notes[fit:], " · ", room - column):
                 put(" " * column + part, here)
     put("", LEGEND_ROW)
-    for name, text in LEGEND + (SHARE_LEGEND if any(unit == "week %" for *_, unit in said)
+    for name, text in LEGEND + (SHARE_LEGEND if any(unit == "week %" for _, _, unit, _ in said)
                                 else ()):
         for number, part in enumerate(terminal.wrap(text, room - NAMED)):
             put(terminal.table_row(["" if number else name, part], [9, room - NAMED],
@@ -3457,7 +3472,7 @@ def models_screen(cfg, session, selected, providers):
             compared = matrix.compared(cfg, current)
             answer = matrix.answer(lineup, compared, cfg=cfg)
             said = models_said(answer, lineup)
-            makers = {line[0]: line[-1] for _, lines, _ in said for line in lines
+            makers = {line[0]: line[-1] for _, lines, *_ in said for line in lines
                       if isinstance(line, tuple)}
             rows = list(makers)
             if here not in rows:
@@ -4014,7 +4029,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         return "back", here, column, top
     step = terminal.step(key)
     if step and rows:
-        mine = [line for line, (row, _) in places.items() if row == here]
+        mine = [line for line, (row, cells) in places.items()
+                if row == here or any(here in cell[3:] for cell in cells)]
         turned = matrix_page(body, places, here, top + step * room, below, keys, over, lead,
                              keyed)[0]
         if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top) and turned != top:
