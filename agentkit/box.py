@@ -297,14 +297,13 @@ def _own(scratch, clean, cwd, writable, hidden):
 def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
     from . import config, retention
-    readonly = {config.REPO}
+    readonly = {config.REPO} if config.REPO.is_dir() else set()
     try:
         readonly.update((retention.git_directory(config.REPO), retention.common_directory(config.REPO)))
     except (OSError, ValueError):
         pass
     clash = sorted(own.keys() & writable)
     if clash:
-        from . import config
         raise config.Error(f"{clash[0]} is a place the box keeps empty and one it writes through "
                            "to; give each a directory of its own")
     overlays = set(homes) - own.keys() - writable

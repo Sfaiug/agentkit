@@ -70,22 +70,15 @@ def checkout(commit=None):
         code, sha = git(source, "rev-parse", "--verify", f"{commit or 'HEAD'}^{{commit}}")
         if code:
             raise config.Error(f"cannot read ak version: {sha}")
-        if not live:
-            if not repository().exists():
-                code, said = git(source, "clone", "--quiet", "--bare", "--shared", str(source), str(repository()))
-                if code:
-                    raise config.Error(f"cannot keep ak repository: {said}")
-            source = repository()
         path = directory / sha
         if not path.exists():
             new = Path(tempfile.mkdtemp(prefix=f"{sha[:12]}.", dir=directory))
-            code, said = git(source, "worktree", "add", "--quiet", "--detach", "--lock",
-                             "--reason", LOCKED, str(new), sha)
+            code, said = git(source, "clone", "--quiet", "--shared", "--no-checkout", str(source), str(new))
+            if not code:
+                code, said = git(new, "checkout", "--quiet", "--detach", sha)
             if code:
                 raise config.Error(f"cannot check out ak {sha[:12]}: {said}")
             new.rename(path)
-            if git(source, "worktree", "repair", str(path))[0]:
-                raise config.Error(f"cannot repair ak checkout {path}")
         yield path
 
 

@@ -714,15 +714,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
 
 
 def job_scoped(job):
-    """Whether this process sits in the job's own scope, whose one memory cap is not a task's.
-
-    `spawn_job_bg` places a job in `agentkit-job-<id>`, and a task run in that process would
-    share the job's cap with every other task.  So a job in a scope of its own starts each
-    task in one of its own instead, the way `--bg` starts a lone run.  A job run from a
-    terminal -- or resumed there after its scoped launcher died -- runs its tasks in its own
-    process, as a lone run from a terminal does.
-    """
-    # A CLI job gives each task its own process so admission can exec its pinned ak.
+    """Every CLI task gets its own process and scope so admission can exec its pinned ak."""
     if Path(sys.argv[0]).resolve() == config.REPO / "bin" / "ak":
         return True
     scope = job.get("scope")

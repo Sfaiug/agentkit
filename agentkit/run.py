@@ -585,7 +585,8 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     """A launch waiting for its slot holds nothing: where the installed agentkit moved since it
     started, it replaces itself with the same launch on the new code, which takes up the same
     receipt -- the pid and `queued_at`, so its place in line, stay -- and a change to admission
-    reaches the runs already waiting.  Waiting behind the first, with its wait counted up to `behind`, it replaces itself
+    reaches the runs already waiting.  Waiting behind the first, with its wait counted up to
+    `behind`, it replaces itself
     with a waiter holding next to no memory, which execs the same launch back (`waiter`).
     Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
     `execv` and `current` are the injected exec and installed version the tests use."""
