@@ -47,25 +47,15 @@ func dependency(record *run.Object) string {
 	return "this branch stands on " + dep + "'s passed work, which `after:` no longer waits for; once that has merged, relaunch with `from: " + record.Str("branch") + "`"
 }
 
-// Mergeable is whether Go carries a hand merge of that run: one no seat launched, on no road of
+// Mergeable is whether Go carries a hand merge of that run: one on no road of
 // Python's, delivering from its own account rather than a fork's, out of a checkout still there.
 func Mergeable(record *run.Object) bool {
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && record.Truthy(key) {
+		if key != "waiting_on" && key != "launched_session" && key != "session" && record.Truthy(key) {
 			return false
 		}
 	}
 	return !record.Truthy("foreign") && record.Truthy("repo") && (record.Truthy("merged") || isDir(record.Str("worktree")))
-}
-
-// retryCommand is the one command that finishes a PASS whose delivery failed, "" for none, Python's
-// retry_command.
-func retryCommand(record *run.Object) string {
-	if record.Str("state") != "pass" || !record.Truthy("merge_failed") || record.Truthy("scratch") ||
-		record.Truthy("review_pr") || !record.Truthy("repo") {
-		return ""
-	}
-	return "ak run merge " + record.Str("run_id")
 }
 
 // Merge delivers the passed run at dir again, in this process as Python's cmd_merge does, its log

@@ -6,7 +6,7 @@
 //
 // Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
 // does not type is marked pending, which Python's tick types at the next quiet
-// prompt: a seat that takes no line now, and a line Go does not build or shorten yet.
+// prompt: a seat that takes no line now, or a line whose compact form cannot fit.
 // A seat not up there is the tick's, which offers every
 // ending nobody has heard.
 package handback
@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"time"
-	"unicode/utf8"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
@@ -74,10 +73,7 @@ func Give(dir string, say func(string)) bool {
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
 	line := ""
 	if !pending {
-		line = decisionLine(record, dir)
-		if line == "" {
-			line = finishedLine(record, dir)
-		}
+		line = handbackLine(record, dir)
 	}
 	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
@@ -99,24 +95,6 @@ func Give(dir string, say func(string)) bool {
 	return false
 }
 
-// decisionLine is the line a BLOCKED ending is handed back in, Python's decision_line said whole:
-// `run <id> BLOCKED (<round> of <budget>): <why> Next: <move>. Result: <path>`; "" for any other
-// ending, and for one whose reason a typed line holds only cut, which Python cuts to its sentences.
-func decisionLine(record *run.Object, dir string) string {
-	if record.Str("state") != "blocked" {
-		return ""
-	}
-	move := "rewrite the task and relaunch it"
-	if branch := record.Str("branch"); branch != "" {
-		move += " with `from: " + branch + "`"
-	}
-	line := run.Decision(record, dir, "BLOCKED", record.Str("error"), move, false)
-	if utf8.RuneCountInString(line) > min(decisionMost, longest()) || len(line) > typedMostByte {
-		return ""
-	}
-	return line
-}
-
 // longest is the most characters a typed line may hold: one every harness's composer shows whole
 // (`[screen] folds_over`), read off the manifests alone (watch.longest).
 func longest() int {
@@ -126,9 +104,13 @@ func longest() int {
 		chrome, _ := config.Section(name, "screen")
 		switch folds := chrome["folds_over"].(type) {
 		case int64:
-			most = min(most, int(folds))
+			if folds > 0 {
+				most = min(most, int(folds))
+			}
 		case int:
-			most = min(most, folds)
+			if folds > 0 {
+				most = min(most, folds)
+			}
 		}
 	}
 	return most

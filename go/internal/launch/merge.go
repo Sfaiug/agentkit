@@ -21,8 +21,7 @@ func Merge(id string, out, errOut io.Writer) (int, string, error) {
 		return 0, "", ErrPython
 	}
 	// a delivery from integration checks the task's own commands once more
-	_, cmds, err := task.Read(filepath.Join(dir, "task.md"))
-	if every, _ := task.Group(task.RoundCommands(cmds, "", false)); err != nil || !driverHere(every) {
+	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || !driverHere() {
 		return 0, "", ErrPython
 	}
 	if !run.ReviewPass(record, run.Models()) {
