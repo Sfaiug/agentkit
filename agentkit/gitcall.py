@@ -805,6 +805,20 @@ def add_paths(wt, paths, env=None):
         git(wt, "add", "--", *selected, env=env)
 
 
+def leftover_tree(wt, artifacts=(), directory=None):
+    """The tree commit_leftovers would take, without changing HEAD or the checkout's index."""
+    real, sandbox = committable_paths(wt, artifacts)
+    deleted = git(wt, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD")
+    gone = sorted(set(sandbox) & set(deleted.split("\0")))
+    with tempfile.TemporaryDirectory(dir=directory) as tmp:
+        index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        git(wt, "read-tree", "HEAD", env=index)
+        add_paths(wt, real, env=index)
+        if gone:
+            git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
+        return git(wt, "write-tree", env=index)
+
+
 def commit_leftovers(wt, log, artifacts, state):
     """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
 
