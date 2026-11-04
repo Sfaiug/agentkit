@@ -5310,6 +5310,10 @@ def config_machines(cfg):
                 cfg.setdefault("machines", {}).setdefault(name, {})
             table["work"] = [item for item in ("turns", "tests")
                              if (item in work) != (item == word)]
+            if table["work"] != machines.work(name, cfg):
+                cfg.clear()
+                cfg.update(before)
+                return "this machine cannot build or review"
             return _saved(cfg, cfg, before)
 
         def page():

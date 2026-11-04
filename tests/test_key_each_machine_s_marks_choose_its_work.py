@@ -96,6 +96,17 @@ class EachMachinesMarks(unittest.TestCase):
         self.assertEqual(cfg["google_cloud"]["work"], ["tests"])
         self.suite(True)
 
+    def test_cloud_turns_do_not_change_an_owned_helper_s_work(self):
+        for turns in (True, False):
+            with self.subTest(turns=turns):
+                self.write_config(turns=turns, cloud="")
+                (self.home.path / ".agentkit/state/google-cloud-ssh-config").unlink()
+                shown = self.marks(cloud=True)
+                work = (["turns"] if turns else []) + ["tests"]
+                self.assertEqual(akconfig.read(self.home)["machines"]["acme-linux"]["work"], work)
+                words = "builds, reviews, tests" if turns else "tests"
+                self.assertIn(f"acme-linux new · never answered · {words}", shown)
+
     def test_no_marks_leave_both_kinds_here_without_asking_for_a_rental(self):
         self.write_config(cloud='work = []')
         self.turns("here")

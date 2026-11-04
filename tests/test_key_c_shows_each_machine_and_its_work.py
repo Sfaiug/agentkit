@@ -114,12 +114,25 @@ class MachinesOnC(unittest.TestCase):
                 self.page()
                 self.term.keys("Down", "Down", "Down", "Space")
                 self.term.wait("○ off")
-                self.assertNotIn("work", akconfig.read(self.home)["machines"]["acme-mac"])
+                self.assertEqual(akconfig.read(self.home)["machines"]["acme-mac"]["work"],
+                                 ["turns", "tests"])
                 self.leave()
                 self.home.write(".agentkit/state/machines.json", {
                     "acme-mac": self.machine(system, 4, 8, 6, 1)})
                 self.page(f"4 cores · 8 GB · 25% busy · 2 of 8 GB used · {work}")
                 self.leave()
+
+    def test_a_mac_cannot_be_marked_to_build_or_review(self):
+        before = self.config.read_bytes()
+        self.page()
+        self.term.keys("Down", "Enter")
+        self.term.wait("builds and reviews")
+        self.term.keys("Space")
+        self.term.wait("this machine cannot build or review")
+        self.assertEqual(self.config.read_bytes(), before)
+        self.term.keys("Escape")
+        self.term.wait("› acme-mac")
+        self.leave()
 
     def test_inactive_cloud_says_off(self):
         self.write_config(active=False)

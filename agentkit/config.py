@@ -1066,7 +1066,11 @@ def save(cfg, defaults=None):
     none moves with them.
     """
     if "turns_on_machines" in cfg:
-        from . import machines
+        from . import google_cloud, machines
+        marks = {name: machines.work(name, cfg) for name in machines.helpers()
+                 if not google_cloud.ssh_config(name)}
+        for name, work in marks.items():
+            cfg.setdefault("machines", {}).setdefault(name, {}).setdefault("work", work)
         cfg.setdefault("google_cloud", {}).setdefault("work", machines.work(None, cfg))
         del cfg["turns_on_machines"]
     _work_in(cfg)
