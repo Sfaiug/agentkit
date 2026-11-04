@@ -252,6 +252,8 @@ class GateTurns(unittest.TestCase):
         self.assertTrue(first.result[0] and second.result[0], (first.result, second.result))
         self.assertRegex(second.logs[1], r"^done-when: took a heavy suite turn after \d+s$")
 
+    # No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from
+    # the machine ak runs on, for any user. [23 Sep, 28 Sep]
     def test_a_bad_config_runs_the_suite_derived_and_names_the_problem(self):
         import json
         path = config.HOME / config.CONFIG_NAME

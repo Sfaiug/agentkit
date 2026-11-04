@@ -81,6 +81,8 @@ class MemoryAdmissionByRoom(unittest.TestCase):
         readings = {"slice_memory_used_mb": 512, "slice_memory_high_mb": 1024}
         self.assertTrue(self.claim(state, **readings))
 
+    # No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from
+    # the machine ak runs on, for any user. [23 Sep, 28 Sep]
     def test_admission_and_suites_use_the_same_memory_limit(self):
         self.measured()
         for overrides, holds, suites in (

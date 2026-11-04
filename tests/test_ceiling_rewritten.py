@@ -14,6 +14,8 @@ from agentkit import run
 from test_slice import Installer
 
 
+# No fixed capacity numbers: every limit (runs at once, gate turns, memory) is derived from
+# the machine ak runs on, for any user. [23 Sep, 28 Sep]
 class CeilingRewritten(Installer):
     def test_a_a_second_install_with_more_cores_keeps_cpu_uncapped(self):
         home = self.root / "bigger-home"

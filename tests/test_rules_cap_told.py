@@ -194,6 +194,7 @@ class RulesCapTold(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertEqual(text.splitlines()[-1], line)
 
+    # its front matter holds only lines ak reads. [5 Oct]
     def test_a_front_matter_line_ak_does_not_read_fails_the_round(self):
         # a misspelled `tests:` would silently run no suite at landing
         self.commit_rules("---\nusers: none\n---\nAcme.\n")
