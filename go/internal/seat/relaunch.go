@@ -9,6 +9,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/hooks"
 	"agentkit/internal/lock"
 )
 
@@ -56,7 +57,7 @@ func (seat reopening) relaunch(dry bool, out io.Writer) (string, bool, error) {
 			return "", true, err
 		}
 	}
-	handTaskTemplate()
+	hooks.HandTaskTemplate()
 	settled, err := seat.launch(state, rulebook, cmd, conversation)
 	return settled, true, err
 }

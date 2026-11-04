@@ -106,7 +106,7 @@ func (books Rulebooks) rulebookNews(name, kind string, record *run.Object, conve
 	if err != nil || sha == heldSHA(record, conversation) {
 		return ""
 	}
-	handTaskTemplate() // the numbers its rulebook now says may be new
+	HandTaskTemplate() // the numbers its rulebook now says may be new
 	news := wholeWords + "\n\n" + text
 	if change := rulebookChange(name, record, conversation, text); change != "" {
 		news = changedWords + "\n\n" + change
@@ -226,10 +226,10 @@ func rulebookChange(name string, record *run.Object, conversation, text string) 
 	return ""
 }
 
-// handTaskTemplate puts templates/task.md at this host's numbers beside the seats' rulebooks
+// HandTaskTemplate puts templates/task.md at this host's numbers beside the seats' rulebooks
 // (orch.hand_task_template).  A seat that cannot get it still has its rules, so a failed write
 // stops nothing, and the next changed rulebook tries again.
-func handTaskTemplate() {
+func HandTaskTemplate() {
 	written, err := os.ReadFile(filepath.Join(config.Repo(), "templates", "task.md"))
 	if err == nil && os.MkdirAll(filepath.Join(config.Home(), "state"), 0o777) == nil {
 		replace(filepath.Join(config.Home(), "state", "task-template.md"), []byte(config.InForce(task.Text(written))))
