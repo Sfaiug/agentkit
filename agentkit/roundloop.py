@@ -104,9 +104,8 @@ class Loop:
 
     @property
     def fix_run(self):
-        # Saved tasks keep their wording; both versions share the opening sentence.
-        opening = taskfile.FIX_THE_COMMAND.partition(".")[0]
-        return bool(self.state.get("followup") or opening in self.body)
+        return bool(self.state.get("followup") or any(words in self.body for words in (
+            taskfile.FIX_THE_COMMAND, taskfile.OLD_FIX_THE_COMMAND)))
 
     body = property(lambda self: self._body + self.scope,
                     lambda self, text: setattr(self, "_body", text))
@@ -289,12 +288,13 @@ def check_fix_on_tip(lp):
         # A continued branch or --no-worktree may hold other work; the target alone decides.
         with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
             checkout = Path(tmp) / "checkout"
-            # A mirror keeps fetched target refs instead of rebuilding them from local branches.
-            gitcall.clone_borrowing(lp.wt, checkout / ".git", "--mirror")
-            gitcall.git(checkout, "config", "core.bare", "false")
-            gitcall.git(checkout, "config", "--remove-section", "remote.origin")
+            # Keep fetched target refs without copying local object replacements.
+            gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
+            gitcall.git(checkout, "remote", "remove", "origin")
             gitcall.git(checkout, "remote", "add", "origin",
                         gitcall.git(lp.wt, "remote", "get-url", "origin"))
+            gitcall.git(checkout, "fetch", "--quiet", "--no-tags", str(lp.wt),
+                        "+refs/remotes/*:refs/remotes/*")
             gitcall.git(checkout, "checkout", "--quiet", "--detach", tip)
             ok, _ = gate.run_round(lp.every, checkout, lp.run_dir / "tip.log", set(),
                                    lp.done_when_limit, lp.log, silence=lp.turn_limit,

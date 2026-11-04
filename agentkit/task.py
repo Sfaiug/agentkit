@@ -17,6 +17,14 @@ FIX_THE_COMMAND = (
     "Fix the root cause so it passes, and show it failing before the "
     "fix and passing afterwards in your summary. If only the owner can decide, "
     'run `ak hand-in blocked "<question>"`.')
+# Queued and interrupted tasks keep their original instructions.
+OLD_FIX_THE_COMMAND = (
+    "Your checkout starts on the target branch's tip, fetched when this run "
+    "started: run the command below there first. If it "
+    'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
+    "Otherwise fix the root cause so it passes, and show it failing before the "
+    "fix and passing afterwards in your summary. If only the owner can decide, "
+    'run `ak hand-in blocked "<question>"`.')
 # One behaviour a reviewer holds in one read; past it, split the task.
 MAX_CHECKS = 3
 DONE_WHEN = re.compile(r"^##\s+Done when\s*$(.*?)(?=^##\s|\Z)", re.S | re.M | re.I)

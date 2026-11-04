@@ -126,6 +126,19 @@ class FixOnTip(unittest.TestCase):
         self.assertEqual(state["state"], "blocked")
         self.assertEqual(self.fakes["claude"].n, 1)
 
+    def test_local_replacement_refs_cannot_supply_the_target_fix(self):
+        tip = self.rig.head()
+        local = self.rig.commit({"fixed.txt": "local replacement only\n"}, push=False)
+        tree = self.rig.git("rev-parse", f"{local}^{{tree}}")
+        replacement = self.rig.git("commit-tree", tree, "-m", "local replacement")
+        self.rig.git("replace", tip, replacement)
+        self.rig.git("reset", "--hard", tip)
+        self.assertNotIn("fixed.txt", self.rig.files())
+        done, _, state = self.launch(("test -f fixed.txt",))
+        self.assertEqual(done.code, 1, done.out + done.err)
+        self.assertEqual(state["state"], "blocked")
+        self.assertEqual(self.fakes["claude"].n, 1)
+
     def test_fetched_target_refs_passing_with_a_stale_local_branch_spend_no_turn(self):
         old = self.rig.head()
         tip = self.rig.commit({"fixed.txt": "on the target\n"})
@@ -183,6 +196,14 @@ class FixOnTip(unittest.TestCase):
                 self.assertEqual(done.code, 1, done.out + done.err)
                 self.assertEqual(state["state"], "blocked")
         self.assertEqual(self.fakes["claude"].n, 3)
+
+    def test_checkout_context_alone_does_not_identify_a_fix(self):
+        GitHub(self.home).grant(self.rig.slug, "WRITE")
+        body = FIX.partition(".")[0] + ".\n\nAdd a retry policy."
+        done, _, state = self.launch(("true", "false # once"), body=body, merge=True)
+        self.assertEqual(done.code, 1, done.out + done.err)
+        self.assertEqual(state["state"], "blocked")
+        self.assertEqual(self.fakes["claude"].n, 1)
 
     def test_resuming_after_a_turn_never_checks_the_tip_again(self):
         self.fakes["claude"].behave("work", "blocked")
