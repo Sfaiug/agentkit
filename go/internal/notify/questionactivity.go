@@ -20,5 +20,6 @@ func questionActivity(name string) (present bool, last float64, gone, known bool
 		return false, 0, false, false
 	}
 	at, err := strconv.ParseInt(parts[1], 10, 64)
-	return parts[0] != "0", float64(at), questionGone(name), err == nil
+	gone = questionGone(name)
+	return !gone && parts[0] != "0", float64(at), gone, err == nil
 }

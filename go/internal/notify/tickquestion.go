@@ -31,10 +31,10 @@ func UnansweredQuestion(name string) bool {
 // TurnedQuestion carries only a standing question on record. Dialogs, answered episodes and
 // history stay Python's; the tick reads the word again under the same lock as a command's page.
 func TurnedQuestion(name string, said func(string) (string, any), errOut io.Writer) (bool, error) {
-	return turnedQuestion(name, said, clock, errOut)
+	return turnedQuestion(name, said, clock, cardWait, errOut)
 }
 
-func turnedQuestion(name string, said func(string) (string, any), clock func() float64, errOut io.Writer) (bool, error) {
+func turnedQuestion(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer) (bool, error) {
 	if os.Getenv("AK_RUN_ROLE") == "worker" {
 		return true, nil
 	}
@@ -95,7 +95,7 @@ func turnedQuestion(name string, said func(string) (string, any), clock func() f
 				return err
 			}
 		}
-		if present || now-number(card, "left") < cardWait || now-max(asked, last) < cardWait {
+		if present || now-number(card, "left") < cardWait || now-max(asked, last) < wait {
 			return nil
 		}
 		if gone {

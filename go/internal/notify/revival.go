@@ -6,7 +6,7 @@ import (
 )
 
 // RevivalFailed records the recovery event as shaped does, beside the standing question,
-// then lets the seat's existing card and outbox decide whether a page is still owed.
+// then evaluates its existing card with shaped's zero wait on the word and last input.
 func RevivalFailed(name, text, source string, published func(string) (string, any), errOut io.Writer) (bool, error) {
 	if Suppressed(false, errOut) {
 		return true, nil
@@ -28,5 +28,5 @@ func RevivalFailed(name, text, source string, published func(string) (string, an
 	if err != nil || !known {
 		return known, err
 	}
-	return TurnedQuestion(name, published, errOut)
+	return turnedQuestion(name, published, clock, 0, errOut)
 }
