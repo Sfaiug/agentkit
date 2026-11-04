@@ -90,6 +90,12 @@ class ModelsChart(unittest.TestCase):
         self.assertIn("Far 1", "\n".join(lines(shown)))
         self.assertIn("94.0", "\n".join(plot))
 
+    def test_frontier_keeps_actual_cost_order_within_one_column(self):
+        plot = self.plot(self.models(rows=[("base", .80, 1), ("pick", .85, 1.01), ("best", .90, 10)]))
+        pick = next(row for row in plot if "★" in row)
+        a, b = pick.index("★"), max(x for x, _, mark in self.marks(plot) if mark == "●")
+        self.assertEqual(pick[a + (b - a) // 4], "─")
+
     def test_zero_costs_one_row_and_equal_costs_still_draw_a_pick(self):
         for rows in (ROWS[:1], [(n, s, 0) for n, s, _ in ROWS],
                      [(n, s, 2) for n, s, _ in ROWS]):

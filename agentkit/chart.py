@@ -14,7 +14,7 @@ def draw(points, baseline, unit, width):
         return []
     high, low = max(p[1] for p in points), min(p[1] for p in points)
     margin = max(len(f"{q:.1f}") for q in (high, low)) + 3
-    size, height = min(width, 120) - margin - 1, 9
+    size, height = min(width, 120) - margin - 1, 8
     end = max(p[0] for p in points) * 1.05 or 1
     grid = [["│"] + [" "] * size for _ in range(height)]
 
@@ -24,8 +24,8 @@ def draw(points, baseline, unit, width):
     def y(score):
         return 1 + round((height - 3) * (high - score) / (high - low)) if high != low else 4
 
-    placed = [(x(cost), y(score), label, mark) for cost, score, label, mark in points]
-    front = sorted((p for p in placed if p[3] in ("●", "★")))
+    placed = [(x(cost), y(score), label, mark) for cost, score, label, mark in sorted(points)]
+    front = [p for p in placed if p[3] in ("●", "★")]
     for (ax, ay, *_), (bx, by, *_) in zip(front, front[1:]):
         for xx in range(ax, bx + 1):
             grid[ay][xx] = "─"

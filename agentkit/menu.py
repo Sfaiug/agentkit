@@ -3323,8 +3323,9 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
             put("")
         plot = chart.draw(points, baseline, ("board $" if unit == "a task" else unit) + " / task", room)
         if plot:
-            put("  " + head)
-            for line in plot:
+            for line in ["  " + head, *plot]:
+                # An empty span links scrolling to the first row without a pointer target.
+                places[len(lines)] = (None, [(1, 0, None, said_lines[0][0])])
                 put(line)
         headings = number == first or (said_lines and number and unit != said[number - 1][2])
         if not plot and not (headings and wide):
@@ -4028,7 +4029,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
         return "back", here, column, top
     step = terminal.step(key)
     if step and rows:
-        mine = [line for line, (row, _) in places.items() if row == here]
+        mine = [line for line, (row, cells) in places.items()
+                if row == here or any(here in cell[3:] for cell in cells)]
         turned = matrix_page(body, places, here, top + step * room, below, keys, over, lead,
                              keyed)[0]
         if mine and (mine[-1] >= top + room if step > 0 else mine[0] < top) and turned != top:

@@ -162,6 +162,14 @@ class ModelsAnswer(unittest.TestCase):
         answer = [*pointed, *BUILDS, *REVIEWS, "", *LEGEND]
         self.assertEqual(shown[at:at + len(answer)], answer)
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)
+        for height in (18, 24):
+            term.resize(100, height)
+            term.keys(*["Up"] * 20)
+            chart = term.wait("Acme Max 5 max")
+            self.assertIn("\n  orch\n", chart)
+            self.assertIn("  quality ↑", chart)
+        self.assertTrue(any(line.startswith("›") and "Acme Max 5" in line for line in chart.splitlines()))
+        term.keys("Down", "Down")
         term.keys("Left", "Right", "Enter")
         term.wait("why Bolt 3 medium orchestrates")
         self.assertEqual(self.config.read_bytes(), self.given)
