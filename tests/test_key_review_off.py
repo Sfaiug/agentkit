@@ -41,7 +41,7 @@ class ReviewOff(unittest.TestCase):
                         AK_HOST_READINGS=json.dumps({"cpus": 4, "load": 0, "free_mb": 16000}))
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"],
                        settings={"review_rounds": 1 - rounds if project else rounds})
-        rules = "---\ntests: test ! -f bad.txt\n"
+        rules = "---\ntests: test ! -f bad.txt\nhealth: none\n"
         rules += f"review_rounds: {rounds}\n" if project else ""
         rig = Rig(home, "widgets", files={"AGENTS.md": rules + "---\n# Widgets\n"})
         rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
@@ -156,7 +156,7 @@ class ReviewOff(unittest.TestCase):
     def test_a_pr_suite_can_regenerate_tracked_files_without_failing_the_run(self):
         home, rig, gh, fakes = self.staged(0)
         suite = "printf regenerated > cache.txt && test -s cache.txt"
-        rig.commit({"AGENTS.md": f"---\ntests: {suite}\n---\n# Widgets\n", "cache.txt": "original\n"})
+        rig.commit({"AGENTS.md": f"---\ntests: {suite}\nhealth: none\n---\n# Widgets\n", "cache.txt": "original\n"})
         rig.branch("contrib", {"retry.txt": "hello\n"})
         done = home.ak("run", "--review-pr", gh.open_pr(rig, "contrib", author="other-dev"),
                        "--no-merge", timeout=90)
