@@ -1,8 +1,6 @@
 package loop
 
 import (
-	"strings"
-
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -19,7 +17,7 @@ func (l *loop) notNeeded(submitted *handin.Review) error {
 	}
 	record, _ := run.Read(l.dir)
 	if record != nil && len(record.List("round_summaries")) == 0 &&
-		(record.Truthy("followup") || strings.Contains(l.body, task.FixTheCommand)) {
+		(record.Truthy("followup") || task.IsFix(l.body)) {
 		return &notNeeded{submitted.Closing().Str("why")}
 	}
 	return nil

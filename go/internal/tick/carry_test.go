@@ -35,7 +35,7 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": t.TempDir(), "AGENTKIT_TMUX_SOCKET": "tick-test",
 		"AGENTKIT_SESSION": "", "AGENTKIT_ADAPTER_DIR": "", "XDG_RUNTIME_DIR": t.TempDir(), "XDG_CONFIG_HOME": "",
 		"AK_NOTIFY_SINK": "dry-run",
-		"PATH": bin + string(os.PathListSeparator) + os.Getenv("PATH"),
+		"PATH":           bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 	} {
 		t.Setenv(key, value)
 	}

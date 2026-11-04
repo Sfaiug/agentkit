@@ -43,8 +43,7 @@ func finishedLine(record *run.Object, dir string) string {
 		if len(record.List("round_summaries")) < rounds || rounds == 0 {
 			return ""
 		}
-		line := fmt.Sprintf("run %s FAIL (%d of %d): %s Next: split the task. Result: %s", filepath.Base(dir),
-			len(record.List("round_summaries")), rounds, strings.TrimRight(config.Fold(why), ".")+".", tilde(filepath.Join(dir, "result.md")))
+		line := run.Decision(record, dir, "FAIL", why, "split the task", false)
 		if utf8.RuneCountInString(line) <= min(decisionMost, longest()) && len(line) <= typedMostByte {
 			return line
 		}
