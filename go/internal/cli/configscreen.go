@@ -42,6 +42,10 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			c.Selected, session, view.Scope = selected, current, current
 		}
 	}
+	catalogs := configCatalog{}
+	if err := catalogs.read(c); err != nil {
+		return false
+	}
 	defer painter.Forget()
 	for {
 		var known bool
@@ -90,17 +94,36 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 				view.Row = max(0, min(len(c.Names)+len(view.Options)-1, view.Row+step))
 			} else if row, column, hit := frame.Hit(mouse); hit {
 				view.Row, view.Column = row, max(0, column)
-				if mouse.Released && mouse.Button&3 == 0 && column >= 0 {
-					key.Name = "space"
+				if mouse.Released && mouse.Button&3 == 0 {
+					if row >= len(c.Names) {
+						key.Name = "enter"
+					} else if column >= 0 {
+						key.Name = "space"
+					}
 				}
 			}
 		case key.Name == "char" && key.Char == "r":
 			if !menuModels(session, view.Scope, c, keyboard, painter) {
 				return false
 			}
-		case key.Name == "enter" && view.Row >= len(c.Names),
-			key.Name == "char" && key.Char == "a" && view.Fresh:
+		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
+		}
+		if key.Name == "enter" && view.Row >= len(c.Names) {
+			if view.Row != len(c.Names) || !menuConfigModels(keyboard, painter) {
+				return false
+			}
+			c, err = matrix.Configured()
+			if err != nil || catalogs.read(c) != nil {
+				return false
+			}
+			if session != "" {
+				if c.Selected, err = seat.ConfigSelection(session); err != nil || c.Selected == nil {
+					return false
+				}
+			}
+			view.Matrix, view.Row = c, len(c.Names)
+			continue
 		}
 		if key.Name != "space" || view.Row >= len(c.Names) {
 			continue
@@ -108,8 +131,15 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		if view.Column == 0 && c.Selected.Str("orchestrator") == c.Names[view.Row] {
 			continue
 		}
-		if view.Column >= 3 || view.Column == 0 && session != "" {
-			return false // efforts and moving an orchestrator follow in config_screen_edits
+		if view.Column >= 3 {
+			var known bool
+			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column); !known {
+				return false
+			}
+			continue
+		}
+		if view.Column == 0 && session != "" {
+			return false // moving an orchestrator needs Python's restart confirmation
 		}
 		mark := c.Mark(c.Names[view.Row], view.Column)
 		var changed *run.Object

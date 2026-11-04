@@ -43,7 +43,7 @@ func Catalog(harness string) ([]Model, error) {
 	return models, nil
 }
 
-// Ask is each model's [id, efforts] the harness's logins list, asked at once, the first login's
+// Ask is each model's [id, efforts, label] the harness's logins list, asked at once, the first login's
 // first.
 func Ask(harness string) [][]string {
 	script, _ := config.Lister(harness)
@@ -100,7 +100,7 @@ func listed(script string, env []string) (rows [][]string) {
 	}
 	for _, line := range config.SplitLines(strings.ToValidUTF8(said.String(), "�")) {
 		if fields := strings.Split(line, "\t"); len(fields) == 3 && fields[0] != "" {
-			rows = append(rows, []string{fields[0], fields[2]})
+			rows = append(rows, []string{fields[0], fields[2], fields[1]})
 		}
 	}
 	return rows
