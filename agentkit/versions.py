@@ -19,11 +19,14 @@ step is one rename or one write, and one cut off is done again by the next move.
 """
 
 import ctypes
+from contextlib import contextmanager
 import errno
+import fcntl
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 
 from . import config, retention
@@ -40,6 +43,64 @@ NOT_RUN = (":!go", ":!tests", ":!docs", ":!*.md")   # what no running process ho
 
 def repository():
     return config.HOME / REPOSITORY
+
+
+@contextmanager
+def holding():
+    directory = config.HOME / VERSIONS
+    directory.mkdir(parents=True, exist_ok=True)
+    fd = os.open(directory, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield directory
+    finally:
+        os.close(fd)
+
+
+@contextmanager
+def checkout(commit=None):
+    """One complete checkout per run version; collection waits until its process starts."""
+    with holding() as directory:
+        source = Path.home() / "agentkit"
+        if not (source / "bin" / "ak").is_file():
+            source = config.REPO
+        code, sha = git(source, "rev-parse", "--verify", f"{commit or 'HEAD'}^{{commit}}")
+        if code:
+            raise config.Error(f"cannot read ak version: {sha}")
+        path = directory / sha
+        if not path.exists():
+            new = Path(tempfile.mkdtemp(prefix=f"{sha[:12]}.", dir=directory))
+            code, said = git(source, "worktree", "add", "--quiet", "--detach", "--lock",
+                             "--reason", LOCKED, str(new), sha)
+            if code:
+                raise config.Error(f"cannot check out ak {sha[:12]}: {said}")
+            new.rename(path)
+            if git(source, "worktree", "repair", str(path))[0]:
+                raise config.Error(f"cannot repair ak checkout {path}")
+        yield path
+
+
+def enter(path):
+    """All imports and child commands come from the same checkout after this exec."""
+    os.environ["AK_RUN_CODE"] = str(path)
+    os.environ["PATH"] = os.pathsep.join((str(path / "bin"), os.environ.get("PATH", os.defpath)))
+    if path != config.REPO:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os.execv(sys.executable, [sys.executable, str(path / "bin" / "ak"), *sys.argv[1:]])
+
+
+def dispatch(argv):
+    if config.REPO.parent == config.HOME / VERSIONS:
+        enter(config.REPO)
+    if argv[:1] == ["hand-in"] and (path := os.environ.get("AK_RUN_CODE")):
+        enter(Path(path))
+    elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
+        from . import record
+        state = record.read_state(config.RUNS / argv[2]) or {}
+        if commit := state.get("ak_version"):
+            with checkout(commit) as path:
+                enter(path)
 
 
 def git(where, *args):
@@ -143,6 +204,11 @@ def tidy(live):
     """Each version under `VERSIONS` no process uses, and that holds nothing git finds changed
     or added in it, gone.  Each worktree's record of where it is is put right first: one swap
     cut off before it left the two crossed, and git would remove the wrong one's."""
+    with holding():
+        _tidy(live)
+
+
+def _tidy(live):
     from . import gc
     try:
         found = sorted((config.HOME / VERSIONS).iterdir())

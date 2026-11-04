@@ -121,7 +121,6 @@ class SizeGate(Sandbox):
                 (self.repo / "new.py").write_text("".join(f"n{k} = {k}\n" for k in range(lines)))
                 return "built"
             with patch.object(roundloop, "execute", side_effect=build), \
-                    patch.object(run, "pickup_new_code", return_value=None), \
                     patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")), \
                     patch.object(roundloop, "review", side_effect=lambda *_a, **_k: judged(lp)) as review:
                 try:
@@ -184,7 +183,6 @@ class SizeGate(Sandbox):
             raise turns.Exhausted("stopped before a verdict")
 
         with patch.object(roundloop, "execute", return_value="built"), \
-                patch.object(run, "pickup_new_code", return_value=None), \
                 patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")):
             with patch.object(roundloop, "review", side_effect=interrupted), \
                     self.assertRaises(turns.Exhausted):

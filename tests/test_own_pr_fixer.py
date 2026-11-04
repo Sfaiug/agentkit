@@ -267,13 +267,16 @@ class OwnPrFixer(OwnPr):
         self.fix = lambda lp: None      # it handed in a dispute and committed nothing
         moves = []
 
-        def moved(lp, **_kw):
-            moves.append(lp.rnd)
-            if len(moves) == 1:
-                raise InterruptedError("the process moved onto new code right after the fix")
-            return False
+        fix = run.fix_own_pr
 
-        with patch.object(run, "pickup_new_code", side_effect=moved), \
+        def moved(*args, **kwargs):
+            result = fix(*args, **kwargs)
+            moves.append(True)
+            if len(moves) == 1:
+                raise InterruptedError("the process died right after the fix")
+            return result
+
+        with patch.object(run, "fix_own_pr", side_effect=moved), \
                 self.assertRaises(InterruptedError):
             self.review(["FAIL", "PASS", "PASS"])
         saved = record.read_state(self.run_dir)

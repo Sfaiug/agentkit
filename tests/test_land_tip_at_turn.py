@@ -111,10 +111,6 @@ class LandTipAtTurn(unittest.TestCase):
         (config.HOME / config.CONFIG_NAME).write_text("max_gates = 1\n")
         self.counter = self.root / "counter"
         self.counter.touch()
-        self.pickups = []
-        self.stack.enter_context(patch.object(
-            run, "pickup_new_code",
-            side_effect=lambda lp, **kw: self.pickups.append(kw.get("extra")) or False))
         self.stack.enter_context(patch.object(
             roundloop, "execute", side_effect=AssertionError("unexpected fixer turn")))
         self.stack.enter_context(patch.object(
@@ -179,7 +175,6 @@ class LandTipAtTurn(unittest.TestCase):
         self.assertEqual(lp.state["final_check"]["tree_sha"],
                          run.git(lp.wt, "rev-parse", "HEAD^{tree}"))
         self.assertEqual(lp.state["final_check"]["sha"], head)
-        self.assertEqual(self.pickups, [])
 
     def test_a_passing_member_runs_each_command_once(self):
         remote, owner = make_origin(self.root)
@@ -190,7 +185,6 @@ class LandTipAtTurn(unittest.TestCase):
         run.git(owner, "push", "origin", "main")
         landed = landing(lp, lambda: True)
         self.assertTrue(landed)
-        self.assertEqual(self.pickups, [])
         head = run.git(lp.wt, "rev-parse", "HEAD")
         rows = [line.split() for line in self.counter.read_text().splitlines()]
         self.assertEqual([row[0] for row in rows], ["every", "once"])

@@ -40,7 +40,6 @@ class LandingReviewSpendsNoRound(Sandbox):
                                               return_value=(True, "$ true\n[exit 0]\n")))
         self.stack.enter_context(patch.object(turns, "call_retrying", side_effect=submitting(self.reviewer)))
         self.stack.enter_context(patch.object(roundloop, "execute", side_effect=self.fixer))
-        self.stack.enter_context(patch.object(run, "pickup_new_code"))
         self.stack.enter_context(patch.object(deliver, "merge_lock",
                                               side_effect=lambda *a, **_kw: nullcontext()))
 

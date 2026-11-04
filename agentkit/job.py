@@ -722,6 +722,9 @@ def job_scoped(job):
     terminal -- or resumed there after its scoped launcher died -- runs its tasks in its own
     process, as a lone run from a terminal does.
     """
+    # A CLI job gives each task its own process so admission can exec its pinned ak.
+    if Path(sys.argv[0]).resolve() == config.REPO / "bin" / "ak":
+        return True
     scope = job.get("scope")
     if not turns.scope_is_real(scope):
         return False

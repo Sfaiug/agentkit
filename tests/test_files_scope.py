@@ -156,7 +156,7 @@ class FilesScope(unittest.TestCase):
                 fixes.append(text)
             return "## Summary\nFixture changes."
 
-        with patch.object(roundloop, "execute", side_effect=execute), patch.object(run, "pickup_new_code", return_value=False), \
+        with patch.object(roundloop, "execute", side_effect=execute), \
                 patch.object(turns, "call_retrying", side_effect=submitting((0, "VERDICT: PASS", None, False))), \
                 patch.object(transitions, "review_providers", return_value=("provider-a", "provider-b")):
             run.rounds(lp)

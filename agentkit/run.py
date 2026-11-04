@@ -26,8 +26,8 @@ from pathlib import Path
 
 from . import (box, command_help, config, gate, gc, gitcall, history, host, job as jobs,
                land as landing, orch, plan, record as run_record, status, stop, task as taskfile,
-               turns, usage, waiter, watch, worker, worktrees)
-from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_on_dependency,
+               turns, usage, versions, waiter, watch, worker, worktrees)
+from .deliver import (GITHUB_RETRIES, MERGE_METHODS, do_merge, end_on_dependency,
     finish_blocked, join_line, land, merge, merge_own_pr, own_pr_heads, pr_head,
     push_pr_branch, release_line)
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
@@ -55,7 +55,7 @@ from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_l
     default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, origin_default, repo_line, repo_rules, round_commands, run_depth, say,
     slugify, stopped, tool_env, tool_run, with_suite)
 
-_PICKUP_START = None    # the installed agentkit this process started on, for in-flight pickup
+_PICKUP_START = None    # the version this queued launch was judged on
 
 
 def ignore_time_keys(run_dir, meta, log):
@@ -581,79 +581,16 @@ def started_on():
     return _PICKUP_START
 
 
-def pickup_new_code(lp, execv=None, current=None):
-    """Replace this process with the installed agentkit when it has moved, at a safe boundary.
-
-    Before a round -- an own PR's review round too, once its push arrives -- and before
-    landing verification the run holds no gate turn, no delivery lock and no child, so a
-    process driving this one run replaces itself with `ak run resume
-    <id>` and the resume continues in place on the new code: the pid, the scope and the slot
-    stay the same, and a saved PASS is kept as a resume keeps it.  A job's threads share one
-    process, and a delivery retry must stay one, so neither ever moves; any turn held or
-    waited for, any child still marked, or a version that cannot be read means no move, never
-    a failed run. `execv` and `current` are the injected exec and installed version
-    the tests use.
-    """
-    global _PICKUP_START
-    if threading.current_thread() is not threading.main_thread():
-        return False
-    if getattr(jobs._JOB_MUTE, "depth", 0) or getattr(lp, "no_pickup", False):
-        return False
-    if lp.state.get("state") != "running":
-        return False
-    if execv is None:
-        execv = os.execv
-    try:
-        now = installed_head() if current is None else current
-    except Exception:
-        return False
-    if not now:
-        return False
-    start = _PICKUP_START
-    if not start:
-        _PICKUP_START = now
-        return False
-    if now == start:
-        return False
-    try:
-        if gate.gate_turn_note(lp.state):
-            return False
-    except Exception:
-        return False
-    if gate.turn_held() or getattr(PICKUP_HELD, "count", 0):
-        return False
-    try:
-        children = worker.marked_pids(worker.run_marker(lp.state.get("run_id")))
-    except Exception:
-        return False
-    if children:
-        return False
-    try:
-        # the options this process runs with: a review reads them every round
-        lp.state["pickup"] = {"pid": os.getpid(), "from": start, "to": now, "opts": lp.opts}
-        lp.write()
-    except run_record.StopRequested:
-        raise
-    except Exception:
-        return False
-    ak = str(config.REPO / "bin" / "ak")
-    try:
-        execv(sys.executable, [sys.executable, ak, "run", "resume", lp.run_dir.name])
-    except OSError:
-        return False
-    return True
-
-
 def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     """A launch waiting for its slot holds nothing: where the installed agentkit moved since it
     started, it replaces itself with the same launch on the new code, which takes up the same
     receipt -- the pid and `queued_at`, so its place in line, stay -- and a change to admission
-    reaches the runs already waiting, as `pickup_new_code` brings new code to a run before a
-    round.  Waiting behind the first, with its wait counted up to `behind`, it replaces itself
+    reaches the runs already waiting.  Waiting behind the first, with its wait counted up to `behind`, it replaces itself
     with a waiter holding next to no memory, which execs the same launch back (`waiter`).
     Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
     `execv` and `current` are the injected exec and installed version the tests use."""
-    if (os.environ.get(config.RUN_DIR_ENV) != str(run_dir)
+    if ((run_record.read_state(run_dir) or {}).get("ak_version")
+            or os.environ.get(config.RUN_DIR_ENV) != str(run_dir)
             or threading.current_thread() is not threading.main_thread()
             or getattr(jobs._JOB_MUTE, "depth", 0)):
         return False
@@ -740,9 +677,15 @@ def depth_refused():
 @contextmanager
 def run_slot(run_dir, prior=None):
     state = gate.wait_for_slot(run_dir, between=functools.partial(pickup_while_queued, run_dir))
+    if lone_run():
+        with versions.checkout(state.get("ak_version")) as path:
+            with run_record.record(run_dir) as current:
+                current["ak_version"] = state["ak_version"] = path.name
+            os.environ[config.RUN_DIR_ENV] = str(run_dir)
+            versions.enter(path)
     if prior is not None:
         prior.update({key: state[key] for key in (
-            "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
+            "ak_version", "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
                       if key in state})
         prior.pop("resume_from", None)
     previous = getattr(_RUN_CONTEXT, "state", {})
@@ -1602,9 +1545,6 @@ def cmd_merge(argv):
     run_record.save_state(run_dir, state)  # the Loop measures its saves against the record it is handed
     lp = Loop(cfg, run_dir, state, {}, log, Path(state["worktree"]),
               body, cmds, f"Repo checkout: {state['worktree']}\n\n{body}")
-    # A delivery retry stays a delivery retry: a pickup would resume the run through
-    # `drive` and re-verify a head this already checked and pushed.
-    lp.no_pickup = True
     stopped_on = state.get("merge_note") or "delivery did not finish"
     # This process owns the run while it delivers: a retry that is killed here must leave a
     # `running` receipt with this pid on it, so the reaper -- the menu, `ak run status` or the
@@ -1784,47 +1724,23 @@ def resume_run(argv):
     child = (os.environ.get(config.RUN_DIR_ENV) == str(run_dir) and
              state.get("state") == "queued" and state.get("resume_from") and
              state.get("pid") == os.getpid() and run_record.process_active(state))
-    pickup = state.get("pickup") if isinstance(state.get("pickup"), dict) else None
-    in_place = (pickup is not None and not background and not child
-                and state.get("state") == "running"
-                and pickup.get("pid") == os.getpid()
-                and state.get("pid") == os.getpid()
-                and run_record.process_active(state))
-    if in_place:
-        # The same process, new code: the pickup before a round exec'd to this resume.
-        # The pid, the scope and the slot stay the same, so the run is not queued
-        # again, and a saved PASS is kept as a resume keeps it.
-        old, new = pickup.get("from"), pickup.get("to")
-        expected = dict(state)
+    admitted = (not background and state.get("state") == "running"
+                and state.get("pid") == os.getpid() and run_record.process_active(state)
+                and state.get("ak_version") == config.REPO.name)
+    if admitted:
+        # Admission execs the launch into its immutable checkout, keeping its pid and slot.
         wt = Path(state["worktree"]) if state.get("worktree") else None
-        if wt is not None and not wt.is_dir():
-            raise config.Error(f"{argv[0]}: its worktree {wt} is gone; there is nothing to resume")
-        if n_rounds is not None:
-            if n_rounds < (state.get("rounds") or 0):
-                raise config.Error("--rounds cannot reduce the saved round budget")
-            over_lineage(state, run_dir, n_rounds)
-            state["rounds"] = n_rounds
-        state.pop("pickup", None)
-        state.setdefault("merge_method", "squash")
-        state.setdefault("target", state.get("base"))
         opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
                 "--no-merge": bool(state.get("no_merge")),
                 "--no-worktree": bool(state.get("repo")) and wt == Path(state["repo"]),
                 "--bg": False}
-        with gate.slot_lock(), run_record.recovery_lock(run_dir):
-            if run_record.read_state(run_dir) != expected:
-                raise config.Error("the run changed while choosing recovery; select it again")
-            run_record.save_state(run_dir, state)
-        cfg = config.load()
-        log = logger(run_dir)
-        log(f"picked up agentkit {old}..{new}; continuing on it")
+        if wt is None:
+            opts.update(state.get("launch_opts") or {})
+        cfg, log = config.load(), logger(run_dir)
         if state.get("review_pr"):
-            # a review reads its options every round, its reviewer among them: the moved
-            # process goes on with the ones it had
-            opts = pickup.get("opts") or opts
             return drive(cfg, run_dir, opts, log,
                          job=lambda: review_pr(cfg, run_dir, state["review_pr"], opts, log))
-        return drive(cfg, run_dir, opts, log, prior=state)
+        return drive(cfg, run_dir, opts, log, prior=state if wt else None)
     if not child and state.get("state") in run_record.ACTIVE:
         if run_record.process_active(state):
             raise config.Error(f"{argv[0]} is still running as pid {state['pid']}")
@@ -2030,7 +1946,6 @@ def resume_run(argv):
         # the ordered resume has adopted the record, and no backoff outlives it
         state.pop("stall_resume_at", None)
         state.pop("resume_after", None)
-        state.pop("pickup", None)
         run_record.save_state(run_dir, state)
     log = logger(run_dir)
     log(f"resume {run_dir.name}: {run_dir / 'task.md'}")
@@ -2525,7 +2440,7 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
 
 def pr_loop(cfg, run_dir, state, opts, log):
     """A PR review's record as a loop, for the steps between its rounds: a merge, a settled
-    round, a move onto new code.  Like every loop it writes back only what it changed."""
+    round.  Like every loop it writes back only what it changed."""
     _, body, _ = taskfile.parse_task(run_dir / "task.md")
     cmds = taskfile.done_when(body, run_dir / "task.md")
     return Loop(cfg, run_dir, state, opts, log, Path(state["worktree"]), body, cmds, body)
@@ -2538,8 +2453,6 @@ def review_pr(cfg, run_dir, url, opts, log):
         if state.get("own_pr_wait") and state.get("own_pr"):
             if not fix_own_pr(cfg, run_dir, url, state, opts, log):
                 return state
-            # the fix starts a round, and a round runs on the agentkit installed now
-            pickup_new_code(pr_loop(cfg, run_dir, state, opts, log))
         if (state.get("waiting_on") or {}).get("line") and not state.get("merged"):
             # a merge already recorded is settled below, never sent back to a line that skips it
             state.update(state="running", **run_record.process_owner(), error=None, finished_at=None)

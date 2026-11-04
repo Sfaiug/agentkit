@@ -79,7 +79,6 @@ class FetchRefRace(unittest.TestCase):
         stack.enter_context(patch.object(host, "host_readings", return_value={
             "free_mb": 4096, "mem_total_mb": 16384, "load": 1, "cpus": 8,
             "unit_memory_current_mb": 100, "unit_memory_high_mb": 1000}))
-        stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
         stack.enter_context(patch.object(run, "final_check", return_value=True))
         stack.enter_context(patch.object(run, "execute", side_effect=AssertionError("fixer")))
         stack.enter_context(patch.object(roundloop, "execute", side_effect=AssertionError("fixer")))

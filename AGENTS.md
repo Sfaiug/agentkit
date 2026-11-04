@@ -44,7 +44,6 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - When review keeps finding races or recovery paths, delete state or simplify the design.
 - Refuse an input nobody uses (a linked AGENTS.md) plainly, never re-creating another system's semantics; a task or PR promises only what its code decides, in the code's own terms ("has read or write access", not "can open"): a reviewer measures every word.
 - A Go milestone answers to the keys its task names: exit 3 fails it only where they reach, a difference from Python only on input real homes hold; its PR names the rest for the shadow run.
-- A module removed from agentkit breaks every run of the old install at its next lazy import (`ImportError`): keep it until no such run is left.
 
 ## Owner rules
 

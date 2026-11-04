@@ -14,7 +14,6 @@ import json
 import os
 import re
 import shutil
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -546,9 +545,6 @@ GITHUB_RETRIES = 3     # how often any of them is waited out and tried again
 NOT_MERGEABLE = re.compile(r"Pull Request is not mergeable", re.I)
 
 
-PICKUP_HELD = threading.local()   # delivery locks this thread holds or waits for
-
-
 # --- the merge pipeline: PASS -> origin -> a PR -> its checks -> merged -----
 
 
@@ -902,15 +898,13 @@ def land_from_line(lp, upstream, deliver):
     return rejoin_line(lp, upstream, "landing fixes passed review")
 
 
-def land(lp, upstream, verify, deliver, execv=None):
+def land(lp, upstream, verify, deliver):
     """Consume a line verdict, or verify once before taking the delivery lock.
 
     Only delivery holds the repository lock; checks and fixers run outside it.
     """
-    from . import run  # here, not at the top: run imports deliver
     if (lp.state.get("waiting_on") or {}).get("line"):
         return land_from_line(lp, upstream, deliver)
-    run.pickup_new_code(lp, execv=execv)
     with landing_mark(lp):
         if not verify():
             return False
@@ -928,37 +922,32 @@ def merge_lock(lp, upstream):
     """Serialize deliveries to one repository and target; the kernel releases a dead holder."""
     from . import gate  # here, not at the top: it reaches run
     config.RUNS.mkdir(parents=True, exist_ok=True)
-    held = getattr(PICKUP_HELD, "count", 0)
-    PICKUP_HELD.count = held + 1
-    try:
-        turn = turn_path(lp, upstream)
-        with turn.open("a") as lock:
-            try:
-                while True:
-                    try:
-                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    except BlockingIOError:
-                        # Another delivery can spend an hour on PR checks; its waiter is not stalled.
-                        lp.state["delivery_wait"] = os.getpid()
-                        lp.write()
-                        fcntl.flock(lock, fcntl.LOCK_EX)
-                    members = landing.line(turn) if landing.green_delivery(
-                        lp.state.get("waiting_on") or {}) else []
-                    if (not members or members[0][0] == lp.run_dir
-                            or not landing.green_delivery(members[0][1]["waiting_on"])):
-                        break
-                    # Flock does not order contenders; a checked suffix needs its prefix delivered.
-                    fcntl.flock(lock, fcntl.LOCK_UN)
+    turn = turn_path(lp, upstream)
+    with turn.open("a") as lock:
+        try:
+            while True:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    # Another delivery can spend an hour on PR checks; its waiter is not stalled.
                     lp.state["delivery_wait"] = os.getpid()
                     lp.write()
-                    run_record.stop_check(lp.run_dir)
-                    time.sleep(gate.SLOT_POLL)
-            finally:
-                if lp.state.pop("delivery_wait", None) is not None:
-                    lp.write()
-            yield
-    finally:
-        PICKUP_HELD.count = held
+                    fcntl.flock(lock, fcntl.LOCK_EX)
+                members = landing.line(turn) if landing.green_delivery(
+                    lp.state.get("waiting_on") or {}) else []
+                if (not members or members[0][0] == lp.run_dir
+                        or not landing.green_delivery(members[0][1]["waiting_on"])):
+                    break
+                # Flock does not order contenders; a checked suffix needs its prefix delivered.
+                fcntl.flock(lock, fcntl.LOCK_UN)
+                lp.state["delivery_wait"] = os.getpid()
+                lp.write()
+                run_record.stop_check(lp.run_dir)
+                time.sleep(gate.SLOT_POLL)
+        finally:
+            if lp.state.pop("delivery_wait", None) is not None:
+                lp.write()
+        yield
 
 
 def turn_path(lp, upstream):

@@ -394,7 +394,7 @@ class GateLanders(unittest.TestCase):
         logs = []
         lp = SimpleNamespace(state=run_record.read_state(run_dir), run_dir=run_dir,
                              wt=self.root / "wt", base_sha="base0001", once=[],
-                             log=logs.append, no_pickup=True,
+                             log=logs.append,
                              write=lambda: run_record.save_state(run_dir, lp.state))
         repo = gitcall.main_checkout(ACME)
 
@@ -418,8 +418,7 @@ class GateLanders(unittest.TestCase):
         with patch.object(gitcall, "git", return_value="base0001"), \
                 patch.object(run, "git_out", return_value=(0, "")), \
                 patch.object(gitcall, "git_out", return_value=(0, "")):
-            self.assertTrue(run.land(lp, "origin/main", verify, deliver,
-                                     execv=lambda *a: self.fail("no pickup here")))
+            self.assertTrue(run.land(lp, "origin/main", verify, deliver))
         self.assertNotIn("landing", lp.state)
         self.assertNotIn("landing", run_record.read_state(run_dir))
         self.assertFalse((run_dir / "landing_since").exists())

@@ -176,7 +176,7 @@ class JoinLine(Sandbox):
                 (config, "load", {"return_value": self.cfg}),
                 (config, "max_gates", {"return_value": 1}),
                 (gate, "GATE_POLL", {"new": 600}),
-                (run, "pickup_new_code", {}), (handback, "redress_seat", {}),
+                (handback, "redress_seat", {}),
                 (roundloop, "integrate", {"return_value": True})):
             self.stack.enter_context(patch.object(module, name, **options))
         self.stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))

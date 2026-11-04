@@ -60,6 +60,9 @@ def main():
     else:
         sub, rest = argv[0], argv[1:]
     try:
+        if sub in ("run", "hand-in"):
+            from agentkit import versions
+            versions.dispatch(argv)
         config.migrate_policy()
         if sub not in SUBS:
             print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)

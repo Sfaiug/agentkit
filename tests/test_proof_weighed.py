@@ -292,7 +292,7 @@ out = pathlib.Path(sys.argv[6])
                     (self.wt / "api.py").read_text().replace('mode = "branch"', 'mode = "base"'))
             return "## Summary\nFixture"
 
-        with patch.object(roundloop, "execute", side_effect=execute), patch.object(run, "pickup_new_code"):
+        with patch.object(roundloop, "execute", side_effect=execute):
             run.rounds(self.lp)
         # a fix leaves a commit of its own on the reviewed head, and the checkout stands on it
         fixed = run.git(self.wt, "rev-parse", "HEAD")

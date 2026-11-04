@@ -181,8 +181,7 @@ class Loop(Sandbox):
             thread.join()
         self.assertEqual(self.lines, [HIT])
 
-    def test_new_code_in_the_same_scope_says_no_kill_twice(self):
-        # `pickup_new_code` execs a new interpreter with this environment in the same scope
+    def test_an_exec_in_the_same_scope_says_no_kill_twice(self):
         self.kills(1)
         turns.memory_cap_note(self.run_dir, self.lines.append)
         self.assertEqual(self.lines, [HIT])
