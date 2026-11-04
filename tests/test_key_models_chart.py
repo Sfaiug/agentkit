@@ -98,6 +98,12 @@ class ModelsChart(unittest.TestCase):
             self.assertNotIn("┄", "\n".join(plot))
         self.assertNotIn("quality ↑", self.models(rows=[("base", .84, None)]))
 
+    def test_each_role_uses_its_own_error_for_the_quality_window(self):
+        # Quality 90 is inside orch/build's window, outside review's narrower error.
+        shown = self.models(rows=[("border", .80, 3), *ROWS])
+        for role, count in (("orch", 6), ("builds", 6), ("reviews", 5)):
+            self.assertEqual(len(self.marks(self.plot(shown, role))), count)
+
     def test_the_chart_uses_only_the_models_being_compared(self):
         akconfig.write(self.home, {"base": {"harness": "claude", "model": "base-1"}},
                        settings={"compare": ["twice-1", "best-1"]})

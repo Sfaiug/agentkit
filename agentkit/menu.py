@@ -3216,8 +3216,9 @@ def model_cost(found, row):
 
 
 def models_said(answer, lineup):
-    """Each role's head, chart points and full table frontier, with its pick and take marked. A quality line is
-    full at the best and empty ten points behind; efforts use the release's board rows."""
+    """Each role's head, chart points and full table frontier, its pick and take marked.
+    A quality line is full at the best and empty ten points behind; efforts use the release's
+    board rows."""
     levels = {}     # each release's efforts on the boards, weakest first, a row naming none one
     for row in lineup:
         levels.setdefault(row["release"], []).append(row["effort"])
