@@ -82,6 +82,9 @@ class AClaudeSeat(unittest.TestCase):
         self.assertIn(flag, words[:-1])
         return words[words.index(flag) + 1]
 
+    # A harness's settings are its own: ak has no settings screen for them and no setting
+    # shared across harnesses. ak adds no setting beyond its pins. Reason: rebuilding each
+    # harness's options in ak is work the harness already did. [15 Oct 2026]
     def test_its_settings_are_ak_s_pins_given_once_and_nothing_more(self):
         self.assertEqual(self.settings(self.argv), [PINS])
 
@@ -102,6 +105,7 @@ class AClaudeSeat(unittest.TestCase):
         self.assertEqual(Path(self.after(words, "--append-system-prompt-file")).name,
                          "rulebook-cl-seat.md")
 
+    # Nothing else instructs a model ak runs, no harness memory. [1 Oct, 4 Oct, 16 Oct, 20 Oct]
     def test_a_dry_run_s_launch_keeps_the_daemon_claude_s_own_rules_and_memory_off(self):
         words = self.dry_run()
         for switch in ("CLAUDE_CODE_DISABLE_AGENT_VIEW=1", "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1",

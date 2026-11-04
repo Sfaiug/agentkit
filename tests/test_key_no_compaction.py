@@ -1,12 +1,12 @@
 """ak compacts no seat: one idle a day after a turn on 900,000 tokens is typed nothing.
 
 Claude Code compacts an idle seat itself, and two compactors on one seat can only clash
-(AGENTS.md's owner rules).  ak's seat wrapper once typed the harness's compact command into such
-a seat, at its prompt after five seconds of quiet, polling every five.  The seat here is one a
-person opened with `ak orch`, so its pane runs whatever ak puts around a harness, and the harness
-is a stand-in `claude`: its conversation, as Claude Code keeps it, ended a day ago on 900,000
-tokens, and it says so too where the old wrapper asked (IDLE_COMPACT_STATE).  It sits at its
-prompt keeping every byte that reaches it, through a tick of `ak watch` and well past that quiet.
+(tests/test_key_no_compaction.py).  ak's seat wrapper once typed the harness's compact command
+into such a seat, at its prompt after five seconds of quiet, polling every five.  The seat here
+is one a person opened with `ak orch`, so its pane runs whatever ak puts around a harness, and
+the harness is a stand-in `claude`: its conversation, as Claude Code keeps it, ended a day ago on
+900,000 tokens, and it says so too where the old wrapper asked (IDLE_COMPACT_STATE).  It sits at
+its prompt keeping every byte that reaches it, through a tick of `ak watch` and well past that quiet.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, and a
 person's terminal from akterm.py, and the tick in the box `home.tick()` builds.
@@ -53,6 +53,8 @@ os.rename(report + ".part", report)
 """
 
 
+# ak compacts no seat itself: each harness's own compaction does; ak types nothing to compact.
+# [16 Oct 2026]
 @unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a bwrap able to box a tick")
 class IdleSeat(unittest.TestCase):
     def test_a_seat_idle_long_on_a_large_context_is_typed_nothing(self):

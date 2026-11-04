@@ -1,7 +1,8 @@
 """A Codex seat pages nobody about pairing as it opens or reopens; a code comes only on request.
 
 Pairing the provider's app with a seat is optional and never blocks terminal work, so opening or
-resuming a Codex seat sends no setup alert and asks Codex for no pairing code (owner rules).
+resuming a Codex seat sends no setup alert and asks Codex for no pairing code
+(tests/test_key_codex_pairing.py).
 Older seats paged the owner with optional setup as if it were a question.  The owner who wants
 app access asks on the host, `python3 <ak>/tools/codex-seat.py --pair <seat>` (docs/guide.md),
 by the seat's name, a name it had before or the Codex home an older card named; the code is
@@ -143,6 +144,8 @@ class CodexHost:
         self.assertNotIn("needs you", terminal.wait("idle"))
 
 
+# Codex pairing is optional, requested when the owner wants app access: opening or resuming a
+# seat sends no setup alert, and terminal work never waits. [7 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class OpeningAndReopening(CodexHost, unittest.TestCase):
     @classmethod
@@ -179,6 +182,8 @@ class PairingOnRequest(CodexHost, unittest.TestCase):
     def pair(self, target):
         return tuple(self.home.run("python3", str(PAIR), "--pair", target))
 
+    # Pairing is requested when the owner wants app access: a code comes only on request.
+    # [7 Oct 2026]
     def test_its_name_a_name_it_had_or_its_codex_home_prints_a_code_and_pages_nothing(self):
         before = len(self.pairings())
         server, = self.found("fake-server.json")
