@@ -1,5 +1,7 @@
 package harness
 
-// Antigravity's launch writes down more than the launcher's id (agentkit/harness/antigravity.py's
-// `launched`), so Go does not open its seats yet.
-func init() { plugins["antigravity"] = plugin{} }
+// Antigravity's screen says its word; its launch and conversation store stay Python's.
+func init() {
+	plugins["antigravity"] = plugin{seats: true, looks: true, record: antigravityRecord,
+		keys: []string{"antigravity_launch", "antigravity_open"}, kept: antigravityKept}
+}
