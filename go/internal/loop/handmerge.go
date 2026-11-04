@@ -62,6 +62,10 @@ func Mergeable(record *run.Object) bool {
 // followed on out: a merged one says so and merges nothing.  It is the exit status, and why it
 // refused.
 func Merge(dir string, out, errOut io.Writer) (int, string, error) {
+	if Logging(dir) {
+		// A detached retry already writes here; replaying its log would feed it back into itself.
+		out = io.Discard
+	}
 	id := filepath.Base(dir)
 	record, err := run.Read(dir)
 	if record == nil {
