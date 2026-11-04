@@ -3,13 +3,12 @@ package notify
 import (
 	"slices"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
 // unansweredSince leaves newer owner messages and deferred retirements to their Python passes.
 func unansweredSince(name string, since float64) bool {
-	if !config.Listable(outbox()) || len(config.Glob(outbox(), "*.clear")) != 0 {
+	if !retirementsDrained() {
 		return false
 	}
 	said, err := OwnerSaid(name)

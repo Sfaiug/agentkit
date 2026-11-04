@@ -58,7 +58,7 @@ func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, erro
 				_, err = attempt(event, errOut)
 				return err
 			}
-			if !UnansweredQuestion(current) && (seat == nil || seat.Str("state") != "asking") {
+			if !UnansweredQuestion(current) && (seat == nil || seat.Str("state") != "asking" || !UnansweredDialog(current)) {
 				carried = false
 				return nil
 			}
