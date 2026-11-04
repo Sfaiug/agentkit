@@ -6,13 +6,15 @@ import (
 	"strings"
 	"time"
 
+	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
 
 // A going loop with recent output needs no stall recovery. Locks and temporaries are
 // the tick's writes, so they never count as the loop's life (watch.stall_clock).
 func notSilent(dir string, record *run.Object) bool {
-	if !run.ProcessActive(record) || record.Truthy("frozen_since") {
+	pid, _ := record.Int("pid")
+	if !run.ProcessActive(record) || record.Truthy("frozen_since") || host.Frozen(pid) {
 		return false
 	}
 	minutes := float64(run.SilenceMinutes)

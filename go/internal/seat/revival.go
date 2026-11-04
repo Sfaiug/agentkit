@@ -16,7 +16,6 @@ import (
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
-	"agentkit/internal/tmux"
 )
 
 const (
@@ -36,6 +35,7 @@ type Revival struct {
 	Name                string
 	Live, Closed, Owing bool
 	CanOpen, Fresh      bool
+	Supported           bool // Go opens this harness and owns this death's recovery
 	Failed              bool // a failed revival still needs the owner
 	File                *run.Object
 }
@@ -50,17 +50,10 @@ func (home Home) Revivals() []Revival {
 		}
 		state := filepath.Join(config.Home(), "state")
 		back, canOpen := comingBack(state, each.Name, record, each.held, false)
-		// A dated death after warm-up belongs to pane-died's reopen, which may owe its
-		// interrupted turn a different line. An old record with no launch has no such claim.
-		if launched, dated := record["launched"].(float64); dated && each.held {
-			said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", harnessPane(each.Name), "#{pane_dead_time}")
-			died, unread := strconv.ParseFloat(said, 64)
-			canOpen = canOpen && err == nil && unread == nil && died-launched < Warmup.Seconds()
-		}
-		_, opens := harness.Opens(each.own)
+		supported := each.supportsRunRevival(record)
 		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
 			Owing:   !each.restingGone(),
-			CanOpen: canOpen && opens, Fresh: back.conversation == "" || !back.opened, File: file,
+			CanOpen: canOpen && supported, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
 			Failed: revivalFailure(notify.Last(each.Name))})
 	}
 	return seats

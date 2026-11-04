@@ -66,6 +66,9 @@ func (t *ticking) reviveRuns(going map[string]string) error {
 			if id == "" {
 				continue
 			}
+			if !each.Supported {
+				return errLeft
+			}
 			now := epoch(t.clock())
 			deaths := each.File.List("reopened_at")
 			if each.File.Truthy("reopened_at") && deaths == nil {
