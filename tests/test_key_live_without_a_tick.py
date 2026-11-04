@@ -20,6 +20,8 @@ from fixtures.sink import Sink
 
 HEALTH = ('printf "%s\\n" "$AK_MERGE_SHA" >>"$HOME/probes"; '
           'test -e "$HOME/live-ok" || { echo deploying; exit 1; }')
+DEPLOYED = ('printf "%s\\n" "$AK_MERGE_SHA" >>"$HOME/deploy-probes"; '
+            'test -e "$HOME/live-ok"')
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -30,7 +32,7 @@ class LiveWithoutATick(unittest.TestCase):
         self.sink = Sink(self.home)
         self.addCleanup(self.sink.close)
         self.rig = Rig(self.home, "app", files={
-            "AGENTS.md": f"---\nhealth: {HEALTH}\n---\n"})
+            "AGENTS.md": f"---\nhealth: {HEALTH}\ndeployed: {DEPLOYED}\n---\n"})
         GitHub(self.home).grant(self.rig.slug, "WRITE")
         akconfig.write(self.home, ["opus", "astra"])
         fakeadapter.install(self.home, claude="work", codex="pass")
@@ -47,8 +49,8 @@ class LiveWithoutATick(unittest.TestCase):
     def record(self):
         return json.loads((self.directory / "run.json").read_text())
 
-    def probes(self):
-        path = self.home.path / "probes"
+    def probes(self, name="probes"):
+        path = self.home.path / name
         return path.read_text().splitlines() if path.exists() else []
 
     def until(self, ready, bound=90):
@@ -68,12 +70,15 @@ class LiveWithoutATick(unittest.TestCase):
         self.until(lambda: len(self.probes()) >= 2 and
                    self.record().get("health", {}).get("output") == "deploying")
         self.assertNotIn("live_at", self.record())
+        self.assertNotIn("deployed_at", self.record())
         self.home.write("live-ok", "")
         self.until(lambda: self.record().get("live_notified"))
         self.assertIsInstance(self.record().get("live_at"), (int, float))
+        self.assertIsInstance(self.record().get("deployed_at"), (int, float))
         self.assertNotIn("health", self.record())
         self.assertGreaterEqual(len(self.probes()), 3)
         self.assertEqual(set(self.probes()), {self.rig.head()})
+        self.assertEqual(self.probes("deploy-probes"), self.probes())
         self.seat.wait_lines(1)
         notice = f"run {self.directory.name} is live"
         self.assertEqual(sum(notice in line for line in self.seat.lines()), 1)
@@ -92,6 +97,7 @@ class LiveWithoutATick(unittest.TestCase):
         self.assertTrue(self.record()["merged"])
         self.assertEqual(self.record()["live_at"], state["live_at"])
         self.assertEqual(self.probes(), [])
+        self.assertEqual(self.probes("deploy-probes"), [])
         self.assertEqual(self.sink.pages(), [])
 
 
