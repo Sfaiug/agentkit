@@ -38,8 +38,9 @@ func NewDraft(hint string, taken map[string]bool) (*Draft, error) {
 		return nil, err
 	}
 	if d.Reviewers == nil {
-		d.Reviewers = slices.Clone(d.Workers)
+		d.Reviewers = d.Workers
 	}
+	d.Workers, d.Reviewers = slices.Clone(d.Workers), slices.Clone(d.Reviewers)
 	if len(d.Reviewers) == 0 {
 		d.Reviewers = []string{d.Orchestrator}
 	}
@@ -82,7 +83,7 @@ func (d *Draft) Key(key terminal.Key) string {
 	case "esc", "eof":
 		return key.Name
 	case "tab":
-		d.Picker = true
+		d.Picker, d.Find = true, ""
 	case "enter":
 		return "start"
 	case "backspace":
