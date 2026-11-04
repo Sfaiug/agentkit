@@ -139,8 +139,8 @@ class RankByTheAnswer(Sandbox):
             measured.return_value = {"opus": {"high": {"executor": .01}},
                                      "astra": {"high": {"executor": .5}}}
             after = matrix.rank(self.cfg, "execute", names)
-        self.assertEqual((before["astra"][0], after["opus"][0]), (0, 0))
-        self.assertEqual((before["opus"][0], after["astra"][0]), (1, 1))
+        self.assertEqual((before["fable"][0], after["opus"][0]), (0, 0))
+        self.assertEqual((before["opus"][0], after["fable"][0]), (1, 1))
 
     def test_the_role_pick_ranks_first_rated_once(self):
         self.store()

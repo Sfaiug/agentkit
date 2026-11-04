@@ -152,7 +152,7 @@ def _costs(rows, role, lineup, cfg, shares):
     """One unit per role: measured shares, board dollars scaled by pooled shares/dollars,
     or board dollars without any measurement. Money requires every lineup provider's price."""
     from . import usage
-    releases = {row["release"]: {"slug": row["release"], "name": row["name"]} for row in lineup}
+    releases = {row["release"]: {"slug": row["release"], "name": row.get("name")} for row in lineup}
     index = _release_index(releases.values())
     models = [(name, entry, {hit["release"]["slug"] for hit in found(index, entry["model"])})
               for name in config.offered(cfg) for entry in [cfg["models"][name]]]
@@ -166,7 +166,7 @@ def _costs(rows, role, lineup, cfg, shares):
                    if hits == {row["release"]}]
         sources[row["release"], row["effort"]] = next(
             (one for one in matches if measured_share(one[0], row["effort"]) is not None),
-            matches[0] if matches else (None, config.company(cfg, row["maker"])))
+            matches[0] if matches else (None, config.company(cfg, row.get("maker"))))
     prices = {provider: usage.price(cfg, provider) for _, provider in sources.values()}
     measured, pools = {}, {}
     for row in rows:
