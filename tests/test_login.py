@@ -272,8 +272,10 @@ class Login(unittest.TestCase):
         run.git(work, "config", "user.name", "fixture")
         run.git(work, "config", "user.email", "fixture@localhost")
         (work / "README.md").write_text("fixture\n")
+        (work / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
         run.git(work, "add", ".")
         run.git(work, "commit", "-m", "base")
+        run.git(work, "update-ref", config.RULES_REF, "HEAD")
         self.work = work
         return work
 

@@ -1288,9 +1288,8 @@ def refused(run_dir, exc, log, cfg, printed=False):
         announce_safely(state, run_dir, log, cfg)
 
 
-def launch_policy(task_path=None, task_file=None, pr=None):
-    """The numbers in force (`config.policy`) for a launch of that task or pull request, from the
-    checkout it has.  A task that does not read is no checkout: its launch reports that."""
+def launch_checkout(task_path=None, task_file=None, pr=None):
+    """The launch's checkout, or None; preflight records repository errors as before."""
     try:
         if pr:
             owner, name, _ = PR_PARTS.match(pr).groups()
@@ -1300,7 +1299,11 @@ def launch_policy(task_path=None, task_file=None, pr=None):
             checkout = task_repo(taskfile.parse_task(path)[0], path, task_file)
     except Exception:
         checkout = None
-    return config.policy(checkout)
+    return checkout
+
+
+def launch_policy(task_path=None, task_file=None, pr=None):
+    return config.policy(launch_checkout(task_path, task_file, pr))
 
 
 def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
@@ -3272,7 +3275,7 @@ def main(argv):
                       f"started {started}, \"{first['title']}\") shares {detail}; "
                       f"{rival_advice()}", file=sys.stderr)
                 return 2
-        require_project_contract(task_repo(meta, task_path))
+        require_project_contract(launch_checkout(task_path))
         check_seat_queue(1)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id

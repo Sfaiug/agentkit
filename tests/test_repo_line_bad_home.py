@@ -45,9 +45,12 @@ class RepoLineBadHome(Sandbox):
         checkout = config.CODE / name
         checkout.mkdir(parents=True)
         subprocess.run(["git", "init", "-q", "-b", "main", str(checkout)], check=True)
+        (checkout / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
+        subprocess.run(["git", "-C", str(checkout), "add", "AGENTS.md"], check=True)
         subprocess.run(["git", "-C", str(checkout), "-c", "user.name=Fixture", "-c",
                         "user.email=fixture@localhost", "commit", "-q", "--allow-empty", "-m",
                         "fixture"], check=True)
+        subprocess.run(["git", "-C", str(checkout), "update-ref", config.RULES_REF, "HEAD"], check=True)
         return checkout
 
     def task(self, path, repo):

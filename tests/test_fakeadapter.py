@@ -37,7 +37,7 @@ class FakeAdapter(unittest.TestCase):
         self.assertEqual([[(h["argv"][0], h["code"]) for h in run["hand_ins"]]
                           for run in claude + codex],
                          [[("done", 0)], [("done", 0)], [("finding", 0), ("done", 0)]])
-        self.assertEqual(self.rig.files(remote=False, ref="HEAD"), [".keep", "retry.txt"])
+        self.assertEqual(self.rig.files(remote=False, ref="HEAD"), [".keep", "AGENTS.md", "retry.txt"])
         self.assertEqual((self.home.root / "executor/session_id").read_text(), "sid-claude-1")
 
     def test_a_step_written_out_is_done_as_written_and_the_last_step_repeats(self):

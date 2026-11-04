@@ -419,6 +419,15 @@ exec "$dir/muse-bin-$(cat "$dir/.muse-version")" "$@"
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('3 passed, 0 failed, 0 skipped', result.stdout)
 
+    def test_smoke_repository_fixtures_reach_their_checks(self):
+        task = between(SMOKE, 'cat >"$WORK/retry-task.md"', '\nretrylaunch() {')
+        for start, end in (('# --- 12:', '# --- 13:'), ('# --- 14:', '# --- 16:'),
+                           ('# --- 24:', '# --- 25:')):
+            with self.subTest(check=start):
+                result = self.shell(self.newrepo + self.fakeadapter + task
+                                    + between(SMOKE, start, end) + '\nfinish')
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_updated_watch_fixture(self):
         block = between(SMOKE, '# --- 23:', '# --- 24:')
         # The existing fixture supplies gh results. The only writes are its throwaway HOME.
