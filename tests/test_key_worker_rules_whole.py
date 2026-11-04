@@ -1,7 +1,7 @@
 """Workers get the project's AGENTS.md whole, and `users: real` gives each reviewer one more rule.
 
 A project's AGENTS.md is how its owner instructs every model working on it, and nothing ak hands
-a model is cut (owner rules): each prompt of a run, every role and round, carries the body whole
+a model is cut: each prompt of a run, every role and round, carries the body whole
 however long, as on the base commit, so the work under review cannot rewrite the rules it is
 judged by; the front matter is ak's own to read and is left out.  Its `users:` line is read as
 the YAML word it is, quotes and a trailing comment aside: `real` gives a reviewer, and only a

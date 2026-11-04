@@ -596,16 +596,18 @@ def status_details(directory, state, providers=None, cfg=None, index=None, owed=
 def owed_lines(found, seat, wanted):
     """The line under each of `found` whose ending waits for `seat`, the one reading
     (`handback.waits`), matched as `runs_by_seat` matches it: that seat's listing points to
-    the look by id, and that look prints the line the tick would type, which it then records
-    as handed back (`handback.printed_at_look`).  A listing records nothing: `head` can cut
-    it before its row is read.
+    the look by id, and that look prints the line, including a recorded routine delivery
+    or live notice, then records it as handed back (`handback.printed_at_look`).  A listing
+    records nothing: `head` can cut it before its row is read.
     """
     owed = {}
     for directory, state in transitions.runs_by_seat(found).get(seat, []) if seat else ():
-        if not handback.waits(state):
+        if wanted:
+            line = handback.look_line(directory, state)
+        elif handback.waits(state):
+            line = f"its ending waits for you: ak run status {directory.name}"
+        else:
             continue
-        line = (handback.look_line(directory, state) if wanted
-                else f"its ending waits for you: ak run status {directory.name}")
         if line:
             owed[directory] = line
     return owed

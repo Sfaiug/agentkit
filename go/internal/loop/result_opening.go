@@ -3,44 +3,29 @@ package loop
 import (
 	"bufio"
 	"cmp"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
 )
 
 // resultOpening is the decision in full, or today's delivery heading when nothing needs deciding.
 func resultOpening(dir string, record *run.Object, outcome string) string {
-	state := record.Str("state")
-	provider := state == "exhausted" && !record.Truthy("replaced") &&
-		(record.Truthy("quota_dry") || strings.Contains(record.Str("error"), "API/transport errors"))
 	if record.Truthy("merged") {
 		if saved := handin.Answer(filepath.Join(dir, "result.md")); strings.HasPrefix(saved, "# NOT LIVE ") {
 			opening, _, _ := strings.Cut(saved, "\n\n")
 			return opening
 		}
 	}
-	if record.Truthy("merged") || state == "not_needed" || state == "stopped" || state == "waiting" ||
-		strings.HasPrefix(outcome, "PASS") && record.Truthy("scratch") ||
-		state != "exhausted" && run.Going(record, time.Now()) {
+	word, why, move, detail := handback.Decision(record, dir, outcome)
+	if move == "" {
 		return "# " + outcome + " — " + cmp.Or(record.Str("title"), filepath.Base(dir))
-	}
-	word, why, move := "FAIL", "", "read the result"
-	if strings.HasPrefix(outcome, "PASS, not merged: ") {
-		word, why = "NOT MERGED", strings.TrimPrefix(outcome, "PASS, not merged: ")
-	}
-	if state == "blocked" || state == "error" {
-		word = strings.ToUpper(state)
-		why = cmp.Or(record.Str("error"), "no reason was recorded")
-	} else if strings.HasPrefix(record.Str("error"), "killed: memory cap") {
-		why = record.Str("error")
-	} else if !run.Ended(record) && run.NeedsRecovery(record) {
-		why = strings.TrimRight(run.RecoveryReason(record), ".")
 	}
 	review := &handin.Review{}
 	for _, each := range record.List("review_records") {
@@ -56,33 +41,16 @@ func resultOpening(dir string, record *run.Object, outcome string) string {
 	if history == nil {
 		history = run.NewObject()
 	}
-	overridden := ""
-	if judged := record.Dict("review"); judged != nil {
-		overridden = judged.Str("overridden")
-	}
-	check := failedCheck(record)
-	if final.Str("outcome") == "failed" {
-		check = "the final check failed"
-		if where := final.Str("where"); where != "" {
-			check += " at " + where
-		}
-		check += ": " + cmp.Or(final.Str("line"), "see final-check.log")
-	}
-	if why == "" {
-		if len(claims) > 0 && review.Verdict() == "FAIL" {
-			why = handin.ItemText(claims[0])
-		} else {
-			why = strings.TrimRight(cmp.Or(overridden, check,
-				record.Str("merge_note"), record.Str("error"), "no reason was recorded"), ".")
-		}
-	}
 	parts := []string{why}
 	for _, row := range claims {
+		if why == fmt.Sprintf("%s:%s - %s", row.Str("path"), run.Text(row.Get("line")), row.Str("what")) {
+			parts[0] = handin.ItemText(row)
+		}
 		if text := handin.ItemText(row); !slices.Contains(parts, text) {
 			parts = append(parts, text)
 		}
 	}
-	if check != "" && !slices.Contains(parts, check) {
+	if check := handback.FailedCheck(record); check != "" && !slices.Contains(parts, check) {
 		parts = append(parts, check)
 	}
 	every, latest := filepath.Join(dir, "donewhen.log"), 0
@@ -131,24 +99,7 @@ func resultOpening(dir string, record *run.Object, outcome string) string {
 			parts = append(parts, checkLine([]any{pair[0], cmp.Or(firstDiagnostics(output, where), run.Text(pair[1]))}))
 		}
 	}
-	if named := strings.TrimPrefix(run.ContinueLine(record, dir, time.Now()), "continue: "); named != "" {
-		move = "launch the fix the result names, `" + named + "`"
-	} else if state == "pass" && record.Truthy("merge_failed") && !record.Truthy("scratch") &&
-		!record.Truthy("review_pr") && record.Truthy("repo") {
-		move = "launch the fix the result names, `ak run merge " + record.Str("run_id") + "`"
-	} else if state == "fail" && review.Verdict() == "FAIL" &&
-		float64(len(record.List("round_summaries"))) >= run.FirstNumber(record, "rounds") && run.FirstNumber(record, "rounds") > 0 {
-		move = "split the task"
-	} else if state == "blocked" || check != "" {
-		move = "rewrite the task and relaunch it"
-		if record.Truthy("branch") {
-			move += " with `from: " + record.Str("branch") + "`"
-		}
-	}
-	if provider {
-		move = "wait for the provider"
-	}
-	return run.Decision(record, dir, word, strings.Join(parts, "; "), move, true)
+	return run.Decision(record, dir, word, strings.Join(parts, "; "), move+detail, true)
 }
 
 // firstDiagnostics follows only a regular kept output in the runner's protected directory.

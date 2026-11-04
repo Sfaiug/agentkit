@@ -15,6 +15,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/handback"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -366,6 +367,9 @@ func (r *repoPlace) head(_ string, record *run.Object) []string {
 	parts := []string{"branch: " + run.Field(record, "branch", "None"), "pr: " + pr, "merged: " + merged}
 	if record.Truthy("merge_note") {
 		parts = append(parts, "merge: "+record.Str("merge_note"))
+	}
+	if retry := handback.RetryCommand(record); retry != "" {
+		parts = append(parts, "retry delivery: "+retry)
 	}
 	executor := "-"
 	if record.Truthy("executor") {

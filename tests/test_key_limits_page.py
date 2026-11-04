@@ -2,8 +2,8 @@
 Enter there opens `config · limits`: a row each under a plain name, its value and `default N`
 where that is not ak's default, the pointed one's meaning and board rows under the rows.  Enter
 on a row opens its short list, the value in force marked, and a pick saves it to config.toml at
-once, every other key kept; a value the host's numbers refuse is not offered, and a save that
-fails changes nothing and says why.
+once, every other key kept; both line lists end with `no limit`, and a save that fails changes
+nothing and says why.
 
 The owner's ask of 3 Nov 2026: the keys' names were unclear to users.  Black-box: the program
 `AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
@@ -36,6 +36,8 @@ def row(name, value, on=False):
     return f"{'›' if on else ' '} {name:<{WIDE}}  {value}"
 
 
+# Settings on the settings screen are each shown with ak's default and the board
+# numbers it moves. [30 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class LimitsPage(unittest.TestCase):
     @classmethod
@@ -125,14 +127,27 @@ class LimitsPage(unittest.TestCase):
         self.assertIn(row(NAMES[2], "off default 50", on=True), shown)
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
-    def test_a_list_offers_what_the_host_takes_and_the_value_in_force(self):
+    def test_a_list_offers_independent_limits_and_the_value_in_force(self):
         term = self.c({"executor_lines": 150, "orchestrator_lines": 120})
         self.limits(term)
         term.keys("j", "Enter")
         shown = lines(term.wait("›   ● 150"))
-        # 100 is under orchestrator_lines: refused, so not offered
-        self.assertEqual([line.split()[-1] for line in shown if line[4:6] in ("● ", "○ ")],
-                         ["150", "200", "300", "500", "1000", "2000"])
+        self.assertEqual([line[6:].strip() for line in shown if line[4:6] in ("● ", "○ ")],
+                         ["100", "150", "200", "300", "500", "1000", "2000", "no limit"])
+
+    def test_both_line_lists_end_with_no_limit_and_save_it(self):
+        for key, name in zip(("executor_lines", "orchestrator_lines"), NAMES[1:]):
+            with self.subTest(key=key):
+                term = self.c()
+                self.limits(term)
+                shown = self.picked(term, name, ("j",) * 20, "no limit")
+                self.assertIn(row(name, "no limit default " + ("300" if key == "executor_lines" else "50"),
+                                  on=True), shown)
+                self.assertEqual(akconfig.read(self.home)[key], "no limit")
+                term.keys("Enter")
+                term.wait("›   ● no limit")
+                term.keys("Escape", "Escape")
+                term.wait(("executor" if key == "executor_lines" else "orchestrator") + " no limit")
 
     def test_a_pick_that_cannot_be_saved_changes_nothing_and_says_why(self):
         term = self.c()

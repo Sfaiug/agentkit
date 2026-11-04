@@ -5,7 +5,8 @@ the owner's first message since that conversation's previous done.  A rename kee
 conversation; a name opened anew is a conversation of its own.  The start is unknown with no
 message of theirs since, in a harness that reads no messages or cannot read them at that
 done, and for the first done of a conversation begun before an older history first kept
-dones.  No database: `not recorded`.
+dones. The owner's answered waits in each measured intent's conversation and time window,
+over those intents' total hours, are their share of that week's intent time. No database: `not recorded`.
 
 Offline: a sandbox HOME with its own history database, a fake seat harness, git answering
 nothing.
@@ -100,7 +101,8 @@ class IntentRow(Sandbox):
         self.done("fix-api", NOW - HOUR)
         with patch.object(scoreboard.time, "time", return_value=NOW):
             self.assertEqual(scoreboard.compute(NOW)["intent"],
-                             [{"measured": 0, "hours": None, "live": 0, "live_hours": None}] * 2)
+                             [{"measured": 0, "hours": None, "live": 0, "live_hours": None,
+                               "answer_share": None}] * 2)
             row = [line for line in scoreboard.render() if line.startswith("intent")][0]
         self.assertIn("no intent measured", row)
 
@@ -121,10 +123,51 @@ class IntentRow(Sandbox):
             history.done("claude:c1", at, began)
         with patch.object(scoreboard.time, "time", return_value=NOW):
             self.assertEqual(scoreboard.compute(NOW)["intent"],
-                             [{"measured": 3, "hours": 2.0, "live": 0, "live_hours": None},
-                              {"measured": 1, "hours": 3.0, "live": 0, "live_hours": None}])
+                             [{"measured": 3, "hours": 2.0, "live": 0, "live_hours": None, "answer_share": 0},
+                              {"measured": 1, "hours": 3.0, "live": 0, "live_hours": None, "answer_share": 0}])
             row = [line for line in scoreboard.render() if line.startswith("intent")][0]
         self.assertIn("3 intents measured, median 2.0 hours from the owner's first message to done", row)
+        self.assertIn("0.0% of intent time waiting for the owner's answers", row)
+
+    def test_answer_share_uses_the_measured_intents_total_hours_and_their_own_answers(self):
+        for conversation, at, began in (("c1", NOW - HOUR, NOW - 11 * HOUR),
+                                        ("c2", NOW - WEEK, NOW - WEEK - 90 * HOUR),
+                                        ("c1", NOW - WEEK - HOUR, NOW - 3 * WEEK),
+                                        ("c3", NOW - HOUR, None)):
+            history.done(f"claude:{conversation}", at, began)
+        for conversation, at, kind, hours in (
+                ("c1", NOW - 11 * HOUR, "answered", .4),  # both ends of the intent count
+                ("c1", NOW - HOUR, "answered", .6),
+                ("c2", NOW - WEEK - 3 * HOUR, "answered", 11.8),
+                ("c1", NOW - 2 * WEEK - HOUR, "answered", 10),  # before the board's window
+                ("c1", NOW - 12 * HOUR, "answered", 100),       # before began
+                ("c1", NOW, "answered", 100),                 # after done
+                ("c3", NOW - 5 * HOUR, "answered", 100),       # no measured intent
+                (None, NOW - 5 * HOUR, "answered", 100),       # an older, unnamed answer
+                ("c1", NOW - 5 * HOUR, "asked", 100),
+                ("c1", NOW - 5 * HOUR, "paged", 100)):
+            self.harness.current = conversation
+            history.owner_time(kind, at, hours * HOUR, session="fix-api")
+        self.harness.current = "c1"
+        with patch.object(self.harness, "name", "muse"):
+            history.owner_time("answered", NOW - 5 * HOUR, 100 * HOUR, session="fix-api")
+        board = scoreboard.compute(NOW)
+        self.assertAlmostEqual(board["intent"][0]["answer_share"], .128)
+        self.assertAlmostEqual(board["intent"][1]["answer_share"], 10 / (2 * WEEK / HOUR - 1))
+        self.assertEqual(board["intent"][0]["hours"], 50)
+        self.assertIn("12.8% of intent time waiting for the owner's answers", "\n".join(scoreboard.render(board)))
+
+    def test_zero_intent_hours_or_an_older_owner_schema_has_no_answer_share(self):
+        history.done("claude:c1", NOW, NOW)
+        self.assertIsNone(scoreboard.compute(NOW)["intent"][0]["answer_share"])
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute("UPDATE dones SET began = ?", (NOW - HOUR,))
+            db.execute("DROP TABLE owner")
+            db.execute(history.OWNER_SCHEMA)
+        board = scoreboard.compute(NOW)
+        self.assertEqual(board["intent"][0]["hours"], 1)
+        self.assertIsNone(board["intent"][0]["answer_share"])
+        self.assertNotIn("waiting for the owner's answers", "\n".join(scoreboard.render(board)))
 
 
 if __name__ == "__main__":

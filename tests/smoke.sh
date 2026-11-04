@@ -552,7 +552,7 @@ class SessionState(unittest.TestCase):
                                 "set-option", "list-clients", "list-sessions", "display-message"))
         return 0, self.pane if args[0] == "capture-pane" else ""
 
-    def deliver(self, event):
+    def deliver(self, event, **_kw):
         event.update(status="delivered", receipt={"message_id": "123", "webhook":
             hashlib.sha256(b"https://discord.example/hook?thread_id=42").hexdigest()})
         notify._write_event(event)

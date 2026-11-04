@@ -84,6 +84,8 @@ max_runs caps the count when positive; 0 leaves host memory as the gate
 (config.toml or AK_MAX_RUNS).
 --review-pr reviews a GitHub PR, without an executor: the seat's own merges on
 PASS with green checks, anyone else's asks the inbox.
+Task size: $executor_size.
+Seat's work: $orchestrator_size.
 Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
             "ak run task.md --bg"),
     "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]",

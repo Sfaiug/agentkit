@@ -3,8 +3,8 @@
 Unset, the budget is three rounds.  Set, it is the budget everywhere a round count is judged: a
 `--rounds` over it is refused before any run is made, a run asking for none gets that many, and
 a run whose reviewer fails every round ends FAIL once they are spent.  `executor_lines` and
-`orchestrator_lines` sit beside it.  A number under its floor or not a whole number, or `orchestrator_lines`
-over `executor_lines`, refuses the launch, naming the file, the numbers and what they mean.
+`orchestrator_lines` sit beside it.  A number under its floor or not a whole number refuses
+the launch, naming the file, the accepted values and what they mean.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 project from gitrig.py, a config from akconfig.py, a task from taskfile.py and scripted harnesses
 from fakeadapter.py; this test fails against `/bin/false`.
@@ -48,6 +48,7 @@ def finish(cls):
     cls.result = (cls.run_dir / "result.md").read_text().splitlines()
 
 
+# Review rounds per change are settings on the settings screen. [30 Oct 2026]
 class FiveRounds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -100,12 +101,11 @@ class Refused(unittest.TestCase):
                 ({"review_rounds": 0}, f"{ROUNDS} (got 0)"),
                 ({"review_rounds": 2.5}, f"{ROUNDS} (got 2.5)"),
                 ({"review_rounds": True}, f"{ROUNDS} (got True)"),
+                ({"review_rounds": "no limit"}, f"{ROUNDS} (got 'no limit')"),
                 ({"executor_lines": 0}, f"executor_lines must be a whole number of at least 1, "
                                       f"{REVIEW} (got 0)"),
                 ({"orchestrator_lines": -1}, f"orchestrator_lines must be a whole number of at least 0, "
-                                     f"{SEAT} (got -1)"),
-                ({"orchestrator_lines": 400, "executor_lines": 300},
-                 f"orchestrator_lines 400, {SEAT}, is over executor_lines 300, {REVIEW}")):
+                                     f"{SEAT} (got -1)")):
             with self.subTest(settings=settings):
                 akconfig.write(home, ["opus"], settings=settings)
                 done = home.ak("run", str(task), timeout=60)

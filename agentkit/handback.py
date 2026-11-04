@@ -952,15 +952,26 @@ def printed_at_launch(run_dir, state, log):
 LOOKED_NOTE = "read by its seat's own ak run status or ak wait: printed there, not typed"
 
 
+def _look_owed(state):
+    return (not state.get("handback_typed")
+            and (waits(state) or state.get("handback_note") == ROUTINE_NOTE
+                 or state.get("live_note") == ROUTINE_NOTE
+                 or not state.get("live_typed") and live_owed(state)))
+
+
 def look_line(run_dir, state):
     """The hand-back line its own seat's `ak run status <id>` prints, as does its `ak wait`
     refused on that ended run, or None.  A long line's full notice is saved to result.md under
     the delivery lock (`seat_notice`), taken here without waiting and released before the look
     prints: one held elsewhere is the tick handing this ending back now, saving that notice
     itself."""
+    if not _look_owed(state):
+        return None
     try:
         with delivery_lock(run_dir, wait=False) as held:
-            return handback_line(state, run_dir, save=held)
+            return handback_line(state, run_dir, save=held,
+                                 live=bool(state.get("merged") and state.get("live_at")
+                                           and not state.get("live_typed")))
     except (config.Error, OSError):
         return None     # left waiting: the tick types it at the seat's next quiet prompt
 
@@ -969,54 +980,70 @@ def printed_at_look(run_dir, state):
     """An ending its own seat's `ak run status <id>` or `ak wait` has just printed, the line
     the tick would type: the seat read it there, so it is recorded as handed back, as
     `printed_at_launch` records a refusal -- typed in as well, it would be news the seat had
-    already acted on (28 Oct).  Only while this attempt's ending still waits (`waits`), and
-    never waiting for the lock: one held elsewhere is the tick typing that ending now, so it
-    is left to it, and the seat may read it twice."""
+    already acted on (28 Oct).  A recorded routine ending is read here too.  Only while this
+    attempt still owes that look (`_look_owed`).  Never waits for the lock: one held elsewhere
+    is the tick typing that ending now, so it is left to it, and the seat may read it twice."""
     with delivery_lock(run_dir, wait=False) as held:
         said = held and run_record.read_state(run_dir)
-        if said and same_attempt(state, said) and waits(said):
+        if said and same_attempt(state, said) and _look_owed(said):
+            live = {}
+            # Health can land between printing the snapshot and marking this look.
+            if (state.get("merged") and state.get("live_at") == said.get("live_at")
+                    and state.get("live_at") and not state.get("live_typed")
+                    and not said.get("live_typed")):
+                live = {"live_notified": time.time(), "live_note": LOOKED_NOTE}
             mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                           handback_note=LOOKED_NOTE, handback_pending=None,
-                          handback_wait_reason=None, notification_pending=None)
+                          handback_wait_reason=None, notification_pending=None, **live)
 
 
 def seat_owes_nothing(state):
-    """Whether the seat that launched the run owes no work (`stop.owed`): then no turn of its
-    waits on the run or on its change going live, and either is recorded, never typed.  A
-    seat that owes work may have ended its turn on that very wait (`stop.recorded_ending`),
-    so for it the ending, or the change going live (`watch.after_merge_health`), goes to it
-    where it ends that wait (`ends_wait`), and rides on its next prompt otherwise (`rides`)."""
+    """Whether the launching seat owes no work (`stop.owed`): then both the delivery and its
+    change going live are recorded, never typed.  A seat owing work hears them where a move
+    waits on them (`ends_wait`), or in its next prompt's context (`rides`)."""
     from . import stop  # here, not at the top: they reach run
     session = transitions.launched_session(state)
     return not (session and stop.owed(session))
 
 
-def routine_ending(state):
-    """An ending nothing is the seat's to decide about: a merge, or a `not needed`, while the
-    seat that launched it owes no work (`seat_owes_nothing`).  What it started (fix runs,
-    plan lines) is in its result and the seat's plan, and `ak run status` names it.  A red
-    target's repair's merge is routine whatever its seat owes: the runs parked on it retry by
-    themselves, and their own endings end the seat's wait -- its going live is not, as the
-    hook counts that wait.  A fix run's delivery has settled its line as it ended
-    (`settle_delivered_line`): ticked where its fix is on the default branch, the seat's own
-    where its check still fails, and then the ending goes to it.  Read only: it runs nothing."""
+def routine_ending(state, records=None):
+    """A delivery recorded, never typed: a repair, a seat owing nothing, or no move waiting
+    on it and no prompt context to ride.  Repairs' parked runs retry by themselves; their
+    going live may still end a seat's wait.  Delivery already settled its plan checks
+    (`settle_delivered_line`), so a check still failing is work the seat owes.  Read only."""
     if not transitions.delivered(state):
         return False
-    return bool(state.get("repair")) or seat_owes_nothing(state)
+    return (bool(state.get("repair")) or seat_owes_nothing(state)
+            or not (ends_wait(state, records) or rides(state, records)))
 
 
 def ends_wait(state, records=None):
-    """Whether this run's ending, or its change going live, ends the wait its seat's turn may
-    have ended on (`stop.recorded_ending`): its `ak wait` names this run or its pull request,
-    or nothing else of the seat's holds the turn any more.  `records`: a pass's census, if any."""
-    from . import stop, watch  # here, not at the top: they reach run
+    """Whether a delivery or its going live wakes a seat owing work, after its plan checks:
+    its `ak wait` names this run or PR, no other run of its is going, or it owes a line none
+    of those runs serves.  A missing `plan_line` serves nothing.  Read only, from `records`
+    where the caller has a census; this delivery's own older record is never another run."""
+    from . import watch  # here, not at the top: it reaches run
     session = transitions.launched_session(state)
     wait = watch.seat_read(session).get("wait")
     if isinstance(wait, dict) and not wait.get("told") and (
             state.get("run_id") in (wait.get("on"), wait.get("run"))
             or state.get("pr") and state.get("pr") == wait.get("on")):
         return True
-    return not stop.recorded_ending(session, records)[0]
+    records = run_record.runs() if records is None else records
+    going = [other for _, other in transitions.runs_by_seat(records).get(session, [])
+             if other.get("run_id") != state.get("run_id") and transitions.going(other)]
+    if not going:
+        return True
+    served = {other.get("plan_line") for other in going}
+    try:
+        for line in plan.lines(session):
+            if plan.owed(session, line):
+                found = plan.LINE.match(line.strip())
+                if not found or f"{found['what']} · written {found['when']}" not in served:
+                    return True
+    except config.Error:
+        return True     # an unread plan proves no line served
+    return False
 
 
 def rides(state, records=None):
@@ -1024,7 +1051,7 @@ def rides(state, records=None):
     change going live, whatever run it is (`watch.after_merge_health`) -- rides on its seat's
     next prompt (`riding`): nothing in it is the seat's to decide, and it does not end the
     seat's wait (`ends_wait`), so it starts no turn and wakes no seat.  Only where the seat's
-    harness hands a prompt context at all: elsewhere typing is its one way in.  Read only: it
+    harness hands a prompt context at all: elsewhere it is recorded.  Read only: it
     runs nothing."""
     record = config.session_records().get(transitions.launched_session(state))
     return (bool(record) and orch.seat_plugin(record).prompt_context
@@ -1035,15 +1062,16 @@ def ending_rides(state, records=None):
     """Whether this run's ending rides (`rides`): a merge, or a `not needed`, typed today --
     not a routine ending (`routine_ending`), recorded and never typed -- and not a line already
     in the composer for its Enter (`handback_typed`), which is the typed path's."""
-    return (transitions.delivered(state) and not routine_ending(state)
+    return (transitions.delivered(state) and not routine_ending(state, records)
             and not state.get("handback_typed") and rides(state, records))
 
 
-def live_owed(state):
-    """Whether its seat still has to hear that this merged change is live: a seat owing no
-    work has it recorded (`watch.after_merge_health`)."""
+def live_owed(state, records=None):
+    """Whether its seat still has to hear that this merged change is live, by waking for its
+    next move (`ends_wait`) or in its next prompt's context (`rides`); otherwise recorded."""
     return bool(state.get("merged") and state.get("live_at") and not state.get("live_notified")
-                and not seat_owes_nothing(state))
+                and not seat_owes_nothing(state)
+                and (ends_wait(state, records) or rides(state, records)))
 
 
 def carries_live(state):
@@ -1531,6 +1559,11 @@ def not_live_line(told, run_dir):
 def handback_line(state, run_dir, cfg=None, save=True, live=False):
     """The one line a finished run types into the seat that launched it: its `decision_line`, else `run <id>
     finished <verdict>: <why>. Result: <path>. Decide the next step.`, a scratch run naming its workspace."""
+    if state.get("merge_handback"):
+        gone_live = f" {live_sentence(state, run_dir)}" if live else ""
+        return seat_notice(state["merge_handback"] + gone_live, state, run_dir,
+                           f"run {run_dir.name}: the maintainer decided on its PR.",
+                           "Decide the next step." + gone_live, save)
     decided = decision_line(state, run_dir, cfg, save)
     if decided:
         return decided
@@ -1683,7 +1716,8 @@ def announce_safely(state, run_dir, log, cfg=None):
 def announce(state, run_dir, log, cfg=None, busy=None, records=None):
     """The one message a run sends when it ends: to its orchestrator, or about a gone one.
 
-    A routine ending (`routine_ending`) -- merged, or not needed, while its seat owes no work
+    A routine ending (`routine_ending`) -- merged, or not needed, with no move waiting on it
+    and no prompt context to ride, or while its seat owes no work
     -- is recorded and never typed: nothing in it is the seat's to decide, so the seat hears
     only an ending that needs its decision, a fail, a blocked, a pass not merged, or the end
     of a wait its turn may have ended on (`ends_wait`), and never a line opening a turn for
@@ -1729,7 +1763,7 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         return
     if not session:
         return
-    if routine_ending(state):
+    if routine_ending(state, records):
         with delivery_lock(run_dir):
             current = run_record.read_state(run_dir) or state
             if not same_attempt(state, current):

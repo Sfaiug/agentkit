@@ -6,7 +6,7 @@ each failing command with what it printed under `## The done-when commands faile
 cause.`: output that fits whole, and output too long for a prompt as its end beneath a line
 naming a file in the run's directory that holds every byte of it.  The host's own
 `~/.agentkit/rules.md` is the owner's word for every seat, so a seat's rulebook is ak's rules
-followed by all of it, however long (owner rules: "Nothing ak hands a model is cut").
+followed by all of it, however long.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 project from gitrig.py with scripted harnesses from fakeadapter.py, and a seat on the adapter
 fixture tests/fixtures/adapters/echo.sh; this test fails against `/bin/false`.

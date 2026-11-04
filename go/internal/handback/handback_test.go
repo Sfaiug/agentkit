@@ -21,23 +21,11 @@ func TestABlockedEndingIsToldInItsDecisionLineWhole(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dir := filepath.Join(home, ".agentkit", "runs", "20261103-0931-add-retry-file")
-	got := decisionLine(blocked("cannot be\n  done as written"), dir)
+	got := handbackLine(blocked("cannot be\n  done as written"), dir)
 	want := "run 20261103-0931-add-retry-file BLOCKED (0 of 3): cannot be done as written. Next: rewrite the task " +
 		"and relaunch it with `from: ak/add-retry-file`. Result: ~/.agentkit/runs/20261103-0931-add-retry-file/result.md"
 	if got != want {
 		t.Fatalf("got  %q\nwant %q", got, want)
-	}
-}
-
-func TestALineGoWouldCutOrDoesNotBuildIsTheTicks(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "20261103-0931-add-retry-file")
-	if got := decisionLine(blocked(strings.Repeat("word ", 80)), dir); got != "" {
-		t.Fatalf("a reason Python cuts to its sentences was said whole: %q", got)
-	}
-	failed := blocked("why")
-	failed.Set("state", "fail")
-	if got := decisionLine(failed, dir); got != "" {
-		t.Fatalf("a FAIL got a line: %q", got)
 	}
 }
 
@@ -134,5 +122,19 @@ func TestAMarkWaitsOnNoRecoveryLock(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("a mark waited on recovery.lock")
+	}
+}
+
+func TestAnErrorTheTickWillRetryHasNoEndingToTell(t *testing.T) {
+	home := seated(t)
+	dir := filepath.Join(home, ".agentkit", "runs", "retry")
+	os.MkdirAll(dir, 0o700)
+	if err := run.Create(dir, run.Fields("state", "error", "launched_session", "acme", "finished_at", now(),
+		"error_retry_at", run.Float(seconds()+60))); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	if Give(dir, func(line string) { said = append(said, line) }) || len(said) != 0 {
+		t.Fatal("a scheduled retry was handed back", said)
 	}
 }

@@ -13,6 +13,7 @@ import (
 func init() {
 	commands["run stop"] = runStop
 	commands["run resume"] = runResume
+	commands["run merge"] = runMerge
 }
 
 // runStop is `ak run stop <id> [--keep]`, its arguments checked already: a job's stop, and a run's
@@ -43,6 +44,23 @@ func runResume(args []string, out, errOut io.Writer) int {
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return notImplemented(errOut, "run resume")
+	case err != nil:
+		fmt.Fprintf(errOut, "ak run: %v\n", err)
+		return 2
+	}
+	if reason != "" {
+		fmt.Fprintf(errOut, "ak run: %s\n", reason)
+	}
+	return code
+}
+
+// runMerge is `ak run merge <id>`, its arguments and its record's refusals checked already: a run
+// or host Go does not deliver on is Python's.
+func runMerge(args []string, out, errOut io.Writer) int {
+	code, reason, err := launch.Merge(args[0], out, errOut)
+	switch {
+	case errors.Is(err, launch.ErrPython):
+		return notImplemented(errOut, "run merge")
 	case err != nil:
 		fmt.Fprintf(errOut, "ak run: %v\n", err)
 		return 2

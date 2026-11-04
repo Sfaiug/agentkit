@@ -520,8 +520,8 @@ def answered(session, at, typed=None, replies=None):
             remaining = [q for q in questions(previous) if q not in matched]
             if remaining:
                 matched_keys = {question_key(q) for q in matched}
-                waited({"asked_at": {k: v for k, v in (previous.get("asked_at") or {}).items()
-                                    if k in matched_keys}}, at)
+                waited(session, {"asked_at": {k: v for k, v in (previous.get("asked_at") or {}).items()
+                                             if k in matched_keys}}, at)
                 previous.update(text=ALSO.join(remaining), questions=remaining)
                 for field in ("asked_at", "question_times", "question_ids"):
                     previous[field] = {k: v for k, v in (previous.get(field) or {}).items()
@@ -544,7 +544,7 @@ def answered(session, at, typed=None, replies=None):
             return
         if at > card.get("since", math.inf):
             _retire(card)
-        waited(previous, at)
+        waited(session, previous, at)
         record(session, previous["kind"], previous["text"],
                **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
     watch.forget(session, acknowledge=False)    # after the notice lock: forget takes the state lock
@@ -649,11 +649,11 @@ def answer_typed(log=print):
             log(f"{name}: its question was answered in the turn it was asked in")
 
 
-def waited(notice, at):
+def waited(name, notice, at):
     """Each question that notice asks the owner is answered at `at`: one wait apiece, from when
     it was last asked (`_said` dates them)."""
     for asked in (notice.get("asked_at") or {}).values():
-        history.owner_time("answered", at, at - asked)
+        history.owner_time("answered", at, at - asked, session=name)
 
 
 def opened(session, capture):
@@ -783,7 +783,7 @@ def progress(session, capture, seat_harness):
                                                                         math.inf))
         record(session, previous["kind"], previous["text"], **extra)
         if resolved(extra):
-            waited(extra, extra["last_progress_at"])
+            waited(session, extra, extra["last_progress_at"])
             return True
 
 
@@ -888,7 +888,7 @@ def _read_event(event_id):
         return None
 
 
-def _attempt(event):
+def _attempt(event, *, session=None):
     """Return success only for a delivered, disabled, or durably retryable event."""
     if event["status"] in ("delivered", "disabled"):
         return 0
@@ -940,7 +940,7 @@ def _attempt(event):
     post(event["payload"], [], event["message"], receipt)
     event["status"] = receipt["status"]
     if event["status"] == "delivered":
-        history.owner_time("paged", time.time())
+        history.owner_time("paged", time.time(), session=session)
     event["receipt"] = {k: receipt[k] for k in ("message_id", "webhook") if k in receipt}
     if receipt.get("error"):
         event["error"] = receipt["error"]
@@ -1024,7 +1024,7 @@ def retry_pending(dry_run=False, log=print):
                     continue    # its question stands through independent work: the stop sends it
                 if _dropped(event, session, log):
                     continue
-                _attempt(event)
+                _attempt(event, session=session)
                 _remember_retry(event, session)
         except (OSError, ValueError, config.Error) as exc:
             log(f"WARN notification {path.stem} could not be retried ({type(exc).__name__})")
@@ -1134,7 +1134,7 @@ def _send_card(session, kind, card, answer, completion=None):
         _card_write(session, card)
         if fresh:
             terminal_notice(session, f"{TITLES[kind]} · {session}: {text}")
-        return _attempt(event)
+        return _attempt(event, session=session)
 
 
 def page(key, about, text, line=None, owed=False, mention=True):
@@ -1580,7 +1580,7 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
         extra["time"] = at
     record(name, kind, text, **extra)
     for _ in range(fresh):
-        history.owner_time("asked", time.time() if at is None else at)
+        history.owner_time("asked", time.time() if at is None else at, session=name)
     return previous
 
 

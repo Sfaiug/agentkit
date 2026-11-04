@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"agentkit/internal/config"
-	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
@@ -174,18 +173,6 @@ func onItsScreen(facts climbing) (*answer, error) {
 		return nil, nil
 	}
 	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true}, nil
-}
-
-// repeatingQuestion: a harness with no blocking Stop is sent back to say what it asked, read from a
-// conversation Go does not read for that yet.
-func repeatingQuestion(facts climbing) (*answer, error) {
-	if facts.gone != nil {
-		return nil, nil
-	}
-	if nudged, err := lifecycle.Nudged(facts.own); err != nil || nudged {
-		return nil, ErrUnread
-	}
-	return nil, nil
 }
 
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it

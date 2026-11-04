@@ -1,6 +1,6 @@
 """Inside a seat, `git worktree add` into ~/code is refused; one under ~/.agentkit/wt runs.
 
-~/code holds only the owner's checkouts (owner rules); a seat makes its own under
+~/code holds only the owner's checkouts; a seat makes its own under
 ~/.agentkit/wt.  A seat's git refuses a new worktree whose path lands in ~/code, read as git
 reads it (from the working directory and each `-C`, past `worktree add`'s options, through a
 link), says where to make it instead, and git makes nothing: no checkout, no branch.  A worktree

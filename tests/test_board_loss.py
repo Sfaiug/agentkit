@@ -31,6 +31,8 @@ class Loss(unittest.TestCase):
     # Quality, then speed, then cost is how ak judges a week, a change and a seat's work:
     # the weekly audit names a quality loss before any gain in speed or cost
     # (`scoreboard.loss`). [14 Oct]
+    # The objective's order stays fixed. Reason: a whole-codebase rewrite makes a 300-line
+    # cap meaningless, and users, repositories and models differ. [30 Oct 2026]
     def test_the_first_measure_in_the_vision_s_order_that_got_worse(self):
         # quality first: the share that broke after merge fell, so the next quality measure that rose names it
         self.assertEqual(scoreboard.loss(BOARD), ("product runs ended without merging", .3, .2, "%"))

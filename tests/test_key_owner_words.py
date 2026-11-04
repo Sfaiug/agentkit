@@ -1,8 +1,8 @@
 """A job launched from a seat saves none of the owner's words; `ak run gc` takes saved ones out.
 
 The owner's words are what a job is measured against: the orchestrator holds them whole and ak
-keeps no copy, since a copy handed on breeds false findings and carries any key the owner pasted
-(AGENTS.md's owner rules).  Job receipts once saved what the owner had typed into the seat since
+keeps no copy, since a copy handed on breeds false findings and carries any key the owner pasted.
+Job receipts once saved what the owner had typed into the seat since
 its last job, and one held such a key.  So a job of two tasks launched from a seat whose
 conversation holds a key writes it nowhere under ~/.agentkit and tells it to no turn; and a
 collection pass takes the saved words, and the cursor that followed them, out of an older

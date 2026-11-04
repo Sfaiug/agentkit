@@ -1,6 +1,6 @@
 """Inside a seat, `gh pr merge` is refused: merging is ak's job once a PR passes review.
 
-A PR lands through one path (owner rules): ak merges it once it passes review with green
+A PR lands through one path: ak merges it once it passes review with green
 checks, so a seat's own `gh pr merge`, in each form gh takes it, is refused with the reason and
 never reaches gh.  Every other gh call a seat makes runs gh as typed, and so does the merge of
 the inbox seat, which `ak watch` asks before merging someone else's PR, and every merge of a
