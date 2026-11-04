@@ -71,12 +71,13 @@ func holder(path string) (*big.Int, time.Duration) {
 // log is the tick's printing, which keeps the log bounded where out or errOut is it.
 type log struct {
 	out     io.Writer
+	errOut  io.Writer
 	streams []*os.File
 	owned   map[*os.File]bool // found to be the log, kept because a roll unlinks the name under them
 }
 
 func newLog(out, errOut io.Writer) *log {
-	l := &log{out: out, owned: map[*os.File]bool{}}
+	l := &log{out: out, errOut: errOut, owned: map[*os.File]bool{}}
 	for _, stream := range []io.Writer{out, errOut} {
 		if file, ok := stream.(*os.File); ok {
 			l.streams = append(l.streams, file)

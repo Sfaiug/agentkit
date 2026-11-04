@@ -24,7 +24,7 @@ func (home Home) RestingGone() bool {
 		if seat.live || seat.closed {
 			continue
 		}
-		if seat.held || seat.Word == "needs you" || seat.Word == "working" {
+		if seat.held || seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
 			return false
 		}
 		file, _ := run.ReadJSON(seatFile(seat.Name))

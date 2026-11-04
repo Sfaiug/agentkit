@@ -3,6 +3,7 @@
 package notify
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,7 +22,7 @@ func TestAQuestionRetirementUnderTheLockHandsOverWithoutPaging(t *testing.T) {
 		// A hook may leave its retirement while the tick holds the notice lock.
 		write(path, clear)
 		return "needs you", run.Float(100)
-	}, func() float64 { return 5000 })
+	}, func() float64 { return 5000 }, io.Discard)
 	if carried || err != nil {
 		t.Fatal(carried, err)
 	}

@@ -3,6 +3,7 @@
 package notify
 
 import (
+	"io"
 	"testing"
 
 	"agentkit/internal/run"
@@ -23,7 +24,7 @@ func TestAQuestionWaitsFromItsAskAcrossCardTransitions(t *testing.T) {
 			write(seatFile("card", "acme", "json"), run.Line(card))
 			turn := func() *run.Object {
 				t.Helper()
-				if carried, err := turnedQuestion("acme", func(string) (string, any) { return "needs you", run.Float(5000) }, func() float64 { return now }); !carried || err != nil {
+				if carried, err := turnedQuestion("acme", func(string) (string, any) { return "needs you", run.Float(5000) }, func() float64 { return now }, io.Discard); !carried || err != nil {
 					t.Fatal(carried, err)
 				}
 				card, err := readObject(seatFile("card", "acme", "json"))

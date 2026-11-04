@@ -93,7 +93,7 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 		fmt.Fprintf(errOut, "notify: record could not be persisted (%s); retry required\n", failed(err))
 		return 1, true
 	}
-	// Python ends the seat's `ak wait` under this lock: a seat Go knows, with no watch record,
+	// Python ends the seat's `ak wait` under this lock: a seat Go knows, with no seat state,
 	// waits on nothing
 	if wait, err := lock.Wait(context.Background(), seatFile("seat", name, "lock")); err == nil {
 		wait.Close()

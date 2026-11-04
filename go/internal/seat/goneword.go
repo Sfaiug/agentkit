@@ -68,7 +68,7 @@ func nobodyIn(facts climbing) (*answer, error) {
 	if err != nil {
 		return nil, ErrUnread
 	}
-	if owed {
+	if owed || facts.notice != nil {
 		return &answer{word: "needs you", reason: reason}, nil
 	}
 	finished, err := plan.Finished(facts.name)
