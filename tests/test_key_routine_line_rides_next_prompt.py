@@ -4,7 +4,7 @@ A merge, or a merged change going live, a repair's included, is news a seat owin
 acts on when its turn ended waiting on it: its `ak wait` names that run, or nothing else of the
 seat's holds the turn.  Any other is typed into no seat and wakes none: it rides on the seat's
 next prompt, beside every other line waiting there, oldest first, once, where the seat's harness
-hands a prompt context at all; on one that does not (Grok) it is typed as before.  A change going
+hands a prompt context at all; on one that does not (Grok) it is recorded.  A change going
 live before its merge is told is typed after that merge, in one line.  A failed or blocked ending is
 the seat's to decide, and is typed whatever it waits on.  Black-box: the program `AK_BIN` names runs
 `ak wait` and `ak watch` from outside (tests/fixtures/akbin.py), Claude's hooks as its adapter
@@ -55,8 +55,7 @@ class Routine(unittest.TestCase):
             done = home.tick()
             assert done.code == 0, done.out + done.err
             # a line typed into every seat, and all of acme's taken
-            if len(cls.seat.lines()) >= cls.typed and all(
-                    seat.typed() for seat in cls.seats.values()):
+            if len(cls.seat.lines()) >= cls.typed:
                 break
 
     @classmethod
@@ -111,7 +110,7 @@ class Rides(Routine):
         cls.seats["delta"] = Seat(cls.home, "delta", model="grok", screen="grok-prompt-pane.txt",
                                   planned=True)
         cls.wait("delta", HELD)
-        cls.ended("20261029-0904-delta-merge", 300, seat="delta")
+        cls.proven("20261029-0904-delta-merge", 300, seat="delta")
         cls.beta = Seat(cls.home, "beta", alive=False, planned=True,
                         record={"launched": 1, "asleep": 2})
         folder = re.sub(r"[^A-Za-z0-9]", "-", str(cls.beta.cwd))
@@ -126,15 +125,23 @@ class Rides(Routine):
         cls.proven(cls.REPAIR, 500, repair="github.com/acme/app")
         cls.ended(cls.FAILED, 400, state="fail", verdict="FAIL", merged=False)
         cls.ended(cls.BLOCKED, 350, state="blocked", verdict="BLOCKED", merged=False)
+        for name in ("acme", "beta", "delta"):
+            cls.home.write(f".agentkit/runs/20261029-0801-{name}-work/run.json", {
+                "run_id": f"20261029-0801-{name}-work", "launched_session": name,
+                "state": "waiting", "waiting_on": {"line": "acme/app"},
+                "plan_line": "The work is done · written 2026-10-23 09:00"})
 
     def test_a_failed_and_a_blocked_ending_are_typed_and_no_merge_is(self):
         lines = self.seat.wait_lines(2)
         self.assertEqual(sorted(" ".join(line.split()[:2]) for line in lines),
                          [f"run {self.FAILED}", f"run {self.BLOCKED}"], lines)
 
-    def test_a_merge_is_typed_where_the_harness_takes_no_prompt_context(self):
-        typed = self.seats["delta"].typed()
-        self.assertTrue(typed.startswith("run 20261029-0904-delta-merge finished "), typed)
+    def test_a_merge_is_recorded_where_the_harness_takes_no_prompt_context(self):
+        self.assertEqual(self.seats["delta"].typed(), "")
+        path = self.home.path / ".agentkit/runs/20261029-0904-delta-merge/run.json"
+        self.assertEqual(json.loads(path.read_text())["handback_note"],
+                         "routine ending: recorded, not typed")
+        self.assertTrue(json.loads(path.read_text())["live_notified"])
 
     def test_a_sleeping_seat_s_merge_wakes_it_not(self):
         sessions = self.home.tmux("list-sessions", "-F", "#{session_name}").out.split()
