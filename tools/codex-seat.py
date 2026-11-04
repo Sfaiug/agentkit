@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -20,9 +21,9 @@ import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agentkit import config
-from agentkit.harness.codex import (SEAT_STATE, STOP_RULE, Client, drop_closed_seat,
-                                    first_prompt, in_flight, main, pairing_home, remote_home,
-                                    seat_conversations)
+from agentkit.harness.codex import (CAPTURE_ENV, SEAT_STATE, STOP_RULE, Client, conversation,
+                                    drop_closed_seat, first_prompt, in_flight, main, pairing_home,
+                                    remote_home, seat_conversations)
 
 
 CONVERSATIONS = ("sessions", "archived_sessions")
@@ -209,6 +210,38 @@ def serve(cmd, receipt, parent):
         return connected(cmd, home, alive)
 
 
+def settings_changed(path, stopped):
+    """Subscribe off the seat's path: a new thread may not have a rollout to resume yet."""
+    receipt = os.environ.get(CAPTURE_ENV)
+    if not receipt:
+        return
+    while not stopped.is_set():
+        client = None
+        try:
+            with Path(receipt).open() as fh:
+                fcntl.flock(fh, fcntl.LOCK_SH)
+                record = {"codex_launch": json.load(fh)["launch"]}
+            thread = conversation(record)
+            if thread:
+                client = Client(str(path))
+                client.call("thread/resume", {"threadId": thread, "excludeTurns": True})
+                from agentkit import watch
+                # Catch a change made before this client could subscribe, too.
+                watch.start_look(os.environ[config.SESSION_ENV])
+                client.socket.settimeout(None)
+                while not stopped.is_set():
+                    event = client.receive()
+                    if (event.get("method") == "thread/settings/updated"
+                            and (event.get("params") or {}).get("threadId") == thread):
+                        watch.start_look(os.environ[config.SESSION_ENV])
+        except (OSError, ValueError, KeyError, TypeError, AttributeError, config.Error):
+            pass
+        finally:
+            if client:
+                client.close()
+        stopped.wait(1)
+
+
 def connected(cmd, home, alive):
     env = {**os.environ, "CODEX_HOME": str(home)}
     env.pop("CODEX_SQLITE_HOME", None)
@@ -231,6 +264,7 @@ def connected(cmd, home, alive):
         server += ["-c", "shell_environment_policy.set.CODEX_SQLITE_HOME="
                    + json.dumps(os.environ["CODEX_SQLITE_HOME"])]
     proc = tui = None
+    stopped = threading.Event()
     try:
         # The home's lock excludes the old server. Its interrupted backfill's
         # running lease would otherwise outlast Codex's own startup wait.
@@ -257,6 +291,7 @@ def connected(cmd, home, alive):
             tui = subprocess.Popen([cmd[0], "--remote", "unix://" + str(path),
                                     *(word for word in cmd[1:] if word != "--yolo"), *prompt],
                                    env=env)
+            threading.Thread(target=settings_changed, args=(path, stopped), daemon=True).start()
             check_at = 0
             named = None
             while tui.poll() is None and alive():
@@ -282,6 +317,7 @@ def connected(cmd, home, alive):
                 time.sleep(.25)
             return tui.returncode or 0
     finally:
+        stopped.set()
         for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
             signal.signal(sig, signal.SIG_IGN)
         if tui and tui.poll() is None:
