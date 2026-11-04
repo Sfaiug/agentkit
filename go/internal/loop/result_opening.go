@@ -101,14 +101,29 @@ func resultOpening(dir string, record *run.Object, outcome string) string {
 		if checks := failingChecks(text); len(checks) > 0 {
 			failed = checks
 		}
+		var records []string
+		for _, block := range strings.Split(text, "\n\n") {
+			if checkRecord.MatchString(block) {
+				records = append(records, block)
+			} else if len(records) > 0 {
+				records[len(records)-1] += "\n\n" + block
+			}
+		}
 		for _, each := range failed {
 			pair, ok := each.([]any)
 			if !ok || len(pair) != 2 {
 				continue
 			}
-			_, output, _ := strings.Cut(text, "$ "+run.Text(pair[0])+"\n")
-			output, _, _ = strings.Cut(output, "\n\n$ ")
-			_, output, _ = strings.Cut(output, "\n")
+			output := ""
+			for len(records) > 0 {
+				block := records[0]
+				records = records[1:]
+				mark := checkRecord.FindStringSubmatch(block)
+				if mark[1] == run.Text(pair[0]) && mark[2] != "exit 0" {
+					output = block[len(mark[0]):]
+					break
+				}
+			}
 			where := filepath.Dir(gate[1])
 			if gate[0] == "every" {
 				where = dir

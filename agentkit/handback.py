@@ -216,10 +216,10 @@ def save_result(run_dir, text=None, *, notices=(), opening=None):
             saved = result.read_text()
         except FileNotFoundError:
             saved = ""
-        if opening is not None:
-            saved = opening + "\n\n" + saved.partition("\n\n")[2]
-            result.write_text(saved)
         heading = "\n## Seat notice\n\n"
+        if opening is not None:
+            saved = opening + "\n\n" + (saved if saved.startswith(heading) else saved.partition("\n\n")[2])
+            result.write_text(saved)
         _, boundary, kept = saved.partition(heading)
         if text is None:
             missing = [part for part in notices if part and part not in kept]
@@ -231,11 +231,7 @@ def save_result(run_dir, text=None, *, notices=(), opening=None):
 
 
 def result_opening(run_dir, state, cfg=None):
-    """The decision in full, or the delivery heading when there is nothing to decide.
-
-    Read under the delivery lock: a NOT LIVE notice may have arrived while the report
-    read its diff, and is newer than the merged record that report was built from.
-    """
+    """The full decision or today's heading, under the delivery lock so a newer NOT LIVE wins."""
     if state.get("merged"):
         try:
             saved = (run_dir / "result.md").read_text()
@@ -1433,11 +1429,7 @@ def live_line(state, run_dir):
 
 
 def decision_reason(run_dir, state, why):
-    """The report's uncut reason: every blocking claim and failing command, with evidence.
-
-    Failure histories keep the last output line for comparison; the report reads the first
-    lines from the gate's log, where the diagnostic starts, falling back to that history.
-    """
+    """Every blocking claim and failing check with first diagnostics, falling back to the last-line history."""
     rows = hand_in.Review(state.get("review_records") or []).findings
     parts = [why]
     for row in rows:
@@ -1461,8 +1453,10 @@ def decision_reason(run_dir, state, why):
         text = turns.read_answer(path) or (
             re.sub(r"\n+(?=\$ [^\n]*\n\[)", "\n\n", prompts.saved_findings(run_dir, state))
             if gate == "once" and state.get("review_pr") else "")
-        for cmd, said in prompts.failing_checks(text) or history.get(gate) or []:
-            output = text.partition(f"$ {cmd}\n")[2].split("\n\n$ ", 1)[0].partition("\n")[2]
+        failed = [(cmd, said, block) for block in re.split(r"\n\n(?=\$ [^\n]*\n\[)", text)
+                  for cmd, said in prompts.failing_checks(block)]
+        for cmd, said, block in failed or [(cmd, said, "") for cmd, said in history.get(gate) or []]:
+            output = block.partition("\n")[2].partition("\n")[2]
             first = turns.first_lines(output, run_dir if gate == "every" else path.parent)
             parts.append(f"`{cmd}` — {first or said}" if first or said else f"`{cmd}`")
     return " ".join("; ".join(dict.fromkeys(parts)).split())
@@ -1472,8 +1466,7 @@ def decision(run_dir, state, word, why, move, save=True, report=False):
     """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>` within DECISION_MOST and
     a typed line's bound (`watch.too_long`): `why` in whole sentences, the move's detail dropped first, then
     UNSAID for `why`, else refused as `seat_notice` refuses.  A line cut short saves its whole, an older
-    result maybe lacking it; without `save` the caller leaves that to whoever holds the delivery lock.
-    With `report`, render its uncut opening for result.md instead."""
+    result maybe lacking it; without `save` the caller handles persistence. `report` returns its uncut opening."""
     rounds = f"({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0})"
     if report:
         return (f"# {word} {rounds} — {state.get('title') or run_dir.name}\n"

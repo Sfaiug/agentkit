@@ -89,7 +89,7 @@ class DecisionLine(Sandbox):
         self.assertEqual((gone / "result.md").read_text().splitlines()[0],
                          "# NOT LIVE (0 of 0) — acme-gone")
 
-    def test_the_opening_has_every_finding_and_failing_check_with_its_first_output(self):
+    def test_the_opening_keeps_full_evidence_and_saved_notices(self):
         other = {**CLAIM, "path": "export.py", "what": "The export loses its heading.",
                  "why": "Readers mistake the first row for a heading."}
         directory, state = self.ending("acme-checks", spent=2, state="blocked", verdict="BLOCKED",
@@ -100,12 +100,14 @@ class DecisionLine(Sandbox):
             final_check={"outcome": "failed", "where": "landing", "line": "check-live"})
         log = directory / "round-3/donewhen.log"
         log.parent.mkdir()
-        log.write_text("$ check-rows\n[exit 1]\n" + turns.cut(
+        log.write_text("$ preview\n[exit 0]\nExample: $ check-rows\n[exit 9]\nexample diagnostic\n\n"
+                       "$ check-rows\n[exit 1]\n" + turns.cut(
                        "rows first\nrows second\n" + "later\n" * turns.OUT_CAP + "rows last\n",
                        directory, "donewhen") + "\n\n"
                        "$ check-ok\n[exit 0]\nok\n\n"
                        "$ check-export\n[exit 1]\nexport first\nexport second\nexport last\n")
-        (directory / "final-check.log").write_text("$ check-live\n[exit 1]\n--- AK_SHARD=1/1 ---\n[exit 1]\n" + turns.cut(
+        (directory / "final-check.log").write_text("$ preview\n[exit 0]\nExample: $ check-live\n[exit 9]\nexample diagnostic\n\n"
+            "$ check-live\n[exit 1]\n--- AK_SHARD=1/1 ---\n[exit 1]\n" + turns.cut(
             "live first\n" + "later\n" * turns.OUT_CAP + "live last\n", directory, "final-check"))
         with patch.object(gitcall, "git", return_value="(fixture diff)"):
             run.write_result(directory, state, [])
@@ -114,6 +116,11 @@ class DecisionLine(Sandbox):
                      other["why"], "`check-rows` — rows first rows second",
                      "`check-export` — export first export second", "`check-live` — --- AK_SHARD=1/1 --- [exit 1] live first"):
             self.assertIn(text, why)
+        (directory / "result.md").unlink()
+        handback.save_result(directory, notices=("Saved delivery details.",))
+        handback.decision_line(state, directory, self.cfg)
+        handback.record_result(directory, {**state, "worktree": None}, cfg=self.cfg)
+        self.assertIn("\n## Seat notice\n\nSaved delivery details.", (directory / "result.md").read_text())
 
     def test_a_failed_pr_landing_opens_with_every_checks_first_diagnostics(self):
         for suffix in ("", "-tests", "-legacy"):

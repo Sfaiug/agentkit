@@ -52,10 +52,12 @@ func TestResultOpeningKeepsEveryClaimAndChecksFirstDiagnostics(t *testing.T) {
 	whole := filepath.Join(dir, "donewhen-whole-acme.log")
 	os.WriteFile(whole, []byte("rows first\nrows second\nrows third\nlast\n"), 0o600)
 	os.Mkdir(filepath.Join(dir, "round-1"), 0o700)
-	os.WriteFile(filepath.Join(dir, "round-1", "donewhen.log"), []byte("$ rows\n[exit 1]\n"+
+	os.WriteFile(filepath.Join(dir, "round-1", "donewhen.log"), []byte("$ preview\n[exit 0]\nExample: $ rows\n[exit 9]\nexample diagnostic\n\n"+
+		"$ rows\n[exit 1]\n"+
 		"[only part of this output is shown; all of it is in "+whole+"]\nlast\n\n"+
 		"$ export\n[exit 1]\nexport first\nexport second\nlast\n"), 0o600)
-	os.WriteFile(filepath.Join(dir, "final-check.log"), []byte("$ live\n[exit 1]\nlive first\nlive second\nlast\n"), 0o600)
+	os.WriteFile(filepath.Join(dir, "final-check.log"), []byte("$ preview\n[exit 0]\nExample: $ live\n[exit 9]\nexample diagnostic\n\n"+
+		"$ live\n[exit 1]\nlive first\nlive second\nlast\n"), 0o600)
 	lines := strings.Split(resultOpening(dir, record, "FAIL"), "\n")
 	if len(lines) != 3 || lines[0] != "# FAIL (1 of 1) — Acme" || lines[2] != "Next: split the task" {
 		t.Fatalf("opening: %q", lines)
