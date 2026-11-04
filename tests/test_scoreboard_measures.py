@@ -51,7 +51,8 @@ PINNED = (
     # pairs: the orchestrator's decision of 3 Nov 2026, changed on review under the Owner rule of 27 Oct 2026.
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     # findings: write-up task 18 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.
-    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again")),
+    # let_go and let_go_broke: write-up task 18, under the Owner rule of 27 Oct 2026.
+    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke")),
     # AGENTS.md words beside README words: the owner's yes, 15 Oct 2026, so its growth shows.
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )

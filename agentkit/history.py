@@ -1143,19 +1143,21 @@ def conflict_rows(since, until):
 
 
 def findings(since, until):
-    """Weighed rows of real runs by their own date, with whether an earlier blocking round
-    raised the same path and proof. Earlier rounds may predate the inclusive range."""
+    """Weighed rows of real runs by date, plus earlier follow-ups and answered disputes
+    for merged changes' counts. Keep their run's change and whether an earlier blocking
+    round raised the same path and proof, even before the inclusive range."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             connection.row_factory = sqlite3.Row
             try:
                 return [dict(row) for row in connection.execute(
-                    "SELECT f.at, f.kind, f.outcome, EXISTS (SELECT 1 FROM findings earlier "
+                    "SELECT f.at, f.kind, f.outcome, runs.*, EXISTS (SELECT 1 FROM findings earlier "
                     "WHERE earlier.run_id=f.run_id AND earlier.path=f.path AND earlier.proof=f.proof "
                     "AND earlier.kind='finding' AND earlier.round<f.round) AS raised_again "
-                    "FROM findings f JOIN runs USING (run_id) WHERE f.at >= ? AND f.at <= ? "
-                    f"AND {REAL_WORK}", (since, until))]
+                    "FROM findings f JOIN runs USING (run_id) WHERE f.at <= ? AND "
+                    "(f.at >= ? OR f.kind='follow-up' OR f.outcome IS NOT NULL) "
+                    f"AND {REAL_WORK}", (until, since))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
