@@ -21,7 +21,8 @@ WAIT = ("end this turn waiting on a pull request or run\n"
         "usage: ak wait PR_URL|RUN_ID\n"
         "\n"
         "End this turn waiting on that pull request or run; ak wakes you with one line\n"
-        "when it merges, closes or ends. One already over is refused. Never a session.\n"
+        "when it merges, closes or ends; with health:, once live or its window passes.\n"
+        "One already over is refused. Never a session.\n"
         "\n"
         "Example: ak wait https://github.com/acme/api/pull/12\n")
 USAGE = {

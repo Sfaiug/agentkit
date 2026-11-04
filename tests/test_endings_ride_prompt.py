@@ -111,6 +111,24 @@ class EndingsRidePrompt(Sandbox):
         for directory in (entered, other):
             self.assertNotIn("live_notified", record.read_state(directory))
 
+    def test_a_held_merge_waits_through_prompts_then_rides_in_one_line_with_live(self):
+        config.plan_path(SEAT).write_text("- [ ] the parser is live\n")
+        self.stack.enter_context(patch.object(watch, "start_live_probe"))
+        directory = self.live("run-awaits", live_at=None, handed_back=None, reported=False,
+                              handback_pending=True, finished_at=9990,
+                              repo=str(self.root), health={"command": "false"})
+        with record.record(directory) as current:
+            current["review"].update(head_sha="a" * 40, tree_sha="b" * 40)
+        self.assertEqual(handback.riding(SEAT), "")
+        self.assertTrue(record.read_state(directory)["handback_pending"])
+        with record.record(directory) as current:
+            current["live_at"] = 9995
+        _, line = handback.riding(SEAT).splitlines()
+        self.assertIn("run run-awaits finished PASS", line)
+        self.assertIn("run run-awaits is live:", line)
+        self.assertTrue(record.read_state(directory)["live_notified"])
+        self.assertEqual(handback.riding(SEAT), "")
+
     def test_a_live_notice_does_not_ride_when_the_seat_owes_nothing(self):
         directory = self.live("run-live")
         self.assertEqual(self.hook(), "")

@@ -35,7 +35,7 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - When wording changes, grep tests/ and fix assertions pinning it.
 - Comments say why.
 - Each run has a memory cap (exit 137). Commit before a test sweep; run three files at most at once.
-- Tests never touch real processes, units, seats, transcripts or state: fake process tables and tmux, injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`), a temporary HOME. A test calling `run.review`, `run.execute` or a sweep in-process sets the run variables `tests/fixtures/seats.py` sets, or a refusal SIGTERMs your own run.
+- Tests use temporary HOME, fake process tables, units, tmux, seats, transcripts and state, and injected kill/systemctl (`_proc_table()`, `AK_HOST_READINGS`). In-process `run.review`, `run.execute` and sweeps set `tests/fixtures/seats.py`'s run variables, or refusal SIGTERMs your run.
 - Commands call `bin/ak`, never bare `ak`. A changed signature: update every mock and fake of it in tests/; a fake takes `**_kw` for what it ignores.
 - agentkit is public: tests, docs and commits use invented names (`acme`, `fix-api`), never a real checkout, product or seat.
 - A final check stopped for silence names the hung process after `still running:`: fix the hang, or hand in blocked if origin/main hangs too; gate changes are their own task.
@@ -51,6 +51,7 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 - Models are plugins: `quality.pick` holds the 3 Nov 2026 recommendation rule.
 - Every screen follows `docs/cli-design.md`, the one home of how a screen reads. [15 Sep, 16 Sep, 18 Oct]
 - A notes intake, if built, is an optional add-on on the ak screen, using ak's providers. [1 Oct]
+- ak ends a wait when that merges, closes or ends; a merge on a project with `health:`, once it is live or its window has passed. [4, 9 Oct 2026]
 - Each line of `AGENTS.md` and `orchestrator.md` (word maxima: `tests/test_boundaries.py`) explains a check or a judgement no check can make.
 - Every project meets one contract, enforced by checks and scaled by what is at stake: its suite runs every test file, and a live project proves it is live with a real `health:`, deploys only code ak tested, and puts the previous release back by itself when health breaks. How each project deploys stays its own; a ready-made deploy kit covers the common case. [5 Oct]
-- ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. First black-box tests against `AK_BIN`, passing on today's ak; then `go/` lands by milestone, uncapped (`.gitattributes`), in shadow until it takes over, and from its first milestone Python takes fixes (bugs, throughput, resources), the 20 Oct menu changes, the 30 Oct pipeline parts and the 2 Nov night read, each with an answer key that Go ports from. The landing suite gains Go's tests. Reason: one fast program anyone installs. [20, 23, 24, 30 Oct, 2 Nov 2026]
+- ak becomes one Go program for Linux, Mac and Windows (WSL2 first, native menu over ssh); Go may vendor modules. Uncapped (`.gitattributes`) `go/` milestones land in shadow until takeover, after black-box `AK_BIN` keys pass today's ak. Python then takes fixes (bugs, throughput, resources), the 20 Oct menu, 30 Oct pipeline and 2 Nov night read, each with a key Go ports. Landing runs Go's tests. Reason: one fast program anyone installs. [20, 23, 24, 30 Oct, 2 Nov 2026]

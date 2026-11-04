@@ -3370,7 +3370,7 @@ def wait_fact(wait):
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
             return True, f"run {on} stalled: resume it with ak run resume {on}", None
-        if transitions.going(state):
+        if transitions.going(state) or awaiting_live(state):
             return False, "", None
         ended = state.get("verdict") or state.get("state") or "ended"
         return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else ""), on
@@ -3398,9 +3398,11 @@ def wait_fact(wait):
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
         # its lander may still be finishing: `merged` is written before the run's ending
-        lander = next((state["run_id"] for state in transitions.runs_on(pr=on)
+        lander = next((state for state in transitions.runs_on(pr=on)
                        if state.get("merged")), None)
-        return True, f"PR #{number} merged" + (f" as {sha}" if sha else ""), lander
+        if lander and awaiting_live(lander):
+            return False, "", None
+        return True, f"PR #{number} merged" + (f" as {sha}" if sha else ""), lander and lander["run_id"]
     return True, f"PR #{number} closed without merging", None
 
 
@@ -7443,6 +7445,8 @@ def follow_live(run_dir):
                 health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
                                             now, False, print, {"clock": (now, now)})
                 if health and health[0] == "passed":
+                    if handback.carries_live(st):
+                        handback.announce(st, run_dir, print)
                     return 0
             time.sleep(LIVE_INTERVAL)
 
