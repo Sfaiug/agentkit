@@ -7547,7 +7547,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                                                   if not passed and current["deployed_passed"] else 0)
                 if passed or current.get("live_at") and not deployed:
                     current.setdefault("live_at", now)
-                    current.pop("health", None)
+                    if deployed:
+                        current["health"] = {"command": command}
+                    else:
+                        current.pop("health", None)
                 else:
                     current["health"] = {"command": command, "output": output}
                 st.clear()
