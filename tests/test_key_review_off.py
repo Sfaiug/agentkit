@@ -22,6 +22,17 @@ FAILING = {"final": "Found one.", "hand_in": [
 
 
 class ReviewOff(unittest.TestCase):
+    def test_invalid_round_counts_name_the_zero_floor(self):
+        with Home() as home:
+            task = taskfile.write(home, "none", done_when=("true",))
+            for value in (-1, 2.5, True, "no limit"):
+                akconfig.write(home, ["opus"], settings={"review_rounds": value})
+                done = home.ak("run", str(task), timeout=60)
+                self.assertEqual(done.code, 2, done.out + done.err)
+                self.assertEqual(done.err, f"ak run: {home.path / '.agentkit/config.toml'}: review_rounds must be a whole number of at least 0, "
+                                 f"the review rounds a change has before it goes back to its orchestrator to split or re-scope (got {value!r})\n")
+                self.assertEqual(taskfile.runs(home), [])
+
     def launch(self, rounds, *, project=False, pr=False, own=False, work="work", checks=("test -f retry.txt",)):
         home = Home()
         self.addCleanup(home.close)
