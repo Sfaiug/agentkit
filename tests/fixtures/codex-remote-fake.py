@@ -73,7 +73,15 @@ if args[:1] == ['app-server']:
                 subprocess.run(shlex.split(command['command']), input=json.dumps(event),
                                text=True, check=True)
 
+    loaded = threading.Event()
+
     class Handler(socketserver.StreamRequestHandler):
+        def send(self, message):
+            wire = json.dumps(message).encode()
+            header = bytes([129, len(wire)]) if len(wire) < 126 else (
+                bytes([129, 126]) + struct.pack('!H', len(wire)))
+            self.wfile.write(header + wire)
+
         def handle(self):
             self.rfile.readline()
             headers = {}
@@ -107,7 +115,23 @@ if args[:1] == ['app-server']:
                         fh.write(json.dumps(params) + '\n')
                     result = {'manualPairingCode': 'ACME-1234', 'pairingCode': 'invented',
                               'environmentId': environment, 'expiresAt': 2000000000}
+                elif method == 'thread/resume' and (params.get('excludeTurns') or loaded.is_set()):
+                    transcript = ch / 'sessions' / ('rollout-' + params['threadId'] + '.jsonl')
+                    if not transcript.exists() or (home / 'resume-blocked').exists():
+                        self.send({'id': msg['id'], 'error': {'message': 'no rollout found'}})
+                        publish('fake-resume-failed', params)
+                        continue
+                    self.send({'id': msg['id'], 'result': {'thread': {'id': params['threadId']}}})
+                    publish('fake-subscribed', params)
+                    previous = None
+                    while not select.select([self.connection], [], [], .05)[0]:
+                        notification = ch / 'settings-notification.json'
+                        if notification.exists() and (current := notification.read_text()) != previous:
+                            self.send(json.loads(current))
+                            previous = current
+                    return
                 elif method in ('thread/start', 'thread/resume'):
+                    loaded.set()
                     sid = params.get('threadId') or os.environ['FAKE_THREAD']
                     transcript = ch / 'sessions' / ('rollout-' + sid + '.jsonl')
                     if not transcript.exists():
@@ -131,10 +155,7 @@ if args[:1] == ['app-server']:
                     listed = home / 'in-flight.json'
                     result = (json.loads(listed.read_text()) if listed.exists() else {}).get(
                         method, {'data': [], 'nextCursor': None})
-                wire = json.dumps({'id': msg['id'], 'result': result}).encode()
-                header = bytes([129, len(wire)]) if len(wire) < 126 else (
-                    bytes([129, 126]) + struct.pack('!H', len(wire)))
-                self.wfile.write(header + wire)
+                self.send({'id': msg['id'], 'result': result})
             if monitor:
                 (ch / 'fake-monitor-closed').touch()
 

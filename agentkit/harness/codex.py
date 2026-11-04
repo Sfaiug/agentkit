@@ -314,15 +314,22 @@ def error(record, cwd, conversation):
 
 
 def running(record, cwd, conversation):
-    """The model and effort of the turn that holds that thread's latest answer, with that
-    answer's time: Codex records them as a turn starts (`turn_context`), so `/model` typed in
-    the seat shows at its next answer, and a turn that never answered shows nothing."""
+    """The latest answer's model and effort, or settings applied since its turn began.
+
+    Codex 0.166 records `/model` and effort changes before another turn answers.
+    """
     from . import last_entry, moment
     answered = None
 
     def pick(entry):
-        # read back from the end: the latest answer first, then the start of its turn
+        # Read back until settings or the latest answer's turn context.
         nonlocal answered
+        payload = entry.get("payload")
+        if (entry.get("type") == "event_msg" and isinstance(payload, dict)
+                and payload.get("type") == "thread_settings_applied"
+                and isinstance(payload.get("thread_settings"), dict)
+                and isinstance(payload["thread_settings"].get("model"), str)):
+            return True
         if answered is None and answer(entry):
             answered = entry
         return (answered is not None and entry.get("type") == "turn_context"
@@ -330,6 +337,9 @@ def running(record, cwd, conversation):
                 and isinstance(entry["payload"].get("model"), str))
     path = transcript(record, cwd, conversation)
     entry = path and last_entry(path, pick)
+    if entry and entry["type"] == "event_msg":
+        settings = entry["payload"]["thread_settings"]
+        return settings["model"], settings.get("reasoning_effort"), moment(entry.get("timestamp"))
     return ((entry["payload"]["model"], entry["payload"].get("effort"),
              moment(answered.get("timestamp"))) if entry else None)
 

@@ -115,6 +115,43 @@ class SeatFollows(Sandbox):
             self.assertEqual(opencode.running({}, None, session),
                              ("mimo/mimo-v2.6-flash", None, LAUNCHED + 91))
 
+    def test_codex_settings_apply_without_an_answer_and_a_later_answer_supersedes_them(self):
+        rollout = self.root / "rollout.jsonl"
+        lines = []
+
+        def read(entry):
+            lines.append(entry)
+            rollout.write_text("".join(json.dumps(line) + "\n" for line in lines))
+            with patch.object(codex, "transcript", return_value=str(rollout)):
+                return codex.running({}, None, THREAD)
+
+        settings = {"type": "event_msg", "timestamp": stamp(5), "payload": {
+            "type": "thread_settings_applied",
+            "thread_settings": {"model": "gpt-6-astra", "reasoning_effort": "low"}}}
+        selected = ("gpt-6-astra", "low", LAUNCHED + 5)
+        self.assertEqual(read(settings), selected)
+        context = {"type": "turn_context", "timestamp": stamp(9),
+                   "payload": {"model": "gpt-6.1-sol", "effort": "high"}}
+        self.assertEqual(read(context), selected)     # an unanswered turn changes nothing
+        answered = {"type": "event_msg", "timestamp": stamp(12), "payload": {
+            "type": "item_completed",
+            "item": {"type": "AgentMessage", "content": [{"type": "Text", "text": "ok"}]}}}
+        self.assertEqual(read(answered), ("gpt-6.1-sol", "high", LAUNCHED + 12))
+        self.assertEqual(read({**settings, "timestamp": stamp(15)}),
+                         ("gpt-6-astra", "low", LAUNCHED + 15))
+        for invalid in (None, "bad", {}, {"model": None}):
+            self.assertEqual(read({**settings, "payload": {
+                "type": "thread_settings_applied", "thread_settings": invalid}}),
+                ("gpt-6-astra", "low", LAUNCHED + 15))
+        self.assertEqual(read({**context, "timestamp": stamp(20)}),
+                         ("gpt-6-astra", "low", LAUNCHED + 15))
+        self.assertEqual(read({**answered, "timestamp": stamp(21)}),
+                         ("gpt-6.1-sol", "high", LAUNCHED + 21))
+        self.assertEqual(read({**settings, "timestamp": stamp(22)}),
+                         ("gpt-6-astra", "low", LAUNCHED + 22))
+        self.assertEqual(read({**answered, "timestamp": stamp(23)}),
+                         ("gpt-6-astra", "low", LAUNCHED + 22))
+
 
 if __name__ == "__main__":
     unittest.main()
