@@ -23,6 +23,10 @@ func UnansweredQuestion(name string) bool {
 	if _, dated := finite(notice.Get("time")); !dated {
 		return false
 	}
+	// Python drains deferred retirements when taking this lock; leave them to that path.
+	if !config.Listable(outbox()) || len(config.Glob(outbox(), "*.clear")) != 0 {
+		return false
+	}
 	said, err := OwnerSaid(name)
 	return err == nil && !slices.ContainsFunc(said, func(at float64) bool { return at > spokenAt(notice) })
 }
@@ -30,12 +34,16 @@ func UnansweredQuestion(name string) bool {
 // TurnedQuestion carries only a standing question on record. Dialogs, answered episodes and
 // history stay Python's; the tick reads the word again under the same lock as a command's page.
 func TurnedQuestion(name string, said func(string) (string, any)) (bool, error) {
+	return turnedQuestion(name, said, clock)
+}
+
+func turnedQuestion(name string, said func(string) (string, any), clock func() float64) (bool, error) {
 	if os.Getenv("AK_RUN_ROLE") == "worker" {
 		return true, nil
 	}
 	carried := false
 	err := Held(context.Background(), name, func(current string) error {
-		word, since := said(current)
+		word, _ := said(current)
 		if word != "needs you" || !UnansweredQuestion(current) {
 			return nil
 		}
@@ -56,17 +64,13 @@ func TurnedQuestion(name string, said func(string) (string, any)) (bool, error) 
 			card = run.NewObject()
 		}
 		now := clock()
-		at, dated := finite(since)
-		if !dated || card.Str("word") != "needs you" && card.Get("word") != nil && at <= number(card, "since") {
-			at = now
-		}
-		at = max(at, number(notice, "time"))
+		asked := number(notice, "time")
 		fresh := card.Str("word") != "needs you"
 		if fresh {
 			if card.Str("word") == "done" {
 				return nil
 			}
-			card = episode(card, "needs you", run.Float(at), run.Float(at))
+			card = episode(card, "needs you", run.Float(asked), run.Float(asked))
 		}
 		began := card.Get("began")
 		if !card.Has("began") {
@@ -102,7 +106,7 @@ func TurnedQuestion(name string, said func(string) (string, any)) (bool, error) 
 				return err
 			}
 		}
-		if present || now-number(card, "left") < cardWait || now-max(number(card, "since"), float64(last)) < cardWait {
+		if present || now-number(card, "left") < cardWait || now-max(asked, float64(last)) < cardWait {
 			return nil
 		}
 		_, err = sendCard(current, card, notice, io.Discard)

@@ -10,28 +10,35 @@ import (
 	"agentkit/internal/run"
 )
 
+func questionHome(t *testing.T) (string, func(string, string)) {
+	t.Helper()
+	home, bin := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("PATH", bin)
+	t.Setenv("AK_NOTIFY_SINK", "dry-run")
+	t.Setenv("AK_RUN_ROLE", "")
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
+	t.Setenv("AGENTKIT_DISCORD_USER_ID", "")
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(filepath.Join(bin, "tmux"), "#!/bin/sh\nprintf '0\\t1\\n'\n")
+	write(filepath.Join(home, ".agentkit", "config.toml"), "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
+	write(seatFile("session", "acme", "json"), `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme"}`)
+	return home, write
+}
+
 func TestQuestionCardsLeaveOtherTransitionsToPython(t *testing.T) {
 	for _, kind := range []string{"answered", "typed answer", "earlier answer", "watcher", "chooser", "other reason", "closed", "done", "history"} {
 		t.Run(kind, func(t *testing.T) {
-			home, bin := t.TempDir(), t.TempDir()
-			t.Setenv("HOME", home)
-			t.Setenv("USERPROFILE", home)
-			t.Setenv("PATH", bin)
-			t.Setenv("AK_NOTIFY_SINK", "dry-run")
-			t.Setenv("AK_RUN_ROLE", "")
-			t.Setenv("AGENTKIT_ADAPTER_DIR", "")
-			write := func(path, text string) {
-				t.Helper()
-				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(path, []byte(text), 0o700); err != nil {
-					t.Fatal(err)
-				}
-			}
-			write(filepath.Join(bin, "tmux"), "#!/bin/sh\nprintf '0\\t1\\n'\n")
-			write(filepath.Join(home, ".agentkit", "config.toml"), "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
-			write(seatFile("session", "acme", "json"), `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme"}`)
+			home, write := questionHome(t)
 			notice := run.Fields("kind", "needs", "text", "Which database?", "time", 100)
 			file := run.Fields("word", "needs you", "reason", "Which database?", "state", "at_prompt")
 			card := episode(run.NewObject(), "needs you", run.Number("100"), run.Number("100"))
