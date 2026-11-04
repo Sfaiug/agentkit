@@ -34,7 +34,7 @@ MEASURES = (
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "flakes", "unknown")),
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
-    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again")),
+    ("findings", "findings", ("blocking", "disputed", "conceded", "raised_again", "let_go", "let_go_broke")),
     ("size", "ak size", ("code_lines", "readme_words", "agents_words")),
 )
 
@@ -334,11 +334,22 @@ def compute(now=None):
         review_pairs.append(pairs(ended))
         weighed = [row for row in finding_rows if in_week(row["at"], end)]
         blocking = [row for row in weighed if row["kind"] == "finding"]
+        merged = [row for row in ended if history.merged(row)]
+        changes_merged = {(row["repo"], row.get("change") or row["run_id"]) for row in merged}
+        changes_broke = {(row["repo"], row.get("change") or row["run_id"]) for row in merged
+                         if row.get("broke_after_merge")}
+        # A finding follows its change's merge week; a later break can grow that week's cell.
+        let_go = [row for row in finding_rows
+                  if (row["kind"] == "follow-up" or row["outcome"] in ("dropped", "conceded"))
+                  and (row["repo"], row.get("change") or row["run_id"]) in changes_merged]
         finding_counts.append({
             "blocking": len(blocking),
             "disputed": sum(row["outcome"] is not None for row in weighed),
             "conceded": sum(row["outcome"] in ("dropped", "conceded") for row in weighed),
-            "raised_again": sum(row["raised_again"] for row in blocking)} if weighed else None)
+            "raised_again": sum(row["raised_again"] for row in blocking),
+            "let_go": len(let_go),
+            "let_go_broke": sum((row["repo"], row.get("change") or row["run_id"]) in changes_broke
+                                for row in let_go)} if weighed or let_go else None)
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
         conflicts.append(collided(ended, end))
@@ -493,7 +504,9 @@ def render(board=None):
             return "not recorded"
         return (f"{stats['blocking']} blocking; {stats['disputed']} disputed; "
                 f"{stats['conceded']} of {stats['disputed']} conceded; "
-                f"{stats['raised_again']} of {stats['blocking']} raised again")
+                f"{stats['raised_again']} of {stats['blocking']} raised again; "
+                f"{stats['let_go']} let go; {stats['let_go_broke']} of {stats['let_go']} "
+                "on a change that broke main or live after merge")
 
     def size(stats):
         if stats is None:
