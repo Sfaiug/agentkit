@@ -14,6 +14,9 @@ import (
 type Task = seat.Task
 
 func detail(s terminal.Screen, seat Seat, room int, clock *motion.Clock) []string {
+	if seat.draft != nil {
+		return nil // the draft's crew or refusal is part of its row block
+	}
 	var lines []string
 	if seat.Unsent != "" {
 		for _, line := range terminal.Wrap(unsentMark(s, seat.Unsent), room) {
