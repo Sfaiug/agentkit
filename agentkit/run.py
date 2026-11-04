@@ -678,7 +678,8 @@ def depth_refused():
 @contextmanager
 def run_slot(run_dir, prior=None):
     state = gate.wait_for_slot(run_dir, between=functools.partial(pickup_while_queued, run_dir))
-    if lone_run() and sys.orig_argv[-len(sys.argv):] == sys.argv:
+    if lone_run() and (config.REPO == (Path.home() / "agentkit").resolve()
+                       or config.REPO.parent == config.HOME / versions.VERSIONS):
         with versions.checkout(state.get("ak_version")) as path:
             with run_record.record(run_dir) as current:
                 current["ak_version"] = state["ak_version"] = path.name

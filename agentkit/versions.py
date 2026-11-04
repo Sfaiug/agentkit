@@ -62,8 +62,7 @@ def checkout(commit=None):
     """One complete checkout per run version; collection waits until its process starts."""
     with holding() as directory:
         source = Path.home() / "agentkit"
-        live = (source / "bin" / "ak").is_file()
-        if not live:
+        if not (source / "bin" / "ak").is_file():
             source = config.REPO
         elif why := adopt(source):
             raise config.Error(why)
@@ -93,11 +92,11 @@ def enter(path):
 
 
 def dispatch(argv):
-    if (argv[:1] == ["hand-in"] and os.environ.get("AGENTKIT_RUN")
+    from . import record, worker
+    if (argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
             and (path := os.environ.get("AK_RUN_CODE"))):
         enter(Path(path))
     elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
-        from . import record
         state = record.read_state(config.RUNS / argv[2]) or {}
         if commit := state.get("ak_version"):
             with checkout(commit) as path:
