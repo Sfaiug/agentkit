@@ -177,7 +177,10 @@ func barSelection(state, name string, models map[string]config.Model) (model str
 	if record == nil {
 		return "", nil, nil
 	}
-	if _, complaint, crewed := crew(record.Get("workers"), models); !crewed || complaint != "" {
+	if selected, err := configSelection(record, models); err == nil {
+		record = selected
+	}
+	if _, complaint, crewed := recordCrew(record, models); !crewed || complaint != "" {
 		return "", nil, nil
 	}
 	named := func(key string) (found []string) {

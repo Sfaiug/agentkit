@@ -132,6 +132,16 @@ func akScreen(args []string, errOut io.Writer) int {
 			return 0
 		case key.Name == "again":
 			painter.Forget()
+		case key.Name == "char" && (key.Char == "c" || key.Char == "C"):
+			session := ""
+			if overlay {
+				session = os.Getenv("AGENTKIT_SESSION")
+			}
+			frame.Stop()
+			if !menuConfig(session, shown.cells, keyboard, painter) {
+				keyboard.Give()
+				return notImplemented(errOut, "attach")
+			}
 		case opensSomething(key, shown.past, overlay):
 			keyboard.Give()
 			return notImplemented(errOut, "attach")

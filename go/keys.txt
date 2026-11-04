@@ -24,6 +24,8 @@ test_key_config_defaults
 test_key_config_error_exit
 test_key_config_save_format
 test_key_config_save_keeps
+test_key_config_screen
+test_key_config_scope
 test_key_dash_led_attach
 test_key_doctor_effort
 test_key_doctor_tick_line

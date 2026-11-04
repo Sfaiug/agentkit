@@ -1,0 +1,176 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"slices"
+	"strings"
+	"time"
+
+	"agentkit/internal/config"
+	"agentkit/internal/machines"
+	"agentkit/internal/matrix"
+	"agentkit/internal/menu"
+	"agentkit/internal/run"
+	"agentkit/internal/seat"
+	"agentkit/internal/terminal"
+	"agentkit/internal/update"
+)
+
+// menuConfig uses the popup's seat, never the main screen's highlighted row. An ordinary
+// window edits only defaults. False leaves a key beyond this milestone to the shadow build.
+func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	c, err := matrix.Configured()
+	if err != nil || len(c.Names) == 0 {
+		return false
+	}
+	view := menu.ConfigView{Matrix: c, Scope: "new seats", Fresh: session == "", Cells: cells, Version: update.Build()}
+	if view.Version == "" {
+		view.Version = "?"
+	}
+	if session != "" {
+		current, _, err := config.ResolveSession(session)
+		if err != nil {
+			return false
+		}
+		selected, err := seat.ConfigSelection(current)
+		if err != nil && !os.IsNotExist(err) {
+			return false
+		}
+		session = ""
+		if selected != nil {
+			c.Selected, session, view.Scope = selected, current, current
+		}
+	}
+	defer painter.Forget()
+	for {
+		var known bool
+		if view.Options, known = configOptions(c); !known {
+			return false
+		}
+		if view.Row < len(c.Names) {
+			columns := c.Columns(c.Names[view.Row])
+			if !slices.Contains(columns, view.Column) {
+				view.Column = max(0, view.Column-3)
+			}
+		}
+		view.Clock = time.Now().Format("15:04")
+		screen := keyboard.Screen()
+		frame := menu.ConfigFrame(screen, view)
+		view.Top = frame.Top
+		painter.Write(frame.Lines, screen)
+		key := keyboard.ReadKey()
+		view.Note = ""
+		switch {
+		case key.Name == "esc" || key.Name == "eof":
+			return true
+		case key.Name == "again":
+			painter.Forget()
+		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
+			view.Row = max(0, view.Row-1)
+		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
+			view.Row = min(len(c.Names)+len(view.Options)-1, view.Row+1)
+		case key.Name == "left" || key.Name == "right":
+			if view.Row < len(c.Names) {
+				columns := c.Columns(c.Names[view.Row])
+				step := -1
+				if key.Name == "right" {
+					step = 1
+				}
+				at := slices.Index(columns, view.Column)
+				view.Column = columns[max(0, min(len(columns)-1, at+step))]
+			}
+		case key.Name == "pointer":
+			mouse := key.Mouse
+			if mouse.Button&64 != 0 {
+				step := -1
+				if mouse.Button&1 != 0 {
+					step = 1
+				}
+				view.Row = max(0, min(len(c.Names)+len(view.Options)-1, view.Row+step))
+			} else if row, column, hit := frame.Hit(mouse); hit {
+				view.Row, view.Column = row, max(0, column)
+				if mouse.Released && mouse.Button&3 == 0 && column >= 0 {
+					key.Name = "space"
+				}
+			}
+		case key.Name == "enter" && view.Row >= len(c.Names),
+			key.Name == "char" && (key.Char == "r" || key.Char == "a" && view.Fresh):
+			return false
+		}
+		if key.Name != "space" || view.Row >= len(c.Names) {
+			continue
+		}
+		if view.Column == 0 && c.Selected.Str("orchestrator") == c.Names[view.Row] {
+			continue
+		}
+		if view.Column >= 3 || view.Column == 0 && session != "" {
+			return false // efforts and moving an orchestrator follow in config_screen_edits
+		}
+		mark := c.Mark(c.Names[view.Row], view.Column)
+		var changed *run.Object
+		if session != "" {
+			changed, err = seat.SaveMarks(session, mark)
+		} else {
+			var note string
+			changed, note = mark(c.Selected)
+			if note != "" {
+				view.Note = note
+				continue
+			}
+			err = config.RememberDefaults(changed.Str("orchestrator"), configNames(changed, "workers"), configNames(changed, "reviewers"), func() error { return nil })
+		}
+		if err != nil {
+			view.Note = err.Error()
+		} else {
+			c.Selected = changed
+		}
+	}
+}
+
+func configNames(selected *run.Object, key string) []string {
+	names := []string{}
+	for _, value := range selected.List(key) {
+		if name, ok := value.(string); ok {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
+	discord, cloud := menu.ConfigServices(time.Now())
+	setting, on, err := config.Audit()
+	audit := ""
+	if err != nil {
+		audit = err.Error()
+	} else {
+		named := func(names []string) string {
+			labels := []string{}
+			for _, name := range names {
+				labels = append(labels, config.ModelName(name, c.Models))
+			}
+			if len(labels) == 0 {
+				return "nobody"
+			}
+			return strings.Join(labels, ", ")
+		}
+		word := "off"
+		if on {
+			word = "on"
+		}
+		audit = word + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + named(setting.Workers) + " · " + menu.RoleHead(2) + " " + named(setting.Reviewers)
+	}
+	numbers, err := config.HostNumbers()
+	if err != nil {
+		return nil, false
+	}
+	rounds := "rounds"
+	if numbers.Rounds == 1 {
+		rounds = "round"
+	}
+	limits := fmt.Sprintf("review %d %s · executor %d lines · orchestrator %d lines", numbers.Rounds, rounds, numbers.ReviewLines, numbers.SeatLines)
+	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
+		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d · Google Cloud %s", len(machines.Lines()), cloud)},
+		{Name: "Limits", Value: limits}}, true
+}
