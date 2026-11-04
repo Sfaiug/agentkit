@@ -1,5 +1,5 @@
 """The models screen draws no maker's colour when it opens, though the highlight is on the first
-role's pick; once ↓ moves it onto a row, every row of that row's maker, in every role, has its
+role's pick; once ↑/↓ moves it onto a row, every row of that row's maker, in every role, has its
 company's colour, its provider's `colour`: its line in it, its name in it lifted a quarter of the
 way toward the foreground, a dark background's white.  No row of another maker has it.  ↑ on the
 first row, where the highlight cannot move, lights its maker too.  A provider whose `maker`
@@ -114,12 +114,18 @@ class ModelsColour(unittest.TestCase):
 
     def test_no_maker_lights_at_rest_and_the_pointed_rows_maker_lights(self):
         self.models()
-        self.term.keys("Down")
+        self.term.keys("Up")
         self.pointed("Acme")
         self.term.keys("Down")
         self.pointed("Bolt")
 
     def test_up_where_the_highlight_cannot_move_lights_its_maker(self):
+        # Cheapest and best coincide, so the opening pick is the first row.
+        held = boards()
+        best = next(row for row in held["artificialanalysis.ai"]["rows"]
+                    if row["model"] == "Acme Max 5" and row["effort"] == "max")
+        best["values"]["aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask"] = 1
+        self.home.write(".agentkit/state/boards.json", held)
         shown = self.models()
         self.assertTrue(next(plain(line) for line in shown if plain(line).startswith("› "))
                         .startswith("› ★ pick   Acme"))
