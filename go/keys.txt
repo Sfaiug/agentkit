@@ -90,6 +90,7 @@ test_key_menu_new_seat
 test_key_menu_open_line
 test_key_menu_open_seat
 test_key_menu_order
+test_key_menu_past
 test_key_menu_palette Palette
 test_key_menu_resize
 test_key_menu_row_content PlanBars DoneSeat

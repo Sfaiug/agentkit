@@ -1,11 +1,5 @@
 package plan
 
-import (
-	"strings"
-
-	"agentkit/internal/config"
-)
-
 // Progress is how many of the plan's box lines are done, of how many (watch.plan_progress); none
 // for no plan or one nothing can read.
 func Progress(name string) (done, total int) {
@@ -29,12 +23,7 @@ func LastDone(name string) (words string) {
 		if !boxed(line) || open(line) {
 			continue
 		}
-		line = strings.TrimFunc(line, config.Space)
-		if entry, ok := parse(line); ok {
-			words = entry.What
-		} else {
-			_, words, _ = strings.Cut(line, "] ")
-		}
+		words = doneWords(line)
 	}
 	return words
 }

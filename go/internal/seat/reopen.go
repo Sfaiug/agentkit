@@ -96,41 +96,9 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	if !known {
 		return false, nil
 	}
-	text, err := Rulebook(name)
-	if err != nil {
-		return false, nil
-	}
-	// a dry run's rulebook, and whatever its adapter makes beside it, in a folder of its own that is
-	// gone once the command is printed (orch.scratch)
-	dir, told := state, []string(nil)
-	if how.DryRun {
-		if dir, err = os.MkdirTemp("", "ak-dry-run-"); err != nil {
-			return false, nil
-		}
-		defer os.RemoveAll(dir)
-		told = []string{"AGENTKIT_RULEBOOK_DIR=" + dir}
-	}
-	// written before the adapter is asked, as resume_command writes it: a seat opens with its rules
-	// or not at all
-	rulebook := filepath.Join(dir, "rulebook-"+name+".md")
-	if err = os.MkdirAll(dir, 0o777); err == nil {
-		err = os.WriteFile(rulebook, []byte(text), 0o666)
-	}
-	if err != nil {
-		return true, Refusal(fmt.Sprintf("no rulebook for %s: %v", name, err))
-	}
-	cmd, conversation, ok := seat.command(append(told, "AGENTKIT_RULEBOOK="+rulebook))
-	if !ok {
-		return false, nil
-	}
-	fmt.Fprintln(out, seat.said())
-	if how.DryRun {
-		fmt.Fprintln(out, commandhelp.ShellJoin(cmd))
-		return true, nil
-	}
-	settled, err := seat.launch(state, rulebook, cmd, conversation)
-	if err != nil {
-		return true, err
+	settled, known, err := seat.relaunch(how.DryRun, out)
+	if !known || err != nil || how.DryRun {
+		return known, err
 	}
 	return true, handOver(settled, how, out, errOut)
 }
