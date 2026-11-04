@@ -291,11 +291,7 @@ func base(path string) string { return path[strings.LastIndexByte(path, '/')+1:]
 // headerLine is `agentkit` at the left and the clock at the right; the title gives way, never the
 // clock.
 func headerLine(clock string, room int) string {
-	if room <= terminal.Cells(clock) {
-		return terminal.Cut(clock, room)
-	}
-	title := terminal.Cut("agentkit", room-terminal.Cells(clock)-1)
-	return title + strings.Repeat(" ", room-terminal.Cells(title)-terminal.Cells(clock)) + clock
+	return panelHeader("", clock, room)
 }
 
 // keyLine is the key line: each key dim, its word plain, wrapped to the layout; first, drawn as it

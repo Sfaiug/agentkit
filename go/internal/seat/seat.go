@@ -275,9 +275,12 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 // recorded reads a record and freezes its harness's evidence at the listing's reconciliation
 // boundary; later reads reuse that evidence. False leaves the listing to Python.
 func recorded(state, name string, record *run.Object, models map[string]config.Model, readers recordReaders) (Seat, bool) {
+	if selected, err := configSelection(record, models); err == nil {
+		record = selected
+	}
 	own := models[record.Str("orchestrator")].Harness
 	restart, known := harness.Reopens(own)
-	workers, complaint, crewed := crew(record.Get("workers"), models)
+	workers, complaint, crewed := recordCrew(record, models)
 	created, dated := number(record.Get("created"))
 	if !known || !crewed || !dated || !text(record.Get("cwd")) || !text(record.Get("repo")) ||
 		!text(record.Get("conversation")) {
