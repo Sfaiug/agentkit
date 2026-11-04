@@ -127,16 +127,15 @@ func (t *ticking) waiting() error {
 		if !loop.Pickup(dir, record) {
 			return false
 		}
-		if !change(func(current *run.Object) error { current.Set("waiting_resume_at", epoch(now)); return nil }) || failed != nil {
-			return failed == nil || errors.Is(failed, errMovedRun)
-		}
-		decided := record.Copy()
-		decided.Set("waiting_resume_at", epoch(now))
-		code, why, err := launch.ResumeExpected(id, decided)
+		code, why, err := launch.ResumeExpected(id, record)
 		if errors.Is(err, launch.ErrPython) {
 			return false
 		}
 		if err != nil || code != 0 {
+			// Pace only a failed Go attempt, never the Python resume this row hands over.
+			if !change(func(current *run.Object) error { current.Set("waiting_resume_at", epoch(now)); return nil }) {
+				return false
+			}
 			t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(why, fmt.Sprint(err))))
 		} else {
 			t.log.line(fmt.Sprintf("resumed %s: %s moved (%s..%s)", id, ref, wait.Str("sha")[:min(12, len(wait.Str("sha")))], sha[:12]))

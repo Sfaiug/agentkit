@@ -23,7 +23,8 @@ func (t *ticking) endings() error {
 		if run.Active(record) {
 			return run.ProcessActive(record) || launchGrace(record, epoch(t.clock())) || resumeOrdered(record, epoch(t.clock()))
 		}
-		if record.Truthy("pending_inbox") {
+		if record.Truthy("pending_inbox") || record.Truthy("handback_typed") {
+			// Python finishes an existing line's Enter; Go must not leave it blocking the composer.
 			return false
 		}
 		if !run.Ended(record) && run.NeedsRecovery(record) && (record.Str("state") != "interrupted" || run.ProcessActive(record)) {
@@ -51,6 +52,9 @@ func (t *ticking) endings() error {
 	for _, each := range owed {
 		if err := loop.OfferEnding(each.dir, t.log.line); err != nil {
 			return err
+		}
+		if current, _ := run.Read(each.dir); current != nil && current.Truthy("handback_typed") {
+			return errLeft // this offer's text arrived, but its Enter did not
 		}
 	}
 	return nil

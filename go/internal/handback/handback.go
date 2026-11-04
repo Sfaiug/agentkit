@@ -55,7 +55,7 @@ func Give(dir string, say func(string)) bool {
 	case handedBack(said):
 		say(fmt.Sprintf("run %s was already handed back to the %s seat", id, session))
 		return true
-	case !said.Truthy("handback_pending") && !said.Truthy("notification_pending") && history(said):
+	case run.Ended(said) && !said.Truthy("handback_pending") && !said.Truthy("notification_pending") && history(said):
 		mark(dir, record, "handed_back", now(), "handback_note", preexisting, "handback_pending", nil,
 			"handback_wait_reason", nil, "notification_pending", nil)
 		say(fmt.Sprintf("run %s is a %s", id, preexisting))
