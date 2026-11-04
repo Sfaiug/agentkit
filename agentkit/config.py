@@ -554,6 +554,7 @@ def load():
         if cfg is None:
             raise Error(f"missing {path}")
         cfg.update(home or {})
+    _work_in(cfg)
     for key in ("models", "providers"):
         if not isinstance(cfg.get(key), dict):
             raise Error(f"{path}: missing [{key}] table")
@@ -614,6 +615,19 @@ def load():
             raise Error(f"{path}: [providers.{name}].accounts must list distinct names of "
                         f"letters, digits, '.', '_' and '-' (got {listed!r})")
     return cfg
+
+
+def _work_in(cfg):
+    """Refuse work marks no machine knows, even on a table not used for placement."""
+    named = cfg.get("machines")
+    for label, table in [("google_cloud", cfg.get("google_cloud", {})),
+                         *((f"machines.{name}", table) for name, table in
+                           (named.items() if isinstance(named, dict) else ()))]:
+        if isinstance(table, dict) and "work" in table:
+            value = table["work"]
+            if not isinstance(value, list) or any(word not in ("turns", "tests") for word in value):
+                raise Error(f"{HOME / CONFIG_NAME}: [{label}].work must list only turns and tests "
+                            f"(got {value!r})")
 
 
 def offered(cfg):
@@ -1051,6 +1065,16 @@ def save(cfg, defaults=None):
     the entries load gives it, the shipped default's for a file with none (keep_efforts), so
     none moves with them.
     """
+    if "turns_on_machines" in cfg:
+        from . import google_cloud, machines
+        # Removing the shared switch must not move an owned helper's unwritten marks.
+        marks = {name: machines.work(name, cfg) for name in machines.helpers()
+                 if not google_cloud.ssh_config(name)}
+        for name, work in marks.items():
+            cfg.setdefault("machines", {}).setdefault(name, {}).setdefault("work", work)
+        cfg.setdefault("google_cloud", {}).setdefault("work", machines.work(None, cfg))
+        del cfg["turns_on_machines"]
+    _work_in(cfg)
     path = HOME / CONFIG_NAME
     if defaults is None:
         try:

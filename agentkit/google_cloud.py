@@ -57,7 +57,7 @@ USER, SET_UP = "ak", "/run/ak-ready"    # a machine's user for ak, and what says
 READY = 600     # seconds a machine takes to come up: no rent meanwhile, nor one for a shorter life
 LIFE = 12 * 3600    # a Spot machine is replaced at no cost, and a forgotten one costs no more
 TRIES, POLLS = 4, 30    # a rent's creates, polled 2 s apart each: one ran 40 s on 31 Oct 2026
-NEED = "google-cloud-need"      # MiB a vCPU of each suite no machine took since the last pass
+NEED = "google-cloud-need"      # MiB a vCPU and work kind of each request since the last pass
 REFUSALS = {"QUOTA_EXCEEDED", "quotaExceeded", "ZONE_RESOURCE_POOL_EXHAUSTED",   # Google's codes:
             "ZONE_RESOURCE_POOL_EXHAUSTED_WITH_DETAILS"}    # a zone's quota or stock is out
 # A machine's setup, each line run on those that served suites on 31 Oct 2026: docker's data and
@@ -131,11 +131,13 @@ def renting():
         return _setting()[0]
 
 
-def need(mb_per_cpu):
-    """A suite no machine took asks a pass for one of `mb_per_cpu` MiB a vCPU; fails nothing."""
-    if renting():
-        with contextlib.suppress(OSError), (config.STATE / NEED).open("a") as noted:
-            noted.write(f"{mb_per_cpu}\n")
+def need(mb_per_cpu, work="tests"):
+    """Work no machine took asks a pass for one of `mb_per_cpu` MiB a vCPU; fails nothing."""
+    from . import machines
+    with contextlib.suppress(config.Error, OSError):
+        if renting() and work in machines.work(None):
+            with (config.STATE / NEED).open("a") as noted:
+                noted.write(f"{mb_per_cpu} {work}\n")
 
 
 def said(mb_per_cpu):
@@ -155,20 +157,20 @@ def said(mb_per_cpu):
             f"month{since * (time.time() - at > 2 * PASS)}", *late]
 
 
-def summary():
+def summary(count=True):
     """The config screen's reading, from the tick alone; no unrecorded money is shown."""
     active, cap = _setting()
     if not active:
         left = len((_ledger() or {}).get("machines", {}))
         return (f"off · {left} machine{'s' if left != 1 else ''} going once idle"
-                if left else "off")
+                if left and count else "off")
     ledger = _ledger()
     if not ledger or not ledger["answered"] or (
             time.gmtime(ledger["answered"])[:2] != time.gmtime(time.time())[:2]):
         return "on · spend unknown"
     running = sum("from" not in one for one in ledger["machines"].values())
-    return (f"on · €{ledger['spent']:.2f} of €{cap:g} this month · "
-            f"{running} machine{'s' if running != 1 else ''} up")
+    return (f"on · €{ledger['spent']:.2f} of €{cap:g} this month" +
+            (f" · {running} machine{'s' if running != 1 else ''} up" if count else ""))
 
 
 def watch():
@@ -176,8 +178,9 @@ def watch():
     past its end, unpriced, past the cap or idle given back and said, ssh reaching the others, the
     ready ones serving; only then a stale price list, and a machine rented for a need noted while
     none comes up, with the quota the cheapest offer it skipped lacks asked for."""
-    wanted, (active, cap) = _noted(config.STATE / NEED), _setting()
-    if not active and not (config.SECRETS / KEY).exists():
+    from . import machines
+    wanted, (active, cap), work = _noted(config.STATE / NEED), _setting(), machines.work(None)
+    if (not active or not work) and not (config.SECRETS / KEY).exists():
         return
     listed, now = rented(), time.time()
     try:
@@ -195,6 +198,7 @@ def watch():
     for machine in listed:
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
                    else "past the cap" if not ledger or ledger["spent"] > cap
+                   else "no work marked" if not work and idle.get(machine.id, 0) > 0
                    else "idle" if idle.get(machine.id, 0) >= IDLE_FOR else None):
             try:
                 give_back(machine)
@@ -207,7 +211,7 @@ def watch():
     config._write_json(config.STATE / LATE, late)
     if ledger:
         config._write_json(config.STATE / LEDGER, ledger)
-    if not active:
+    if not active or not work:
         return
     if not _amount(at) or now - at >= FRESH_FOR or not all(one.zones for one in offered):
         offered = offers()
@@ -344,8 +348,12 @@ def _amount(value):
 
 def _noted(path):
     """The most MiB a vCPU noted at `path`, 0 for none, taken: a suite noting next notes anew."""
+    from . import machines
     try:
-        return max(map(int, path.replace(path.with_suffix(".taken")).read_text().split()))
+        lines = path.replace(path.with_suffix(".taken")).read_text().splitlines()
+        work = machines.work(None)
+        return max((int(words[0]) for line in lines if (words := line.split())
+                    and (words[1] if len(words) > 1 else "tests") in work), default=0)
     except (OSError, ValueError):
         return 0
 

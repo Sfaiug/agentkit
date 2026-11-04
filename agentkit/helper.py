@@ -190,12 +190,15 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
     `lasting` seconds of when it would start there, and one placed where no machine with room
     lasts a rent and a pass more (google_cloud.READY, PASS) asks for a machine, as none does:
     the next is ready as the chosen one stops taking that work, not turns run here meanwhile."""
+    work = "turns" if turn else "tests"
     try:
         not_serving = google_cloud.not_serving()
-        aliases = [alias for alias in machines.helpers() if alias not in not_serving]
+        aliases = [alias for alias in machines.helpers()
+                   if alias not in not_serving and work in machines.work(alias)]
+        renting = google_cloud.renting() and work in machines.work(None)
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
-        aliases = []
-    if not aliases and not google_cloud.renting():
+        aliases, renting = [], False
+    if not aliases and not renting:
         return None, "no suite helper set up"
     ends = google_cloud.serving()
 
@@ -229,7 +232,7 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
 
     def need():
         """Asks the tick for a machine, the MiB read now: `short` may raise them meanwhile."""
-        google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)))
+        google_cloud.need(cpu_mb(piece_cpus, piece_mem_mb, _least(repo)), work)
 
     # A suite splits into as many pieces as fit, so most room first; a turn takes one place and
     # is as fast on a busy machine, so least first, and one it leaves empty goes back

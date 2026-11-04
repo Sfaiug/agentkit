@@ -86,15 +86,16 @@ class MachinesOnC(unittest.TestCase):
             "acme-rental rented until 15:44 · 16 cores · 32 GB · 50% busy · "
             "10 of 32 GB used · builds, reviews, tests",
             "Google Cloud ● on · €31.74 of €200 this month · 2 machines up").split())
-        self.assertIn("3 · Google Cloud on · €31.74 of €200 this month",
+        self.assertIn("3 machines · Google Cloud on · €31.74 of €200 this month",
                       " ".join(self.config_screen.split()))
+        self.assertNotIn("machines up", self.config_screen)
         self.assertLess(shown.index("this one"), shown.index("acme-mac"))
         self.assertLess(shown.index("acme-mac"), shown.index("acme-rental"))
-        # Enter and Space on these rows have no act, and the key line offers neither.
+        # This host has no marks; another machine opens its work with Enter.
         self.term.keys("Enter", "Space", "Down")
         same = self.term.wait("› acme-mac")
         keys = next(line for line in reversed(same.splitlines()) if line.strip())
-        self.assertNotIn("⏎", keys)
+        self.assertIn("⏎ open", keys)
         self.assertNotIn("␣", keys)
         self.assertEqual(before, [path.read_bytes() for path in (
             self.config, self.readings, self.ledger, self.route)])
@@ -109,7 +110,7 @@ class MachinesOnC(unittest.TestCase):
         self.write_config(active=False)
         shown = " ".join(self.page("Google Cloud ○ off · 2 machines going once idle").split())
         self.assertNotIn("€", shown)
-        self.assertIn("2 · Google Cloud off", " ".join(self.config_screen.split()))
+        self.assertIn("2 machines · Google Cloud off", " ".join(self.config_screen.split()))
         self.leave()
         self.ledger.write_text('{"answered": 0, "spent": 0, "machines": {}}')
         shown = " ".join(self.page("Google Cloud ○ off").split())

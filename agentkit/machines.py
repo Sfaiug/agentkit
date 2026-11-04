@@ -61,6 +61,29 @@ def helpers():
     return [name for name in dict.fromkeys(names) if name]
 
 
+def work(name, cfg=None):
+    """The work `name` takes; None names every rental, including one not rented yet.
+
+    Unwritten marks keep the old switch's meaning. A Mac's last probe rules out turns.
+    """
+    cfg = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}) if cfg is None else cfg
+    config._work_in(cfg)
+    if name == HERE:
+        return ["turns", "tests"]
+    rented = name is None or bool(google_cloud.ssh_config(name))
+    named = cfg.get("machines")
+    table = (cfg.get("google_cloud") or {}) if rented else \
+        named.get(name, {}) if isinstance(named, dict) else {}
+    if isinstance(table, dict) and "work" in table:
+        return table["work"]
+    try:
+        said = (config._read_json(_path()) or {}).get(name, {}).get("said") if not rented else None
+    except config.Error:
+        said = None
+    return (["turns"] if cfg.get("turns_on_machines") is True and
+            (said or {}).get("system") != "macOS" else []) + ["tests"]
+
+
 def known():
     """Every machine ak may use, this one first, as the ticks found it."""
     names = [HERE, *helpers()]

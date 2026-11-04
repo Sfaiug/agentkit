@@ -5242,11 +5242,11 @@ def config_audit(cfg):
 
 def machines_value():
     """`Machines`' count and the tick's cloud spending, with no probe or Google call."""
-    return f"{len(machines.known())} · Google Cloud {google_cloud.summary()}"
+    return f"{len(machines.known())} machines · Google Cloud {google_cloud.summary(count=False)}"
 
 
-def machine_value(machine, rented, turns):
-    """What the tick last found, and the work this machine may take under today's switches."""
+def machine_value(machine, rented, cfg):
+    """What the tick last found, and the work this machine's marks allow."""
     here, said = machine.name == machines.HERE, machine.said
     kind = "home" if here else machine.kind
     if not here and machine.name in rented:
@@ -5269,13 +5269,20 @@ def machine_value(machine, rented, turns):
         words += [f"{busy}% busy · {used} of {machines._gb(total)} used"]
     else:
         words += ["never answered"]
-    work = ("sessions, builds, reviews, tests" if here else "builds, reviews, tests"
-            if turns and not (said and said["system"] == "macOS") else "tests")
-    return " · ".join([*words, work])
+    return " · ".join([*words, work_words(machine.name, cfg)])
+
+
+def work_words(name, cfg):
+    """The marks as the overview names their work."""
+    work = machines.work(name, cfg)
+    tasks = (["sessions"] if name == machines.HERE else [])
+    tasks += ["builds", "reviews"] if "turns" in work else []
+    tasks += ["tests"] if "tests" in work else []
+    return ", ".join(tasks) or "no work"
 
 
 def config_machines(cfg):
-    """Recorded machines; Space switches Google renting, Enter sets its monthly cap."""
+    """Recorded machines; Enter opens their work marks, and the cloud's monthly cap."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def save(key, value):
@@ -5292,15 +5299,41 @@ def config_machines(cfg):
             return "the monthly cap must be a whole number of euros, 0 or more"
         return save("max_month", int(value))
 
+    def work_page(name):
+        if name and google_cloud.ssh_config(name):
+            name = None
+
+        def flip(word):
+            before = copy.deepcopy(cfg)
+            work = machines.work(name, cfg)
+            table = cfg.setdefault("google_cloud", {}) if name is None else \
+                cfg.setdefault("machines", {}).setdefault(name, {})
+            table["work"] = [item for item in ("turns", "tests")
+                             if (item in work) != (item == word)]
+            return _saved(cfg, cfg, before)
+
+        def page():
+            work = machines.work(name, cfg)
+            rows = [(label, [(on, "accent") if word in work else (off, "dim")],
+                     ("mark", lambda word=word: flip(word)))
+                    for word, label in (("turns", "builds and reviews"), ("tests", "tests"))]
+            return rows + ([("Monthly cap", f"€{google_cloud._setting()[1]:g}", cap_field)]
+                           if name is None else []), ""
+
+        def open_page(draw):
+            config_page(f"machines · {name or 'Google Cloud'}", page)
+            return ""
+        return open_page
+
     def page():
         active, _ = google_cloud._setting()
         rented = google_cloud.serving()
-        rows = [(machine.name, machine_value(machine, rented,
-                                             cfg.get("turns_on_machines") is True), None)
+        rows = [(machine.name, machine_value(machine, rented, cfg),
+                 None if machine.name == machines.HERE else work_page(machine.name))
                 for machine in machines.known()]
         return [*rows, ("Google Cloud", [(on, "accent") if active else (off, "dim"),
-                                         (google_cloud.summary(), None)],
-                        ("mark", lambda: save("active", not active), cap_field))], ""
+                                         (f"{google_cloud.summary()} · {work_words(None, cfg)}", None)],
+                        ("mark", lambda: save("active", not active), work_page(None)))], ""
     config_page("machines", page)
 
 

@@ -62,6 +62,8 @@ class CloudSettings(unittest.TestCase):
         for value in ("150", "-5", "abc", "1.5", "", "1000000000000", "0"):
             before = self.config.read_bytes()
             term.keys("Enter")
+            term.wait("Monthly cap")
+            term.keys("Down", "Down", "Enter")
             term.wait("whole euros per month")
             if value == "150":
                 term.type(" 1")
@@ -72,20 +74,24 @@ class CloudSettings(unittest.TestCase):
                 term.type(" " + value)
             term.keys("Enter")
             if value in ("150", "1000000000000", "0"):
-                term.wait(lambda screen: "⏎ open" in screen and (
-                    f"of €{int(value):g} this month") in " ".join(screen.split()))
+                term.wait(lambda screen: "⏎ open" in screen and
+                          f"Monthly cap €{int(value):g}" in " ".join(screen.split()))
                 self.assertEqual(tomllib.loads(self.config.read_text())["google_cloud"], {
                     "active": True, "max_month": int(value), "x_custom": 7})
             else:
                 term.wait("the monthly cap must be a whole number of euros, 0 or more")
                 self.assertEqual(self.config.read_bytes(), before)
+            term.keys("Escape")
+            term.wait("› Google Cloud")
         term.keys("Enter")
+        term.wait("Monthly cap")
+        term.keys("Down", "Down", "Enter")
         term.wait("whole euros per month")
         term.type("999")
         term.keys("Escape")
         term.wait("⏎ open")
         self.assertEqual(tomllib.loads(self.config.read_text())["google_cloud"]["max_month"], 0)
-        term.keys("Escape", "Escape", "Escape")
+        term.keys("Escape", "Escape", "Escape", "Escape")
         self.assertEqual(term.exit_code(), 0)
         self.assertEqual(self.home.calls("ssh"), [])
 
@@ -129,6 +135,17 @@ class CloudSettings(unittest.TestCase):
         _, deleted, _ = google.at(NOW + 180, 30)
         self.assertEqual(deleted, ["acme-busy"])
         self.assertEqual(google.made, [])
+        # With no work marked, an idle rental goes back even with renting switched on.
+        self.config.write_text(self.config.read_text().split("\n[google_cloud]")[0] +
+                               '\n[google_cloud]\nactive = true\nmax_month = 200\nwork = []\n')
+        home.fake("ssh", "#!/bin/sh\necho 1\n")
+        home.write(".agentkit/state/google-cloud-need", "456 tests\n789 turns\n")
+        start = len(google.asked)
+        done = home.tick(env=google.env)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual([one for one in google.asked[start:] if one.startswith("DELETE ")],
+                         ["DELETE acme-busy"])
+        self.assertEqual((google.made, google.asks), ([], []))
 
     def test_off_sends_no_new_work_to_a_rental(self):
         self.config.write_text(self.config.read_text().replace("active = true", "active = false"))
