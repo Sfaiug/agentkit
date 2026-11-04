@@ -71,7 +71,9 @@ class SettingsOnCommandLine(unittest.TestCase):
         for account in ("", "quay"):
             with self.subTest(account=account or "usual"):
                 seat = shlex.split(self.adapter(account, "interactive", "m-1", "high"))
-                self.assertEqual(told(seat), PINS)
+                settings = told(seat)
+                self.assertEqual(settings.pop("statusLine")["type"], "command")
+                self.assertEqual(settings, PINS)
                 self.adapter(account, "run", "m-1", "high", str(workspace), str(prompt), str(out))
                 self.assertEqual(told(json.loads(self.started.read_text())), PINS)
 
