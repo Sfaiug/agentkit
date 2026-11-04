@@ -38,12 +38,13 @@ class RefusedLaunchPrintedOnce(OwnPr):
         self.assertTrue(transitions.settled(state))
 
     def test_a_launch_ak_starts_for_the_seat_is_still_handed_back(self):
-        directory = config.RUNS / "started-again"
+        directory = config.RUNS / "followup-review"
         directory.mkdir()
         (directory / "log.txt").touch()
         with self.assertRaises(config.Error):
             run.launch_for_seat(directory, {"launched_session": "fix-api"},
-                                {"restarted": {"run": "own-pr-rounds", "why": "fixture"}},
+                                {"followup": {"run": "own-pr-rounds", "text": "Fix the API",
+                                              "place": "api.py:1"}},
                                 self.cfg, {"--review-pr": URL})
         state = record.read_state(directory)
         self.assertEqual(state["state"], "error")

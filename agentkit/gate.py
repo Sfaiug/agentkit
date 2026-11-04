@@ -57,8 +57,7 @@ def slot_lock():
 
 
 def slot_order(state):
-    # A green member only needs delivery before the target moves.  A run started again after a
-    # park (`leases.restart`) waits from where its first attempt queued, not behind the queue.
+    # A green member only needs delivery before the target moves.
     # Finished work precedes fresh launches without joining the first element's gate bypass:
     # a later round, and an orchestrator's own PR, whose build is done before its first review.
     # A held install's fix (`update.first_place`) is admitted as `--first` is.

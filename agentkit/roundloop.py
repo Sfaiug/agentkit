@@ -527,7 +527,7 @@ def affected_suite(lp):
     all fail again on that target alone (`AK_ONLY`) is the target's, not the change's: it
     passes, and says which.
     """
-    from . import gate, leases  # here, not at the top: gate reaches run
+    from . import gate  # here, not at the top: gate reaches run
     if not round_suite(lp):
         return True, ""
     if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
@@ -558,8 +558,12 @@ def affected_suite(lp):
         where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
         if code:
             return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
+        # Identical trees and parents give every attempt the same temporary suite commit.
+        stamp = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
+                 "GIT_COMMITTER_NAME": "ak", "GIT_COMMITTER_EMAIL": "ak@localhost",
+                 "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
         merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
-                             "-m", where, env=leases.STAMP)
+                             "-m", where, env=stamp)
         gitcall.git(checkout, "checkout", "--quiet", "--detach", merged)
         paths = [p for p in gitcall.git(checkout, "diff", "--name-only", "-z", "--no-renames",
                                         tip, merged).split("\0") if p]
