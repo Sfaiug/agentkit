@@ -99,7 +99,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
         if (other.get("run_id") != state.get("run_id") and other.get("followup")
                 and other.get("repo") == state.get("repo")
                 and other.get("repair") == repair
-                and (repair_open(other, tip) if repair else
+                and (repair.get("revert") or repair_open(other, tip) if repair else
                      transitions.launched_session(other) == transitions.launched_session(state)
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
                           else other["followup"]["place"] == followup_place(text))
@@ -1320,7 +1320,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
             if previous:
                 return previous
         key = repair and {"target": target, "command": repair["command"],
-                          **({"flaky": repair["flaky"]} if "flaky" in repair else {})}
+                          **{kind: repair[kind] for kind in ("flaky", "revert") if kind in repair}}
         for item in items:
             started = None if request else started_by(run_dir, item)
             if started:
@@ -1336,6 +1336,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 taken.add(item)
                 continue
             title = ("Split the slow test suite" if split else
+                     f"Revert broken release {repair['sha'][:7]}" if repair and repair.get("revert") else
                      f"Make {repair['command']} deterministic" if repair and repair.get("flaky")
                      else f"Make {target} pass `{repair['command']}` again" if repair
                      else "Fix " + item.splitlines()[0])
@@ -1347,7 +1348,7 @@ def start_followups(state, run_dir, log, cfg=None, repair=None, split=None):
                 check = shlex.quote(str(directory / turns.REGRESSION))
                 task = (f"---\nrepo: {repo}\nbase: origin/{target}\ntarget: {target}\n---\n"
                         f"# {title}\n\n{item}\n\n")
-                if split or repair and repair.get("flaky"):
+                if split or repair and (repair.get("flaky") or repair.get("revert")):
                     task += f"## Done when\n```bash\n{request['check']}\n```\n"
                 elif repair or item in checks:
                     # the check is a given failing command, the target's own for a repair and the
