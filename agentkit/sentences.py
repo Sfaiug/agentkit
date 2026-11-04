@@ -1,8 +1,8 @@
 """Markdown merged sentence by sentence: the merge driver every git call of ak's carries.
 
 Prose keeps a paragraph on one line, so git's line rule calls two edits of one paragraph a
-conflict even where they change different sentences: the lease scan parks a run on it and the
-landing line hands it to a fixer.  ak's git calls that merge (`gitcall.merge_config`) name
+conflict even where they change different sentences, costing a fixer turn.
+ak's git calls that merge (`gitcall.merge_config`) name
 this the driver for `*.md`: each text is cut after every sentence, the cut texts are merged by
 git's own three-way merge, and the result is joined back byte for byte.  Edits inside one
 sentence that clash are merged as git merges them without this driver, conflict markers

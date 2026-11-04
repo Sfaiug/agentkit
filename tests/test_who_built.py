@@ -3,12 +3,10 @@
 `built`: the week's merged runs split by who built the change, a seat (its change is a pull
 request, `owner/repo#N`, the seat's own or another's) or a worker (a task or fix run, whose
 change is a run), each with the share of its merged runs that merged in round 1.  `parks`: the
-runs `leases.park` stopped that week, stamped `parked_at` on their history rows, since a
+runs stopped that week before parking was retired, with `parked_at` on their history rows, since a
 stopped run is in no other count.
 
-Offline: a sandbox HOME with its own history database, git answering nothing, and the stop a
-park makes faked to answer as `stop.end` does; overlapping scans on the lease stage
-(`fixtures.leases`), its stop real.
+Offline: a sandbox HOME with its own history database and git answering nothing.
 """
 
 import os
@@ -20,8 +18,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.leases import OLDER, YOUNGER, LiveRuns
-from agentkit import config, history, leases, record, scoreboard, stop, terminal
+from agentkit import config, history, record, scoreboard, terminal
 
 NOW = 1_800_000_000
 WEEK = 7 * 86400
@@ -83,25 +80,11 @@ class WhoBuilt(unittest.TestCase):
         self.assertEqual(scoreboard.compute(NOW)["built"][0], {
             "seat_merged": 1, "seat_first_round": 1, "worker_merged": 1, "worker_first_round": 1})
 
-    def test_a_park_stamps_the_moment_on_the_run_s_row_and_the_week_counts_it(self):
+    def test_the_week_counts_legacy_park_records(self):
         history.start_run("young", repo="acme", started_at=NOW - 60, change="young")
         history.start_run("other", repo="acme", started_at=NOW - 60, change="other")
         history.start_run("done", repo="acme", started_at=NOW - 60, change="done")
-        wait = {"on": "old", "files": ["app.py"], "since": NOW}
-        answers = {"young": {"state": "stopped", "lease_wait": wait},      # this call stopped it
-                   "other": {"state": "stopped", "error": "stopped by hand"},   # stopped before
-                   "done": None}                                             # ended meanwhile
-        calls = []
-
-        def end(run_dir, **kw):
-            calls.append((run_dir.name, kw["keep"], kw["only_if"], kw["extra"]))
-            return answers[run_dir.name]
-
-        with patch.object(stop, "end", end):
-            for name in ("young", "other", "done"):
-                leases.park({"run": name}, "old", ["app.py"], NOW)
-        self.assertEqual([call[0] for call in calls], ["young", "other", "done"])
-        self.assertEqual(calls[0][1:], (True, leases.before_review, {"lease_wait": wait}))
+        history.update_run("young", parked_at=NOW)
         rows = {row["run_id"]: row["parked_at"] for row in history.ended_runs(0, NOW + WEEK)}
         self.assertEqual(rows, {})          # stopped rows are no ended work
         self.assertEqual(history.parks(NOW - WEEK, NOW), [NOW])
@@ -124,19 +107,6 @@ class WhoBuilt(unittest.TestCase):
         lines = scoreboard.render()
         self.assertIn("built         no runs ended", "\n".join(lines))
         self.assertIn("parks         not recorded", "\n".join(lines))
-
-
-class OverlappingScans(LiveRuns):
-    def test_a_scan_that_saw_the_run_live_moves_neither_its_park_nor_its_wait(self):
-        self.collide()
-        history.start_run(YOUNGER, repo=str(self.repo), started_at=1000)
-        leases.scan(self.repo, now=2000)
-        parked = self.state(YOUNGER)
-        self.assertEqual(parked["lease_wait"]["since"], 2000)
-        # an older scan that listed the younger run before that park reaches it only now
-        self.assertIsNone(leases.park({"run": YOUNGER}, OLDER, ["api.py"], 2100))
-        self.assertEqual(self.state(YOUNGER)["lease_wait"], parked["lease_wait"])
-        self.assertEqual(history.parks(0, 3000), [2000])
 
 
 if __name__ == "__main__":

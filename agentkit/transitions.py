@@ -1065,7 +1065,7 @@ def going(state, now=None):
     and an exhausted run keeps one working only while the tick can resume it
     (`exhausted_wait`): one that waits on nobody is his, not going. Line members
     stay going until the lander ends them, and a run stopped to wait on an older run's
-    change (`leases.park`) until the tick has started its task again.
+    change (`leases.parked`) until the tick has started its task again.
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery

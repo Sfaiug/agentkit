@@ -29,7 +29,7 @@ class RestartFromLanded(LiveRuns):
         older, _ = self.collide()
         record.save_state(config.RUNS / YOUNGER, {**self.state(YOUNGER), "from": f"ak/{OLDER}", "base": base})
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         head = self.git(older, "rev-parse", "HEAD")
         self.git(self.repo, "update-ref", f"refs/remotes/origin/ak/{OLDER}", head)
         record.save_state(config.RUNS / OLDER, {**self.state(OLDER), "state": "pass", "merged": True,

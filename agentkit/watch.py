@@ -8150,10 +8150,7 @@ def local_passes(state, dry_run, log):
         # Silent runs are recovered from outside the loop, whatever it is doing: nothing new
         # has to be started.
         ("stall recovery", lambda: recover_runs(config.load(), dry_run, log), True),
-        # which live runs of a repository change the same lines: the younger, before its
-        # review, is stopped with its branch kept, and starts again once the older has
-        # landed (`leases`); a dry run, which writes nothing, skips both
-        ("lease scan", lambda: leases.scan_all(log), False),
+        # Runs parked before the scan was retired still need to start again.
         ("lease restart", lambda: leases.restart(log), False),
         ("seat headroom", lambda: run.give_way(state, log), False),
         ("state save", lambda: save_state(state), False),

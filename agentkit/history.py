@@ -738,8 +738,8 @@ def merged(row):
 
 
 def parks(since, until):
-    """The moments the park stopped runs in the inclusive range (`parked_at`, which
-    `leases.park` stamps); None where the database cannot answer.  Stopped rows, which
+    """The moments runs were parked in the inclusive range (legacy `parked_at` records);
+    None where the database cannot answer. Stopped rows, which
     `REAL_WORK` leaves out of every other count: a park is a stop."""
     try:
         with _LOCK:

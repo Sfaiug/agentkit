@@ -290,8 +290,7 @@ def _stop_processes(run_id, state, log):
     # instead of replacing it. The scope and marker both catch escaped grandchildren.
     pid = state.get("pid")
     if orch.user_manager() and pid == os.getpid():
-        # this process is the run's loop, parking itself at its commit step (`leases.park`):
-        # a waited stop of its own unit would end it here, before its save raises the stop
+        # A waited stop of the loop's own unit would end it before its record is saved.
         orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
     elif orch.user_manager():
         unit = f"agentkit-run-{run_id}"
@@ -324,7 +323,7 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
     state as recorded; a run already stopped as it stands; None where the run had ended
     already, or where `only_if` no longer holds of the record read under the lock, so there
     was nothing to stop.  `owner_check` is the command's: only the seat a run belongs to stops
-    it by hand, while ak's own stops (`leases.park`) are anybody's."""
+    it by hand, while ak's own stops are anybody's."""
     run_id = run_dir.name
     log = log or run.note_in(run_dir / "log.txt")
     with run_record.recovery_lock(run_dir):

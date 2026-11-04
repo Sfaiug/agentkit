@@ -43,7 +43,7 @@ class LeaseRestart(LiveRuns):
     def test_the_tick_starts_the_task_again_once_the_holder_has_landed(self):
         self.collide(session="seat-a")
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         self.assertEqual(self.state(YOUNGER)["state"], "stopped")
         launched = []
         with patch.object(run, "preflight"), \
@@ -70,7 +70,7 @@ class LeaseRestart(LiveRuns):
     def test_a_restart_whose_launch_was_refused_is_not_launched_again(self):
         self.collide()
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         self.land(OLDER)
         with patch.object(run, "preflight", side_effect=config.Error("the launch was refused")), \
                 patch.object(run, "spawn_bg", side_effect=AssertionError("launched")):
@@ -86,7 +86,7 @@ class LeaseRestart(LiveRuns):
     def test_a_wait_on_a_stopped_run_goes_on_with_the_run_started_again(self):
         self.collide()
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         wait = {"kind": "run", "on": YOUNGER}
         self.assertTrue(transitions.going(self.state(YOUNGER)))                   # its seat is working
         self.assertEqual(watch.wait_fact(wait), (False, "", None))
@@ -105,7 +105,7 @@ class LeaseRestart(LiveRuns):
         """Stopped waiting, then ended by `end`: once the holder lands, nothing starts again."""
         self.collide(session="seat-a")
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         self.assertTrue(stop.stoppable(self.state(YOUNGER)))
         with patch.object(config, "current_session", return_value=None), \
                 redirect_stdout(io.StringIO()):
@@ -130,7 +130,7 @@ class LeaseRestart(LiveRuns):
                 self.setUp()
                 self.collide()
                 (config.RUNS / YOUNGER / "task.md").write_text(task)
-                leases.scan(self.repo, now=2000)
+                self.parked()
                 self.land(OLDER)
                 with patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
                     leases.restart(log=self.logs.append, now=3000)
@@ -141,7 +141,7 @@ class LeaseRestart(LiveRuns):
     def test_the_restart_is_claimed_and_launched_under_the_close_lock_and_a_closed_seat_gets_none(self):
         self.collide(session="seat-a")
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         self.land(OLDER)
         with patch.object(watch, "seat_closed", return_value=True), \
                 patch.object(run, "launch_for_seat", side_effect=AssertionError("started again")):
@@ -177,7 +177,7 @@ class LeaseRestart(LiveRuns):
                 record.save_state(directory, {
                     **record.read_state(directory), "first": True, "base_proof": "regression.sh",
                     "followup": {"run": "run-0", "text": "api.py:1 - a defect", "place": "api.py:1"}})
-                leases.scan(self.repo, now=2000)
+                self.parked()
                 # the seat's next merge with evidence at the same site starts no second fix run
                 again = {"run_id": "run-1", "repo": str(self.repo), "launched_session": "seat-a"}
                 self.assertEqual(handback.open_followup(again, "api.py:1 - again"), YOUNGER)
@@ -202,7 +202,7 @@ class LeaseRestart(LiveRuns):
     def test_a_holder_that_ended_with_nothing_landed_frees_the_wait_too(self):
         self.collide()
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         record.save_state(config.RUNS / OLDER, {**self.state(OLDER), "state": "fail"})
         with patch.object(run, "preflight"), patch.object(run, "spawn_bg"):
             leases.restart(log=self.logs.append, now=3000)

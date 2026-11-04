@@ -162,8 +162,7 @@ class Loop:
         refused by `record`'s guard as a whole save refused it.  Every save a live loop makes
         ends here; the merge pipeline's and a PR review's change neither seats nor history.
         """
-        # what the done-when generated, on the record for readers outside the loop: the lease
-        # scan leaves it out of the run's diff as a commit does
+        # Keep generated paths on the record so later commits leave them out too.
         self.state["artifacts"] = sorted(self.artifacts)
         if not (self.run_dir / "run.json").exists():
             run_record.save_state(self.run_dir, self.state)
@@ -621,13 +620,6 @@ def verify_work(lp, cmds=None):
     lp.step("done-when")
     check = gate.run_done_when
     if not lp.scratch and not lp.state.get("review_pr"):
-        if lp.state.get("repo"):
-            # ak's commit step runs the lease scan itself: a diff that cannot merge with an
-            # older live run's is parked here, before anything of it is reviewed, and the
-            # save below raises the stop the scan recorded (`leases.park`)
-            from . import leases
-            leases.scan_safely(Path(lp.state["repo"]), lp.log)
-            lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         # Landing rechecks a completed round; its own integration stays in charge there.
         if lp.rnd > len(lp.state.get("round_summaries", [])):
@@ -695,7 +687,7 @@ def affected_suite(lp):
     all fail again on that target alone (`AK_ONLY`) is the target's, not the change's: it
     passes, and says which.
     """
-    from . import gate, leases  # here, not at the top: gate reaches run
+    from . import gate  # here, not at the top: gate reaches run
     if not round_suite(lp):
         return True, ""
     if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
@@ -727,7 +719,11 @@ def affected_suite(lp):
         if code:
             return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
         merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
-                             "-m", where, env=leases.STAMP)
+                             "-m", where, env={
+                                 "GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
+                                 "GIT_COMMITTER_NAME": "ak", "GIT_COMMITTER_EMAIL": "ak@localhost",
+                                 "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z",
+                                 "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"})
         gitcall.git(checkout, "checkout", "--quiet", "--detach", merged)
         paths = [p for p in gitcall.git(checkout, "diff", "--name-only", "-z", "--no-renames",
                                         tip, merged).split("\0") if p]
