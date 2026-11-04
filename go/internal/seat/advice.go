@@ -31,7 +31,7 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 			return nil, fmt.Errorf("unknown model %q", step.Model)
 		}
 	}
-	groups := func(current *run.Object) *run.Object {
+	groups := func(current *run.Object) (*run.Object, error) {
 		next := current.Copy()
 		if !next.Has("reviewers") {
 			next.Set("reviewers", next.Get("workers"))
@@ -46,7 +46,22 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 				next.Set("reviewers", []any{step.Model})
 			}
 		}
-		return next
+		admitted := len(next.List("reviewers")) == 0
+		for _, name := range next.List("reviewers") {
+			entry, known := models[name.(string)]
+			if !known {
+				return nil, fmt.Errorf("unknown model %q", name)
+			}
+			allowed, err := config.CanReview(entry.Harness)
+			if err != nil {
+				return nil, err
+			}
+			admitted = admitted || allowed
+		}
+		if !admitted {
+			return nil, fmt.Errorf("no allowed executor/reviewer pair")
+		}
+		return next, nil
 	}
 	state := filepath.Join(config.Home(), "state")
 	if name == "" {
@@ -58,7 +73,10 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 		if err != nil {
 			return nil, err
 		}
-		next := groups(selected)
+		next, err := groups(selected)
+		if err != nil {
+			return nil, err
+		}
 		names := func(key string) []string {
 			var names []string
 			for _, value := range next.List(key) {
@@ -66,8 +84,9 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 			}
 			return names
 		}
-		err = config.RememberDefaults(next.Str("orchestrator"), names("workers"), names("reviewers"),
-			func() error { return keepEfforts(state, bound.Models, models, offered) }, taken...)
+		err = savingAdviceEfforts(bound.Models, models, offered, func(keep func() error) error {
+			return config.RememberDefaults(next.Str("orchestrator"), names("workers"), names("reviewers"), keep, taken...)
+		})
 		return next, err
 	}
 	current, _, err := config.ResolveSession(name)
@@ -82,7 +101,11 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 			selectionErr = err
 			return false
 		}
-		next := groups(selected)
+		next, err := groups(selected)
+		if err != nil {
+			selectionErr = err
+			return false
+		}
 		ownEfforts(next, current, models)
 		efforts := run.NewObject()
 		if held := next.Dict("efforts"); held != nil {
@@ -126,9 +149,10 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 	return saved, err
 }
 
-// Board caches and their writes hold no seat state. Matrix cannot be imported here:
+// Recommendation caches and temporary originals do not affect seat listings. Matrix cannot be imported here:
 // its refresh reads the build through update, whose harness updates use seats.
 func recommendationState(name string) bool {
 	stem, suffix, _ := strings.Cut(name, ".")
-	return (stem == "boards" || stem == "matrix") && slices.Contains([]string{"json", "lock", "tmp"}, suffix)
+	return strings.HasPrefix(name, adviceBackupPrefix) ||
+		(stem == "boards" || stem == "matrix") && slices.Contains([]string{"json", "lock", "tmp"}, suffix)
 }

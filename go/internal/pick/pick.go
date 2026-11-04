@@ -75,12 +75,11 @@ func Within(executors, reviewers []string) (*Rules, bool) {
 	}
 	rules := &Rules{executors: executors, models: models, reviewList: reviewers}
 	for _, name := range reviewers {
-		// a harness that loads the checkout's own instructions would judge a branch by its rules
-		files, err := config.Words(models[name].Harness, "instructions", "workspace")
+		allowed, err := config.CanReview(models[name].Harness)
 		if err != nil {
 			return nil, false
 		}
-		if !slices.ContainsFunc(files, func(file string) bool { return file != "" }) {
+		if allowed {
 			rules.reviewers = append(rules.reviewers, name)
 		}
 	}
