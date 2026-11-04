@@ -36,6 +36,16 @@ class ExecutorsOff(unittest.TestCase):
     def turns(self):
         return [turn for fake in self.fakes.values() for turn in fake.runs()]
 
+    def test_negative_executor_lines_are_refused_naming_zero_as_the_floor(self):
+        for front in (False, True):
+            with self.subTest(front=front):
+                self.prepare(front, executor_lines=-1)
+                done = self.run_from_seat(str(taskfile.write(self.home, self.rig.path)))
+                self.assertEqual(done.code, 2, done.out + done.err)
+                self.assertIn("executor_lines must be a whole number of at least 0", done.err)
+                self.assertIn("the most added lines a first review reads", done.err)
+                self.assertEqual((taskfile.runs(self.home), self.turns()), ([], []))
+
     def test_tasks_are_refused_before_any_executor_starts(self):
         for front in (False, True):
             with self.subTest(front=front):
