@@ -4,7 +4,7 @@ usage: ak [command]
   run      execute a task file to a merged PR
   plan     show or write this session's checked plan
   notify   record a needs-you question
-  wait     end this turn waiting on a pull request or run
+  wait     end this turn waiting on a pull request, run or job
   usage    show provider usage and worker pick order
   models   score every model and effort per role from the public boards, recommend one per role
   browser  inspect the shared browser, sign in, register MCP tools, or install the stack
