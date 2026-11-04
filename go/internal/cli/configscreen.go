@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"slices"
@@ -42,9 +43,9 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			c.Selected, session, view.Scope = selected, current, current
 		}
 	}
-	catalogs := configCatalog{}
+	catalogs := waitingConfigCatalog(keyboard, painter, cells)
 	if err := catalogs.read(c); err != nil {
-		return false
+		return err == context.Canceled
 	}
 	defer painter.Forget()
 	for {
@@ -114,8 +115,11 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 				return false
 			}
 			c, err = matrix.Configured()
-			if err != nil || catalogs.read(c) != nil {
+			if err != nil {
 				return false
+			}
+			if err := catalogs.read(c); err != nil {
+				return err == context.Canceled
 			}
 			if session != "" {
 				if c.Selected, err = seat.ConfigSelection(session); err != nil || c.Selected == nil {

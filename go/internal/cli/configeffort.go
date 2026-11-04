@@ -10,18 +10,28 @@ import (
 )
 
 // A visit reads each harness once, before any key can step its models' efforts.
-type configCatalog map[string][]modelListing.Choice
+type configCatalog struct {
+	choices map[string][]modelListing.Choice
+	ask     func(string) ([]modelListing.Choice, error)
+}
 
-func (catalogs configCatalog) read(c *matrix.Configuration) error {
+func (catalogs *configCatalog) read(c *matrix.Configuration) error {
+	if catalogs.choices == nil {
+		catalogs.choices = map[string][]modelListing.Choice{}
+	}
+	ask := catalogs.ask
+	if ask == nil {
+		ask = modelListing.Choices
+	}
 	for _, name := range c.Names {
 		entry := c.Models[name]
-		choices, read := catalogs[entry.Harness]
+		choices, read := catalogs.choices[entry.Harness]
 		if !read {
 			var err error
-			if choices, err = modelListing.Choices(entry.Harness); err != nil {
+			if choices, err = ask(entry.Harness); err != nil {
 				return err
 			}
-			catalogs[entry.Harness] = choices
+			catalogs.choices[entry.Harness] = choices
 		}
 		for _, choice := range choices {
 			if choice.ID == entry.ID {

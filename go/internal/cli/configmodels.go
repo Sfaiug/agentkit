@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"strings"
 	"time"
 
@@ -115,7 +116,11 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 				return false // provider login choices still need Python before any model is saved
 			}
 			if _, read := catalogs[harness]; !read {
-				catalogs[harness], err = modelListing.Choices(harness)
+				choices, err := waitConfigCatalog(harness, "config · models", nil, keyboard, painter)
+				if err == context.Canceled {
+					continue
+				}
+				catalogs[harness] = choices
 				if err != nil {
 					note = err.Error()
 				}

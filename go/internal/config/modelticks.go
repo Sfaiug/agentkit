@@ -118,25 +118,26 @@ func (t *ModelTicks) Tick(harness, id, label string, levels []string, keep func(
 			removed = append(removed, namedModel{name, entry})
 			delete(models.values, name)
 		}
-		without, err := dump(root)
-		if err != nil {
-			return err
-		}
-		// Undoing a new model keeps even defaults and usage settings naming it before it existed.
-		if without != t.canonical {
-			for _, one := range removed {
-				provider, _ := one.entry.get("provider").(string)
-				entry, _ := providers.get(provider).(*table)
-				if entry.get("usage_model") == one.name {
-					delete(entry.values, "usage_model")
-				}
-				if entry.get("mode") == "free" && !slices.ContainsFunc(offered(root), func(name string) bool {
-					return models.get(name).(*table).get("provider") == provider
-				}) {
-					delete(providers.values, provider)
-				}
+		pruned := []string{}
+		for _, one := range removed {
+			// A model added here had no settings to clean up when this page opened.
+			if t.original.get("models").(*table).get(one.name) == nil {
+				continue
 			}
-			pruneModelDefaults(root, names)
+			pruned = append(pruned, one.name)
+			provider, _ := one.entry.get("provider").(string)
+			entry, _ := providers.get(provider).(*table)
+			if entry.get("usage_model") == one.name {
+				delete(entry.values, "usage_model")
+			}
+			if entry.get("mode") == "free" && !slices.ContainsFunc(offered(root), func(name string) bool {
+				return models.get(name).(*table).get("provider") == provider
+			}) {
+				delete(providers.values, provider)
+			}
+		}
+		if len(pruned) > 0 {
+			pruneModelDefaults(root, pruned)
 		}
 	} else {
 		entries := t.gone[key]

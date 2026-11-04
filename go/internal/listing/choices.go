@@ -1,6 +1,7 @@
 package listing
 
 import (
+	"context"
 	"slices"
 	"strings"
 
@@ -14,7 +15,10 @@ type Choice struct {
 }
 
 func Choices(harness string) ([]Choice, error) {
-	rows := Ask(harness)
+	return ChoicesContext(context.Background(), harness)
+}
+
+func choices(harness string, rows [][]string) ([]Choice, error) {
 	if len(rows) == 0 {
 		var err error
 		if rows, err = config.CatalogTable(harness); err != nil {
