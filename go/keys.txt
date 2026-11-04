@@ -138,8 +138,8 @@ test_key_rounds_is_a_setting
 test_key_rulebook_retold
 test_key_run_background
 test_key_run_clean
-test_key_run_no_worktree
 test_key_run_merge_refusals
+test_key_run_no_worktree
 test_key_run_nomerge_pass
 test_key_run_parse_errors
 test_key_run_seat_flags
