@@ -16,12 +16,12 @@ import (
 	"agentkit/internal/usage"
 )
 
-// Resume is `ak run resume <id>`, Python's resume_run on a dead run Go can pick up from: its
-// refusals in its words, `ak run`'s exit status, and why it refused.  Anything else it leaves to
-// Python (ErrPython) before it writes anything.
-func Resume(id string, bg bool, out, errOut io.Writer) (int, string, error) {
+func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
+	if expected != nil && !run.Equal(record, expected) {
+		return 2, loop.ErrChanged.Error(), nil
+	}
 	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) {
 		return 0, "", ErrPython
 	}

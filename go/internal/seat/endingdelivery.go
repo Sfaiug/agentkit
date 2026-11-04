@@ -1,16 +1,15 @@
-package handback
+package seat
 
 import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
-	"agentkit/internal/seat"
 )
 
-// Delivered endings are recorded when no work is owed, or ride on the next prompt
-// when they end no wait. An unread decision and a line awaiting its Enter stay pending.
-func routineDelivery(record *run.Object, session string) (recordOnly, pending bool) {
+// EndingDelivery is whether an ending is recorded without typing, or rides on the seat's
+// next prompt. The hand-back and a look use the same read of its plan and wait.
+func EndingDelivery(record *run.Object, session string) (recordOnly, pending bool) {
 	if !record.Truthy("merged") && record.Str("state") != "not_needed" {
 		return false, false
 	}
@@ -34,6 +33,6 @@ func routineDelivery(record *run.Object, session string) (recordOnly, pending bo
 	if !harness.TakesContext(own) {
 		return false, false
 	}
-	ends, err := seat.EndsWait(session, record)
+	ends, err := EndsWait(session, record)
 	return false, err != nil || !ends
 }

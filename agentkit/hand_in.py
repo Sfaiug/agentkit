@@ -54,6 +54,8 @@ def plan_check(command, root=None):
 
 
 def item_text(row):
+    if row["kind"] == "concede":
+        return f"{row['path']}:{row['line']} - {row['why']}"
     text = (item_text(row["finding"]) + "\nDispute: " + row["why"] if row["kind"] == "dispute"
             else f"{row['path']}:{row['line']} - {row['what']} - {row['why']}")
     evidence = row["evidence"]
@@ -76,6 +78,8 @@ def item_text(row):
         text += "\nOutside " + row["outside"]
     if row.get("replayed"):
         text += "\nRe-proven by ak on this commit: " + row["replayed"]
+    if row.get("conceded"):
+        text += "\nConceded: " + row["conceded"]
     return text.strip()
 
 
@@ -83,6 +87,7 @@ def item_text(row):
 class Review:
     records: list
     handed_findings: list = field(default_factory=list)
+    handed_disputes: list = field(default_factory=list)
 
     @property
     def closing(self):
@@ -164,19 +169,19 @@ def read(path):
             return Review([])
         records = rows[1:]
         role = rows[0].get("role", "reviewer")
-        allowed = (("finding", "follow-up", "done") if role.startswith("reviewer")
+        allowed = (("finding", "follow-up", "concede", "done") if role.startswith("reviewer")
                    else ("dispute", *CLOSING) if role.startswith("fixer") else CLOSING)
         if any(row.get("kind") not in allowed for row in records):
             return Review([])
         for row in records:
-            if row["kind"] in ("blocked", "not-needed"):
+            if row["kind"] in ("blocked", "not-needed", "concede"):
                 if not isinstance(row.get("why"), str) or not row["why"].strip():
                     return Review([])
-            elif row["kind"] != "done":
+            if row["kind"] not in CLOSING:
                 item_text(row)
         if any(row["kind"] in CLOSING for row in records[:-1]):
             return Review([])
-        return Review(records, rows[0].get("findings", []))
+        return Review(records, rows[0].get("findings", []), rows[0].get("disputes", []))
     except (OSError, ValueError, TypeError, KeyError, AttributeError):
         return Review([])
 
@@ -186,9 +191,12 @@ def start(out_dir, workspace, previous=None, role="reviewer", findings=None, che
     path = Path(out_dir).resolve() / FILE
     review = read(previous) if previous else None
     handed = (json.loads(Path(findings).read_text()) if findings
-              else review.handed_findings if review else [])
+              else review.handed_findings + review.handed_disputes if review else [])
     rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve()), "role": role,
-             "findings": handed}]
+             "findings": [row for row in handed if row["kind"] != "dispute"]}]
+    disputes = [row for row in handed if row["kind"] == "dispute"]
+    if disputes:
+        rows[0]["disputes"] = disputes
     if checks is not None:
         rows[0]["checks"] = checks
     if review:
@@ -214,8 +222,18 @@ def checked_site(site, workspace, quote=None):
     return root, path, line
 
 
-def checked(argv, workspace, role="reviewer", findings=()):
+def checked(argv, workspace, role="reviewer", findings=(), disputes=()):
     reviewing = role.startswith("reviewer")
+    if argv and argv[0] == "concede":
+        if not reviewing:
+            raise config.Error("concede is only for review turns")
+        if len(argv) != 3 or not argv[2].strip():
+            raise config.Error('use concede with path:line and one nonempty "why"')
+        dispute = next((row for row in disputes if argv[1] == f"{row['path']}:{row['line']}"), None)
+        if dispute is None:
+            raise config.Error("concede must name a dispute handed to this turn")
+        return {"kind": "concede", "path": dispute["path"], "line": dispute["line"],
+                "why": argv[2].strip()}
     if argv and argv[0] in ("blocked", "not-needed"):
         if reviewing:
             raise config.Error("blocked and not-needed are only for executor or fixer turns")
@@ -300,6 +318,26 @@ def checked(argv, workspace, role="reviewer", findings=()):
     return row
 
 
+def dispute_answers(disputes, records):
+    """An answer belongs to a disputed site; an uphold follows every line the fix left there."""
+    answers = {(row["path"], row["line"]): row for row in records if row["kind"] == "concede"}
+    for dispute in disputes:
+        site = dispute["path"], dispute["line"]
+        answers[site] = next((row for row in records if row["kind"] == "finding"
+                              and "run" in row["evidence"] and row["path"] == site[0]
+                              and row["line"] in dispute["lines"]), answers.get(site))
+    return answers
+
+
+def check_disputes(turn, records):
+    unanswered = [f"{path}:{line}" for (path, line), answer in
+                  dispute_answers(turn.get("disputes", []), records).items() if answer is None]
+    if unanswered:
+        raise config.Error("done refused: unanswered disputes:\n" + "\n".join(unanswered)
+                           + '\nUphold with `ak hand-in finding path:line "what" "why it matters" --run COMMAND`'
+                           + '\nor concede with `ak hand-in concede path:line "why"`.')
+
+
 def failed_checks(turn, commands):
     from . import record, worker
     timeout = shutil.which("timeout")
@@ -379,7 +417,9 @@ def main(argv):
             if any(row.get("kind") in CLOSING for row in rows):
                 raise config.Error("this turn is already closed; hand in records before done, blocked or not-needed")
             row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"),
-                          rows[0].get("findings", []))
+                          rows[0].get("findings", []), rows[0].get("disputes", []))
+            if row["kind"] == "done" and rows[0].get("role", "reviewer").startswith("reviewer"):
+                check_disputes(rows[0], rows[1:])
             if row["kind"] == "done" and not rows[0].get("role", "reviewer").startswith("reviewer"):
                 check_workspace(rows[0])
                 failed = failed_checks(rows[0], [(f"$ {cmd}", cmd)

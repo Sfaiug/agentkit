@@ -173,9 +173,9 @@ REVIEW_MIGRATIONS = (("round", "INTEGER"), ("verdict", "TEXT"), ("effort", "TEXT
 # replays) and per dispute its round answered, written with its `reviews` row: `handed` the
 # kind handed in, `kind` as weighed, `proof` its command (else its quote) and its exits on the
 # reviewed commit and on base (NULL where none ran), `replayed` ak's word on a replay, `reason`
-# why it was weighed down, and a dispute's `outcome`, upheld or dropped.  A finding ends where
-# its last row (same run, path and proof) does: fixed by its replay, or still a finding at the
-# budget.
+# why it was weighed down or conceded, and a dispute's `outcome`, upheld or conceded. A finding
+# ends where its last row (same run, path and proof) does: fixed by its replay, or still a
+# finding at the budget.
 FINDINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS findings (
     run_id TEXT,
@@ -713,7 +713,7 @@ def record_review(run_id, review_id, *, harness, model, blocking, followup, note
                 "commit_exit, base_exit, replayed, reason, outcome, at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 [(run_id, review_id, round, *_finding(row), at)
-                 for row in records if row["kind"] not in hand_in.CLOSING])
+                 for row in records if row["kind"] not in (*hand_in.CLOSING, "concede")])
 
     _write(insert, log)
 
@@ -729,7 +729,7 @@ def _finding(row):
     return (row["path"], row["line"], row.get("handed", row["kind"]), row["kind"],
             evidence.get("run", evidence.get("quote")),
             None if on_base is evidence else evidence.get("returncode"), on_base.get("returncode"),
-            row.get("replayed"), row.get("outside") or row.get("dropped"), row.get("outcome"))
+            row.get("replayed"), row.get("conceded") or row.get("outside") or row.get("dropped"), row.get("outcome"))
 
 
 def reviewed_runs(harness, model):

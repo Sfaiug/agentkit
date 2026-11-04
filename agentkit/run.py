@@ -1045,9 +1045,6 @@ def spawn_bg(run_dir, argv, expected=None, park_as=False):
             reason = f"Could not launch the run: {exc}"
             if park_as:
                 state = previous
-            elif (previous.get("reservation_pending") and
-                    previous.get("pid") == os.getpid()):
-                state = interrupt(previous, reason)
             elif previous.get("slot_waiting"):
                 state = {**previous, "pid": None, "process_identity": None,
                          "launch_pending": False, "launch_error": reason}

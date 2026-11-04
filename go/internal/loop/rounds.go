@@ -30,8 +30,10 @@ func (l *loop) roundDir() string {
 // rounds is executor, checks and reviewer until a PASS or the budget is spent, Python's rounds:
 // whether the last review passed.
 func (l *loop) rounds() (bool, error) {
-	if record, _ := run.Read(l.dir); record != nil && landingLine(record) != "" {
-		return true, nil // the lander's verdict resumes delivery, never a task round
+	if record, _ := run.Read(l.dir); record != nil {
+		if landingLine(record) != "" || l.prior && run.ReviewPass(record, run.Models()) && savedIntegrationPass(record) {
+			return true, nil // a saved PASS resumes delivery, never a task round
+		}
 	}
 	if l.prior {
 		if passed, err := l.resumeReview(); err != nil || passed {

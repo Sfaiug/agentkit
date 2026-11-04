@@ -17,7 +17,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "tests"))
-from agentkit import record, update
+from agentkit import record, run, update
 import sandbox_branch
 
 GH = r'''#!/bin/bash
@@ -118,7 +118,8 @@ class SandboxBranch(unittest.TestCase):
         self.done(self.sandbox("open", "a", "seed"), self.sandbox("open", "b", "seed"))
         self.assertNotIn(CREATE, (self.root / "gh.log").read_text().splitlines())
         for clone in "ab":
-            self.assertEqual(self.git("-C", clone, "ls-files"), "tests/test_hello.py")
+            self.assertEqual(self.git("-C", clone, "ls-files"), "AGENTS.md\ntests/test_hello.py")
+            run.require_project_contract(self.root / clone)     # a launch there is not refused
         a, b = self.run_from("a"), self.run_from("b")
         heads = self.heads()
         self.assertEqual(set(heads), {"refs/heads/main", "refs/heads/trunk",
@@ -143,7 +144,7 @@ class SandboxBranch(unittest.TestCase):
         self.assertEqual(self.git(*origin, "symbolic-ref", "HEAD"), "refs/heads/main")
         self.assertEqual(self.git(*origin, "ls-tree", "--name-only", "main"), "README.md")
         self.assertEqual(len(self.heads()), 3)
-        self.assertEqual(self.git("-C", "b", "ls-files"), "tests/test_hello.py")
+        self.assertEqual(self.git("-C", "b", "ls-files"), "AGENTS.md\ntests/test_hello.py")
 
     def test_the_ceiling_outlasts_every_suite_ak_runs(self):
         self.assertGreater(sandbox_branch.CEILING,

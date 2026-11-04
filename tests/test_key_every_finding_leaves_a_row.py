@@ -43,6 +43,8 @@ REVIEW = {"final": "Found four.", "hand_in": [
 FIX = {"write": {"words.txt": "First\nsecond\n"}, "commit": "capitalise the first line",
        "final": "## Summary\ncapitalised the first line", "hand_in": [
            ["dispute", "words.txt:2", "lower case is the house style", "--run", "true"], ["done"]]}
+CONCEDE = {"final": "Agreed.", "hand_in": [
+    ["concede", "words.txt:2", "Lower case is allowed."], ["done"]]}
 # The Home's notify sink marks every run a test suite's, which ak never records: the owner's runs
 # go without it, and with no webhook configured nothing is posted anywhere.
 OWNERS = {"AK_NOTIFY_SINK": None}
@@ -56,13 +58,13 @@ class EveryFindingLeavesARow(unittest.TestCase):
         cls.rig = Rig(cls.home, "widgets", files={"legacy.txt": "legacy\n"})
         cls.db = cls.home.path / ".agentkit" / "history.db"
         akconfig.write(cls.home, ["opus", "astra"])
-        cls.fakes = fakeadapter.install(cls.home, claude=[WORK, FIX], codex=[REVIEW, "pass"])
+        cls.fakes = fakeadapter.install(cls.home, claude=[WORK, FIX], codex=[REVIEW, CONCEDE])
         cls.two = cls.launch("Add retry file", OWNERS)
         # a fix that puts base back, disputing the second finding: the next round reviews base
         cls.fakes["claude"].behave(WORK, {"sh": f"git reset -q --hard {cls.rig.head()}",
                                           "final": "## Summary\nput base back",
                                           "hand_in": FIX["hand_in"]})
-        cls.fakes["codex"].behave(REVIEW, "pass")
+        cls.fakes["codex"].behave(REVIEW, CONCEDE)
         cls.reset = cls.launch("Put base back", OWNERS, done_when=("true",))
         cls.fakes["claude"].behave("work")
         cls.fakes["codex"].behave("fail")
@@ -110,14 +112,15 @@ class EveryFindingLeavesARow(unittest.TestCase):
         # proven on base alone, where it fails
         self.assertEqual((follow_up["commit_exit"], follow_up["base_exit"] != 0), (None, True))
 
-    def test_round_two_has_the_fixed_finding_s_replay_and_the_dropped_dispute(self):
+    def test_round_two_has_the_fixed_finding_s_replay_and_the_conceded_dispute(self):
         replay, dispute = self.rows(self.two, 2)
         self.assertEqual((replay["path"], replay["line"], replay["handed"], replay["kind"],
                           replay["proof"], replay["replayed"]),
                          ("words.txt", 1, "finding", "note", FIRST, "fixed; its proof passes now"))
         self.assertEqual((dispute["path"], dispute["line"], dispute["handed"], dispute["kind"],
                           dispute["proof"], dispute["commit_exit"], dispute["outcome"]),
-                         ("words.txt", 2, "dispute", "dispute", "true", 0, "dropped"))
+                         ("words.txt", 2, "dispute", "dispute", "true", 0, "conceded"))
+        self.assertEqual(dispute["reason"], "Lower case is allowed.")
 
     def test_a_proof_on_reviewed_work_that_is_base_s_own_is_its_exit_there_alone(self):
         self.assertEqual(self.reset["round_summaries"][-1]["head_sha"], self.rig.head())

@@ -78,6 +78,10 @@ def open_branch(clone, seed):
     branch = f"suite-{secrets.token_hex(6)}"
     git(clone, "switch", "-q", "--orphan", branch)
     shutil.copytree(seed, clone, dirs_exist_ok=True)
+    # ak launches a task only in a project declaring its suite and its live check; a sandbox
+    # seed that declares neither has none of either
+    if not Path(clone, "AGENTS.md").exists():
+        Path(clone, "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
     git(clone, "add", "-A")
     # its branch's name in it: two suites' seeds of the same files in the same second are
     # otherwise one commit, and each suite's `close` would take the other's branches too

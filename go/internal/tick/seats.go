@@ -103,6 +103,9 @@ func health() error {
 // revive is the seat revival row where every seat is up (watch.revive_seats): a seat seen live
 // again forgets the deaths it was reopened after, so its next is a new one.
 func revive() error {
+	if !noRunRevival() && !seat.FileProjects(time.Now()) {
+		return errLeft
+	}
 	lives, err := lives()
 	if err != nil {
 		return err

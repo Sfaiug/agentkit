@@ -17,6 +17,7 @@ is a word, which acts by the turn's role as its prompt's first line names it:
     fail        as work              as work              hand-in finding retry.txt:1, done
     dispute     as work              hand-in dispute      hand-in done
                                      retry.txt:1, done
+    concede     hand-in concede retry.txt:1, done (review only)
     blocked     hand-in blocked "the fixture needs the owner", in any role (a review
                 turn refuses it)
     not-needed  hand-in not-needed "the fixture found nothing to do", as blocked
@@ -73,6 +74,8 @@ FAIL = {"final": "Found one.", "hand_in": [
      "test ! -f retry.txt"], ["done"]]}
 DISPUTE = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "not a defect", "--run", "true"], ["done"]]}
+CONCEDE = {"final": "Conceded.", "hand_in": [
+    ["concede", "retry.txt:1", "The task requires this file."], ["done"]]}
 LENT = ".fake/login.json"
 
 
@@ -87,6 +90,7 @@ def _every(step):
 WORDS = {"work": {**_every(WORK), "reviewer": PASS}, "pass": _every(PASS),
          "fail": {**_every(WORK), "reviewer": FAIL},
          "dispute": {"executor": WORK, "fixer": DISPUTE, "reviewer": PASS},
+         "concede": _every(CONCEDE),
          "blocked": _every({"final": "Blocked.",
                             "hand_in": [["blocked", "the fixture needs the owner"]]}),
          "not-needed": _every({"final": "Not needed.",

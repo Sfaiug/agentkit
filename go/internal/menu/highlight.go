@@ -18,7 +18,7 @@ type Frame struct {
 	Lines               []string
 	spots, order, turns []string
 	cursor              string
-	page, width         int
+	page, width, height int
 }
 
 // Move answers navigation against the frame the owner saw, without reading any record.

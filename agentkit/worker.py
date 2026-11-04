@@ -29,9 +29,9 @@ FIX_OR_DISPUTE = ('[worker judgement] You may dispute a finding instead of chang
 ONE_PASS = ("[worker judgement] Report every finding you can establish in this one pass, grouped by "
             "pattern with every site listed.\n"
             "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
-            "with ak's proof output; findings handed in again are weighed normally, others are dropped.\n"
-            "[worker judgement] Uphold a disputed finding by handing it in again with "
-            "`ak hand-in finding`. Drop it by not handing it in again.\n"
+            "with ak's proof output; findings handed in again are weighed normally.\n"
+            "[checked by ak: tests/test_key_disputes_are_answered.py] ak requires an answer to every dispute: uphold with "
+            '`ak hand-in finding`, or concede with `ak hand-in concede path:line "why"`; done waits for every answer.\n'
             "[checked by ak: tests/test_blocking_gate.py] ak re-proves each earlier --run finding on the "
             "commit a later round reviews and lists the disputed ones for you: one still "
             "failing blocks whatever is handed in, and a new finding blocks only inside the fix delta, "
