@@ -121,7 +121,7 @@ class ModelsWhy(unittest.TestCase):
 
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
         term, _ = self.models()
-        self.assertEqual(self.why(term, "Down", "Down", "Down")[:len(CRUX_ORCH)], CRUX_ORCH)
+        self.assertEqual(self.why(term, *["Down"] * 4)[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
         shown = self.rows(term.wait("comparing all 4 models"))
         self.assertIn("›          Crux 2          low     ~     93.2   $1.00  2 missing", shown)
@@ -130,7 +130,7 @@ class ModelsWhy(unittest.TestCase):
 
     def test_on_40_cells_each_measures_how_takes_a_line_under_it(self):
         term, _ = self.models(40)
-        self.assertEqual(self.why(term, *["Down"] * 8)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
+        self.assertEqual(self.why(term, *["Down"] * 9)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
 
     def test_a_why_taller_than_the_screen_turns_its_pages(self):
         term, _ = self.models(40, 14)
