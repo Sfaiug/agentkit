@@ -126,7 +126,9 @@ class Answer(unittest.TestCase):
                          {"rated": [], "best": None, "pick": None, "front": [], "take": None})
 
     def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
-        execute = matrix.answer(self.lineup, {"bolt-2", "crux-1"})["execute"]
+        lineup = [dict(row, yours=row["yours"] if row["release"] == "crux-1" else [])
+                  for row in self.lineup]
+        execute = matrix.answer(lineup)["execute"]
         self.assertEqual((key(execute["pick"]), key(execute["take"])),
                          (("bolt-2", "high"), ("crux-1", "medium")))
 
