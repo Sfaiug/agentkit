@@ -12,10 +12,8 @@ and a seat renamed still shows its runs under its new name on the next.
 Black-box, on tests/test_key_idle_screen_reads_only_what_changed.py's open screen.
 """
 
-import json
 import os
 from pathlib import Path
-import shutil
 import sys
 import time
 import unittest
@@ -44,11 +42,16 @@ def going(record):
             "started_at": time.time(), "finished_at": None}
 
 
-class RunsAtRestCostAnOpenScreenLittle(OpenScreen):
-    """A screen over three seats, measured with no runs and left with the 6,000 read."""
+class RestScreen(OpenScreen):
+    """A screen over three seats and 6,000 runs at rest."""
 
     @classmethod
     def setUpClass(cls):
+        cls.open()
+        cls.fill()
+
+    @classmethod
+    def open(cls):
         cls.home = home = Home(tmux_log=False)
         cls.addClassCleanup(home.close)
         akconfig.write(home, ["opus"])
@@ -58,8 +61,11 @@ class RunsAtRestCostAnOpenScreenLittle(OpenScreen):
         cls.menu = Terminal(home, "--client", size=(100, 60))
         cls.menu.wait(row(SEATS[2]), bound=BOUND)
         cls.pid = cls.screen_pid()
-        cls.steady()
-        cls.bare = cls.still_minute()
+
+    @classmethod
+    def fill(cls):
+        home, now = cls.home, int(time.time())
+        repo = home.path / "code" / "acme"
         cls.runs, cls.files = {}, []
         for n in range(RUNS):                     # as a home keeps them
             seat = SEATS[n // OWN] if n < 3 * OWN else f"past-{n % 100:02}"
@@ -70,6 +76,18 @@ class RunsAtRestCostAnOpenScreenLittle(OpenScreen):
             cls.runs[seat] = kept
             cls.files.append((kept, task, repo))
         cls.quiet(cls.held())
+
+    def not_working(self, screen):
+        return row(SEATS[2])(screen) and not row(SEATS[2], "● working")(screen)
+
+
+class RunsAtRestCostAnOpenScreenLittle(RestScreen):
+    @classmethod
+    def setUpClass(cls):
+        cls.open()
+        cls.steady()
+        cls.bare = cls.still_minute()
+        cls.fill()
 
     @classmethod
     def steady(cls):
@@ -112,46 +130,6 @@ class RunsAtRestCostAnOpenScreenLittle(OpenScreen):
         added = self.still_minute() - self.bare
         look = sum(self.plain_look() for _ in range(5)) / 5
         self.assertLess(added, LOOKS * look, f"the runs add {added} ticks, a plain look is {look}")
-
-    def test_2_a_run_at_rest_that_changes_still_shows(self):
-        for seat in SEATS[:2]:                    # past no mark: the run's writer told nobody
-            self.home.write(self.runs[seat], going(json.loads(self.runs[seat].read_text())))
-        for seat in SEATS[:2]:
-            self.menu.wait(row(seat, "● working"), bound=LATE)
-
-    def test_3_a_new_run_shows_at_once_and_goes_with_its_directory(self):
-        record = going(ended(RUNS, SEATS[2], time.time()))
-        kept = self.home.write(f".agentkit/runs/{record['run_id']}/run.json", record)
-        (self.home.path / ".agentkit/state/runs-moved").touch()
-        self.menu.wait(row(SEATS[2], "● working"))
-        shutil.rmtree(kept.parent)
-        self.menu.wait(self.not_working)
-
-    def not_working(self, screen):
-        return row(SEATS[2])(screen) and not row(SEATS[2], "● working")(screen)
-
-    def test_4_a_symlink_that_moved_shows_by_a_full_read_and_a_changed_record_at_once(self):
-        code, sandbox = self.home.path / "code", self.home.path / ".agentkit/tmp/smoke-acme"
-        link = code / "acme-link"
-        sandbox.mkdir(parents=True)
-        link.symlink_to(code / "acme")
-        record = {**going(ended(RUNS + 1, SEATS[2], time.time())), "repo": str(link)}
-        kept = self.home.write(f".agentkit/runs/{record['run_id']}/run.json", record)
-        moved = self.home.path / ".agentkit/state/runs-moved"
-        moved.touch()
-        self.menu.wait(row(SEATS[2], "● working"))
-        link.unlink()                             # now the suite's own run, which no screen counts
-        link.symlink_to(sandbox)
-        self.menu.wait(self.not_working, bound=LATE)
-        self.home.write(kept, {**record, "repo": str(code / "acme")})
-        moved.touch()
-        self.menu.wait(row(SEATS[2], "● working"))
-
-    def test_5_a_seat_renamed_shows_its_runs_under_its_new_name(self):
-        self.menu.wait(row(SEATS[1], "● working"), bound=LATE)      # test_2's run, still going
-        done = self.home.ak("orch", "rename", SEATS[1], "acme-renamed")
-        self.assertEqual(done.code, 0, done.err)
-        self.menu.wait(row("acme-renamed", "● working"))
 
 
 if __name__ == "__main__":

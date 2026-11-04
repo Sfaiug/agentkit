@@ -155,6 +155,9 @@ class OrchestratorQuestion(unittest.TestCase):
         self.assertIn("Orchestrator [beta]:", done.out)
         return [line for line in done.out.splitlines() if line.startswith("orch: ")]
 
+    # `n` keeps the orchestrator question so the owner switches freely; here a piped
+    # `ak orch --dry-run` asks it, while the menu's new row uses Tab to pick models.
+    # [18 Sep - 26 Oct 2026]
     def test_a_number_or_a_name_picks_the_orchestrator(self):
         for answer in ("2", "delta"):
             with self.subTest(answer=answer):

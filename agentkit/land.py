@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, transitions, turns, update
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -688,6 +688,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
                "since": wait["joined"], "line": wait["line"]}
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
     marks, pieces, confirmed = [], {}, {}
+    timings = {}
     flaky = [] if flaky is None else flaky
     # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
     # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
@@ -698,7 +699,12 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
-            flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits)
+            flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits,
+            timings=timings)
+    if ok and suite and kind == "landing" and not shard and not only:
+        if failure := suite_times.refusal(scratch, _upstream(state), suite, timings):
+            ok = False
+            text += "\n\n" + failure
     moved = (not clean or gitcall.commit_identity(scratch) != identity
              or run.git_out(scratch, "diff", "--quiet", "HEAD")[0])
     if moved:

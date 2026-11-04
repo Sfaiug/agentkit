@@ -2,7 +2,7 @@
 models that are it (`lineup`), answered per role on quality and cost alone (`answer`), the
 cheapest within `within` of the best the pick; `rank` places each configured model off it.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
-their count, and never rank (AGENTS.md, Owner rules).
+their count, and never rank (tests/test_matrix_live_column.py).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
 """
 
@@ -337,10 +337,14 @@ def main(argv):
     marked = compared(cfg, current)
     found, own = answer(rows, within(cfg), marked), live(cfg)
     if "--json" in flags:
+        from . import usage     # only JSON asks for subscription measurements
+        rates = usage.model_rates(cfg)
         json.dump({**{role: {"best": said["best"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
              "notes": notes(row, said)} for row in said["front"]]}
-            for role, said in found.items()}, "live": own}, sys.stdout, indent=2)
+            for role, said in found.items()}, "live": own, "usage": rates,
+            "task_usage": usage.task_usage(rates)},
+            sys.stdout, indent=2)
         print()
         return 0
     body, _ = menu.models_body(menu.models_said(found, rows, within(cfg)), within(cfg), marked,

@@ -84,12 +84,16 @@ func Start(dir string, out io.Writer, detached bool) error {
 		if record.Str("state") == "stopped" {
 			return ErrStopped
 		}
-		pid, err := spawn(dir, detached)
+		waiting := record.Str("state") == "queued" && record.Truthy("slot_waiting")
+		pid, err := spawn(dir, detached, record)
 		if err != nil {
 			return err
 		}
 		run.SetAll(record, "state", "running", "slot_waiting", false, "launch_pending", false, "pid", pid,
 			"process_identity", identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
+		if waiting {
+			run.SetAll(record, "state", "queued", "slot_waiting", true)
+		}
 		record.Delete("reservation_pending")
 		record.Delete("resume_from")
 		return nil
@@ -99,7 +103,7 @@ func Start(dir string, out io.Writer, detached bool) error {
 	}
 	if started != nil {
 		reason := "Could not launch the run: " + started.Error()
-		End(dir, reason)
+		failedStart(dir, reason)
 		return errors.New(reason)
 	}
 	appendLog(dir, stamped("scope: none (no user systemd manager)"))
@@ -117,7 +121,7 @@ func identity(pid int) any {
 
 // spawn starts the run's driver, writing to the run's log, and reaps it when it ends: a zombie
 // still answers as alive.
-func spawn(dir string, detached bool) (int, error) {
+func spawn(dir string, detached bool, record *run.Object) (int, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, err
@@ -128,6 +132,12 @@ func spawn(dir string, detached bool) (int, error) {
 	}
 	defer log.Close()
 	cmd := exec.Command(self, "run", DriveFlag, dir)
+	if record.Truthy("followup") {
+		cmd.Env, err = siblingEnv(record)
+		if err != nil {
+			return 0, err
+		}
+	}
 	cmd.Stdout, cmd.Stderr = log, log
 	if detached {
 		cmd.SysProcAttr = host.Detached()
@@ -249,7 +259,10 @@ func Drive(dir string) (code int) {
 	ctx, release := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
-	err := l.adopt()
+	err := l.admitQueued()
+	if err == nil {
+		err = l.adopt()
+	}
 	switch {
 	case err != nil:
 	case l.pull != "":
@@ -672,6 +685,10 @@ func settle(dir string) *run.Object {
 		return nil
 	}
 	said := stampedLog{dir}
+	record = finishSeat(dir, record)
+	if record == nil {
+		return nil
+	}
 	recordResult(dir, record)
 	host.EndMarked(dir, said)
 	if record.Truthy("merged") {

@@ -1126,7 +1126,8 @@ def reading(provider, account=None):
     return _cached_provider(provider, account).get("meters") or []
 
 
-def record_pairs(cfg, name, account, before, tokens, meters, now=None):
+def record_pairs(cfg, name, account, before, tokens, meters, now=None, *,
+                 run_id=None, role="executor"):
     """Keep what one worker turn of `name` spent beside how far it moved each weekly meter.
 
     `before` is the subscription's reading from before the turn, and the reading after it is
@@ -1141,7 +1142,8 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
     tokens = _number(tokens)
     if tokens is None or tokens <= 0 or not before:
         return {}
-    provider = config.model(cfg, name)["provider"]
+    entry = config.model(cfg, name)
+    provider = entry["provider"]
     at = time.time() if now is None else now
     if not meters:
         prov = _probe_gently(_on_disk(cfg), provider, account)
@@ -1161,7 +1163,9 @@ def record_pairs(cfg, name, account, before, tokens, meters, now=None):
                 or _number(meter.get("resets_at")) != ends or ends <= at or used < prior):
             continue
         pairs[meter["name"]] = {"at": at, "tokens": tokens, "moved": used - prior,
-                                "resets_at": ends}
+                                "resets_at": ends, "prior": prior, "model": name,
+                                "effort": config.role_effort(entry, role),
+                                "run_id": run_id, "role": role}
         read.append((meter, pairs[meter["name"]]))
     if read:
         _keep_pairs(provider, account, read)
@@ -1267,6 +1271,107 @@ def _keep_pairs(provider, account, read):
             tmp.unlink(missing_ok=True)
 
 
+def _allocated(pairs):
+    """Split each claimed meter range once, by tokens, within its reset window.
+
+    Meter coordinates distinguish partial overlaps without guessing when a whole-percent
+    tick happened. Legacy pairs have no starting coordinate and retain their old weight.
+    """
+    moved = [pair["moved"] if _number(pair.get("prior")) is None else 0.0 for pair in pairs]
+    for ends in {pair["resets_at"] for pair in pairs}:
+        claims = [(i, pair) for i, pair in enumerate(pairs) if pair["resets_at"] == ends
+                  and _number(pair.get("prior")) is not None and pair["tokens"] > 0
+                  and pair["moved"] > 0]
+        points = sorted({point for _, pair in claims
+                         for point in (pair["prior"], pair["prior"] + pair["moved"])})
+        for left, right in zip(points, points[1:]):
+            covering = [(i, pair) for i, pair in claims
+                        if pair["prior"] <= left and pair["prior"] + pair["moved"] >= right]
+            tokens = sum(pair["tokens"] for _, pair in covering)
+            for i, pair in covering:
+                moved[i] += (right - left) * pair["tokens"] / tokens
+    return moved
+
+
+def model_rates(cfg):
+    """Per model and effort, weekly percentage points per million tokens, or None.
+
+    Pool subscriptions by tokens, excluding model-specific caps. Zero-move turns contribute
+    tokens; an entirely unmoved model/effort has no rate. No endpoint is asked.
+    """
+    models = {name: cfg["models"][name] for name in config.offered(cfg)}
+    totals = {}
+    for provider, accounts in _measured().items():
+        scoped = {entry.get("meter") for entry in models.values()
+                  if entry["provider"] == provider}
+        for account, meters in _record(accounts).items():
+            login = None if account == config.DEFAULT_ACCOUNT and not config.accounts(
+                cfg, provider) else account
+            shared = shared_week(cfg, provider, _cached_provider(provider, login)) or {}
+            for name, values in _record(meters).items():
+                if name in scoped or (shared and name != shared["name"]):
+                    continue
+                pairs, seen = _pairs(values), _seen(provider, account, name)
+                ends = _number(shared.get("resets_at")) or max(
+                    [*seen, *(pair["resets_at"] for pair in pairs)], default=None)
+                pairs = _recent(pairs, seen, ends, _number(shared.get("window_secs")))
+                for pair, moved in zip(pairs, _allocated(pairs)):
+                    model, effort = pair.get("model"), pair.get("effort")
+                    if (model not in models or not isinstance(effort, str)
+                            or models[model]["provider"] != provider):
+                        continue
+                    total = totals.setdefault((model, effort), [0.0, 0.0])
+                    total[0] += pair["tokens"]
+                    total[1] += moved
+    found = {}
+    for name, entry in models.items():
+        efforts = {config.role_effort(entry, role) for role in config.ROLE_EFFORTS}
+        efforts |= {effort for model, effort in totals if model == name}
+        found[name] = {}
+        for effort in sorted(efforts):
+            tokens, moved = totals.get((name, effort), (0, 0))
+            found[name][effort] = 1e6 * moved / tokens if tokens > 0 and moved > 0 else None
+    return found
+
+
+def task_usage(rates):
+    """Mean weekly percentage points per complete run, separately for each worker role."""
+    roles = ("executor", "reviewer")
+    found = {model: {effort: dict.fromkeys(roles) for effort in efforts}
+             for model, efforts in rates.items()}
+    runs, samples = {}, {}
+    for provider, accounts in _measured().items():
+        for account, meters in _record(accounts).items():
+            for values in _record(meters).values():
+                for pair in _pairs(values):
+                    run, role = pair.get("run_id"), pair.get("role")
+                    if isinstance(run, str) and run and role in roles:
+                        runs.setdefault((run, role), []).append((provider, account, pair))
+    for (run, role), pairs in runs.items():
+        model, effort = pairs[0][2].get("model"), pairs[0][2].get("effort")
+        if (not isinstance(model, str) or not isinstance(effort, str)
+                or any((p.get("model"), p.get("effort")) != (model, effort)
+                       for _, _, p in pairs)):
+            continue
+        rate = rates.get(model, {}).get(effort)
+        if rate is None:
+            continue
+        # One turn can pair several gating meters at the same timestamp.
+        tokens = {(provider, account, p["at"]): p["tokens"]
+                  for provider, account, p in pairs}
+        launches = sum(("reviewer" if receipt.parent.name.startswith("reviewer") else
+                        "executor") == role
+                       for receipt in (config.RUNS / run).glob("round-*/*/harness"))
+        # A missed reading (or pruned window) must not make a task look cheaper. Without
+        # every launch receipt and its pair, including after diagnostics go, it is unknown.
+        if launches != len(tokens) or not launches or any(t <= 0 for t in tokens.values()):
+            continue
+        samples.setdefault((model, effort, role), []).append(sum(tokens.values()) * rate / 1e6)
+    for (model, effort, role), shares in samples.items():
+        found[model][effort][role] = sum(shares) / len(shares)
+    return found
+
+
 def holds(provider, account, meter):
     """(the tokens 100% of this subscription's `meter`, a reading's, stands for, the pairs it is
     measured from): those of the window the reading names and the one before it (`_recent`),
@@ -1275,7 +1380,7 @@ def holds(provider, account, meter):
     pairs = _recent(_pairs(_record(_record(_measured().get(provider)).get(
         account or config.DEFAULT_ACCOUNT)).get(name)), _seen(provider, account, name),
         _number(meter.get("resets_at")), _number(meter.get("window_secs")))
-    moved = sum(pair["moved"] for pair in pairs)
+    moved = sum(_allocated(pairs))
     return (round(100 * sum(pair["tokens"] for pair in pairs) / moved) if moved > 0 else None,
             len(pairs))
 

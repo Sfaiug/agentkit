@@ -17,7 +17,6 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
-	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -59,11 +58,6 @@ func (r *repoPlace) deliver(l *loop) error {
 		if err := r.requireReviewPass(l); err != nil {
 			return err
 		}
-	}
-	// a seat's merge settles the seat's plan and hands its follow-ups on as it lands, which only
-	// Python's `ak run merge` does yet: the passed work waits there, nothing pushed
-	if run.Seat(record) != "" {
-		return r.note(l, "a seat's merge is not Go's yet", true)
 	}
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "merged", false, "merge_failed", false, "merge_note", nil, "on_target", false)
@@ -504,19 +498,7 @@ func (r *repoPlace) mergeLock(l *loop, upstream string) (*os.File, error) {
 	if err := os.MkdirAll(run.Runs(), 0o777); err != nil {
 		return nil, err
 	}
-	held, err := lock.Try(path)
-	if !errors.Is(err, lock.ErrHeld) {
-		return held, err
-	}
-	if err := l.save(func(record *run.Object) { record.Set("delivery_wait", os.Getpid()) }); err != nil {
-		return nil, err
-	}
-	held, err = lock.Wait(l.ctx, path)
-	if unmarked := write(l.dir, func(record *run.Object) { record.Delete("delivery_wait") }); err == nil && unmarked != nil {
-		held.Close()
-		return nil, unmarked
-	}
-	return held, err
+	return l.deliveryLock(path)
 }
 
 // turn is the delivery lock for the repository and target, Python's turn_path: the landing line

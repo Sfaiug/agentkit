@@ -1,6 +1,7 @@
-"""Executor prose cannot close a turn or skip its checks and review."""
+"""An executor answer without a closing goes straight to checks and review."""
 
 from contextlib import ExitStack
+import json
 import os
 from pathlib import Path
 import sys
@@ -10,7 +11,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, hand_in, roundloop, run, staffing, transitions, turns, worker
+from agentkit import box, config, hand_in, roundloop, run, staffing, transitions, turns, worker
 
 
 class ExecutorTextIgnored(unittest.TestCase):
@@ -45,24 +46,20 @@ class ExecutorTextIgnored(unittest.TestCase):
         self.calls = []
         self.closing = None
         self.background = False
-        self.background_on_ask = False
         self.channel = False
 
     def turn(self, _cfg, _model, body, cwd, out, role, sid=None, env=None, **_kw):
         self.calls.append((body, sid))
-        self.assertLessEqual(len(self.calls), 2, "the executor is asked only once more")
         out.mkdir(parents=True, exist_ok=True)
         (out / "prompt.md").write_text(worker.PREAMBLES[role].format(workspace=cwd) + "\n\n" + body)
         (out / "final.md").write_text(self.text)
         (out / "session_id").write_text("fixture-session")
-        if self.channel or len(self.calls) == 2 and self.closing:
+        if self.channel or self.closing:
             file = hand_in.start(out, cwd, (env or {}).get(hand_in.CONTINUE), role=role)
-            if len(self.calls) == 2 and self.closing:
+            if self.closing:
                 with patch.dict(os.environ, {hand_in.ENV: file}):
                     hand_in.main(self.closing)
-        unfinished = (self.background and len(self.calls) == 1
-                      or self.background_on_ask and len(self.calls) == 2)
-        return 0, self.text, "fixture-session", False, unfinished
+        return 0, self.text, "fixture-session", False, self.background
 
     def checked(self):
         with patch.object(worker, "turn", side_effect=self.turn), \
@@ -71,51 +68,41 @@ class ExecutorTextIgnored(unittest.TestCase):
             run.rounds(self.lp)
         checks.assert_called_once_with(self.lp)
         review.assert_called_once()
-        self.assertEqual(len(self.calls), 2)
-        self.assertEqual(self.calls[1][1], "fixture-session")
-        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
+        self.assertEqual(len(self.calls), 1)
         self.assertNotIn("not_needed", self.lp.state)
         self.assertEqual(roundloop.continuation(self.lp), "done-when")
 
-    def test_blocked_heading_without_hand_in_is_asked_once_then_checked(self):
+    def test_blocked_heading_without_hand_in_is_checked(self):
         self.text = "## Blocked"
         self.checked()
 
-    def test_followup_not_needed_prose_without_hand_in_is_asked_once_then_checked(self):
+    def test_followup_not_needed_prose_without_hand_in_is_checked(self):
         self.lp.state["followup"] = {"place": "api.py:1"}
         self.text = "not needed: gone"
         self.checked()
 
-    def test_fixer_without_hand_in_is_asked_once(self):
+    def test_fixer_without_hand_in_is_done(self):
         self.lp.rnd = 1
         self.text = "## Blocked"
         with patch.object(worker, "turn", side_effect=self.turn):
             self.assertEqual(run.execute(self.lp, "fixer", "Fix the task.", "fixer"), self.text)
-        self.assertEqual(len(self.calls), 2)
-        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
-        self.assertEqual(self.calls[1][1], "fixture-session")
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(roundloop.continuation(self.lp), "done-when")
 
-    def test_task_quoting_the_closing_ask_still_needs_hand_in(self):
-        self.text = "## Blocked"
-        self.lp.context = "Document this prompt: " + turns.NO_CLOSING_ASK
-        self.checked()
-
-    def test_empty_record_channel_still_needs_the_extra_ask(self):
+    def test_empty_record_channel_goes_straight_to_checks(self):
         self.text = "## Blocked"
         self.channel = True
         self.checked()
 
-    def test_completed_prose_after_host_interruption_still_needs_the_extra_ask(self):
+    def test_completed_prose_after_host_interruption_goes_straight_to_checks(self):
         self.text = "## Blocked"
         self.lp.rnd = 1
         self.turn(self.lp.cfg, self.lp.executor, "Do the task.", self.lp.wt,
                   self.lp.dir("executor"), self.lp.role("executor"))
         self.lp.rnd = 0
         self.checked()
-        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
 
-    def test_restart_after_a_resumed_turn_and_its_ask_does_not_ask_again(self):
+    def test_restart_after_a_resumed_turn_does_not_call_again(self):
         self.text = "## Summary\nwork"
         self.lp.rnd = 1
         cut = self.lp.dir("executor")
@@ -128,14 +115,28 @@ class ExecutorTextIgnored(unittest.TestCase):
                 self.lp.rnd = 0
                 self.lp.state["step"] = "done-when"
                 run.rounds(self.lp)
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(checks.call_count, 2)
         self.assertEqual(review.call_count, 2)
         self.assertEqual(roundloop.continuation(self.lp), "done-when")
         for call in review.call_args_list:
             self.assertIn(self.text, call.args[1])
 
-    def test_restart_after_a_handover_and_its_ask_does_not_ask_again(self):
+    def test_a_refusal_in_final_md_still_resumes_the_work(self):
+        self.text = "## Summary\ncontinued"
+        self.lp.rnd = 1
+        refused = self.lp.dir("executor")
+        refused.mkdir(parents=True)
+        (refused / "session_id").write_text("fixture-session")
+        (refused / "harness").write_text("claude")
+        (refused / "final.md").write_text("You have hit your usage limit.")
+        (refused / box.PROCESSES).write_text(json.dumps({"returncode": 1}))
+        self.lp.rnd = 0
+        self.checked()
+        self.assertIn("Continue this turn and finish it", self.calls[0][0])
+        self.assertEqual(self.calls[0][1], "fixture-session")
+
+    def test_restart_after_a_handover_does_not_call_again(self):
         self.text = "## Summary\nwork"
         call_retrying = turns.call_retrying
 
@@ -159,20 +160,19 @@ class ExecutorTextIgnored(unittest.TestCase):
                 self.lp.rnd = 0
                 self.lp.state["step"] = "done-when"
                 run.rounds(self.lp)
-        self.assertEqual(len(self.calls), 2)
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(checks.call_count, 2)
         self.assertEqual(review.call_count, 2)
         self.assertEqual(roundloop.continuation(self.lp), "done-when")
         for call in review.call_args_list:
             self.assertIn(self.text, call.args[1])
 
-    def test_work_summary_survives_the_closing_ask_and_a_restart(self):
+    def test_work_summary_survives_a_restart(self):
         work = "## Summary\nChanged api.py and added a regression test."
-        texts = (work, "Closed.")
         self.closing = ["done"]
 
         def turn(*args, **kw):
-            self.text = texts[min(len(self.calls), 1)]
+            self.text = work
             return self.turn(*args, **kw)
 
         for role, background in (("executor", False), ("fixer", False), ("executor", True)):
@@ -190,7 +190,7 @@ class ExecutorTextIgnored(unittest.TestCase):
                         patch.object(roundloop, "review", return_value="PASS") as review:
                     run.rounds(self.lp)
                 self.assertIn(work, review.call_args.args[1])
-                self.assertEqual(len(self.calls), 2)
+                self.assertEqual(len(self.calls), 1)
 
     def test_review_checkout_left_after_interruption_cannot_hide_the_work_summary(self):
         for name in ("executor", "fixer", "final-fixer", "executor-fable-attempt2"):
@@ -225,51 +225,57 @@ class ExecutorTextIgnored(unittest.TestCase):
                         turns.assert_not_called()
                         self.assertIn(work, review.call_args.args[1])
 
-    def test_host_interruption_during_the_extra_ask_resumes_it_without_another_ask(self):
-        work = "## Summary\nChanged api.py and added a regression test."
-        self.text = "Closed."
-        self.lp.rnd = 1
-        first = self.lp.dir("executor")
-        first.mkdir(parents=True)
-        (first / "final.md").write_text(work)
-        asked = self.lp.dir("executor-retry-hand-in")
-        asked.mkdir()
-        (asked / "session_id").write_text("fixture-session")
-        self.lp.rnd = 0
-        with patch.object(worker, "turn", side_effect=self.turn), \
-                patch.object(roundloop, "verify_work", return_value=(True, "$ true\n[exit 0]")) as checks, \
-                patch.object(roundloop, "review", return_value="PASS") as review:
-            run.rounds(self.lp)
-        checks.assert_called_once_with(self.lp)
-        review.assert_called_once()
-        self.assertEqual(len(self.calls), 1)
-        self.assertEqual(self.calls[0][1], "fixture-session")
-        self.assertIn(turns.NO_CLOSING_ASK, self.calls[0][0])
-        self.assertEqual(roundloop.continuation(self.lp), "done-when")
-        self.assertIn(work, review.call_args.args[1])
-
-    def test_background_recovery_includes_the_closing_ask_without_a_third_turn(self):
+    def test_background_work_does_not_buy_another_turn(self):
         self.text = "## Blocked"
         self.background = True
         self.checked()
-        self.assertIn(turns.FINISH_IN_FOREGROUND, self.calls[1][0])
 
-    def test_extra_closing_turn_leaving_background_work_does_not_buy_a_third_turn(self):
-        self.text = "## Blocked"
-        self.background_on_ask = True
-        self.checked()
+    def test_an_answered_fallback_keeps_its_session_and_findings_after_restart(self):
+        lp = self.lp
+        lp.rnd, lp.review_sid = 1, "fallback-session"
+        lp.state["review_pending"] = {"round": 1, "since": "", "summary": "work", "failed": ["fable"]}
+        refused, fallback = lp.dir("reviewer"), lp.dir("reviewer-astra")
+        refused.mkdir(parents=True)
+        for name, text in {"session_id": "refused-session", "harness": "claude", "pending": "",
+                           "final.md": "You have hit your usage limit.",
+                           box.PROCESSES: json.dumps({"returncode": 1})}.items():
+            (refused / name).write_text(text)
+        fallback.mkdir()
+        (fallback / "session_id").write_text(lp.review_sid)
+        (fallback / "final.md").write_text("A defect was handed in.")
+        (lp.wt / "api.py").write_text("wrong result\n")
+        finding = {"kind": "finding", "path": "api.py", "line": 1, "what": "wrong result",
+                   "why": "breaks callers", "evidence": {"run": "test ! -f api.py",
+                                                         "returncode": 1, "output": ""}}
+        with Path(hand_in.start(fallback, lp.wt, role="reviewer")).open("a") as records:
+            records.write(json.dumps(finding) + '\n{"kind": "done"}\n')
+        calls = []
 
-    def test_extra_turn_can_hand_in_blocked(self):
+        def answer(_cfg, model, _body, cwd, out, role, sid, _log, *_args, previous=None, **_kw):
+            calls.append((model, sid, previous))
+            out.mkdir()
+            with Path(hand_in.start(out, cwd, previous / hand_in.FILE if previous else None,
+                                    role=role)).open("a") as records:
+                records.write('{"kind": "done"}\n')
+            (out / "final.md").write_text("Closed.")
+            (out / "session_id").write_text(sid or "new-session")
+            return 0, "Closed.", sid, False
+
+        with patch.object(turns, "call_retrying", side_effect=answer):
+            verdict = roundloop.review(lp, "work", True, "$ true\n[exit 0]\n")
+        self.assertEqual(verdict, "FAIL", "the fallback's finding must survive the restart")
+        self.assertEqual(calls, [("astra", "fallback-session", fallback)])
+
+    def test_turn_can_hand_in_blocked(self):
         self.text = "## Summary\nWork cannot finish."
         self.closing = ["blocked", "the task requires an unavailable file"]
         self.lp.rnd = 1
         with patch.object(worker, "turn", side_effect=self.turn), \
                 self.assertRaisesRegex(run.Blocked, self.closing[1]):
             run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
-        self.assertEqual(self.calls[1][1], "fixture-session")
+        self.assertEqual(len(self.calls), 1)
 
-    def test_extra_followup_turn_can_hand_in_not_needed(self):
+    def test_followup_turn_can_hand_in_not_needed(self):
         self.text = "## Summary\nChecked the target."
         self.closing = ["not-needed", "gone on the target"]
         self.lp.state["followup"] = {"place": "api.py:1"}
@@ -277,8 +283,7 @@ class ExecutorTextIgnored(unittest.TestCase):
         with patch.object(worker, "turn", side_effect=self.turn), \
                 self.assertRaisesRegex(run.NotNeeded, self.closing[1]):
             run.execute(self.lp, "executor", "Do the task.", "executor")
-        self.assertIn(turns.NO_CLOSING_ASK, self.calls[1][0])
-        self.assertEqual(self.calls[1][1], "fixture-session")
+        self.assertEqual(len(self.calls), 1)
 
 
 if __name__ == "__main__":

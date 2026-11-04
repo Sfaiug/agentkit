@@ -1,11 +1,11 @@
 """A second run of the same change is refused while the first is going; `--anyway` starts it.
 
 Two runs building the same change in one repository waste a round each and then collide at
-landing, so `ak run` refuses a task that looks already under way there: one whose title shares
-at least four significant words with a run still going, and at least half of the shorter
-title's, or whose checks name the same test file.  Four words two long titles share are not
-the same change.  The refusal exits 2, names the going run, whose it is, when it started and
-its title, says what they share and what to do, and leaves no run behind.  Outside a seat
+landing, so `ak run` refuses a task that looks already under way there: the same resolved
+task file a live run was launched from, or one whose checks name the same test file.
+Shared title words alone do not refuse a launch. The refusal exits 2, names the going run,
+whose it is, when it started and its title, says what they share and what to do, and leaves
+no run behind. Outside a seat
 `--anyway` starts the second run regardless, and the run's log names the one it started beside.
 Once the first run has ended the same task starts again.  Black-box: the program `AK_BIN` names
 runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py, with the first
@@ -27,8 +27,6 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
 TITLE = "Add retry file handling logic so slow uploads resume on flaky mobile networks"
-# ten significant words, four of them in the title of the task refused for its title
-CORE = "Retry file handling logic"
 CHECKS = ("test -f retry.txt", "test ! -e tests/test_parser.py")
 REFUSAL = ("ak run: this looks already under way: {id} (nobody's, started HH:MM, \"{title}\") "
            "shares {detail}; wait for it, or add --anyway to start a second run")
@@ -48,7 +46,8 @@ class SecondRunRefused(unittest.TestCase):
                                           " && [ $i -lt 1500 ]; do sleep 0.2; i=$((i+1)); done"}
         cls.fakes["claude"].behave(hold, "work")
         cls.addClassCleanup(cls.settle)
-        first = taskfile.write(cls.home, cls.rig.path, TITLE, done_when=CHECKS, name="first")
+        cls.source = first = taskfile.write(cls.home, cls.rig.path, TITLE,
+                                            done_when=CHECKS, name="first")
         before = time.time()
         launched = cls.home.ak("run", str(first), "--no-merge", "--bg")
         assert launched.code == 0, launched.out + launched.err
@@ -56,18 +55,17 @@ class SecondRunRefused(unittest.TestCase):
         cls.minutes = {datetime.fromtimestamp(stamp, timezone.utc).strftime("%H:%M")
                        for stamp in range(int(before), int(time.time()) + 2)}
         cls.first = taskfile.only_run(cls.home)
-        same = taskfile.write(cls.home, cls.rig.path, TITLE, name="same")
-        cls.by_title = cls.launch(taskfile.write(cls.home, cls.rig.path, CORE, name="core"))
+        taskfile.write(cls.home, cls.rig.path, "Tidy widget colours", name="first")
+        cls.by_task = cls.launch(first)
+        alias = first.with_name("alias.md")
+        alias.symlink_to(first)
+        cls.by_alias = cls.launch(alias)
         cls.by_file = cls.launch(taskfile.write(cls.home, cls.rig.path, "Tidy widget colours",
                                                 done_when=CHECKS, name="colours"))
-        cls.three_words = cls.launch(taskfile.write(cls.home, cls.rig.path,
-                                                    "Add retry file handling", name="three"))
-        cls.under_half = cls.launch(taskfile.write(
-            cls.home, cls.rig.path,
-            f"{CORE} stays the oldest code behind every widget colour palette", name="palette"))
-        cls.anyway = cls.launch(same, "--anyway")
+        cls.by_title = cls.launch(taskfile.write(cls.home, cls.rig.path, TITLE, name="same"))
+        cls.anyway = cls.launch(first, "--anyway")
         cls.settle()
-        cls.after_end = cls.launch(same)
+        cls.after_end = cls.launch(first)
 
     @classmethod
     def launch(cls, task, *flags):
@@ -117,17 +115,17 @@ class SecondRunRefused(unittest.TestCase):
         self.assertEqual(self.state(added[0]).get("verdict"), "PASS")
         return (added[0] / "log.txt").read_text().splitlines()
 
-    def test_a_task_sharing_four_title_words_with_a_going_run_is_refused_naming_it(self):
-        self.refused(self.by_title, "4 title words")
+    def test_the_same_task_file_is_refused_even_after_its_title_and_checks_change(self):
+        self.refused(self.by_task, f"task file {self.source}")
 
     def test_a_task_whose_checks_name_the_same_test_file_is_refused_whatever_its_title(self):
         self.refused(self.by_file, "tests/test_parser.py")
 
-    def test_three_shared_title_words_are_not_the_same_change(self):
-        self.started(self.three_words)
+    def test_a_symlink_to_the_same_task_file_is_refused(self):
+        self.refused(self.by_alias, f"task file {self.source}")
 
-    def test_four_shared_title_words_under_half_the_shorter_title_are_not_the_same_change(self):
-        self.started(self.under_half)
+    def test_a_different_task_with_the_same_title_and_no_shared_test_starts(self):
+        self.started(self.by_title)
 
     def test_anyway_starts_the_second_run_and_its_log_names_the_one_beside_it(self):
         expected = f"--- preflight: started alongside {self.first.name} (--anyway)"

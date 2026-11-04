@@ -92,7 +92,7 @@ class SeatVerbs(unittest.TestCase):
 
     def test_a_rival_under_way_is_only_to_be_waited_for_from_a_seat(self):
         rival = {"id": "20261010-0700-fix-api", "seat": SEAT, "started": 0, "title": "Fix the api",
-                 "files": ["tests/test_api.py"], "words": 0}
+                 "files": ["tests/test_api.py"], "task_file": None}
         with patch.object(run, "already_under_way", return_value=[rival]):
             code, err = self.launch(self.task)
             self.assertEqual(code, 2, err)

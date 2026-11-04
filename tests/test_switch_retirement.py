@@ -103,7 +103,8 @@ class Retire(unittest.TestCase):
         (self.fake / "features.json").write_text(json.dumps(list(rows)))
 
     def hand(self, at=NOW):
-        retire.hand(self.logged.append, now=at)
+        with patch.object(retire.time, "time", return_value=at):
+            retire.hand(self.logged.append, now=at)
 
     def lines(self, name):
         """The switches the open lines of that seat's plan name, in the plan's order."""
@@ -119,8 +120,8 @@ class Retire(unittest.TestCase):
         return found
 
     def lists(self):
-        """How often the tick read a list: in a checkout under ~/code, where a line's check,
-        proven in a throwaway checkout of the default branch, never runs."""
+        """List reads for the tick and plan input vetting, in a checkout under ~/code, where
+        a line's check, proven in a throwaway checkout of the default branch, never runs."""
         try:
             calls = (self.fake / "calls.log").read_text().splitlines()
         except FileNotFoundError:
@@ -196,7 +197,7 @@ class Retire(unittest.TestCase):
         self.assertEqual(retire.read()[str(self.acme)], NOW)
         watch.seat_write("acme-done", word="working")
         self.hand(NOW + retire.AGAIN + retire.EVERY)
-        self.assertEqual((self.lines("acme-done"), self.lists()), (["newer"], 3))
+        self.assertEqual((self.lines("acme-done"), self.lists()), (["newer"], 10))
 
     def test_a_line_is_written_once_and_the_list_is_read_again_a_day_later(self):
         self.seat("acme", self.acme, created=10)
@@ -204,10 +205,10 @@ class Retire(unittest.TestCase):
         self.hand()
         self.assertEqual(self.lines("acme"), ["older", "old"])
         self.hand(NOW + retire.EVERY)
-        self.assertEqual((self.lines("acme"), self.lists()), (["older", "old"], 1))
+        self.assertEqual((self.lines("acme"), self.lists()), (["older", "old"], 3))
         self.switches(row("old", 40))
         self.hand(NOW + retire.AGAIN)
-        self.assertEqual((self.lines("acme"), self.lists()), (["older", "old"], 2))
+        self.assertEqual((self.lines("acme"), self.lists()), (["older", "old"], 5))
         self.switches(row("old", 40), row("newer", 30))
         self.hand(NOW + 2 * retire.AGAIN)
         self.assertEqual(self.lines("acme"), ["older", "old", "newer"])
@@ -310,7 +311,7 @@ class Retire(unittest.TestCase):
         self.switches(row("older", 60))
         self.hand()
         self.hand(NOW + retire.EVERY - 1)
-        self.assertEqual(self.lists(), 2)
+        self.assertEqual(self.lists(), 3)
         self.assertEqual(self.lines("other"), ["older"])
         self.assertIn("ACME: proven switches older; no seat at work to plan older in",
                       self.logged)

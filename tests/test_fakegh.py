@@ -52,6 +52,42 @@ class PullRequests(unittest.TestCase):
                          {"ref": "fix-api", "sha": self.sha, "repo": {
                              "full_name": "acme/widgets", "clone_url": str(self.rig.bare)}})
 
+    def test_unsupported_pr_api_writes_are_refused_without_changing_state(self):
+        self.gh.open_pr(self.rig, "fix-api")
+        self.rig.branch("fix-docs", {"docs.txt": "work\n"})
+        payload = self.home.write("patch.json", {"title": "changed"})
+        pulls = "repos/acme/widgets/pulls"
+        calls = [
+            (pulls, "-X", "POST", "-f", "title=Docs", "-f", "head=fix-docs", "-f", "base=main"),
+            (pulls, "-f", "title=Docs"),
+            (pulls + "/1", "-X", "PATCH", "--input", str(payload)),
+            (pulls + "/1", "--input", str(payload)),
+            (pulls + "/1", "-X", "DELETE"),
+            (pulls + "/1", "-X", "POST", "-f", "title=changed"),
+            (pulls + "/1", "-X", "PATCH", "-f", "state=closed"),
+            (pulls + "/1", "-X", "PATCH", "-f", "title=changed", "-f", "state=closed"),
+            (pulls + "/1", "-X", "PATCH"),
+            (pulls + "/1/reviews", "-X", "DELETE"),
+        ]
+        before = json.loads(self.gh.file.read_text())
+        for args in calls:
+            with self.subTest(args=args):
+                self.call("api", *args, code=1)
+                self.assertEqual(json.loads(self.gh.file.read_text()), before)
+
+    def test_pr_api_get_does_not_edit_and_patch_updates_title_and_body(self):
+        self.gh.open_pr(self.rig, "fix-api")
+        pull = "repos/acme/widgets/pulls/1"
+        before = json.loads(self.gh.file.read_text())
+        self.call("api", pull, "-X", "GET", "-f", "title=ignored", "-f", "body=ignored")
+        self.assertEqual(json.loads(self.gh.file.read_text()), before)
+        body = self.home.write("body.md", "Updated body.\n")
+        patched = json.loads(self.call("api", pull, "--method", "PATCH", "--raw-field",
+                                       "title=Updated title", "--field", f"body=@{body}"))
+        self.assertEqual((patched["title"], patched["body"]), ("Updated title", "Updated body.\n"))
+        self.assertEqual((self.gh.pr(1)["title"], self.gh.pr(1)["body"]),
+                         ("Updated title", "Updated body.\n"))
+
     def test_a_squash_merge_lands_one_commit_at_the_matched_head_and_deletes_the_branch(self):
         url = self.gh.open_pr(self.rig, "fix-api", title="Fix api", author="beta")
         rest = json.loads(self.call("api", "repos/acme/widgets/pulls/1"))

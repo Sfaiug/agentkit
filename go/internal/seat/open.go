@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,7 +19,6 @@ import (
 	"agentkit/internal/harness"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
-	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
 )
 
@@ -141,30 +139,7 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 // ends there is none to hand over, and saying where the seat is is the whole answer.  It answers
 // only where it could not.
 func Attach(name string, out, errOut io.Writer) error {
-	if !terminal.Attachable() {
-		return sayWhere(name, out)
-	}
-	state, now := filepath.Join(config.Home(), "state"), time.Now()
-	// the open the live states are measured against
-	opening := func() {
-		if err := errors.Join(nextGeneration(state, name, now), writeSeat(state, name, []field{{"opened_at", seconds(now)}})); err != nil {
-			fmt.Fprintf(errOut, "WARN could not record opening %s: %s\n", name, err)
-		}
-	}
-	// a client on this seat's own server: switched, rather than one tmux nested in another
-	if tmux.Inside(tmux.Own()) {
-		if err := tmux.Switch(tmux.Own(), name); err != nil {
-			return Refusal(fmt.Sprintf("cannot switch to the session %s: %v", name, err))
-		}
-		opening()
-		return nil
-	}
-	if term := tmux.Term(); term != "" {
-		fmt.Fprintf(out, "note: this box has no terminfo for TERM=%s; tmux is run as %s\n", os.Getenv("TERM"), term)
-		os.Setenv("TERM", term)
-	}
-	opening()
-	return tmux.Attach(tmux.Own(), name)
+	return attachTerminal(name, out, errOut, tmux.Attach)
 }
 
 // sayWhere says how to reach the running seat, the whole answer with no terminal to hand over.

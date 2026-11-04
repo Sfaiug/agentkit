@@ -36,7 +36,11 @@ func ContextFits(name, text string) bool {
 // Owns is whether that conversation is the seat's own, on evidence its harness vouches for
 // (orch.owns); false for known where Go does not read that harness's evidence yet.
 func Owns(name string, record *run.Object, conversation string) (owned, known bool) {
-	hook := plugins[name].owns
+	return For(name).Owns(record, conversation)
+}
+
+func (reader Reader) Owns(record *run.Object, conversation string) (owned, known bool) {
+	hook := reader.own.owns
 	if hook == nil {
 		return false, false
 	}

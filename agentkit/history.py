@@ -35,6 +35,7 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 # Each counted in its `<wait>_wait_seconds` column (`waiter.add_wait`).
 WAITS = ("slot", "suite", "merge", "lander")
+SLOT_GATES = {"count": "admission", "load": "admission", "memory": "memory", "unit memory": "memory"}
 _OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
                # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
@@ -80,7 +81,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
+              ("review_pair", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -100,6 +102,7 @@ CREATE TABLE IF NOT EXISTS phases (
     PRIMARY KEY (run_id, phase, started_at)
 )
 """
+PHASE_MIGRATIONS = (("wait_kind", "TEXT"),)
 
 # One row per check a round, the lander or a merged run's live probe runs, written where it runs
 # (`check`): `kind` is a round's `done-when`, `rules`, `base-proof` or `replay`, the lander's
@@ -122,6 +125,19 @@ CREATE TABLE IF NOT EXISTS checks (
     started_at REAL,
     finished_at REAL,
     rerun INTEGER
+)
+"""
+
+# One row per test a suite named as confirmed red or flaky, once its retries end.
+TEST_REDS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS test_reds (
+    run_id TEXT,
+    round INTEGER,
+    kind TEXT,
+    tree TEXT,
+    test TEXT,
+    flaky INTEGER,
+    at REAL
 )
 """
 
@@ -236,13 +252,15 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(CHECKS_SCHEMA)
+    connection.execute(TEST_REDS_SCHEMA)
     connection.execute(CONFLICTS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(FINDINGS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
-    for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS),
+    for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
+                              ("reviews", REVIEW_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
@@ -477,7 +495,7 @@ def add_landing_break(run_id, *, log=None):
         (run_id,)), log)
 
 
-def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
+def add_wait(run_id, wait, seconds, at=None, *, began=None, kind=None, log=None):
     """Add a wait's seconds, counted up to `at`, to its column and end its phase row there: the
     row of the wait that began at `began`, a wait counted whole without it.  A row from before
     the columns stays unrecorded."""
@@ -486,7 +504,28 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     seconds = max(0.0, seconds)
     at = time.time() if at is None else at
     began = at - seconds if began is None else began
-    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at), log)
+    if wait == "slot" and kind is None:
+        kind = (record.read_state(config.RUNS / str(run_id)) or {}).get("slot_wait_kind")
+    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at, kind), log)
+
+
+def gate_holds():
+    """Last counted hold of each gate, retained when its run directory is collected."""
+    try:
+        with contextlib.closing(_connect(readonly=True)) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(phases)")}
+            kind = "wait_kind" if "wait_kind" in columns else "NULL"
+            last = {}
+            for phase, reason, at in connection.execute(
+                f"SELECT phase, {kind}, MAX(ended_at) "
+                "FROM phases WHERE phase IN ('slot wait', 'suite wait', 'lander wait') "
+                f"AND ended_at > started_at GROUP BY phase, {kind}"):
+                name = SLOT_GATES.get(reason) if phase == "slot wait" else "suite turns"
+                if name:
+                    last[name] = max(last.get(name, at), at)
+            return last
+    except (OSError, sqlite3.Error):
+        return {}
 
 
 @contextlib.contextmanager
@@ -521,6 +560,23 @@ def _started(connection, values):
         "FROM runs WHERE run_id=?1", values)
     # an insert of no row leaves the connection's last rowid, another table's
     return cursor.lastrowid if cursor.rowcount else None
+
+
+def test_reds(checked, confirmed, flaky):
+    """Keep a suite's named outcomes with its check's identity; a run with no row keeps none."""
+    if checked is None:
+        return
+    tests = [(test, 0) for names in confirmed.values() for test in names]
+    tests.extend((test, 1) for test in flaky)
+    if not tests:
+        return
+    run_dir, round_no, kind, tree = checked
+    at = time.time()
+    _write(lambda connection: connection.executemany(
+        "INSERT INTO test_reds (run_id, round, kind, tree, test, flaky, at) "
+        "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+        [(round_no, kind, tree, test, flake, at, Path(run_dir).name)
+         for test, flake in dict.fromkeys(tests)]))
 
 
 @contextlib.contextmanager
@@ -804,7 +860,7 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, saved=None, log=None):
+               own_orchestrator_effort=None, review_pair=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -833,6 +889,11 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                     "SELECT 1 FROM runs WHERE run_id=? AND final_state='running'",
                     (run_id,)).fetchone():
                 return
+        # A maintainer merge republishes the same ending: its pair, even NULL, belongs to
+        # the config at that ending. A resume clears finished_at so its next ending records anew.
+        connection.execute(
+            "UPDATE runs SET review_pair=? WHERE run_id=? AND finished_at IS NOT ?",
+            (review_pair, run_id, finished_at))
         _update(connection, run_id, values)
         if peak is not None:
             connection.execute(

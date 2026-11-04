@@ -184,8 +184,8 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 			break
 		}
 		// a missing verdict is a reviewer that has not answered, never an answer: its session is
-		// asked once more, unless the turn spent its one extra call in the foreground, which asked too
-		if asked || c.foreground {
+		// asked once more.
+		if asked {
 			if err := l.giveUp(done.out); err != nil {
 				return false, err
 			}

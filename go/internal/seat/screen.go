@@ -82,7 +82,7 @@ type sight struct {
 
 // observed is watch.observed: what a capture shows of a seat, against its files as they stand,
 // writing nothing.  A blank capture says nothing of the error it shows.
-func observed(state, name, own, pane string, now float64) (found sight, previous *run.Object) {
+func observed(state, name string, reader harness.Reader, pane string, now float64) (found sight, previous *run.Object) {
 	previous, _ = run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	if previous == nil {
 		previous = run.NewObject()
@@ -91,6 +91,7 @@ func observed(state, name, own, pane string, now float64) (found sight, previous
 	if record == nil {
 		record = run.NewObject()
 	}
+	own := reader.Name
 	seen := eyeOf(own)
 	tail := screen.Tail(pane)
 	fact := hookfact.Standing(name)
@@ -100,7 +101,7 @@ func observed(state, name, own, pane string, now float64) (found sight, previous
 	case pane == "":
 		found.stall, found.login = previous.Get("stall"), previous.Get("login")
 	case found.state == "at_prompt":
-		said, recorded := harness.RecordedError(own, record.Str("conversation"), record.Str("cwd"), record.Str("account"))
+		said, recorded := reader.RecordedError(record)
 		found.stall = seen.stallOn(own, pane, tail, said, recorded)
 		found.login = seen.loginOn(own, tail, said, recorded)
 	}
@@ -127,7 +128,7 @@ func harnessScreen(name string) (shown string, exited bool) {
 // look is watch.look_at: one capture, classified and kept.
 func (seat Seat) look(state string, now float64) (sight, error) {
 	pane, exited := harnessScreen(seat.Name)
-	found, previous := observed(state, seat.Name, seat.own, pane, now)
+	found, previous := observed(state, seat.Name, seat.reader, pane, now)
 	return seat.keep(state, pane, exited, found, previous, now)
 }
 
@@ -199,30 +200,31 @@ func turnMarks(rules *screen.Rules, tail string, found sight, previous *run.Obje
 var ErrUnread = errors.New("Go does not read this seat yet")
 
 // liveSeat is the home and the seat by that name, where Go reads them and its panes still run on.
-func liveSeat(name string, now time.Time) (Home, Seat, bool) {
-	home, known := Looking(now)
+func liveSeat(name string, now time.Time, readers recordReaders) (Home, Seat, bool) {
+	home, known := reading(now, true, readRuns, readers)
 	at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
 	if !known || at < 0 || !home.Seats[at].live {
-		return Home{}, Seat{}, false
+		return home, Seat{}, false
 	}
 	return home, home.Seats[at], true
 }
 
 // LookedLive is the look at a seat its panes still run on, under its announce lock from the reading
-// to the word, as the wait for that lock can outlast what the home held: what the listing
-// reconciles, watch.announce_state's look, what its last answer moved, and the word published.
+// to the word, as the wait for that lock can outlast what the home held: watch.announce_state's
+// look, what its last answer moved, and the word published.
 func LookedLive(state, name string) (Seat, error) {
+	return lookedLive(state, name, nil)
+}
+
+func lookedLive(state, name string, readers recordReaders) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
 		now := time.Now()
-		home, live, known := liveSeat(name, now)
+		home, live, known := liveSeat(name, now, readers)
 		if !known {
 			return ErrUnread
 		}
 		seat = live
-		if err := reconcile(state, home.records, true); err != nil {
-			return err
-		}
 		found, err := seat.look(state, seconds(now))
 		if err != nil {
 			return err
@@ -241,8 +243,8 @@ func LookedLive(state, name string) (Seat, error) {
 
 // explainLive is orch.explain of a seat its panes still run on: the look, and what decided it read
 // back as every other reader reads it.
-func explainLive(state, name string) ([]string, error) {
-	seat, err := LookedLive(state, name)
+func explainLive(state, name string, readers recordReaders) ([]string, error) {
+	seat, err := lookedLive(state, name, readers)
 	if err != nil {
 		return nil, err
 	}

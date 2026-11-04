@@ -43,6 +43,7 @@ type Keyboard struct {
 	mu      sync.Mutex
 	pending []os.Signal
 	cont    chan os.Signal
+	heard   chan os.Signal
 }
 
 // NewKeyboard starts hearing what ends or stops the program, and takes nothing yet.
@@ -50,10 +51,10 @@ func NewKeyboard() *Keyboard {
 	k := &Keyboard{cont: make(chan os.Signal, 1)}
 	k.woken[0], k.woken[1], _ = os.Pipe()
 	signal.Notify(k.cont, syscall.SIGCONT)
-	heard := make(chan os.Signal, 8)
-	signal.Notify(heard, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGQUIT, syscall.SIGINT, syscall.SIGTSTP, syscall.SIGWINCH)
+	k.heard = make(chan os.Signal, 8)
+	k.listen()
 	go func() {
-		for each := range heard {
+		for each := range k.heard {
 			k.mu.Lock()
 			k.pending = append(k.pending, each)
 			k.mu.Unlock()
@@ -69,6 +70,7 @@ func (k *Keyboard) Take() {
 		return
 	}
 	k.taken = true
+	k.listen()
 	raw := k.saved
 	raw.Lflag &^= syscall.ICANON | syscall.ECHO
 	raw.Cc[syscall.VMIN], raw.Cc[syscall.VTIME] = 1, 0
@@ -84,6 +86,7 @@ func (k *Keyboard) Give() {
 	k.taken = false
 	syscall.Write(outFD, []byte(giveModes))
 	attrs(setAttrs, &k.saved)
+	signal.Stop(k.heard)
 }
 
 // Sense asks what the terminal is, once a start, on a taken keyboard: whether it takes true colour

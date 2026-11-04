@@ -29,7 +29,7 @@ type reading struct {
 // readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it;
 // false where Go does not read that home, or where opening it would do more than draw.
 func readFrame(now time.Time) (reading, bool) {
-	home, known := seat.Looking(now)
+	home, known := seat.Menu(now)
 	if !known || !home.Settled(now) {
 		return reading{}, false
 	}
@@ -39,13 +39,10 @@ func readFrame(now time.Time) (reading, bool) {
 			found.past = true
 			continue
 		}
-		looked, err := each.Looked()
-		if err != nil {
-			return reading{}, false
-		}
-		done, total := plan.Progress(looked.Name)
-		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: looked.Name, Checkout: looked.Checkout(), Model: home.ModelName(looked),
-			Word: looked.Word, Unsent: looked.Unsent(), Said: looked.Said(), Done: done, Total: total})
+		done, total := plan.Progress(each.Name)
+		builds, reviews := home.Crew(each)
+		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: home.ModelName(each),
+			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	var err error
 	if found.cells, err = menu.Cells(now); err != nil {
@@ -59,7 +56,7 @@ func readFrame(now time.Time) (reading, bool) {
 
 // akScreen is bare `ak` on a server: it takes the terminal, draws the frame and gives the terminal
 // back.  A read refused once the frame is up keeps that frame.
-func akScreen(errOut io.Writer) int {
+func akScreen(args []string, errOut io.Writer) int {
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
 	if !drawable {
@@ -101,30 +98,41 @@ func akScreen(errOut io.Writer) int {
 		}
 	}()
 	painter := terminal.NewPainter(os.Stdout)
-	clock, cursor := &motion.Clock{}, ""
+	clock, highlight := &motion.Clock{}, menu.Highlight{}
+	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
+	if overlay {
+		highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
+	}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
 	for {
 		screen, shown := keyboard.Screen(), latest.Load()
 		clock.Draw(time.Now())
-		painter.Write(menu.Lines(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menu.Keys(screen, shown.past), Cursor: cursor, Motion: clock}, screen.Width(), screen.Height()), screen)
+		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown.past, overlay), Highlight: highlight, Motion: clock}, screen.Width(), screen.Height())
+		painter.Write(drawn.Lines, screen)
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
 		} else {
 			frame.Stop()
 		}
 		key := keyboard.ReadKey()
+		if key.Name != "wake" && key.Name != "again" {
+			clock.Finish()
+		}
+		choice := menuChoice(key, drawn, shown.seats, keyboard)
 		switch {
-		case key.Name == "up" || key.Char == "k" || key.Char == "K":
-			cursor = menu.Step(shown.seats, cursor, -1)
-		case key.Name == "down" || key.Char == "j" || key.Char == "J":
-			cursor = menu.Step(shown.seats, cursor, 1)
+		case choice != "":
+			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {
+				return code
+			}
+			highlight, clock = menu.Highlight{Cursor: choice}, &motion.Clock{}
+		case highlight.Move(key, drawn):
 		case key.Name == "esc" || key.Name == "eof":
 			keyboard.Give()
 			return 0
 		case key.Name == "again":
 			painter.Forget()
-		case opensSomething(key, len(shown.seats) > 0, shown.past):
+		case opensSomething(key, shown.past, overlay):
 			keyboard.Give()
 			return notImplemented(errOut, "attach")
 		}
@@ -132,20 +140,17 @@ func akScreen(errOut io.Writer) int {
 }
 
 // opensSomething is whether a key leads where Go has no road yet, every other being let go.
-func opensSomething(key terminal.Key, rows, past bool) bool {
+func opensSomething(key terminal.Key, past, overlay bool) bool {
 	switch key.Name {
-	case "enter":
-		return true
-	case "left", "right":
-		return rows
 	case "char":
 		switch key.Char {
 		case "n", "N", "c", "C":
 			return true
 		case "p", "P":
 			return past
+		case "x", "X":
+			return overlay
 		}
-		return len(key.Char) == 1 && '0' <= key.Char[0] && key.Char[0] <= '9'
 	}
 	return false
 }

@@ -195,14 +195,14 @@ class ReviewerEdits(unittest.TestCase):
         self.assertIn("+silent edit", self.archive.read_text())
         self.assertIn("+extra ask edit", self.archive.read_text())
 
-    def test_foreground_retry_restores_before_the_next_adapter_call(self):
+    def test_background_signal_does_not_reopen_a_finished_review(self):
         self.assertEqual(self.review(
             {"files": {"tracked.txt": "background edit\n"},
              "stderr": "Background tasks still running"},
-            {"files": {"foreground.txt": "foreground edit\n"}}), "PASS")
+            {"files": {"extra.txt": "extra edit\n"}}), "PASS")
         self.assert_restored()
         self.assertIn("+background edit", self.archive.read_text())
-        self.assertIn("+foreground edit", self.archive.read_text())
+        self.assertEqual(len(json.loads((self.harness / "responses.json").read_text())), 1)
 
     def test_existing_dirty_files_are_restored_even_if_the_reviewer_commits_them(self):
         self.assertEqual(self.review(

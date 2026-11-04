@@ -54,7 +54,7 @@ func Woken(record *run.Object) bool {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && record.Truthy(key) {
+		if key != "waiting_on" && key != "launched_session" && key != "session" && record.Truthy(key) {
 			return false
 		}
 	}

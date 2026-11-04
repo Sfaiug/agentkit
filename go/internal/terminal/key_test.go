@@ -21,7 +21,7 @@ func typed(sent string) (byte, nextByte) {
 func TestEachKeyIsAsFewBytesAsMakeIt(t *testing.T) {
 	for sent, want := range map[string]Key{
 		"\x1b": {Name: "esc"}, "\x1b[A": {Name: "up"}, "\x1bOD": {Name: "left"}, "\r": {Name: "enter"},
-		"\x1b[<35;10;4M": {Name: "pointer"}, "q": {Name: "char", Char: "q"}, "é": {Name: "char", Char: "é"},
+		"\x1b[<35;10;4M": {Name: "pointer", Mouse: Mouse{Button: 35, Column: 10, Row: 4}}, "q": {Name: "char", Char: "q"}, "é": {Name: "char", Char: "é"},
 		"\x04": {Name: "eof"}, "\x1b[5~": {Name: "other"},
 	} {
 		first, next := typed(sent)

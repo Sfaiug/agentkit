@@ -30,9 +30,7 @@ from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
 SILENCE_MINUTES = 0.05
-# Its harness killed, and no conversation left for a resume: one to resume runs here. By its own
-# signal: a child sending it can outlive it on a busy host, a process the turn left behind, and
-# asking the turn to finish in the foreground takes the next step.
+# Its harness killed, and no conversation left for a resume: one to resume runs here.
 KILLED = {"exit": -signal.SIGTERM, "session": ""}
 OUT = '"${AK_HAND_IN%/*}"'
 # The machine's ssh, moved to {machine}/ssh, with the turn's events and the listing's mark. `exec`

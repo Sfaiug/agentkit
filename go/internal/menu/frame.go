@@ -24,6 +24,8 @@ type Seat struct {
 	Number                                    int
 	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none
 	Done, Total                               int    // its plan's lines done, of how many; none without one
+	Builds, Reviews                           []string
+	Tasks                                     []Task
 
 	// where it moves this frame (moving): its mark as drawn now, "" where it holds still, and its
 	// line moved (0 to 1) from the share it stood at, its count from counted, its head lit
@@ -47,8 +49,8 @@ type View struct {
 	Seats       []Seat
 	Cells       []Cell
 	Clock, Keys string
-	Standing    string        // what stands under the usage: a worker token that ends soon
-	Cursor      string        // the seat highlighted, the first where it is none of them
+	Standing    string // what stands under the usage: a worker token that ends soon
+	Highlight   Highlight
 	Motion      *motion.Clock // where what moves is this frame; nil, all still
 }
 
@@ -79,6 +81,11 @@ type widths struct {
 // the frame's blank lines, away; a row's last column under it; more seats than fit, to pages, with
 // the arrow toward a seat that needs the owner in amber.
 func Lines(view View, width, height int) []string {
+	return Draw(view, width, height).Lines
+}
+
+// Draw lays out the frame and the places navigation can reach on it together.
+func Draw(view View, width, height int) Frame {
 	s := view.Screen
 	view.Seats = moving(s, view.Seats, view.Motion)
 	layout := max(1, min(width, 120))
@@ -89,12 +96,13 @@ func Lines(view View, width, height int) []string {
 	single := len(keyLine(s, view.Keys, width, ""))
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
-	cursor := Step(view.Seats, view.Cursor, 0)
+	cursor := Step(view.Seats, view.Highlight.Cursor, 0)
+	frame := Frame{cursor: cursor, width: width, order: seatOrder(view.Seats)}
 	saidRoom := max(1, sized.room-(2+sized.num+2))
 	said := map[string]int{}
 	opens := 0
 	for _, seat := range view.Seats {
-		said[seat.Name] = opened(s, seat, saidRoom)
+		said[seat.Name] = len(detail(s, seat, saidRoom, nil))
 		opens = max(opens, said[seat.Name])
 	}
 	opens = min(opens, max(1, height/2))
@@ -195,6 +203,7 @@ func Lines(view View, width, height int) []string {
 	page := max(0, slices.IndexFunc(pages, func(lines []row) bool {
 		return slices.ContainsFunc(lines, func(each row) bool { return each.seat == cursor && cursor != "" })
 	}))
+	frame.page, frame.turns = page, pageTurns(pages)
 	keys := keyLine(s, view.Keys, width, "")
 	if len(pages) > 1 {
 		needs := func(lines []row) bool { return needing(view.Seats, lines) }
@@ -217,11 +226,21 @@ func Lines(view View, width, height int) []string {
 		body = pages[page]
 	}
 	above := ""
-	for _, each := range body {
-		if each.seat != "" && each.seat == cursor {
+	frame.spots = make([]string, len(out))
+	for at, each := range body {
+		lit := !view.Highlight.Hidden && each.seat != "" && each.seat == cursor
+		if lit {
 			out = append(out, s.Highlight(each.line, each.seat != above))
 		} else {
 			out = append(out, each.line)
+		}
+		frame.spots = append(frame.spots, each.seat)
+		if lit && view.Highlight.Open && (at+1 == len(body) || body[at+1].seat != each.seat) {
+			seat := view.Seats[slices.IndexFunc(view.Seats, func(seat Seat) bool { return seat.Name == each.seat })]
+			for _, line := range keepDetail(detail(s, seat, saidRoom, view.Motion), opens, saidRoom) {
+				out = append(out, strings.Repeat(" ", 2+sized.num+2)+line)
+				frame.spots = append(frame.spots, each.seat)
+			}
 		}
 		above = each.seat
 	}
@@ -231,7 +250,8 @@ func Lines(view View, width, height int) []string {
 	for len(out) < height-2-len(keys) {
 		out = append(out, "")
 	}
-	return append(out, keys...)
+	frame.Lines = append(out, keys...)
+	return frame
 }
 
 // A project is a heading and the seats filed under it, each project where its first seat is.
@@ -325,24 +345,6 @@ func needing(seats []Seat, lines []row) bool {
 	return slices.ContainsFunc(lines, func(each row) bool {
 		return slices.ContainsFunc(seats, func(seat Seat) bool { return seat.Name == each.seat && seat.Word == "needs you" })
 	})
-}
-
-// opened is how many lines open under a row (menu.detail), which the pages keep room for though no
-// row is open on this frame: the owner's unsent text; then what a seat not working says, wrapped; or
-// the one line of who builds and reviews.
-func opened(s terminal.Screen, seat Seat, room int) int {
-	count := 0
-	if seat.Unsent != "" {
-		count = len(terminal.Wrap(unsentMark(s, seat.Unsent), room))
-	}
-	said := ""
-	if seat.Word != "working" {
-		said = terminal.Plain(seat.Said)
-	}
-	if said != "" || seat.Word == "needs you" {
-		return count + len(terminal.Wrap(said, room))
-	}
-	return count + 1
 }
 
 func unsentMark(s terminal.Screen, text string) string {

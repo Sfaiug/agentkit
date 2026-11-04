@@ -17,6 +17,8 @@ from fixtures.akseat import PLAN_LINE
 from fixtures.gitrig import Rig
 
 
+# Across its provider's accounts, the seat's own last, the next once it is spent
+# or cannot run. [18 Sep - 26 Oct 2026]
 class SeatAccountLast(unittest.TestCase):
     def launch(self, second_used=20, *, seat="first", accounts=("first", "second"),
                second_ready=True, seat_provider="acme", scoped_spent=False,
@@ -84,8 +86,6 @@ class SeatAccountLast(unittest.TestCase):
             self.assertEqual(len(turns), 1, turns)
             return turns[0]["env"].get("AGENTKIT_ACCOUNT")
 
-    # "Among the marks ak picks in that order, across its provider's accounts, the seat's
-    # own last, the next once it is spent or cannot run." [18 Sep - 26 Oct 2026]
     def test_a_worker_spends_the_other_account_before_its_launching_seats(self):
         self.assertEqual(self.launch(), "second")
 

@@ -3295,7 +3295,19 @@ def _session_state(name, at, session, cfg, records, number, run_numbers, index, 
         if undecided:
             return {"word": "needs you", "since": found.get("began"), "reason":
                     f"run {undecided[0].name} parked: {handback.handback_reason(undecided[1])}"}
-        return {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
+        done = {"word": "done", "reason": " ".join(finished.split()), "since": found.get("began")}
+        # tmux remembers even visits between looks; only one since the work finished counts.
+        try:
+            done_at = max(_stamp(found.get("began")) or 0, plan_mod.path(name).stat().st_mtime)
+        except FileNotFoundError:   # a rename moved the plan; the next look resolves it anew
+            return done
+        rc, visit = orch.tmux_out("display-message", "-p", "-t", f"={name}:",
+                                  "#{session_attached}\t#{session_last_attached}",
+                                  socket=orch.seat_socket(session))
+        attached, _, last = visit.partition("\t")
+        if rc == 0 and attached == "0" and last.isdigit() and int(last) > done_at:
+            return {"word": "idle", "reason": "", "since": found.get("began")}
+        return done
     return {"word": "idle", "reason": "", "since": found.get("began")}
 
 
@@ -6521,9 +6533,8 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
     Every run in state `exhausted` is checked against the usage providers the tick
     already read: a run whose worktree is gone is left for an explicit resume, with a
     WARN, however dry every provider is; a run whose worktree still exists is resumed
-    when an eligible worker can execute again -- in the pick order, budget above
-    zero, not marked exhausted-until -- or, off a dead reviewer, when an eligible
-    reviewer can review again.  The resume is the one the command runs
+    when the resume's own pick finds a worker that can execute again, or, off a dead
+    reviewer, when an eligible reviewer can review again.  The resume is the one the command runs
     (`ak run resume <id> --bg`, detached, never waited on), handing over to that
     worker when the saved executor is still dry.  One log line per resume:
     `resumed <id>: <provider> window refilled`.  Retry metadata goes on disk before
@@ -6559,15 +6570,9 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                 # every pick below gives a role, so each harness is asked whether it can run:
                 # once a pass, and only when a run waits on a pick, never on an empty tick
                 providers, asked = usage.readiness(cfg, providers), True
-            bound, review_bound = config.role_groups(
-                cfg, staffing.run_workers(cfg, state), state.get("reviewers"))
-            bound = bound if bound is not None else workers
-            review_bound = review_bound if review_bound is not None else bound
             # one line per worker the pick leaves out, for the run's own log -- written only
             # when this pass resumes it, so a run waiting through tick after tick gets none
             skipped = []
-            available = staffing.executable_models(cfg, providers, bound, now, skipped.append,
-                                                 reviewers=review_bound)
             with run_record.record(run_dir) as state:
                 if state.get("state") != "exhausted":
                     continue
@@ -6605,47 +6610,29 @@ def resume_exhausted(cfg=None, providers=None, workers=None, dry_run=False, log=
                             f"{wt or '(none)'} is gone; leaving it for an explicit resume")
                     continue
                 saved = state.get("executor")
-                # a PR review runs no executor, and a run whose review is pending has its
-                # executor's work done: its reviewer is all either waits for
-                if transport or state.get("review_pr") or state.get("review_pending"):
+                if not staffing.resume_needs_executor(state):
                     if (transport and isinstance(last, (int, float)) and not isinstance(last, bool)
                             and 0 <= now - last < transitions.ERROR_RETRY_CAP):
                         continue  # re-resumed within the hour: a dead reviewer gets an
                         # hour like an error, not a reviewer turn every ten minutes
+                    bound, review_bound = config.role_groups(
+                        cfg, staffing.run_workers(cfg, state), state.get("reviewers"))
+                    bound = bound if bound is not None else workers
+                    review_bound = review_bound if review_bound is not None else bound
                     reviewers = staffing.reviewable_models(cfg, providers, review_bound, now,
                                                           executor=saved)
                     if not reviewers:
-                        continue  # no reviewer is eligible yet; the run keeps waiting, silently
-                    # the executor, if any, never died, so it stays: the resume re-picks the
-                    # reviewer, which is the one this run waited for.
-                    chosen, why = saved, f"reviewer {reviewers[0][0]} eligible again"
-                    reviewer = None
-                else:
-                    candidates = ([pair for pair in available if pair[0] != retry_model]
-                                  if retry_waiting else available)
-                    if not candidates:
-                        continue  # every eligible provider is still dry or is the waiting refuser
-                    kept = next(((n, p) for n, p in candidates if n == saved), None)
-                    if kept is not None:
-                        chosen, provider = kept
-                        reviewer = None          # a kept executor keeps its pair as it is
-                    else:
-                        # A handover re-picks both roles as one pair (`staffing.best_pair`):
-                        # keeping the reviewer would force a dearer executor on the run.
-                        # Nothing resumes until a legal pair exists; a run with none left
-                        # stays parked and waits for one.
-                        review_order = staffing.ready_order(cfg, providers, review_bound,
-                                                           role="reviewer", quiet=True)
-                        pair = staffing.best_pair(cfg, [n for n, _ in candidates],
-                                                 review_order)
-                        if pair is None:
-                            chosen, provider, reviewer = None, None, None
-                        else:
-                            chosen, reviewer = pair
-                            provider = next(p for n, p in candidates if n == chosen)
-                    if not chosen:
                         continue
-                    why = f"{provider} window refilled"
+                    chosen, reviewer = saved, None
+                    why = f"reviewer {reviewers[0][0]} eligible again"
+                else:
+                    try:
+                        chosen, reviewer = staffing.resume_models(
+                            cfg, providers, state, skipped.append, workers=workers,
+                            skip=(retry_model,) if retry_waiting else ())
+                    except turns.QuotaDry:
+                        continue
+                    why = f"{config.model(cfg, chosen)['provider']} window refilled"
                 if dry_run:
                     log(f"would resume {run_dir.name}: {why}")
                     continue
@@ -7320,6 +7307,7 @@ def say(dry_run, log, text, url, session, merged=False):
 AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge commit's checks are followed
 AFTER_MERGE_PASS = ("success", "neutral", "skipped")  # the conclusions that mean green
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
+LIVE_INTERVAL = 15  # seconds after a probe ends, so slow probes never overlap
 # The spaces str.strip strips beyond ASCII, in UTF-8: those of three bytes, and all of them.
 WIDE_SPACE_3 = rb"\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80"
 WIDE_SPACE = rb"\xc2[\x85\xa0]|" + WIDE_SPACE_3
@@ -7383,9 +7371,9 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
 
 def awaiting_live(state, now=None):
     """A merged run whose project proves itself live (`health:`) and has not yet: ak's own
-    probe, read every tick, so its seat has nothing to do but wait on it -- the stop hook lets
-    the turn end on it and the seat's ladder reads it as working.  Whether the project proves
-    itself is the one record the merge left (`merge_record`) and the tick keeps until it
+    probe, followed until it passes, so its seat has nothing to do but wait on it -- the stop
+    hook lets the turn end on it and the seat's ladder reads it as working. Whether the project
+    proves itself is the one record the merge left (`merge_record`) and health followers keep until it
     passes (`after_merge_health`); nothing is read again here."""
     now = time.time() if now is None else now
     finished = state.get("finished_at")
@@ -7394,6 +7382,53 @@ def awaiting_live(state, now=None):
             or not 0 <= now - finished <= AFTER_MERGE_WINDOW):
         return False
     return bool((state.get("health") or {}).get("command"))
+
+
+def start_live_probe(run_dir):
+    """Follow this merge independently of its run; a missed start leaves the tick as backstop."""
+    env = config.child_env()
+    for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
+                config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
+        env.pop(key, None)
+    env["AK_RUN_DEPTH"] = "0"
+    try:
+        orch.start_in_slice(
+            [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
+            f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
+            target_slice=orch.run_slice_name())
+    except (OSError, config.Error):
+        pass  # the tick still follows it
+
+
+def follow_live(run_dir):
+    """One follower per run, bounded by the same window and probe timeout as the tick.
+
+    Only health runs here: updating agentkit's live checkout remains the tick's go_live.
+    """
+    with (run_dir / "live.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return 0
+        began = time.time()
+        while True:
+            st, now = run_record.read_state(run_dir), time.time()
+            if not st:
+                return 0
+            ready = st.get("finished_at") is not None
+            if not awaiting_live(st if ready else {**st, "finished_at": began}, now):
+                return 0
+            if not ready:
+                # A merge precedes its ending; delivery must see that stable attempt.
+                time.sleep(0.1)
+                continue
+            sha = after_merge_sha(st.get("pr"), st, print)
+            if sha:
+                health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
+                                            now, False, print, {})
+                if health and health[0] == "passed":
+                    return 0
+            time.sleep(LIVE_INTERVAL)
 
 
 def merge_record(repo, sha, pr_url=None):
@@ -7460,14 +7495,14 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                                                checked=(run_dir, None, "health", sha))
             passed, output = probes[probe]
             with run_record.record(run_dir) as current:
-                if passed:
+                if passed or current.get("live_at"):
                     current.setdefault("live_at", now)
                     current.pop("health", None)
                 else:
                     current["health"] = {"command": command, "output": output}
                 st.clear()
                 st.update(current)
-            if not passed:
+            if not st.get("live_at"):
                 return "pending", None, None
         else:
             # One typed line: a line break would reach the seat as Enter and send half of it.
@@ -7478,6 +7513,11 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
         if not st.get("live_notified"):
             log(f"would tell its launching seat: {handback.live_sentence(st, run_dir)}")
         return "passed", None, None
+    return live_passed(run_dir, st, now, log, records)
+
+
+def live_passed(run_dir, st, now, log, records=None):
+    """The tick and the detached follower deliver a pass under the same delivery lock."""
     history.update_run(st.get("run_id") or run_dir.name, live_at=st["live_at"], log=log)
     # A prompt may have carried the notice since this tick read the run. The deciding,
     # typing and mark share its delivery lock, so either path tells it once.
@@ -7960,7 +8000,8 @@ def runs_health():
         if any(pid in processes for pid in worker.run_pids(str(run_dir))):
             continue
         resume = [str(config.REPO / "bin/ak"), "run", "resume", run_dir.name]
-        if any(args == resume or args == [sys.executable, *resume]
+        # The env python3 shebang leaves "python3" as argv[0].
+        if any(args in (resume, [sys.executable, *resume], ["python3", *resume])
                for args in processes.values()):
             continue
         age = now - run_last_write(run_dir)
@@ -7973,6 +8014,45 @@ def runs_health():
     if dead:
         line += f" · dead: {', '.join(dead)}"
     return line, stuck
+
+
+def gates_health():
+    """Gate use from the ledger, with live waits taking precedence over their last poll."""
+    from . import gate
+    now, holding = time.time(), set()
+    last = history.gate_holds()
+    behind = gate.slot_queue()[2][1:]
+    for _, state in run_record.runs():
+        if not run_record.process_active(state):
+            continue
+        if state.get("state") == "queued" and state.get("slot_waiting"):
+            kind = "count" if state.get("run_id") in behind else state.get("slot_wait_kind")
+            if name := history.SLOT_GATES.get(kind):
+                holding.add(name)
+        if gate.gate_turn_note(state):
+            holding.add("suite turns")
+    # A line's checker marks no run record. Its locked wait file lives only while it waits.
+    for path in config.RUNS.glob(".landing-wait-*"):
+        try:
+            with path.open() as file:
+                fcntl.flock(file, fcntl.LOCK_SH | fcntl.LOCK_NB)
+        except BlockingIOError:
+            holding.add("suite turns")
+        except OSError:
+            pass
+    parts = []
+    for name in ("admission", "suite turns", "memory"):
+        at = last.get(name)
+        if name in holding:
+            status = "holding now"
+        elif at is None:
+            status = "never held"
+        else:
+            days = max(0, int((now - at) // 86400))
+            when = time.strftime("%Y-%m-%d %H:%M", time.localtime(at))
+            status = f"{days} day{'s' if days != 1 else ''} idle, last held {when}"
+        parts.append(f"{name} {status}")
+    return " · ".join(parts)
 
 
 def doctor(argv):
@@ -7996,6 +8076,7 @@ def doctor(argv):
     print(f"tick  {tick}", flush=True)
     runs, stuck = runs_health()
     print(f"runs  {runs}", flush=True)
+    print(f"gates  {gates_health()}", flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)
@@ -8214,6 +8295,10 @@ def local_passes(state, dry_run, log):
 
 
 def main(argv):
+    if argv[:1] == ["--live"]:
+        if len(argv) != 2 or Path(argv[1]).name != argv[1] or argv[1] in (".", ".."):
+            raise config.Error("usage: ak watch --live RUN")
+        return follow_live(config.RUNS / argv[1])
     if command_help.show("watch", argv):
         return 0
     dry_run = argv == ["--dry-run"]

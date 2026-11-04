@@ -215,6 +215,13 @@ def _write_state(run_dir, state, temp=_RUN_TEMP, onto=None):
         # A wake's bookkeeping must not put another suite ahead of its delivery.
         for name in {wait["line"] for wait in waits if isinstance(wait.get("line"), str)}:
             land.start_line(config.RUNS / name)
+    if (state.get("merged") and not state.get("live_at")
+            and (state.get("health") or {}).get("command")
+            and not (previous.get("merged") and (previous.get("health") or {}).get("command"))):
+        from . import watch
+        pending = {**state, "finished_at": now} if state.get("finished_at") is None else state
+        if watch.awaiting_live(pending, now):
+            watch.start_live_probe(run_dir)
     return True
 
 

@@ -57,10 +57,9 @@ func (home Home) Repositories() []string {
 }
 
 // healthGone publishes a resting absent seat under Health's announce lock, with no screen read.
-func healthGone(state, name string, now time.Time) (bool, error) {
-	home, known := Looking(now)
+func (home Home) healthGone(state, name string, now time.Time) (bool, error) {
 	at := slices.IndexFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
-	if !known || at < 0 || home.Seats[at].live || home.Seats[at].held || !home.RestingGone() {
+	if at < 0 || home.Seats[at].live || home.Seats[at].held || !home.RestingGone() {
 		return false, nil
 	}
 	seat := home.Seats[at]

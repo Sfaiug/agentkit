@@ -74,7 +74,7 @@ class FailedNights(unittest.TestCase):
         cls.stuck = broken, garbled, nameless, suiteless = [
             Project(home, "broken"), Project(home, "garbled"), Project(home, "nameless"),
             Project(home, "suiteless", tests=None)]
-        cls.api = api = Project(home, "api")     # fewest title words `ak run` calls one change
+        cls.api = api = Project(home, "api")
         cls.late = late = Project(home, "late")
         late.says({"started": "night-1", "passed": True})
         acme.says(failed(names=NAMES))
@@ -180,11 +180,11 @@ class FailedNights(unittest.TestCase):
         self.assertEqual(self.one_just_read["broken"], (1, 1))
         self.assertEqual(self.one_just_read["garbled"], (1, 0))
 
-    def test_a_later_night_while_a_run_is_under_way_starts_once_that_run_ended(self):
-        self.assertEqual(self.under_way["api"], (1, 1))
+    def test_a_later_night_with_its_own_task_file_starts_while_the_first_runs(self):
+        self.assertEqual(self.under_way["api"], (2, 0))
         self.assertEqual(self.after_it["api"], (2, 0))
 
-    def test_a_later_night_refused_leaves_the_running_fix_its_own_failures(self):
+    def test_a_later_night_leaves_the_running_fix_its_own_failures(self):
         self.assertEqual(self.kept, ["tests/a.py::first"])
         self.assertEqual(self.api.check(self.api.runs()[1]), ["tests/b.py::second"])
 

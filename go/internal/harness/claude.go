@@ -37,8 +37,8 @@ const projectCut = 200
 // claudeAnswer is the last answer a conversation records, and its time (claude.py `running`), read back from
 // its end: its own, never a subagent's or one Claude Code made up itself. Read anywhere else
 // Claude Code would keep it, or not read, there is none.
-func claudeAnswer(conversation, cwd, account string) (model, effort, at any, found bool) {
-	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd, "account": account}), func(entry *run.Object) bool {
+func claudeAnswer(record *run.Object) (model, effort, at any, found bool) {
+	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": record.Str("conversation"), "cwd": record.Str("cwd"), "account": record.Str("account")}), func(entry *run.Object) bool {
 		if entry.Str("type") != "assistant" || entry.Truthy("isSidechain") || entry.Dict("message") == nil {
 			return false
 		}

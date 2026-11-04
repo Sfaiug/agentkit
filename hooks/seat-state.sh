@@ -171,7 +171,7 @@ main() {
   fi
   # Slash commands and turns the harness begins on completed work answer nothing.
   if "$jq" -e '([(.prompt // empty), (.message // empty)] | map(strings)
-                | any(contains("<task-notification") or test("^[[:space:]]*/")
+                | any(contains("<task-notification") or test("^[[:space:]]*/[^/[:space:]]+([[:space:]]|$)")
                       or test("^[[:space:]]*<system-reminder>")))
                or ((.promptId // .prompt_id // "") | strings
                    | test("^(task|subagent)-completed-"))' \

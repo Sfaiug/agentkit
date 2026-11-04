@@ -36,7 +36,7 @@ func drivable(path string, values map[string]string, bound config.Binding) error
 	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
 	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !placed() ||
-		usage.Check() != nil && !loop.Unstaffed(rules) || filed(path) || going() {
+		usage.Check() != nil && !loop.Unstaffed(rules) || filed(path) || going(path) {
 		return ErrPython
 	}
 	return nil
@@ -169,16 +169,6 @@ func start(dir string, out io.Writer, detached bool) error {
 	}
 	defer slots.Close()
 	return loop.Start(dir, out, detached)
-}
-
-// going is whether any run is under way, one Python's rival check may name, or may be.
-func going() bool {
-	for _, dir := range run.Dirs() {
-		if record, err := run.Read(dir); errors.Is(err, run.ErrLoneSurrogate) || record != nil && run.Active(record) {
-			return true
-		}
-	}
-	return false
 }
 
 // filed is whether the task file stands in a task folder of ~/.agentkit/tasks, which is named for
