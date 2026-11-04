@@ -100,6 +100,8 @@ class Live(Merged):
     def test_the_probe_runs_in_the_checkout_with_the_merge_commit(self):
         self.assertEqual(self.first, [self.sha, str(self.rig.path)])
 
+    # Done means live: a project's `health:` line says how to tell its live product works, and a
+    # merged change counts as done once that passes with the change deployed. [2 Oct]
     def test_a_passing_probe_marks_the_run_live_and_is_not_run_again(self):
         self.assertIsInstance(self.passed.get("live_at"), (int, float))
         self.assertIsInstance(self.passed.get("live_notified"), (int, float))

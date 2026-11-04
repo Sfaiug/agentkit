@@ -144,6 +144,7 @@ class LandingTrain(unittest.TestCase):
         self.assertEqual(set(self.saw()), {f"add {first}|init|",
                                            f"add {second}|add {first}|init|"})
 
+    # Correctness locks (one merge per repository) are not capacity and stay. [23 Sep, 28 Sep]
     def test_a_second_merge_never_starts_while_the_first_is_merging(self):
         log = self.merged_log()
         self.assertEqual(len(self.order()), 2, log)
