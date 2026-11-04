@@ -35,6 +35,9 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 			continue
 		}
 		record, err := run.Read(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil || record == nil {
 			return nil, nil, false
 		}

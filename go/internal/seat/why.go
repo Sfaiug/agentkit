@@ -1,7 +1,6 @@
 package seat
 
 import (
-	"cmp"
 	"path/filepath"
 	"slices"
 	"time"
@@ -33,6 +32,5 @@ func (home Home) Explain(name string, now time.Time) ([]string, bool, error) {
 	if err := seat.announce(state, now, home.models); err != nil {
 		return nil, false, err
 	}
-	return []string{seat.Name + "  " + seat.Word, "  reason:    " + cmp.Or(seat.reason, "-"),
-		"  authority: -     the process is gone; nothing here read its screen"}, true, nil
+	return seat.Explanation(now), true, nil
 }
