@@ -35,9 +35,7 @@ import os, pathlib, subprocess, sys
 *options, host, line = sys.argv[1:]
 # Only the fixture's settings: the tick's box cannot read the host's system config.
 config = () if "-F" in options else ("-F", "none")
-box = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
-       "--ro-bind", {system!r}, "/etc/ssh/ssh_config", "--"]
-seen = subprocess.run([*box, {ssh!r}, "-G", *config, *options, host],
+seen = subprocess.run([*{ssh!r}, "-G", *config, *options, host],
                       capture_output=True, text=True)
 seen = seen.stdout.splitlines()
 machine = pathlib.Path({machines!r}, next((one[9:] for one in seen if one[:9] == "hostname "), "-"))
@@ -71,9 +69,11 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         google.key()
         cls.machines, cls.toml = home.root / "machines", home.path / ".agentkit/config.toml"
         cls.key = home.path / ".agentkit/secrets/google-cloud-ssh"
+        cls.ssh = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
+                   "--ro-bind", str(home.write("ssh_system", "")), "/etc/ssh/ssh_config",
+                   "--", REAL_SSH]
         home.fake("ssh", SSH.format(python=sys.executable, machines=str(cls.machines),
-                                    ssh=REAL_SSH, key=cls.key,
-                                    system=str(home.write("ssh_system", ""))))
+                                    ssh=cls.ssh, key=cls.key))
         cls.active(True)
         cls.tick()      # the prices a machine is metered at
         # 1 holds a container, 2 held nothing 11 minutes, 3, 4 and 8 never ran, up 5, 11 and 5
@@ -104,8 +104,9 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         google.machines = [listed(n) for n in (1, 3, 5, 6, 8, 9)]
         cls.second = cls.tick()
         cls.route = subprocess.run(
-            [REAL_SSH, "-G", "-F", home.path / ".agentkit/state/google-cloud-ssh-config", "acme-8"],
-            capture_output=True, text=True, env={"HOME": str(home.path)}).stdout.splitlines()
+            [*cls.ssh, "-G", "-F", home.path / ".agentkit/state/google-cloud-ssh-config", "acme-8"],
+            capture_output=True, text=True, env={"HOME": str(home.path)},
+            check=True, timeout=15).stdout.splitlines()
         cls.tick()      # 8 served no pass now
         cls.known = known.read_text()
         line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
