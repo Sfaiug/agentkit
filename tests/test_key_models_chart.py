@@ -90,6 +90,21 @@ class ModelsChart(unittest.TestCase):
         self.assertIn("Far 1", "\n".join(lines(shown)))
         self.assertIn("94.0", "\n".join(plot))
 
+    def test_zero_costs_one_row_and_equal_costs_still_draw_a_pick(self):
+        for rows in (ROWS[:1], [(n, s, 0) for n, s, _ in ROWS],
+                     [(n, s, 2) for n, s, _ in ROWS]):
+            plot = self.plot(self.models(rows=rows))
+            self.assertEqual(sum(c == "★" for *_, c in self.marks(plot)), 1)
+            self.assertNotIn("┄", "\n".join(plot))
+        self.assertNotIn("quality ↑", self.models(rows=[("base", .84, None)]))
+
+    def test_the_chart_uses_only_the_models_being_compared(self):
+        akconfig.write(self.home, {"base": {"harness": "claude", "model": "base-1"}},
+                       settings={"compare": ["twice-1", "best-1"]})
+        plot = self.plot(self.models())
+        self.assertEqual(len(self.marks(plot)), 2)
+        self.assertNotIn("Base 1", "\n".join(plot))
+
     def test_below_sixty_columns_the_chart_leaves_the_same_table(self):
         def contents(shown):
             table = "\n".join(lines(shown))
