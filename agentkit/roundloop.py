@@ -23,8 +23,6 @@ from pathlib import Path
 from . import (beside_review, change_rules, config, gitcall, hand_in, handback, history, prompts, record as run_record,
                staffing, suite_times, task as taskfile, transitions, turns, worker)
 
-from .change_rules import BODY_WORDS, README_WORDS
-
 
 BLOCKED_SAME = ("the same checks fail the same way after a fix round: "
                 "the task or its checks are wrong")
