@@ -318,7 +318,7 @@ func rowsOf(lineup []any) []quality.Row {
 			values = run.NewObject()
 		}
 		rows = append(rows, quality.Row{Release: row.Str("release"), Name: row.Str("name"),
-			Effort: row.Str("effort"), Values: values, Yours: row.Truthy("yours")})
+			Effort: row.Str("effort"), Values: values, Yours: row.Truthy("yours"), Runners: runners(row)})
 	}
 	return rows
 }
