@@ -153,6 +153,21 @@ class ReviewOff(unittest.TestCase):
                 self.assertEqual(proc.wait(), 0, home.log("spawn-1.err").read_text())
                 self.assertEqual((fakes["claude"].n, fakes["codex"].n), (2, 0))
 
+    def test_a_pr_suite_can_regenerate_tracked_files_without_failing_the_run(self):
+        home, rig, gh, fakes = self.staged(0)
+        suite = "printf regenerated > cache.txt && test -s cache.txt"
+        rig.commit({"AGENTS.md": f"---\ntests: {suite}\n---\n# Widgets\n", "cache.txt": "original\n"})
+        rig.branch("contrib", {"retry.txt": "hello\n"})
+        done = home.ak("run", "--review-pr", gh.open_pr(rig, "contrib", author="other-dev"),
+                       "--no-merge", timeout=90)
+        directory = taskfile.only_run(home)
+        state = json.loads((directory / "run.json").read_text())
+        self.assertEqual((done.code, state["verdict"]), (0, "PASS"), done.out + done.err)
+        self.assertEqual((fakes["claude"].n, fakes["codex"].n), (0, 0))
+        self.assertEqual(Path(state["worktree"], "cache.txt").read_text(), "original\n")
+        self.assertIn("+regenerated", (directory / "tests-changes.patch").read_text())
+        self.assertIn(f"$ {suite}\n[exit 0]", (directory / "round-1/donewhen.log").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()

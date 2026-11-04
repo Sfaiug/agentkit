@@ -1218,6 +1218,8 @@ def execute(lp, role, text, name):
 def review(lp, summary, ok, dw_log, preface="", record=True):
     action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
     if run_record.review_off(lp.state):
+        if lp.state.get("review_pr"):
+            restore_review_checkout(lp, "tests")
         if action:
             action()
         validation = getattr(lp, "validation", {})
