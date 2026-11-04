@@ -93,7 +93,8 @@ class ModelsPick(unittest.TestCase):
         term.keys("Escape")
         shown = lines(term.wait("comparing 2 of 4 models"))
         at = shown.index("  orch".ljust(73) + "quality  a task")      # was Bolt 3's
-        self.assertTrue(shown[at + 1].startswith("› ★ pick   Acme Max 5  ▰▰  max"))
+        self.assertEqual(shown[at + 1], f"› ★ pick   Acme Max 5  ▰▰  max   {bar(38, size=38)}    "
+                                        "100.0  $20.00  no harness")
 
     def test_find_narrows_the_list(self):
         term, _ = self.pick()

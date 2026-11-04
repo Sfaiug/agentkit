@@ -108,7 +108,7 @@ class ModelsAnswer(unittest.TestCase):
         fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\ncrux-2\tCrux 2\tlow\n")
         cls.config = home.path / ".agentkit/config.toml"
         cls.seats = {name: Seat(home, name, model="mid", record={
-            "workers": ["bolt"], "reviewers": ["bolt"]}) for name in SEATS}
+            "workers": ["mid"], "reviewers": ["mid"]}) for name in SEATS}
 
     def setUp(self):
         akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5", "effort": "low"},
@@ -137,7 +137,7 @@ class ModelsAnswer(unittest.TestCase):
         """Whether seat `name` runs what it was opened with, each at the entries' efforts."""
         record = self.record(name)
         return ([record[role] for role in ("orchestrator", "workers", "reviewers")]
-                == ["mid", ["bolt"], ["bolt"]] and all(
+                == ["mid", ["mid"], ["mid"]] and all(
                     efforts == {"effort": "low"} for efforts in record.get("efforts", {}).values()))
 
     def until(self, test, what):
@@ -184,11 +184,11 @@ class ModelsAnswer(unittest.TestCase):
     def test_r_on_a_seat_s_c_takes_the_recommended_efforts_into_its_record_alone(self):
         term, _ = self.models(seat="acme-fix")
         term.keys("r")
-        self.until(lambda: self.record("acme-fix").get("efforts", {}).get("bolt", {}).get(
-            "exec_effort") == "medium", "r never took it")
+        self.until(lambda: self.record("acme-fix")["reviewers"] == ["bolt"], "r never took it")
         record = self.record("acme-fix")
         # its orchestrator is only said: moving the seat is its orchestrator mark's
-        self.assertEqual((record["orchestrator"], record["workers"]), ("mid", ["bolt"]))
+        self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
+                         ("mid", ["bolt"], ["bolt"]))
         self.assertEqual(record["efforts"]["bolt"],
                          {"effort": "low", "exec_effort": "medium", "review_effort": "medium"})
         self.assertEqual(self.config.read_bytes(), self.given)
