@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/hookfact"
 	"agentkit/internal/run"
 )
 
@@ -33,6 +34,7 @@ type plugin struct {
 	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
 	record func(record *run.Object) (plugin, bool)
+	heard  func(name string) hookfact.Fact
 	keys   []string
 	kept   *regexp.Regexp
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one

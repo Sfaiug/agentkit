@@ -1,0 +1,89 @@
+package notify
+
+import (
+	"context"
+	"errors"
+	"io"
+	"os"
+
+	"agentkit/internal/config"
+	"agentkit/internal/run"
+)
+
+// questionTransition cards a question read under its typing lock, from its notice or screen.
+func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, question func(string, *run.Object) *run.Object) (bool, error) {
+	if os.Getenv("AK_RUN_ROLE") == "worker" {
+		return true, nil
+	}
+	carried := false
+	err := Held(context.Background(), name, func(current string) error {
+		word, _ := said(current)
+		if word != "needs you" {
+			return nil
+		}
+		file, err := readObject(seatFile("seat", current, "json"))
+		if err != nil {
+			return err
+		}
+		if file == nil || file.Truthy("closed_by_owner") {
+			return nil
+		}
+		notice := question(current, file)
+		if notice == nil {
+			return nil
+		}
+		present, last, gone, known := questionActivity(current)
+		if !known || !gone && config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
+			return nil
+		}
+		card, err := readObject(seatFile("card", current, "json"))
+		if err != nil && !errors.Is(err, errNotObject) {
+			return err
+		}
+		if card == nil {
+			card = run.NewObject()
+		}
+		now := clock()
+		asked := number(notice, "time")
+		fresh := card.Str("word") != "needs you"
+		if fresh {
+			if card.Str("word") == "done" || gone {
+				return nil
+			}
+			card = episode(card, "needs you", run.Float(asked), run.Float(asked))
+		}
+		began := card.Get("began")
+		if !card.Has("began") {
+			began = card.Get("since")
+		}
+		start, known := finite(began)
+		if _, dated := finite(card.Get("since")); !dated || !known || start < installedAt() ||
+			max(number(card, "answered_at"), number(notice, "earlier_answer_at")) > number(card, "since") {
+			return nil
+		}
+		carried = true
+		if card.Truthy("sent") {
+			return nil
+		}
+		changed := card.Truthy("present") != present
+		if changed {
+			card.Set("present", present)
+			card.Set("left", run.Float(now))
+		}
+		if fresh || changed {
+			if err := writeCard(current, card); err != nil {
+				return err
+			}
+		}
+		if present || now-number(card, "left") < cardWait || now-max(asked, last) < wait {
+			return nil
+		}
+		if gone {
+			notice = notice.Copy()
+			notice.Set("text", file.Str("reason"))
+		}
+		_, err = sendCard(current, card, notice, errOut)
+		return err
+	})
+	return carried, err
+}
