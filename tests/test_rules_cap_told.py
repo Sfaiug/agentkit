@@ -127,7 +127,7 @@ class RulesCapTold(unittest.TestCase):
         self.commit_rules("x" * (OLD_CUT + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
                  "rules_truncated": True, "lessons_truncated": True}
-        line = handback.handback_line(state, config.RUNS / "acme-run", self.cfg)
+        line = handback.handback_line(state, config.RUNS / "acme-run", self.cfg, save=False)
         self.assertNotIn("cut short", line)
         self.assertNotIn(str(self.path), line)
 

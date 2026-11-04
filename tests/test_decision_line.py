@@ -5,12 +5,14 @@ holding the rest.  30 Oct 2026: the median FAIL line was 985 characters; Claude 
 Offline: a temporary HOME (`Sandbox`) and its adapters' folds.
 """
 
+import os
 import re
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, gitcall, handback, record, run, watch
+from agentkit import config, deliver, gitcall, handback, prompts, record, run, turns, watch
 
 LINE = re.compile(r"run (\S+) ([A-Z ]+) \((\d) of 3\): (.+[.!?]) Next: ([^.]+)\. Result: (\S+)")
 FINDING = "- parse.py:12 - " + "The parser drops the last row of every acme table. " * 40   # past 2,000
@@ -55,6 +57,14 @@ class DecisionLine(Sandbox):
             self.assertEqual(found[:3], (name, word, str(spent)), line)
             self.assertTrue(found[3].startswith(starts) and found[3].endswith(ends), line)
             self.assertEqual(found[4:], (move, config.tilde(directory / "result.md")))
+            opening = (directory / "result.md").read_text().splitlines()[:3]
+            self.assertEqual(opening[0], f"# {word} ({spent} of 3) — Finished {name}")
+            self.assertEqual(opening[2], f"Next: {move}")
+            if extra.get("error") or extra.get("merge_note"):
+                self.assertIn((extra.get("error") or extra["merge_note"]).strip(), opening[1])
+            else:
+                self.assertIn(" ".join(CLAIM["what"].split()), opening[1])
+                self.assertIn(CLAIM["why"], opening[1])
             for harness, _ in config.manifests():
                 self.assertLessEqual(len(line), watch.screen(harness)["folds_over"] or len(line))
             with patch.object(watch, "longest", return_value=240):  # a harness folding sooner: details go
@@ -69,9 +79,71 @@ class DecisionLine(Sandbox):
         self.assertEqual(line, "run acme-live NOT LIVE (3 of 3): health: probe failed on main after this merge. "
                                f"Next: {handback.RESULT_NAMES}. Result: {config.tilde(directory / 'result.md')}")
         self.assertIn(told, (directory / "result.md").read_text())
+        self.assertEqual((directory / "result.md").read_text().splitlines()[:3], [
+            "# NOT LIVE (3 of 3) — Finished acme-live", f"Why: {told}",
+            f"Next: {handback.RESULT_NAMES}"])
+        self.assertIn("VERDICT: PASS", (directory / "result.md").read_text().splitlines())
         gone = directory.with_name("acme-gone")     # a run cleaned up since: its result comes back
         self.assertIn(f"Result: {config.tilde(gone / 'result.md')}", handback.not_live_line(told, gone))
         self.assertIn(told, (gone / "result.md").read_text())
+        self.assertEqual((gone / "result.md").read_text().splitlines()[0],
+                         "# NOT LIVE (0 of 0) — acme-gone")
+
+    def test_the_opening_has_every_finding_and_failing_check_with_its_first_output(self):
+        other = {**CLAIM, "path": "export.py", "what": "The export loses its heading.",
+                 "why": "Readers mistake the first row for a heading."}
+        directory, state = self.ending("acme-checks", spent=2, state="blocked", verdict="BLOCKED",
+            error="The checks failed identically twice.",
+            review_records=[CLAIM, other, {"kind": "done"}],
+            done_when_failure={"every": [["check-rows", "rows last"], ["check-export", "export last"]],
+                               "once": [["check-live", "live last"]]},
+            final_check={"outcome": "failed", "where": "landing", "line": "check-live"})
+        log = directory / "round-3/donewhen.log"
+        log.parent.mkdir()
+        log.write_text("$ check-rows\n[exit 1]\n" + turns.cut(
+                       "rows first\nrows second\n" + "later\n" * turns.OUT_CAP + "rows last\n",
+                       directory, "donewhen") + "\n\n"
+                       "$ check-ok\n[exit 0]\nok\n\n"
+                       "$ check-export\n[exit 1]\nexport first\nexport second\nexport last\n")
+        (directory / "final-check.log").write_text("$ check-live\n[exit 1]\n--- AK_SHARD=1/1 ---\n[exit 1]\n" + turns.cut(
+            "live first\n" + "later\n" * turns.OUT_CAP + "live last\n", directory, "final-check"))
+        with patch.object(gitcall, "git", return_value="(fixture diff)"):
+            run.write_result(directory, state, [])
+        why = (directory / "result.md").read_text().splitlines()[1]
+        for text in (state["error"], " ".join(CLAIM["what"].split()), CLAIM["why"], "rows[:-1]", other["what"],
+                     other["why"], "`check-rows` — rows first rows second",
+                     "`check-export` — export first export second", "`check-live` — --- AK_SHARD=1/1 --- [exit 1] live first"):
+            self.assertIn(text, why)
+
+    def test_a_failed_pr_landing_opens_with_every_checks_first_diagnostics(self):
+        for suffix in ("", "-tests", "-legacy"):
+            directory, state = self.ending(f"acme-landing{suffix}", state="waiting", own_pr=True,
+                review_pr="https://github.com/acme/widgets/pull/7", landing_reds=3)
+            log = directory / f"lander-{'a' * 40}{suffix}.log"
+            text = ("$ check-rows\n[exit 1]\nrows first\nrows last\n\n"
+                    "$ check-export\n[exit 1]\nexport first\n## Landing failed\nexport last\n")
+            log.write_text(text)
+            lp = SimpleNamespace(run_dir=directory, state=state, rnd=3, rounds=3, write=lambda: None)
+            deliver.fail_pr_landing(lp, {"line": prompts.first_failure(text), "log": str(log)})
+            self.assertEqual(state["state"], "fail")
+            if suffix == "-legacy":
+                state["final_check"].pop("log")
+            handback.record_result(directory, state, cfg=self.cfg)
+            why = (directory / "result.md").read_text().splitlines()[1]
+            for diagnostic in ("`check-rows` — rows first", "`check-export` — export first"):
+                self.assertIn(diagnostic, why)
+
+    def test_forged_output_references_cannot_read_host_files(self):
+        secret = self.root / "acme-whole-key.log"
+        secret.write_text("ACME_PRIVATE_KEY\n")
+        os.mkfifo(config.RUNS / "acme-whole-pipe.log")
+        for kind in ("symlink_to", "hardlink_to"):
+            link = config.RUNS / "acme-whole-alias.log"
+            getattr(link, kind)(secret)
+            for path in (secret, link, config.RUNS / ".." / secret.name, config.RUNS / "acme-whole-\0.log", config.RUNS / "acme-whole-pipe.log"):
+                marker = f"[only part of this output is shown; all of it is in {path}]"
+                self.assertEqual(turns.first_lines(marker, config.RUNS), marker)
+            link.unlink()
 
     def test_what_the_line_cannot_hold_is_whole_in_its_result(self):
         cause = "a process stopped during a remote write " * 30 + "and nothing ended it"
@@ -80,6 +152,8 @@ class DecisionLine(Sandbox):
         (directory / "result.md").write_text("# FAIL\n")     # written before its cause was
         self.assertIn(handback.UNSAID, handback.handback_line(state, directory, self.cfg))
         self.assertIn(cause, (directory / "result.md").read_text())
+        self.assertEqual((directory / "result.md").read_text().splitlines()[:3], [
+            "# FAIL (3 of 3) — Finished acme-stop", f"Why: {cause}", "Next: read the result"])
         with patch.object(watch, "longest", return_value=100):     # no room for a reason: refused
             self.assertRaises(config.Error, handback.handback_line, state, directory, self.cfg)
         directory, _ = self.ending("acme-many", state="fail", verdict="FAIL", findings=f"{FINDING}\n", findings_file="/acme/final.md",
@@ -92,6 +166,9 @@ class DecisionLine(Sandbox):
                             ("acme-stopped", {"state": "stopped"})):
             directory, state = self.ending(name, **extra)
             self.assertIsNone(handback.decision_line(state, directory, self.cfg))
+            word = "PASS, merged" if extra.get("merged") else "FAIL"
+            self.assertEqual((directory / "result.md").read_text().splitlines()[:3],
+                             [f"# {word} — Finished {name}", "", "VERDICT: PASS"])
 
 
 if __name__ == "__main__":

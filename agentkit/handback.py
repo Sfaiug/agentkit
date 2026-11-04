@@ -204,7 +204,7 @@ def result_done_when(cmds, state=None):
     return marked
 
 
-def save_result(run_dir, text=None, *, notices=()):
+def save_result(run_dir, text=None, *, notices=(), opening=None):
     """Publish a report or save its full notices without a rebuild losing them.
 
     Build the report before taking the delivery lock: while git reads its diff, the tick
@@ -216,6 +216,9 @@ def save_result(run_dir, text=None, *, notices=()):
             saved = result.read_text()
         except FileNotFoundError:
             saved = ""
+        if opening is not None:
+            saved = opening + "\n\n" + saved.partition("\n\n")[2]
+            result.write_text(saved)
         heading = "\n## Seat notice\n\n"
         _, boundary, kept = saved.partition(heading)
         if text is None:
@@ -227,6 +230,27 @@ def save_result(run_dir, text=None, *, notices=()):
             result.write_text(text + boundary + kept)
 
 
+def result_opening(run_dir, state, cfg=None):
+    """The decision in full, or the delivery heading when there is nothing to decide.
+
+    Read under the delivery lock: a NOT LIVE notice may have arrived while the report
+    read its diff, and is newer than the merged record that report was built from.
+    """
+    if state.get("merged"):
+        try:
+            saved = (run_dir / "result.md").read_text()
+        except FileNotFoundError:
+            saved = ""
+        if saved.startswith("# NOT LIVE "):
+            return saved.partition("\n\n")[0]
+    decided = decision_line(state, run_dir, cfg, save=False, report=True)
+    if decided:
+        return decided
+    outcome = ("BLOCKED" if state.get("state") == "blocked"
+               else transitions.delivery(state, transitions.report_config(cfg)))
+    return f"# {outcome} — {state.get('title') or run_dir.name}"
+
+
 def write_result(run_dir, state, cmds, log=None, cfg=None):
     """The full result.md.  `log` carries a stop observed while reporting, if any.
 
@@ -234,12 +258,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     about a stop is silent: the diff-stat fallback names it, and its remedy is logged.
     """
     wt = Path(state["worktree"])
-    # A blocked run heads its report with the word for it: nothing was delivered and nothing
-    # was judged, so the delivery outcome would call FAIL on work that was never reviewed.
-    outcome = ("BLOCKED" if state.get("state") == "blocked"
-               else transitions.delivery(state, transitions.report_config(cfg)))
-    parts = [f"# {outcome} — {state['title']}", "",
-             f"VERDICT: {state['verdict']}",
+    parts = ["", f"VERDICT: {state['verdict']}",
              f"rounds: {len(state['round_summaries'])} of {state['rounds']}"]
     if state.get("scratch"):
         # no branch, no PR, no merge: the files are where this run's work went
@@ -307,7 +326,8 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     onward = transitions.continue_line(state, run_dir)
     if onward:
         parts += [onward, ""]
-    save_result(run_dir, "\n".join(parts))
+    with delivery_lock(run_dir):
+        save_result(run_dir, result_opening(run_dir, state, cfg) + "\n" + "\n".join(parts))
 
 
 def run_project(state):
@@ -1412,14 +1432,55 @@ def live_line(state, run_dir):
                        f"run {run_dir.name} is live.")
 
 
-def decision(run_dir, state, word, why, move, save=True):
+def decision_reason(run_dir, state, why):
+    """The report's uncut reason: every blocking claim and failing command, with evidence.
+
+    Failure histories keep the last output line for comparison; the report reads the first
+    lines from the gate's log, where the diagnostic starts, falling back to that history.
+    """
+    rows = hand_in.Review(state.get("review_records") or []).findings
+    parts = [why]
+    for row in rows:
+        claim = f"{row['path']}:{row['line']} - {row['what']}"
+        if claim == why:
+            parts[0] = hand_in.item_text(row)
+        else:
+            parts.append(hand_in.item_text(row))
+    if check := failed_check(state):
+        parts.append(check)
+    history = state.get("done_when_failure")
+    history = history if isinstance(history, dict) else {}
+    final = state.get("final_check")
+    final = final if isinstance(final, dict) else {}
+    every = max(run_dir.glob("round-*/donewhen.log"),
+                key=lambda path: int(path.parent.name.removeprefix("round-")),
+                default=run_dir / "donewhen.log")
+    for gate, path in (("every", every), ("once", Path(final.get("log") or run_dir / "final-check.log"))):
+        if not history.get(gate) and not (gate == "once" and final.get("outcome") == "failed"):
+            continue
+        text = turns.read_answer(path) or (
+            re.sub(r"\n+(?=\$ [^\n]*\n\[)", "\n\n", prompts.saved_findings(run_dir, state))
+            if gate == "once" and state.get("review_pr") else "")
+        for cmd, said in prompts.failing_checks(text) or history.get(gate) or []:
+            output = text.partition(f"$ {cmd}\n")[2].split("\n\n$ ", 1)[0].partition("\n")[2]
+            first = turns.first_lines(output, run_dir if gate == "every" else path.parent)
+            parts.append(f"`{cmd}` — {first or said}" if first or said else f"`{cmd}`")
+    return " ".join("; ".join(dict.fromkeys(parts)).split())
+
+
+def decision(run_dir, state, word, why, move, save=True, report=False):
     """`run <id> <WORD> (<round> of <budget>): <why> Next: <move>. Result: <path>` within DECISION_MOST and
     a typed line's bound (`watch.too_long`): `why` in whole sentences, the move's detail dropped first, then
     UNSAID for `why`, else refused as `seat_notice` refuses.  A line cut short saves its whole, an older
-    result maybe lacking it; without `save` the caller leaves that to whoever holds the delivery lock."""
+    result maybe lacking it; without `save` the caller leaves that to whoever holds the delivery lock.
+    With `report`, render its uncut opening for result.md instead."""
+    rounds = f"({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0})"
+    if report:
+        return (f"# {word} {rounds} — {state.get('title') or run_dir.name}\n"
+                f"Why: {decision_reason(run_dir, state, why)}\nNext: {''.join(move)}")
     from . import watch  # here, not at the top: it reaches run
     most = min(DECISION_MOST, watch.longest())
-    head = f"run {run_dir.name} {word} ({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0}):"
+    head = f"run {run_dir.name} {word} {rounds}:"
     end = f". Result: {config.tilde(run_dir / 'result.md')}"
     whole = f"{head} {terminal.sentences(why, len(why) + 1)} Next: {''.join(move)}{end}"
     for step, said in (("".join(move), why), (move[0], why), (move[0], UNSAID)):
@@ -1430,19 +1491,21 @@ def decision(run_dir, state, word, why, move, save=True):
             break
     else:
         raise config.Error(f"run {run_dir.name}'s decision line has no room for a reason in {most:,} characters")
-    if save and line != whole:
-        save_result(run_dir, notices=(whole, followup_report(state)))
+    if save:
+        save_result(run_dir, opening=decision(run_dir, state, word, why, move, save=False, report=True),
+                    notices=(whole, followup_report(state)) if line != whole else ())
     return line
 
 
-def decision_line(state, run_dir, cfg=None, save=True):
+def decision_line(state, run_dir, cfg=None, save=True, report=False):
     """The line an ending its seat decides about is told in, else None: one delivered or stopped on
     purpose leaves nothing to decide, and one going or parked upstream has not ended, but for a provider."""
     word = handback_verdict(state, cfg)
     if (word.startswith(("PASS", "DONE")) or transitions.delivered(state) or state.get("state") in ("waiting", "stopped")
             or transitions.going(state) and not transitions.exhausted_wait(state)):
         return None
-    return decision(run_dir, state, word, handback_reason(state, cfg, whole=True), next_move(state, run_dir), save)
+    return decision(run_dir, state, word, handback_reason(state, cfg, whole=True),
+                    next_move(state, run_dir), save, report)
 
 
 def next_move(state, run_dir):
@@ -1465,8 +1528,11 @@ def not_live_line(told, run_dir):
     """The decision line of a merge its target's checks or `health:` broke, its result keeping `told`
     whole: a run cleaned up since gets back the directory that result is in."""
     run_dir.mkdir(parents=True, exist_ok=True)
-    save_result(run_dir, notices=(told,))
-    return decision(run_dir, run_record.read_state(run_dir) or {}, "NOT LIVE", told, (RESULT_NAMES, ""), save=False)
+    state = run_record.read_state(run_dir) or {}
+    move = (RESULT_NAMES, "")
+    save_result(run_dir, notices=(told,),
+                opening=decision(run_dir, state, "NOT LIVE", told, move, save=False, report=True))
+    return decision(run_dir, state, "NOT LIVE", told, move, save=False)
 
 
 def handback_line(state, run_dir, cfg=None, save=True, live=False):
@@ -2005,11 +2071,12 @@ def record_result(run_dir, state, log=None, cfg=None):
     again = (f"ak run --review-pr {state['review_pr']}" if state.get("review_pr")
              else f"ak run {run_dir / 'task.md'}")
     try:
-        save_result(run_dir,
-            f"# {transitions.delivery(state, transitions.report_config(cfg))} — {state.get('title') or run_dir.name}\n\n"
-            f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
-            f"{state.get('error') or 'no reason was recorded'}\n\n"
-            f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
+        with delivery_lock(run_dir):
+            save_result(run_dir,
+                f"{result_opening(run_dir, state, cfg)}\n\n"
+                f"VERDICT: {state.get('verdict') or 'none'}\n\n## Why this run stopped\n\n"
+                f"{state.get('error') or 'no reason was recorded'}\n\n"
+                f"relaunch: {again}{suffix}\n\n{followup_report(state)}")
     except OSError:
         pass
     else:
