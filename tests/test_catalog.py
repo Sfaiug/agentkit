@@ -273,6 +273,7 @@ class Catalog(unittest.TestCase):
         self.assertEqual(out.getvalue().splitlines()[:-1], [    # the last is the rented machine
             "slice test", "tick  lock free", "runs  0 going · 0 ended today · 0 endings owed",
             "gates  admission never held · suite turns never held · memory never held",
+            "night review  disarmed · last two weeks no merges · no merges",
             "machine  this one: new · never answered",
             "effort  haiku: claude-haiku-4-5 takes none, not low",
             "effort  grok: grok-4.5 takes low medium high, not xhigh"])

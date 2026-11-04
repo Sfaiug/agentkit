@@ -8061,6 +8061,8 @@ def doctor(argv):
     runs, stuck = runs_health()
     print(f"runs  {runs}", flush=True)
     print(f"gates  {gates_health()}", flush=True)
+    from . import night_review
+    print(night_review.doctor_line(), flush=True)
     from . import machines
     cfg = config.load()
     print("\n".join(f"machine  {machine}" for machine in machines.known()), flush=True)
@@ -8148,7 +8150,7 @@ def local_passes(state, dry_run, log):
     tick to the next loses its race.
     """
     from . import (alive, google_cloud, history, job as jobs, leases, logins, machine_setup,
-                   machines, nightly, retire, run, waiter)
+                   machines, night_review, nightly, retire, run, waiter)
     providers, fetched = {}, set()
 
     def read_usage():
@@ -8266,6 +8268,7 @@ def local_passes(state, dry_run, log):
         ("alive checks", lambda: alive.tick(fetched), False),
         # ... and whether a project's night failed, which its own host read: a fix run, unasked
         ("night reads", lambda: nightly.tick(log), False),
+        ("night review", lambda: night_review.tick(log), False),
         # Merged agentkit goes live after every local pass, so as little of this tick's old
         # code as can be is left to run over new files; GitHub imports nothing new.
         ("live update", lambda: update.go_live(log), False),
