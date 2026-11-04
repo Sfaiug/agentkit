@@ -123,7 +123,8 @@ class Answer(unittest.TestCase):
         self.assertEqual((round(execute["best"], 6), execute["pick"], execute["front"],
                           execute["take"]), (70, None, [], None))
         self.assertEqual(matrix.answer(self.lineup)["orchestrate"],
-                         {"rated": [], "best": None, "pick": None, "front": [], "take": None})
+                         {"cost_unit": "board_dollars", "rated": [], "best": None,
+                          "pick": None, "front": [], "take": None})
 
     def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
         lineup = [dict(row, yours=row["yours"] if row["release"] == "crux-1" else [])
