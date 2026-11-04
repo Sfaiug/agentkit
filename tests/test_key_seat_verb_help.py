@@ -29,6 +29,7 @@ USAGE = {
             "ak plan check N 'COMMAND'",
     "notify": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
               "       ak notify --check",
+    "hand-in": "",  # Exact usage is in test_key_disputes_are_answered.py.
     "wait": "usage: ak wait PR_URL|RUN_ID",
 }
 # Inside a seat, as a model there types them: the seat's name in the environment, its record
@@ -66,7 +67,8 @@ class SeatVerbHelp(unittest.TestCase):
                     self.assertEqual(len(blocks), 4, out)
                     purpose, shown, description, example = blocks
                     self.assertNotIn("\n", purpose)
-                    self.assertEqual(shown, usage)
+                    if usage:
+                        self.assertEqual(shown, usage)
                     self.assertTrue(description.strip(), out)
                     self.assertRegex(example, rf"^Example: ak {verb} \S[^\n]*$")
 
@@ -90,7 +92,7 @@ class SeatVerbHelp(unittest.TestCase):
     def test_asking_for_help_writes_nothing_under_home_and_calls_no_host_tool(self):
         before = snapshot(self.home.path)
         called = {tool: self.home.calls(tool) for tool in REFUSED}
-        for verb in (*USAGE, "hand-in"):
+        for verb in USAGE:
             for flag in ("-h", "--help"):
                 with self.subTest(verb=verb, flag=flag):
                     self.helped(verb, flag)
