@@ -1,8 +1,4 @@
-"""An install between rounds changes only runs admitted after it, through landing.
-
-Black-box: AK_BIN's live copy, real git swaps, and scripted workers. Each observed step
-lazily imports a probe from its own checkout and writes that checkout's commit.
-"""
+"""AK_BIN's admitted checkout survives a real install, subsequent rounds, hand-ins and landing."""
 
 import json
 from pathlib import Path
@@ -74,9 +70,12 @@ class RunKeepsItsVersion(unittest.TestCase):
             gh = GitHub(home)
             gh.grant(rig.slug, "WRITE")
             release = home.root / "adapters/release"
-            held = {**fakeadapter.WORK, "sh":
+            held = {**fakeadapter.WORK, "write": {"retry.txt": "hello\n", "fault.txt": "fault\n"}, "sh":
                     f"timeout 120 sh -c 'while [ ! -f {shlex.quote(str(release))} ]; do sleep 0.1; done'"}
-            fakes = fakeadapter.install(home, claude=[held, "work"], codex=["fail", "pass"])
+            failure = {**fakeadapter.FAIL, "hand_in": [["finding", "fault.txt:1", "fixture defect",
+                       "blocks delivery", "--run", "test ! -f fault.txt"], ["done"]]}
+            fakes = fakeadapter.install(home, claude=[held, {**fakeadapter.WORK, "sh": "rm fault.txt"}],
+                                       codex=[failure, "pass"])
             task = taskfile.write(home, rig.path)
             done = home.run(install.ak, "run", str(task), "--bg", timeout=300)
             self.assertEqual(done.code, 0, done.out + done.err)

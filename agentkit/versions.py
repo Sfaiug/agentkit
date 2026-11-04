@@ -65,6 +65,8 @@ def checkout(commit=None):
         live = (source / "bin" / "ak").is_file()
         if not live:
             source = config.REPO
+        elif why := adopt(source):
+            raise config.Error(why)
         code, sha = git(source, "rev-parse", "--verify", f"{commit or 'HEAD'}^{{commit}}")
         if code:
             raise config.Error(f"cannot read ak version: {sha}")
