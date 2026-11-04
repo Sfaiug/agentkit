@@ -93,7 +93,8 @@ def enter(path):
 
 
 def dispatch(argv):
-    if argv[:1] == ["hand-in"] and (path := os.environ.get("AK_RUN_CODE")):
+    if (argv[:1] == ["hand-in"] and os.environ.get("AGENTKIT_RUN")
+            and (path := os.environ.get("AK_RUN_CODE"))):
         enter(Path(path))
     elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
         from . import record
