@@ -18,8 +18,8 @@ type Task struct {
 
 // runView is what a full record says to the row's ladder and to its open line together.
 type runView struct {
-	going, live bool
-	task        *Task
+	going, live, needs bool
+	task               *Task
 }
 
 func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
@@ -29,12 +29,16 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 	}
 	mine := map[string][]ran{}
 	projects := map[string][]ran{}
+	var records []*run.Object
 	for _, entry := range entries {
 		dir := filepath.Join(run.Runs(), entry.Name())
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			continue
 		}
 		record, err := run.Read(dir)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
 		if err != nil || record == nil {
 			return nil, nil, false
 		}
@@ -46,6 +50,7 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 		if record.Truthy("unattended") {
 			continue
 		}
+		records = append(records, record)
 		view, known := viewRun(record, now)
 		if !known {
 			return nil, nil, false
@@ -55,6 +60,12 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 			return nil, nil, false
 		}
 		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds(), view: &view})
+	}
+	index := run.NewIndex(records)
+	for _, runs := range mine {
+		for _, each := range runs {
+			each.view.needs = index.NeedsLook(each.record, now)
+		}
 	}
 	return mine, projects, true
 }

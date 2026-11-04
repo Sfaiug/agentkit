@@ -241,21 +241,13 @@ func lookedLive(state, name string, readers recordReaders) (Seat, error) {
 	return seat, err
 }
 
-// explainLive is orch.explain of a seat its panes still run on: the look, and what decided it read
-// back as every other reader reads it.
+// explainLive is orch.explain of a seat its panes still run on, from the look it just published.
 func explainLive(state, name string, readers recordReaders) ([]string, error) {
 	seat, err := lookedLive(state, name, readers)
 	if err != nil {
 		return nil, err
 	}
-	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
-	if file == nil {
-		file = run.NewObject()
-	}
-	return []string{seat.Name + "  " + seat.Word, "  reason:    " + cmp.Or(seat.reason, "-"),
-		"  authority: " + cmp.Or(file.Str("authority"), "default") + "  rule: " + cmp.Or(file.Str("rule"), "-"),
-		"  evidence:  " + cmp.Or(file.Str("evidence"), "nothing on the screen said otherwise"),
-		"  since:     " + sinceLine(file.Get("word_since"), time.Now())}, nil
+	return seat.Explanation(time.Now()), nil
 }
 
 // sinceLine is when a word began and how long ago, "unknown" where nothing knows.

@@ -100,24 +100,13 @@ func (seat *Seat) decided(state string, found sight, now float64, attached bool)
 		return err
 	}
 	seat.Word, seat.reason, seat.since, seat.question = said.word, said.reason, said.since, said.question
+	seat.seen = found
 	seat.unsent = ""
 	if found.state == "draft" && !attached && found.composerOpen(seat.own) && !found.typedByAk {
 		seat.unsent = config.Fold(found.evidence)
 	}
 	seat.wordFrom = found.wordFrom()
 	return nil
-}
-
-// AtWidest is the seats with each live one worded as widely as its ladder can, for a table to know it
-// fits before any look writes.
-func (home Home) AtWidest() []Seat {
-	seats := slices.Clone(home.Seats)
-	for at, each := range seats {
-		if each.live {
-			seats[at].Word = "needs you"
-		}
-	}
-	return seats
 }
 
 // wordFrom is what of a sight a seat's word is decided from and kept beside it (watch.word_from).

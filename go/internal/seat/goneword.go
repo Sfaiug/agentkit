@@ -42,7 +42,7 @@ func goneRuns(facts climbing) (*answer, error) {
 	}
 	var going []ran
 	for _, each := range facts.mine {
-		if each.view != nil && each.view.going || each.view == nil && each.record.Str("state") == "running" {
+		if each.going() {
 			going = append(going, each)
 		}
 	}
