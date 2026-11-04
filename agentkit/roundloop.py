@@ -1347,7 +1347,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
 
     def body_with(section):
-        text = (f"{lp.body}\n\n{section}\n\n"
+        text = (f"{lp.body}\n\n" + prompts.decided_section(lp.body) + f"{section}\n\n"
                 + (disputes.text + "\n" if disputes.disputes else "")
                 + f"{heading}\n"
                 + (f"{deferred}\n" if deferred else "")

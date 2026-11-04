@@ -16,7 +16,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from . import gitcall, hand_in, history, record as run_record, turns, worker
+from . import gitcall, hand_in, history, record as run_record, task as taskfile, turns, worker
 
 
 DIFF_CAP = 300 * 1024
@@ -59,6 +59,17 @@ def plan_context(seat):
             "agreed to, each naming the project it is on:\n" + "\n".join(open_lines) + "\nAn "
             "outcome on this repository that this PR claims to deliver but misses is a finding "
             "whose proof is that line's check, run with `--run`.\n\n")
+
+
+def decided_section(body):
+    lines = taskfile.decided(body)
+    if not lines:
+        return ""
+    return ("## Decided before the build\n"
+            "These were decided before the build: hand in no finding against an Accepted line "
+            "and no missing-work finding for a Not wanted line. They set what counts as "
+            "asked-for; a defect a command shows stays a finding.\n\n"
+            + "\n".join(lines) + "\n\n")
 
 
 def base_proof_line(state):
