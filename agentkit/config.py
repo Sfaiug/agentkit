@@ -1255,11 +1255,11 @@ def seat_file(kind, name):
     return session_path(name).with_name(f"{kind}-{normalize_session(name)}.{SEAT_FILES[kind]}")
 
 
-def seat_files(kind):
-    """(seat, path) for every file of one SEAT_FILES kind, in name order."""
+def seat_files(kind, paths=None):
+    """(seat, path) for one SEAT_FILES kind, from `paths` or the state directory, in name order."""
     head, tail = f"{kind}-", f".{SEAT_FILES[kind]}"
     try:
-        names = parsed.read(_self.STATE, os.listdir)
+        names = parsed.read(_self.STATE, os.listdir) if paths is None else [path.name for path in paths]
     except OSError:
         return []       # no state yet, or none to list
     return [(name[len(head):-len(tail)], _self.STATE / name) for name in sorted(names)

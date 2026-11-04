@@ -26,14 +26,16 @@ class ModelFollowedAtOnce(unittest.TestCase):
         akconfig.write(home, {"opus": {}, "sonnet": {"harness": "claude",
                        "model": "claude-sonnet-5-5", "effort": "high"}})
         owner = """jq -r '"owner: " + .model.id + " " + .effort.level' # owner comment"""
-        home.write(".claude/settings.json", {"statusLine": {"type": "command", "command": owner}})
-        seat = Seat(home, "acme-fix", record={"launched": time.time() - 600,
+        home.write(".claude/settings.json", {"statusLine": {"type": "command", "command": "printf login-status"}})
+        home.write("code/acme-fix/.claude/settings.local.json", {"statusLine": {"type": "command", "command": owner}})
+        seat = Seat(home, "acme-fix", alive=False, record={"launched": time.time() - 600,
                                               "efforts": {"opus": {"effort": "xhigh"}}})
-        done = home.ak("orch", "preview", "--model", "opus", "--dry-run", cwd=seat.cwd)
+        done = home.ak("orch", seat.name, "--dry-run", cwd=home.path)
         self.assertEqual(done.code, 0, done.err)
         words = shlex.split(done.out.splitlines()[-1])
         settings = json.loads(words[words.index("--settings") + 1])
         command = settings["statusLine"]["command"]
+        seat.start()
         socket = home.tmux("display-message", "-p", "-t", seat.pane, "#{socket_path}").out.strip()
         env = {"AGENTKIT_SESSION": seat.name, "AK_RUN_ROLE": "",
                "TMUX": socket + ",0,0", "TMUX_PANE": seat.pane}
