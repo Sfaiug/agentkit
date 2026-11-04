@@ -106,4 +106,3 @@ func tellRevivalLine(name string, log func(string)) (bool, error) {
 	}
 	return true, err
 }
-

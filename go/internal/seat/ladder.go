@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"path/filepath"
-	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
