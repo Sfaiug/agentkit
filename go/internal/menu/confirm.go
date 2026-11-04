@@ -10,9 +10,10 @@ import (
 // Confirm puts the shared Keep/action card under name's row. Only its choices can be reached
 // while it is up; the underlying frame is drawn without a highlight or an open detail.
 func (f Frame) Confirm(s terminal.Screen, name, question, meaning, action string, h Highlight) Frame {
-	at := 0
+	start, at := len(f.spots), 0
 	for i, each := range f.spots {
 		if each == name {
+			start = min(start, i)
 			at = i + 1
 		}
 	}
@@ -52,6 +53,10 @@ func (f Frame) Confirm(s terminal.Screen, name, question, meaning, action string
 	}
 	room := max(1, f.height-len(footer)-2-top)
 	skip := min(len(body)-top, max(0, at-top+len(card)-room))
+	// Never leave an actionable card without the whole row identifying its target.
+	if top+skip > start {
+		return Frame{}
+	}
 	body = append(body[:top:top], body[top+skip:min(len(body), top+skip+room)]...)
 	// The card's trailing blank can share the blank above the keys on a short screen.
 	body = body[:min(len(body), max(0, f.height-len(footer)-3))]

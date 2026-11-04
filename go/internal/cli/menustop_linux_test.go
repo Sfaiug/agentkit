@@ -29,8 +29,8 @@ from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-def popup(home):
-    return Terminal(home, "attach", "--overlay", size=(100, 30),
+def popup(home, size=(100, 30)):
+    return Terminal(home, "attach", "--overlay", size=size,
                     env={"AGENTKIT_SESSION": "acme"}, program=sys.argv[1])
 
 with Home() as home:
@@ -69,6 +69,22 @@ with Home() as home:
     mark = state / "seat-acme.json"
     assert "stopped_at" not in (json.loads(mark.read_text()) if mark.exists() else {})
     assert home.tmux("has-session", "-t", "=acme").code == 0
+
+for size in ((40, 12), (24, 16), (80, 10), (80, 8), None):
+    with Home() as home:
+        Seat(home, "acme", screen="claude-working-pane.txt")
+        Seat(home, "beta")
+        menu = popup(home, size or (100, 30))
+        menu.wait("x stop")
+        menu.keys("x")
+        if size is None:
+            menu.wait("Stop acme and everything it runs?")
+            menu.resize(80, 8)
+        assert menu.exit_code() == 3, "a card that cannot fit must hand over"
+        for name in ("acme", "beta"):
+            mark = home.path / f".agentkit/state/seat-{name}.json"
+            assert "stopped_at" not in (json.loads(mark.read_text()) if mark.exists() else {})
+            assert home.tmux("has-session", "-t", f"={name}").code == 0
 `, program)
 	call.Dir = "../../.."
 	if out, err := call.CombinedOutput(); err != nil {
