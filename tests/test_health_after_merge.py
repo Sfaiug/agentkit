@@ -17,7 +17,8 @@ from unittest.mock import Mock, patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gitcall, history, orch, record, run, watch
+from agentkit import config, gitcall, handback, history, orch, record, run, watch
+from fixtures.clock import Clock
 
 NOW = 2000000
 PR = "https://github.com/acme/widget/pull/7"
@@ -53,6 +54,11 @@ class HealthAfterMerge(unittest.TestCase):
         stack.enter_context(patch.object(watch, "type_at_prompt", self.send))
         self.probes = stack.enter_context(patch.object(
             watch, "health_command", wraps=watch.health_command))
+        self.launch = stack.enter_context(patch.object(handback, "start_followups", return_value="revert"))
+        self.now = NOW
+        clock = Clock(lambda _seconds: None)
+        clock.time = lambda: self.now
+        stack.enter_context(patch.object(watch, "time", clock))
         self.state = {}
 
     def git(self, *args):
@@ -60,8 +66,10 @@ class HealthAfterMerge(unittest.TestCase):
                                *args], cwd=self.repo, capture_output=True, text=True,
                               check=True, timeout=10).stdout.strip()
 
-    def declare(self, command):
+    def declare(self, command, deployed=None):
         line = f"health: {command}\n" if command is not None else ""
+        if deployed:
+            line += f"deployed: {deployed}\n"
         (self.repo / "AGENTS.md").write_text(f"---\n{line}---\n# Widget\n")
         self.git("add", "AGENTS.md")
         self.git("commit", "-qm", "Declare live probe")
@@ -111,7 +119,155 @@ class HealthAfterMerge(unittest.TestCase):
         return True
 
     def tick(self, now=NOW, dry_run=False):
+        self.now = now
         watch.after_merge_checks(self.state, dry_run, self.logs.append, now=now)
+
+    def test_revert_check_preserves_nearby_newer_target_edits(self):
+        text = [f"line-{n}\n" for n in range(30)]
+        path = self.repo / "api.txt"
+        path.write_text("".join(text))
+        self.git("add", ".")
+        self.declare(None)
+        text[15] = "broken release\n"
+        path.write_text("".join(text))
+        self.git("add", ".")
+        sha = self.declare("exit 1", "exit 0")
+        self.merged(sha)
+        text[12] = "newer unrelated change\n"
+        path.write_text("".join(text))
+        self.git("commit", "-qam", "Newer target edit")
+        for elapsed in (0, 151, 302):
+            self.tick(NOW + elapsed)
+        check = self.launch.call_args.kwargs["repair"]["check"]
+        self.assertNotEqual(subprocess.run(["bash", "-c", check], cwd=self.repo, timeout=10).returncode, 0)
+        self.git("revert", "--no-edit", sha)
+        text[15] = "line-15\n"
+        self.assertEqual(path.read_text(), "".join(text))
+        self.assertEqual(subprocess.run(["bash", "-c", check], cwd=self.repo, timeout=10).returncode, 0)
+
+    def test_a_healthy_deployed_release_awaiting_its_notice_never_expires_as_failed(self):
+        directory = self.merged(self.declare("exit 0", "exit 0"))
+        with patch.object(watch, "live_passed", return_value=("passed", None, None)):
+            for elapsed in (0, 60):
+                self.tick(NOW + elapsed)
+                self.assertNotIn("health", record.read_state(directory))
+            self.assertNotIn("live_notified", record.read_state(directory))
+            self.tick(NOW + watch.AFTER_MERGE_WINDOW + 1)
+        self.assertEqual(self.lines, [])
+        self.assertEqual(record.read_state(directory)["health_failures"], 0)
+        self.launch.assert_not_called()
+
+    def test_a_late_deployment_keeps_its_full_grace_period(self):
+        self.declare(None)
+        directory = self.merged(self.declare("exit 1", "exit 0"), age=watch.AFTER_MERGE_WINDOW - 90)
+        for elapsed in (0, 30, 60, 301):
+            self.tick(NOW + elapsed)
+        self.assertEqual(record.read_state(directory)["health_failures"], 3)
+        self.launch.assert_called_once()
+
+    def test_a_recorded_live_pass_does_not_hide_a_later_failed_probe_at_expiry(self):
+        directory = self.merged(self.declare("exit 0", "exit 0"))
+        self.tick()
+        with record.record(directory) as current:
+            current["health"] = {"command": "exit 1", "output": "broken after going live"}
+        self.tick(NOW + watch.AFTER_MERGE_WINDOW + 1)
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("broken after going live", self.lines[0][1])
+
+    def test_an_eligible_remote_release_is_fetched_without_moving_the_checkout(self):
+        sha = self.remote_merge("exit 1", deployed="exit 0")
+        self.merged(sha)
+        head = self.git("rev-parse", "HEAD")
+        for elapsed in (0, 151, 302):
+            self.tick(NOW + elapsed)
+        self.assertEqual(self.launch.call_args.kwargs["repair"]["revert"], sha)
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        self.git("cat-file", "-e", sha)
+
+    def test_a_stopped_origin_does_not_hold_other_repositories_back(self):
+        remote = self.merged(self.remote_merge("exit 1", deployed="exit 0"))
+        local_sha = self.declare("exit 1", "exit 0")
+        second = self.root / "second"
+        self.git("clone", "-q", str(self.repo), str(second))
+        local = self.merged(local_sha, name="run-z")
+        with record.record(local) as current:
+            current["repo"] = str(second)
+            current["pr"] = "https://github.com/acme/z/pull/7"
+        for directory in (remote, local):
+            with record.record(directory) as current:
+                current.update(health_failures=2, deployed_at=NOW - 1000)
+        with patch.object(gitcall, "fetch", side_effect=gitcall.Stopped("origin requires login")):
+            self.tick()
+        self.launch.assert_called_once()
+        self.assertEqual(self.launch.call_args.kwargs["repair"]["sha"], local_sha)
+
+    def test_a_shallow_release_fetches_the_parent_needed_for_its_revert(self):
+        self.declare(None)
+        sha = self.declare("exit 1", "exit 0")
+        shallow = self.root / "shallow"
+        self.git("clone", "-q", "--depth=1", self.repo.as_uri(), str(shallow))
+        self.assertNotEqual(gitcall.git_out(shallow, "cat-file", "-e", sha + "^")[0], 0)
+        directory = self.merged(sha)
+        with record.record(directory) as current:
+            current["repo"] = str(shallow)
+        for elapsed in (0, 151, 302):
+            self.tick(NOW + elapsed)
+        self.launch.assert_called_once()
+        self.assertEqual(gitcall.git_out(shallow, "cat-file", "-e", sha + "^")[0], 0)
+
+    def test_an_expired_notice_uses_the_projects_current_rollback_result(self):
+        command = f'test -e "{self.root}/released"'
+        released = self.root / "released"
+        released.touch()
+        directory = self.merged(self.declare("exit 1", command), age=watch.AFTER_MERGE_WINDOW - 120)
+        self.tick()
+        self.tick(NOW + 30)
+        released.unlink()
+        self.tick(NOW + watch.AFTER_MERGE_WINDOW + 1)
+        self.assertFalse(record.read_state(directory)["deployed_passed"])
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("the live product does not run this merge yet", self.lines[0][1])
+        self.launch.assert_not_called()
+
+    def test_an_unrecovered_revert_is_not_announced_again_after_health_expires(self):
+        command = f'test -e "{self.root}/healthy"'
+        healthy = self.root / "healthy"
+        healthy.touch()
+        self.declare(None)
+        self.merged(self.declare(command, "exit 0"))
+        self.tick()
+        healthy.unlink()
+        for elapsed in (151, 302, 453, watch.AFTER_MERGE_WINDOW + 1,
+                        watch.AFTER_MERGE_WINDOW + 2, watch.AFTER_MERGE_WINDOW + 3):
+            self.tick(NOW + elapsed)
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("revert run revert", self.lines[0][1])
+
+    def test_a_newer_deployed_release_without_health_blocks_an_older_revert(self):
+        self.declare(None)
+        self.merged(self.declare("exit 1", "exit 0"))
+        newer = self.merged(self.declare(None, "exit 0"), name="run-b", age=500)
+        for elapsed in (0, 151, 302):
+            self.tick(NOW + elapsed)
+        self.assertTrue(record.read_state(newer)["deployed_passed"])
+        self.launch.assert_not_called()
+
+    def test_slow_probes_cannot_shorten_the_five_minutes_after_deployment_passes(self):
+        self.declare(None)
+        directory = self.merged(self.declare("exit 1", "exit 0"))
+
+        def probe(_repo, _sha, command, **_kw):
+            if command == "exit 1" and self.now == NOW:
+                self.now += 30
+            return command == "exit 0", ""
+
+        self.probes.side_effect = probe
+        for elapsed in (0, 150, 300):
+            self.tick(NOW + elapsed)
+        self.assertEqual(record.read_state(directory)["deployed_at"], NOW + 30)
+        self.launch.assert_not_called()
+        self.tick(NOW + 330)
+        self.launch.assert_called_once()
 
     def test_first_pass_uses_merge_declaration_original_checkout_and_sha(self):
         sha = self.declare("printf '%s\\n%s\\n' \"$PWD\" \"$AK_MERGE_SHA\" > live-proof")

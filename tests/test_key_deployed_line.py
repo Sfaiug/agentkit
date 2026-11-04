@@ -1,7 +1,8 @@
 """A failed merge's seat learns whether the live product runs it, from `deployed:`'s exit.
 
 Black-box: AK_BIN in Home's tick box, with temporary projects, GitHub and seats. Both health
-and deployment probes run twice inside the window; backdating the merges then ends it.
+and deployment probes run twice inside the window; backdating merges and deployments ends
+it. Deployment is checked again when selecting the newest live merge.
 """
 
 import json
@@ -60,9 +61,12 @@ class DeployedLine(unittest.TestCase):
                      for name, (_, _, path, _) in cls.projects.items()}
         (cls.home.path / "rolled-back-released").unlink()
         cls.tick()
-        for _, _, path, _ in cls.projects.values():
+        for name, (_, _, path, _) in cls.projects.items():
             state = json.loads(path.read_text())
             state["finished_at"] = time.time() - 4 * 3600
+            if "deployed_at" in state:
+                state["deployed_at"] -= 4 * 3600
+                cls.first[name]["deployed_at"] -= 4 * 3600
             path.write_text(json.dumps(state))
         cls.tick()
 
@@ -92,7 +96,7 @@ class DeployedLine(unittest.TestCase):
             rig, _, path, command = self.projects[name]
             with self.subTest(project=name):
                 self.assertEqual((self.home.path / f"{name}-probes").read_text().splitlines(),
-                                 [rig.head(), str(rig.path)] * 2)
+                                 [rig.head(), str(rig.path)] * 3)
                 self.assertEqual(json.loads(path.read_text())["deployed"], command)
 
     def test_the_first_deployment_pass_is_kept_without_marking_failing_health_live(self):
