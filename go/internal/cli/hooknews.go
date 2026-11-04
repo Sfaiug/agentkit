@@ -7,12 +7,11 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
-	"agentkit/internal/seat"
 )
 
 // tellPrompt prints what the seat's prompt carries as its context, nothing where it carries none.
 func tellPrompt(launched string, event *run.Object, out io.Writer) {
-	news := seat.PromptNews(launched, event.Str("session_id"), ownersWords(event))
+	news := rulebooks.PromptNews(launched, event.Str("session_id"), ownersWords(event))
 	if news == "" {
 		return
 	}
@@ -53,6 +52,6 @@ func ownersWords(event *run.Object) *string {
 // launched; a resume keeps what it was handed.
 func compacted(launched string, event *run.Object) {
 	if event.Str("source") == "compact" {
-		seat.RulebookCompacted(launched, event.Str("session_id"))
+		rulebooks.RulebookCompacted(launched, event.Str("session_id"))
 	}
 }
