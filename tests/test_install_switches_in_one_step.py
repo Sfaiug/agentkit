@@ -58,9 +58,9 @@ class InstallSwitchesInOneStep(unittest.TestCase):
 
     def test_run_checkouts_are_shared_by_commit(self):
         self.go_live()
-        with versions.checkout(self.new) as first:
+        with versions.checkout() as first:
             inode = first.stat().st_ino
-        with versions.checkout(self.new) as second:
+        with versions.checkout() as second:
             self.assertEqual((second, second.stat().st_ino), (first, inode))
 
     def test_a_lock_a_killed_git_left_is_in_no_move_s_way(self):

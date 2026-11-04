@@ -14,36 +14,25 @@ from fixtures.akinstall import Install
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-PROBE = '''from pathlib import Path
-import subprocess
+PROBE = '''import subprocess
 from . import config
 
 def note(path):
     sha = subprocess.check_output(["git", "-C", str(config.REPO), "rev-parse", "HEAD"], text=True)
-    Path(path).write_text(sha)
+    path.write_text(sha)
 '''
 OBSERVE = {
-    "roundloop": '''
-_execute_before_probe = execute
-def execute(lp, *args, **kwargs):
+    "roundloop": ("execute", 'value.run_dir / f"round-{value.rnd}.code"'),
+    "land": ("_check", 'value / "landing.code"'),
+    "hand_in": ("main", 'Path(os.environ[ENV]).with_name("ak.code")')}
+WRAP = '''
+_before_probe = {entry}
+def {entry}(value, *args, **kwargs):
     from .version_probe import note
-    note(lp.run_dir / f"round-{lp.rnd}.code")
-    return _execute_before_probe(lp, *args, **kwargs)
-''',
-    "land": '''
-_check_before_probe = _check
-def _check(directory, *args, **kwargs):
-    from .version_probe import note
-    note(directory / "landing.code")
-    return _check_before_probe(directory, *args, **kwargs)
-''',
-    "hand_in": '''
-_main_before_probe = main
-def main(argv):
-    from .version_probe import note
-    note(Path(os.environ[ENV]).with_name("ak.code"))
-    return _main_before_probe(argv)
-'''}
+    note({path})
+    return _before_probe(value, *args, **kwargs)
+'''
+
 
 
 def wait_for(read):
@@ -58,9 +47,9 @@ class RunKeepsItsVersion(unittest.TestCase):
     def test_rounds_hand_ins_gate_and_landing_keep_the_admitted_commit(self):
         with Home() as home:
             install = Install(home)
-            for module, text in OBSERVE.items():
+            for module, (entry, path) in OBSERVE.items():
                 with (install.seed / "agentkit" / f"{module}.py").open("a") as out:
-                    out.write(text)
+                    out.write(WRAP.format(entry=entry, path=path))
             (install.seed / "agentkit/version_probe.py").write_text(PROBE)
             first = install._push("observe each step's ak checkout")
             install.git("fetch", "-q", "origin")

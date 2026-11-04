@@ -58,15 +58,20 @@ def holding():
 
 
 @contextmanager
-def checkout(commit=None):
-    """One complete checkout per run version; collection waits until its process starts."""
+def checkout(code=None):
+    """A stable code path; only the swappable install needs a shared commit checkout."""
+    source = Path.home() / "agentkit"
+    path = Path(code) if code else config.REPO
+    if path != source.resolve() and path.parent != config.HOME / VERSIONS:
+        yield path
+        return
     with holding() as directory:
-        source = Path.home() / "agentkit"
         if not (source / "bin" / "ak").is_file():
             source = config.REPO
         elif why := adopt(source):
             raise config.Error(why)
-        code, sha = git(source, "rev-parse", "--verify", f"{commit or 'HEAD'}^{{commit}}")
+        commit = path.name if code and path.parent == directory else "HEAD"
+        code, sha = git(source, "rev-parse", "--verify", f"{commit}^{{commit}}")
         if code:
             raise config.Error(f"cannot read ak version: {sha}")
         path = directory / sha
@@ -93,13 +98,14 @@ def enter(path):
 
 def dispatch(argv):
     from . import record, worker
-    if (argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
+    if ((argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
+         or argv[:2] == ["run", "--lander"])
             and (path := os.environ.get("AK_RUN_CODE"))):
         enter(Path(path))
     elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
         state = record.read_state(config.RUNS / argv[2]) or {}
-        if commit := state.get("ak_version"):
-            with checkout(commit) as path:
+        if code := state.get("ak_checkout"):
+            with checkout(code) as path:
                 enter(path)
     if config.REPO.parent == config.HOME / VERSIONS:
         enter(config.REPO)

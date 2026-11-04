@@ -590,7 +590,7 @@ def pickup_while_queued(run_dir, behind=None, execv=None, current=None):
     with a waiter holding next to no memory, which execs the same launch back (`waiter`).
     Only a detached launch's own process moves (`spawn_bg`); a job's threads share one.
     `execv` and `current` are the injected exec and installed version the tests use."""
-    if ((run_record.read_state(run_dir) or {}).get("ak_version")
+    if ((run_record.read_state(run_dir) or {}).get("ak_checkout")
             or os.environ.get(config.RUN_DIR_ENV) != str(run_dir)
             or threading.current_thread() is not threading.main_thread()
             or getattr(jobs._JOB_MUTE, "depth", 0)):
@@ -678,16 +678,15 @@ def depth_refused():
 @contextmanager
 def run_slot(run_dir, prior=None):
     state = gate.wait_for_slot(run_dir, between=functools.partial(pickup_while_queued, run_dir))
-    if lone_run() and (config.REPO == (Path.home() / "agentkit").resolve()
-                       or config.REPO.parent == config.HOME / versions.VERSIONS):
-        with versions.checkout(state.get("ak_version")) as path:
+    if lone_run() and sys.orig_argv[-len(sys.argv):] == sys.argv:
+        with versions.checkout(state.get("ak_checkout")) as path:
             with run_record.record(run_dir) as current:
-                current["ak_version"] = state["ak_version"] = path.name
+                current["ak_checkout"] = state["ak_checkout"] = str(path)
             os.environ[config.RUN_DIR_ENV] = str(run_dir)
             versions.enter(path)
     if prior is not None:
         prior.update({key: state[key] for key in (
-            "ak_version", "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
+            "ak_checkout", "state", "run_depth", "parent_run", "queued_at", "slot_waiting", "slot_started_at")
                       if key in state})
         prior.pop("resume_from", None)
     previous = getattr(_RUN_CONTEXT, "state", {})
@@ -1728,7 +1727,7 @@ def resume_run(argv):
              state.get("pid") == os.getpid() and run_record.process_active(state))
     admitted = (not background and state.get("state") == "running"
                 and state.get("pid") == os.getpid() and run_record.process_active(state)
-                and state.get("ak_version") == config.REPO.name)
+                and state.get("ak_checkout") == str(config.REPO))
     if admitted:
         # Admission execs the launch into its immutable checkout, keeping its pid and slot.
         wt = Path(state["worktree"]) if state.get("worktree") else None

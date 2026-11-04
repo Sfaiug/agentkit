@@ -238,12 +238,11 @@ def start_line(turn, log=lambda _: None):
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
-        installed = Path.home() / ".local" / "bin" / "ak"
-        if not installed.is_file():
-            installed = config.REPO / "bin" / "ak"
-        with versions.checkout(waiting["ak_version"]) if waiting.get("ak_version") else nullcontext(None) as code:
-            if code:
+        with versions.checkout(waiting["ak_checkout"]) if waiting.get("ak_checkout") else nullcontext(config.REPO) as code:
+            installed = Path.home() / ".local" / "bin" / "ak"
+            if not installed.is_file():
                 installed = code / "bin" / "ak"
+            env["AK_RUN_CODE"] = str(code)
             return orch.start_in_slice(
                 [sys.executable, str(installed), "run", "--lander", turn.name],
                 f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
@@ -530,7 +529,7 @@ def check_line(turn, log=lambda _: None):
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
-            if state.get("ak_version") not in (None, _code()):
+            if state.get("ak_checkout") not in (None, str(config.REPO)):
                 return
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
@@ -580,7 +579,7 @@ def check_line(turn, log=lambda _: None):
                     continue
                 candidates = [(directory, state)]
                 for later, saved in members[index + 1:] if not name else ():
-                    if saved.get("ak_version") != state.get("ak_version"):
+                    if saved.get("ak_checkout") != state.get("ak_checkout"):
                         break
                     with record.recovery_lock(later):
                         if (record.read_state(later) != saved or record.process_active(saved)
