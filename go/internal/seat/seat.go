@@ -55,6 +55,8 @@ type Seat struct {
 	mine                                              []ran    // its own runs, which its ladder reads
 
 	reader harness.Reader
+	path   string
+	seen   sight
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -266,21 +268,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if repo, _ := seat.repo.(string); repo != "" {
 		seat.Project = base(repo)
 	}
-	var going []ran
-	merged := 0
-	for _, each := range mine {
-		if each.record.Str("state") == "running" {
-			going = append(going, each)
-			continue
-		}
-		finished := run.FirstNumber(each.record, "finished_at", "started_at")
-		if seconds(now)-run.GCAge <= finished && finished <= seconds(now) {
-			merged++
-		}
-	}
-	if len(mine) > 0 {
-		seat.Tally = fmt.Sprintf("%d running · %d merged", len(going), merged)
-	}
+	seat.Tally = tally(mine, now)
 	return seat, true
 }
 
@@ -317,7 +305,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	}
 	seat := Seat{Name: name, Word: "idle", Tally: "no runs yet", Orchestrator: record.Str("orchestrator"), Workers: workers,
 		Created: created, restart: restart, repo: record.Get("repo"), infer: !record.Has("repo"),
-		own: own, reader: reader, unowned: restart == "" && !conversationOwned(reader, record)}
+		own: own, reader: reader, path: record.Str("cwd"), unowned: restart == "" && !conversationOwned(reader, record)}
 	if complaint != "" {
 		seat.Orchestrator, seat.Workers = "?", "?"
 		seat.Warning = filepath.Join(state, "session-"+name+".json") + ": " + complaint
@@ -474,7 +462,7 @@ func (seat Seat) announce(state string, now time.Time, models map[string]config.
 // announced is watch.announce_state for a seat nobody is in, under its announce lock: what its
 // last answer moved (watch.follow_model), then its word, begun where the seat file says it began by then, or now
 // where it said another, and for one tmux still holds its bar.
-func (seat Seat) announced(state string, now time.Time, models map[string]config.Model) error {
+func (seat *Seat) announced(state string, now time.Time, models map[string]config.Model) error {
 	if err := seat.moved(state, models); err != nil {
 		return err
 	}
@@ -482,7 +470,7 @@ func (seat Seat) announced(state string, now time.Time, models map[string]config
 }
 
 // published is announced's word and bar, what its last answer moved left as it is.
-func (seat Seat) published(state string, now time.Time, models map[string]config.Model) error {
+func (seat *Seat) published(state string, now time.Time, models map[string]config.Model) error {
 	path := filepath.Join(state, "seat-"+seat.Name+".json")
 	previous, _ := run.ReadJSON(path)
 	if previous == nil {
@@ -496,6 +484,7 @@ func (seat Seat) published(state string, now time.Time, models map[string]config
 	} else if previous.Get("word") != nil {
 		since = run.Float(seconds(now))
 	}
+	seat.since = since
 	wordFrom := seat.wordFrom
 	if wordFrom == nil {
 		wordFrom = []any{nil, nil, ""}

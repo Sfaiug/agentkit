@@ -96,6 +96,15 @@ def found(index, model):
     return []
 
 
+def _release_index(releases):
+    index = {}
+    for release in releases:
+        # the name first: `found` reads the first hit's for a bracketed qualifier; either may lack
+        for name in filter(None, (release["name"], release["slug"])):
+            index.setdefault(normal(name), []).append({"model": name, "release": release})
+    return index
+
+
 def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, with its `values` as the
     catalog joins them and `yours`: each model of `offers` ({harness: config.catalog(harness)})
@@ -103,11 +112,7 @@ def lineup(boards, offers):
     lists and at a row naming no effort, which is the model however it is run, or at the
     release's default where it lists none but `none`."""
     releases = catalog.current(boards)
-    index = {}
-    for release in releases:
-        # the name first: `found` reads the first hit's for a bracketed qualifier; either may lack
-        for name in filter(None, (release["name"], release["slug"])):
-            index.setdefault(normal(name), []).append({"model": name, "release": release})
+    index = _release_index(releases)
     yours = {}
     for harness, models in offers.items():
         for model in models:
@@ -126,16 +131,90 @@ def lineup(boards, offers):
             for release in releases for effort in release["efforts"]]
 
 
-def answer(lineup, compared=None):
+def _task_usage(cfg):
+    from . import usage
+    return usage.task_usage(usage.model_rates(cfg))
+
+
+def _pricing(cfg):
+    """Only inputs to cached pricing: unrelated TOML values need no JSON representation."""
+    from . import usage
+    return {"models": {name: {key: cfg["models"][name][key]
+                              for key in ("harness", "model", "provider")}
+                       for name in config.offered(cfg)},
+            "providers": {name: {"maker": entry.get("maker")
+                                 if isinstance(entry.get("maker"), str) else None,
+                                 "price": usage.price(cfg, name)}
+                          for name, entry in cfg["providers"].items()}}
+
+
+def _costs(rows, role, lineup, cfg, shares):
+    """One unit per role: measured shares, board dollars scaled by pooled shares/dollars,
+    or board dollars without any measurement. Money requires every lineup provider's price."""
+    from . import usage
+    releases = {row["release"]: {"slug": row["release"], "name": row.get("name")} for row in lineup}
+    index = _release_index(releases.values())
+    models = [(name, entry, {hit["release"]["slug"] for hit in found(index, entry["model"])})
+              for name in config.offered(cfg) for entry in [cfg["models"][name]]]
+
+    def measured_share(name, effort):
+        return shares.get(name, {}).get(effort, {}).get(CONFIG_ROLES[role])
+
+    sources = {}
+    for row in lineup:
+        matches = [(name, entry["provider"]) for name, entry, hits in models
+                   if hits == {row["release"]}]
+        sources[row["release"], row["effort"]] = next(
+            (one for one in matches if measured_share(one[0], row["effort"]) is not None),
+            matches[0] if matches else (None, config.company(cfg, row.get("maker"))))
+    prices = {provider: usage.price(cfg, provider) for _, provider in sources.values()}
+    measured, pools = {}, {}
+    for row in rows:
+        key = row["release"], row["effort"]
+        name, provider = sources[key]
+        share = measured_share(name, row["effort"])
+        row.update(board_cost=row["cost"], cost_rule="board")
+        if share is not None:
+            measured[key] = share
+            if row["board_cost"] is not None and row["board_cost"] > 0:
+                pool = pools.setdefault(provider, [0.0, 0.0])
+                pool[0] += share
+                pool[1] += row["board_cost"]
+    if not measured:
+        return "board_dollars"
+    factors = {provider: share / dollars for provider, (share, dollars) in pools.items()}
+    pooled = (sum(share for share, _ in pools.values()) / sum(dollars for _, dollars
+                                                           in pools.values())) if pools else None
+    money = all(price is not None for price in prices.values())
+    for row in rows:
+        key = row["release"], row["effort"]
+        _, provider = sources[key]
+        factor = factors.get(provider, pooled)
+        row["cost_rule"] = "measured" if key in measured else (
+            "provider" if provider in factors else "global")
+        # Without board dollars or a measured conversion, no same-unit estimate exists.
+        row["cost"] = measured[key] if key in measured else (
+            row["board_cost"] * factor if row["board_cost"] is not None and factor is not None
+            else None)
+        if money and row["cost"] is not None:
+            row["cost"] *= prices[provider]
+    return "money" if money else "share"
+
+
+def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     """Per role, `rated`: `quality.rated` over every row of `lineup`, so a row's quality never
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
     for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
     no harness of yours runs is no reason to leave it out; and `take`: the same rule over yours.
-    Keep the pick and take visible even if rows outside their eligible pool beat them."""
+    Keep the pick and take visible even if rows outside their eligible pool beat them.
+    Costs use the role's subscription unit when measured, retaining each row's board dollars."""
+    shares = task_usage if task_usage is not None else _task_usage(cfg) if cfg else {}
+    cfg = cfg or {"models": {}, "providers": {}}
     out = {}
     for role in quality.ROLES:
         rated = quality.rated(lineup, role)
+        unit = _costs(rated, role, lineup, cfg, shares)
         them = [row for row in rated if compared is None or row["release"] in compared]
         best = max((row["quality"] for row in them), default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
@@ -145,7 +224,7 @@ def answer(lineup, compared=None):
         front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
-        out[role] = {"rated": rated, "best": best, "pick": pick,
+        out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take}
     return out
 
@@ -277,10 +356,11 @@ def refresh(cfg, *, refresh=False, now=None):
 
 
 @functools.lru_cache(maxsize=1)
-def _answered(text):
+def _answered(text, cfg, shares):
     """`answer` over the lineup `text`, `state/matrix.json` as read, holds: rated once per
-    stored lineup, however often a run picks."""
-    return answer((json.loads(text).get("matrix") or {}).get("lineup") or [])
+    stored lineup and pricing measurements, however often a run picks."""
+    return answer((json.loads(text).get("matrix") or {}).get("lineup") or [],
+                  cfg=json.loads(cfg), task_usage=json.loads(shares))
 
 
 def rank(cfg, role, names):
@@ -289,7 +369,8 @@ def rank(cfg, role, names):
     effort the config runs it at there. The role's pick among these rows first, then the
     rest by quality; None for a model no row is, or a lineup nobody stored.  A pick reads this and never the boards."""
     try:
-        rated = _answered(cache_path().read_text())[role]["rated"]
+        rated = _answered(cache_path().read_text(), json.dumps(_pricing(cfg)),
+                          json.dumps(_task_usage(cfg)))[role]["rated"]
     except (OSError, ValueError):
         rated = []
     rows = {(one["harness"], one["model"], row["effort"]): row
@@ -322,15 +403,17 @@ def main(argv):
     _, rows = refresh(cfg, refresh="--refresh" in flags)
     current = {row["release"] for row in rows}
     marked = compared(cfg, current)
-    found, own = answer(rows, marked), live(cfg)
+    from . import usage
+    rates = usage.model_rates(cfg)
+    shares = usage.task_usage(rates)
+    found, own = answer(rows, marked, cfg=cfg, task_usage=shares), live(cfg)
     if "--json" in flags:
-        from . import usage     # only JSON asks for subscription measurements
-        rates = usage.model_rates(cfg)
-        json.dump({**{role: {"best": said["best"], "front": [
-            {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost")},
+        json.dump({**{role: {"best": said["best"], "cost_unit": said["cost_unit"], "front": [
+            {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost",
+                                         "board_cost", "cost_rule")},
              "notes": notes(row, said)} for row in said["front"]]}
             for role, said in found.items()}, "live": own, "usage": rates,
-            "task_usage": usage.task_usage(rates)},
+            "task_usage": shares},
             sys.stdout, indent=2)
         print()
         return 0

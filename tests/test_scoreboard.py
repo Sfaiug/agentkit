@@ -256,8 +256,8 @@ class Scoreboard(unittest.TestCase):
             db.executemany("INSERT INTO findings (run_id, round, path, kind, proof, at) "
                            "VALUES ('fix-api', ?, ?, ?, ?, ?)", rows)
         self.assertEqual(scoreboard.compute(NOW)["findings"], [
-            {"blocking": 6, "disputed": 0, "conceded": 0, "raised_again": 2},
-            {"blocking": 1, "disputed": 0, "conceded": 0, "raised_again": 0}])
+            {"blocking": 6, "disputed": 0, "conceded": 0, "raised_again": 2, "let_go": 0, "let_go_broke": 0},
+            {"blocking": 1, "disputed": 0, "conceded": 0, "raised_again": 0, "let_go": 0, "let_go_broke": 0}])
 
     def test_render_keeps_the_existing_text(self):
         board = {
@@ -281,7 +281,8 @@ class Scoreboard(unittest.TestCase):
             "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "flakes": 2, "unknown": 1}, None],
             "pairs": [{"self": .5, "self_landing": .25, "same_provider": .3,
                        "same_provider_landing": .4, "other_landing": .1}, None],
-            "findings": [{"blocking": 4, "disputed": 3, "conceded": 2, "raised_again": 1}, None],
+            "findings": [{"blocking": 4, "disputed": 3, "conceded": 2, "raised_again": 1,
+                          "let_go": 3, "let_go_broke": 2}, None],
         }
         expected = [
             "Scoreboard (reported tokens; size now and 7 days ago)",
@@ -321,7 +322,8 @@ class Scoreboard(unittest.TestCase):
             "              landing); another provider: 10% went red",
             "              at landing",
             "findings      4 blocking; 3 disputed; 2 of 3 conceded; 1  not recorded",
-            "              of 4 raised again",
+            "              of 4 raised again; 3 let go; 2 of 3 on a",
+            "              change that broke main or live after merge",
             "ak size       17 code lines, 5 README words, 9 AGENTS.md  size unavailable",
             "              words",
         ]

@@ -129,6 +129,19 @@ class RankByTheAnswer(Sandbox):
         self.cfg["models"]["opus"]["exec_effort"] = "max"         # an effort no row is
         self.assertIsNone(matrix.rank(self.cfg, "execute", ["opus"])["opus"])
 
+    def test_new_measurements_reprice_the_same_stored_lineup(self):
+        next(row for row in self.lineup if row["release"] == "bolt-2")["yours"] = [{
+            key: self.cfg["models"]["fable"][key] for key in ("harness", "model")}]
+        self.store()
+        names = ["opus", "astra", "fable"]
+        with patch.object(matrix, "_task_usage", return_value={}) as measured:
+            before = matrix.rank(self.cfg, "execute", names)
+            measured.return_value = {"opus": {"high": {"executor": .01}},
+                                     "astra": {"high": {"executor": .5}}}
+            after = matrix.rank(self.cfg, "execute", names)
+        self.assertEqual((before["fable"][0], after["opus"][0]), (0, 0))
+        self.assertEqual((before["opus"][0], after["fable"][0]), (1, 1))
+
     def test_the_role_pick_ranks_first_rated_once(self):
         self.store()
         with patch.object(quality, "rated", wraps=quality.rated) as rated:
