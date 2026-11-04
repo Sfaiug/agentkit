@@ -90,6 +90,22 @@ def transcript(record, cwd, conversation):
     return str(path) if path.exists() else None
 
 
+def running(record, cwd, conversation):
+    """Grok Build 1.0.46 saves model and effort changes in summary.json immediately, before
+    any answer.  Its write time lets a look leave a summary from before the launch alone."""
+    where = cwd or record.get("cwd")
+    if not conversation or not where:
+        return None
+    try:
+        with (session_dir(where, conversation) / "summary.json").open(encoding="utf-8") as handle:
+            data = json.load(handle)
+            model = data.get("current_model_id")
+            return ((model, data.get("reasoning_effort"), os.fstat(handle.fileno()).st_mtime)
+                    if isinstance(model, str) and model else None)
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def messages(record, cwd, conversation):
     """The durable UI record's messages, oldest first, as (who, {at, text}), chunks joined and
     host turns, shell commands and other updates left out; it outlives model-context compaction."""

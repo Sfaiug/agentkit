@@ -1689,17 +1689,17 @@ def seat_fact(name, harness):
 
 
 def follow_model(cfg, name):
-    """Make the model that seat's harness says its latest answer ran on its orchestrator:
+    """Make the model that seat's harness last recorded its orchestrator:
     `/model` typed inside a seat moves its row, its bar and `c`'s mark as a move on `c` would,
-    nothing restarted (the owner's word of 20 Oct 2026).  Only an answer made since the harness
+    nothing restarted (the owner's word of 20 Oct 2026).  Only a record made since the harness
     in the seat was launched counts (`launched` in its record, written once it is up), or since
     the last line of a move in place went in (`switched`), and none while one is still owed, so
-    a move on `c` is not undone by the old model's last answer; a seat launched before launches
-    were written down counts every answer.  The model is the configured entry running it on
-    that harness, the seat's own first, at the effort the answer recorded where one does, and
+    a move on `c` is not undone by the old model's last record; a seat launched before launches
+    were written down counts every record.  The model is the configured entry running it on
+    that harness, the seat's own first, at the effort recorded where one does, and
     `/effort` typed inside moves that entry's orchestrator effort in the seat's record, its
     builds and reviews where they stood.  A model no entry runs, a seat on its harness's own
-    model, an answer that cannot be read, or an effort it records none of or its model does not
+    model, a record that cannot be read, or an effort it records none of or its model does not
     take leaves the record as it is."""
     try:
         record = config.load_session(cfg, name, required=False)

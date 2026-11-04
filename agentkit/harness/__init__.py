@@ -642,8 +642,8 @@ class Harness:
         return hook(record, cwd, conversation) if hook else None
 
     def running(self, record, cwd, conversation):
-        """(model id, effort, when) of that conversation's latest answer, as the harness recorded
-        them -- the effort None where it records none, when in seconds since the epoch (moment)
+        """(model id, effort, when) last recorded for that conversation by its harness
+        -- the effort None where it records none, when in seconds since the epoch (moment)
         -- or None where it records neither.  OSError where a record exists and cannot be read."""
         hook = self._hook("running")
         return hook(record, cwd, conversation) if hook else None
