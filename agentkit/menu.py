@@ -2984,7 +2984,7 @@ LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
 # it, before the number and its unit after, and the values its list offers.  Owner, 3 Nov 2026:
 # the keys' own names were unclear to users.
-LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(1, 6)),
+LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
                "executor_lines": ("Max lines per executor task", "executor", "lines",
                                 (100, 200, 300, 500, 1000, 2000, "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
@@ -5381,7 +5381,8 @@ def config_limits(cfg):
                  [(limit_shown(numbers[key]), None),
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
                  (lambda key=key: choices(key), False),
-                 f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}.")
+                 ("A change lands on its checks; no reviewer." if key == "review_rounds" and numbers[key] == 0
+                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
     config_page("limits", page)
 

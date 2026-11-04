@@ -44,12 +44,17 @@ def review_providers(cfg, executor, reviewer):
 
 
 def review_pass(state, cfg):
-    """A verdict alone (including a legacy PASS) is not evidence of a successful review."""
+    """A PASS needs commit verification and, when enabled, eligible review evidence."""
     evidence = state.get("review")
     if state.get("verdict") != "PASS" or not isinstance(evidence, dict):
         return False
     if state.get("repo") and not all(evidence.get(key) for key in ("head_sha", "tree_sha")):
         return False
+    if run_record.review_off(state):
+        return (evidence.get("no_review") is True and evidence.get("done_when") is True
+                and evidence.get("verdict") == "PASS" and evidence.get("returncode") == 0
+                and evidence.get("executor") == state.get("executor")
+                and evidence.get("reviewer") is None and state.get("reviewer") is None)
     if (evidence.get("returncode") != 0 or evidence.get("verdict") != "PASS"
             # a reviewed PR whose repository declares no suite ran nothing: None, not True
             or not (evidence.get("done_when") is True
@@ -148,7 +153,7 @@ def history_start(state, log=None):
                       task_checks=state.get("task_checks"),
                       orchestrator=record.get("orchestrator") if record else None,
                       change=change_name(state), kind=run_kind(state),
-                      plan_line=state.get("plan_line"), log=log)
+                      plan_line=state.get("plan_line"), no_review=int(run_record.review_off(state)), log=log)
 
 
 def changed_files(state):
@@ -1278,6 +1283,8 @@ def rounds_spent(state):
     the one under way on a run still going -- from its first step (`step_round`, which
     `Loop.step` records as the round begins) or its pending review -- spent the moment it
     starts so no other run of the change takes it too."""
+    if run_record.review_off(state):
+        return 0
     recorded = len(state.get("round_summaries") or [])
     pending = state.get("review_pending")
     begun = max(state.get("step_round") or 0,
@@ -1338,6 +1345,8 @@ def round_budget(asked, budget, *, pr=None, change=None, exclude=None, what, own
     request or change and less this run's `own`, `budget` rounds in all.  The one
     reading of the budget: a launch, a resume, the way on from a FAIL and every round as it
     is spent read it here."""
+    if budget == 0:
+        return 0, None
     spent, runs = rounds_spent_elsewhere(pr=pr, change=change, exclude=exclude)
     left = min(asked, budget - spent - own)
     if left < 1:
@@ -1371,6 +1380,8 @@ def round_allowed(lp):
     change's with rounds of its own left, the run ends blocked with the reason, so its seat
     hears it: the task is what changes, split or redesigned, and nothing a resume could
     spend."""
+    if run_record.review_off(lp.state):
+        return lp.rnd < 1
     if lp.rnd >= lp.rounds:
         return False
     left, why = change_budget(lp.state, lp.run_dir, lp.rounds, own=lp.rnd)

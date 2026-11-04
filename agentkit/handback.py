@@ -254,12 +254,14 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
     about a stop is silent: the diff-stat fallback names it, and its remedy is logged.
     """
     wt = Path(state["worktree"])
+    reviewer = "no review" if run_record.review_off(state) else state["reviewer"]
     parts = ["", f"VERDICT: {state['verdict']}",
+             "no review" if run_record.review_off(state) else
              f"rounds: {len(state['round_summaries'])} of {state['rounds']}"]
     if state.get("scratch"):
         # no branch, no PR, no merge: the files are where this run's work went
         parts += [f"workspace: {wt}",
-                  f"executor: {state['executor']}   reviewer: {state['reviewer']}",
+                  f"executor: {state['executor']}   reviewer: {reviewer}",
                   "", "## Deliverables", gitcall.links(wt)]
     else:
         try:
@@ -281,7 +283,7 @@ def write_result(run_dir, state, cmds, log=None, cfg=None):
         if retry:
             parts.append(f"retry delivery: {retry}")
         parts += [f"worktree: {state['worktree']}",
-                  f"executor: {state['executor'] or '-'}   reviewer: {state['reviewer']}",
+                  f"executor: {state['executor'] or '-'}   reviewer: {reviewer}",
                   "", "## Diff stat", "```", stat, "```"]
     if state.get("blocked"):
         parts += ["", state["blocked"], ""]
@@ -1234,6 +1236,8 @@ def launch_line(run_id, title, executor, reviewer, *, self_review=None):
     if self_review is None:
         self_review = bool(executor and executor == reviewer)
     models = f"{executor}/{reviewer}" if executor else f"{reviewer} review"
+    if reviewer is None:
+        models = f"{executor}, no review" if executor else "no review"
     if self_review:
         models += ", self-reviewed"
     return (f"run {run_id} launched: {title} ({models}); "
@@ -1516,7 +1520,8 @@ def decision(run_dir, state, word, why, move, save=True, report=False):
     a typed line's bound (`watch.too_long`): `why` in whole sentences, the move's detail dropped first, then
     UNSAID for `why`, else refused as `seat_notice` refuses.  A line cut short saves its whole, an older
     result maybe lacking it; without `save` the caller handles persistence. `report` returns its uncut opening."""
-    rounds = f"({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0})"
+    rounds = ("(no review)" if run_record.review_off(state) else
+              f"({len(state.get('round_summaries') or [])} of {state.get('rounds') or 0})")
     if report:
         return (f"# {word} {rounds} — {state.get('title') or run_dir.name}\n"
                 f"Why: {decision_reason(run_dir, state, why)}\nNext: {''.join(move)}")

@@ -9,7 +9,7 @@ or an exhausted provider shows.
 import json
 import time
 
-from . import config, transitions, turns, update
+from . import config, record, transitions, turns, update
 
 
 def collect_usage(cfg):
@@ -60,9 +60,10 @@ def handover_executor(state, cfg, reason, dry=(), log=None):
         reviewers = run_reviewers(cfg, state)
         order = [n for n in ready_order(cfg, providers, workers, log, reviewers=reviewers)
                  if n != current and config.model(cfg, n)["provider"] not in refused]
-        review_order = ready_order(cfg, providers, reviewers, role="reviewer")
-        pair = best_pair(cfg, order, [n for n in review_order
-                                     if config.model(cfg, n)["provider"] not in refused])
+        review_order = [] if record.review_off(state) else ready_order(cfg, providers, reviewers, role="reviewer")
+        pair = ((order[0], None) if record.review_off(state) and order else
+                best_pair(cfg, order, [n for n in review_order
+                                      if config.model(cfg, n)["provider"] not in refused]))
         if pair is None:
             pair = best_pair(cfg, order, review_order)
         if pair is not None:
@@ -164,7 +165,7 @@ def refuse_outside_group(cfg, name, group, role):
 
 def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, quiet=False,
                 repo=None, workers=None, reviewers=None):
-    """Pick each role within its launch list, refusing an explicit name outside that group."""
+    """Pick each role within its launch list; want_review=False switches review off."""
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     if reviewers is not None:
         refuse_outside_group(cfg, want_review, reviewers, "reviewer")
@@ -185,6 +186,8 @@ def pick_models(cfg, providers, want_exec, want_review, log, *, resuming=False, 
     elif not order:
         raise turns.QuotaDry("every worker has a gate meter at 100% used")
     executor = want_exec or order[0]
+    if want_review is False:
+        return executor, None
     if want_review:
         config.model(cfg, want_review)
         if reviewers is None and allowed is not None and want_review not in allowed:
@@ -233,18 +236,20 @@ def pair_refusal(cfg, providers, workers, want_exec=None, want_review=None, revi
     reviews = [name for name in review_list if not skipped[name] and not barred_reviewer(cfg, name)]
     if want_exec:
         ready = [name for name in ready if name == want_exec] if bound_exec else [want_exec]
+    if want_review is False and ready:
+        return None
     if want_review:
         reviews = ([name for name in reviews if name == want_review]
                    if bound_review else [want_review])
     if any(reviewer_order(cfg, name, reviews) for name in ready):
         return None
-    if barred := barred_refusal(cfg, [want_review] if want_review else review_list):
+    if want_review is not False and (barred := barred_refusal(cfg, [want_review] if want_review else review_list)):
         return barred
     why = "; ".join(f"{name}: {reason}" for name, reason in skipped.items() if reason)
     missing = []
     if not ready:
         missing.append(f"workers {', '.join(listed)}")
-    if not reviews:
+    if not reviews and want_review is not False:
         missing.append(f"reviewers {', '.join(review_list)}")
     if not missing:  # an unknown explicit name refuses below; name both lists
         missing = [f"workers {', '.join(listed)}",
@@ -420,6 +425,8 @@ def next_executor(cfg, providers, dry, reviewer, log, repo=None, workers=None, r
     workers, reviewers = config.role_groups(cfg, workers, reviewers)
     order = [n for n in ready_order(cfg, providers, workers, log, repo=repo, reviewers=reviewers)
              if config.model(cfg, n)["provider"] not in dry]
+    if reviewer is False and order:
+        return order[0], None
     review_order = [n for n in ready_order(cfg, providers,
                                           reviewers if reviewers is not None else workers,
                                           role="reviewer", repo=repo)
@@ -455,7 +462,8 @@ def hand_executor(lp, why, detail, dry):
         providers = collect_usage(lp.cfg)
         # Only "transient" may still answer where it is: a flake waits out the backoff
         # unless another model can take the role with an independent review beside it.
-        new, reviewer = next_executor(lp.cfg, providers, dry, lp.reviewer, lp.log,
+        new, reviewer = next_executor(lp.cfg, providers, dry,
+                                      False if record.review_off(lp.state) else lp.reviewer, lp.log,
                                       lp.state.get("repo"), workers, reviewers,
                                       allow_self=why != "transient")
     except (turns.Exhausted, config.Error, OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -525,6 +533,13 @@ def resume_models(cfg, providers, state, log=None, *, repo=None, workers=None, s
     from . import usage
     bound, reviewers = config.role_groups(cfg, run_workers(cfg, state), state.get("reviewers"))
     workers = bound if bound is not None else workers
+    if record.review_off(state):
+        executor = state.get("executor")
+        if executor in skip or (executor and (usage.unready(cfg, executor, providers)
+                                               or usage.model_exhausted(cfg, executor, providers)[0])):
+            executor = None
+        return pick_models(cfg, providers, executor, False, log, resuming=True,
+                           quiet=True, repo=repo, workers=workers)
     review_order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
                                role="reviewer", quiet=True, repo=repo)
     executor, reviewer = state.get("executor"), state.get("reviewer")

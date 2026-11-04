@@ -438,7 +438,7 @@ def status_rows(found, width, index=None, cfg=None, owed=()):
         rnd = min(done + 1, total) if going and total else done
         if state.get("own_pr_round_pending"):
             rnd = state["own_pr_round_pending"]
-        rounds = f"round {rnd}/{total or '?'}"
+        rounds = "no review" if run_record.review_off(state) else f"round {rnd}/{total or '?'}"
         if state.get("extended"):
             rounds += f" (+{state['extended']})"
         worker = f"{state.get('executor', '?')}/{state.get('reviewer', '?')}"
@@ -779,6 +779,8 @@ def cmd_status(argv):
             line = (f"{d.name:<40} {word:<11} {str(state.get('verdict')):<5} "
                     f"{executor_line(state)}/{state.get('reviewer', '?')}  "
                     f"{state.get('branch') or 'scratch'}")
+            if run_record.review_off(state):
+                line += "  no review"
             outcome, step = status_word(state, plain_cfg), step_word(state)
             if state.get("extended"):
                 line += (f"  round {len(state.get('round_summaries') or [])}/{state['rounds']} "

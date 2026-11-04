@@ -1217,6 +1217,23 @@ def execute(lp, role, text, name):
 
 def review(lp, summary, ok, dw_log, preface="", record=True):
     action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
+    if run_record.review_off(lp.state):
+        if lp.state.get("review_pr"):
+            restore_review_checkout(lp, "tests")
+        if action:
+            action()
+        validation = getattr(lp, "validation", {})
+        if not lp.scratch:
+            ok = (ok and validation == gitcall.commit_identity(lp.wt)
+                  and gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] == 0)
+        verdict = "PASS" if ok else "FAIL"
+        lp.state.update(verdict=verdict, findings="" if ok else dw_log,
+                        review={"no_review": True, "executor": lp.executor, "reviewer": None,
+                                "verdict": verdict, "returncode": 0, "done_when": ok, **validation})
+        lp.state.pop("review_pending", None)
+        lp.log(f"no review: checks {'passed' if ok else 'FAILED'}")
+        lp.save()
+        return verdict
     with beside_review.check("base-proof", action) as start_check:
         return _review(lp, summary, ok, dw_log, preface, record, start_check)
 
@@ -1656,7 +1673,7 @@ def resume_review(lp, verified=None):
     pending.update(identity)
     lp.save()
     allowed = transitions.allowed_rounds(lp)
-    if pending["round"] > allowed:
+    if pending["round"] > allowed and not run_record.review_off(lp.state):
         work = f"for commit {identity['head_sha']} (tree {identity['tree_sha']}) " if identity else ""
         # a larger budget is only for asking up to what the change has left: past it the next
         # step is the orchestrator's, and naming a `--rounds` that is refused would send it nowhere
@@ -1690,7 +1707,7 @@ def resume_review(lp, verified=None):
 def rounds(lp):
     """Executor -> done-when -> reviewer, until PASS or the round budget is spent.
 
-    Only a recorded successful review by an eligible model can skip straight to delivery.
+    A recorded PASS on the verified commit can skip straight to delivery.
     An unfinished review resumes on the saved work without spending another executor turn.
     """
     transitions.invalidate_saved_pass(lp.state, lp.cfg, lp.log)
@@ -1810,7 +1827,7 @@ def first_review_ceiling(lp, record=True):
                                            lines, run_record.policy_of(lp.state)["executor_lines"], carried)
     if why:
         raise turns.Blocked(why, f"## Blocked\n\n{why}")
-    if record:
+    if record and not run_record.review_off(lp.state):
         history.first_review(lp.state.get("run_id"), lines - carried, log=lp.log)
 
 

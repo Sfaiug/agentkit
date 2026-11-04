@@ -127,6 +127,16 @@ class LimitsPage(unittest.TestCase):
         self.assertIn(row(NAMES[2], "off default 50", on=True), shown)
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
+    def test_picking_review_off_saves_zero_and_explains_checks_only(self):
+        term = self.c()
+        self.limits(term)
+        shown = self.picked(term, NAMES[0], ("k",) * 3, "off")
+        self.assertIn(row(NAMES[0], "off default 3", on=True), shown)
+        self.assertEqual(akconfig.read(self.home)["review_rounds"], 0)
+        term.wait(lambda screen: "A change lands on its checks; no reviewer." in " ".join(screen.split()))
+        term.keys("Escape")
+        term.wait("review off")
+
     def test_a_list_offers_independent_limits_and_the_value_in_force(self):
         term = self.c({"executor_lines": 150, "orchestrator_lines": 120})
         self.limits(term)

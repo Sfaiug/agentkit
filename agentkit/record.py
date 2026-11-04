@@ -81,6 +81,11 @@ def policy_of(state):
     return state.get("policy") or config.policy()
 
 
+def review_off(state):
+    """Only a launch that captured zero may deliver without reviewer evidence."""
+    return (state.get("policy") or {}).get("review_rounds") == 0
+
+
 def run_dirs():
     # Sorted as strings: comparing thousands of Paths was most of a tick's reads of the runs.
     try:
