@@ -1,6 +1,6 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
-models that are it (`lineup`), answered per role on quality and cost alone (`answer`), the
-role's `quality.pick` the pick; `rank` places each configured model off it.  ak's
+models that are it (`lineup`), answered per role on quality and cost (`answer`), using
+`quality.pick`; `rank` places each configured model off it.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
 their count, and never rank (tests/test_matrix_live_column.py).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
