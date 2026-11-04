@@ -807,7 +807,7 @@ def add_paths(wt, paths, env=None):
 
 @contextmanager
 def leftover_tree(wt, artifacts=(), directory=None):
-    """Borrow the tree commit_leftovers would take and its private index, leaving HEAD alone."""
+    """Borrow the predicted commit tree and the index the loop will leave for its reads."""
     real, sandbox = committable_paths(wt, artifacts)
     deleted = git(wt, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD")
     gone = sorted(set(sandbox) & set(deleted.split("\0")))
@@ -817,7 +817,17 @@ def leftover_tree(wt, artifacts=(), directory=None):
         add_paths(wt, real, env=index)
         if gone:
             git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
-        yield git(wt, "write-tree", env=index), index
+        tree = git(wt, "write-tree", env=index)
+        # The loop keeps other staged entries, which Git reads when attributes are absent on disk.
+        source = Path(wt) / git(wt, "rev-parse", "--git-path", "index")
+        if source.is_file():
+            shutil.copyfile(source, index["GIT_INDEX_FILE"])
+        else:
+            git(wt, "read-tree", "--empty", env=index)
+        if unstage := sorted(set(sandbox) - set(gone)):
+            git(wt, "reset", "-q", "HEAD", "--", *unstage, env=index)
+        add_paths(wt, real, env=index)
+        yield tree, index
 
 
 def commit_leftovers(wt, log, artifacts, state):

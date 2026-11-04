@@ -80,8 +80,7 @@ def rules_check(wt, base_sha, scratch=False, *, head="HEAD", env=None):
         # following it would mean redoing how Linux opens a path, inside Git's trees
         return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
                 "from it: make AGENTS.md the file itself.")
-    if not gitcall.git(wt, "check-attr", *(("--cached",) if env else ()), "filter", "--", "AGENTS.md",
-                       env=env).endswith(("unspecified", "unset")):
+    if not gitcall.git(wt, "check-attr", "filter", "--", "AGENTS.md", env=env).endswith(("unspecified", "unset")):
         return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
     ceiling = config.instruction_ceiling()
     try:

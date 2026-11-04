@@ -1,8 +1,4 @@
-"""Done refuses the workspace's scope and rule failures, then takes a fix in the same turn.
-
-Black-box through AK_BIN and fakeadapter, on a base holding an answer key. Neither attempt
-commits or stages the executor's work; the loop still commits and checks it after the turn.
-"""
+"""Done refuses the workspace's scope and rule failures, then takes a fix in the same turn."""
 
 import json
 from pathlib import Path
@@ -133,18 +129,28 @@ class DoneWaitsForTheRules(unittest.TestCase):
                     result = self.workspace_done(home, rig, base, ["docs/"], **extra)
                     self.assertEqual(result.code, 0, result.out + result.err)
 
-    def test_an_unstaged_attributes_deletion_removes_the_filter(self):
-        with Home() as home:
-            rig = Rig(home, files={".gitattributes": "AGENTS.md filter=old\n",
-                                  "AGENTS.md": "Acme.\n"})
-            base = rig.head()
-            (rig.path / "AGENTS.md").write_text("Acme rules.\n")
-            refused = self.workspace_done(home, rig, base)
-            self.assertEqual(refused.code, 2, refused.out + refused.err)
-            self.assertIn("AGENTS.md must not go through a Git filter", refused.err)
-            (rig.path / ".gitattributes").unlink()
-            result = self.workspace_done(home, rig, base)
-            self.assertEqual(result.code, 0, result.out + result.err)
+    def test_attribute_filters_match_the_index_and_workspace_after_the_turn(self):
+        for mode in ("committed", "staged", "generated"):
+            with self.subTest(mode=mode), Home() as home:
+                files = {"AGENTS.md": "Acme.\n"}
+                if mode != "staged":
+                    files[".gitattributes"] = "AGENTS.md filter=old\n" if mode == "committed" else "# Base\n"
+                rig = Rig(home, files=files)
+                base = rig.head()
+                attrs = rig.path / ".gitattributes"
+                attrs.write_text("AGENTS.md filter=old\n")
+                artifacts = [".gitattributes"] if mode == "generated" else []
+                if mode == "staged":
+                    rig.git("add", ".gitattributes")
+                    attrs.unlink()
+                (rig.path / "AGENTS.md").write_text("Acme rules.\n")
+                refused = self.workspace_done(home, rig, base, artifacts=artifacts)
+                self.assertEqual(refused.code, 2, refused.out + refused.err)
+                self.assertIn("AGENTS.md must not go through a Git filter", refused.err)
+                rig.git("reset", "-q", "HEAD", "--", ".gitattributes")
+                attrs.unlink(missing_ok=True)
+                result = self.workspace_done(home, rig, base, artifacts=artifacts)
+                self.assertEqual(result.code, 0, result.out + result.err)
 
 
 if __name__ == "__main__":
