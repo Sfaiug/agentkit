@@ -13,25 +13,30 @@ func Waiting(record *run.Object) bool {
 	return record.Truthy("handback_pending") && !record.Truthy("handback_typed") && !handedBack(record)
 }
 
-// LookLine reads the tick's line without waiting on a delivery in progress. That delivery
-// saves a compact line's full notice itself; only a look holding its lock may save one here.
-func LookLine(dir string, record *run.Object) string {
+// LookLine reads the tick's line and returns an action to record it after successful output.
+// A contended look leaves both the full notice and the record to that delivery, even if its
+// lock is released during output. No lock spans the output itself.
+func LookLine(dir string, record *run.Object) (string, func()) {
 	if !Waiting(record) {
-		return ""
+		return "", nil
 	}
 	held, err := lock.Try(filepath.Join(dir, "delivery.lock"))
 	if err != nil && !errors.Is(err, lock.ErrHeld) {
-		return ""
+		return "", nil
 	}
 	if held != nil {
 		defer held.Close()
 	}
-	return handbackLine(record, dir, held != nil)
+	line := handbackLine(record, dir, held != nil)
+	if line == "" || held == nil {
+		return line, nil
+	}
+	return line, func() { printedAtLook(dir, record) }
 }
 
-// PrintedAtLook records a line successfully printed by its seat. No lock spans the output,
+// printedAtLook records a line successfully printed by its seat. No lock spans the output,
 // and a tick now holding the delivery lock finishes its delivery without waiting on the look.
-func PrintedAtLook(dir string, snapshot *run.Object) {
+func printedAtLook(dir string, snapshot *run.Object) {
 	held, err := lock.Try(filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return

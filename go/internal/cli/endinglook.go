@@ -20,7 +20,7 @@ func endingLines(entries []listed, caller, wanted string) {
 			continue
 		}
 		if wanted != "" {
-			entries[i].ending = handback.LookLine(entry.dir, entry.record)
+			entries[i].ending, entries[i].recordEnding = handback.LookLine(entry.dir, entry.record)
 		} else if handback.Waiting(entry.record) {
 			entries[i].ending = "its ending waits for you: ak run status " + entry.name()
 		}
@@ -48,8 +48,8 @@ func printedLook(out io.Writer, text string, entries []listed) error {
 		}
 	}
 	for _, entry := range entries {
-		if entry.ending != "" {
-			handback.PrintedAtLook(entry.dir, entry.record)
+		if entry.recordEnding != nil {
+			entry.recordEnding()
 		}
 	}
 	return nil

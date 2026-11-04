@@ -25,10 +25,11 @@ var statusHeaders = []string{"id", "title", "state", "worker", "round", "age"}
 
 // A listed run is its directory and its record, or the unreadable row in its place.
 type listed struct {
-	dir        string
-	record     *run.Object
-	unreadable bool
-	ending     string
+	dir          string
+	record       *run.Object
+	unreadable   bool
+	ending       string
+	recordEnding func()
 }
 
 func (l listed) name() string { return filepath.Base(l.dir) }
