@@ -1,6 +1,6 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
-models that are it (`lineup`), answered per role on quality and cost alone (`answer`), the
-cheapest within `within` of the best the pick; `rank` places each configured model off it.  ak's
+models that are it (`lineup`), answered per role on quality and cost (`answer`), using
+`quality.pick`; `rank` places each configured model off it.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
 their count, and never rank (tests/test_matrix_live_column.py).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
@@ -17,11 +17,6 @@ import time
 from . import catalog, command_help, config, quality, record, terminal
 from .boards import PREFIX, cached, collect, effort_rank
 
-# A row this many points under the best counts as as good: the three boards disagree with each
-# other about differences between the top models by more (a median of 6 to 10 points, 17 Oct
-# 2026), so no row the boards agree is worse gets in.  `within` in config.toml overrides it;
-# it goes to 0 the day the boards publish their intervals.
-WITHIN = 5
 # the config's word for each role ak answers: `config.ROLE_EFFORTS` keys its efforts by these
 CONFIG_ROLES = {"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
 
@@ -131,13 +126,12 @@ def lineup(boards, offers):
             for release in releases for effort in release["efforts"]]
 
 
-def answer(lineup, within, compared=None):
+def answer(lineup, compared=None):
     """Per role, `rated`: `quality.rated` over every row of `lineup`, so a row's quality never
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
-    for every one), `best` quality, `pick` at `within`, `front`: those with a cost, best first,
+    for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
-    no harness of yours runs is no reason to leave it out; and `take`: the cheapest of them that
-    is yours within `within` of `best`, the pick itself when it is yours."""
+    no harness of yours runs is no reason to leave it out; and `take`: the same rule over yours."""
     out = {}
     for role in quality.ROLES:
         rated = quality.rated(lineup, role)
@@ -148,9 +142,8 @@ def answer(lineup, within, compared=None):
         front = sorted((row for n, row in enumerate(priced) if all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
-        take = next((row for row in priced
-                     if row["yours"] and row["quality"] >= best - within), None)
-        out[role] = {"rated": rated, "best": best, "pick": quality.pick(them, within),
+        take = quality.pick([row for row in them if row["yours"]], role)
+        out[role] = {"rated": rated, "best": best, "pick": quality.pick(them, role),
                      "front": front, "take": take}
     return out
 
@@ -164,12 +157,6 @@ def compared(cfg, current):
     found = {slug if slug in current else (catalog.successor(boards, slug) or {}).get("slug")
              for slug in marked} & current
     return found or None
-
-
-def within(cfg):
-    """How many points under the best still counts as as good: `within` in the config, else
-    `WITHIN`."""
-    return cfg.get("within", WITHIN)
 
 
 LIVE_HEADERS = ("model", "orch", "exec", "review")
@@ -290,16 +277,15 @@ def refresh(cfg, *, refresh=False, now=None):
 @functools.lru_cache(maxsize=1)
 def _answered(text):
     """`answer` over the lineup `text`, `state/matrix.json` as read, holds: rated once per
-    stored lineup, however often a run picks.  `rated` reads no `within`."""
-    return answer((json.loads(text).get("matrix") or {}).get("lineup") or [], WITHIN)
+    stored lineup, however often a run picks."""
+    return answer((json.loads(text).get("matrix") or {}).get("lineup") or [])
 
 
 def rank(cfg, role, names):
     """Each of the configured models `names` sorted on this for `role`, off the lineup as last
     stored and `answer` rated it: the row whose `yours` holds its harness and model at the
-    effort the config runs it at there.  Those within `within` of the best of them first, the
-    cheaper first and one without a cost last, then the others by quality; None for a model no
-    row is, or a lineup nobody stored.  A pick reads this and never the boards."""
+    effort the config runs it at there. The role's pick among these rows first, then the
+    rest by quality; None for a model no row is, or a lineup nobody stored.  A pick reads this and never the boards."""
     try:
         rated = _answered(cache_path().read_text())[role]["rated"]
     except (OSError, ValueError):
@@ -309,10 +295,9 @@ def rank(cfg, role, names):
     found = {name: rows.get((cfg["models"][name]["harness"], cfg["models"][name]["model"],
                              config.role_effort(cfg["models"][name], CONFIG_ROLES[role])))
              for name in names}
-    best = max((row["quality"] for row in found.values() if row), default=None)
+    pick = quality.pick([row for row in found.values() if row], role)
     return {name: None if row is None else
-            (0, row["cost"] is None, row["cost"] or 0.0, -row["quality"])
-            if row["quality"] >= best - within(cfg) else (1, False, 0.0, -row["quality"])
+            (int(row is not pick), False, 0.0, -row["quality"])
             for name, row in found.items()}
 
 
@@ -335,7 +320,7 @@ def main(argv):
     _, rows = refresh(cfg, refresh="--refresh" in flags)
     current = {row["release"] for row in rows}
     marked = compared(cfg, current)
-    found, own = answer(rows, within(cfg), marked), live(cfg)
+    found, own = answer(rows, marked), live(cfg)
     if "--json" in flags:
         from . import usage     # only JSON asks for subscription measurements
         rates = usage.model_rates(cfg)
@@ -347,7 +332,7 @@ def main(argv):
             sys.stdout, indent=2)
         print()
         return 0
-    body, _ = menu.models_body(menu.models_said(found, rows, within(cfg)), within(cfg), marked,
+    body, _ = menu.models_body(menu.models_said(found, rows), marked,
                                len(current), stored().get("fetched_at"))
     print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
     return 0

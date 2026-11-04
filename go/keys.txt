@@ -131,6 +131,7 @@ test_key_reopen_gone_seat
 test_key_resume_interrupted
 test_key_review_pr
 test_key_reviewer_fail_rounds
+test_key_role_picks
 test_key_rounds_is_a_setting
 test_key_rulebook_retold
 test_key_run_background
