@@ -72,8 +72,16 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	held, exited, known := find(name, record)
 	// the first open of a notice records its pane as a baseline (notify.opened)
 	notice, _ := run.ReadJSON(filepath.Join(state, "notify-"+name+".json"))
-	if !known || how.Terminal && !how.DryRun && notice != nil && notice.Get("opened_at") == nil {
+	if !known {
 		return false, nil
+	}
+	if how.Terminal && !how.DryRun && notice != nil && notice.Get("opened_at") == nil {
+		if !held || exited {
+			return false, nil
+		}
+		if carried, err := notify.OpenedQuestion(name, func(current string) string { pane, _ := harnessScreen(current); return pane }); !carried || err != nil {
+			return carried, err
+		}
 	}
 	if held && !exited {
 		return attachLive(name, how, out, errOut)

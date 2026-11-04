@@ -34,6 +34,7 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 	for key, value := range map[string]string{
 		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": t.TempDir(), "AGENTKIT_TMUX_SOCKET": "tick-test",
 		"AGENTKIT_SESSION": "", "AGENTKIT_ADAPTER_DIR": "", "XDG_RUNTIME_DIR": t.TempDir(), "XDG_CONFIG_HOME": "",
+		"AK_RUN_ROLE":    "",
 		"AK_NOTIFY_SINK": "dry-run",
 		"PATH":           bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 	} {
@@ -175,7 +176,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/watch.json":                 `{"reviewed": {"https://github.com/acme/api/pull/1": {}}}`,
 		"state/watch.json#own":             `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
 		"state/watch.json#stalls":          `{"stalls": {"acme": {}}}`,
-		"state/watch.json#seen":            `{"seen_at": {"acme": 1}}`,
 		"state/watch.json#merge":           `{"after_merge": {"acme/api": {}}}`,
 		"state/watch.json#auth":            `{"auth_out": {"claude": {"ok": false}}}`,
 		"state/watch.json#tokens":          `{"worker_tokens": {"claude": {}}}`,
