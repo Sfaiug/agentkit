@@ -36,6 +36,8 @@ def row(name, value, on=False):
     return f"{'›' if on else ' '} {name:<{WIDE}}  {value}"
 
 
+# Settings on the settings screen are each shown with ak's default and the board
+# numbers it moves. [30 Oct 2026]
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class LimitsPage(unittest.TestCase):
     @classmethod

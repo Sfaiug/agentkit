@@ -65,6 +65,7 @@ def prepared(case):
     case.fakes = fakeadapter.install(case.home, claude="pass", codex="pass")
 
 
+# A first review's added lines are settings on the settings screen. [30 Oct 2026]
 class TaskChange(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -111,6 +112,7 @@ class TaskChange(unittest.TestCase):
         self.told(turns, ["executor", "fixer"], 500)
 
 
+# The lines a seat builds itself are settings on the settings screen. [30 Oct 2026]
 class SeatPullRequest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

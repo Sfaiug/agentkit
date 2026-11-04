@@ -2,8 +2,8 @@
 
 Inside a seat the owner reads what it is from its bar.  Line one is the seat's word, `! needs
 you` or `● working`, then its name and the model that orchestrates it, and while it has a plan
-the line of how much is done with its count, `1 of 2`: never a percentage or a finish estimate
-(owner rules).  Line two is its crew, never the question its screen shows, with
+the line of how much is done with its count, `1 of 2`: never a percentage or a finish estimate.
+Line two is its crew, never the question its screen shows, with
 `Ctrl-b m  menu` at its right end; a click on line one's right end is bound, where other seats
 needing the owner are named.  `ak orch why` and the tick both write the bar.  Black-box:
 the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, before a seat of

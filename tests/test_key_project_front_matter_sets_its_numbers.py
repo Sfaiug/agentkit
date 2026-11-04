@@ -100,6 +100,7 @@ class Rounds(unittest.TestCase):
         self.assertEqual((self.stale.code, self.stale.err), (2, over(8, 7)))
         self.assertEqual((self.legacy.code, self.legacy.err), (2, over(8, 5)))
 
+    # A project overrides any in its front matter. [30 Oct 2026]
     def test_a_project_may_raise_the_host_s_and_one_without_the_line_reads_it(self):
         self.assertEqual((self.above["rounds"], self.plain["rounds"]), (6, 5))
 
