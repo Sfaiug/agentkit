@@ -104,7 +104,9 @@ class Loop:
 
     @property
     def fix_run(self):
-        return bool(self.state.get("followup") or taskfile.FIX_THE_COMMAND in self.body)
+        # Saved tasks keep their wording; both versions share the opening sentence.
+        opening = taskfile.FIX_THE_COMMAND.partition(".")[0]
+        return bool(self.state.get("followup") or opening in self.body)
 
     body = property(lambda self: self._body + self.scope,
                     lambda self, text: setattr(self, "_body", text))
@@ -277,21 +279,30 @@ def check_fix_on_tip(lp):
     if (lp.scratch or not lp.fix_run or not lp.every or lp.state.get("split_suite")
             or (lp.state.get("repair") or {}).get("flaky")):
         return
-    tip = gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
-                      f"refs/remotes/{lp.upstream}^{{commit}}", check=False)
-    if not tip:
+    try:
+        tip = gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
+                          f"refs/remotes/{lp.upstream}^{{commit}}", check=False)
+        if not tip:
+            return
+        lp.log(f"--- fix check on {lp.upstream} ({tip}) before the first turn")
+        lp.step("done-when")
+        # A continued branch or --no-worktree may hold other work; the target alone decides.
+        with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+            checkout = Path(tmp) / "checkout"
+            # A mirror keeps fetched target refs instead of rebuilding them from local branches.
+            gitcall.clone_borrowing(lp.wt, checkout / ".git", "--mirror")
+            gitcall.git(checkout, "config", "core.bare", "false")
+            gitcall.git(checkout, "config", "--remove-section", "remote.origin")
+            gitcall.git(checkout, "remote", "add", "origin",
+                        gitcall.git(lp.wt, "remote", "get-url", "origin"))
+            gitcall.git(checkout, "checkout", "--quiet", "--detach", tip)
+            ok, _ = gate.run_round(lp.every, checkout, lp.run_dir / "tip.log", set(),
+                                   lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                   run_dir=lp.run_dir,
+                                   checked=(lp.run_dir, 0, "done-when", tip))
+    except (config.Error, OSError) as exc:
+        lp.log(f"fix check unavailable: {exc}; continuing to the first executor turn")
         return
-    lp.log(f"--- fix check on {lp.upstream} ({tip}) before the first turn")
-    lp.step("done-when")
-    # A continued branch or --no-worktree may hold other work; the target alone decides.
-    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
-        checkout = Path(tmp) / "checkout"
-        gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
-        gitcall.git(checkout, "checkout", "--quiet", "--detach", tip)
-        ok, _ = gate.run_round(lp.every, checkout, lp.run_dir / "tip.log", set(),
-                               lp.done_when_limit, lp.log, silence=lp.turn_limit,
-                               run_dir=lp.run_dir,
-                               checked=(lp.run_dir, 0, "done-when", tip))
     if ok:
         commands = "; ".join(f"`{cmd}`" for cmd in lp.every)
         raise turns.NotNeeded(f"{commands} passed on {lp.upstream} at {tip}")

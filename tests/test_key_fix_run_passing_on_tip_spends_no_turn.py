@@ -5,6 +5,7 @@ Black-box: AK_BIN runs through akbin.Home with fakeadapter's counted executor.
 
 import json
 from pathlib import Path
+import shlex
 import sys
 import unittest
 
@@ -19,6 +20,11 @@ FIX = ("Your checkout starts on the target branch's tip, fetched when this run s
        "Fix the root cause so it passes, and show it failing before the "
        "fix and passing afterwards in your summary. If only the owner can decide, "
        'run `ak hand-in blocked "<question>"`.')
+OLD_FIX = ("Your checkout starts on the target branch's tip, fetched when this run started: run "
+           "the command below there first. If it passes there now, run `ak hand-in not-needed "
+           '"<why>"`, with no edits or PR. Otherwise fix the root cause so it passes, and show it '
+           "failing before the fix and passing afterwards in your summary. If only the owner "
+           'can decide, run `ak hand-in blocked "<question>"`.')
 
 
 class FixOnTip(unittest.TestCase):
@@ -29,10 +35,10 @@ class FixOnTip(unittest.TestCase):
         akconfig.write(self.home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
         self.fakes = fakeadapter.install(self.home, claude="blocked", codex="pass")
 
-    def launch(self, checks, *, fix=True, front=None, merge=False, receipt=None):
+    def launch(self, checks, *, body=FIX, front=None, merge=False, receipt=None):
         before = set(taskfile.runs(self.home))
         task = taskfile.write(self.home, self.rig.path, "Fix the API",
-                              body=FIX if fix else "", done_when=checks, front=front)
+                              body=body, done_when=checks, front=front)
         if receipt is None:
             done = self.home.ak("run", str(task), *([] if merge else ["--no-merge"]),
                                 timeout=300)
@@ -92,6 +98,43 @@ class FixOnTip(unittest.TestCase):
         self.assertIn(FIX, prompt)
         self.assertNotIn("run the command below there first", prompt)
 
+    def test_saved_fix_tasks_keep_both_the_tip_check_and_their_not_needed_hand_in(self):
+        self.fakes["claude"].behave("not-needed")
+        for check in ("true", "false"):
+            done, _, state = self.launch((check,), body=OLD_FIX)
+            self.assertEqual(done.code, 0, done.out + done.err)
+            self.assertEqual(state["state"], "not_needed")
+            self.assertEqual(self.fakes["codex"].n, 0)
+        self.assertEqual(self.fakes["claude"].n, 1)
+
+    def test_an_unavailable_check_checkout_keeps_the_first_turn(self):
+        for argument in ("--shared", "--detach"):
+            with self.subTest(argument=argument):
+                self.home.fake("git", '#!/bin/sh\nfor arg do\n'
+                               f'  [ "$arg" != "{argument}" ] || exit 128\ndone\n'
+                               'exec /usr/bin/git "$@"\n')
+                done, _, state = self.launch(("true",))
+                self.assertEqual(done.code, 1, done.out + done.err)
+                self.assertEqual(state["state"], "blocked")
+        self.assertEqual(self.fakes["claude"].n, 2)
+
+    def test_target_refs_with_unpushed_local_work_still_reach_the_executor(self):
+        self.rig.commit({"fixed.txt": "only on local main\n"}, push=False)
+        check = "git cat-file -e origin/main:fixed.txt"
+        done, _, state = self.launch((check,))
+        self.assertEqual(done.code, 1, done.out + done.err)
+        self.assertEqual(state["state"], "blocked")
+        self.assertEqual(self.fakes["claude"].n, 1)
+
+    def test_fetched_target_refs_passing_with_a_stale_local_branch_spend_no_turn(self):
+        old = self.rig.head()
+        tip = self.rig.commit({"fixed.txt": "on the target\n"})
+        self.rig.git("reset", "--hard", old)
+        checks = ("git cat-file -e origin/main:fixed.txt",
+                  f'test "$(git remote get-url origin)" = {shlex.quote(str(self.rig.bare))}')
+        done, directory, state = self.launch(checks)
+        self.assert_no_turn(done, directory, state, checks, tip)
+
     def test_a_tip_that_could_not_be_fetched_keeps_the_first_turn(self):
         self.rig.git("remote", "set-url", "origin", str(self.home.root / "missing.git"))
         done, _, state = self.launch(("true",), front={"base": "main"})
@@ -128,7 +171,7 @@ class FixOnTip(unittest.TestCase):
 
     def test_a_followup_record_also_identifies_a_fix_without_the_task_words(self):
         checks = ("test -f .keep",)
-        done, directory, state = self.launch(checks, fix=False, receipt={})
+        done, directory, state = self.launch(checks, body="", receipt={})
         self.assert_no_turn(done, directory, state, checks, self.rig.head())
 
     def test_ordinary_runs_flaky_repairs_and_suite_splits_keep_their_turn(self):
@@ -136,7 +179,7 @@ class FixOnTip(unittest.TestCase):
                     {"split_suite": "true"})
         for receipt in receipts:
             with self.subTest(receipt=receipt):
-                done, _, state = self.launch(("true",), fix=False, receipt=receipt)
+                done, _, state = self.launch(("true",), body="", receipt=receipt)
                 self.assertEqual(done.code, 1, done.out + done.err)
                 self.assertEqual(state["state"], "blocked")
         self.assertEqual(self.fakes["claude"].n, 3)
