@@ -1267,6 +1267,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         lp.state.update(step="reviewer", step_at=time.time())
         lp.save()
     checks, delta, replayed, listed = "", None, [], None
+    listed_rows = []
     if lp.scratch:
         work = whole = f"## Workspace ({lp.wt})\n```\n{gitcall.listing(lp.wt)}\n```"
     else:
@@ -1297,9 +1298,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
             # each earlier finding is listed, and handed to the reviewer's turn, where it
             # stands on this commit (`placed`): the one site a hand-in upholds it at
             standing = {id(row): prompts.placed(lp, row, delta, at)[0] for row in earlier}
-            listed = lp.round_dir / "earlier.json"
-            listed.parent.mkdir(parents=True, exist_ok=True)
-            listed.write_text(json.dumps([{**row, "line": standing[id(row)]} for row in earlier]))
+            listed_rows = [{**row, "line": standing[id(row)]} for row in earlier]
             shown = [({**row, "line": standing[id(row)]}, now, failing) for row, now, failing in replayed]
             told = [({**row, "line": standing[id(row)]}, why) for row, why in left]
             if delta:
@@ -1318,6 +1317,14 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
                       + "\n".join(stat.splitlines()[:-1]) + "\n```\n\n")
     identity = {} if lp.scratch else gitcall.commit_identity(lp.wt)
     disputes = prompts.review_disputes(lp, identity.get("head_sha"))
+    handed_disputes = [{"kind": "dispute", "path": row["path"], "line": row["line"],
+                       "lines": list(prompts.moved_lines(lp, row["path"], row["line"], delta,
+                                                        identity.get("head_sha"))[0])}
+                      for row in disputes.disputes]
+    if listed_rows or handed_disputes:
+        listed = lp.round_dir / "earlier.json"
+        listed.parent.mkdir(parents=True, exist_ok=True)
+        listed.write_text(json.dumps((listed_rows or earlier) + handed_disputes))
     validation = getattr(lp, "validation", identity if lp.state.get("review_pr") else {})
     # A hand-built stand-in for the loop (as in test_v4c) carries no commands; the real
     # Loop always does, and only then are markers attributed to their commands.
@@ -1525,18 +1532,18 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     checkout_changed = not lp.scratch and (
         identity != validation or gitcall.commit_identity(lp.wt) != identity
         or (not lp.state.get("review_pr") and gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0))
+    # Weighing may turn an explicit uphold into a note, never into a concession.
+    answers = hand_in.dispute_answers(handed_disputes, submitted.records)
     submitted = prompts.weigh_review(lp, submitted, identity.get("head_sha"), since=delta, replayed=replayed)
-    upheld = {(row["path"], row["line"]) for row in submitted.findings}
     for row in disputes.disputes:
-        # a dispute's finding is upheld wherever the fix left its line: moved, at the anchor
-        # of its removal, or among the lines the fix put in its place
-        lines = prompts.moved_lines(lp, row["path"], row["line"], delta, identity.get("head_sha"))[0]
-        row["outcome"] = "upheld" if any((row["path"], at) in upheld for at in lines) else "dropped"
-        if row["outcome"] == "dropped":
-            dropped = lp.state.setdefault("disputes", [])
-            text_dispute = "Dropped: " + hand_in.item_text(row)
-            if text_dispute not in dropped:
-                dropped.append(text_dispute)
+        answer = answers[(row["path"], row["line"])]
+        row["outcome"] = "conceded" if answer["kind"] == "concede" else "upheld"
+        if row["outcome"] == "conceded":
+            row["conceded"] = answer["why"]
+            conceded = lp.state.setdefault("disputes", [])
+            text_dispute = "Conceded: " + hand_in.item_text(row)
+            if text_dispute not in conceded:
+                conceded.append(text_dispute)
     lp.state.pop("dispute_files", None)
     verdict = submitted.verdict
     overridden = None       # why the loop failed what the reviewer passed, for the hand-back

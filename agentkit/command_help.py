@@ -10,6 +10,7 @@ NOTIFY_USAGE = f"usage: {NOTIFY_NEEDS}\n       ak notify --check"
 HAND_IN_FINDING = 'ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES)'
 HAND_IN_FOLLOWUP = 'ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" (--run COMMAND | --quote LINES) [--before PROOF]'
 HAND_IN_DISPUTE = 'ak hand-in dispute PATH:LINE "WHY IT IS WRONG" (--run COMMAND | --quote LINES)'
+HAND_IN_CONCEDE = 'ak hand-in concede PATH:LINE "WHY"'
 
 # Each entry is (usage, description, example). Model selections remain in config.toml;
 # MODEL in usage/examples stands for one of that file's keys.
@@ -24,7 +25,7 @@ COMMANDS = {
               "ak usage --json"),
     "worker": (WORKER_USAGE, "Run one headless model turn from a task or prompt file.",
                "ak worker MODEL task.md --role reviewer"),
-    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       {HAND_IN_DISPUTE}\n       ak hand-in done\n"
+    "hand-in": (f"usage: {HAND_IN_FINDING}\n       {HAND_IN_FOLLOWUP}\n       {HAND_IN_DISPUTE}\n       {HAND_IN_CONCEDE}\n       ak hand-in done\n"
                 '       ak hand-in blocked "WHY"\n       ak hand-in not-needed "WHY"',
                 "Hand in review evidence or close a worker turn.\n"
                 "The loop names AK_HAND_IN; outside a turn this command is refused.\n"
@@ -37,7 +38,8 @@ COMMANDS = {
                 "A follow-up's --run is one line without backticks or this checkout's path.\n"
                 "Only a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\n"
                 "ak gives the next reviewer the dispute and its own proof output beside the finding.\n"
-                "Hand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\n"
+                "Answer every dispute: hand the finding in again to uphold it, or concede its site with why.\n"
+                "A review's done waits until every handed dispute has an answer.\n"
                 "done closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\n"
                 "Executors and fixers use blocked when the task cannot be done as written, or\n"
                 "not-needed when a fix run's first turn finds the defect gone or already being fixed.\n"
@@ -55,6 +57,9 @@ COMMANDS = {
     "hand-in dispute": (f"usage: {HAND_IN_DISPUTE}",
                         "Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
                         'ak hand-in dispute api.py:12 "The result is correct" --run "python3 check_result.py"'),
+    "hand-in concede": (f"usage: {HAND_IN_CONCEDE}",
+                        "Accept a dispute handed to this reviewer and record why it is right.",
+                        'ak hand-in concede api.py:12 "The default is required"'),
     "hand-in done": ("usage: ak hand-in done", "Close this worker turn; a review derives its verdict.",
                      "ak hand-in done"),
     "hand-in blocked": ('usage: ak hand-in blocked "WHY"',

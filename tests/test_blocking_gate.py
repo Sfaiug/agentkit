@@ -145,7 +145,8 @@ out = pathlib.Path(sys.argv[6])
         """What the next turn is handed: the earlier findings where they stand now."""
         listed = self.directory / f"round-{self.lp.rnd}" / "earlier.json"
         return "" if not listed.is_file() else "\n".join(
-            f"{row['path']}:{row['line']} - {row['what']}" for row in json.loads(listed.read_text()))
+            f"{row['path']}:{row['line']} - {row['what']}" for row in json.loads(listed.read_text())
+            if row["kind"] == "finding")
 
     def records(self, kind):
         return [(row["path"], row["line"], row.get("replayed") or row.get("outside") or "")
@@ -289,15 +290,15 @@ out = pathlib.Path(sys.argv[6])
         self.dispute("api.py", 2, "flag is wrong", probe("True"))
 
     def test_a_dispute_leaves_every_finding_at_its_site_to_the_reviewer(self):
-        # a dispute names its site, not one finding there: ak replays none, and one nobody upheld goes
+        # A dispute names its site, not one finding there: ak replays none.
         self.disputed()
-        self.assertEqual(self.review(), "PASS")
+        self.assertEqual(self.review(["concede", "api.py:2", "The fix is correct."]), "PASS")
         self.assertEqual(self.records("finding"), [])
         prompt = self.prompt()
         self.assertIn("api.py:2 - flag is wrong - disputed by the fixer", prompt)
         self.assertIn("api.py:2 - flag is misnamed - disputed by the fixer", prompt)
-        [dropped] = self.lp.state["disputes"]
-        self.assertTrue(dropped.startswith("Dropped: api.py:2 - flag is wrong"), dropped)
+        [conceded] = self.lp.state["disputes"]
+        self.assertTrue(conceded.startswith("Conceded: api.py:2 - flag is wrong"), conceded)
 
     def test_a_finding_the_reviewer_hands_in_again_at_a_disputed_site_blocks(self):
         self.disputed()

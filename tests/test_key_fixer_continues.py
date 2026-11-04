@@ -3,8 +3,8 @@
 After a FAIL, ak does not start a stranger on the work: the next round's turn resumes the
 session the executor's last turn handed back, in the run's worktree, handed the findings to
 fix, while each review reads a checkout of its own round.  A finding that no longer stands in
-the next round, because the reviewer drops a disputed one or ak's replay of a proven one passes
-on the fixed commit, ends the run PASS after two rounds of three.  Black-box: the program
+the next round because ak's replay of a proven one passes on the fixed commit ends the run PASS
+after two rounds of three.  Black-box: the program
 `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a project from gitrig.py,
 a config from akconfig.py, a task from taskfile.py and scripted harnesses from fakeadapter.py.
 """
@@ -111,19 +111,6 @@ class FixerContinuesTheExecutorsSession(Run, unittest.TestCase):
         places = [run["argv"][2] for run in self.fakes["codex"].runs()]
         self.assertEqual(places, [str(self.run_dir / f"round-{n}" / "review-checkout")
                                   for n in (1, 2, 3)])
-
-
-class ADisputedFindingTheReviewerDropsPasses(Run, unittest.TestCase):
-    # The fixer changes nothing and disputes the finding: only the reviewer's second word decides.
-    steps = {"claude": ["work", "dispute"], "codex": [PROVEN, "pass"]}
-
-    def test_the_run_passes_in_the_second_round_and_says_so(self):
-        self.assert_passed_in_the_second_round()
-        self.assertNotIn("## Reviewer findings", self.result)
-
-    def test_the_second_review_judges_the_same_commit_again(self):
-        heads = [summary["head_sha"] for summary in self.state["round_summaries"]]
-        self.assertEqual(heads[0], heads[1])
 
 
 class AProvenFindingTheFixMakesPassPasses(Run, unittest.TestCase):

@@ -97,7 +97,9 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         self.lp = run.Loop(self.cfg, self.directory, state, {}, self.logs.append, self.wt,
                            "# Enable the feature and keep the answer correct", ["true"], "context")
 
-    def rounds(self, evidence, review_commands=(), extra_disputes=()):
+    def rounds(self, evidence, review_commands=None, extra_disputes=()):
+        if review_commands is None:
+            review_commands = [["concede", "api.py:1", WHY]]
         plans = [
             {"edits": {"api.py": "enabled = True\nanswer = 0\nuntouched = True\n"}},
             {"commands": [(FINDING, 0), (OTHER, 0)]},
@@ -132,7 +134,7 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         run.write_result(self.directory, self.lp.state, ["true"], cfg=self.cfg)
         return calls, (self.directory / "result.md").read_text()
 
-    def test_disputing_one_finding_and_fixing_another_delivers_the_loops_proof_and_dropped_dispute(self):
+    def test_disputing_one_finding_and_fixing_another_delivers_the_loops_proof_and_concession(self):
         calls, result = self.rounds(["--run", PROOF])
         self.assertEqual([r["finding_count"] for r in self.lp.state["round_summaries"]], [2, 0])
         self.assertEqual(self.lp.state["verdict"], "PASS")
@@ -162,10 +164,10 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
         finding = [*FINDING[:4], "--run", command]
         _, result = self.rounds(["--run", PROOF], [finding])
         self.assertEqual(self.lp.state["verdict"], "PASS")
-        self.assertIn("## Disputes", result)
+        self.assertNotIn("## Disputes", result)
         self.assertIn("no defect in loop proof", self.lp.state["notes"][0])
 
-    def test_every_dispute_reaches_the_next_review_and_the_dropped_list(self):
+    def test_every_dispute_reaches_the_next_review_and_the_conceded_list(self):
         why = "The quoted assignment also proves it is enabled."
         calls, result = self.rounds(["--run", PROOF], extra_disputes=[
             ["dispute", "api.py:1", why, "--quote", "enabled = True"]])
@@ -228,6 +230,37 @@ with pathlib.Path({str(self.calls)!r}).open("a") as fh:
                     self.assertEqual(result.returncode, 2, result.stderr)
                     self.assertIn(error, result.stderr)
                     self.assertEqual(file.read_bytes(), before)
+
+    def test_every_dispute_needs_its_own_answer_even_after_resuming(self):
+        file = self.turn("reviewer")
+        header = json.loads(file.read_text())
+        header["disputes"] = [{"kind": "dispute", "path": "api.py", "line": line,
+                                "lines": [line]} for line in (1, 2)]
+        file.write_text(json.dumps(header) + "\n")
+        self.assertEqual(self.cli(file, "done").returncode, 2)
+        self.assertEqual(self.cli(file, "concede", "api.py:1", WHY).returncode, 0)
+        resumed = self.root / "resumed"
+        resumed.mkdir()
+        file = Path(hand_in.start(resumed, self.wt, previous=file, role="reviewer"))
+        for command in ([], ["finding", "api.py:2", "x", "y", "--quote", "answer = 1"],
+                        ["follow-up", "api.py:2", "x", "y", "--run", "false"],
+                        ["finding", "api.py:3", "x", "y", "--run", "false"]):
+            if command:
+                self.assertEqual(self.cli(file, *command).returncode, 0)
+            refused = self.cli(file, "done")
+            self.assertEqual(refused.returncode, 2, refused.stderr)
+            self.assertIn("api.py:2", refused.stderr)
+        self.assertEqual(self.cli(file, "finding", "api.py:2", "x", "y", "--run", "false").returncode, 0)
+        self.assertEqual(self.cli(file, "done").returncode, 0)
+        self.assertEqual(hand_in.read(file).records[0]["why"], WHY)
+
+    def test_conceding_is_only_for_a_reviewer_handed_that_dispute(self):
+        for role in ("executor", "fixer", "reviewer", "reviewer-pr", "reviewer-scratch"):
+            file = self.turn(role)
+            before = file.read_bytes()
+            refused = self.cli(file, "concede", "api.py:1", WHY)
+            self.assertEqual(refused.returncode, 2, refused.stderr)
+            self.assertEqual(file.read_bytes(), before)
 
 
 if __name__ == "__main__":
