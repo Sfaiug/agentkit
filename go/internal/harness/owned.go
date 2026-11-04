@@ -7,9 +7,6 @@ import (
 	"agentkit/internal/run"
 )
 
-// Antigravity's plugin keeps its conversation by its own evidence, which Go does not read yet.
-func init() { plugins["antigravity"] = plugin{} }
-
 // Owned is the conversation that harness says a seat's record owns once it has reconciled it
 // (its plugin's `conversation` and `reconcile`), "" for none; false where the answer hangs on
 // what Go does not do: a receipt to verify, a store of its own, or a record to reconcile.  A
