@@ -269,7 +269,7 @@ class Scoreboard(unittest.TestCase):
                     "hours": None, "tokens": None, "token_share": None}],
             "size": [{"code_lines": 17, "readme_words": 5, "agents_words": 9}, None],
             "tokens": [None, None],
-            "intent": [None, {"measured": 0, "hours": None, "live": 0, "live_hours": None}],
+            "intent": [None, {"measured": 0, "hours": None, "live": 0, "live_hours": None, "answer_share": None}],
             "owner": [{"asked": 2, "paged": 3, "hours": 1.25}, {"asked": 0, "paged": 0, "hours": None}],
             "built": [None, None],
             "waits": [{"compute": .25, "merge_hours": 1.5, "lander_hours": .5}, None],

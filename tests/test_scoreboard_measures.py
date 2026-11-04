@@ -32,7 +32,8 @@ PINNED = (
     # Every token, seats and their subagents beside runs: the owner's yes, 21 Oct 2026.
     ("tokens", "tokens", ("total_tokens", "seat_tokens", "not_counted")),
     # `intent`, `owner`, `built`, `parks` and `sunk`: the owner's yes, 14 Oct 2026.
-    ("intent", "intent", ("measured", "hours", "live", "live_hours")),
+    # answer_share: write-up task 15, changed on review under the Owner rule of 27 Oct 2026.
+    ("intent", "intent", ("measured", "hours", "live", "live_hours", "answer_share")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
@@ -107,7 +108,7 @@ class Measures(unittest.TestCase):
                 patch.object(scoreboard.history, "owner",
                              return_value=[(NOW - 90, "asked", None), (NOW - 80, "paged", None),
                                            (NOW - 60, "answered", 30)]), \
-                patch.object(scoreboard.history, "dones", return_value=[(NOW - 60, NOW - 7200, None)]), \
+                patch.object(scoreboard.history, "dones", return_value=[(NOW - 60, NOW - 7200, None, 30)]), \
                 patch.object(scoreboard, "_git", lambda *args, **kw: b"x\n"):
             board = scoreboard.compute(NOW)
         self.assertEqual({key: list(cells[0]) for key, cells in board.items()},

@@ -50,7 +50,6 @@ def card(*asked, answered=False):
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class CardQuestionIsOwnerTime(unittest.TestCase):
     def setUp(self):
-        # the owner's rows name no seat: each case reads a Home of its own
         self.home = Home()
         self.addCleanup(self.home.close)
         self.hooks = hookdrive.Hooks(self.home)
