@@ -37,7 +37,7 @@ class RedTestsRerunAtOnce(unittest.TestCase):
 
     def test_named_tests_take_no_turn_and_go_one_piece_at_a_time(self):
         (self.fake / "code-3").write_text("1")
-        self.assertEqual(self.goes(ACME_RED="1"), (1, 1, [("1/1", NAMED, False)] * 2))
+        self.assertEqual(self.goes(ACME_RED="1"), (1, 1, [("1/1", NAMED, False)]))
 
     def test_named_tests_go_before_a_piece_that_named_none_waits_for_a_turn(self):
         (self.fake / "code-3").write_text("1")

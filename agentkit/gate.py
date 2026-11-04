@@ -1907,13 +1907,11 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         local.give(turn)
                 return code, piece, killed, tests
 
-            def attempts(which, only=None):
-                """The pieces at `which`, each with `only`'s tests for it, if any, alone; with no
-                turn to bound them, those tests go one piece at a time."""
-                only = only or {}
-                with ThreadPoolExecutor(max_workers=len(which) if hold or not only else 1) as pool:
+            def attempts(which):
+                """Run the whole pieces at `which`, bounded by this host's turns."""
+                with ThreadPoolExecutor(max_workers=len(which)) as pool:
                     try:
-                        futures = [pool.submit(attempt, f"{index + 1}/{count}", only.get(index))
+                        futures = [pool.submit(attempt, f"{index + 1}/{count}")
                                    for index in which]
                         for index, future in zip(which, futures):
                             results[index] = future.result()
@@ -2021,7 +2019,8 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     result and not result[0] and not result[2] for result in results):
                 log(f"every piece passed on the suite helper {next(filter(None, where)).alias}"
                     f"{' and this host' if not all(where) else ''}")
-            again, joined = [], [None]
+            again, joined, retried = [], [None], set()
+            settled = False
 
             def elsewhere():    # asked while waiting for a turn here
                 said = []
@@ -2053,11 +2052,23 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         hold.alone()
                 return attempt(shard, only)
 
+            def wait_busy():
+                nonlocal hold, deadline, env
+                queued = busy_turn(run_dir, activity, log, command, cwd)
+                deadline += queued
+                if on_wait is not None:
+                    on_wait(queued)
+                hold = getattr(_GATE_HELD, "hold", None)
+                if hold is not None:
+                    hold.alone()
+                env = suite_env(changed, times)
+
             # What a machine failed or stopped runs again here, a stopped piece alone, below; what
             # it lost or had no room for, on the first machine with room, this one included. The
             # tests a red piece named go first, at once, one piece at a time, taking no turn: they
             # cost what a model's own test does, which takes none, where a turn was over an hour
-            # away (30 Oct 2026). Whatever then runs whole here waits for this host's turns.
+            # away (30 Oct 2026). One repeat failure settles the suite; later named reds keep
+            # their helper output. Whatever then runs whole here waits for this host's turns.
             while not cancel.is_set():
                 fresh = []
                 for index, there in enumerate(where):
@@ -2076,8 +2087,20 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     if tests := helper.failed(there, f"{index + 1}/{count}"):
                         named[index] = results[index][1], tests
                         fresh.append(index)
-                if fresh:
-                    attempts(fresh, only={index: named[index][1] for index in fresh})
+                for index in fresh:
+                    if settled:
+                        break
+                    retried.add(index)
+                    shard = f"{index + 1}/{count}"
+                    while True:
+                        results[index] = rerun(shard, named[index][1])
+                        code, _, killed, tests = results[index]
+                        if code != SUITE_BUSY or killed or cancel.is_set():
+                            break
+                        wait_busy()
+                    if (code > 0 and code != SUITE_BUSY and not killed and tests
+                            and shard not in starved):
+                        settled = True
                 if hold is not None or not (
                         set(again) - set(named) or pieces_left.waiting) or over():
                     break
@@ -2099,6 +2122,9 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             chunks, red, flakes, alones = [], [], [], {}
             for index, (code, piece, killed, tests) in enumerate(results, 1):
                 shard = f"{index}/{count}"
+                if index - 1 in named and index - 1 not in retried:
+                    alones[shard] = None
+                    continue
                 failed = only = alone = None
                 how = "failed"
                 if shard in silenced and not cancel.is_set():
@@ -2116,14 +2142,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                     how = f"failed on the suite helper {where[index - 1].alias}"
                 while not killed and not cancel.is_set():
                     if code == SUITE_BUSY:
-                        queued = busy_turn(run_dir, activity, log, command, cwd)
-                        deadline += queued
-                        if on_wait is not None:
-                            on_wait(queued)
-                        hold = getattr(_GATE_HELD, "hold", None)
-                        if hold is not None:
-                            hold.alone()
-                        env = suite_env(changed, times)
+                        wait_busy()
                     elif shard in starved:
                         break   # the host's red, never a test's (`land.red_part`)
                     elif only is not None:
