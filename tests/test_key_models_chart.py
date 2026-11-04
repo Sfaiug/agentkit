@@ -1,6 +1,6 @@
 """AK_BIN draws each role's linear cost chart above its unchanged table.
 
-Invented boards and a fake harness in a temporary HOME; only `ak models` output is read.
+Invented boards and a fake harness in a temporary HOME; `ak models` output and its screen are read.
 """
 
 from pathlib import Path
@@ -10,7 +10,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import Home
+from fixtures.akbin import Home, REAL_TMUX
+from fixtures.akterm import Terminal
 from test_key_models_answer import ENV, EVALUATIONS, aa, boards, lines
 
 ROWS = [("base", .84, 1), ("pick", .89, 2), ("twice", .895, 4),
@@ -128,6 +129,23 @@ class ModelsChart(unittest.TestCase):
             self.assertNotIn("quality ↑", shown)
             self.assertNotIn("┄", shown)
             self.assertEqual(contents(shown), expected)
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_keyboard_reaches_the_chart_on_a_short_terminal(self):
+        self.models()
+        term = Terminal(self.home, size=(100, 100), env=ENV)
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait("r recommended")
+        term.keys("r")
+        term.wait("comparing all 5 models")
+        for height in (18, 24):
+            term.resize(100, height)
+            term.keys(*["Up"] * 20)
+            chart = term.wait(lambda s: "Best 1 high" in s and (height == 18 or any(
+                line.startswith("›") and "Best 1" in line for line in s.splitlines())))
+            self.assertIn("\n  orch\n", chart)
+            self.assertIn("  quality ↑", chart)
 
 
 if __name__ == "__main__":
