@@ -80,7 +80,8 @@ class GoogleRentsUnderACap(unittest.TestCase):
     def test_none_while_one_comes_up_or_off_or_past_the_cap_where_one_cut_short_counts(self):
         for asked, _, lines in [*self.coming, self.off, self.dropped]:
             self.assertFalse([one for one in asked if one.endswith("/instances")], asked)
-        self.assertEqual((self.off[0], self.dropped[2][1:]), ([], []))  # a need while off dropped
+        self.assertTrue(any("/aggregated/instances" in one for one in self.off[0]))
+        self.assertEqual(self.dropped[2][1:], [])  # a need while off dropped
         self.assertEqual(self.capped[2][1:], [CAPPED.format(50)])   # the first held to its end
         (_, _, lines), made = self.cut
         self.assertEqual(made["machineType"], "zones/europe-west4-b/machineTypes/c4a-highcpu-8")
