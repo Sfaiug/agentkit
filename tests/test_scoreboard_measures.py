@@ -1,5 +1,5 @@
 """What the scoreboard measures is pinned here, so the board changes only with a visible test
-change (AGENTS.md, Owner rules, 14 Oct 2026): the rows and the parts each
+change (test_the_measures_are_the_pinned_ones, 14 Oct 2026): the rows and the parts each
 cell is built from (`scoreboard.MEASURES`), the rows and parts `compute` answers with, and
 the labels `render` shows, in that order; tests/test_scoreboard.py holds the words `render`
 says of each part, tests/test_who_built.py those of `built` and `parks`,
@@ -74,6 +74,8 @@ class Measures(unittest.TestCase):
                 patcher.start()
                 self.addCleanup(patcher.stop)
 
+    # what the board measures is pinned by `tests/test_scoreboard_measures.py`.
+    # [2 Oct, 14 Oct, 27 Oct]
     def test_the_measures_are_the_pinned_ones(self):
         self.assertEqual(scoreboard.MEASURES, PINNED)
 

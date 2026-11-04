@@ -28,6 +28,9 @@ BROKE = "merged changes that broke main or live after merge"
 
 
 class Loss(unittest.TestCase):
+    # Quality, then speed, then cost is how ak judges a week, a change and a seat's work:
+    # the weekly audit names a quality loss before any gain in speed or cost
+    # (`scoreboard.loss`). [14 Oct]
     def test_the_first_measure_in_the_vision_s_order_that_got_worse(self):
         # quality first: the share that broke after merge fell, so the next quality measure that rose names it
         self.assertEqual(scoreboard.loss(BOARD), ("product runs ended without merging", .3, .2, "%"))
