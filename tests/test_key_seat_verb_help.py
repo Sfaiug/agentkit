@@ -29,15 +29,6 @@ USAGE = {
             "ak plan check N 'COMMAND'",
     "notify": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
               "       ak notify --check",
-    "hand-in": 'usage: ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" '
-               "(--run COMMAND | --quote LINES)\n"
-               '       ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" '
-               "(--run COMMAND | --quote LINES) [--before PROOF]\n"
-               '       ak hand-in dispute PATH:LINE "WHY IT IS WRONG" '
-               "(--run COMMAND | --quote LINES)\n"
-               "       ak hand-in done\n"
-               '       ak hand-in blocked "WHY"\n'
-               '       ak hand-in not-needed "WHY"',
     "wait": "usage: ak wait PR_URL|RUN_ID",
 }
 # Inside a seat, as a model there types them: the seat's name in the environment, its record
@@ -75,9 +66,7 @@ class SeatVerbHelp(unittest.TestCase):
                     self.assertEqual(len(blocks), 4, out)
                     purpose, shown, description, example = blocks
                     self.assertNotIn("\n", purpose)
-                    # New subcommands have their own keys; these forms stay in order.
-                    self.assertEqual([line for line in shown.splitlines()
-                                      if line in usage.splitlines()], usage.splitlines())
+                    self.assertEqual(shown, usage)
                     self.assertTrue(description.strip(), out)
                     self.assertRegex(example, rf"^Example: ak {verb} \S[^\n]*$")
 
@@ -101,7 +90,7 @@ class SeatVerbHelp(unittest.TestCase):
     def test_asking_for_help_writes_nothing_under_home_and_calls_no_host_tool(self):
         before = snapshot(self.home.path)
         called = {tool: self.home.calls(tool) for tool in REFUSED}
-        for verb in USAGE:
+        for verb in (*USAGE, "hand-in"):
             for flag in ("-h", "--help"):
                 with self.subTest(verb=verb, flag=flag):
                     self.helped(verb, flag)

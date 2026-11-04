@@ -56,7 +56,7 @@ if role != "reviewer":
     subprocess.run([sys.executable, os.environ["HAND_IN_BIN"], "hand-in", *args], check=True)
 elif row.get("concede"):
     turn = json.loads(pathlib.Path(os.environ["AK_HAND_IN"]).read_text().splitlines()[0])
-    for dispute in turn["disputes"]:
+    for dispute in turn.get("disputes", []):
         subprocess.run([sys.executable, os.environ["HAND_IN_BIN"], "hand-in", "concede",
                         f"{dispute['path']}:{dispute['line']}", "The fixture accepts it."], check=True)
 '''

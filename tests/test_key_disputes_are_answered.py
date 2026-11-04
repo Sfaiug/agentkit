@@ -8,6 +8,17 @@ from test_key_fixer_dispute_run import FIXER, start
 from test_key_history_db import OWNERS, read
 
 WHY = "The task requires this file."
+# The changed hand-in usage belongs to this key; shared verbs keep their exact usage checks.
+HAND_IN_USAGE = ('usage: ak hand-in finding PATH:LINE "WHAT" "WHY IT MATTERS" '
+                 "(--run COMMAND | --quote LINES)\n"
+                 '       ak hand-in follow-up PATH:LINE "WHAT" "WHY IT MATTERS" '
+                 "(--run COMMAND | --quote LINES) [--before PROOF]\n"
+                 '       ak hand-in dispute PATH:LINE "WHY IT IS WRONG" '
+                 "(--run COMMAND | --quote LINES)\n"
+                 '       ak hand-in concede PATH:LINE "WHY"\n'
+                 "       ak hand-in done\n"
+                 '       ak hand-in blocked "WHY"\n'
+                 '       ak hand-in not-needed "WHY"')
 
 
 class Conceded(unittest.TestCase):
@@ -47,7 +58,9 @@ class Conceded(unittest.TestCase):
             helped = self.home.ak("hand-in", "concede", flag)
             self.assertEqual((helped.code, helped.err), (0, ""))
             self.assertIn('usage: ak hand-in concede PATH:LINE "WHY"', helped.out)
-            self.assertIn('       ak hand-in concede PATH:LINE "WHY"', self.home.ak("hand-in", flag).out)
+            helped = self.home.ak("hand-in", flag)
+            self.assertEqual((helped.code, helped.err), (0, ""))
+            self.assertEqual(helped.out.split("\n\n")[1], HAND_IN_USAGE)
 
 
 class Upheld(unittest.TestCase):
