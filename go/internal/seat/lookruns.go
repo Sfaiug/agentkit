@@ -13,7 +13,7 @@ func lookRuns(_ []string, now time.Time) (map[string][]ran, bool) {
 	runs, _, known := menuRuns(now)
 	for _, mine := range runs {
 		// A running task keeps the seat working before its endings can decide a word.
-		if slices.ContainsFunc(mine, func(each ran) bool { return each.view.going }) {
+		if slices.ContainsFunc(mine, ran.going) {
 			continue
 		}
 		for _, each := range mine {

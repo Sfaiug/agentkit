@@ -69,6 +69,9 @@ func narrowSeats(screen terminal.Screen, seats []seat.Seat, rows [][]string, wid
 	lines := []string{screen.TableRow(listHeaders[:2], first, []string{"dim", "dim"})}
 	for i, row := range rows {
 		project := terminal.Wrap(row[1], first[1])
+		if len(project) == 0 {
+			project = []string{""}
+		}
 		lines = append(lines, screen.TableRow([]string{row[0], project[0]}, first, nil))
 		for _, extra := range project[1:] {
 			lines = append(lines, strings.Repeat(" ", first[0]+2)+extra)

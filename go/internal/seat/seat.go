@@ -268,21 +268,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if repo, _ := seat.repo.(string); repo != "" {
 		seat.Project = base(repo)
 	}
-	var going []ran
-	merged := 0
-	for _, each := range mine {
-		if each.record.Str("state") == "running" {
-			going = append(going, each)
-			continue
-		}
-		finished := run.FirstNumber(each.record, "finished_at", "started_at")
-		if seconds(now)-run.GCAge <= finished && finished <= seconds(now) {
-			merged++
-		}
-	}
-	if len(mine) > 0 {
-		seat.Tally = fmt.Sprintf("%d running · %d merged", len(going), merged)
-	}
+	seat.Tally = tally(mine, now)
 	return seat, true
 }
 
