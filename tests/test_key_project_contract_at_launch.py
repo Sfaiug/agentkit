@@ -103,6 +103,19 @@ class ProjectContract(unittest.TestCase):
                 self.assertEqual(rig.git("symbolic-ref", "refs/remotes/origin/HEAD"),
                                  "refs/remotes/origin/main")
 
+    def test_uncached_default_applies_the_round_budget_before_launch(self):
+        akconfig.write(self.home, ["opus", "astra"], settings={"review_rounds": 5})
+        rig = self.project("---\ntests: none\nhealth: none\nreview_rounds: 2\n---\n")
+        for flags, front in ((("--rounds", "3"), {}), ((), {"rounds": 3})):
+            for count in (1, 2):
+                with self.subTest(flags=flags, tasks=count):
+                    rig.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+                    tasks = [taskfile.write(self.home, rig.path, name=f"limit-{n}", front=front)
+                             for n in range(count)]
+                    done = self.home.ak("run", *map(str, tasks), *flags, "--no-merge", "--bg", timeout=30)
+                    self.assertEqual(done.code, 2, done.out + done.err)
+                    self.assertEqual(taskfile.runs(self.home), [])
+
     def test_a_review_pr_can_add_the_missing_line(self):
         rig = self.project("---\ntests: none\n---\n# widgets\n")
         gh = GitHub(self.home)
