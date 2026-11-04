@@ -16,17 +16,15 @@ import (
 	"path/filepath"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
 const (
-	maxAge        = 3600 // an ending older than this when first seen is history (watch.HANDBACK_MAX_AGE)
-	preexisting   = "pre-existing ending; not replayed"
-	decisionMost  = 399  // one read tells a seat what it decides (handback.DECISION_MOST)
-	typedMostByte = 8000 // a typed line goes into one tmux command whole (watch.MAX_BYTES)
+	maxAge       = 3600 // an ending older than this when first seen is history (watch.HANDBACK_MAX_AGE)
+	preexisting  = "pre-existing ending; not replayed"
+	decisionMost = 399 // one read tells a seat what it decides (handback.DECISION_MOST)
 )
 
 // Give hands the ending of the run at dir back to the seat that launched it, saying in the run's
@@ -73,7 +71,7 @@ func Give(dir string, say func(string)) bool {
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
 	line := ""
 	if !pending {
-		line = handbackLine(record, dir)
+		line = handbackLine(record, dir, true)
 	}
 	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
@@ -93,27 +91,6 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("the %s seat is not at its prompt (%s); the tick hands run %s back", session, reading, id))
 	}
 	return false
-}
-
-// longest is the most characters a typed line may hold: one every harness's composer shows whole
-// (`[screen] folds_over`), read off the manifests alone (watch.longest).
-func longest() int {
-	most := typedMostByte
-	names, _ := config.HarnessNames()
-	for _, name := range names {
-		chrome, _ := config.Section(name, "screen")
-		switch folds := chrome["folds_over"].(type) {
-		case int64:
-			if folds > 0 {
-				most = min(most, int(folds))
-			}
-		case int:
-			if folds > 0 {
-				most = min(most, folds)
-			}
-		}
-	}
-	return most
 }
 
 // sameAttempt is whether two records are one attempt of the run, not either side of a resume.

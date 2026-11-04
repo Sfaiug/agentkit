@@ -1,8 +1,6 @@
 package config
 
 import (
-	"cmp"
-	"math/big"
 	"unicode/utf8"
 )
 
@@ -31,13 +29,5 @@ const maxBytes = 8000
 // watch.too_long: one every harness's composer shows whole, the fewest characters any manifest's
 // `[screen] folds_over` names.
 func TooLong(line string) bool {
-	var most int64
-	manifests, _ := manifests()
-	for _, root := range manifests {
-		screen, _ := root.get("screen").(*table)
-		if fold, ok := screen.get("folds_over").(*big.Int); ok && fold.Sign() != 0 && fold.IsInt64() && (most == 0 || fold.Int64() < most) {
-			most = fold.Int64()
-		}
-	}
-	return int64(utf8.RuneCountInString(line)) > cmp.Or(most, maxBytes) || len(line) > maxBytes
+	return int64(utf8.RuneCountInString(line)) > Longest() || len(line) > maxBytes
 }

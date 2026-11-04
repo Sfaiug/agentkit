@@ -23,8 +23,7 @@ func init() { commands["wait"] = wait }
 // wait is `ak wait PR_URL|RUN_ID`, as Python's watch.wait_main answers it: the seat ends its turn
 // waiting on that pull request or run, written into its own record for the tick to end, and one
 // already over is refused with its fact.  Python's are a wait reaching an exhausted run, one of a
-// seat whose finished plan holds open deferred lines or who has runs of its own, and an ended
-// run of the seat's own whose ending waits to be handed back, which Python prints and records.
+// seat whose finished plan holds open deferred lines or who has runs of its own.
 func wait(args []string, out, errOut io.Writer) int {
 	name, _, err := config.CurrentSession()
 	if err != nil {
@@ -47,10 +46,7 @@ func wait(args []string, out, errOut io.Writer) int {
 	}
 	now := time.Now()
 	over, why, err := fact(on, now)
-	switch {
-	case err == nil && over && kind == "run" && owesHandBack(name, on):
-		err = errLeft
-	case err == nil && !over:
+	if err == nil && !over {
 		why, err = workLive(name)
 	}
 	var own any
@@ -65,6 +61,9 @@ func wait(args []string, out, errOut io.Writer) int {
 		return 1
 	case why != "":
 		fmt.Fprintf(errOut, "ak wait: %s; nothing is left to wait on\n", why)
+		if over && kind == "run" {
+			waitEnding(name, on, errOut)
+		}
 		return 1
 	}
 	record := run.NewObject()
@@ -207,12 +206,6 @@ func workLive(name string) (string, error) {
 		}
 	}
 	return "your plan is done and its changes are live", nil
-}
-
-// owesHandBack is whether the run is the seat's own and its ending waits to be handed back.
-func owesHandBack(name, on string) bool {
-	record, _ := run.Read(filepath.Join(run.Runs(), on))
-	return record != nil && run.Seat(record) == name && record.Truthy("handback_pending")
 }
 
 // ownRun is the id of the seat's own going run reviewing or landing that pull request, nil for

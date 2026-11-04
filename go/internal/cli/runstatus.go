@@ -28,14 +28,14 @@ type listed struct {
 	dir        string
 	record     *run.Object
 	unreadable bool
+	ending     string
 }
 
 func (l listed) name() string { return filepath.Base(l.dir) }
 
 // runStatus is `ak run status`: the host lines, then the runs of the last seven days, or
 // every run and the scoreboard with --history, or the one run an id names, whose ending the
-// look marks looked at.  Go writes nothing else in the home yet, so what Python ak would write
-// or act on there, it refuses before it writes or prints anything (`refused`).
+// look marks looked at, and whose waiting ending its own seat reads as handed back.
 func runStatus(args []string, out, errOut io.Writer) int {
 	showHistory, machine := contains(args, "--history"), contains(args, "--json")
 	plain, why, pending := contains(args, "--plain"), contains(args, "--why"), contains(args, "--pending")
@@ -45,10 +45,11 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "run status")
 	}
 	now := time.Now()
-	seat, err := "", error(nil)
-	if wanted == "" {
+	caller, _, err := config.CurrentSession()
+	seat := caller
+	if wanted != "" {
 		// any run still shows by its id
-		seat, _, err = config.CurrentSession()
+		seat = ""
 	}
 	if err != nil {
 		fmt.Fprintf(errOut, "ak run: %s\n", err)
@@ -89,6 +90,11 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	screen := terminal.For(out)
+	viewer := out
+	var viewed strings.Builder
+	if wanted != "" && !machine {
+		out = &viewed
+	}
 	if !machine {
 		fmt.Fprintln(out, lines)
 		if seat != "" {
@@ -119,6 +125,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(out, run.Encode(rows))
 		return 0
 	}
+	endingLines(found, caller, wanted)
 	var others []*run.Object
 	for _, entry := range every {
 		if !run.SmokeRun(entry) {
@@ -148,6 +155,10 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	if wanted != "" {
+		if err := printedLook(viewer, viewed.String(), found); err != nil {
+			fmt.Fprintf(errOut, "ak run: %s\n", err)
+			return 1
+		}
 		return 0
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
@@ -193,9 +204,9 @@ func records(seat, wanted string) ([]*run.Object, []listed) {
 			record = run.NewObject()
 			record.Set("run_id", filepath.Base(dir))
 			record.Set("state", "unreadable")
-			kept = append(kept, listed{dir, record, true})
+			kept = append(kept, listed{dir: dir, record: record, unreadable: true})
 		case wanted != "" || !run.SmokeRun(record):
-			kept = append(kept, listed{dir, record, false})
+			kept = append(kept, listed{dir: dir, record: record})
 		}
 	}
 	return every, kept
@@ -424,7 +435,7 @@ func statusRows(screen terminal.Screen, found []listed, index run.Index, models 
 		if age == "" {
 			age = terminal.FormatAge(run.AgeSeconds(record, now))
 		}
-		rows = append(rows, []string{entry.name(), title, run.Word(record, index, now), worker, roundCell(record), age})
+		rows = append(rows, []string{entry.name(), title, entry.stateWord(index, now), worker, roundCell(record), age})
 	}
 	natural := make([]int, 4)
 	for n, column := range []int{2, 3, 4, 5} {
@@ -500,6 +511,8 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 	var lines []string
 	dim := func(text string) string { return "  " + screen.Styled(text, "dim") }
 	switch note := run.ParkedLine(record, entry.name(), now); {
+	case entry.ending != "":
+		lines = append(lines, "  "+entry.ending)
 	case run.GateTurnNote(record) != "":
 		lines = append(lines, "  "+run.GateTurnNote(record))
 	case run.BlockedNote(record, "!") != "":
@@ -603,6 +616,9 @@ func details(screen terminal.Screen, entry listed, index run.Index, now time.Tim
 	if onward := run.ContinueLine(record, dir, now); onward != "" {
 		lines = append(lines, "  "+onward)
 	}
+	if entry.ending != "" {
+		lines = append(lines, "  "+entry.ending)
+	}
 	return lines
 }
 
@@ -651,6 +667,9 @@ func printPlain(out io.Writer, screen terminal.Screen, entry listed, why bool, m
 		line += "  " + screen.Styled(waiting, "dim")
 	}
 	lines := []string{line}
+	if entry.ending != "" {
+		lines = append(lines, "  "+entry.ending)
+	}
 	if note := run.GateTurnNote(record); note != "" {
 		lines = append(lines, "  "+note)
 	}
