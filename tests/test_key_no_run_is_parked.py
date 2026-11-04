@@ -64,7 +64,7 @@ class NoRunIsParked(unittest.TestCase):
             # Record the commit and contents from the reviewer's own checkout.
             fakes["codex"].behave("pass", {
                 "sh": f"git rev-parse HEAD > '{marks}/reviewed'; "
-                      f"git show HEAD:api.py > '{marks}/reviewed-api'",
+                      f"cat api.py > '{marks}/reviewed-api'",
                 "hand_in": [["done"]], "final": "## Summary\nBoth changes pass."})
 
             loops = []

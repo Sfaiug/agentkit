@@ -30,6 +30,7 @@ class Step:
         self.state["step"] = name
         record.save_state(self.run_dir, self.state)
 
+
 class Reservations(LiveRuns):
     def test_the_commit_step_keeps_a_colliding_build_going(self):
         self.collide()
