@@ -117,15 +117,19 @@ class DoneWaitsForTheRules(unittest.TestCase):
         return result
 
     def test_integrated_target_changes_are_not_the_workers_change(self):
-        for integration in ("rebase", "merge"):
-            with self.subTest(integration=integration), Home() as home:
+        for integration, target in (("rebase", "main"), ("merge", "main"), ("rebase", "release")):
+            with self.subTest(integration=integration, target=target), Home() as home:
                 rig = Rig(home, files={"docs/change.txt": "before\n"})
                 base = rig.head()
                 rig.branch("fix-api", {"docs/change.txt": "after\n"}, push=False)
+                rig.git("checkout", "-q", "-B", target)
                 rig.commit({"notes.md": "upstream prose\n"})
                 rig.git("checkout", "-q", "fix-api")
-                rig.git(integration, "-q", "origin/main")
-                for extra in ({}, {"upstream": "origin/main"}):
+                rig.git(integration, "-q", f"origin/{target}")
+                targets = [{"upstream": f"origin/{target}"}]
+                if target == "main":
+                    targets.append({})
+                for extra in targets:
                     result = self.workspace_done(home, rig, base, ["docs/"], **extra)
                     self.assertEqual(result.code, 0, result.out + result.err)
 
@@ -134,8 +138,11 @@ class DoneWaitsForTheRules(unittest.TestCase):
             rig = Rig(home, files={".gitattributes": "AGENTS.md filter=old\n",
                                   "AGENTS.md": "Acme.\n"})
             base = rig.head()
-            (rig.path / ".gitattributes").unlink()
             (rig.path / "AGENTS.md").write_text("Acme rules.\n")
+            refused = self.workspace_done(home, rig, base)
+            self.assertEqual(refused.code, 2, refused.out + refused.err)
+            self.assertIn("AGENTS.md must not go through a Git filter", refused.err)
+            (rig.path / ".gitattributes").unlink()
             result = self.workspace_done(home, rig, base)
             self.assertEqual(result.code, 0, result.out + result.err)
 
