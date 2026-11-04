@@ -165,10 +165,10 @@ class ModelsAnswer(unittest.TestCase):
         for height in (18, 24):
             term.resize(100, height)
             term.keys(*["Up"] * 20)
-            chart = term.wait("Acme Max 5 max")
+            chart = term.wait(lambda s: "Acme Max 5 max" in s and (height == 18 or any(
+                line.startswith("›") and "Acme Max 5" in line for line in s.splitlines())))
             self.assertIn("\n  orch\n", chart)
             self.assertIn("  quality ↑", chart)
-        self.assertTrue(any(line.startswith("›") and "Acme Max 5" in line for line in chart.splitlines()))
         term.keys("Down", "Down")
         term.keys("Left", "Right", "Enter")
         term.wait("why Bolt 3 medium orchestrates")
