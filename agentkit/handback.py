@@ -1709,7 +1709,8 @@ def riding(session):
                 if not said or not same_attempt(state, said):
                     continue
                 if waits(said) and not merge_waits_for_live(said):
-                    live = carries_live(said)
+                    # Routine context keeps each notice's time; only a wake joins them.
+                    live = carries_live(said) and ends_wait(said)
                     line = handback_line(said, run_dir, live=live)
                     if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                                      handback_pending=None, handback_note=None,
