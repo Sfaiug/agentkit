@@ -92,26 +92,35 @@ func (c *Configuration) Effort(name string, role int) string {
 	return efforts["effort"]
 }
 
-// Mark keeps legacy reviewers independent from the first flip, and the last reviewer marked.
-func (c *Configuration) Mark(name string, role int) (*run.Object, string) {
-	changed := c.Selected.Copy()
-	if !changed.Has("reviewers") {
-		changed.Set("reviewers", slices.Clone(changed.List("workers")))
+// Mark captures the intended state from the displayed selection and merges just that
+// model's mark into a current selection, preserving the other marks.
+func (c *Configuration) Mark(name string, role int) func(*run.Object) (*run.Object, string) {
+	key := []string{"orchestrator", "workers", "reviewers"}[role]
+	group := c.Selected.List(key)
+	if role == 2 && !c.Selected.Has(key) {
+		group = c.Selected.List("workers")
 	}
-	if role == 0 {
-		changed.Set("orchestrator", name)
+	marked := !slices.Contains(group, any(name))
+	return func(current *run.Object) (*run.Object, string) {
+		changed := current.Copy()
+		if !changed.Has("reviewers") {
+			changed.Set("reviewers", slices.Clone(changed.List("workers")))
+		}
+		if role == 0 {
+			changed.Set("orchestrator", name)
+			return changed, ""
+		}
+		group := slices.Clone(changed.List(key))
+		at := slices.Index(group, any(name))
+		if marked && at < 0 {
+			group = append(group, name)
+		} else if !marked && at >= 0 {
+			if role == 2 && len(group) == 1 {
+				return nil, "at least one model reviews"
+			}
+			group = slices.Delete(group, at, at+1)
+		}
+		changed.Set(key, group)
 		return changed, ""
 	}
-	key := []string{"orchestrator", "workers", "reviewers"}[role]
-	group := slices.Clone(changed.List(key))
-	if at := slices.Index(group, any(name)); at >= 0 {
-		if role == 2 && len(group) == 1 {
-			return nil, "at least one model reviews"
-		}
-		group = slices.Delete(group, at, at+1)
-	} else {
-		group = append(group, name)
-	}
-	changed.Set(key, group)
-	return changed, ""
 }

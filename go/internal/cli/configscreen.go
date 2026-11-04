@@ -107,11 +107,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		if view.Column >= 3 || view.Column == 0 && session != "" {
 			return false // efforts and moving an orchestrator follow in config_screen_edits
 		}
-		mark := func(selected *run.Object) (*run.Object, string) {
-			current := *c
-			current.Selected = selected
-			return current.Mark(c.Names[view.Row], view.Column)
-		}
+		mark := c.Mark(c.Names[view.Row], view.Column)
 		var changed *run.Object
 		if session != "" {
 			changed, err = seat.SaveMarks(session, mark)

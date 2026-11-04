@@ -28,13 +28,14 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-for feature in ("roles", "discord", "cloud"):
+for feature in ("roles", "mark_on", "mark_off", "discord", "cloud"):
     with Home() as home:
         extra = "[google_cloud]\nactive = true\n" if feature == "cloud" else ""
         akconfig.write(home, {"fable": "claude", "astra": {"harness": "codex", "effort": "high"}},
                        workers=["astra"], extra=extra)
         fakeadapter.install(home, claude="pass", codex="pass")
-        Seat(home, "acme", model="fable", record={"workers": ["astra"], "reviewers": ["astra"]})
+        workers = ["astra", "fable"] if feature == "mark_off" else ["astra"]
+        Seat(home, "acme", model="fable", record={"workers": workers, "reviewers": ["astra"]})
         if feature == "discord":
             home.write(".agentkit/secrets/discord_webhook", "https://example.com/acme-webhook")
         term = Terminal(home, "attach", "--overlay", size=(100, 30),
@@ -47,20 +48,25 @@ for feature in ("roles", "discord", "cloud"):
             assert "https://example.com/acme-webhook" not in shown, shown
         if feature == "cloud":
             assert "Google Cloud on · spend unknown" in shown, shown
+        term.keys("Right", "Right")
+        term.wait("[■]" if feature == "mark_off" else "[□]", bound=10)
         record = home.path / ".agentkit/state/session-acme.json"
-        if feature == "roles":
+        concurrent = feature in ("roles", "mark_on", "mark_off")
+        if concurrent:
             with record.with_name(".session-acme.lock").open("a") as held:
                 fcntl.flock(held, fcntl.LOCK_EX)
                 changed = json.loads(record.read_text())
                 changed["reviewers"] = ["fable"]
+                if feature != "roles":
+                    changed["workers"] = ["astra", "fable"] if feature == "mark_on" else ["astra"]
                 swap = record.with_suffix(".probe")
                 swap.write_text(json.dumps(changed))
                 swap.replace(record)
-        term.keys("Right", "Right", "Space")
-        term.wait("[■]", bound=10)
+        term.keys("Space")
+        term.wait("[□]" if feature == "mark_off" else "[■]", bound=10)
         saved = json.loads(record.read_text())
-        assert saved["workers"] == ["astra", "fable"], (feature, saved)
-        assert saved["reviewers"] == (["fable"] if feature == "roles" else ["astra"]), (feature, saved)
+        assert saved["workers"] == (["astra"] if feature == "mark_off" else ["astra", "fable"]), (feature, saved)
+        assert saved["reviewers"] == (["fable"] if concurrent else ["astra"]), (feature, saved)
         term.keys("Escape")
         term.wait("esc leave", bound=10)
         term.keys("Escape")
