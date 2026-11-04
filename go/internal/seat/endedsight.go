@@ -1,6 +1,10 @@
 package seat
 
-import "agentkit/internal/tmux"
+import (
+	"time"
+
+	"agentkit/internal/tmux"
+)
 
 // The pane may die after its first listing. Read death again after the capture so
 // its dead-pane banner never becomes a screen an interrupted turn is inferred from.
@@ -19,4 +23,24 @@ func captureHarness(target string) (string, bool) {
 func (seat Seat) keepExited(state string, found sight) (sight, error) {
 	found.stall, found.login = nil, nil
 	return found, writeSeat(state, seat.Name, []field{{"stall", nil}, {"login", nil}})
+}
+
+// A death discovered after listing is still a gone seat the health row carries.
+// Publish it without consulting a live-screen predicate; revival reads it later.
+func (home Home) healthDied(state, name string, now time.Time) (bool, error) {
+	for at := range home.Seats {
+		seat := &home.Seats[at]
+		if seat.Name != name {
+			continue
+		}
+		seat.live, seat.held = false, true
+		if _, err := seat.keepExited(state, sight{}); err != nil {
+			return false, err
+		}
+		if err := seat.goneAt(state, at+1, now); err != nil {
+			return false, err
+		}
+		return home.healthGone(state, name, now)
+	}
+	return false, nil
 }

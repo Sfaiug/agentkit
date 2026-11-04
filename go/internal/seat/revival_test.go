@@ -344,3 +344,40 @@ esac
 		t.Fatalf("a dead pane replaced the last prompt: %s", run.Line(file))
 	}
 }
+
+func TestADeathAfterListingLeavesLiveRowsForTheRevivalRow(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	runRecord(t, home, "r-build", map[string]any{"state": "running"})
+	write(t, seatFile("acme"), `{"state":"at_prompt","rule":"prompt.composer"}`)
+	bin := filepath.Join(home, "fake")
+	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
+case "$*" in *'-L seat-test '*) ;; *) exit 1 ;; esac
+case "$*" in
+  *list-sessions*) printf 'acme\t1\n' ;;
+  *list-panes*-a*) printf 'acme\t0\n' ;;
+  *list-panes*) echo '%1 0' ;;
+  *capture-pane*) echo 'Pane is dead (status 0)' ;;
+  *display-message*'#{pane_dead}'*) echo 1 ;;
+  *display-message*'#{session_attached}'*) printf '0\t%%1\t%s/work/acme\n' "$HOME" ;;
+esac
+`)
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if live, known := Lives(time.Now()); !known || len(live) != 0 {
+		t.Fatalf("a known death prevented the live rows: known=%v, lives=%v", known, live)
+	}
+	carried, err := Health("acme", func(Live) bool {
+		t.Fatal("a dead harness reached the live-screen health predicate")
+		return false
+	})
+	if !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	file, _ := run.ReadJSON(seatFile("acme"))
+	if file.Str("word") != "working" || file.Str("rule") != "prompt.composer" {
+		t.Fatalf("a dead seat lost its run or its last screen: %s", run.Line(file))
+	}
+}

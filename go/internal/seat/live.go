@@ -63,6 +63,9 @@ func Lives(now time.Time) ([]Live, bool) {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
+		if exited {
+			continue
+		}
 		found, _ := observed(state, each.Name, each.reader, pane, seconds(now))
 		live, ok := each.lived(state, pane, exited, found, now)
 		if !ok {
@@ -156,6 +159,10 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 			return err
 		}
 		pane, exited := harnessScreen(name)
+		if exited {
+			carried, err = home.healthDied(state, name, now)
+			return err
+		}
 		found, previous := observed(state, name, seat.reader, pane, seconds(now))
 		live, read := seat.lived(state, pane, exited, found, now)
 		if carried = read && ok(live); !carried {
