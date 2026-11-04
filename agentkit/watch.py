@@ -7322,6 +7322,7 @@ AFTER_MERGE_WINDOW = 3 * 3600  # seconds a merge's live health is followed
 HEALTH_TIMEOUT = 30  # a project's live probe must leave time for the rest of the tick
 LIVE_INTERVAL = 15  # seconds after a probe ends, so slow probes never overlap
 REVERT_GRACE = 5 * 60  # a release coming up gets at least five minutes after deployment
+REVERT_FAILURES = 3
 REVERT_SCHEMA = "Live health fails; no revert: a schema change cannot be undone by a code revert."
 # The spaces str.strip strips beyond ASCII, in UTF-8: those of three bytes, and all of them.
 WIDE_SPACE_3 = rb"\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80"
@@ -7440,7 +7441,7 @@ def follow_live(run_dir):
             sha = after_merge_sha(st.get("pr"), st, print)
             if sha:
                 health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
-                                            now, False, print, {})
+                                            now, False, print, {"clock": (now, now)})
                 if health and health[0] == "passed":
                     return 0
             time.sleep(LIVE_INTERVAL)
@@ -7476,6 +7477,27 @@ def merge_record(repo, sha, pr_url=None):
     return {"health": {"command": command} if command else {}, "deployed": deployed}
 
 
+def after_merge_window(st, now):
+    """A late deployment still gets its own observation window."""
+    return now - max(st["finished_at"], st.get("deployed_at") or 0) < AFTER_MERGE_WINDOW
+
+
+def after_merge_deployed(run_dir, st, key, sha, now, probes):
+    """Stamp completion: slow probes must not spend the release's startup grace."""
+    probe = (key, sha, "deployed")
+    if probe not in probes:
+        started, epoch = probes.setdefault("clock", (time.time(), now))
+        probes[probe] = health_command(st["repo"], sha, st["deployed"],
+                                       checked=(run_dir, None, "deployed", sha))
+        probes[(*probe, "at")] = epoch + (time.time() - started)
+    with run_record.record(run_dir) as current:
+        current["deployed_passed"] = probes[probe][0]
+        if current["deployed_passed"]:
+            current.setdefault("deployed_at", probes.get((*probe, "at"), now))
+        st.update({key: current[key] for key in ("deployed_passed", "deployed_at") if key in current})
+    return probes[probe][0]
+
+
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes, records=None):
     """Keep the merge commit `sha` on the run and its history row, for the next tick and the
     scoreboard; then follow the merge's declaration in its original checkout. A project with
@@ -7488,7 +7510,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
             st["merge_sha"] = sha
         # every tick: history swallows a write that failed, and the next tick repeats it
         history.update_run(st.get("run_id") or run_dir.name, merge_sha=sha, log=log)
-    inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
+    inside = after_merge_window(st, now)
     if ((not st.get("live_at") or st.get("deployed"))
             and ("health" not in st or "deployed" not in st)
             and inside and st.get("repo")):
@@ -7502,7 +7524,7 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
         st.update(found)
     health = st.get("health") or {}
     command = health.get("command")
-    if not st.get("live_at") or st.get("deployed") and command:
+    if not st.get("live_at") or st.get("deployed") and command and (inside or "output" in health):
         if not command:
             return None
         if inside:
@@ -7515,16 +7537,11 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                                                checked=(run_dir, None, "health", sha))
             passed, output = probes[probe]
             deployed = st.get("deployed")
-            deployed_probe = (key, sha, "deployed")
-            if deployed and deployed_probe not in probes:
-                probes[deployed_probe] = health_command(
-                    st["repo"], sha, deployed, checked=(run_dir, None, "deployed", sha))
+            if deployed:
+                after_merge_deployed(run_dir, st, key, sha, now, probes)
             with run_record.record(run_dir) as current:
                 if deployed:
-                    current["deployed_passed"] = probes[deployed_probe][0]
-                    if current["deployed_passed"]:
-                        current.setdefault("deployed_at", now)
-                    current["health_failures"] = (current.get("health_failures", 0) + 1
+                    current["health_failures"] = (min(REVERT_FAILURES, current.get("health_failures", 0) + 1)
                                                   if not passed and current["deployed_passed"] else 0)
                 if passed or current.get("live_at") and not deployed:
                     current.setdefault("live_at", now)
@@ -7755,13 +7772,22 @@ def after_merge_revert(statuses, probes, key, now, dry_run, log):
     """Only the newest merge whose deployment passes now may undo a broken live release."""
     if dry_run:
         return None
-    release = next((entry for entry in reversed(statuses)
-                    if probes.get((key, entry[4], "deployed"), (False,))[0]), None)
-    if release is None:
+    for release in reversed(statuses):
+        _, _, directory, st, sha, pr_url, _, _, _ = release
+        if sha and st.get("deployed") and after_merge_deployed(directory, st, key, sha, now, probes):
+            break
+    else:
         return None
-    _, _, directory, st, sha, pr_url, _, _, _ = release
-    if st.get("health_failures", 0) < 3 or now - st["deployed_at"] < REVERT_GRACE:
+    if st.get("health_failures", 0) < REVERT_FAILURES or now - st["deployed_at"] < REVERT_GRACE:
         return None
+    if gitcall.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0]:
+        code, why = gitcall.fetch(st["repo"], "--no-tags", "origin", sha)
+        if code:
+            owner, repo, host, _ = after_merge_repo(pr_url)
+            code, why = gitcall.fetch(st["repo"], "--no-tags", f"https://{host}/{owner}/{repo}.git", sha)
+        if code:
+            log(f"WARN cannot fetch run {directory.name}'s release for a revert: {why}")
+            return None
     code, paths = gitcall.git_out(st["repo"], "diff", "--name-only", "--no-renames", "-z",
                                   f"{sha}^", sha)
     if code:
@@ -7779,7 +7805,9 @@ def after_merge_revert(statuses, probes, key, now, dry_run, log):
                                            "text": f"Revert the broken live release from run {directory.name} "
                                                    f"with `{command}`. Make no other changes; "
                                                    "review and land through the normal line.",
-                                           "check": f"git diff --binary {sha}^ {sha} | git apply --check"})
+                                           "check": f"tree=$(git merge-tree --write-tree --merge-base={sha} "
+                                                    f"HEAD^ {sha}^) && "
+                                                    'test "$(git rev-parse HEAD^{tree})" = "$tree"'})
     if name:
         return release, f"Live health fails; revert run {name}."
     return None
@@ -7795,7 +7823,8 @@ def after_merge_checks(state, dry_run, log, now=None):
     instead of typed twice; a break already told stays told when its commit slides out of
     the window, until a later green commit -- or quiet with no red left -- ends it.
     """
-    now = time.time() if now is None else now
+    started = time.time()
+    now = started if now is None else now
     episodes = state.setdefault("after_merge", {})
     if not isinstance(episodes, dict):
         episodes = state["after_merge"] = {}
@@ -7813,7 +7842,7 @@ def after_merge_checks(state, dry_run, log, now=None):
 
     directories = run_record.run_dirs()
     grouped = {}
-    probes = {}
+    probes = {"clock": (started, now)}  # retain an injected tick time while its probes advance
     # Every run's, one read for every merged run's question about its seat (`handback.rides`):
     # one read each was 5167 files read 200 times a tick (30 Oct 2026).
     records = []
@@ -7828,8 +7857,8 @@ def after_merge_checks(state, dry_run, log, now=None):
             continue
         # Past the window, retain failed probes and passes that bound their episodes.
         # A declaration no probe ever ran is let go, the merge commit unasked.
-        if (now - finished > AFTER_MERGE_WINDOW and "output" not in (st.get("health") or {})
-                and not st.get("live_at")):
+        if (not after_merge_window(st, now) and "output" not in (st.get("health") or {})
+                and not st.get("live_at") and not st.get("deployed")):
             continue
         pr_url = st.get("pr")
         if not isinstance(pr_url, str) or not pr_url:
@@ -7853,8 +7882,8 @@ def after_merge_checks(state, dry_run, log, now=None):
                         current.pop("health", None)
 
         for finished, name, run_dir, st, pr_url in found:
-            if (now - finished > AFTER_MERGE_WINDOW and st.get("live_at")
-                    and st.get("live_notified")):
+            if (not after_merge_window(st, now) and st.get("live_at")
+                    and st.get("live_notified") and "output" not in (st.get("health") or {})):
                 # A recorded pass remains a cutoff without rediscovering its commit or health.
                 statuses.append((finished, name, run_dir, st, st.get("merge_sha"), pr_url,
                                  "passed", None, None))
@@ -7871,11 +7900,11 @@ def after_merge_checks(state, dry_run, log, now=None):
                 health = ("unknown", None, None) if st.get("health") or st.get("live_at") else None
                 if health:
                     log(f"WARN run {name}'s health could not be followed: {exc}")
-            if now - finished >= AFTER_MERGE_WINDOW and health and health[0] == "failed":
+            if not after_merge_window(st, now) and health and health[0] == "failed":
                 expired_health.append(run_dir)
             verdict, check, url = health or ("ignored", None, None)
             statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
-        reverting = after_merge_revert(statuses, probes, key, now, dry_run, log)
+        reverting = after_merge_revert(statuses, probes, key, now + (time.time() - started), dry_run, log)
         episode = episodes.get(key)
         if isinstance(episode, str):
             episode = episodes[key] = {"notified": episode} if episode else {}
