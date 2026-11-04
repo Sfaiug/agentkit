@@ -1106,6 +1106,27 @@ def ended_runs(since, until):
         return []
 
 
+def conflict_rows(since, until):
+    """Real conflicts by date, plus earlier conflicts on changes merged in the range."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    'SELECT c.at, c.path, c.added_only, repo, '
+                    'COALESCE(NULLIF("change", \'\'), run_id) AS "change" '
+                    'FROM conflicts c JOIN runs USING (run_id) WHERE c.at <= ? AND '
+                    '(c.at >= ? OR (repo, COALESCE(NULLIF("change", \'\'), run_id)) IN ('
+                    'SELECT repo, COALESCE(NULLIF("change", \'\'), run_id) FROM runs '
+                    'WHERE finished_at >= ? AND finished_at <= ? AND changed_lines IS NOT NULL)) '
+                    f'AND {REAL_WORK}', (until, since, since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def findings(since, until):
     """Weighed rows of real runs by their own date, with whether an earlier blocking round
     raised the same path and proof. Earlier rounds may predate the inclusive range."""
