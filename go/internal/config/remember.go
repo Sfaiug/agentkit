@@ -28,7 +28,7 @@ var saveOrder = map[string][]string{
 // it, the home file's own top-level keys over it.  `keep` is what Python's save does once the
 // text is built and before it is written: every seat's record holding the efforts it runs at
 // (config.keep_efforts, the records' own package's).  An error leaves the file as it was.
-func RememberDefaults(orchestrator string, workers, reviewers []string, keep func() error) error {
+func RememberDefaults(orchestrator string, workers, reviewers []string, keep func() error, steps ...EffortStep) error {
 	path := filepath.Join(Home(), "config.toml")
 	data, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -44,7 +44,7 @@ func RememberDefaults(orchestrator string, workers, reviewers []string, keep fun
 	if reviewers != nil {
 		defaults.put("reviewers", listed(reviewers))
 	}
-	if reflect.DeepEqual(meant(file.get("defaults")), meant(defaults)) {
+	if len(steps) == 0 && reflect.DeepEqual(meant(file.get("defaults")), meant(defaults)) {
 		return nil
 	}
 	root, err := load()
@@ -74,18 +74,22 @@ func RememberDefaults(orchestrator string, workers, reviewers []string, keep fun
 		}
 	}
 	root.put("defaults", defaults)
-	text, err := dump(root)
-	if err != nil {
+	if err := recommendedEfforts(root, steps); err != nil {
 		return err
 	}
-	if err := keep(); err != nil {
+	text, err := dump(root)
+	if err != nil {
 		return err
 	}
 	tmp := filepath.Join(Home(), "config.tmp")
 	if err := os.WriteFile(tmp, []byte(text), 0o600); err != nil {
 		return err
 	}
+	defer os.Remove(tmp)
 	if err := os.Chmod(tmp, 0o600); err != nil {
+		return err
+	}
+	if err := keep(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

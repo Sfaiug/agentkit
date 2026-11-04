@@ -110,7 +110,7 @@ func packed(parts []string, room int) []string {
 // alone cut; the notes that do not fit beside the numbers then go under the row, broken only
 // between two. Then the legend, how many of the total models are compared and when the
 // boards were read, broken only at ` · `.
-func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64) []string {
+func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64) []matrixRow {
 	room := screen.LayoutWidth()
 	var rows []Line
 	for _, role := range said {
@@ -159,10 +159,12 @@ func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		under = 2 + mark + 2 + 2
 	}
 	first := slices.IndexFunc(said, func(role Role) bool { return len(role.Lines) > 0 })
-	var lines []string
-	put := func(line string) { lines = append(lines, strings.TrimRight(line, " ")) }
+	var lines []matrixRow
+	at, next := -1, 0
+	put := func(line string) { lines = append(lines, matrixRow{line: strings.TrimRight(line, " "), row: at}) }
 	fill := func(text string, width int) string { return strings.Repeat(" ", max(0, width-terminal.Cells(text))) }
 	for number, role := range said {
+		at = -1
 		if number > 0 {
 			put("")
 		}
@@ -185,6 +187,7 @@ func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 				}
 				continue
 			}
+			at, next = next, next+1
 			text := effort(line)
 			nameRoom := label
 			if !wide {
@@ -218,6 +221,7 @@ func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 			}
 		}
 	}
+	at = -2 // the legend stays below the scrollable rows
 	put("")
 	for _, entry := range legend {
 		for number, part := range terminal.Wrap(entry[1], room-named) {

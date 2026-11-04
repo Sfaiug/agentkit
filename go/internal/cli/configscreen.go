@@ -94,8 +94,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 					key.Name = "space"
 				}
 			}
+		case key.Name == "char" && key.Char == "r":
+			if !menuModels(session, view.Scope, c, keyboard, painter) {
+				return false
+			}
 		case key.Name == "enter" && view.Row >= len(c.Names),
-			key.Name == "char" && (key.Char == "r" || key.Char == "a" && view.Fresh):
+			key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
 		}
 		if key.Name != "space" || view.Row >= len(c.Names) {
