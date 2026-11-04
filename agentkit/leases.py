@@ -4,14 +4,14 @@ Their stopped records still wait for the older run to land, end or stand still;
 then the tick starts their tasks again. New builds meet main before review.
 """
 
-from pathlib import Path
 import shutil
 
 from . import config, gitcall, transitions, turns
 from . import record as run_record
 
 
-# Old loops import these calls lazily; updating ak must not break an ongoing build.
+# Old loops import scan_safely at commit and scan_all on a tick, so keep these entry points
+# until those loops end: updating ak must not break an ongoing build.
 def scan_safely(repo, log=lambda _: None, now=None):
     pass
 
