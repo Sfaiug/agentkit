@@ -27,11 +27,10 @@ from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
 SEAT = {"AGENTKIT_SESSION": "acme"}
-# The words a fix run's task carries (a failed night's, a follow-up's): only such a run ends
-# `not needed`, where its first turn finds the command passing already.
-FIX = ("Your checkout starts on the target branch's tip, fetched when this run started: run "
-       "the command below there first. If it passes there now, run `ak hand-in not-needed "
-       '"<why>"`, with no edits or PR. Otherwise fix the root cause so it passes, and show it '
+# A fix's task words identify a given failing command, as for a follow-up or failed night.
+FIX = ("Your checkout starts on the target branch's tip, fetched when this run started. "
+       "ak checked the command below there before your first turn. "
+       "Fix the root cause so it passes, and show it "
        "failing before the fix and passing afterwards in your summary. If only the owner can "
        'decide, run `ak hand-in blocked "<question>"`.')
 

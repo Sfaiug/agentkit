@@ -33,7 +33,7 @@ from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
     push, require_review_pass, rights, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
-from .roundloop import (Loop, note, pin_checkout, pinned_head,
+from .roundloop import (Loop, check_fix_on_tip, note, pin_checkout, pinned_head,
     restore_review_checkout, rules_check, verify_work)
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
@@ -116,6 +116,7 @@ def from_refusal(task_path, from_branch, repo, no_worktree):
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
+    fetched = False
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
     preset_exec = receipt.pop("launch_executor", None)
     preset_rev = receipt.pop("launch_reviewer", None)
@@ -207,6 +208,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             ref = f"refs/remotes/origin/{name}"
             if code == 0 and git_out(repo, "show-ref", "--verify", "--quiet", ref)[0] != 0:
                 code, out = 1, f"origin has no branch {name}"
+            fetched = code == 0
             if code != 0:
                 # git's reason is its first line; the rest is advice
                 why = out.partition(chr(10))[0]
@@ -448,6 +450,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     lp.body, lp.cmds, lp.context = body, cmds, context
     lp.every, lp.once = every, once
     try:
+        if prior is None and fetched:
+            check_fix_on_tip(lp)
         rounds(lp)
         if (not state.get("no_merge")
                 and (review_pass(state, cfg) or (state.get("waiting_on") or {}).get("line"))):

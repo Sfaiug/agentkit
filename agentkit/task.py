@@ -13,6 +13,13 @@ TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "re
 # What a task tells its run to make a given failing command pass: a repair, a follow-up, a night.
 FIX_THE_COMMAND = (
     "Your checkout starts on the target branch's tip, fetched when this run "
+    "started. ak checked the command below there before your first turn. "
+    "Fix the root cause so it passes, and show it failing before the "
+    "fix and passing afterwards in your summary. If only the owner can decide, "
+    'run `ak hand-in blocked "<question>"`.')
+# Queued and interrupted tasks keep their original instructions.
+OLD_FIX_THE_COMMAND = (
+    "Your checkout starts on the target branch's tip, fetched when this run "
     "started: run the command below there first. If it "
     'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
     "Otherwise fix the root cause so it passes, and show it failing before the "
