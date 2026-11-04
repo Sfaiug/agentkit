@@ -116,6 +116,18 @@ class EndingsRidePrompt(Sandbox):
         self.assertEqual(self.hook(), "")
         self.assertNotIn("live_notified", record.read_state(directory))
 
+    def test_live_landing_after_a_look_printed_still_rides_the_next_prompt(self):
+        config.plan_path(SEAT).write_text("- [ ] the parser is live\n")
+        directory = self.live("run-late-live", live_at=None, handed_back=None,
+                              reported=False, handback_pending=True)
+        snapshot = record.read_state(directory)
+        self.assertNotIn(f"run {directory.name} is live:", handback.look_line(directory, snapshot))
+        with record.record(directory) as current:
+            current["live_at"] = 9996
+        handback.printed_at_look(directory, snapshot)
+        self.assertNotIn("live_notified", record.read_state(directory))
+        self.assertIn(f"run {directory.name} is live:", self.hook())
+
     def test_a_prompt_during_live_typing_leaves_the_delivery_to_the_tick(self):
         config.plan_path(SEAT).write_text("- [ ] the parser is live\n")
         directory = self.live("run-live")

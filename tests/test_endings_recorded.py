@@ -110,6 +110,33 @@ class RoutineEndings(HandBack):
 
 
 class InTheComposer(RunNotice):
+    def test_a_maintainers_merge_rides_or_is_recorded_while_other_runs_serve_the_plan(self):
+        name = self.seat["name"]
+        config.plan_path(name).write_text(
+            "- [ ] The api answers · check: `false` · acme · written 2026-10-23 09:00\n")
+        self.ended("run-held", owner=name, state="waiting", waiting_on={"line": "acme/app"},
+                   plan_line="The api answers · written 2026-10-23 09:00")
+        for model in ("opus", "grok"):
+            with self.subTest(model=model):
+                config.update_session(name, orchestrator=model)
+                directory, state = self.result(f"run-{model}", pr=PR, merged=False,
+                                               handed_back=9990, reported=True)
+                with patch.object(transitions, "run_for_pr", return_value=(directory, state)):
+                    self.assertTrue(watch.say(False, self.logs.append,
+                                              "PR #7 Fix api: merged by the maintainer", PR,
+                                              name, merged=True))
+                self.assertEqual(self.sent, [])
+                if model == "opus":
+                    self.assertIn("PR #7 Fix api: merged by the maintainer", handback.riding(name))
+                    with patch.object(transitions, "run_for_pr", return_value=(directory, state)):
+                        self.assertTrue(watch.say(False, self.logs.append,
+                                                  "PR #7 Fix api: merged by the maintainer", PR,
+                                                  name, merged=True))
+                    self.assertEqual(handback.riding(name), "")
+                else:
+                    self.assertEqual(record.read_state(directory)["handback_note"],
+                                     handback.ROUTINE_NOTE)
+
     def test_a_maintainers_merge_is_recorded_and_never_typed(self):
         for prompt in (True, False):
             with self.subTest(at_prompt=prompt):

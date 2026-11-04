@@ -7272,17 +7272,35 @@ def say(dry_run, log, text, url, session, merged=False):
         # every later line, back as the owner's draft: it is sent first
         return sent_pending(run_dir, run_state, log)
 
-    if merged and (not run_dir or handback.routine_ending(run_state)):
-        return finished()
+    def notice():
+        line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
+                "decision on a PR of ours, for you to act on or not.")
+        return (handback.seat_notice(line, run_state, run_dir,
+                                    f"run {run_dir.name}: the maintainer decided on its PR.")
+                if run_dir else line)
+
+    if merged and (not run_dir or handback.routine_ending(run_state)
+                   or handback.ending_rides(run_state)):
+        if not finished():
+            return False
+        if run_dir:
+            if not run_state.get("merge_handback"):
+                if not handback.finish_typed(transitions.launched_session(run_state),
+                                             run_state.get("handback_typed"), log):
+                    return False
+                # A fresh receipt follows NOT MERGED; a retried decision never resets it.
+                handback.mark_delivery(run_dir, run_state, merge_handback=notice(),
+                                      handed_back=None, reported=False, handback_pending=None,
+                                      handback_note=None, handback_typed=None,
+                                      handback_wait_reason=None, notification_pending=None)
+            if handback.owes_ending(run_state):
+                handback.announce(run_state, run_dir, log)
+        return True
     if session and not sleep.wake(session, log):
         return False        # its seat, asleep: the line is owed it, the next tick wakes it
     seat = orch.find(config.resolve_session(session)) if session else None
     if seat and not any(seat.get(key) for key in ("exited", "resumable", "restart")):
-        line = (f"{text} -- {url}. Nothing was posted to Discord; this is the maintainer's "
-                "decision on a PR of ours, for you to act on or not.")
-        if run_dir:
-            line = handback.seat_notice(line, run_state, run_dir,
-                                   f"run {run_dir.name}: the maintainer decided on its PR.")
+        line = notice()
         if held and held.get("line") != line and not finished():
             return False
         if not type_at_prompt(seat, line, log, typed=held, receipt=kept):
@@ -7541,11 +7559,12 @@ def live_passed(run_dir, st, now, log, records=None):
         st.clear()
         st.update(current)
         session = transitions.launched_session(st)
-        if handback.seat_owes_nothing(st):
-            # no turn of its seat's waits on this (`awaiting_live`), a repair's included:
+        if not handback.live_owed(st, records):
+            # no move waits on this and no prompt context carries it, or no work is owed:
             # recorded, never typed, and a line an earlier pass typed and never saw sent is sent
             if handback.finish_typed(session, st.get("live_typed"), log):
-                handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None)
+                handback.mark_delivery(run_dir, st, live_notified=now, live_typed=None,
+                                      live_note=handback.ROUTINE_NOTE)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
         if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):

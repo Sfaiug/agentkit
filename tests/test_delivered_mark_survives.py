@@ -24,8 +24,8 @@ class DeliveredMarkSurvives(EndingsRidePrompt):
         """Run `write`, a prompt in `seat` telling the notice right after `write` read the record."""
         real, armed, carried = record.read_state, [True], []
 
-        def reading(run_dir):
-            state = real(run_dir)
+        def reading(run_dir, **kw):
+            state = real(run_dir, **kw)
             if (armed and run_dir == self.run
                     and str(run_dir) in getattr(record._RECOVERY_HELD, "paths", ())):
                 armed.clear()
