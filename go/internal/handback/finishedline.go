@@ -13,16 +13,16 @@ import (
 
 // handbackLine is Python's handback_line: every ending uses its decision or delivery line.
 // A shortened notice is saved whole before any keys are sent, under Give's delivery lock.
-func handbackLine(record *run.Object, dir string) string {
+func handbackLine(record *run.Object, dir string, save bool) string {
 	word, why, move, detail := Decision(record, dir, run.Delivery(record, run.Models()))
 	if move != "" {
 		whole := run.Decision(record, dir, word, sentences(why, utf8.RuneCountInString(why)+1), move+detail, false)
 		for _, step := range [][2]string{{move + detail, why}, {move, why}, {move, "The result says why."}} {
 			frame := run.Decision(record, dir, word, "x", step[0], false)
-			room := min(decisionMost, longest()) - utf8.RuneCountInString(frame) + len("x.")
+			room := min(decisionMost, int(config.Longest())) - utf8.RuneCountInString(frame) + len("x.")
 			if said := sentences(step[1], room); said != "" {
 				line := run.Decision(record, dir, word, said, step[0], false)
-				if fits(line) && (line == whole || saveNotice(dir, record, whole)) {
+				if fits(line) && (line == whole || !save || saveNotice(dir, record, whole)) {
 					return line
 				}
 			}
@@ -43,14 +43,14 @@ func handbackLine(record *run.Object, dir string) string {
 		parts = append(parts, fmt.Sprintf("%d review follow-ups in full in result.md.", count))
 	}
 	line := strings.Join(append(parts, "Decide the next step."), " ")
-	if fits(line) && saveNotice(dir, record, whole) {
+	if fits(line) && (!save || saveNotice(dir, record, whole)) {
 		return line
 	}
 	return ""
 }
 
 func fits(line string) bool {
-	return utf8.RuneCountInString(line) <= longest() && len(line) <= typedMostByte
+	return !config.TooLong(line)
 }
 
 // sentences keeps leading whole sentences, counting characters as Python's terminal.sentences.
