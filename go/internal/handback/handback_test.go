@@ -124,3 +124,17 @@ func TestAMarkWaitsOnNoRecoveryLock(t *testing.T) {
 		t.Fatal("a mark waited on recovery.lock")
 	}
 }
+
+func TestAnErrorTheTickWillRetryHasNoEndingToTell(t *testing.T) {
+	home := seated(t)
+	dir := filepath.Join(home, ".agentkit", "runs", "retry")
+	os.MkdirAll(dir, 0o700)
+	if err := run.Create(dir, run.Fields("state", "error", "launched_session", "acme", "finished_at", now(),
+		"error_retry_at", run.Float(seconds()+60))); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	if Give(dir, func(line string) { said = append(said, line) }) || len(said) != 0 {
+		t.Fatal("a scheduled retry was handed back", said)
+	}
+}

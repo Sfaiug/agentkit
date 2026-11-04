@@ -9,8 +9,8 @@ import (
 
 // dropTold is what follows an ending its seat was told, Python's worktrees._drop_told: the seat
 // reads result.md, never the checkout, so a blocked run's goes unless kept on purpose, its branch
-// staying, the only copy of work never pushed.  The hand-back tells no delivered or stopped
-// ending; a PASS keeps its checkout for `ak run merge`, and a FAIL or an ERROR for a resume that
+// staying, the only copy of work never pushed. An unmerged PASS keeps its checkout for
+// `ak run merge`, and a FAIL or an ERROR for a resume that
 // may take it, which gc judges.
 func dropTold(dir string, said io.Writer) {
 	record, _ := run.Read(dir)

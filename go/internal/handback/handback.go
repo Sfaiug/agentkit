@@ -38,7 +38,8 @@ func Give(dir string, say func(string)) bool {
 		return false
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
-	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" || !seat.Watching(session) {
+	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" ||
+		record.Str("state") == "error" && run.Going(record, time.Now()) || !seat.Watching(session) {
 		return false
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
