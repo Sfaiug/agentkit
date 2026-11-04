@@ -14,9 +14,7 @@ package handback
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -93,27 +91,12 @@ func decisionLine(record *run.Object, dir string) string {
 	if record.Str("state") != "blocked" {
 		return ""
 	}
-	rounds := "0"
-	if record.Truthy("rounds") {
-		rounds = run.Text(record.Get("rounds"))
-	}
-	head := fmt.Sprintf("run %s BLOCKED (%d of %s):", filepath.Base(dir), len(record.List("round_summaries")), rounds)
-	why := strings.Join(strings.Fields(record.Str("error")), " ")
-	if why == "" {
-		why = "no reason was recorded"
-	}
-	if !strings.HasSuffix(why, ".") && !strings.HasSuffix(why, "!") && !strings.HasSuffix(why, "?") {
-		why += "."
-	}
 	move := "rewrite the task and relaunch it"
 	if branch := record.Str("branch"); branch != "" {
 		move += " with `from: " + branch + "`"
 	}
-	tail := "Next: " + move + ". Result: " + tilde(filepath.Join(dir, "result.md"))
-	most := min(decisionMost, longest())
-	line := head + " " + why + " " + tail
-	if utf8.RuneCountInString(why) > most-utf8.RuneCountInString(head)-utf8.RuneCountInString(tail)-2 ||
-		utf8.RuneCountInString(line) > longest() || len(line) > typedMostByte {
+	line := run.Decision(record, dir, "BLOCKED", record.Str("error"), move, false)
+	if utf8.RuneCountInString(line) > min(decisionMost, longest()) || len(line) > typedMostByte {
 		return ""
 	}
 	return line
@@ -134,15 +117,6 @@ func longest() int {
 		}
 	}
 	return most
-}
-
-// tilde is a path as `~/...` under the home directory, config.tilde.
-func tilde(path string) string {
-	home, err := os.UserHomeDir()
-	if rest, err2 := filepath.Rel(home, path); err == nil && err2 == nil && rest != ".." && !strings.HasPrefix(rest, "../") {
-		return "~/" + rest
-	}
-	return path
 }
 
 // sameAttempt is whether two records are one attempt of the run, not either side of a resume.

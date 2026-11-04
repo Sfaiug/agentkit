@@ -235,6 +235,10 @@ class RunNotice(Sandbox):
         self.assertIn("notified", episode)
         self.assertNotIn("pending", episode)
         self.assertIn(details, (directory / "result.md").read_text())
+        opening = (directory / "result.md").read_text().splitlines()[:3]
+        self.assertEqual(opening[0], f"# NOT LIVE (0 of 3) — {state['title']}")
+        self.assertIn(details, opening[1])
+        self.assertEqual(opening[2], f"Next: {handback.RESULT_NAMES}")
 
     def test_all_report_rebuilds_keep_saved_notice_details(self):
         directory, state = self.followups(2, **DONE)

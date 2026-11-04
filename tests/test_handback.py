@@ -1412,7 +1412,8 @@ class HandBack(Sandbox):
             run.cmd_merge([directory.name])
         state = record.read_state(directory)
         self.assertEqual((state["state"], state["verdict"]), ("blocked", "BLOCKED"))
-        self.assertIn("# BLOCKED \u2014", (directory / "result.md").read_text())
+        self.assertEqual((directory / "result.md").read_text().splitlines()[0],
+                         "# BLOCKED (1 of 1) — Finished run-16")
         self.assertIn("BLOCKED (1 of 1):", self.typed[-1][1])
 
     # --- a blocked run on the screens and on `ak run resume` ----------------
@@ -1583,7 +1584,7 @@ class BlockedRuns(unittest.TestCase):
         self.assertEqual(state["round_summaries"], [])      # and no round was recorded
         self.assertIn("checks a file the task never asks for", state["error"])
         result = (directory / "result.md").read_text()
-        self.assertTrue(result.startswith("# BLOCKED — Blocked fixture"), result[:60])
+        self.assertTrue(result.startswith("# BLOCKED (0 of 3) — Blocked fixture"), result[:60])
         self.assertIn(BLOCKED_TURN.strip(), result)
 
     def test_a_blocked_fixer_turn_ends_the_run_the_same_way(self):

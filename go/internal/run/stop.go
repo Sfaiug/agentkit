@@ -106,8 +106,12 @@ func Report(dir string, record *Object) error {
 		return err
 	}
 	defer delivery.Close()
-	result := fmt.Sprintf("# FAIL — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s\n\n",
-		cmp.Or(record.Str("title"), filepath.Base(dir)), cmp.Or(record.Str("verdict"), "none"),
+	opening := "# FAIL — " + cmp.Or(record.Str("title"), filepath.Base(dir))
+	if record.Str("state") == "error" {
+		opening = Decision(record, dir, "ERROR", record.Str("error"), "read the result", true)
+	}
+	result := fmt.Sprintf("%s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s\n\n",
+		opening, cmp.Or(record.Str("verdict"), "none"),
 		cmp.Or(record.Str("error"), "no reason was recorded"), Relaunch(dir, record))
 	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(result), 0o666)
 }

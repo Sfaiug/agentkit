@@ -33,13 +33,17 @@ func WriteResult(dir string, record *run.Object) error {
 	if fullResult(record) {
 		_, cmds, err := task.Read(filepath.Join(dir, "task.md"))
 		if err == nil {
-			return save(dir, report(dir, record, declaredChecks(record, cmds)))
+			outcome := run.Delivery(record, run.Models())
+			if record.Str("state") == "blocked" {
+				outcome = "BLOCKED"
+			}
+			return save(dir, report(dir, record, declaredChecks(record, cmds)), record, outcome)
 		}
 		suffix = "\n\n(the full result could not be written: " + err.Error() + ")"
 	}
-	return save(dir, fmt.Sprintf("# %s — %s\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s%s\n\n",
-		run.Delivery(record, nil), cmp.Or(record.Str("title"), filepath.Base(dir)), cmp.Or(record.Str("verdict"), "none"),
-		cmp.Or(record.Str("error"), "no reason was recorded"), run.Relaunch(dir, record), suffix))
+	return save(dir, fmt.Sprintf("\n\nVERDICT: %s\n\n## Why this run stopped\n\n%s\n\nrelaunch: %s%s\n\n",
+		cmp.Or(record.Str("verdict"), "none"), cmp.Or(record.Str("error"), "no reason was recorded"),
+		run.Relaunch(dir, record), suffix), record, run.Delivery(record, nil))
 }
 
 // fullResult is whether a run has a workspace to report on, and a review a verdict.
@@ -47,25 +51,21 @@ func fullResult(record *run.Object) bool {
 	return record.Truthy("worktree") && record.Has("round_summaries") && (!record.Truthy("review_pr") || record.Truthy("verdict"))
 }
 
-func save(dir, text string) error {
+func save(dir, text string, record *run.Object, outcome string) error {
 	delivery, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
 		return err
 	}
 	defer delivery.Close()
-	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(text), 0o666)
+	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(resultOpening(dir, record, outcome)+text), 0o666)
 }
 
-// report is the full result.md, Python's handback.write_result, its opening the workplace's.  A run
+// report is result.md's body, Python's handback.write_result, its opening added under the delivery lock. A run
 // that ends well lists the checks its rounds ran, without their `# once` marks; any other lists the
 // task's.
 func report(dir string, record *run.Object, cmds []string) string {
-	outcome := run.Delivery(record, run.Models())
-	if record.Str("state") == "blocked" {
-		outcome = "BLOCKED"
-	}
 	spent := record.List("round_summaries")
-	parts := append([]string{"# " + outcome + " — " + record.Str("title"), "", "VERDICT: " + run.Field(record, "verdict", "None"),
+	parts := append([]string{"", "", "VERDICT: " + run.Field(record, "verdict", "None"),
 		"rounds: " + strconv.Itoa(len(spent)) + " of " + run.Field(record, "rounds", "None")}, placeOf(record).head(dir, record)...)
 	if record.Truthy("blocked") {
 		parts = append(parts, "", record.Str("blocked"), "")

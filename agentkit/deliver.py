@@ -1150,7 +1150,8 @@ def fail_pr_landing(lp, failure, landing=True):
     path.write_text(text)
     lp.findings = text
     lp.state.update(verdict="FAIL", findings=text[-8000:], findings_file=str(path),
-                    final_check={"outcome": "failed", "where": "landing", "line": failure["line"]})
+                    final_check={"outcome": "failed", "where": "landing", "line": failure["line"],
+                                 "log": str(failure["log"])})
     lp.state["review"] = {**lp.state["review"], "verdict": "FAIL", "overridden": failure["line"]}
     # the round's delivery is settled in this same write: a resume after it reviews the next head
     lp.state.pop("waiting_on", None)

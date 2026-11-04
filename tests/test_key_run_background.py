@@ -103,8 +103,9 @@ class BackgroundRun(unittest.TestCase):
         self.assertEqual((self.fakes["claude"].n, self.fakes["codex"].n), (1, 1))
         result = self.run_dir / "result.md"
         # run.json may say pass a moment before result.md is written.
-        first = wait_for(lambda: first_line(result).startswith("# PASS") and first_line(result))
-        self.assertEqual(first, "# PASS, not merged: --no-merge — Add retry file")
+        first = wait_for(lambda: first_line(result).startswith("# NOT MERGED") and first_line(result))
+        self.assertEqual(first, "# NOT MERGED (1 of 3) — Add retry file")
+        self.assertEqual(result.read_text().splitlines()[1], "Why: --no-merge")
         worktree = Path(self.settled["worktree"])
         tree = self.home.run("git", "-C", str(worktree), "ls-tree", "--name-only", "HEAD")
         self.assertIn("retry.txt", tree.out.split())
