@@ -75,28 +75,7 @@ func noAutoGC(repo string) error {
 	return gcOff(g)
 }
 
-func gcOff(g gitcall.Git) error {
-	for _, setting := range [][2]string{{"gc.auto", "0"}, {"maintenance.auto", "false"}} {
-		said, err := g.Try("config", "--local", "--get", setting[0])
-		if err != nil {
-			return err
-		}
-		if said != setting[1] {
-			if _, err := g.Must("config", "--local", "--replace-all", setting[0], setting[1]); err != nil {
-				return err
-			}
-		}
-		if said, err = g.Try("config", "--get", setting[0]); err != nil {
-			return err
-		}
-		if said != setting[1] {
-			if _, err := g.Must("config", "--worktree", "--replace-all", setting[0], setting[1]); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
+func gcOff(g gitcall.Git) error { return g.NoAutoGC() }
 
 // holdRepository takes the lock on the shared git directory itself: preparation waits for gc, and
 // gc skips a preparation in progress.

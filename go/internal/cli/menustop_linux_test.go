@@ -56,7 +56,10 @@ with Home() as home:
         time.sleep(0.05)
     assert json.loads((state / "seat-acme.json").read_text())["closed_by_owner"] is True
     assert home.tmux("has-session", "-t", "=beta").code == 0
-    assert popup(home).exit_code() == 3, "past sessions must still hand over"
+    returned = popup(home)
+    returned.wait("p past")
+    returned.keys("Escape")
+    assert returned.exit_code() == 0
 
 with Home() as home:
     Seat(home, "acme", screen="claude-working-pane.txt")

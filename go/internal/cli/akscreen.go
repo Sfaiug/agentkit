@@ -23,7 +23,8 @@ type reading struct {
 	seats    []menu.Seat
 	cells    []menu.Cell
 	standing string
-	past     bool
+	past     []menu.PastSeat
+	handoff  bool
 }
 
 // readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it;
@@ -36,7 +37,11 @@ func readFrame(now time.Time) (reading, bool) {
 	var found reading
 	for i, each := range home.Seats {
 		if each.Past() {
-			found.past = true
+			row, known := pastRow(each, now)
+			if !known {
+				return reading{handoff: true}, true
+			}
+			found.past = append(found.past, row)
 			continue
 		}
 		done, total := plan.Progress(each.Name)
@@ -44,6 +49,7 @@ func readFrame(now time.Time) (reading, bool) {
 		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: home.ModelName(each),
 			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
+	sortPast(found.past)
 	var err error
 	if found.cells, err = menu.Cells(now); err != nil {
 		return reading{}, false
@@ -55,7 +61,7 @@ func readFrame(now time.Time) (reading, bool) {
 }
 
 // akScreen is bare `ak` on a server: it takes the terminal, draws the frame and gives the terminal
-// back.  A read refused once the frame is up keeps that frame.
+// back. A refused read keeps that frame; an unsupported past seat hands it over to Python.
 func akScreen(args []string, errOut io.Writer) int {
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
@@ -63,7 +69,7 @@ func akScreen(args []string, errOut io.Writer) int {
 		return notImplemented(errOut, "attach")
 	}
 	first, known := readFrame(time.Now())
-	if !known || first.past {
+	if !known || first.handoff {
 		return notImplemented(errOut, "attach")
 	}
 	keyboard := terminal.NewKeyboard()
@@ -106,13 +112,13 @@ func akScreen(args []string, errOut io.Writer) int {
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
 	for {
 		screen, shown := keyboard.Screen(), latest.Load()
-		if shown.past {
+		if shown.handoff {
 			keyboard.Give()
 			return notImplemented(errOut, "attach")
 		}
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown.past, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
 		if model.New != nil && model.New.Picker {
 			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))
 		}
@@ -162,6 +168,14 @@ func akScreen(args []string, errOut io.Writer) int {
 			return 0
 		case key.Name == "again":
 			painter.Forget()
+		case key.Name == "char" && (key.Char == "p" || key.Char == "P") && len(shown.past) > 0:
+			frame.Stop()
+			returned := *shown
+			if leave, code := menuPast(&returned.past, dry, overlay, keyboard, painter, errOut); leave {
+				return code
+			}
+			latest.Store(&returned)
+			go reread()
 		case key.Name == "char" && (key.Char == "c" || key.Char == "C"):
 			session := ""
 			if overlay {
