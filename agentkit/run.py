@@ -679,9 +679,9 @@ def depth_refused():
 def run_slot(run_dir, prior=None):
     state = gate.wait_for_slot(run_dir, between=functools.partial(pickup_while_queued, run_dir))
     if lone_run() and sys.orig_argv[-len(sys.argv):] == sys.argv:
-        with versions.checkout(state.get("ak_checkout")) as path:
-            with run_record.record(run_dir) as current:
-                current["ak_checkout"] = state["ak_checkout"] = str(path)
+        with run_record.record(run_dir) as current, versions.checkout(state.get("ak_checkout")) as path:
+            current["ak_checkout"] = state["ak_checkout"] = str(path)
+            current.flush()
             os.environ[config.RUN_DIR_ENV] = str(run_dir)
             versions.enter(path)
     if prior is not None:

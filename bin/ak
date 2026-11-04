@@ -60,15 +60,15 @@ def main():
     else:
         sub, rest = argv[0], argv[1:]
     try:
-        if sub in ("run", "hand-in"):
-            from agentkit import versions
-            versions.dispatch(argv)
         config.migrate_policy()
         if sub not in SUBS:
             print(f"ak: unknown subcommand {sub!r}; expected one of {', '.join(SUBS)}", file=sys.stderr)
             return 2
         if command_help.show(sub if argv and argv[0] == sub else "", rest):
             return 0
+        if sub in ("run", "hand-in"):
+            from agentkit import versions
+            versions.dispatch(argv)
         mod_name, entry = ENTRY.get(sub, (sub, "main"))
         module = __import__(f"agentkit.{mod_name}", fromlist=[entry])
         owner.mark(f"ak {sub}")
