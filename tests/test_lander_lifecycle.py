@@ -94,6 +94,16 @@ class LanderLifecycle(unittest.TestCase):
             self.assertFalse(land.start_line(self.turn))
         self.assertEqual(self.starts, [])
 
+    def test_a_live_first_member_does_not_prevent_starting_a_pass_for_later_members(self):
+        first = self.member()
+        self.member("fix-docs", pid=None)
+        self.starts.clear()
+        with patch.object(record, "process_active", side_effect=lambda state: bool(state.get("pid"))):
+            self.assertTrue(land.start_line(self.turn))
+        self.assertEqual(len(self.starts), 1)
+        self.assertEqual([member.name for member, _ in land.line(self.turn)],
+                         [first.name, "fix-docs"])
+
     def test_a_woken_green_member_allows_a_pass_behind_it(self):
         first = self.member(state="running", worktree=str(self.root), waiting_on={
             "line": self.turn.name, "joined": 1, "land": "tree"})
@@ -311,7 +321,7 @@ class LanderDelivery(unittest.TestCase):
         self.assertTrue(record.read_state(self.case.directory)["on_target"])
         self.assertEqual(self.starts, [(0, None, False), (0, None, True)])
 
-    def test_a_changed_target_rejoins_and_starts_the_next_pass_after_unlock(self):
+    def test_a_changed_target_rejoin_starts_passes_for_members_behind_it(self):
         self.prepare()
         (self.case.owner / "other.txt").write_text("external move\n")
         self.case.commit(self.case.owner, "move target")
@@ -319,7 +329,7 @@ class LanderDelivery(unittest.TestCase):
         self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         wait = record.read_state(self.case.directory)["waiting_on"]
         self.assertEqual(wait, {"line": self.case.turn.name, "joined": 10})
-        self.assertEqual(self.starts, [(0, wait, True)])
+        self.assertEqual(self.starts, [(0, wait, False), (0, wait, True), (0, wait, True)])
 
 
 if __name__ == "__main__":

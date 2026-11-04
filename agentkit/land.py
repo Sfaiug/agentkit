@@ -189,9 +189,9 @@ def green_delivery(wait):
 
 def red_stack(wait):
     """Whether the lander found `wait`'s member red on top of runs ahead of it, named in its
-    `after`.  Its fixer would work on the member's branch rebased onto the target, which holds
-    none of their changes until they land, so it waits for them to leave the line and is then
-    checked again.  A delivery's red required checks keep `land` beside their `fix`: theirs."""
+    `after`.  Its fixer works on the member's branch rebased onto the target, which holds
+    none of their changes until they land, so it waits for them to leave the line before
+    waking to fix.  A delivery's red required checks keep `land` beside their `fix`: theirs."""
     return "fix" in wait and "land" not in wait and bool(wait.get("after"))
 
 
@@ -214,9 +214,9 @@ def start_line(turn, log=lambda _: None):
             except BlockingIOError:
                 return False
             members = line(turn)
-            waiting = next((state for _, state in members if state.get("state") == "waiting"), None)
-            if waiting is None or record.process_active(waiting):
-                return False  # the joining attempt must finish cleanup before a wake
+            if not any(state.get("state") == "waiting" and not record.process_active(state)
+                       for _, state in members):
+                return False
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
@@ -495,7 +495,7 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
 
 
 def check_line(turn, log=lambda _: None):
-    """Check stacks from the first member without a verdict, under the singleton flock.
+    """Check ready stacks from the first member without a verdict, under the singleton flock.
 
     The singleton is separate from delivery so checks and merges can overlap.
     Saved verdicts are woken again if a crash or refused launch left them parked.  A member
@@ -511,21 +511,21 @@ def check_line(turn, log=lambda _: None):
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
         members = copy.deepcopy(line(turn))     # its own: it writes its answers into them
         names = {directory.name for directory, _ in members}
+        # Checks may return after their first group; no saved red waits for that walk to reach it.
+        for directory, state in members:
+            if state.get("state") == "waiting" and "fix" in state["waiting_on"]:
+                with record.recovery_lock(directory):
+                    if (record.read_state(directory) == state and not record.process_active(state)
+                            and not red_behind(state["waiting_on"], names)):
+                        watch.launch_resume(directory.name, log)
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
                 if record.read_state(directory) != state or record.process_active(state):
-                    if "land" in state["waiting_on"] and "fix" not in state["waiting_on"]:
+                    if green_delivery(state["waiting_on"]):
                         prefix.append((directory, state))
-                        continue
-                    return  # a live rejoiner still holds its place ahead of later stacks
-                if state.get("state") == "waiting" and red_stack(state["waiting_on"]):
-                    if red_behind(state["waiting_on"], names):
-                        continue
-                    with record.record(directory) as current:
-                        current["waiting_on"] = {key: value for key, value
-                                                 in state["waiting_on"].items()
-                                                 if key not in ("fix", "after")}
-                    state = record.read_state(directory)
+                    continue
+                if "fix" in state["waiting_on"]:
+                    continue
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
@@ -584,7 +584,7 @@ def check_line(turn, log=lambda _: None):
                     with record.recovery_lock(later):
                         if (record.read_state(later) != saved or record.process_active(saved)
                                 or saved.get("state") != "waiting"):
-                            break
+                            continue
                         if ((saved.get("review") or {}).get("verdict") == "PASS"
                                 and not any(k in saved["waiting_on"] for k in ("land", "fix"))):
                             candidates.append((later, saved))
