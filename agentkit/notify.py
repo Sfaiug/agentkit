@@ -888,7 +888,7 @@ def _read_event(event_id):
         return None
 
 
-def _attempt(event):
+def _attempt(event, *, session=None):
     """Return success only for a delivered, disabled, or durably retryable event."""
     if event["status"] in ("delivered", "disabled"):
         return 0
@@ -940,7 +940,6 @@ def _attempt(event):
     post(event["payload"], [], event["message"], receipt)
     event["status"] = receipt["status"]
     if event["status"] == "delivered":
-        session = _name_now(event["session"]) if event["session"] else None
         history.owner_time("paged", time.time(), session=session)
     event["receipt"] = {k: receipt[k] for k in ("message_id", "webhook") if k in receipt}
     if receipt.get("error"):
@@ -1025,7 +1024,7 @@ def retry_pending(dry_run=False, log=print):
                     continue    # its question stands through independent work: the stop sends it
                 if _dropped(event, session, log):
                     continue
-                _attempt(event)
+                _attempt(event, session=session)
                 _remember_retry(event, session)
         except (OSError, ValueError, config.Error) as exc:
             log(f"WARN notification {path.stem} could not be retried ({type(exc).__name__})")
@@ -1135,7 +1134,7 @@ def _send_card(session, kind, card, answer, completion=None):
         _card_write(session, card)
         if fresh:
             terminal_notice(session, f"{TITLES[kind]} · {session}: {text}")
-        return _attempt(event)
+        return _attempt(event, session=session)
 
 
 def page(key, about, text, line=None, owed=False, mention=True):

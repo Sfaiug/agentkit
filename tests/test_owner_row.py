@@ -52,7 +52,7 @@ class OwnerRow(Sandbox):
         with patch.object(notify, "webhook", return_value="https://hooks.invalid/x"), \
                 patch.object(notify, "post", post), \
                 patch.object(notify.time, "time", return_value=now), notify.outbox_lock():
-            notify._attempt(event)
+            notify._attempt(event, session=SEAT)
 
     def moments(self):
         return history.owner(0, NOW)
