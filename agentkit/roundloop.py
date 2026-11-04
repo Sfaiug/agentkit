@@ -102,6 +102,10 @@ class Loop:
     def scope(self):
         return "\n\nfiles: " + ", ".join(self.files) if self.files else ""
 
+    @property
+    def fix_run(self):
+        return bool(self.state.get("followup") or taskfile.FIX_THE_COMMAND in self.body)
+
     body = property(lambda self: self._body + self.scope,
                     lambda self, text: setattr(self, "_body", text))
     context = property(lambda self: self._context + self.scope,
@@ -262,9 +266,35 @@ def worker_result(lp, summary, out):
             raise turns.Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
         # a fix run's: a seat's says so on its record, a failed night's in its task's own words
         if (closing["kind"] == "not-needed" and not lp.state.get("round_summaries")
-                and (lp.state.get("followup") or taskfile.FIX_THE_COMMAND in lp.body)):
+                and lp.fix_run):
             raise turns.NotNeeded(closing["why"])
     return summary
+
+
+def check_fix_on_tip(lp):
+    """A given command passing on the target needs no model turn to fix it."""
+    from . import gate  # here, not at the top: it reaches run
+    if (lp.scratch or not lp.fix_run or not lp.every or lp.state.get("split_suite")
+            or (lp.state.get("repair") or {}).get("flaky")):
+        return
+    tip = gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
+                      f"refs/remotes/{lp.upstream}^{{commit}}", check=False)
+    if not tip:
+        return
+    lp.log(f"--- fix check on {lp.upstream} ({tip}) before the first turn")
+    lp.step("done-when")
+    # A continued branch or --no-worktree may hold other work; the target alone decides.
+    with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+        checkout = Path(tmp) / "checkout"
+        gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
+        gitcall.git(checkout, "checkout", "--quiet", "--detach", tip)
+        ok, _ = gate.run_round(lp.every, checkout, lp.run_dir / "tip.log", set(),
+                               lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                               run_dir=lp.run_dir,
+                               checked=(lp.run_dir, 0, "done-when", tip))
+    if ok:
+        commands = "; ".join(f"`{cmd}`" for cmd in lp.every)
+        raise turns.NotNeeded(f"{commands} passed on {lp.upstream} at {tip}")
 
 
 def suite_evidence(lp, cmds, identity):
