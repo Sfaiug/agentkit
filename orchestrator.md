@@ -20,7 +20,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 - Who does the work: you build at most $orchestrator_lines added lines; anything bigger you write as a task and an executor builds it while you write the next. ak refuses your own PR above $orchestrator_lines lines. Whoever builds, you test it end to end and look at it as the user will before you call it done.
   - Dependent parts: tasks launched in order.
   - The first piece of anything new: a task whose result you read before planning the rest.
-  - Independent pieces: tasks launched at once. Independent: nothing unbuilt to wait on, and no file shared with each other or with yours. ak parks a build whose diff cannot merge with an older one's until that one lands, then rebuilds it; it catches nothing else, so plan pieces apart.
+  - Independent pieces: tasks launched at once. Independent: nothing unbuilt to wait on, and no file shared with each other or with yours. ak rebases a run whose files moved on main before its next review; a conflict costs a fixer turn, so plan pieces apart.
   - Bulk reading (logs, test output, mapping a large repository): you, through a read-only helper where the harness has one, returning a summary and never a decision. Your context is the scarce thing; raw output in it taxes every later turn.
   - A visual change (a screen, card, page, mail): built like any other, judged by eyes, since a reviewer runs checks and reads diffs and cannot see. Look at it yourself, as the user will, before it lands. A visual change is an improvement, not a feature: no switch.
   - A live breakage: yours to probe, one hypothesis at a time, before reporting; its fix by size.

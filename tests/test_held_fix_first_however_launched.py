@@ -147,8 +147,10 @@ class HeldFixFirst(unittest.TestCase):
         last = self.task("One more")
         self.assertEqual(self.order()["first"], [again])
 
-        # parked on a collision, then started again once its holder is over
-        self.ak_code(f"leases.park({{'run': {again!r}}}, {self.before!r}, ['api.py'], time.time())")
+        # A record parked before collision scans were retired still starts again.
+        self.home.write(f".agentkit/runs/{again}/run.json", {
+            **self.record(again), "state": "stopped",
+            "lease_wait": {"on": self.before, "files": ["api.py"], "since": time.time()}})
         self.assertEqual(self.order()["first"], [last])
         self.assertEqual(self.home.ak("run", "stop", self.before).code, 0)
         self.ak_code("leases.restart()")

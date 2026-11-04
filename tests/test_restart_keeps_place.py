@@ -1,8 +1,7 @@
 """A run started again after a park keeps its first attempt's place.
 
-The restart (`leases.restart`) carries the first attempt's start (`first_started_at`), so a
-run launched after that first attempt waits on it in the lease scan instead of the other way
-round, and the slot queue admits it from where the first attempt queued, not behind every run
+The restart (`leases.restart`) carries the first attempt's start (`first_started_at`), so the
+slot queue admits it from where the first attempt queued, not behind every run
 queued while it was parked.  Offline: the lease stage (`fixtures.leases`), a fake launch.
 """
 
@@ -17,8 +16,6 @@ from fixtures.leases import OLDER, TASK, YOUNGER, LiveRuns
 from agentkit import config, gate, leases, run, transitions
 from agentkit import record
 
-NEWER = "20260101-1100-newer"
-
 
 class RestartKeepsPlace(LiveRuns):
     def restarted(self):
@@ -27,7 +24,7 @@ class RestartKeepsPlace(LiveRuns):
         self.collide()
         record.save_state(config.RUNS / YOUNGER, {**self.state(YOUNGER), "queued_at": 950})
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         holder = config.RUNS / OLDER
         record.save_state(holder, {**record.read_state(holder), "state": "pass", "merged": True})
         launched = []
@@ -41,25 +38,6 @@ class RestartKeepsPlace(LiveRuns):
         self.assertEqual(record.read_state(fresh)["first_started_at"], 1000)
         # a restart parked again hands on that same start, not its own
         self.assertEqual(transitions.first_started({"first_started_at": 1000, "started_at": 3000}), 1000)
-
-    def test_a_run_launched_after_the_first_attempt_waits_on_the_restart(self):
-        fresh = self.restarted()
-        name = fresh.name
-        # the restart has its own checkout now, building again on line 5
-        worktree = config.WT / name
-        self.git(self.repo, "worktree", "add", "-q", "-b", f"ak/{name}", str(worktree), self.base)
-        record.save_state(fresh, {**record.read_state(fresh), "state": "running",
-                                  "repo": str(self.repo), "worktree": str(worktree),
-                                  "branch": f"ak/{name}", "base_sha": self.base,
-                                  "started_at": 3000, "step": "executor", "round_summaries": [],
-                                  "artifacts": []})
-        self.edit(worktree, "api.py", 5, "the restart's line 5", commit=True)
-        newer = self.run_on(NEWER, 1500, step="executor", rounds=0)
-        self.edit(newer, "api.py", 5, "the newer run's line 5")
-        found = leases.scan(self.repo, self.logs.append, now=4000)
-        self.assertEqual(found[NEWER]["waits_on"], name)
-        self.assertNotIn(name, found)
-        self.assertEqual(self.state(name)["state"], "running")
 
     def test_the_slot_queue_admits_the_restart_from_its_first_place(self):
         restart = record.read_state(self.restarted())
