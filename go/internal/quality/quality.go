@@ -1,11 +1,10 @@
 // Package quality is how good a model at one effort is for each role, from board numbers that
-// cover some efforts and models and not others, and the owner's rule on models over that: points
-// behind the best, the cheapest within `within`, `r` takes the cheapest of yours within it.  Every
-// row is rated, none left out for a missing score, and a missing score never helps it: a measure
+// cover some efforts and models and not others, and the owner's role rule on models over that.
+// Every row is rated, none left out for a missing score, and a missing score never helps it: a measure
 // another effort of its release has is carried from there, never credited upward, and one no
 // effort has counts as far behind as the row's furthest-behind measure, with that one's error.
 // Every score carries its standard error, each error counted once however many scores take it,
-// shown beside a quality and never picking.  It reads no board, config or clock.
+// used by the role rules in Python's quality.pick. It reads no board, config or clock.
 package quality
 
 import (
@@ -399,10 +398,9 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 }
 
 // Said is one role's answer over the rows compared: Best the best quality (nil with none), Pick
-// the cheapest with a cost within `within` of it, Front those with a cost, best first, each better
+// the role's pick, Front those with a cost, best first, each better
 // than every cheaper one, a row of yours than every cheaper one of yours, as one no harness of
-// yours runs is no reason to leave it out, and Take what `r` takes: the cheapest of them that is
-// yours within `within` of Best.
+// yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
 type Said struct {
 	Front      []*Rating
 	Best       *float64
@@ -411,7 +409,7 @@ type Said struct {
 
 // Answer is each role's Said; compared, the releases compared, nil for every one.  Every row is
 // rated whatever is compared, so a row's quality never changes with that.
-func Answer(rows []Row, within float64, compared map[string]bool) map[string]*Said {
+func Answer(rows []Row, compared map[string]bool) map[string]*Said {
 	out := map[string]*Said{}
 	for _, role := range Roles {
 		said := &Said{}
@@ -431,6 +429,7 @@ func Answer(rows []Row, within float64, compared map[string]bool) map[string]*Sa
 		slices.SortStableFunc(priced, func(a, b *Rating) int {
 			return cmp.Or(cmp.Compare(*a.Cost, *b.Cost), cmp.Compare(b.Quality, a.Quality))
 		})
+		var yours []*Rating
 		for n, row := range priced {
 			better := true
 			for _, cheaper := range priced[:n] {
@@ -441,17 +440,53 @@ func Answer(rows []Row, within float64, compared map[string]bool) map[string]*Sa
 			if better {
 				said.Front = append(said.Front, row)
 			}
-			if row.Quality >= *said.Best-within {
-				if said.Pick == nil {
-					said.Pick = row
-				}
-				if said.Take == nil && row.Yours {
-					said.Take = row
-				}
+			if row.Yours {
+				yours = append(yours, row)
 			}
 		}
+		said.Pick, said.Take = pick(priced, role), pick(yours, role)
 		slices.SortStableFunc(said.Front, func(a, b *Rating) int { return cmp.Compare(b.Quality, a.Quality) })
 		out[role] = said
 	}
 	return out
+}
+
+// pick follows Python's quality.pick (owner, 3 Nov 2026) on priced rows sorted by cost,
+// decreasing quality on ties: the upper hull's sharpest bend, only execution allowed to
+// trade measured quality for cost. Filter bends without changing the hull's steps.
+func pick(priced []*Rating, role string) *Rating {
+	var hull []*Rating
+	for _, row := range priced {
+		if len(hull) > 0 {
+			last := hull[len(hull)-1]
+			if *row.Cost == *last.Cost || row.Quality <= last.Quality {
+				continue
+			}
+		}
+		for len(hull) > 1 {
+			a, b := hull[len(hull)-2], hull[len(hull)-1]
+			if (b.Quality-a.Quality)*(*row.Cost-*b.Cost) > (row.Quality-b.Quality)*(*b.Cost-*a.Cost) {
+				break
+			}
+			hull = hull[:len(hull)-1]
+		}
+		hull = append(hull, row)
+	}
+	if len(hull) == 0 {
+		return nil
+	}
+	best := hull[len(hull)-1]
+	chosen, largest := best, 0.0
+	for n := 1; n+1 < len(hull); n++ {
+		before, row, after := hull[n-1], hull[n], hull[n+1]
+		if role != "execute" && best.Quality-row.Quality >= 1.96*math.Hypot(best.SE, row.SE) {
+			continue
+		}
+		growth := ((*after.Cost - *row.Cost) / (after.Quality - row.Quality)) /
+			((*row.Cost - *before.Cost) / (row.Quality - before.Quality))
+		if growth > largest {
+			chosen, largest = row, growth
+		}
+	}
+	return chosen
 }

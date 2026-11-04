@@ -5,28 +5,6 @@ import (
 	"strings"
 )
 
-// Points is the most `within` can be.
-const Points = points
-
-// within is how many points under the best count as as good where config.toml says none: the three
-// boards disagree with each other about differences between the top models by more (a median of 6
-// to 10 points, 17 Oct 2026), so no row the boards agree is worse gets in.  It goes to 0 the day
-// the boards publish their intervals.
-const within = 5
-
-// Within is how many points under the best still count as as good: `within` in the config, else
-// the default.
-func Within() (float64, error) {
-	root, err := load()
-	if err != nil {
-		return 0, err
-	}
-	if number, ok := tomlNumber(root.values["within"]); ok {
-		return number, nil
-	}
-	return within, nil
-}
-
 // Compare is the release slugs `compare` in the config marks.
 func Compare() ([]string, error) {
 	root, err := load()

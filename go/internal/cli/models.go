@@ -34,10 +34,6 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	within, err := config.Within()
-	if err != nil {
-		return fail(err)
-	}
 	marked, err := matrix.Compared(found.Rows)
 	if err != nil {
 		return fail(err)
@@ -46,7 +42,7 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	answer := quality.Answer(found.Rows, within, marked)
+	answer := quality.Answer(found.Rows, marked)
 	if contains(args, "--json") {
 		fmt.Fprintln(out, run.Encode(modelsJSON(answer, names)))
 		return 0
@@ -56,7 +52,7 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	for _, row := range found.Rows {
 		current[row.Release] = true
 	}
-	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows, within), within, marked, len(current), found.Fetched)
+	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows), marked, len(current), found.Fetched)
 	if len(names) > 0 {
 		var own [][]string
 		for _, name := range names {
