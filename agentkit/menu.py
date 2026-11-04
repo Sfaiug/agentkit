@@ -3184,6 +3184,11 @@ MODELS_KEYS = {"answer": ("↑↓ move   ⏎ why   p pick   r take   esc back",
                         "up/down move   space mark   type to find   esc done")}
 MARK = 7                          # a row's mark's column, as wide as `r takes`
 LEGEND = (("left out", "a row no better than a cheaper one, yours compared with yours"),)
+# Under a role priced in week shares (matrix.answer's cost_unit "share"): only a row noted
+# `measured` was measured; the others are its board price scaled by measured rows. Owner,
+# 3 Nov 2026: a cost on screen must never look more certain than it is.
+SHARE_LEGEND = (("week %", "a task's share of its subscription's week: measured where the row "
+                 "says so, else its board price scaled by the rows that were"),)
 LEGEND_ROW = ("legend",)
 LINES = ("lines",)                # the rows' lines, which grow in as they first show
 QUIET = "#a6adc8"                 # ... drawn while no company lights: Mocha's subtext0
@@ -3223,7 +3228,8 @@ def models_said(answer, lineup):
         for row in front:
             missing = sum(one["how"] == "missing" for one in row["measures"].values())
             notes = [terminal.styled(note, "dim") for note in (
-                f"{missing} missing" if missing else "", "" if row["yours"] else "no harness")
+                f"{missing} missing" if missing else "", "" if row["yours"] else "no harness",
+                "measured" if row.get("cost_rule") == "measured" else "")
                 if note]
             mark = (terminal.styled("★ pick", "accent") if row is pick else
                     "r takes" if row is take else "")
@@ -3344,7 +3350,8 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
             for part in packed(notes[fit:], " · ", room - column):
                 put(" " * column + part, here)
     put("", LEGEND_ROW)
-    for name, text in LEGEND:
+    for name, text in LEGEND + (SHARE_LEGEND if any(unit == "week %" for *_, unit in said)
+                                else ()):
         for number, part in enumerate(terminal.wrap(text, room - NAMED)):
             put(terminal.table_row(["" if number else name, part], [9, room - NAMED],
                                    indent="  ", kinds=(None, "dim")), LEGEND_ROW)
