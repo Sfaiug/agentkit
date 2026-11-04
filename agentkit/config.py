@@ -107,7 +107,7 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before t
 # Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
 # `transitions.carried_lines`): past either limit, write a smaller task.
 POLICY = {
-    "review_rounds": (3, 1, "the review rounds a change has before it goes back to its orchestrator "
+    "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope", ("first round", "unmerged", "hours to merge")),
     "executor_lines": (300, 1, "the most added lines a first review reads",
                      ("first round", "merged")),
@@ -521,8 +521,27 @@ def in_force(text, table=None):
                          f"you build at most {orchestrator} added lines; anything bigger you write "
                          "as a task and an executor builds it while you write the next. "
                          f"ak refuses your own PR above {orchestrator} lines")
+    no_review = "No review: a change lands on its checks; no reviewer."
+    review_budget = (no_review if rounds == 0 else
+                     f"{opening} review round{'' if rounds == 1 else 's'} per change is the budget, counted across runs: "
+                     "a review of your own PR inherits the rounds earlier runs spent on it, and a task "
+                     f"launched `from:` a branch inherits that branch's; ak refuses {over}. Then split or redesign.")
+    task_budget = no_review if rounds == 0 else f"{opening} round{'' if rounds == 1 else 's'} is the budget (`rounds` defaults to {rounds})."
+    run_budget = (no_review if rounds == 0 else
+                  f"--rounds sets the round limit, at most {rounds} (default: task rounds or {rounds}).")
+    refusal = ("Review is off for this host or project." if rounds == 0 else
+               f"a task over {rounds} round{'' if rounds == 1 else 's'} is refused regardless.")
+    resume_budget = (no_review if rounds == 0 else
+                     f"--rounds raises the round limit, at most {rounds}.")
     return Template(text).safe_substitute(numbers, Review_rounds=opening, one_over=over,
                                           executor_size=executor_size, orchestrator_size=orchestrator_size,
+                                          review_budget=review_budget, task_budget=task_budget,
+                                          run_budget=run_budget, rounds_refusal=refusal, resume_budget=resume_budget,
+                                          resume_example="" if rounds == 0 else f" --rounds {rounds}",
+                                          pr_delivery=("--review-pr sends a GitHub PR to the landing line on its checks; no reviewer."
+                                                       if rounds == 0 else
+                                                       "--review-pr reviews a GitHub PR, without an executor: the seat's own merges on\n"
+                                                       "PASS with green checks, anyone else's asks the inbox."),
                                           s="" if rounds == 1 else "s")
 
 

@@ -82,7 +82,8 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
-              ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"))
+              ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"),
+              ("no_review", "INTEGER"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -390,7 +391,7 @@ def suite_run(run_id, repo):
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
               task_checks=None, task_files=None, orchestrator=None, change=None, kind=None,
-              plan_line=None, log=None):
+              plan_line=None, no_review=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
@@ -412,7 +413,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "", kind, 0, plan_line)
+              change, 0, "", kind, 0, plan_line, no_review)
 
     def insert(connection):
         connection.execute(
@@ -421,8 +422,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge, kind, landing_flakes, plan_line) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge, kind, landing_flakes, plan_line, no_review) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -434,7 +435,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
             "change=COALESCE(excluded.change,runs.change), "
-            "kind=COALESCE(excluded.kind,runs.kind)", values)
+            "kind=COALESCE(excluded.kind,runs.kind), "
+            "no_review=COALESCE(excluded.no_review,runs.no_review)", values)
 
     _write(insert, log)
 
@@ -470,7 +472,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes"}
+               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes", "no_review"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return

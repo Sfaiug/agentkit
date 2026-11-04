@@ -56,7 +56,7 @@ class Help(unittest.TestCase):
 
     def test_prints_on_a_config_ak_cannot_use(self):
         with Home() as home:
-            home.write(".agentkit/config.toml", "review_rounds = 0\n")
+            home.write(".agentkit/config.toml", "review_rounds = -1\n")
             self.assertIn("at most 3 (default", said(home, "run", "--help"))
             self.assertNotEqual(home.ak("run", "task.md").code, 0)
 
@@ -65,6 +65,11 @@ class Help(unittest.TestCase):
         self.assertIn("no limit on added lines", run)
         self.assertIn("you build with no line limit", run)
         self.assertNotIn("at most no limit", run)
+
+    def test_review_off_says_checks_and_no_reviewer(self):
+        for text in self.helps(review_rounds=0):
+            self.assertIn("No review: a change lands on its checks; no reviewer.", text)
+            self.assertNotIn("0 rounds", text)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -111,6 +116,11 @@ class Rulebook(unittest.TestCase):
             self.assertNotIn("at most no limit", text)
             self.assertNotIn("split it", text)
         self.assertIn("you build with no line limit", book)
+
+    def test_review_off_reads_right_in_the_rulebook_and_task_template(self):
+        for text in self.book(review_rounds=0):
+            self.assertIn("No review: a change lands on its checks; no reviewer.", text)
+            self.assertNotIn("0 rounds", text)
 
     def test_says_ak_s_defaults_with_no_setting_and_the_owner_s_dollars_as_written(self):
         book, template = self.book()

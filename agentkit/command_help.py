@@ -76,9 +76,9 @@ COMMANDS = {
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
             """Execute, verify, review, push, open a PR and merge.
---rounds sets the round limit, at most $review_rounds (default: task rounds or $review_rounds).
+$run_budget
 --anyway starts even when a run in the same repository looks already under way;
-a task over $review_rounds round$s is refused regardless.
+$rounds_refusal
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.
@@ -87,8 +87,7 @@ decides what goes first and refuses a second run of a change under way.
 Several task files run as one job of independent pieces; --parallel caps it.
 max_runs caps the count when positive; 0 leaves host memory as the gate
 (config.toml or AK_MAX_RUNS).
---review-pr reviews a GitHub PR, without an executor: the seat's own merges on
-PASS with green checks, anyone else's asks the inbox.
+$pr_delivery
 Task size: $executor_size.
 Seat's work: $orchestrator_size.
 Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
@@ -99,8 +98,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                    "over its retained rows, proposing splits and fixes or deletions.",
                    "ak run status --history --json"),
     "run resume": ("usage: ak run resume ID [--rounds N] [--bg]",
-                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most $review_rounds.",
-                   "ak run resume RUN_ID --rounds $review_rounds --bg"),
+                   "Resume interrupted or exhausted work; $resume_budget",
+                   "ak run resume RUN_ID$resume_example --bg"),
     "run merge": ("usage: ak run merge ID",
                   "Retry delivery of a finished PASS; reverify if integration changes its commit.",
                   "ak run merge RUN_ID"),

@@ -8,7 +8,7 @@ The outcome.
 
 ## Constraints
 - Boundaries the work must respect.
-- $Review_rounds round$s is the budget (`rounds` defaults to $review_rounds).
+- $task_budget
 
 <!-- Optional. -->
 ## Decided

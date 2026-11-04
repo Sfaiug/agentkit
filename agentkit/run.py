@@ -8,8 +8,8 @@ The loop derives a review's verdict from its checked hand-in records.
 
 `ak run --review-pr <url>` is the same reviewer with no executor: a PR checked out at
 its head, judged against the repo and posted back as a GitHub review. The seat's own
-PR merges on PASS with green checks; anyone else's asks the inbox. No change skips review,
-documents included, as the owner decided on 24 Oct 2026.
+PR merges on PASS with green checks; anyone else's asks the inbox. With review off,
+both enter the landing line on their checks.
 """
 
 import errno
@@ -181,8 +181,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         try:
             n_rounds = int(raw_rounds)
         except (TypeError, ValueError):
-            n_rounds = 0
-        if n_rounds < 1:
+            n_rounds = -1
+        if n_rounds < 0 or (n_rounds == 0 and not run_record.review_off(receipt)):
             raise config.Error(f"{task_path}: rounds must be a positive integer (got {raw_rounds!r})")
         method = (meta.get("merge") or "squash").lower()
         if method not in MERGE_METHODS:
@@ -343,12 +343,15 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     workers, reviewers = config.role_groups(cfg, run_workers(cfg, state), state.get("reviewers"))
     if reviewers is not None:
         refuse_outside_group(cfg, opts["--exec"], workers, "worker")
-        refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
-    if opts["--exec"] and opts["--review"]:
+        if not run_record.review_off(state):
+            refuse_outside_group(cfg, opts["--review"], reviewers, "reviewer")
+    if opts["--exec"] and opts["--review"] and not run_record.review_off(state):
         review_providers(cfg, opts["--exec"], opts["--review"])
     providers = collect_usage(cfg)
-    order = ready_order(cfg, providers, reviewers if reviewers is not None else workers,
-                        role="reviewer", repo=repo)
+    order = ([] if run_record.review_off(state) else
+             ready_order(cfg, providers, reviewers if reviewers is not None else workers,
+                         role="reviewer", repo=repo))
+    want_review = False if run_record.review_off(state) else opts["--review"]
     handed = None               # the model this resume took the work away from, if any
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
@@ -411,20 +414,22 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             # a saved reviewer keeps its identity; a stale one does not, nor a self-review
             # picked in a shortage the slot wait may have outlasted: the pick decides again
             preset_rev = None
-        executor, reviewer = pick_models(cfg, providers, preset_exec, preset_rev, log,
+        executor, reviewer = pick_models(cfg, providers, preset_exec,
+                                         False if run_record.review_off(state) else preset_rev, log,
                                          resuming=True, repo=repo, workers=workers,
                                          reviewers=reviewers)
     else:
         try:
-            executor, reviewer = pick_models(cfg, providers, opts["--exec"], opts["--review"],
+            executor, reviewer = pick_models(cfg, providers, opts["--exec"], want_review,
                                              log, repo=repo, workers=workers, reviewers=reviewers)
         except QuotaDry:
-            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], opts["--review"],
+            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], want_review,
                                    reviewers)
             if refusal:
                 raise config.Error(refusal) from None
             raise
-    log(f"executor={executor} reviewer={reviewer} rounds={state['rounds']}")
+    log(f"executor={executor} no review" if run_record.review_off(state) else
+        f"executor={executor} reviewer={reviewer} rounds={state['rounds']}")
     state["executor"], state["reviewer"] = executor, reviewer
     run_record.save_state(run_dir, state)
     if prior is None and session_at_launch and not preset_exec:
@@ -1167,11 +1172,12 @@ def preset_models(cfg, opts, log, run_dir):
         providers = collect_usage(cfg)
         state = run_record.read_state(run_dir) or {}
         workers, reviewers = run_workers(cfg, state), state.get("reviewers")
+        want_review = False if run_record.review_off(state) else opts["--review"]
         try:
-            executor, reviewer = pick_models(cfg, providers, opts["--exec"], opts["--review"],
+            executor, reviewer = pick_models(cfg, providers, opts["--exec"], want_review,
                                              log, quiet=True, workers=workers, reviewers=reviewers)
         except QuotaDry:
-            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], opts["--review"],
+            refusal = pair_refusal(cfg, providers, workers, opts["--exec"], want_review,
                                    reviewers)
             if not refusal:
                 raise
@@ -1354,7 +1360,9 @@ def preflight(run_dir, opts, log):
             if why:
                 raise Refused(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
-        if is_own:
+        if run_record.review_off(state):
+            method, action = "squash", f"{url} at {info['headRefOid']}; no review; land on its checks"
+        elif is_own:
             method, action = ("squash",
                               f"review {url} at {info['headRefOid']}; merge on PASS with green checks")
         else:
@@ -1425,7 +1433,7 @@ def preflight(run_dir, opts, log):
     run_record.save_state(run_dir, {**(run_record.read_state(run_dir) or {}),
                                     "judged_on": version})
     session = launch_session(run_dir)
-    if url:
+    if url and not run_record.review_off(state):
         if state.get("own_pr"):
             log("notification: verdict on GitHub; PASS with green checks merges, FAIL hands back "
                 "to the seat (stderr if unconfigured)")
@@ -1819,7 +1827,7 @@ def resume_run(argv):
     needed = () if unstarted else (("worktree", "rounds") if state.get("scratch") else (
         "repo", "worktree", "branch", "base", "base_sha", "rounds"))
     for key in needed:
-        if not state.get(key):
+        if not state.get(key) and not (key == "rounds" and state.get(key) == 0 and run_record.review_off(state)):
             raise config.Error(f"{argv[0]}: run.json records no {key}; there is nothing to resume")
     wt = Path(state["worktree"]) if not unstarted else None
     if wt is not None and not wt.is_dir():
@@ -2513,7 +2521,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         with run_record.record(run_dir) as current:
             current.pop("landing_fix", None)
     rnd, turn = own_pr_fix(prior if is_own else {})
-    n_rounds = 1
+    off = run_record.review_off(receipt)
+    n_rounds = 0 if off else 1
     if is_own:
         # the pull request's budget, less what earlier runs spent on it: this run's rounds
         # are what is left, and a fourth round is refused whichever run would spend it
@@ -2575,7 +2584,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     tests = gitcall.declared_suite(wt, base, ref=target_sha)
     # an own PR's suite runs once, at landing; somebody else's PR has no line behind it --
     # only the inbox's yes -- so its suite runs here, in its one review round
-    cmds = [f"{tests}  # once" if is_own else tests] if tests else []
+    cmds = [f"{tests}  # once" if is_own or off else tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
         # what the seat wrote of its own PR stays on GitHub: its reviewer judges the diff
@@ -2601,7 +2610,7 @@ def review_pr_round(cfg, run_dir, url, opts, log):
              "worktree": str(wt), "executor": prior.get("executor"), "reviewer": None, "rounds": n_rounds,
              "state": "running", "verdict": None, **run_record.process_owner(), "started_at": receipt["started_at"],
              "finished_at": None, "round_summaries": summaries, "findings": previous, "merge_method": "squash",
-             "no_merge": not is_own or bool(opts.get("--no-merge")), "merged": False,
+             "no_merge": (not is_own and not off) or bool(opts.get("--no-merge")), "merged": False,
              "merge_note": None, "reported": False})
     # a review is a run like any other: its history row carries its task's size, measured
     # off the same body the task file on disk holds
@@ -2625,6 +2634,14 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     if env:
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
+
+    if off:
+        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body))
+        lp.rnd = 1
+        lp.round_dir.mkdir(parents=True, exist_ok=True)
+        ok, dw_log = verify_work(lp)
+        review(lp, "", ok, dw_log)
+        return settle_pr_round(lp, url, info)
 
     first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir)
     if first:
@@ -2727,7 +2744,8 @@ def settle_pr_round(lp, url, info):
     number = PR_PARTS.match(url).groups()[-1]
     if not state.get("merged"):
         restore_review_checkout(lp, "reviewer")
-    posted = state.get("review_posted") or post_review(lp, url, verdict)
+    off = run_record.review_off(state)
+    posted = off or state.get("review_posted") or post_review(lp, url, verdict)
     if not posted and not (is_own and state.get("review_stale")):
         # the job was a review on GitHub; a verdict nobody can read there is not one, so the
         # run is an error -- no merge offer -- and `ak watch` launches it again next tick
@@ -2737,11 +2755,11 @@ def settle_pr_round(lp, url, info):
         write_result(run_dir, state, cmds or ["(none declared)"], log, cfg)
         log(f"ERROR {state['error']}")
         return state
-    if is_own and state.get("no_merge") and verdict == "PASS" and posted:
+    if (is_own or off) and state.get("no_merge") and verdict == "PASS" and posted:
         # launched with --no-merge: the verdict is the whole delivery
         state["merge_note"] = "not merged: the review was launched with --no-merge"
     elif verdict == "PASS" and posted and not state.get("merged"):
-        if is_own:
+        if is_own or off:
             # the verdict owes its delivery until it lands, fails or goes back to its writer:
             # a delivery that errors keeps the mark, and with it the checkout a retry needs
             merge_own_pr(lp, url)
@@ -2990,8 +3008,9 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
         if flags["--bg"]:
             try:
                 receipt = run_record.read_state(run_dir) or {}
-                reviewer = preset_review_model(cfg, opts, run_workers(cfg, receipt),
-                                               reviewers=receipt.get("reviewers"))
+                reviewer = (None if run_record.review_off(receipt) else
+                            preset_review_model(cfg, opts, run_workers(cfg, receipt),
+                                                reviewers=receipt.get("reviewers")))
             except config.Error as exc:
                 refused(run_dir, exc, logger(run_dir), cfg, printed=True)
                 raise
@@ -3004,7 +3023,7 @@ def review_pr_main(cfg, opts, flags, argv, resumed):
                     print(stop.stop_line(run_dir.name, None, False))
                     return 1
             rc = spawn_bg(run_dir, argv)
-            if reviewer and title and launch_session(run_dir):
+            if (reviewer or run_record.review_off(receipt)) and title and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
                 saved = run_record.read_state(run_dir) or {}
                 print(launch_line(run_dir.name, title, None, reviewer,
@@ -3221,7 +3240,7 @@ def main(argv):
                 print(stop.stop_line(run_dir.name, None, False))
                 return 1
             rc = spawn_bg(run_dir, argv)
-            if executor and reviewer and launch_session(run_dir):
+            if executor and launch_session(run_dir):
                 # the seat's terminal sees the launch line; the child's stdout is the log
                 print(launch_line(run_dir.name, title, executor, reviewer,
                                   self_review=same_model(cfg, executor, reviewer)))

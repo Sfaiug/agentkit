@@ -20,7 +20,7 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
-ROUNDS = ("review_rounds must be a whole number of at least 1, the review rounds a change has before "
+ROUNDS = ("review_rounds must be a whole number of at least 0, the review rounds a change has before "
           "it goes back to its orchestrator to split or re-scope")
 REVIEW = "the most added lines a first review reads"
 SEAT = "the most added lines an orchestrator builds"
@@ -98,7 +98,7 @@ class Refused(unittest.TestCase):
         task = taskfile.write(home, "none", done_when=("true",))
         config = home.path / ".agentkit" / "config.toml"
         for settings, why in (
-                ({"review_rounds": 0}, f"{ROUNDS} (got 0)"),
+                ({"review_rounds": -1}, f"{ROUNDS} (got -1)"),
                 ({"review_rounds": 2.5}, f"{ROUNDS} (got 2.5)"),
                 ({"review_rounds": True}, f"{ROUNDS} (got True)"),
                 ({"review_rounds": "no limit"}, f"{ROUNDS} (got 'no limit')"),
