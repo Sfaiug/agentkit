@@ -33,7 +33,7 @@ type plugin struct {
 	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
 	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
-	record func(record *run.Object) (plugin, bool)
+	record func(name string, record *run.Object) (plugin, bool)
 	heard  func(name string) hookfact.Fact
 	keys   []string
 	kept   *regexp.Regexp
