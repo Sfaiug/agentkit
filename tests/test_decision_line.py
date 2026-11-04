@@ -89,6 +89,12 @@ class DecisionLine(Sandbox):
         self.assertIn("Every one in full: /acme/final.md", (directory / "result.md").read_text())
         self.assertIn("acme-check " * 79, (directory / "result.md").read_text())
 
+    def test_a_record_whose_budget_will_not_read_still_names_its_next_step(self):
+        directory, state = self.ending("acme-legacy", state="blocked", verdict="BLOCKED", error="Go claims the keys.")
+        with patch.object(config, "host_policy", side_effect=config.Error("config.toml: rounds must be at least 1")):
+            line = handback.handback_line(state, directory, self.cfg)
+        self.assertIn("Next: rewrite the task and relaunch it with `from: ak/acme-legacy`. Result: ", line)
+
     def test_an_ending_nothing_decides_about_has_no_decision_line(self):
         for name, extra in (("acme-merged", {"merged": True, "pr": "https://github.com/a/b/pull/1"}),
                             ("acme-stopped", {"state": "stopped"})):
