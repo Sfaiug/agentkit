@@ -22,7 +22,6 @@ from fixtures.akterm import SERVER, Terminal
 
 MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
           "astra": {"harness": "codex", "effort": "high"}}
-FAR = 6                # j presses from the first model to `Limits`: the other, then four rows
 NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task")
 WIDE = max(map(len, NAMES))
 MEANS = ("The review rounds a change has before it goes back to its orchestrator to split or "
@@ -61,7 +60,7 @@ class LimitsPage(unittest.TestCase):
 
     def limits(self, term):
         """`config · limits` opened from `c`."""
-        term.keys(*["j"] * FAR)
+        term.keys(*["j"] * 30)       # Limits is the last config row.
         term.wait("› Limits")
         term.keys("Enter")
         return term.wait("config · limits")

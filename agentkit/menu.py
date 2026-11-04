@@ -138,7 +138,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import look, open_runs, parsed, record
+from . import google_cloud, look, machines, open_runs, parsed, record
 from . import warm
 
 KEYS = "n new   c config   esc leave"
@@ -2922,8 +2922,9 @@ def show_notices(messages):
 
 
 # The rows under the models, each running its own step.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", "Limits")
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", "Machines", "Limits")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
+MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
 # it, before the number and its unit after, and the values its list offers.  Owner, 3 Nov 2026:
@@ -3597,7 +3598,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     A model `providers` read as spent is dim.  A model whose provider runs the subscription
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
-    `Subscriptions`, `Discord`, `Weekly audit` and `Limits` with
+    `Subscriptions`, `Discord`, `Weekly audit`, `Machines` and `Limits` with
     their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
@@ -3714,7 +3715,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     if not rows:
         return lines, places
     lines.append("")
-    values = ("", "", discord_value(), audit_value(cfg), limits_value(cfg))
+    values = ("", "", discord_value(), audit_value(cfg), machines_value(), limits_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row in CONFIG_ROWS[2:])
     for row, value in zip(CONFIG_ROWS, values):
@@ -4131,6 +4132,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if act == "enter":
                 if here == AUDIT:
                     config_audit(cfg)
+                elif here == MACHINES:
+                    config_machines(cfg)
                 elif here == LIMITS:
                     config_limits(cfg)
                 else:
@@ -4828,8 +4831,8 @@ def opened_line(told, kind, texts, on, room):
 
 
 def page_body(rows, at=None, moves=None):
-    """The lines of a page `c` opens -- `Models`, `Discord`, `Weekly audit`, `Limits` -- and the
-    row each is, {line: (row, [])}: of `rows`, (row, label, value) each, its label and then its
+    """The lines of a page `c` opens and the row each is, {line: (row, [])}: of `rows`,
+    (row, label, value) each, its label and then its
     value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
     list opened under the row above it, indented as `add a subscription`'s are.  A value is
     text, or parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s
@@ -4877,8 +4880,9 @@ def config_page(name, page):
     itself out in the header (motion.Clock), and a mark leading a value fills or empties as it
     flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
 
-    A row's act is a mark, ("mark", flip), Space or a click flipping it; a list, (choices,
-    several), Enter or a click opening it under the row, coming up there (motion.fading), the
+    A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
+    flipping it; a list, (choices, several), Enter or a click opening it under the row, coming
+    up there (motion.fading), the
     highlight on the first choice marked; or a field, Enter or a click calling it with `draw`,
     which draws the page with lines under the row and returns the screen row of the first, as
     terminal.field takes it.  `choices()` gives (value, pick, mark) each, asked as the list
@@ -4898,6 +4902,8 @@ def config_page(name, page):
             return ((None, mark) if isinstance(mark, str)
                     else ("mark", "close" if opened[2] else "pick"))
         act = rows[row[1]][2]
+        if act is None:
+            return None, None
         return ("mark", None) if isinstance(act, tuple) and act[0] == "mark" else (None, "open")
     while True:
         rows, note = page()
@@ -5205,6 +5211,51 @@ def config_audit(cfg):
     config_page("weekly audit", page)
 
 
+def machines_value():
+    """`Machines`' count and the tick's cloud spending, with no probe or Google call."""
+    return f"{len(machines.known())} · Google Cloud {google_cloud.summary()}"
+
+
+def machine_value(machine, rented, turns):
+    """What the tick last found, and the work this machine may take under today's switches."""
+    here, said = machine.name == machines.HERE, machine.said
+    kind = "home" if here else machine.kind
+    if not here and machine.name in rented:
+        until = time.strftime("%H:%M", time.localtime(rented[machine.name]))
+        kind = f"rented until {until}"
+    words = [kind]
+    if said:
+        total, free = said["memory_mb"], said["free_mb"]
+        words += [f"{said['cores']} cores · {machines._gb(total)}"]
+    if machine.checks and not machine.checks[-1][1]:
+        since = machine.checks[-1][0]
+        for at, answered in reversed(machine.checks):
+            if answered:
+                break
+            since = at
+        words += [f"not answering since {machines._when(since)}"]
+    elif said:
+        busy = min(100, max(0, round(100 * said["load"] / max(1, said["cores"]))))
+        used = machines._gb(total - free).removesuffix(" GB")
+        words += [f"{busy}% busy · {used} of {machines._gb(total)} used"]
+    else:
+        words += ["never answered"]
+    work = ("sessions, builds, reviews, tests" if here else "builds, reviews, tests"
+            if turns and not (said and said["system"] == "macOS") else "tests")
+    return " · ".join([*words, work])
+
+
+def config_machines(cfg):
+    """`Machines`: recorded readings only, with no row acts yet."""
+    def page():
+        rented = google_cloud.serving()
+        rows = [(machine.name, machine_value(machine, rented,
+                                             cfg.get("turns_on_machines") is True), None)
+                for machine in machines.known()]
+        return [*rows, ("Google Cloud", google_cloud.summary(), None)], ""
+    config_page("machines", page)
+
+
 def limit_shown(value):
     """One of config.POLICY's numbers as `Limits` says it: 0, the limit off, as `off`."""
     return str(value) if value else "off"
@@ -5258,8 +5309,8 @@ def config_limits(cfg):
 def show_config(dry_run=False, keyboard=None, session=None):
     """`c`: every model in one matrix of `session`'s roles -- the seat the popup is over, read
     from its own record -- and the efforts, under each subscription's meter, then
-    `Models`, `Subscriptions`, `Discord`, `Weekly audit` and `Limits`, agentkit's build under
-    them, read with the menu's keyboard (config_matrix), so nothing is typed.
+    CONFIG_ROWS, agentkit's build under them, read with the menu's keyboard (config_matrix),
+    so nothing is typed.
     With no seat, or for a seat with no record, the marks are new seats' ([defaults]); a
     record that will not read has the efforts alone, saying so under the rows: the screen that
     changes the models still opens.
