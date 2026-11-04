@@ -12,7 +12,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.leases import OLDER, YOUNGER, LiveRuns
-from agentkit import config, gitcall, run, record
+from agentkit import config, gitcall, leases, run, record
 
 
 class Step:
@@ -32,6 +32,14 @@ class Step:
 
 
 class Reservations(LiveRuns):
+    def test_old_loops_scan_calls_keep_both_builds_going(self):
+        self.collide()
+        leases.scan_all(self.logs.append, now=2000)
+        leases.scan_safely(self.repo, self.logs.append, now=2000)
+        for name in (OLDER, YOUNGER):
+            self.assertEqual(self.state(name)["state"], "running")
+            self.assertNotIn("lease_wait", self.state(name))
+
     def test_the_commit_step_keeps_a_colliding_build_going(self):
         self.collide()
         lp = Step(config.RUNS / YOUNGER, self.logs.append)

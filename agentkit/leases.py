@@ -1,4 +1,4 @@
-"""Restart runs parked before collision scans were retired.
+"""Restart legacy parks and keep old loops' scan calls harmless.
 
 Their stopped records still wait for the older run to land, end or stand still;
 then the tick starts their tasks again. New builds meet main before review.
@@ -9,6 +9,22 @@ import shutil
 
 from . import config, gitcall, transitions, turns
 from . import record as run_record
+
+
+# Old loops import these calls lazily; updating ak must not break an ongoing build.
+def scan_safely(repo, log=lambda _: None, now=None):
+    pass
+
+
+def scan_all(log=lambda _: None, now=None):
+    pass
+
+
+# A stable identity keeps temporary suite commits of the same tree and parents identical.
+STAMP = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
+         "GIT_COMMITTER_NAME": "ak", "GIT_COMMITTER_EMAIL": "ak@localhost",
+         "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
+
 
 # what a going run can wait on that ak does not move: an expired login, a stall only a resume
 # ends, a spent provider window that may take days
