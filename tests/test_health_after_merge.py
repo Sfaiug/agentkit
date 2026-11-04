@@ -182,6 +182,65 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
         self.git("cat-file", "-e", sha)
 
+    def test_a_stopped_origin_does_not_hold_other_repositories_back(self):
+        remote = self.merged(self.remote_merge("exit 1", deployed="exit 0"))
+        local_sha = self.declare("exit 1", "exit 0")
+        second = self.root / "second"
+        self.git("clone", "-q", str(self.repo), str(second))
+        local = self.merged(local_sha, name="run-z")
+        with record.record(local) as current:
+            current["repo"] = str(second)
+            current["pr"] = "https://github.com/acme/z/pull/7"
+        for directory in (remote, local):
+            with record.record(directory) as current:
+                current.update(health_failures=2, deployed_at=NOW - 1000)
+        with patch.object(gitcall, "fetch", side_effect=gitcall.Stopped("origin requires login")):
+            self.tick()
+        self.launch.assert_called_once()
+        self.assertEqual(self.launch.call_args.kwargs["repair"]["sha"], local_sha)
+
+    def test_a_shallow_release_fetches_the_parent_needed_for_its_revert(self):
+        self.declare(None)
+        sha = self.declare("exit 1", "exit 0")
+        shallow = self.root / "shallow"
+        self.git("clone", "-q", "--depth=1", self.repo.as_uri(), str(shallow))
+        self.assertNotEqual(gitcall.git_out(shallow, "cat-file", "-e", sha + "^")[0], 0)
+        directory = self.merged(sha)
+        with record.record(directory) as current:
+            current["repo"] = str(shallow)
+        for elapsed in (0, 151, 302):
+            self.tick(NOW + elapsed)
+        self.launch.assert_called_once()
+        self.assertEqual(gitcall.git_out(shallow, "cat-file", "-e", sha + "^")[0], 0)
+
+    def test_an_expired_notice_uses_the_projects_current_rollback_result(self):
+        command = f'test -e "{self.root}/released"'
+        released = self.root / "released"
+        released.touch()
+        directory = self.merged(self.declare("exit 1", command), age=watch.AFTER_MERGE_WINDOW - 120)
+        self.tick()
+        self.tick(NOW + 30)
+        released.unlink()
+        self.tick(NOW + watch.AFTER_MERGE_WINDOW + 1)
+        self.assertFalse(record.read_state(directory)["deployed_passed"])
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("the live product does not run this merge yet", self.lines[0][1])
+        self.launch.assert_not_called()
+
+    def test_an_unrecovered_revert_is_not_announced_again_after_health_expires(self):
+        command = f'test -e "{self.root}/healthy"'
+        healthy = self.root / "healthy"
+        healthy.touch()
+        self.declare(None)
+        self.merged(self.declare(command, "exit 0"))
+        self.tick()
+        healthy.unlink()
+        for elapsed in (151, 302, 453, watch.AFTER_MERGE_WINDOW + 1,
+                        watch.AFTER_MERGE_WINDOW + 2, watch.AFTER_MERGE_WINDOW + 3):
+            self.tick(NOW + elapsed)
+        self.assertEqual(len(self.lines), 1)
+        self.assertIn("revert run revert", self.lines[0][1])
+
     def test_a_newer_deployed_release_without_health_blocks_an_older_revert(self):
         self.declare(None)
         self.merged(self.declare("exit 1", "exit 0"))

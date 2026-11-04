@@ -7557,6 +7557,8 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                 return "pending", None, None
         else:
             # One typed line: a line break would reach the seat as Enter and send half of it.
+            if st.get("deployed") and not dry_run:
+                after_merge_deployed(run_dir, st, key, sha, now, probes)
             output = health.get("output") or "command exited nonzero without output"
             deployment = []
             if st.get("deployed"):
@@ -7780,11 +7782,12 @@ def after_merge_revert(statuses, probes, key, now, dry_run, log):
         return None
     if st.get("health_failures", 0) < REVERT_FAILURES or now - st["deployed_at"] < REVERT_GRACE:
         return None
-    if gitcall.git_out(st["repo"], "cat-file", "-e", f"{sha}^{{commit}}")[0]:
-        code, why = gitcall.fetch(st["repo"], "--no-tags", "origin", sha)
+    if gitcall.git_out(st["repo"], "cat-file", "-e", f"{sha}^")[0]:
+        depth = ("--deepen=1",) if gitcall.git(st["repo"], "rev-parse", "--is-shallow-repository") == "true" else ()
+        code, why = gitcall.fetch(st["repo"], "--no-tags", *depth, "origin", sha)
         if code:
             owner, repo, host, _ = after_merge_repo(pr_url)
-            code, why = gitcall.fetch(st["repo"], "--no-tags", f"https://{host}/{owner}/{repo}.git", sha)
+            code, why = gitcall.fetch(st["repo"], "--no-tags", *depth, f"https://{host}/{owner}/{repo}.git", sha)
         if code:
             log(f"WARN cannot fetch run {directory.name}'s release for a revert: {why}")
             return None
@@ -7879,7 +7882,9 @@ def after_merge_checks(state, dry_run, log, now=None):
             if not dry_run:
                 for directory in expired_health:
                     with run_record.record(directory) as current:
-                        current.pop("health", None)
+                        # Without this failure, its earlier live_at would end the episode as a pass.
+                        if not current.get("live_at"):
+                            current.pop("health", None)
 
         for finished, name, run_dir, st, pr_url in found:
             if (not after_merge_window(st, now) and st.get("live_at")
@@ -7904,7 +7909,11 @@ def after_merge_checks(state, dry_run, log, now=None):
                 expired_health.append(run_dir)
             verdict, check, url = health or ("ignored", None, None)
             statuses.append((finished, name, run_dir, st, sha, pr_url, verdict, check, url))
-        reverting = after_merge_revert(statuses, probes, key, now + (time.time() - started), dry_run, log)
+        try:
+            reverting = after_merge_revert(statuses, probes, key, now + (time.time() - started), dry_run, log)
+        except PASS_ERRORS as exc:
+            log(f"WARN {key}'s release could not be reverted: {exc}")
+            reverting = None
         episode = episodes.get(key)
         if isinstance(episode, str):
             episode = episodes[key] = {"notified": episode} if episode else {}
