@@ -125,7 +125,6 @@ func TestReopensLeftToPython(t *testing.T) {
 	}
 	for name, extra := range map[string]map[string]any{
 		"an account's login":     {"account": "work"},
-		"a filed seat's launch":  {"repo": cwd},
 		"a seat naming itself":   {"unnamed": true},
 		"a folder gone":          {"cwd": filepath.Join(home, "gone")},
 		"a model no longer run":  {"orchestrator": "gone"},

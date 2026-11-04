@@ -25,6 +25,10 @@ func turned(name string, said func(current string) (word string, since any), pag
 			card = run.NewObject()
 		}
 		word, since := said(current)
+		if sentAlert(current, word, card) {
+			carried = true
+			return nil
+		}
 		if page != nil {
 			var err error
 			carried, err = page(current, card, word, since)

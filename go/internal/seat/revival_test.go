@@ -226,3 +226,72 @@ func TestOwedLinesHandOverLiveForeignOrPartlyTypedLinesAtTheirOwnTurn(t *testing
 		})
 	}
 }
+
+func TestRevivalLeavesLaterDeathsAndUnsupportedHarnessesToPython(t *testing.T) {
+	home := sandbox(t)
+	cwd := filepath.Join(home, "work", "acme")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "bin")
+	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
+case "$*" in
+  *show-options*) echo %1 ;;
+  *'#{pane_dead_time}'*) echo "$DIED" ;;
+  *'#{session_name}'*) echo acme ;;
+esac
+`)
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, each := range []struct {
+		model, own, death string
+		canOpen           bool
+	}{
+		{"opus", "claude", "1005", true},
+		{"opus", "claude", "1010", false},
+		{"opus", "claude", "unreadable", false},
+		{"astra", "codex", "1005", false},
+	} {
+		t.Run(each.own+"/"+each.death, func(t *testing.T) {
+			t.Setenv("DIED", each.death)
+			record(t, home, "acme", map[string]any{"orchestrator": each.model, "launched": 1000})
+			home := Home{Seats: []Seat{{Name: "acme", own: each.own, held: true}}}
+			if got := home.Revivals()[0].CanOpen; got != each.canOpen {
+				t.Fatalf("can open=%v", got)
+			}
+		})
+	}
+}
+
+func TestAGoingRunDecidesTheLiveSeatBeforeItsIdlePlan(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	show := drawn(t, home, "acme", prompting)
+	write(t, stateFile(home, "plan-acme.md"), openLine)
+	write(t, seatFile("acme"), `{"stop_said":"your plan owes a line"}`)
+	runRecord(t, home, "r-build", map[string]any{"state": "running"})
+	if _, known := Looking(time.Now()); !known {
+		t.Fatal("a send-back not reached on the ladder hid a live seat")
+	}
+	show("")
+	if _, known := Lives(time.Now()); !known {
+		t.Fatal("a starting harness's blank screen hid its going run")
+	}
+}
+
+func TestADeathDuringALiveLookKeepsTheLastScreenForRevival(t *testing.T) {
+	home := sandbox(t)
+	path := seatFile("acme")
+	write(t, path, `{"state":"at_prompt","rule":"prompt.composer","stall":"overloaded","login":"expired"}`)
+	previous, _ := run.ReadJSON(path)
+	seat := Seat{Name: "acme", own: "claude"}
+	if _, err := seat.keep(stateFile(home, ""), "", true, sight{state: "at_prompt", rule: "none"}, previous, 1000); err != nil {
+		t.Fatal(err)
+	}
+	file, _ := run.ReadJSON(path)
+	if file.Str("state") != "at_prompt" || file.Str("rule") != "prompt.composer" || file.Truthy("stall") || file.Truthy("login") {
+		t.Fatal(run.Line(file))
+	}
+}

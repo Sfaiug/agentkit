@@ -136,7 +136,7 @@ func (seat Seat) look(state string, now float64) (sight, error) {
 // error it was retrying past ended with it.
 func (seat Seat) keep(state, pane string, exited bool, found sight, previous *run.Object, now float64) (sight, error) {
 	if exited {
-		found.stall, found.login = nil, nil
+		return seat.keepExited(state, found)
 	} else if pane == "" && found.authority != "hook" {
 		return found, nil
 	}

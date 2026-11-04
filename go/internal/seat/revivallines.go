@@ -2,8 +2,6 @@ package seat
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"path/filepath"
 
 	"agentkit/internal/config"
@@ -40,15 +38,7 @@ func revivalStopped(file *run.Object) (bool, bool) {
 }
 
 func oweRevivalLine(name, line string) error {
-	return notify.Held(context.Background(), name, func(current string) error {
-		path := seatFile(current)
-		return put(path, filepath.Join(filepath.Dir(path), "seat-"+current+".lock"), run.Line, true, func(file *run.Object) bool {
-			id := make([]byte, 8)
-			rand.Read(id)
-			lines := append(file.List("owed_lines"), run.Fields("line", line, "id", hex.EncodeToString(id)))
-			return set([]field{{"owed_lines", lines}}, field{"session", current})(file)
-		})
-	})
+	return OweLine(name, line)
 }
 
 // TellRevivalLines is the tick's owed-lines row: a gone seat takes no keys; every live
@@ -100,7 +90,7 @@ func tellRevivalLine(name string, log func(string)) (bool, error) {
 		lines := revivalFile(current).List("owed_lines")
 		return len(lines) == 0 || !run.Equal(lines[0], owed)
 	}
-	typed := typeAtPrompt(name, owed.Str("line"), func(mark *run.Object) error {
+	typed := typeAtPrompt(name, owed.Str("line"), nil, func(mark *run.Object) error {
 		current, _, err := config.ResolveSession(name)
 		if err != nil {
 			return err
@@ -117,8 +107,3 @@ func tellRevivalLine(name string, log func(string)) (bool, error) {
 	return true, err
 }
 
-// TypeAtPrompt is the ordinary confirmed send; a delivery that owns a durable line also
-// checks its identity under the typing lock before any key goes in.
-func TypeAtPrompt(name, line string, receipt func(mark *run.Object) error, log func(string)) bool {
-	return typeAtPrompt(name, line, receipt, log, func(string) bool { return false })
-}
