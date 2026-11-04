@@ -401,6 +401,7 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 // the role's pick, Front those with a cost, best first, each better
 // than every cheaper one, a row of yours than every cheaper one of yours, as one no harness of
 // yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
+// Pick and Take stay visible even if rows outside their eligible pool beat them.
 type Said struct {
 	Front      []*Rating
 	Best       *float64
@@ -445,6 +446,11 @@ func Answer(rows []Row, compared map[string]bool) map[string]*Said {
 			}
 		}
 		said.Pick, said.Take = pick(priced, role), pick(yours, role)
+		for _, chosen := range []*Rating{said.Pick, said.Take} {
+			if chosen != nil && !slices.Contains(said.Front, chosen) {
+				said.Front = append(said.Front, chosen)
+			}
+		}
 		slices.SortStableFunc(said.Front, func(a, b *Rating) int { return cmp.Compare(b.Quality, a.Quality) })
 		out[role] = said
 	}
@@ -452,40 +458,44 @@ func Answer(rows []Row, compared map[string]bool) map[string]*Said {
 }
 
 // pick follows Python's quality.pick (owner, 3 Nov 2026) on priced rows sorted by cost,
-// decreasing quality on ties: the upper hull's sharpest bend, only execution allowed to
-// trade measured quality for cost. Filter bends without changing the hull's steps.
+// decreasing quality on ties: the frontier row farthest above its cheapest-to-best line,
+// cheaper on a tie. Only execution may trade measured quality for cost; the other roles
+// compare only rows indistinguishable from the best before building their frontier.
 func pick(priced []*Rating, role string) *Rating {
-	var hull []*Rating
+	var best *Rating
 	for _, row := range priced {
-		if len(hull) > 0 {
-			last := hull[len(hull)-1]
+		if best == nil || row.Quality > best.Quality {
+			best = row
+		}
+	}
+	if best == nil {
+		return nil
+	}
+	var front []*Rating
+	for _, row := range priced {
+		if role != "execute" && row != best && best.Quality-row.Quality >= 1.96*math.Hypot(best.SE, row.SE) {
+			continue
+		}
+		if len(front) > 0 {
+			last := front[len(front)-1]
 			if *row.Cost == *last.Cost || row.Quality <= last.Quality {
 				continue
 			}
 		}
-		for len(hull) > 1 {
-			a, b := hull[len(hull)-2], hull[len(hull)-1]
-			if (b.Quality-a.Quality)*(*row.Cost-*b.Cost) > (row.Quality-b.Quality)*(*b.Cost-*a.Cost) {
-				break
-			}
-			hull = hull[:len(hull)-1]
-		}
-		hull = append(hull, row)
+		front = append(front, row)
 	}
-	if len(hull) == 0 {
-		return nil
+	cheapest := front[0]
+	span := *best.Cost - *cheapest.Cost
+	if span == 0 {
+		return best
 	}
-	best := hull[len(hull)-1]
-	chosen, largest := best, 0.0
-	for n := 1; n+1 < len(hull); n++ {
-		before, row, after := hull[n-1], hull[n], hull[n+1]
-		if role != "execute" && best.Quality-row.Quality >= 1.96*math.Hypot(best.SE, row.SE) {
-			continue
-		}
-		growth := ((*after.Cost - *row.Cost) / (after.Quality - row.Quality)) /
-			((*row.Cost - *before.Cost) / (row.Quality - before.Quality))
-		if growth > largest {
-			chosen, largest = row, growth
+	rise := best.Quality - cheapest.Quality
+	chosen, largest := cheapest, 0.0
+	// Scale every distance by the same span: division can round equal gaps apart.
+	for _, row := range front[1:] {
+		above := (row.Quality-cheapest.Quality)*span - rise*(*row.Cost-*cheapest.Cost)
+		if above > largest {
+			chosen, largest = row, above
 		}
 	}
 	return chosen

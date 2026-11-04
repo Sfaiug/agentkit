@@ -30,8 +30,8 @@ ROWS = [("acme-max-5", "Acme Max 5", "low", 30, 6.0),
         ("acme-max-5", "Acme Max 5", "high", 45, 10.0),
         ("acme-max-5", "Acme Max 5", "max", 60, 20.0),
         ("crux-2", "Crux 2", None, 0, 1.0), ("crux-2", "Crux 2", "high", 5, 2.0)]
-# what review shows: the best, the take 3 behind, the pick 5 behind and one 11 behind, the last of
-# two rows of its release
+# what review shows: the best, the pick and take 3 behind, a row 5 behind and one 11 behind,
+# the last of two rows of its release
 REVIEWS = [("Acme Max 5  ▰▰▰▰  max", "100.0", "$20.00"),
            ("Acme Max 5  ▰▰▰▱  high", "97.0", "$10.00"),
            ("Acme Max 5  ▰▰▱▱  medium", "95.0", "$5.00"),
@@ -92,7 +92,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         rows = [drawn(line) for line in shown[at + 1:at + 1 + len(REVIEWS)]]
         self.assertEqual([(head, quality, cost) for _, head, _, quality, cost, _ in rows], REVIEWS)
         (_, _, best, *_), (mark, _, pick, *_), (_, _, half, *_), (*_, empty, _, _, crux) = rows
-        self.assertEqual(mark, "r takes")
+        self.assertEqual(mark, "★ pick")
         self.assertIn("no harness", crux)
         self.assertEqual(len({len(best), len(pick), len(half), len(empty)}), 1)
         self.assertEqual(best, "━" * len(best))
@@ -103,7 +103,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         self.assertIn("Crux 2", [row[1] for row in map(drawn, shown) if row])    # no effort
 
     def test_every_frontier_row_shows(self):
-        # review's qualities: 100 99 98 97, Bolt 2 96.4 the pick, Acme Max 5 medium 96 what `r` takes
+        # review's qualities: 100 99 98 97, Bolt 2 96.4, Acme Max 5 medium 96 kept
         # though Bolt 2 is cheaper and better, then 88, 86 and 84.  Gulp 1 95 lies under
         # Bolt 2 and Acme Max 5 high 94 under Acme Max 5 medium, so both are left out.
         self.home.write(".agentkit/state/boards.json", boards([
