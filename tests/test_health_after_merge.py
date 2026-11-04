@@ -148,7 +148,9 @@ class HealthAfterMerge(unittest.TestCase):
     def test_a_healthy_deployed_release_awaiting_its_notice_never_expires_as_failed(self):
         directory = self.merged(self.declare("exit 0", "exit 0"))
         with patch.object(watch, "live_passed", return_value=("passed", None, None)):
-            self.tick()
+            for elapsed in (0, 60):
+                self.tick(NOW + elapsed)
+                self.assertNotIn("health", record.read_state(directory))
             self.assertNotIn("live_notified", record.read_state(directory))
             self.tick(NOW + watch.AFTER_MERGE_WINDOW + 1)
         self.assertEqual(self.lines, [])
