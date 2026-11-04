@@ -67,7 +67,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.git("commit", "-qm", "Declare live probe")
         return self.git("rev-parse", "HEAD")
 
-    def remote_merge(self, command):
+    def remote_merge(self, command, deployed=None):
         self.declare(None)
         self.git("branch", "-M", "main")
         origin = self.root / "origin.git"
@@ -75,7 +75,8 @@ class HealthAfterMerge(unittest.TestCase):
         self.git("clone", "-q", "--bare", str(self.repo), str(origin))
         self.git("remote", "add", "origin", str(origin))
         self.git("clone", "-q", str(origin), str(hub))
-        (hub / "AGENTS.md").write_text(f"---\nhealth: {command}\n---\n")
+        front = f"deployed: {deployed}\n" if deployed else ""
+        (hub / "AGENTS.md").write_text(f"---\nhealth: {command}\n{front}---\n")
         self.git("-C", str(hub), "add", "AGENTS.md")
         self.git("-C", str(hub), "commit", "-qm", "Merge pull request #7")
         self.git("-C", str(origin), "fetch", "-q", str(hub), "HEAD:refs/heads/main")
@@ -147,7 +148,7 @@ class HealthAfterMerge(unittest.TestCase):
                 self.assertEqual(self.lines, [])
 
     def test_remote_merge_declaration_is_read_without_fetching_or_changing_the_checkout(self):
-        sha = self.remote_merge("echo \"$AK_MERGE_SHA\" > live-proof")
+        sha = self.remote_merge("echo \"$AK_MERGE_SHA\" > live-proof", deployed="exit 0")
         head = self.git("rev-parse", "HEAD")
         agents = (self.repo / "AGENTS.md").read_text()
         directory = self.merged(sha)
@@ -156,9 +157,10 @@ class HealthAfterMerge(unittest.TestCase):
         with patch.object(run, "fetch", wraps=run.fetch) as fetch:
             self.tick()
         fetch.assert_not_called()
-        self.assertEqual(self.probes.call_count, 1)
+        self.assertEqual(self.probes.call_count, 2)
         self.assertEqual((self.repo / "live-proof").read_text().strip(), sha)
         self.assertEqual(record.read_state(directory)["live_at"], NOW)
+        self.assertEqual(record.read_state(directory)["deployed_at"], NOW)
         self.assertEqual(history.get("run-a")["live_at"], NOW)
         self.assertEqual(self.lines, [])        # the seat owes nothing: recorded, never typed
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
@@ -310,7 +312,7 @@ class HealthAfterMerge(unittest.TestCase):
             # what the merge commit declares is recorded, none included, and read once
             self.assertEqual(record.read_state(directory)["health"], {})
             self.tick()
-        self.assertEqual(read.call_count, 1)
+        self.assertEqual(read.call_count, 2)
         self.assertEqual(self.lines, [])
 
     def test_dry_run_neither_runs_health_nor_records_live(self):

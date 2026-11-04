@@ -7429,14 +7429,15 @@ def follow_live(run_dir):
 def merge_record(repo, sha, pr_url=None):
     """What a merge leaves on its run's record beside `merged`, the one record the tick
     (`after_merge_health`) and the seat's word (`awaiting_live`) read: the `health:` the
-    commit `sha` declares, `{}` where it declares none.  Read in `repo`, else from the PR's
-    repository on GitHub where `pr_url` names one; nothing where neither holds the commit,
-    and the tick asks again."""
+    commit `sha` declares, `{}` where it declares none, and its `deployed:` command, else None.
+    Read in `repo`, else from the PR's repository on GitHub where `pr_url` names one; nothing
+    where neither holds the commit, and the tick asks again."""
     from . import run
     if not sha:
         return {}
     if repo and run.git_out(repo, "cat-file", "-e", f"{sha}^{{commit}}")[0] == 0:
         command = gitcall.declared_at(repo, sha, "health")
+        deployed = gitcall.declared_at(repo, sha, "deployed")
     else:
         # The merge may exist only on GitHub; discovering health must not depend on origin.
         parsed = after_merge_repo(pr_url)
@@ -7451,7 +7452,8 @@ def merge_record(repo, sha, pr_url=None):
             return {}
         text = base64.b64decode(data["content"]).decode("utf-8", errors="replace")
         command = gitcall.front_value(text, "health")
-    return {"health": {"command": command} if command else {}}
+        deployed = gitcall.front_value(text, "deployed")
+    return {"health": {"command": command} if command else {}, "deployed": deployed}
 
 
 def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes, records=None):
@@ -7467,10 +7469,12 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
         # every tick: history swallows a write that failed, and the next tick repeats it
         history.update_run(st.get("run_id") or run_dir.name, merge_sha=sha, log=log)
     inside = now - st["finished_at"] < AFTER_MERGE_WINDOW
-    if not st.get("live_at") and "health" not in st and inside and st.get("repo"):
+    if (not st.get("live_at") and ("health" not in st or "deployed" not in st)
+            and inside and st.get("repo")):
         # a merge that could not read its commit, or one recorded before merges did: the
         # commit it delivered decides, as it would have there, recorded once for both readers
         found = merge_record(st["repo"], st.get("delivery_sha") or sha, pr_url)
+        found = {key: value for key, value in found.items() if key not in st}
         if found and not dry_run:
             with run_record.record(run_dir) as current:
                 current.update(found)
@@ -7489,7 +7493,14 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                 probes[probe] = health_command(st["repo"], sha, command,
                                                checked=(run_dir, None, "health", sha))
             passed, output = probes[probe]
+            deployed = st.get("deployed")
+            deployed_probe = (key, sha, "deployed")
+            if deployed and deployed_probe not in probes:
+                probes[deployed_probe] = health_command(
+                    st["repo"], sha, deployed, checked=(run_dir, None, "deployed", sha))
             with run_record.record(run_dir) as current:
+                if deployed and probes[deployed_probe][0]:
+                    current.setdefault("deployed_at", now)
                 if passed or current.get("live_at"):
                     current.setdefault("live_at", now)
                     current.pop("health", None)
@@ -7502,8 +7513,12 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
         else:
             # One typed line: a line break would reach the seat as Enter and send half of it.
             output = health.get("output") or "command exited nonzero without output"
+            deployment = []
+            if st.get("deployed"):
+                deployment = ["this merge is live and its health fails" if st.get("deployed_at")
+                              else "the live product does not run this merge yet"]
             return "failed", f"health: {command}", "; ".join(
-                [pr_url, *(part for part in output.splitlines() if part.strip())])
+                [pr_url, *deployment, *(part for part in output.splitlines() if part.strip())])
     if dry_run:
         if not st.get("live_notified"):
             log(f"would tell its launching seat: {handback.live_sentence(st, run_dir)}")

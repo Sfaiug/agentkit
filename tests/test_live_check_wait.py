@@ -51,9 +51,10 @@ class LiveCheckWait(MergedRuns):
         with_health = "---\nusers: real\nhealth: curl -fsS https://acme.test/ok\n---\n# acme\n"
         # the merge step records what the delivered commit declares, once, for the tick and the word
         wt, sha = self.delivered("declares", with_health)
-        self.assertEqual(watch.merge_record(wt, sha), {"health": {"command": "curl -fsS https://acme.test/ok"}})
+        self.assertEqual(watch.merge_record(wt, sha), {
+            "health": {"command": "curl -fsS https://acme.test/ok"}, "deployed": None})
         wt, sha = self.delivered("silent", bare)
-        self.assertEqual(watch.merge_record(wt, sha), {"health": {}})
+        self.assertEqual(watch.merge_record(wt, sha), {"health": {}, "deployed": None})
         self.assertEqual(watch.merge_record(None, sha), {})         # no checkout at hand: the tick reads GitHub's
         # the wait reads that record and nothing else: a checkout's own file decides nothing
         self.merged("recorded", health=True, tree=bare)

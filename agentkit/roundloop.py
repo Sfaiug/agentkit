@@ -31,8 +31,8 @@ from . import (beside_review, config, gitcall, hand_in, handback, history, promp
 # `alive:` names the command that tells ak, from its own machine, the product is up (`alive`).
 # `nightly:` names the command that prints the project's newest night (`nightly`).
 # config.POLICY's keys are the project's own numbers (`config.policy`).
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup",
-              "alive", "nightly", *config.POLICY)
+FRONT_KEYS = ("tests", "health", "deployed", "cleanup", "users", "features", "suite_image", "content",
+              "setup", "alive", "nightly", *config.POLICY)
 
 
 # The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
