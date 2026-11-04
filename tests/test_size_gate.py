@@ -1,9 +1,9 @@
 """Past the size ceilings, ak refuses with `split it`.
 
 Owner rule, 3 Oct, 4 Oct, 9 Oct, 11 Oct, 13 Oct, 15 Oct, 16 Oct, 20 Oct, 21 Oct 2026: "A task's first
-review takes at most 300 added lines and a seat's own pull request stays under 50 (deletions and
+review takes at most 300 added lines and a seat's own pull request adds at most 50 (deletions and
 unchanged moves never count), and a task at most three checks a round runs: past either task cap,
-ak refuses with `split it`; from 50 lines a seat writes a task for an executor. Reason: first-review
+ak refuses with `split it`; above 50 lines a seat writes a task for an executor. Reason: first-review
 sizes recorded 14-21 Oct merged 68% at 300-400 lines against 77% at 200-299, with one in six against
 7% turning landing red, while tokens per merged line stayed flat at 55-80K from 50 to 400 lines.
 It is looked at again once four weeks of first-review sizes are recorded. Review rounds stay three,
@@ -15,8 +15,8 @@ tests/test_rules_cap_told.py and tests/test_seat_pr_under_fifty_lines.py.
 A task has at most three checks a round runs (`task.MAX_CHECKS`, counted by preflight on the
 list the loop settles: the repository's suite line, however the task names it, runs once at
 landing and never counts; a `# once` line counts where the run has no landing), and a task
-gets its first review only up to 300 added lines (`review_lines`); a seat's own PR stays
-under 50 (`seat_lines`), documents included, generated files aside
+gets its first review only up to 300 added lines (`executor_lines`); a seat's own PR stays
+at most 50 (`orchestrator_lines`), documents included, generated files aside
 and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
 finds moved unchanged from lines the diff deletes.  tests/test_seat_pr_under_fifty_lines.py drives the
 refusal through the review itself.  Offline: a real checkout whose attributes mark a
@@ -108,7 +108,7 @@ class SizeGate(Sandbox):
             return run.Loop(config.load(), directory, state, {}, lambda _s: None, self.repo,
                             "# Fix the API", ["true"], "Do the task.")
 
-        read, ceiling = [], config.policy()["review_lines"]
+        read, ceiling = [], config.policy()["executor_lines"]
 
         def judged(lp):
             # what the first review reads is in the run's history row before any verdict, so a
@@ -203,7 +203,7 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 0)
         self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
-        ceiling = config.policy()["review_lines"]
+        ceiling = config.policy()["executor_lines"]
         self.assertIsNone(transitions.first_review_refusal("PR #7", ceiling, ceiling))
         self.assertEqual(transitions.first_review_refusal("PR #7", ceiling + 1, ceiling),
                          "PR #7 adds 301 lines (generated files aside; deletions never count): "
@@ -222,7 +222,7 @@ class SizeGate(Sandbox):
         head = self.git("rev-parse", "HEAD")
         self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 501)
         self.assertEqual(transitions.reviewed_lines(self.repo, self.base, head)[0].total(), 501)
-        self.assertIn("split it", transitions.first_review_refusal("PR #7", 501, config.policy()["review_lines"]))
+        self.assertIn("split it", transitions.first_review_refusal("PR #7", 501, config.policy()["executor_lines"]))
         # ... and once the marking has landed on its own, the fixtures are generated
         self.assertEqual(run.diff_lines(self.repo, self.git("rev-parse", "HEAD~1"), head,
                                         added_only=True), 0)

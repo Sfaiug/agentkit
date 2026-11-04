@@ -90,7 +90,7 @@ def _start(checkout, started, names, tests):
     task = _write_task(checkout, started, names, tests)
     meta, body, title = taskfile.parse_task(task)
     commands = taskfile.done_when(body, task)
-    refusal = taskfile.launch_refusal(meta, commands, run.launch_policy(task)["rounds"])
+    refusal = taskfile.launch_refusal(meta, commands, run.launch_policy(task)["review_rounds"])
     rivals = run.already_under_way(task, meta, title, commands)
     if refusal or rivals:
         raise config.Error(refusal or f"{rivals[0]['id']} is under way")

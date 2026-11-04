@@ -71,9 +71,9 @@ COMMANDS = {
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
             """Execute, verify, review, push, open a PR and merge.
---rounds sets the round limit, at most $rounds (default: task rounds or $rounds).
+--rounds sets the round limit, at most $review_rounds (default: task rounds or $review_rounds).
 --anyway starts even when a run in the same repository looks already under way;
-a task over $rounds round$s is refused regardless.
+a task over $review_rounds round$s is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.
@@ -90,8 +90,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                    "Show current work and result paths; --history includes older runs.",
                    "ak run status --history --json"),
     "run resume": ("usage: ak run resume ID [--rounds N] [--bg]",
-                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most $rounds.",
-                   "ak run resume RUN_ID --rounds $rounds --bg"),
+                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most $review_rounds.",
+                   "ak run resume RUN_ID --rounds $review_rounds --bg"),
     "run merge": ("usage: ak run merge ID",
                   "Retry delivery of a finished PASS; reverify if integration changes its commit.",
                   "ak run merge RUN_ID"),

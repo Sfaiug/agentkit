@@ -1,4 +1,4 @@
-"""`c` shows `rounds`, `review_lines` and `seat_lines` on one `Limits` row, at a glance, and
+"""`c` shows `review_rounds`, `executor_lines` and `orchestrator_lines` on one `Limits` row, at a glance, and
 Enter there opens `config · limits`: a row each under a plain name, its value and `default N`
 where that is not ak's default, the pointed one's meaning and board rows under the rows.  Enter
 on a row opens its short list, the value in force marked, and a pick saves it to config.toml at
@@ -80,17 +80,17 @@ class LimitsPage(unittest.TestCase):
         shown = lines(self.c().wait("Limits"))
         self.assertIn("  Limits        review 3 rounds · executor 300 lines · orchestrator 50 "
                       "lines", shown)
-        for gone in ("rounds", "review_lines", "seat_lines"):
+        for gone in ("review_rounds", "executor_lines", "orchestrator_lines"):
             self.assertFalse([line for line in shown if line.split()[:1] == [gone]], shown)
 
     def test_enter_on_limits_opens_the_page_with_the_three_plain_names(self):
-        shown = lines(self.limits(self.c({"seat_lines": 0})))
+        shown = lines(self.limits(self.c({"orchestrator_lines": 0})))
         self.assertIn("agentkit · config · limits", shown[0])
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
                          [row(NAMES[0], "3", on=True), row(NAMES[1], "300"),
                           row(NAMES[2], "off default 50")])
         self.assertIn(MEANS, " ".join(line.strip() for line in shown))
-        self.assertEqual(akconfig.read(self.home)["seat_lines"], 0)
+        self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
     def test_the_pointer_off_every_row_takes_the_note_away(self):
         term = self.c()
@@ -101,7 +101,7 @@ class LimitsPage(unittest.TestCase):
 
     def test_on_a_narrow_terminal_each_value_folds_under_its_name_never_cut(self):
         shown = lines(self.limits(self.c(
-            {"rounds": 4, "review_lines": 1000, "seat_lines": 0}, size=(40, 50))))
+            {"review_rounds": 4, "executor_lines": 1000, "orchestrator_lines": 0}, size=(40, 50))))
         at = shown.index(f"› {NAMES[0]}")
         self.assertEqual(shown[at:at + 6], [
             f"› {NAMES[0]}", "    4 default 3", f"  {NAMES[1]}", "    1000 default 300",
@@ -113,7 +113,7 @@ class LimitsPage(unittest.TestCase):
         shown = self.picked(term, NAMES[1], ("j", "j"), "1000")
         self.assertIn(row(NAMES[1], "1000 default 300", on=True), shown)
         saved = akconfig.read(self.home)
-        self.assertEqual((saved["review_lines"], saved["max_runs"], saved["custom_flag"]),
+        self.assertEqual((saved["executor_lines"], saved["max_runs"], saved["custom_flag"]),
                          (1000, 7, True))
         term.keys("Escape")
         term.wait("executor 1000 lines")
@@ -123,14 +123,14 @@ class LimitsPage(unittest.TestCase):
         self.limits(term)
         shown = self.picked(term, NAMES[2], ("k", "k", "k"), "off")
         self.assertIn(row(NAMES[2], "off default 50", on=True), shown)
-        self.assertEqual(akconfig.read(self.home)["seat_lines"], 0)
+        self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
     def test_a_list_offers_what_the_host_takes_and_the_value_in_force(self):
-        term = self.c({"review_lines": 150, "seat_lines": 120})
+        term = self.c({"executor_lines": 150, "orchestrator_lines": 120})
         self.limits(term)
         term.keys("j", "Enter")
         shown = lines(term.wait("›   ● 150"))
-        # 100 is under seat_lines: refused, so not offered
+        # 100 is under orchestrator_lines: refused, so not offered
         self.assertEqual([line.split()[-1] for line in shown if line[4:6] in ("● ", "○ ")],
                          ["150", "200", "300", "500", "1000", "2000"])
 

@@ -106,14 +106,16 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before t
 # with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).
 # Added lines only, generated files and unchanged moves aside (`transitions.diff_lines`,
-# `transitions.carried_lines`): past the task cap, split it; at the seat limit, write a task.
+# `transitions.carried_lines`): past either limit, write a smaller task.
 POLICY = {
-    "rounds": (3, 1, "the review rounds a change has before it goes back to its orchestrator "
+    "review_rounds": (3, 1, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope", ("first round", "unmerged", "hours to merge")),
-    "review_lines": (300, 1, "the most added lines a first review reads",
+    "executor_lines": (300, 1, "the most added lines a first review reads",
                      ("first round", "merged")),
-    "seat_lines": (50, 0, "the added lines a seat's own change stays under", ("built",)),
+    "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds", ("built",)),
 }
+POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
+                  "seat_lines": "orchestrator_lines"}
 # How a number of rounds opens a sentence and how the round past them reads; further up, figures.
 ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
                4: ("Four", "a fifth"), 5: ("Five", "a sixth")}
@@ -411,6 +413,57 @@ def host_policy(table=None):
     return _policy_in(path, (_read_toml(path) or {}) if table is None else table)
 
 
+def rename_policy(data):
+    """Keep old host settings and saved run policies under their current names."""
+    for old, new in POLICY_RENAMES.items():
+        if old in data:
+            data.setdefault(new, data.pop(old))
+    return data
+
+
+def migrate_policy():
+    """The first command replaces old keys in ak's own file; project files stay theirs."""
+    path = HOME / CONFIG_NAME
+    try:
+        data = _read_toml(path)
+    except Error:
+        return      # commands reading the config report it; help still opens
+    if not data or not POLICY_RENAMES.keys() & data.keys():
+        return
+    # Lock the directory, which survives replacing the file, then read again: another first
+    # command may already have migrated it. No lock file or general config save is needed.
+    directory = os.open(HOME, os.O_RDONLY)
+    try:
+        fcntl.flock(directory, fcntl.LOCK_EX)
+        data = _read_toml(path) or {}
+        if not POLICY_RENAMES.keys() & data.keys():
+            return
+        chunks, statement, in_table = [], "", False
+        # File iteration splits TOML newlines; Unicode separators inside comments stay text.
+        with path.open(encoding="utf-8") as source:
+            for line in source:
+                statement += line
+                try:
+                    declared = tomllib.loads(statement) if not in_table else {}
+                except tomllib.TOMLDecodeError:
+                    continue    # a multiline value; only the parser decides where it ends
+                in_table = in_table or statement.lstrip().startswith("[")
+                for old, new in POLICY_RENAMES.items() if not in_table else ():
+                    if old in declared:
+                        # Replace the first key component, including quoted or dotted keys.
+                        statement = (re.sub(r'''^(\s*)(?:[\w-]+|'[^']*'|"(?:\\.|[^"\\])*")''',
+                                            lambda m: m[1] + new, statement, count=1)
+                                     if new not in data else "")
+                chunks.append(statement)
+                statement = ""
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text("".join(chunks) + statement, encoding="utf-8")
+        os.chmod(tmp, 0o600)
+        tmp.replace(path)
+    finally:
+        os.close(directory)
+
+
 def policy(checkout=None):
     """The POLICY numbers in force for a project: the front matter of AGENTS.md on the default
     branch of its local checkout, else the host's.  A checkout that is None, or whose git does
@@ -428,7 +481,8 @@ def policy(checkout=None):
         return numbers
     if not commit:
         return numbers
-    declared = {key: gitcall.declared_at(checkout, commit, key) for key in POLICY}
+    declared = {key: gitcall.declared_at(checkout, commit, key)
+                for key in (*POLICY, *POLICY_RENAMES)}
     return _policy_in(Path(checkout) / "AGENTS.md", {
         **numbers, **{key: int(value) if re.fullmatch("[0-9]+", value) else value
                       for key, value in declared.items() if value is not None}})
@@ -437,30 +491,31 @@ def policy(checkout=None):
 def _policy_in(path, data):
     """The POLICY numbers `data` holds, ak's default for one it does not, refused naming `path`,
     the floor and the meaning."""
+    for old, new in POLICY_RENAMES.items():
+        if old in data:
+            raise Error(f"{path}: use {new} instead of {old}")
     numbers = {}
     for key, (default, floor, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
         if type(value) is not int or value < floor:
             raise Error(f"{path}: {key} must be a whole number of at least {floor}, {meaning} "
                         f"(got {value!r})")
-    if numbers["seat_lines"] > numbers["review_lines"]:
-        raise Error(f"{path}: seat_lines {numbers['seat_lines']}, {POLICY['seat_lines'][2]}, is "
-                    f"over review_lines {numbers['review_lines']}, {POLICY['review_lines'][2]}")
+    if numbers["orchestrator_lines"] > numbers["executor_lines"]:
+        raise Error(f"{path}: orchestrator_lines {numbers['orchestrator_lines']}, {POLICY['orchestrator_lines'][2]}, is "
+                    f"over executor_lines {numbers['executor_lines']}, {POLICY['executor_lines'][2]}")
     return numbers
 
 
 def in_force(text, table=None):
-    """ak's own words as this host's numbers (`host_policy`) make them: `$rounds`, `$review_lines` and
-    `$seat_lines` the number, `$Rounds` it opening a sentence, `$s` the plural of its round and
-    `$one_over` the round past the budget.  Only ak's own text comes here: a rule the owner or a
-    project wrote is theirs to the letter, a `$` in it included."""
+    """ak's own text with host POLICY numbers, `$Review_rounds` starting a sentence, `$s` its
+    plural and `$one_over` the next round. Owner and project text stays theirs, dollars included."""
     try:
         numbers = host_policy(table)
     except Error:   # the commands that act on a config.toml refuse it; words only saying it don't
         numbers = host_policy({})
-    rounds = numbers["rounds"]
+    rounds = numbers["review_rounds"]
     opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
-    return Template(text).safe_substitute(numbers, Rounds=opening, one_over=over,
+    return Template(text).safe_substitute(numbers, Review_rounds=opening, one_over=over,
                                           s="" if rounds == 1 else "s")
 
 
@@ -992,7 +1047,7 @@ def save(cfg, defaults=None):
             defaults = None       # nothing readable to keep: `cfg`'s are written
         if isinstance(defaults, dict):
             defaults = passed_over(defaults, cfg)
-    text = dump(cfg if defaults is None else {**cfg, "defaults": defaults})
+    text = dump(rename_policy(cfg if defaults is None else {**cfg, "defaults": defaults}))
     try:
         before = load()
     except Error:

@@ -1,7 +1,7 @@
 """Own PRs share the landing line: independently green changes cannot land a red stack.
 
 Owner rule, 1 Oct, 2 Oct, 3 Oct, 4 Oct, 7 Oct, 13 Oct, 14 Oct, 16 Oct, 21 Oct, 24 Oct 2026: "The orchestrator
-builds a change under 50 added lines; from 50 up it writes a task and a marked executor builds it;
+builds a change of at most 50 added lines; above 50 it writes a task and a marked executor builds it;
 it tests and looks at every change end to end itself, and ak moves no work for quota. Reason: in
 14 days of runs, seat-built changes from 50 lines up failed all three rounds about twice as often
 as worker-built ones of the same size (50-99: 17% against 5%, the gap holding within each repository),

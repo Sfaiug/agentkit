@@ -234,7 +234,7 @@ MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as g
 
 def first_review_refusal(what, lines, ceiling, carried=0):
     """One sentence when `what` (a pull request, a task's change) adds more lines than a first
-    review takes at once (`config.policy`'s `review_lines`), else None: `lines` as `diff_lines`
+    review takes at once (`config.policy`'s `executor_lines`), else None: `lines` as `diff_lines`
     counts the added ones, less `carried`, the ones `carried_lines` found moved unchanged from
     lines the diff deletes -- what a reviewer reads; nothing deleted counts."""
     if lines - carried <= ceiling:
@@ -499,7 +499,7 @@ def over_lineage(state, run_dir, n_rounds):
     cap = lineage_cap(state, run_dir)
     if n_rounds > cap:
         raise config.Error(f"--rounds {n_rounds} is over this change's budget: {cap} of "
-                           f"{run_record.policy_of(state)['rounds']} rounds across its runs; split or redesign the task")
+                           f"{run_record.policy_of(state)['review_rounds']} rounds across its runs; split or redesign the task")
 
 
 def failed_at_budget(state):
@@ -508,7 +508,7 @@ def failed_at_budget(state):
     Deliberately not part of `needs_recovery`: nothing was interrupted here, so this is no
     recovery decision for the menu to raise, for the seat to be told about or for `announce`
     to swallow the finished-run notice over.  An explicit `--rounds` above the saved budget,
-    and no higher than the host's `rounds` (`config.policy`), continues it and nothing else
+    and no higher than the host's `review_rounds` (`config.policy`), continues it and nothing else
     does -- see `cmd_resume`.
     """
     return (state.get("state") == "fail" and not state.get("review_pr")
@@ -1333,14 +1333,14 @@ def round_budget(asked, budget, *, pr=None, change=None, exclude=None, what, own
 def change_budget(state, run_dir, asked, own=0):
     """`round_budget` for a run's own pull request or change: the one place a record is
     read into its arguments."""
-    return round_budget(asked, run_record.policy_of(state)["rounds"],
+    return round_budget(asked, run_record.policy_of(state)["review_rounds"],
                         pr=state.get("pr") or state.get("review_pr"),
                         change=change_of(state), exclude=run_dir, what="this change", own=own)
 
 
 def lineage_cap(state, run_dir):
     """The rounds that run may have in all: the change's budget less what other runs spent."""
-    return change_budget(state, run_dir, run_record.policy_of(state)["rounds"])[0]
+    return change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"])[0]
 
 
 def allowed_rounds(lp):

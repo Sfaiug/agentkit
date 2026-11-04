@@ -147,7 +147,7 @@ class RoundsPerPr(Sandbox):
         left, why = run.round_budget(3, 3, pr=URL, what="PR #7")
         self.assertEqual(left, 0)
         self.assertEqual(why, "3 review rounds spent on PR #7 across 2 runs: "
-                              f"{config.policy()['rounds']} per pull request is the budget; "
+                              f"{config.policy()['review_rounds']} per pull request is the budget; "
                               "split or redesign it")
 
     def launch(self, name="20260102-0900-review-pr-widget-7"):

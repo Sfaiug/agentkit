@@ -30,9 +30,9 @@ from . import (beside_review, config, gitcall, hand_in, handback, history, promp
 # `setup:` names the file that makes the machine ak runs on ready for the project (`machine_setup`).
 # `alive:` names the command that tells ak, from its own machine, the product is up (`alive`).
 # `nightly:` names the command that prints the project's newest night (`nightly`).
-# `rounds:`, `review_lines:` and `seat_lines:` are the project's own numbers (`config.policy`).
+# config.POLICY's keys are the project's own numbers (`config.policy`).
 FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup",
-              "alive", "nightly", "rounds", "review_lines", "seat_lines")
+              "alive", "nightly", *config.POLICY)
 
 
 # The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
@@ -1874,7 +1874,7 @@ def rounds(lp, execv=None):
 
 
 def first_review_ceiling(lp, record=True):
-    """A task's change gets its first review only up to `review_lines` added lines
+    """A task's change gets its first review only up to `executor_lines` added lines
     (`transitions.first_review_refusal`): past it the run ends blocked with `split it`
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
     Only the change's first review, a resumed one too: once a review of it, in this run or in
@@ -1890,7 +1890,7 @@ def first_review_ceiling(lp, record=True):
     lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)
     carried = transitions.carried_lines(lp.wt, lp.base_sha, "HEAD")
     why = transitions.first_review_refusal(f"The change on {lp.state.get('branch') or 'its branch'}",
-                                           lines, run_record.policy_of(lp.state)["review_lines"], carried)
+                                           lines, run_record.policy_of(lp.state)["executor_lines"], carried)
     if why:
         raise turns.Blocked(why, f"## Blocked\n\n{why}")
     if record:

@@ -103,7 +103,7 @@ REAL_USERS = ("[worker judgement] This repository has real users: new user-visib
 # The commit a turn's `users:` line is read at, handed in the turn's env like the findings
 # path and taken out of it before the harness starts.
 BASE_ENV = "AK_USERS_BASE"
-REVIEW_LINES_ENV = "AK_REVIEW_LINES"    # the run's `review_lines`, handed in the same way
+EXECUTOR_LINES_ENV = "AK_EXECUTOR_LINES"    # the run's `executor_lines`, handed in the same way
 
 
 def users_declared(workspace, base=None):
@@ -151,7 +151,7 @@ def size_rule(lines):
 
 # PREAMBLES hold ak's default, whatever this host sets, because Go's rules are generated from
 # them; `call` puts the number in force in a turn's.
-SIZE = size_rule(config.POLICY["review_lines"][0])
+SIZE = size_rule(config.POLICY["executor_lines"][0])
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -889,8 +889,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                                        checks=json.loads(turn_env.pop(hand_in.CHECKS_ENV, "null")))
     base = turn_env.pop(BASE_ENV, None)
     preamble = (PREAMBLES[role].format(workspace=workspace)
-                .replace(SIZE, size_rule(turn_env.pop(REVIEW_LINES_ENV, None)
-                                         or config.policy()["review_lines"])))
+                .replace(SIZE, size_rule(turn_env.pop(EXECUTOR_LINES_ENV, None)
+                                         or config.policy()["executor_lines"])))
     if GATE in preamble:
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")

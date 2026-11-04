@@ -88,10 +88,10 @@ func TestAFixCapturesTheCurrentDefaultBranchPolicy(t *testing.T) {
 	_, repo := repoRig(t)
 	seatLaunchFixture(t)
 	agents := filepath.Join(repo.repo, "AGENTS.md")
-	os.WriteFile(agents, []byte("---\nrounds: 1\nreview_lines: 60\nseat_lines: 0\n---\n"), 0o600)
+	os.WriteFile(agents, []byte("---\nreview_rounds: 1\nexecutor_lines: 60\norchestrator_lines: 0\n---\n"), 0o600)
 	shell(t, repo.repo, "git add AGENTS.md && git commit -qm policy && git update-ref refs/remotes/origin/main HEAD && git symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main")
 	// Neither the parent's older policy nor the checkout's uncommitted edits set this launch's limits.
-	os.WriteFile(agents, []byte("---\nrounds: 2\nreview_lines: 90\nseat_lines: 50\n---\n"), 0o600)
+	os.WriteFile(agents, []byte("---\nreview_rounds: 2\nexecutor_lines: 90\norchestrator_lines: 50\n---\n"), 0o600)
 	child := filepath.Join(run.Runs(), "fix")
 	os.Mkdir(child, 0o700)
 	path := filepath.Join(child, "task.md")

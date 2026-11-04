@@ -2929,10 +2929,10 @@ LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
 # it, before the number and its unit after, and the values its list offers.  Owner, 3 Nov 2026:
 # the keys' own names were unclear to users.
-LIMIT_NAMES = {"rounds": ("Review rounds", "review", "rounds", range(1, 6)),
-               "review_lines": ("Max lines per executor task", "executor", "lines",
+LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(1, 6)),
+               "executor_lines": ("Max lines per executor task", "executor", "lines",
                                 (100, 200, 300, 500, 1000, 2000)),
-               "seat_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
+               "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                               (0, 10, 25, 50, 100, 200))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.

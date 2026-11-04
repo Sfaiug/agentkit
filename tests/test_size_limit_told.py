@@ -1,6 +1,6 @@
 """The first review's size limit ak enforces is the one every builder is told up front.
 
-The orchestrator's rulebook and the task template carry the host's `review_lines`, the
+The orchestrator's rulebook and the task template carry the host's `executor_lines`, the
 executor's and fixer's rules ak's default: a builder that learns the limit only when ak refuses its change
 has already built past it.  tests/test_key_lines_are_settings.py holds a turn to a host's own.
 """
@@ -13,7 +13,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, worker
 
-DEFAULT = config.POLICY["review_lines"][0]
+DEFAULT = config.POLICY["executor_lines"][0]
 
 
 class SizeLimitTold(unittest.TestCase):
@@ -24,7 +24,7 @@ class SizeLimitTold(unittest.TestCase):
                 self.assertIn(f"at most {DEFAULT} added lines with its tests",
                               config.in_force(written, {}))
                 self.assertIn("at most 150 added lines with its tests",
-                              config.in_force(written, {"review_lines": 150}))
+                              config.in_force(written, {"executor_lines": 150}))
 
     def test_the_executor_and_the_fixer_are_told_the_limit(self):
         # a fixer can start in a fresh conversation before the first review, never having read
