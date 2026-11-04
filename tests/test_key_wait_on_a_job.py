@@ -5,6 +5,7 @@ seat that may be renamed after the hand-back but before the tick sees the ending
 """
 
 import json
+import os
 import shlex
 import sys
 import time
@@ -13,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import REAL_TMUX, Home, boxable, rerun_boxed
+from fixtures.akbin import REAL_TMUX, Home, boxable, owner, rerun_boxed
 from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
@@ -36,7 +37,13 @@ class WaitOnAJob(unittest.TestCase):
         akconfig.write(home, ["opus", "astra"])
         self.rig, self.gh = Rig(home, "widget"), GitHub(home)
         self.seat = Seat(home, "acme", cwd=self.rig.path, planned=True,
-                         record={"workers": ["opus", "astra"]})
+                         record={"workers": ["opus"], "reviewers": ["astra"]})
+        # Two held slots give this seat room to launch a two-task job.
+        for name in ("api", "docs"):
+            run_id = f"20261104-0900-fix-{name}"
+            home.write(f".agentkit/runs/{run_id}/run.json", {
+                "run_id": run_id, "launched_session": "acme", "state": "running",
+                "slot_started_at": time.time(), "slot_waiting": False, **owner(os.getpid())})
         fakes = fakeadapter.install(home, claude="work", codex="pass")
         release = fakes["claude"].dir / "release"
         self.release = release
@@ -47,7 +54,6 @@ class WaitOnAJob(unittest.TestCase):
         tasks = [taskfile.write(home, self.rig.path, f"Add {name} file",
                                 done_when=(f"test -f {name}.txt",)) for name in ("alpha", "beta")]
         launched = home.ak("run", *map(str, tasks), "--bg", "--parallel", "1",
-                           "--exec", "opus", "--review", "astra",
                            env={"AGENTKIT_SESSION": self.seat.name})
         self.assertEqual(launched.code, 0, launched.out + launched.err)
         self.directory, = (home.path / ".agentkit/jobs").iterdir()
@@ -71,6 +77,10 @@ class WaitOnAJob(unittest.TestCase):
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
 
+    def notices(self):
+        return [line for line in self.seat.lines()
+                if line.startswith("job ") or "your wait is over" in line]
+
     def finish(self):
         self.release.touch()
         wait_for(lambda: self.job().get("finished_at"))
@@ -80,7 +90,8 @@ class WaitOnAJob(unittest.TestCase):
 
     def assert_handback_once(self):
         wait_for(lambda: (self.job().get("card_sent") or {}).get("kind") == "handback")
-        lines = self.seat.wait_lines(1)
+        self.seat.wait_lines(1)
+        lines = self.notices()
         self.assertEqual(len(lines), 1, lines)
         self.assertTrue(lines[0].startswith(f"job {self.directory.name}: all 2 tasks finished"))
         self.assertNotIn("your wait is over", lines[0])
@@ -88,7 +99,7 @@ class WaitOnAJob(unittest.TestCase):
         self.assertTrue(self.wait().get("over"))
         self.assertTrue(self.wait().get("told"))
         self.tick()
-        self.assertEqual(self.seat.lines(), lines)
+        self.assertEqual(self.notices(), lines)
 
     def test_its_handback_ends_the_wait_once(self):
         self.finish()
@@ -122,12 +133,13 @@ class WaitOnAJob(unittest.TestCase):
         self.assertTrue(self.job().get("finished_at"))
         self.assertFalse(self.job().get("card_sent"))
         self.tick()
-        lines = self.seat.wait_lines(1)
+        self.seat.wait_lines(1)
+        lines = self.notices()
         self.assertEqual(lines, [f"job {self.directory.name} finished; your wait is over. "
                                  "Decide the next step."])
         self.assertTrue(self.wait().get("told"))
         self.tick()
-        self.assertEqual(self.seat.lines(), lines)
+        self.assertEqual(self.notices(), lines)
 
 
 if __name__ == "__main__":
