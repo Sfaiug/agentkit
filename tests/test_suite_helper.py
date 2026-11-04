@@ -318,7 +318,7 @@ class SuiteHelper(unittest.TestCase):
         (config.HOME / config.CONFIG_NAME).write_text("")
         with patch.object(google_cloud, "renting", return_value=True):
             self.assertIsNone(helper.start(1, 2620, self.repo, lambda line: None, "true")[0])
-        self.assertEqual((config.STATE / google_cloud.NEED).read_text(), "2912\n")
+            self.assertEqual((config.STATE / google_cloud.NEED).read_text(), "2912 tests\n")
 
 
 class HelperMac(unittest.TestCase):

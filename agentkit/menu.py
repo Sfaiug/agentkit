@@ -5314,7 +5314,8 @@ def config_machines(cfg):
 
         def page():
             work = machines.work(name, cfg)
-            rows = [(label, [(on, "accent") if word in work else (off, "dim")],
+            rows = [(label, [(on, "accent") if word in work else (off, "dim"),
+                             ("on" if word in work else "off", None)],
                      ("mark", lambda word=word: flip(word)))
                     for word, label in (("turns", "builds and reviews"), ("tests", "tests"))]
             return rows + ([("Monthly cap", f"€{google_cloud._setting()[1]:g}", cap_field)]
