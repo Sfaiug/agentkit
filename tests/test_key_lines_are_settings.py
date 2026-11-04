@@ -48,6 +48,7 @@ PULLS = {
     "cut-to-20": ({"orchestrator_lines": 20}, 25),
     "left-at-50": ({}, 51),
     "raised-to-100": ({"orchestrator_lines": 100}, 60),
+    "raised-to-500": ({"orchestrator_lines": 500}, 400),
 }
 
 
@@ -141,9 +142,11 @@ class SeatPullRequest(unittest.TestCase):
         self.refused("left-at-50", 51, 50)
 
     def test_a_higher_setting_reviews_a_pull_request_over_ak_s_default(self):
-        done, _, reviewed = self.pulls["raised-to-100"]
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertEqual(reviewed, 1)
+        for branch in ("raised-to-100", "raised-to-500"):
+            with self.subTest(branch=branch):
+                done, _, reviewed = self.pulls[branch]
+                self.assertEqual(done.code, 0, done.out + done.err)
+                self.assertEqual(reviewed, 1)
 
 
 if __name__ == "__main__":

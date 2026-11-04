@@ -238,7 +238,7 @@ def first_review_refusal(what, lines, ceiling, carried=0):
     review takes at once (`config.policy`'s `executor_lines`), else None: `lines` as `diff_lines`
     counts the added ones, less `carried`, the ones `carried_lines` found moved unchanged from
     lines the diff deletes -- what a reviewer reads; nothing deleted counts."""
-    if lines - carried <= ceiling:
+    if ceiling == "no limit" or lines - carried <= ceiling:
         return None
     moved = f", {carried} of them moved unchanged from lines it deletes" if carried else ""
     return (f"{what} adds {lines} lines{moved} (generated files aside; deletions never "

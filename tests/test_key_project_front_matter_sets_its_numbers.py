@@ -139,8 +139,8 @@ class Refused(unittest.TestCase):
     def test_a_number_nobody_could_mean_refuses_the_launch_with_no_run_directory(self):
         review, seat = "the most added lines a first review reads", "the most added lines an orchestrator builds"
         for numbers, why in (
-                ({"executor_lines": "abc"}, f"executor_lines must be a whole number of at least 1, {review} (got 'abc')"),
-                ({"orchestrator_lines": 400, "executor_lines": 300}, f"orchestrator_lines 400, {seat}, is over executor_lines 300, {review}")):
+                ({"executor_lines": "abc"}, f'executor_lines must be a whole number of at least 1 or "no limit", {review} (got \'abc\')'),
+                ({"orchestrator_lines": "abc"}, f'orchestrator_lines must be a whole number of at least 0 or "no limit", {seat} (got \'abc\')')):
             with self.subTest(numbers=numbers):
                 rig = host(self, "widgets", **numbers)
                 done = self.home.ak("run", str(taskfile.write(self.home, rig.path)), timeout=60)

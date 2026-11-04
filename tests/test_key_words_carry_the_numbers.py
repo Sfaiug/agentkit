@@ -60,6 +60,12 @@ class Help(unittest.TestCase):
             self.assertIn("at most 3 (default", said(home, "run", "--help"))
             self.assertNotEqual(home.ak("run", "task.md").code, 0)
 
+    def test_says_no_limit_without_a_numeric_ceiling(self):
+        run, _ = self.helps(executor_lines="no limit", orchestrator_lines="no limit")
+        self.assertIn("no limit on added lines", run)
+        self.assertIn("you build with no line limit", run)
+        self.assertNotIn("at most no limit", run)
+
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Rulebook(unittest.TestCase):
@@ -97,6 +103,14 @@ class Rulebook(unittest.TestCase):
         self.assertIn("ak refuses a second.", one)
         self.assertIn("7 review rounds per change is the budget", many)
         self.assertIn("ak refuses round 8.", many)
+
+    def test_reads_right_with_no_line_limits(self):
+        book, template = self.book(executor_lines="no limit", orchestrator_lines="no limit")
+        for text in (book, template):
+            self.assertIn("no limit on added lines", text)
+            self.assertNotIn("at most no limit", text)
+            self.assertNotIn("split it", text)
+        self.assertIn("you build with no line limit", book)
 
     def test_says_ak_s_defaults_with_no_setting_and_the_owner_s_dollars_as_written(self):
         book, template = self.book()

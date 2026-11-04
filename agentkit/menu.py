@@ -2995,9 +2995,9 @@ LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # the keys' own names were unclear to users.
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(1, 6)),
                "executor_lines": ("Max lines per executor task", "executor", "lines",
-                                (100, 200, 300, 500, 1000, 2000)),
+                                (100, 200, 300, 500, 1000, 2000, "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
-                              (0, 10, 25, 50, 100, 200))}
+                              (0, 10, 25, 50, 100, 200, "no limit"))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
 # Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
@@ -5307,7 +5307,7 @@ def limits_value(cfg):
     its short name, `review 3 rounds · executor 300 lines · orchestrator off`."""
     numbers = config.host_policy(cfg)
     return " · ".join(f"{short} {limit_shown(numbers[key])}" + (
-        f" {unit[:-1] if numbers[key] == 1 else unit}" if numbers[key] else "")
+        f" {unit[:-1] if numbers[key] == 1 else unit}" if type(numbers[key]) is int and numbers[key] else "")
         for key, (_, short, unit, _) in LIMIT_NAMES.items())
 
 
@@ -5323,18 +5323,12 @@ def config_limits(cfg):
         cfg[key] = value
         return _saved(cfg, cfg, before)
 
-    def offered(key, value):
-        try:
-            config.host_policy({**cfg, key: value})
-        except config.Error:
-            return False
-        return True
-
     def choices(key):         # the list a number's row opens
         held = config.host_policy(cfg)[key]
         return [([(on, "accent") if value == held else (off, "dim"), (limit_shown(value), None)],
                  lambda value=value: take(key, value), value == held)
-                for value in sorted({*LIMIT_NAMES[key][3], held}) if offered(key, value)]
+                for value in sorted({*LIMIT_NAMES[key][3], held},
+                                    key=lambda value: (value == "no limit", value))]
 
     def page():
         numbers = config.host_policy(cfg)
