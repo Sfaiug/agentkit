@@ -114,12 +114,13 @@ def stale_seat_files(now):
 def model_report_stale(path):
     return (retention.safe(path) and path.is_file()
             and path.stem.removeprefix("model-") not in {
-                seat.get("conversation") for seat in config.session_records().values()})
+                (retention.read_json(seat) or {}).get("conversation")
+                for seat in retention.children(config.STATE) if seat.match("session-*.json")})
 
 
 def stale_model_reports():
-    for path in config.STATE.glob("model-*.json"):
-        if model_report_stale(path):
+    for path in retention.children(config.STATE):
+        if path.match("model-*.json") and model_report_stale(path):
             yield {"action": "remove", "kind": "model-report", "path": str(path),
                    "why": "no seat names this conversation"}
 

@@ -13,6 +13,7 @@ Black-box: the adapters beside the program `AK_BIN` names (or `AK_ROOT`'s) print
 throwaway HOME, split as `ak orch` splits it; this test fails against `/bin/false`.
 """
 
+import json
 import re
 import shlex
 import sys
@@ -89,6 +90,17 @@ class Line:
 class ClaudeCode(Line, unittest.TestCase):
     harness, program = "claude", "claude"
     checked = {"AGENTKIT_CLAUDE_CHECKED": "1"}
+
+    def assertWords(self, done, env, conversation=(), first=()):
+        self.assertEqual(done.code, 0, done.err)
+        words = shlex.split(done.out)
+        at = words.index("--settings") + 1
+        settings = json.loads(words[at])
+        status = settings.pop("statusLine")
+        self.assertEqual(status["type"], "command")
+        self.assertTrue(status["command"])
+        words[at] = json.dumps(settings, separators=(",", ":"))
+        super().assertWords(done._replace(out=shlex.join(words)), env, conversation, first)
 
     def env(self, account):
         # an account's login is the wrapper's to pick, from AGENTKIT_ACCOUNT
