@@ -29,7 +29,8 @@ func InForce(text string) string {
 		plural = ""
 	}
 	values := map[string]string{"review_rounds": strconv.Itoa(numbers.Rounds), "executor_lines": strconv.Itoa(numbers.ReviewLines),
-		"orchestrator_lines": strconv.Itoa(numbers.SeatLines), "Review_rounds": said[0], "one_over": said[1], "s": plural}
+		"orchestrator_lines": strconv.Itoa(numbers.SeatLines), "Review_rounds": said[0], "one_over": said[1], "s": plural,
+		"executor_size": executorSize(numbers.ReviewLines), "orchestrator_size": orchestratorSize(numbers.SeatLines)}
 	return templated.ReplaceAllStringFunc(text, func(found string) string {
 		parts := templated.FindStringSubmatch(found)
 		if parts[1] != "" {
