@@ -635,18 +635,23 @@ def card(record, cwd, conversation):
 
 
 def running(record, cwd, conversation):
-    """The model of that session's latest answer, the one its launch passed as `--model`: Muse
-    records it as each model request completes, so `/model` typed in the seat shows at its next
-    answer.  It records no effort of a session's own: `reminder_roster`'s are its reminder
-    subagents', and settings.json holds whatever any session picked last."""
+    """The model of the latest answer or completed /model change (Muse 1.4.14), at its own time.
+    Neither records effort: `reminder_roster`'s are its reminder subagents', and settings.json
+    holds whatever any session picked last, so the seat keeps the effort its record holds."""
     from . import last_entry
 
-    def answer(entry):
-        return (isinstance(run_event(entry, "model_completed").get("model"), str)
-                and type(entry.get("recorded_at")) is int)
+    def model(entry):
+        if entry.get("payload_type") != "runtime.model_reconfigure.completed":
+            return run_event(entry, "model_completed").get("model")
+        named = entry.get("payload")
+        for key in ("record", "effective", "model_id"):
+            named = named.get(key) if isinstance(named, dict) else None
+        return named
+
     path = session_log(conversation)
-    entry = path and last_entry(path, answer)
-    return ((run_event(entry, "model_completed")["model"], None, entry["recorded_at"] / 1_000_000)
+    entry = path and last_entry(path, lambda each: isinstance(model(each), str)
+                               and type(each.get("recorded_at")) is int)
+    return ((model(entry), None, entry["recorded_at"] / 1_000_000)
             if entry else None)
 
 
