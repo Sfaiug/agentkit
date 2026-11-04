@@ -121,14 +121,11 @@ func git(env []string, checkout string, args ...string) (string, bool) {
 }
 
 // leftAsIs is why ~/agentkit is somebody's work, as Python's left_as_is says it: `dirty`, or on
-// another branch; "" for main as origin left it, or a version ak swapped in, which a move swaps.
+// another branch; "" for clean main, or a clean detached version ak swapped in.
 func leftAsIs(env []string, checkout string) string {
-	if owned(checkout) != "" {
-		return ""
-	}
 	branch, _ := git(env, checkout, "symbolic-ref", "--quiet", "--short", "HEAD")
 	changes, ok := git(env, checkout, "status", "--porcelain", "--untracked-files=normal")
-	if branch != "main" {
+	if branch != "main" && (branch != "" || owned(checkout) == "") {
 		return "on " + cmp.Or(branch, "a detached HEAD") + ", not main"
 	}
 	if !ok || changes != "" {
