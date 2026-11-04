@@ -23,6 +23,7 @@ NOW = 1_800_000_000
 WEEK = 7 * 86400
 
 
+# these numbers never pick a model. [2 Oct, 14 Oct, 27 Oct]
 class Scoreboard(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-scoreboard-", dir=REPO)

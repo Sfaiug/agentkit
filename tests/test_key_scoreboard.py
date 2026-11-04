@@ -2,8 +2,9 @@
 one saying so in words, and the runs on ak itself counted in the `ak` row as cost, never among
 the products.
 
-The owner judges ak week by week from this board (AGENTS.md, Owner rules), so its rows and their
-order are pinned.  Work on ak itself is
+The owner judges ak week by week from this board
+(test_it_shows_every_pinned_row_in_order_under_its_two_weeks), so its rows and their order are
+pinned.  Work on ak itself is
 what ak costs, not what it delivers: a run on a repository named as the checkout ak runs from
 counts in the `ak` row, with its share of every token the week's runs reported, and not in
 `products`.  Black-box: the program `AK_BIN` names runs from outside through
@@ -69,6 +70,9 @@ class AnEmptyBoard(unittest.TestCase):
         cls.home.env["AK_HOST_READINGS"] = ROOMY
         cls.done = cls.home.ak("run", "status", "--history")
 
+    # ak is measured by what it delivers in every project:
+    # `ak run status --history` shows quality, speed, cost and size week by week,
+    # work on ak itself counts as cost, in the `ak` row. [2 Oct, 14 Oct, 27 Oct]
     def test_it_shows_every_pinned_row_in_order_under_its_two_weeks(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         lines = self.done.out.splitlines()

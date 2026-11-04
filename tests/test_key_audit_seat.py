@@ -31,6 +31,7 @@ OFFLINE = {name: "http://127.0.0.1:9"
            for name in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY")}
 AUDIT = '[audit]\norchestrator = "beta"\nworkers = ["beta"]\nreviewers = ["alpha"]\n'
 LOSS = "the largest loss is product runs merged in round 1, 60% against 80% the week before"
+# a week with a quality measure worse is a loss whatever speed did. [14 Oct]
 RULE = ("Quality, then speed, then cost: a gain in speed or cost while a quality measure gets "
         "worse is no win.")
 
