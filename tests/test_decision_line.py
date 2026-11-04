@@ -23,6 +23,8 @@ ENDINGS = (     # name, rounds spent, record, word, how its why starts and ends,
     (LONG, 1, {"state": "blocked", "verdict": "BLOCKED", "error": (
         "The change adds 912 lines. " + "A first review takes 300; split it. " * 50)},
      "BLOCKED", "The change", "split it.", f"rewrite the task and relaunch it with `from: ak/{LONG}`"),
+    ("acme-blocked-spent", 3, {"state": "blocked", "verdict": "BLOCKED", "error": "Go claims the keys it changes. " * 30},
+     "BLOCKED", "Go claims", "changes.", "rewrite the task and relaunch it"),
     ("acme-unmerged", 3, {"state": "pass", "merge_failed": True, "merge_note": (
         "the delivery stopped: " + "the push to origin was refused! " * 40)},
      "NOT MERGED", "the delivery", "refused!", f"{handback.RESULT_NAMES}, `ak run merge acme-unmerged`"),
