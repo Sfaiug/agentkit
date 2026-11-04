@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -108,14 +107,21 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		if view.Column >= 3 || view.Column == 0 && session != "" {
 			return false // efforts and moving an orchestrator follow in config_screen_edits
 		}
-		changed, note := c.Mark(c.Names[view.Row], view.Column)
-		if note != "" {
-			view.Note = note
-			continue
+		mark := func(selected *run.Object) (*run.Object, string) {
+			current := *c
+			current.Selected = selected
+			return current.Mark(c.Names[view.Row], view.Column)
 		}
+		var changed *run.Object
 		if session != "" {
-			changed, err = seat.SaveMarks(session, changed)
+			changed, err = seat.SaveMarks(session, mark)
 		} else {
+			var note string
+			changed, note = mark(c.Selected)
+			if note != "" {
+				view.Note = note
+				continue
+			}
 			err = config.RememberDefaults(changed.Str("orchestrator"), configNames(changed, "workers"), configNames(changed, "reviewers"), func() error { return nil })
 		}
 		if err != nil {
@@ -137,12 +143,7 @@ func configNames(selected *run.Object, key string) []string {
 }
 
 func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
-	// The cloud ledger and Discord's connected account page are later slices; never show a
-	// connected home as unconnected, or hide money that its ledger records.
-	hook, _ := os.ReadFile(filepath.Join(config.Home(), "secrets", "discord_webhook"))
-	if len(strings.TrimSpace(string(hook))) > 0 || config.MayRent() {
-		return nil, false
-	}
+	discord, cloud := menu.ConfigServices(time.Now())
 	setting, on, err := config.Audit()
 	audit := ""
 	if err != nil {
@@ -173,7 +174,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 		rounds = "round"
 	}
 	limits := fmt.Sprintf("review %d %s · executor %d lines · orchestrator %d lines", numbers.Rounds, rounds, numbers.ReviewLines, numbers.SeatLines)
-	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: "not connected"},
-		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d · Google Cloud off", len(machines.Lines()))},
+	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
+		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d · Google Cloud %s", len(machines.Lines()), cloud)},
 		{Name: "Limits", Value: limits}}, true
 }

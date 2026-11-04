@@ -1,0 +1,61 @@
+package menu
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestConfigServicesShowSavedStatusWithoutRevealingSecrets(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	write := func(name, text string) {
+		t.Helper()
+		path := filepath.Join(home, ".agentkit", name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
+	discord, cloud := ConfigServices(now)
+	if discord != "not connected" || cloud != "off" {
+		t.Fatalf("unconfigured: %q, %q", discord, cloud)
+	}
+	write("secrets/discord_webhook", "https://example.com/acme-secret\n")
+	write("secrets/discord_user_id", "12345678\n")
+	discord, _ = ConfigServices(now)
+	if discord != "id …5678 · webhook …secret" {
+		t.Fatal(discord)
+	}
+	write("state/discord-user.json", `{"id":"12345678","name":"acme-owner"}`)
+	discord, _ = ConfigServices(now)
+	if discord != "@acme-owner · webhook …secret" {
+		t.Fatal(discord)
+	}
+	write("secrets/discord_user_id", "87654321\n")
+	discord, _ = ConfigServices(now)
+	if discord != "id …4321 · webhook …secret" {
+		t.Fatal(discord)
+	}
+	ledger := fmt.Sprintf(`{"answered":%d,"spent":12.5,"machines":{"one":{"price":1,"until":4},"two":{"price":1,"until":4,"from":2}}}`, now.Unix())
+	for _, each := range []struct{ active, ledger, want string }{
+		{"true", "{}", "on · spend unknown"},
+		{"true", ledger, "on · €12.50 of €100 this month · 1 machine up"},
+		{"false", ledger, "off · 2 machines going once idle"},
+		{"true", `{"answered":1,"spent":12.5,"machines":{}}`, "on · spend unknown"},
+		{"true", fmt.Sprintf(`{"answered":%d,"spent":-1,"machines":{}}`, now.Unix()), "on · spend unknown"},
+		{"true", fmt.Sprintf(`{"answered":%d,"spent":0,"machines":{"one":{}}}`, now.Unix()), "on · spend unknown"},
+	} {
+		write("config.toml", "[google_cloud]\nactive = "+each.active+"\nmax_month = 100\n")
+		write("state/google-cloud-ledger.json", each.ledger)
+		if _, got := ConfigServices(now); got != each.want {
+			t.Errorf("cloud %s: %q, want %q", each.ledger, got, each.want)
+		}
+	}
+}

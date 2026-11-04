@@ -49,9 +49,9 @@ func recordCrew(record *run.Object, models map[string]config.Model) (string, str
 	return crew(record.Get("workers"), models)
 }
 
-// SaveMarks merges only the two crew columns under Python's record lock. Efforts already
-// saved belong to that seat; a model it takes on gets its entry's efforts once.
-func SaveMarks(name string, selected *run.Object) (*run.Object, error) {
+// SaveMarks applies a mark to the current selection under Python's record lock, so another
+// menu's changes survive it. A model the seat takes on gets its entry's efforts once.
+func SaveMarks(name string, mark func(*run.Object) (*run.Object, string)) (*run.Object, error) {
 	current, _, err := config.ResolveSession(name)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,18 @@ func SaveMarks(name string, selected *run.Object) (*run.Object, error) {
 		return nil, err
 	}
 	var saved *run.Object
+	var selectionErr error
 	err = update(filepath.Join(config.Home(), "state"), current, func(data *run.Object) bool {
+		selected, err := configSelection(data, models)
+		if err != nil {
+			selectionErr = err
+			return false
+		}
+		selected, note := mark(selected)
+		if note != "" {
+			selectionErr = fmt.Errorf("%s", note)
+			return false
+		}
 		changed := set([]field{{"workers", selected.Get("workers")}, {"reviewers", selected.Get("reviewers")}})(data)
 		if changed {
 			ownEfforts(data, current, models)
@@ -69,6 +80,9 @@ func SaveMarks(name string, selected *run.Object) (*run.Object, error) {
 		saved = data.Copy()
 		return changed
 	})
+	if err == nil {
+		err = selectionErr
+	}
 	if err == nil && saved == nil {
 		err = fmt.Errorf("%s has no saved models", name)
 	}
