@@ -49,7 +49,7 @@ func midturn(live seat.Live, account bool) bool {
 // no notice to answer by its output, and no account to move it to or off.
 func healthy(live seat.Live) bool {
 	return live.Stall == nil && live.Login == nil && !live.Stuck && live.Bound && titleKept(live) &&
-		notify.Last(live.Name) == nil && stays(live)
+		(notify.Last(live.Name) == nil || unansweredQuestion(live)) && stays(live)
 }
 
 // titleKept is whether the seat's title is the name it has, which the owner has not retitled

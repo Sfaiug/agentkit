@@ -13,11 +13,11 @@ import (
 	"agentkit/internal/seat"
 )
 
-// unasked is whether nothing the seat asked waits on the owner's answer in its conversation: no
-// notice standing, no question kept back, and no `needs you` its card holds (notify.answer_typed).
+// unasked is whether typed answers has nothing to do: nothing asked, or a recorded question
+// with no newer message from the owner (notify.answer_typed).
 func unasked(live seat.Live) bool {
 	_, asked := notify.AskedAt(live.Name)
-	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && !asked
+	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && !asked || unansweredQuestion(live)
 }
 
 // cardsHeld is whether every card is a seat's, none left of a seat gone (notify.tick_cards).
@@ -43,7 +43,11 @@ func cards() error {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := notify.TurnedPlan(name, seat.Published, plan.Outcomes); err != nil || !carried {
+		carried, err := notify.TurnedQuestion(name, seat.Published)
+		if !carried && err == nil {
+			carried, err = notify.TurnedPlan(name, seat.Published, plan.Outcomes)
+		}
+		if err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
 	}

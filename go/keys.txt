@@ -120,6 +120,9 @@ test_key_orch_resume_dry_run
 test_key_orch_stop_other_seat
 test_key_orch_stop_remove
 test_key_orch_stop_runs
+test_key_page_card_wait
+test_key_page_owner_in_seat
+test_key_page_question_once
 test_key_parse_simple
 test_key_pick_above_the_line
 test_key_plan_add

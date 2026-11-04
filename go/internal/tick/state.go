@@ -54,10 +54,10 @@ func generation(value any) any {
 }
 
 // quiet is whether watch.json holds only what a home with nothing to act on holds: no PR, run,
-// seat, login or worker token kept. Any other key stays as it was.
+// stall, login or worker token kept. Alert generations are bookkeeping, kept even after an open.
 func quiet(state *run.Object) bool {
 	for _, key := range kept {
-		if len(state.Dict(key).Keys()) > 0 {
+		if key != "seen_at" && len(state.Dict(key).Keys()) > 0 {
 			return false
 		}
 	}
