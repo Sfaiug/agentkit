@@ -199,7 +199,7 @@ class Quota(unittest.TestCase):
         record.save_state(run_dir, state)
         logs = []
         lp = SimpleNamespace(cfg=self.cfg, run_dir=run_dir, state=state, wt=wt,
-                             every=[], done_when_limit=60,
+                             every=[], done_when_limit=60, scratch=True,
                              executor="astra", reviewer="spark", exec_sid=None, rnd=1,
                              turn_limit=60, log=logs.append,
                              save=lambda: record.save_state(run_dir, lp.state),
@@ -366,7 +366,7 @@ class Quota(unittest.TestCase):
         record.save_state(run_dir, state)
         logs = []
         lp = SimpleNamespace(cfg=self.cfg, run_dir=run_dir, state=state, wt=wt,
-                             every=[], done_when_limit=60,
+                             every=[], done_when_limit=60, scratch=True,
                              executor="astra", reviewer="opus", exec_sid=None, rnd=1,
                              turn_limit=60, log=logs.append,
                              save=lambda: record.save_state(run_dir, lp.state),

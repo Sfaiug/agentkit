@@ -350,6 +350,20 @@ def check_fixer_proofs(turn, records):
                            'whose command exits 0.')
 
 
+def check_workspace(turn):
+    from . import change_rules, gitcall
+    checks = turn.get("checks", {})
+    if not checks.get("base") or checks.get("scratch"):
+        return
+    wt, base = turn["workspace"], checks["base"]
+    base = gitcall.integrated_base(wt, base, checks.get("upstream"))
+    with gitcall.leftover_tree(wt, checks.get("artifacts", ()), Path(os.environ[ENV]).parent) as (head, index):
+        failures = (change_rules.files_scope(wt, base, checks.get("files", ()), head=head),
+                    change_rules.rules_check(wt, base, head=head, env=index))
+    if any(failures):
+        raise config.Error("done refused: " + "\n".join(filter(None, failures)))
+
+
 def main(argv):
     if command_help.show("hand-in", argv):
         return 0
@@ -367,6 +381,7 @@ def main(argv):
             row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"),
                           rows[0].get("findings", []))
             if row["kind"] == "done" and not rows[0].get("role", "reviewer").startswith("reviewer"):
+                check_workspace(rows[0])
                 failed = failed_checks(rows[0], [(f"$ {cmd}", cmd)
                                                for cmd in rows[0].get("checks", {}).get("commands", [])])
                 if failed:
