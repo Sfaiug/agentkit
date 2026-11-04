@@ -7730,6 +7730,8 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     did not land is entered there and never typed a second time, into it or another seat.
     The seat's name when the line was told, else None.
     """
+    if run_dir is not None:
+        run_dir.mkdir(parents=True, exist_ok=True)
     with handback.delivery_lock(run_dir) if run_dir is not None else nullcontext():
         state = run_record.read_state(run_dir) if run_dir is not None else None
         if run_dir is not None:

@@ -174,7 +174,7 @@ class Wait(Sandbox):
         self.assertEqual(self.decide(), ("working", f"waiting on {THEIRS}"))
         self.assertEqual(watch.waiting_on(SEAT)["on"], THEIRS)
 
-    def test_a_merge_with_health_holds_run_and_pr_waits_until_the_window_passes(self):
+    def test_a_merge_with_health_holds_run_and_pr_waits_until_live_or_the_window_passes(self):
         self.receipt(THEIRS, OTHER, pr=PR, state="pass", verdict="PASS", merged=True,
                      finished_at=NOW - 30, health={"command": "false"})
         self.gh = {"state": "MERGED", "number": 12, "mergeCommit": {"oid": "abc123"}}
@@ -184,6 +184,11 @@ class Wait(Sandbox):
                 self.assertEqual(watch.wait_fact(wait), (False, "", None))
                 with patch.object(watch.time, "time", return_value=NOW + watch.AFTER_MERGE_WINDOW):
                     self.assertTrue(watch.wait_fact(wait)[0])
+                with record.record(config.RUNS / THEIRS) as current:
+                    current["live_at"] = NOW
+                self.assertTrue(watch.wait_fact(wait)[0])
+                with record.record(config.RUNS / THEIRS) as current:
+                    current.pop("live_at")
 
     # ak ends the wait when that merges, closes or ends. [4 Oct, 9 Oct]
     def test_c_over_once_the_run_ends_and_the_line_is_typed_once(self):

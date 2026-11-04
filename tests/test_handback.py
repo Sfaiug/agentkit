@@ -246,6 +246,23 @@ class HandBack(Sandbox):
         self.assertEqual(len(self.typed), 1, self.typed)
         self.assertIn(" NOT LIVE ", self.typed[0][1])
 
+    def test_a_pending_not_live_notice_outlives_its_collected_run(self):
+        self.rows = [self.live()]
+        key = "github.com/acme/widget"
+        pending = {"source": "health", "sha": "a" * 40, "finished": 9990,
+                   "run": "run-gone", "session": SEAT, "check": "health: probe",
+                   "target": "main", "typed": None, "line": watch.after_merge_line(
+                       "health: probe", "main", "https://github.com/acme/widget/pull/7; still deploying")}
+        state = {"after_merge": {key: {"pending": pending}}}
+        directory = config.RUNS / pending["run"]
+        self.assertFalse(directory.exists())
+        watch.after_merge_checks(state, False, self.logs.append,
+                                 now=9991 + watch.AFTER_MERGE_WINDOW)
+        self.assertEqual(len(self.typed), 1, self.typed)
+        self.assertIn(" NOT LIVE ", self.typed[0][1])
+        self.assertEqual(state["after_merge"][key]["notified"], pending["sha"])
+        self.assertTrue((directory / "result.md").is_file())
+
     def test_the_live_follower_waits_for_the_sleeping_seats_prompt(self):
         directory = self.health_merge()
         config.plan_path(SEAT).write_text("- [ ] verify the api\n")
