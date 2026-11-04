@@ -282,8 +282,8 @@ class LanderWakes(Sandbox):
         self.assertNotIn("land", state["waiting_on"])
         self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assertEqual(state["landing_reds"], 1)
-        # its own suite went red after review passed it: one break at landing, on its row
-        self.assertEqual(history.get(self.directory.name)["landing_breaks"], 1)
+        # Its red stays unjudged while the run has not merged.
+        self.assertEqual(history.get(self.directory.name)["landing_breaks"], 0)
         self.assertEqual([directory.name for directory, _ in land.line(self.turn)], ["run", "other"])
         self.assertEqual(record.read_state(other), original)
         self.assert_rounds(state)
@@ -314,7 +314,7 @@ class LanderWakes(Sandbox):
         self.assertEqual(state["state"], "waiting")
         self.assertEqual(state["pr"], URL)
         self.assertEqual(state["landing_reds"], 1)
-        self.assertEqual(history.get(self.directory.name)["landing_breaks"], 1)
+        self.assertEqual(history.get(self.directory.name)["landing_breaks"], 0)
         self.assertIn("required checks failed: unit", (self.directory / "pr-checks.log").read_text())
         self.assertEqual(self.events, [("final-fixer", 3), ("reviewer", "round-3")])
         self.assertEqual(self.merges, [])

@@ -872,7 +872,7 @@ def land_from_line(lp, upstream, deliver):
     if not wait.get("fixing"):
         lp.state[count] = lp.state.get(count, 0) + 1
         if suite_red(lp.state, failure):
-            history.add_landing_break(lp.state.get("run_id"), log=lp.log)
+            lp.state.setdefault("landing_red_patches", []).append(roundloop.patch_id(lp.wt, lp.base_sha))
         lp.state["waiting_on"] = {**wait, "fixing": True}
         lp.write()
     if lp.state[count] > roundloop.CONFLICT_ROUNDS:
@@ -1162,7 +1162,7 @@ def fail_pr_landing(lp, failure, landing=True):
     if landing:
         reds = lp.state[count] = reds + 1
         if suite_red(lp.state, failure):
-            history.add_landing_break(lp.state.get("run_id"), log=lp.log)
+            lp.state.setdefault("landing_red_patches", []).append(roundloop.patch_id(lp.wt, lp.base_sha))
     if lp.state.get("own_pr") and (reds <= roundloop.CONFLICT_ROUNDS if landing else lp.rnd < lp.rounds):
         lp.state.update(state="running", finished_at=None, own_pr_wait=lp.state["head_sha"])
         if landing:

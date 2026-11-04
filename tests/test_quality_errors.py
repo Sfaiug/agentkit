@@ -2,8 +2,8 @@
 root of their squares, each by its weight, over the scores they come from: an interval's width
 / 3.92, a share of a known number of tasks, Omniscience's right and wrong answers, else the
 median error of the rows measured; a carried score adds the shift's error, from how unevenly
-the index's evaluations changed between the two efforts, else that median; `quality.pick` never
-reads any of it."""
+the index's evaluations changed between the two efforts, else that median; execution
+picks independently of it."""
 
 import math
 from pathlib import Path
@@ -115,10 +115,10 @@ class QualityErrors(unittest.TestCase):
         self.assertAlmostEqual(found(self.rated, "echo-1", "high")["se"],
                                math.hypot(0.8 * share(0.5, 132), 0.2 * share(0.5, 66)))
 
-    def test_pick_never_reads_an_error(self):
+    def test_execution_pick_does_not_depend_on_error(self):
         high, low = found(self.rated, "acme-5", "high"), found(self.rated, "acme-5", "low")
         for error in (0.0, 9.0):
-            self.assertEqual(quality.pick([high, dict(low, se=error)], 10)["effort"], "low")
+            self.assertEqual(quality.pick([high, dict(low, se=error)], "execute")["effort"], "high")
 
 
 if __name__ == "__main__":

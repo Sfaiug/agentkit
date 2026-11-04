@@ -251,7 +251,8 @@ class RedMain(unittest.TestCase):
         land.check_line(self.turn)
         self.assertIn("piece", self.wait(repair)["fix"])
         history.start_run(repair.name, started_at=1)
-        lp = SimpleNamespace(state=record.read_state(repair), write=lambda: None, log=lambda _: None)
+        lp = SimpleNamespace(state=record.read_state(repair), wt=self.repo,
+                             base_sha=state["base_sha"], write=lambda: None, log=lambda _: None)
         with patch.object(roundloop, "integrate", return_value=False):
             deliver.land_from_line(lp, "origin/main", lambda: True)
         # the lander never probed the red target for it: its red says nothing of its review
@@ -263,7 +264,8 @@ class RedMain(unittest.TestCase):
                                   "fix": {"line": "required checks failed: unit", "log": str(log)}}
         with patch.object(roundloop, "integrate", return_value=False):
             deliver.land_from_line(lp, "origin/main", lambda: True)
-        self.assertEqual(history.get(repair.name)["landing_breaks"], 1)
+        self.assertEqual(history.get(repair.name)["landing_breaks"], 0)
+        self.assertEqual(len(lp.state["landing_red_patches"]), 1)
 
     def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})

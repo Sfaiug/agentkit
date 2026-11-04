@@ -9,14 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/quality"
-	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 )
 
 const (
-	near  = 2         // the line's rows shown past those within `within` of the best
 	mark  = 7         // a row's mark's column, as wide as `r takes`
 	quiet = "#a6adc8" // what a row's line is drawn in while no company lights: Mocha's subtext0
 	named = 13        // the cells before a legend line's words: its name's column
@@ -25,8 +22,7 @@ const (
 
 var (
 	heads  = map[string]string{"orchestrate": "orch", "execute": "builds", "review": "reviews"}
-	legend = [][2]string{{"as good", "{} within {} points of the best, then the cheapest"},
-		{"left out", "a row no better than a cheaper one, yours compared with yours"}}
+	legend = [][2]string{{"left out", "a row no better than a cheaper one, yours compared with yours"}}
 )
 
 // A Line is one row of a role's answer, or the words Said where it says something else.
@@ -36,19 +32,15 @@ type Line struct {
 	Near                                  float64
 }
 
-// A Role is what the screen says of one role's answer: its head, its lines, and the rows past them
-// `within` = config.Points shows, which with them hold every row any `within` shows.
+// A Role is what the screen says of one role's answer: its head and full frontier.
 type Role struct {
-	Head        string
-	Lines, More []Line
+	Head  string
+	Lines []Line
 }
 
-// ModelsSaid is what the screen says of the answer per role.  A head is the role's name, with its
-// best where its first row is not that, `none` with no front.  Its lines are each row of the front
-// within `within` of the best, so the pick and what `r` takes among them, and up to `near` rows
-// more, and under a pick where `r` takes nothing that no harness of yours runs a model this good.
-// With no pick, no priced row being within `within` of the best, the front from its best, said so.
-func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup []quality.Row, within float64) []Role {
+// ModelsSaid matches Python's models_said: each role's head and frontier, pick and take
+// marked, quality full at the best and empty ten points behind.
+func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup []quality.Row) []Role {
 	levels := map[string][]string{} // each release's efforts on the boards, weakest first
 	for _, row := range lineup {
 		levels[row.Release] = append(levels[row.Release], row.Effort)
@@ -56,25 +48,8 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 	var said []Role
 	for _, role := range quality.Roles {
 		found := answer[role]
-		// how far down the front `points` shows
-		shows := func(points float64) int {
-			shown := near
-			for _, row := range found.Front {
-				if row.Quality >= *found.Best-points {
-					shown++
-				}
-			}
-			return shown
-		}
 		var out Role
-		if found.Pick == nil && len(found.Front) > 0 {
-			out.Lines = append(out.Lines, Line{Said: "no row with a cost is as good"})
-		}
-		shown, sized := 0, 0
-		if len(found.Front) > 0 {
-			shown, sized = shows(within), shows(config.Points)
-		}
-		for number, row := range found.Front[:min(sized, len(found.Front))] {
+		for _, row := range found.Front {
 			var notes []string
 			if missing := row.Missing(); missing > 0 {
 				notes = append(notes, screen.Styled(strconv.Itoa(missing)+" missing", "dim"))
@@ -85,7 +60,7 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 			taken := levels[row.Release]
 			line := Line{Name: row.Name, Word: row.Effort, Notes: notes,
 				Cells:   screen.EffortCells(len(taken), slices.Index(taken, row.Effort)+1),
-				Near:    max(0, 1-(*found.Best-row.Quality)/config.Points),
+				Near:    max(0, 1-(*found.Best-row.Quality)/10),
 				Quality: strconv.FormatFloat(row.Quality, 'f', 1, 64),
 				Cost:    "$" + strconv.FormatFloat(*row.Cost, 'f', 2, 64)}
 			switch row {
@@ -94,11 +69,7 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 			case found.Take:
 				line.Mark = "r takes"
 			}
-			if number < shown {
-				out.Lines = append(out.Lines, line)
-			} else {
-				out.More = append(out.More, line)
-			}
+			out.Lines = append(out.Lines, line)
 			if row == found.Pick && found.Take == nil {
 				out.Lines = append(out.Lines, Line{Said: "no harness of yours runs a model this good"})
 			}
@@ -132,16 +103,16 @@ func packed(parts []string, room int) []string {
 // with rows the columns' heads, then its lines: a row's mark in `mark` cells, its name, its effort
 // -- its cells, then its word, in one column after the most cells any row has -- its line, taking
 // the room the other columns leave, then its quality, cost and notes, these one under another in a
-// column as wide as the widest.  Every column fits the rows `within` = config.Points shows, so a
-// step of `within` moves none.  Where that leaves the line under 8 cells, the notes' column gives
+// column as wide as the widest. Every column fits the full frontier.
+// Where that leaves the line under 8 cells, the notes' column gives
 // way first, each row's notes going under it; where the line is still under 8 cells, each row's
 // mark, then its name and effort, take a line and its line, numbers and notes the next, the name
 // alone cut; the notes that do not fit beside the numbers then go under the row, broken only
-// between two.  Then the legend, opening on `within`'s knob, never broken, and how many of the
-// total models are compared and when the boards were read, broken only at ` · `.
-func ModelsBody(screen terminal.Screen, said []Role, within float64, compared map[string]bool, total int, fetched float64) []string {
+// between two. Then the legend, how many of the total models are compared and when the
+// boards were read, broken only at ` · `.
+func ModelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64) []string {
 	room := screen.LayoutWidth()
-	var rows, sized []Line
+	var rows []Line
 	for _, role := range said {
 		for _, line := range role.Lines {
 			if line.Said == "" {
@@ -149,12 +120,8 @@ func ModelsBody(screen terminal.Screen, said []Role, within float64, compared ma
 			}
 		}
 	}
-	sized = slices.Clone(rows)
-	for _, role := range said {
-		sized = append(sized, role.More...)
-	}
 	tall := 0
-	for _, row := range sized {
+	for _, row := range rows {
 		tall = max(tall, len(row.Cells))
 	}
 	effort := func(row Line) string {
@@ -168,7 +135,7 @@ func ModelsBody(screen terminal.Screen, said []Role, within float64, compared ma
 	}
 	label, levelled, notesWide := 0, 0, 0
 	qualityWide, costWide := terminal.Cells("quality"), terminal.Cells("a task")
-	for _, row := range sized {
+	for _, row := range rows {
 		label = max(label, terminal.Cells(row.Name))
 		levelled = max(levelled, terminal.Cells(effort(row)))
 		qualityWide = max(qualityWide, terminal.Cells(row.Quality))
@@ -252,23 +219,13 @@ func ModelsBody(screen terminal.Screen, said []Role, within float64, compared ma
 		}
 	}
 	put("")
-	knob := pointsKnob(screen, within)
-	word := strings.Repeat("_", terminal.Cells(knob)+1) // one word, so the knob never breaks, and its gap
-	points := strings.TrimSuffix(string(run.Float(within)), ".0")
 	for _, entry := range legend {
-		text := strings.Replace(strings.Replace(entry[1], "{}", word, 1), "{}", points, 1)
-		for number, part := range terminal.Wrap(text, room-named) {
+		for number, part := range terminal.Wrap(entry[1], room-named) {
 			name := entry[0]
 			if number > 0 {
 				name = ""
 			}
-			words, knobbed := strings.CutPrefix(part, word)
-			line := "  " + screen.TableRow([]string{name, words}, []int{9, room - named}, []string{"", "dim"})
-			if knobbed { // the knob's cells are drawn as they are, not dimmed with the words after them
-				at := min(named, len(line)) // a narrow screen's knob alone on its line left no words
-				line = line[:at] + knob + "  " + line[at:]
-			}
-			put(line)
+			put("  " + screen.TableRow([]string{name, part}, []int{9, room - named}, []string{"", "dim"}))
 		}
 	}
 	shown := "all"
@@ -288,16 +245,6 @@ func ModelsBody(screen terminal.Screen, said []Role, within float64, compared ma
 		put("  " + screen.Styled(part, "dim"))
 	}
 	return lines
-}
-
-// pointsKnob is `within` between the arrows that step it, a cell a point: its whole points full and
-// the rest dim, `‹ ▰▰▰▰▰▱▱▱▱▱ ›` for 5.
-func pointsKnob(screen terminal.Screen, within float64) string {
-	left, right := "‹ ", " ›"
-	if screen.ASCII() {
-		left, right = "< ", " >"
-	}
-	return left + strings.Join(screen.EffortCells(config.Points, int(within)), "") + right
 }
 
 // LiveLines is the second table: each configured model's own numbers per role, `55% of 320`, rows

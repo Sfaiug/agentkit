@@ -21,15 +21,11 @@ func modelsHome(t *testing.T, text string) {
 	}
 }
 
-func TestWithinIsTheConfigsElseTheDefault(t *testing.T) {
-	modelsHome(t, "")
-	if got, err := Within(); err != nil || got != 5 {
-		t.Fatalf("default: %v %v", got, err)
-	}
-	for text, want := range map[string]float64{"within = 2.5\n": 2.5, "within = 0\n": 0, "within = 10\n": 10} {
+func TestLegacyWithinIsIgnored(t *testing.T) {
+	for _, text := range []string{"within = 1\n", "within = 'near'\n", "within = -1\n", "within = true\n", "within = 101\n"} {
 		modelsHome(t, text)
-		if got, err := Within(); err != nil || got != want {
-			t.Fatalf("%q: %v %v", text, got, err)
+		if _, err := Compare(); err != nil {
+			t.Fatalf("%q: %v", text, err)
 		}
 	}
 }
@@ -45,10 +41,10 @@ func TestCompareIsTheConfigsMarks(t *testing.T) {
 	}
 }
 
-func TestAMarkOrWithinOfTheWrongKindIsRefused(t *testing.T) {
-	for _, text := range []string{"compare = [1]\n", "compare = 'acme-5'\n", "within = 'near'\n", "within = -1\n", "within = 101\n"} {
+func TestAMarkOfTheWrongKindIsRefused(t *testing.T) {
+	for _, text := range []string{"compare = [1]\n", "compare = 'acme-5'\n"} {
 		modelsHome(t, text)
-		if _, err := Within(); err == nil {
+		if _, err := Compare(); err == nil {
 			t.Errorf("%q was not refused", text)
 		}
 	}

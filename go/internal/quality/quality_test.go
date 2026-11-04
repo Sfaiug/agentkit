@@ -26,16 +26,15 @@ func shown(rows []*Rating) []string {
 	return names
 }
 
-// The owner's rule on models: the pick is the cheapest within `within` of the best, `r` takes the
-// cheapest of yours within it, and a row no better than a cheaper one leaves the line.
-func TestAnswerPicksTheCheapestWithinPointsOfTheBest(t *testing.T) {
+// The role rule picks over all rows and over yours; dominated rows leave the front.
+func TestAnswerPicksTheRoleBend(t *testing.T) {
 	share := func(release, effort string, yours bool, value, cost float64) Row {
 		return row(release, effort, yours, intel, 60.0, "aa.frontierCode20", value, "arena.agent", value,
 			"aa.terminalBench40", value, taskCost, cost, "aa.omniscience", 50.0)
 	}
 	rows := []Row{share("top", "max", false, 0.9, 30), share("near", "high", false, 0.87, 10),
 		share("mine", "high", true, 0.86, 12), share("worse", "low", true, 0.5, 20), share("low", "low", false, 0.5, 1)}
-	said := Answer(rows, 5, nil)["execute"]
+	said := Answer(rows, nil)["execute"]
 	if *said.Best != 100 || said.Pick.Release != "near" || said.Take.Release != "mine" {
 		t.Fatalf("best %v pick %s take %s", *said.Best, said.Pick.Release, said.Take.Release)
 	}
@@ -45,10 +44,10 @@ func TestAnswerPicksTheCheapestWithinPointsOfTheBest(t *testing.T) {
 	if want := "[top/max 100.000 near/high 97.000 mine/high 96.000 low/low 60.000]"; got != want {
 		t.Fatalf("front %s, want %s", got, want)
 	}
-	if compared := Answer(rows, 5, map[string]bool{"worse": true})["execute"]; compared.Pick.Release != "worse" || *compared.Best != 60 {
+	if compared := Answer(rows, map[string]bool{"worse": true})["execute"]; compared.Pick.Release != "worse" || *compared.Best != 60 {
 		t.Fatalf("compared %v", shown(compared.Front))
 	}
-	if none := Answer(rows, 0, map[string]bool{"nothing": true})["execute"]; none.Best != nil || none.Pick != nil || len(none.Front) != 0 {
+	if none := Answer(rows, map[string]bool{"nothing": true})["execute"]; none.Best != nil || none.Pick != nil || len(none.Front) != 0 {
 		t.Fatalf("none compared %+v", none)
 	}
 }

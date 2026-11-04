@@ -16,7 +16,7 @@ var saveHeader = []string{"# agentkit's config, written by the menu's `c` screen
 // saveOrder is the keys Python's save writes first in the top level and in each known table,
 // in its order; every other key follows in place.
 var saveOrder = map[string][]string{
-	"":          {"max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin", "within"},
+	"":          {"max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin"},
 	"defaults":  {"orchestrator", "workers", "reviewers"},
 	"models":    {"harness", "model", "effort", "exec_effort", "review_effort", "provider", "meter", "mode"},
 	"providers": {"mode", "usage_model", "usage_effort"},

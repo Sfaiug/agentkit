@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, run, status, transitions, turns, usage  # noqa: E402
-from agentkit import record, staffing
+from agentkit import gitcall, record, roundloop, staffing
 
 
 class HistoryTests(unittest.TestCase):
@@ -85,7 +85,8 @@ class HistoryTests(unittest.TestCase):
         history.finish_run("r1", final_state="pass", finished_at=4)
         row = history.get("r1")
         # its landing failures were never counted: NULL, never the 0 and '' of an unbroken row
-        self.assertEqual((row["landing_breaks"], row["broke_after_merge"]), (None, None))
+        self.assertEqual((row["landing_breaks"], row["landing_flakes"], row["broke_after_merge"]),
+                         (None, None, None))
 
     def test_review_pairs_migrate_as_unknown_and_resolve_the_recorded_pair_at_ending(self):
         with closing(sqlite3.connect(history.path())) as db, db:
@@ -117,6 +118,45 @@ class HistoryTests(unittest.TestCase):
         state["review"] = {"executor": "cedar", "reviewer": "alias"}
         with patch.object(config, "load", side_effect=config.Error("unreadable")):
             self.assertIsNone(transitions.history_ending(state)["review_pair"])
+
+    def test_recovering_an_ending_judges_each_red_against_the_merged_patch(self):
+        directory = self.home / "runs" / "r1"
+        directory.mkdir(parents=True)
+        state = {"run_id": "r1", "state": "blocked", "finished_at": 2,
+                 "repo": str(self.home / "repo"), "worktree": str(self.home / "gone"),
+                 "base_sha": "base", "delivery_sha": "delivered",
+                 "landing_red_patches": ["changed", "same", None, "same"]}
+        with patch.object(config, "RUNS", directory.parent), \
+                patch.object(roundloop, "patch_id", return_value="same") as patch_id:
+            history.start_run("r1", started_at=1)
+            record.save_state(directory, state)
+            transitions.history_agree()
+            patch_id.assert_not_called()
+            row = history.get("r1")
+            self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (0, 0))
+            history.start_run("r1", started_at=3)
+            state.update(state="pass", merged=True, finished_at=4)
+            record.save_state(directory, state)
+            transitions.history_agree()
+            transitions.history_agree()
+            patch_id.assert_called_once_with(state["repo"], "base", "delivered")
+            row = history.get("r1")
+            self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (2, 2))
+
+    def test_a_timed_out_patch_read_does_not_prevent_a_merged_runs_terminal_receipt(self):
+        state = {"run_id": "r1", "state": "pass", "verdict": "PASS", "merged": True,
+                 "repo": str(self.home), "base_sha": "base", "delivery_sha": "delivered",
+                 "started_at": 1, "finished_at": 2, "landing_red_patches": ["same"]}
+        with patch.object(config, "RUNS", self.home / "runs"), \
+                patch.dict(os.environ, {"HOME": str(self.home)}):
+            history.start_run("r1", started_at=1)
+            with patch.object(gitcall, "git_out", side_effect=gitcall.Stopped("git diff timed out")), \
+                    patch.object(gitcall, "git", side_effect=gitcall.Stopped("git read timed out")):
+                transitions.history_finish(state)
+            row = history.get("r1")
+        self.assertEqual((row["final_state"], row["verdict"], row["finished_at"], row["total_seconds"]),
+                         ("pass", "PASS", 2, 1))
+        self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (1, 0))
 
     def test_review_pair_stays_with_its_ending_even_when_unknown(self):
         for n, pair in enumerate(("other provider", None)):
@@ -270,8 +310,7 @@ class HistoryTests(unittest.TestCase):
         # a row started since breaks are recorded was followed for them: none is 0 and ''
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (0, ""))
-        history.add_landing_break("merged")
-        history.update_run("merged", broke_after_merge="health")
+        history.update_run("merged", landing_breaks=1, broke_after_merge="health")
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (1, "health"))

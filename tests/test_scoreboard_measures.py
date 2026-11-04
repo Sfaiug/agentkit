@@ -43,7 +43,8 @@ PINNED = (
     ("sunk", "sunk", ("share", "tokens")),
     # a review miss counts only when it breaks, at landing or after merge, never a rewrite
     # later: the owner's yes, 16 Oct 2026, in place of `escaped`
-    ("broke", "broke", ("merged", "after_merge", "landing", "unknown")),
+    # Landing flakes apart from review misses: write-up task 21, 3 Nov 2026.
+    ("broke", "broke", ("merged", "after_merge", "landing", "flakes", "unknown")),
     # pairs: the orchestrator's decision of 3 Nov 2026, changed on review under the Owner rule of 27 Oct 2026.
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
     # findings: write-up task 18 (30 Oct 2026), changed on review under the Owner rule of 27 Oct 2026.

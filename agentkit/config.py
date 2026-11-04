@@ -97,7 +97,6 @@ OWN = ("agentkit.git", "bin", CONFIG_NAME, "env", "history.db", "history.db-jour
        "state", "tasks", "tmp", "versions", "work", "wt")
 EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort words for a
                                # harness whose adapter manifest names none of its own
-POINTS = 10                    # the most `within` can be: past ten, a point says nothing
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
 # What a change may spend, each a top-level key of config.toml (`policy`): ak's default, the
@@ -568,10 +567,6 @@ def load():
 
     def held(key):      # a top-level setting's error sends the owner to the file that holds it
         return HOME / CONFIG_NAME if key in (home or ()) else path
-    if "within" in cfg and (isinstance(cfg["within"], bool) or not isinstance(cfg["within"], (int, float))
-                            or not 0 <= cfg["within"] <= POINTS):
-        raise Error(f"{held('within')}: within must be a number of points from 0 to {POINTS} "
-                    f"(got {cfg['within']!r})")
     marks = cfg.get("compare")
     if marks is not None and (not isinstance(marks, list)
                               or any(not isinstance(slug, str) for slug in marks)):
@@ -959,8 +954,7 @@ def _ordered(items, first):
 SAVE_HEADER = ("# agentkit's config, written by the menu's `c` screen. It is rewritten whole on "
                "every change,",
                "# so a comment left here would not survive it; unknown keys are kept as they are.")
-_TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin",
-              "within")
+_TOP_ORDER = ("max_runs", "max_gates", "min_free_mb", "max_load", "run_memory_max_mb", "pace_margin")
 _DEFAULTS_ORDER = ("orchestrator", "workers", "reviewers")
 _MODEL_ORDER = ("harness", "model", "effort", "exec_effort", "review_effort", "provider",
                 "meter", "mode")

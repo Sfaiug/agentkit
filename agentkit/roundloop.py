@@ -883,10 +883,10 @@ def integrated(wt, rev):
     return rc == 0
 
 
-def patch_id(wt, base_sha):
-    """The stable id of `base...HEAD`, or None for an empty diff or any git failure."""
+def patch_id(wt, base_sha, head="HEAD"):
+    """The stable id of `base...head`, or None for an empty diff or any git failure."""
     try:
-        rc, diff = gitcall.git_out(wt, "diff", f"{base_sha}...HEAD")
+        rc, diff = gitcall.git_out(wt, "diff", f"{base_sha}...{head}")
     except gitcall.Stopped:
         raise
     except Exception:

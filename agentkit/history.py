@@ -82,7 +82,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
-              ("review_pair", "TEXT"))
+              ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -395,8 +395,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     goes, and every later write finds no row to change.  The orchestrator is the launching
     seat's at the first write, whatever that seat runs by a resume.  `change` names the
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
-    yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
+    runs by.  A new row is followed for breaks and landing flakes, none yet 0 and '', where a
+    row from before they were recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
@@ -409,7 +409,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "", kind)
+              change, 0, "", kind, 0)
 
     def insert(connection):
         connection.execute(
@@ -418,8 +418,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge, kind) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge, kind, landing_flakes) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -467,7 +467,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort", "kind"}
+               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -486,13 +486,6 @@ def add_seconds(run_id, step, seconds, *, log=None):
     _write(lambda connection: connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
         (max(0.0, seconds), run_id)), log)
-
-
-def add_landing_break(run_id, *, log=None):
-    """One more time a change review passed failed its tests at landing (`deliver.suite_red`)."""
-    _write(lambda connection: connection.execute(
-        "UPDATE runs SET landing_breaks=COALESCE(landing_breaks,0)+1 WHERE run_id=?",
-        (run_id,)), log)
 
 
 def add_wait(run_id, wait, seconds, at=None, *, began=None, kind=None, log=None):
@@ -890,7 +883,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, review_pair=None, saved=None, log=None):
+               own_orchestrator_effort=None, review_pair=None, landing_breaks=None,
+               landing_flakes=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -908,7 +902,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
               "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
-              "own_orchestrator_effort": own_orchestrator_effort}
+              "own_orchestrator_effort": own_orchestrator_effort,
+              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 

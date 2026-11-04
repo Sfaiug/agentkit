@@ -1735,8 +1735,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     """The workers for a role, the one the matrix ranks first for it first.
 
     The rank is `matrix.rank`'s for the role (`execute` for an executor, `review` for a
-    reviewer) among the candidates: those within `within` of the best of them, the cheapest
-    first, then the others by quality, off the lineup the models screen or `ak models` last
+    reviewer) among the candidates: the role's pick first, then the others by quality, off the lineup the models screen or `ak models` last
     stored; a model no row of it is, or a lineup nobody stored yet, ranks after every ranked
     model.  Among models ranked alike, budget decides:
     the fraction unspent over the fraction of the window still to go, unknown readings after

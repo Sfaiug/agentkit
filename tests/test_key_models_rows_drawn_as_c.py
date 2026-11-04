@@ -30,7 +30,7 @@ ROWS = [("acme-max-5", "Acme Max 5", "low", 30, 6.0),
         ("acme-max-5", "Acme Max 5", "high", 45, 10.0),
         ("acme-max-5", "Acme Max 5", "max", 60, 20.0),
         ("crux-2", "Crux 2", None, 0, 1.0), ("crux-2", "Crux 2", "high", 5, 2.0)]
-# what review shows: the best, the pick 3 behind, a row 5 behind and one 11 behind, the last of
+# what review shows: the best, the take 3 behind, the pick 5 behind and one 11 behind, the last of
 # two rows of its release
 REVIEWS = [("Acme Max 5  ▰▰▰▰  max", "100.0", "$20.00"),
            ("Acme Max 5  ▰▰▰▱  high", "97.0", "$10.00"),
@@ -71,7 +71,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
 
     def setUp(self):
         akconfig.write(self.home, {"max": {"harness": "claude", "model": "acme-max-5",
-                                           "effort": "high"}}, settings={"within": 4})
+                                           "effort": "high"}})
         self.home.write(".agentkit/state/boards.json", boards())
         (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)  # answered anew
 
@@ -92,7 +92,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         rows = [drawn(line) for line in shown[at + 1:at + 1 + len(REVIEWS)]]
         self.assertEqual([(head, quality, cost) for _, head, _, quality, cost, _ in rows], REVIEWS)
         (_, _, best, *_), (mark, _, pick, *_), (_, _, half, *_), (*_, empty, _, _, crux) = rows
-        self.assertEqual(mark, "★ pick")
+        self.assertEqual(mark, "r takes")
         self.assertIn("no harness", crux)
         self.assertEqual(len({len(best), len(pick), len(half), len(empty)}), 1)
         self.assertEqual(best, "━" * len(best))
@@ -102,9 +102,9 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         self.assertRegex(pick, "^━+╸?─+$")
         self.assertIn("Crux 2", [row[1] for row in map(drawn, shown) if row])    # no effort
 
-    def test_every_row_within_the_points_shows_then_two_more(self):
+    def test_every_frontier_row_shows(self):
         # review's qualities: 100 99 98 97, Bolt 2 96.4 the pick, Acme Max 5 medium 96 what `r` takes
-        # though Bolt 2 is cheaper and better, then 88, 86 and 84, one too many.  Gulp 1 95 lies under
+        # though Bolt 2 is cheaper and better, then 88, 86 and 84.  Gulp 1 95 lies under
         # Bolt 2 and Acme Max 5 high 94 under Acme Max 5 medium, so both are left out.
         self.home.write(".agentkit/state/boards.json", boards([
             ("apex-5", "Apex 5", "max", 100, 20.0), ("apex-5", "Apex 5", "high", 95, 18.0),
@@ -118,7 +118,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
         self.assertEqual([" ".join(row[1].split()) for row in map(drawn, shown[at + 1:]) if row],
                          ["Apex 5 ▰▰▰▰ max", "Apex 5 ▰▰▰▱ high", "Apex 5 ▰▰▱▱ medium",
                           "Apex 5 ▰▱▱▱ low", "Bolt 2", "Acme Max 5 ▰▰▱ medium", "Acme Max 5 ▰▱▱ low",
-                          "Crux 2"])
+                          "Crux 2", "Dune 1"])
 
     def test_on_40_cells_a_rows_line_numbers_and_notes_go_under_its_name_and_effort(self):
         rows = [row for row in map(drawn, self.models(100)) if row]
