@@ -57,7 +57,13 @@ func save(dir, text string, record *run.Object, outcome string) error {
 		return err
 	}
 	defer delivery.Close()
-	return os.WriteFile(filepath.Join(dir, "result.md"), []byte(resultOpening(dir, record, outcome)+text), 0o666)
+	path := filepath.Join(dir, "result.md")
+	saved, _ := os.ReadFile(path)
+	kept := ""
+	if _, notice, found := strings.Cut(string(saved), "\n## Seat notice\n\n"); found {
+		kept = "\n## Seat notice\n\n" + notice
+	}
+	return os.WriteFile(path, []byte(resultOpening(dir, record, outcome)+text+kept), 0o666)
 }
 
 // report is result.md's body, Python's handback.write_result, its opening added under the delivery lock. A run
@@ -123,7 +129,7 @@ func report(dir string, record *run.Object, cmds []string) string {
 	}
 	why := cmp.Or(record.Str("error"), record.Str("interruption_reason"))
 	if why == "" && record.Str("verdict") != "PASS" {
-		why = failedCheck(record)
+		why = handback.FailedCheck(record)
 	}
 	if why != "" {
 		parts = append(parts, "## Why this run stopped", "", why, "")
@@ -156,17 +162,6 @@ func report(dir string, record *run.Object, cmds []string) string {
 		parts = append(parts, onward, "")
 	}
 	return strings.Join(parts, "\n")
-}
-
-// failedCheck is the check a FAIL still has failing, "" for none, as Python's failed_check says it
-// of a round's own done-when.
-func failedCheck(record *run.Object) string {
-	if history := record.Dict("done_when_failure"); history != nil {
-		if failing := history.List("every"); len(failing) > 0 {
-			return "the done-when failed: " + checkLine(failing[0])
-		}
-	}
-	return ""
 }
 
 // withoutAsides is a review without its follow-ups and notes, Python's prompts.without_followups:

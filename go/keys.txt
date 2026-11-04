@@ -85,6 +85,7 @@ test_key_menu_row_content PlanBars DoneSeat
 test_key_menu_terminal MenuTerminal
 test_key_merge_body_query
 test_key_merge_delivery
+test_key_merge_retry
 test_key_merge_trailer
 test_key_model_typed_forms ModelNames
 test_key_models_command
@@ -140,6 +141,7 @@ test_key_rounds_is_a_setting
 test_key_rulebook_retold
 test_key_run_background
 test_key_run_clean
+test_key_run_merge_refusals
 test_key_run_no_worktree
 test_key_run_nomerge_pass
 test_key_run_parse_errors

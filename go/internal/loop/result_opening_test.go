@@ -91,3 +91,16 @@ func TestResultRebuildKeepsANewerNotLiveOpening(t *testing.T) {
 		t.Fatalf("early failure: %s", saved)
 	}
 }
+
+func TestResultRebuildKeepsTheWholeShortenedSeatNotice(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	const notice = "\n## Seat notice\n\nThe whole reason the typed line shortened.\n"
+	os.WriteFile(filepath.Join(dir, "result.md"), []byte("# Old heading\n\nOld body"+notice), 0o600)
+	if err := save(dir, "\n\nNew body", run.Fields("merged", true), "PASS, merged"); err != nil {
+		t.Fatal(err)
+	}
+	if saved, _ := os.ReadFile(filepath.Join(dir, "result.md")); string(saved) != "# PASS, merged — "+filepath.Base(dir)+"\n\nNew body"+notice {
+		t.Fatalf("rebuilt: %s", saved)
+	}
+}
