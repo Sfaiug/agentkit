@@ -96,8 +96,8 @@ class Refused(unittest.TestCase):
         task = taskfile.write(home, "none", done_when=("true",))
         config = home.path / ".agentkit" / "config.toml"
         for settings, why in (
-                ({"executor_lines": 0}, f"executor_lines must be a whole number of at least 1, "
-                                      f"{REVIEW} (got 0)"),
+                ({"executor_lines": -1}, f"executor_lines must be a whole number of at least 0, "
+                                       f"{REVIEW} (got -1)"),
                 ({"orchestrator_lines": -1}, f"orchestrator_lines must be a whole number of at least 0, "
                                      f"{SEAT} (got -1)")):
             with self.subTest(settings=settings):

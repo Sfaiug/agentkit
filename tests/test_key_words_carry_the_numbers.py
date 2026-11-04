@@ -71,6 +71,13 @@ class Help(unittest.TestCase):
             self.assertIn("No review: a change lands on its checks; no reviewer.", text)
             self.assertNotIn("0 rounds", text)
 
+    def test_executor_off_replaces_task_size_and_says_to_split_own_work(self):
+        run, _ = self.helps(executor_lines=0)
+        self.assertIn("Executors are off; the orchestrator builds every change itself.", run)
+        self.assertIn("at most 50 added lines per PR; split larger changes", run)
+        self.assertNotIn("Task size:", run)
+        self.assertNotIn("as a task and an executor builds it", run)
+
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Rulebook(unittest.TestCase):
@@ -121,6 +128,15 @@ class Rulebook(unittest.TestCase):
         for text in self.book(review_rounds=0):
             self.assertIn("No review: a change lands on its checks; no reviewer.", text)
             self.assertNotIn("0 rounds", text)
+
+    def test_executor_off_replaces_the_task_instructions(self):
+        book, template = self.book(executor_lines=0)
+        for text in (book, template):
+            self.assertIn("Executors are off; the orchestrator builds every change itself.", text)
+            self.assertNotIn("at most 0 added lines", text)
+        self.assertIn("at most 50 added lines per PR; split larger changes", book)
+        self.assertNotIn("Launch with `ak run <task>.md", book)
+        self.assertNotIn("as a task and an executor builds it", book)
 
     def test_says_ak_s_defaults_with_no_setting_and_the_owner_s_dollars_as_written(self):
         book, template = self.book()

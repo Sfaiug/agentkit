@@ -2987,7 +2987,7 @@ LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # the keys' own names were unclear to users.
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
                "executor_lines": ("Max lines per executor task", "executor", "lines",
-                                (100, 200, 300, 500, 1000, 2000, "no limit")),
+                                (0, 100, 200, 300, 500, 1000, 2000, "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                               (0, 10, 25, 50, 100, 200, "no limit"))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
@@ -5380,6 +5380,10 @@ def config_limits(cfg):
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def take(key, value):
+        try:
+            config.host_policy({**cfg, key: value})
+        except config.Error as exc:
+            return f"config: {exc}"
         before = copy.deepcopy(cfg)
         cfg[key] = value
         return _saved(cfg, cfg, before)
@@ -5398,6 +5402,9 @@ def config_limits(cfg):
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
                  (lambda key=key: choices(key), False),
                  ("A change lands on its checks; no reviewer." if key == "review_rounds" and numbers[key] == 0
+                  else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
+                  else "The orchestrator builds nothing; executors build every change."
+                  if key == "orchestrator_lines" and numbers[key] == 0
                   else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
     config_page("limits", page)

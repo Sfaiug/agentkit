@@ -109,12 +109,13 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before t
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope", ("first round", "unmerged", "hours to merge")),
-    "executor_lines": (300, 1, "the most added lines a first review reads",
+    "executor_lines": (300, 0, "the most added lines a first review reads",
                      ("first round", "merged")),
     "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds", ("built",)),
 }
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}
+EXECUTORS_OFF = "Executors are off; the orchestrator builds every change itself."
 # How a number of rounds opens a sentence and how the round past them reads; further up, figures.
 ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
                4: ("Four", "a fifth"), 5: ("Five", "a sixth")}
@@ -502,6 +503,8 @@ def _policy_in(path, data):
         if type(value) is not int or value < floor:
             raise Error(f"{path}: {key} must be a whole number of at least {floor}{unlimited}, {meaning} "
                         f"(got {value!r})")
+    if numbers["executor_lines"] == numbers["orchestrator_lines"] == 0:
+        raise Error(f"{path}: executor_lines and orchestrator_lines cannot both be 0: nobody could build a change")
     return numbers
 
 
@@ -521,6 +524,11 @@ def in_force(text, table=None):
                          f"you build at most {orchestrator} added lines; anything bigger you write "
                          "as a task and an executor builds it while you write the next. "
                          f"ak refuses your own PR above {orchestrator} lines")
+    if executor == 0:
+        text = re.sub(r"(?m)^([ \t]*(?:- )?)[^\n]*\$executor_size[^\n]*",
+                      lambda line: line[1] + EXECUTORS_OFF, text)
+        if orchestrator != "no limit":
+            orchestrator_size = f"you build at most {orchestrator} added lines per PR; split larger changes"
     no_review = "No review: a change lands on its checks; no reviewer."
     if rounds == 0:
         text = re.sub(r"(?m)^([ \t]*(?:- )?)\$Review_rounds[^\n]*",
