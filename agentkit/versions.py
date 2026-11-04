@@ -91,8 +91,6 @@ def enter(path):
 
 
 def dispatch(argv):
-    if config.REPO.parent == config.HOME / VERSIONS:
-        enter(config.REPO)
     if argv[:1] == ["hand-in"] and (path := os.environ.get("AK_RUN_CODE")):
         enter(Path(path))
     elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
@@ -101,6 +99,8 @@ def dispatch(argv):
         if commit := state.get("ak_version"):
             with checkout(commit) as path:
                 enter(path)
+    if config.REPO.parent == config.HOME / VERSIONS:
+        enter(config.REPO)
 
 
 def git(where, *args):

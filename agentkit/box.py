@@ -296,6 +296,12 @@ def _own(scratch, clean, cwd, writable, hidden):
 
 def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
+    from . import config, retention
+    readonly = {config.REPO}
+    try:
+        readonly.update((retention.git_directory(config.REPO), retention.common_directory(config.REPO)))
+    except (OSError, ValueError):
+        pass
     clash = sorted(own.keys() & writable)
     if clash:
         from . import config
@@ -307,7 +313,8 @@ def _bind(own, writable, homes=()):
     # Overlayfs refuses inherited child mounts. Leave those homes read-only rather than
     # rebuilding their contents: a box's arguments must not grow with directory entries.
     overlays = {path for path in overlays if not any(path in mount.parents for mount in mounts)}
-    binds = {**{path: path for path in overlays}, **own, **{path: path for path in writable}}
+    binds = {**{path: path for path in readonly | overlays}, **own,
+             **{path: path for path in writable}}
     args = []
     for path in sorted(binds):
         # What the nearest mounted parent already shows needs no mount of its own, and a
@@ -317,7 +324,8 @@ def _bind(own, writable, homes=()):
             args.extend(["--overlay-src", str(path), "--tmp-overlay", str(path)])
         elif (parent is None or parent in overlays
               or binds[parent] / path.relative_to(parent) != binds[path]):
-            args.extend(["--bind", str(binds[path]), str(path)])
+            args.extend(["--ro-bind" if path in readonly - writable else "--bind",
+                         str(binds[path]), str(path)])
     return args
 
 
