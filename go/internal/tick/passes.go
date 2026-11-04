@@ -38,8 +38,8 @@ func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
 		{"merge checks", true, t.dryly(noMergeWork), t.mergeChecks},
-		// a boot it has not seen moves only its baseline, with every seat it would resume up
-		{"boot resume", true, all(configured, seated, restingGone), bootBaseline},
+		// installation establishes a baseline; another boot leaves recovery to Python
+		{"boot resume", true, all(configured, seated, noBootResume), bootBaseline},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
@@ -64,17 +64,17 @@ func table(t *ticking) []pass {
 		{"endings", false, t.endingsIdle, t.endings},
 		{"job handbacks", false, jobless, nil},
 		{"ended waits", false, all(configured, seated, waitsOnNothing), nil},
-		{"owed lines", false, every(func(live seat.Live) bool { return !live.File.Truthy("owed_lines") }), nil},
+		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, run.Historyless, nil},
 		{"history sync", false, run.Historyless, nil},
 		{"history checkpoint", false, run.Historyless, nil},
 		{"weekly audit", false, all(configured, config.AuditOff), nil},
 		{"typed answers", false, every(unasked), nil},
-		{"card transitions", false, cardsHeld, cards},
-		{"notification retry", true, notify.QuietOutbox, nil},
+		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
+		{"notification retry", true, t.dryly(notify.QuietOutbox), t.retryNotifications},
 		{"end hook", false, nil, hookOptions},
-		{"seat revival", false, all(configured, restingGone), revive},
+		{"seat revival", false, configured, t.revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs

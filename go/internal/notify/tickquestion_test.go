@@ -3,6 +3,7 @@
 package notify
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,7 +74,7 @@ func TestQuestionCardsLeaveOtherTransitionsToPython(t *testing.T) {
 				before[path] = run.Line(object)
 				write(path, before[path])
 			}
-			if carried, err := TurnedQuestion("acme", func(string) (string, any) { return "needs you", run.Number("100") }); carried || err != nil {
+			if carried, err := TurnedQuestion("acme", func(string) (string, any) { return "needs you", run.Number("100") }, io.Discard); carried || err != nil {
 				t.Fatalf("carried=%v: %v", carried, err)
 			}
 			for path, want := range before {
@@ -94,7 +95,7 @@ func TestAWorkerTickCardsNothing(t *testing.T) {
 	if carried, err := TurnedQuestion("acme", func(string) (string, any) {
 		t.Fatal("a worker read a card to page")
 		return "", nil
-	}); !carried || err != nil {
+	}, io.Discard); !carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	if _, err := os.Stat(state()); !os.IsNotExist(err) {

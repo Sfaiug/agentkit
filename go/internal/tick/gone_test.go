@@ -35,12 +35,12 @@ func TestTickReadsGoneSeatsAndLeavesRevivalAndCardsToPython(t *testing.T) {
 	}{
 		{"resting", "", `{}`, "", "idle", true},
 		{"closed owing", "- [ ] Last\n", fmt.Sprintf(`{"stopped_at":%d,"closed_by_owner":true}`, time.Now().Unix()), "", "idle", true},
-		{"open work", "- [ ] Last\n", `{}`, "", "", false},
+		{"open work", "- [ ] Last\n", `{}`, "", "needs you", false},
 		{"finished", "- [x] Last\n", `{}`, "", "done", true},
-		{"cut off turn", "", `{"state":"working"}`, "", "", false},
+		{"cut off turn", "", `{"state":"working"}`, "", "idle", false},
 		{"newer stop", "", `{"state":"working"}`, "Stop", "idle", true},
-		{"newer prompt", "", `{}`, "UserPromptSubmit", "", false},
-		{"unknown hook", "", `{"state":"working"}`, "Unknown", "", false},
+		{"newer prompt", "", `{}`, "UserPromptSubmit", "idle", false},
+		{"unknown hook", "", `{"state":"working"}`, "Unknown", "idle", false},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			ak, path := goneHome(t)

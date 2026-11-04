@@ -50,8 +50,7 @@ func Seats(now time.Time) ([]string, bool) {
 	return names, known
 }
 
-// Lives reads the live seats, leaving absent ones to the rows that read them. Held panes and
-// screens Go does not read still hand over.
+// Lives reads the live seats, leaving absent seats and dead panes to the rows that read them.
 func Lives(now time.Time) ([]Live, bool) {
 	home, known := seated(now)
 	if !known {
@@ -60,7 +59,7 @@ func Lives(now time.Time) ([]Live, bool) {
 	state := filepath.Join(config.Home(), "state")
 	var lives []Live
 	for _, each := range home.Seats {
-		if !each.live && !each.held {
+		if !each.live {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)

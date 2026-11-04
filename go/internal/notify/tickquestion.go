@@ -6,12 +6,9 @@ import (
 	"io"
 	"os"
 	"slices"
-	"strconv"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
-	"agentkit/internal/tmux"
 )
 
 // UnansweredQuestion leaves a question with a newer owner message to Python's answer pass.
@@ -33,11 +30,11 @@ func UnansweredQuestion(name string) bool {
 
 // TurnedQuestion carries only a standing question on record. Dialogs, answered episodes and
 // history stay Python's; the tick reads the word again under the same lock as a command's page.
-func TurnedQuestion(name string, said func(string) (string, any)) (bool, error) {
-	return turnedQuestion(name, said, clock)
+func TurnedQuestion(name string, said func(string) (string, any), errOut io.Writer) (bool, error) {
+	return turnedQuestion(name, said, clock, cardWait, errOut)
 }
 
-func turnedQuestion(name string, said func(string) (string, any), clock func() float64) (bool, error) {
+func turnedQuestion(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer) (bool, error) {
 	if os.Getenv("AK_RUN_ROLE") == "worker" {
 		return true, nil
 	}
@@ -52,8 +49,11 @@ func turnedQuestion(name string, said func(string) (string, any), clock func() f
 		if err != nil {
 			return err
 		}
-		if notice == nil || file == nil || file.Str("state") == "asking" || file.Truthy("closed_by_owner") ||
-			config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
+		if notice == nil || file == nil || file.Str("state") == "asking" || file.Truthy("closed_by_owner") {
+			return nil
+		}
+		present, last, gone, known := questionActivity(current)
+		if !known || !gone && config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
 			return nil
 		}
 		card, err := readObject(seatFile("card", current, "json"))
@@ -67,7 +67,7 @@ func turnedQuestion(name string, said func(string) (string, any), clock func() f
 		asked := number(notice, "time")
 		fresh := card.Str("word") != "needs you"
 		if fresh {
-			if card.Str("word") == "done" {
+			if card.Str("word") == "done" || gone {
 				return nil
 			}
 			card = episode(card, "needs you", run.Float(asked), run.Float(asked))
@@ -81,21 +81,10 @@ func turnedQuestion(name string, said func(string) (string, any), clock func() f
 			max(number(card, "answered_at"), number(notice, "earlier_answer_at")) > number(card, "since") {
 			return nil
 		}
-		activity, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+current+":",
-			"#{session_attached}\t#{session_activity}")
-		parts := strings.Fields(activity)
-		if err != nil || len(parts) != 2 {
-			return nil
-		}
-		last, err := strconv.ParseInt(parts[1], 10, 64)
-		if err != nil {
-			return nil
-		}
 		carried = true
 		if card.Truthy("sent") {
 			return nil
 		}
-		present := parts[0] != "0"
 		changed := card.Truthy("present") != present
 		if changed {
 			card.Set("present", present)
@@ -106,10 +95,14 @@ func turnedQuestion(name string, said func(string) (string, any), clock func() f
 				return err
 			}
 		}
-		if present || now-number(card, "left") < cardWait || now-max(asked, float64(last)) < cardWait {
+		if present || now-number(card, "left") < cardWait || now-max(asked, last) < wait {
 			return nil
 		}
-		_, err = sendCard(current, card, notice, io.Discard)
+		if gone {
+			notice = notice.Copy()
+			notice.Set("text", file.Str("reason"))
+		}
+		_, err = sendCard(current, card, notice, errOut)
 		return err
 	})
 	return carried, err

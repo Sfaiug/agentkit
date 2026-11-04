@@ -2,6 +2,7 @@ package tick
 
 import (
 	"cmp"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,7 +18,7 @@ import (
 // with no newer message from the owner (notify.answer_typed).
 func unasked(live seat.Live) bool {
 	_, asked := notify.AskedAt(live.Name)
-	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && !asked || unansweredQuestion(live)
+	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && (!asked || notify.RetiredQuestion(live.Name)) || unansweredQuestion(live)
 }
 
 // cardsHeld is whether every card is a seat's, none left of a seat gone (notify.tick_cards).
@@ -35,17 +36,20 @@ func recorded(kind string) (names []string) {
 }
 
 // cards is the card transitions row (notify.tick_cards): each seat's card follows the word the
-// health row published, read under the card's lock and never off the screen again; the first seat
-// whose card or word is one a card goes out for ends the tick there.
-func cards() error {
+// health row published, read under the card's lock and never off the screen again. A transition
+// Go does not carry leaves the rest of the tick to Python at that seat.
+func cards(errOut io.Writer) error {
 	names, known := seat.Seats(time.Now())
 	if !known {
 		return errLeft
 	}
 	for _, name := range names {
-		carried, err := notify.TurnedQuestion(name, seat.Published)
+		carried, err := notify.TurnedQuestion(name, seat.Published, errOut)
 		if !carried && err == nil {
 			carried, err = notify.TurnedPlan(name, seat.Published, plan.Outcomes)
+		}
+		if !carried && err == nil {
+			carried, err = notify.TurnedRetiredQuestion(name, seat.Published)
 		}
 		if err != nil || !carried {
 			return cmp.Or(err, errLeft)
