@@ -21,19 +21,17 @@ from pathlib import Path
 if sys.argv[:1] == [{ak!r}]:
     sys.path[:0] = [{repo!r}, {tests!r}]
     from fixtures.clock import Clock
-    from agentkit import history, watch
-    modules = [history, watch]
-    try:
-        from agentkit import night_review
-        modules.append(night_review)
-    except ImportError:
-        pass
-    for module in modules:
+    from agentkit import history, night_review, watch
+    for module in (history, night_review, watch):
         module.time = Clock(time.sleep)
         module.time.time = lambda: {now}
-    table = watch.local_passes
-    watch.local_passes = lambda *args: [p for p in table(*args) if p[0] == "night review"]
     seed = Path({seed!r})
+    if seed.with_name("refuse").exists():
+        from unittest.mock import patch
+        patch("agentkit.orch.start_in_slice", side_effect=OSError("temporary fork failure")).start()
+    passes = ("dead loops", "stall recovery", "night review") if seed.with_name("recover").exists() else ("night review",)
+    table = watch.local_passes
+    watch.local_passes = lambda *args: [p for p in table(*args) if p[0] in passes]
     if seed.exists():
         exec(seed.read_text())
         seed.unlink()
@@ -49,8 +47,7 @@ class NightReview(unittest.TestCase):
         self.fakes = fakeadapter.install(home, claude="not-needed", codex="not-needed")
         GitHub(home)
         self.rig = Rig(home, "api", files={"AGENTS.md": "---\ntests: true\n---\n# api\n"})
-        self.first = self.rig.head()
-        self.last = self.rig.commit({"api.py": "value = 1\n"})
+        self.first, self.last = self.rig.head(), self.rig.commit({"api.py": "value = 1\n"})
         self.task = home.path / f".agentkit/tasks/api/night-review-{DATE}.md"
         for name, created in (("last-merge", 1), ("newest", 2)):
             home.write(f".agentkit/state/session-{name}.json", {
@@ -61,13 +58,13 @@ class NightReview(unittest.TestCase):
             now=NOW, seed=str(home.path / "clock/seed.py")))
         self.env = {"PYTHONPATH": str(clock.parent)}
 
-    def seed(self, count=100, breaks=(True, True)):
+    def seed(self, count=100, breaks=(True, True), seat="last-merge"):
         self.home.write("clock/seed.py", f"""
 for week in range(2):
     for n in range({count}):
         name = f"merged-{{week}}-{{n}}"
         at = {NOW} - (week * 7 + 1) * {DAY} + n
-        history.start_run(name, repo="api", session="last-merge", started_at=at - 1)
+        history.start_run(name, repo="api", session={seat!r}, started_at=at - 1)
         history.finish_run(name, final_state="pass", finished_at=at, changed_lines=1)
         history.update_run(name, merge_sha={self.last!r} if n else {self.first!r},
                            broke_after_merge="health" if n == 0 and {breaks!r}[week] else "")
@@ -88,17 +85,20 @@ for week in range(2):
 
     def test_armed_launches_once_and_uses_the_last_merges_seat(self):
         self.seed()
+        self.rig.git("config", "remote.origin.fetch", "+refs/heads/dev:refs/remotes/origin/dev")
+        self.rig.git("update-ref", "refs/remotes/origin/main", self.first)
+        self.rig.git("tag", "origin/main", self.first)
+        self.rig.git("branch", "origin/main", self.first)
         directory, = self.tick()
         state = json.loads((directory / "run.json").read_text())
         self.assertEqual(state["task_file"], str(self.task))
         self.assertEqual(state["launched_session"], "last-merge")
         self.assertEqual(state["state"], "not_needed", (directory / "log.txt").read_text())
         body = self.task.read_text()
-        self.assertIn(self.first, body)
-        self.assertIn(self.last, body)
+        self.assertRegex(body, f"{self.first}.*{self.last}")
         self.assertIn("```bash\ntrue\n```", body)
         self.assertEqual(self.tick(), [directory])
-        self.assertIn("armed", self.doctor())
+        self.assertTrue(self.doctor().startswith("night review  armed"))
         self.assertEqual(self.doctor().count("1.0%"), 2)
 
     def test_point_two_percent_disarms_and_starts_none(self):
@@ -122,15 +122,18 @@ for week in range(2):
             self.assertEqual(self.tick(), [])
             self.assertIn("disarmed", self.doctor())
 
-    def test_an_unavailable_origin_leaves_no_claim_and_the_next_tick_retries(self):
+    def test_a_failed_process_launch_stays_queued_for_the_next_tick(self):
         self.seed()
-        self.rig.git("remote", "set-url", "origin", str(self.home.root / "missing"))
+        refuse = self.home.write("clock/refuse", "")
         done = self.home.tick(env=self.env)
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertIn("WARN api: no night review", done.out)
-        self.assertEqual(taskfile.runs(self.home), [])
-        self.rig.git("remote", "set-url", "origin", str(self.rig.bare))
-        self.assertEqual(len(self.tick()), 1)
+        directory, = taskfile.runs(self.home)
+        self.assertEqual(json.loads((directory / "run.json").read_text())["state"], "queued")
+        refuse.unlink()
+        self.home.write("clock/recover", "")
+        self.assertEqual(self.tick(), [directory])
+        self.assertEqual(json.loads((directory / "run.json").read_text())["state"], "not_needed")
 
     def test_each_repository_gets_its_own_run(self):
         self.seed()
@@ -151,15 +154,22 @@ history.update_run("web-merge", merge_sha={other.head()!r})
 
     def test_a_missing_seat_uses_the_projects_newest_seat(self):
         self.seed()
-        (self.home.path / ".agentkit/state/session-last-merge.json").unlink()
+        self.home.write(".agentkit/state/seat-last-merge.json", {"stopped_at": NOW})
         directory, = self.tick()
         state = json.loads((directory / "run.json").read_text())
         self.assertEqual(state["launched_session"], "newest")
 
+    def test_a_stopped_fallback_seat_is_skipped(self):
+        self.seed(seat="gone")
+        self.home.write(".agentkit/state/seat-newest.json", {"stopped_at": NOW})
+        directory, = self.tick()
+        self.assertEqual(json.loads((directory / "run.json").read_text())["launched_session"], "last-merge")
+
     def test_a_project_with_no_seat_launches_nothing_and_doctor_says_so(self):
         self.seed()
         for path in (self.home.path / ".agentkit/state").glob("session-*.json"):
-            path.unlink()
+            name = path.stem.removeprefix("session-")
+            self.home.write(f".agentkit/state/seat-{name}.json", {"stopped_at": NOW})
         self.assertEqual(self.tick(), [])
         self.assertIn("api: no seat", self.doctor())
 

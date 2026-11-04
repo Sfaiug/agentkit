@@ -265,8 +265,11 @@ class Slots(unittest.TestCase):
         with patch.object(subprocess, "Popen", side_effect=OSError("fork failed")):
             with self.assertRaisesRegex(config.Error, "fork failed"):
                 run.spawn_bg(directory, [task, "--bg"])
-        self.assertEqual(record.read_state(directory)["state"], "interrupted")
+        self.assertEqual(record.read_state(directory)["state"], "queued")
         self.assertEqual(gate.slot_counts({"run_id": "new"})[0], 0)
+        self.recover()
+        self.started("reserved")
+        self.release(directory)
         self.launch("next")
         self.started("next")
         self.finish_all()

@@ -3,23 +3,22 @@
 from pathlib import Path
 import time
 
-from . import config, gitcall, handback, history, orch, record, run
+from . import config, gitcall, handback, history, orch, record, run, watch
 
 DAY = 86400
 WEEK = 7 * DAY
+MAIN = "refs/remotes/origin/main"
 TASK = """---
 repo: {repo}
-base: origin/main
+base: {main}
 target: main
 ---
 # Review {repo.name}'s merged changes for {day}
 
-Read the day's merged diff on origin/main, from its first merged commit
-{first} through its last, {last}, including the first commit's change.
+Read the day's merged diff on origin/main, from {first} through {last}, including the first commit's change.
 Look for defects the changes together introduced or the per-change review missed.
-If a test can show a defect, add that test, show it failing on the current
-origin/main tip, then fix the defect. Otherwise hand in
-`ak hand-in not-needed "<why>"` without edits.
+If a test can show a defect, add it, show it failing on the current origin/main tip,
+then fix the defect. Otherwise hand in `ak hand-in not-needed "<why>"` without edits.
 
 ## Done when
 ```bash
@@ -45,7 +44,9 @@ def reading():
 
 
 def targets(rows):
-    stands, seats = orch.listed(), config.session_records()
+    stands = orch.listed()
+    seats = {name: data for name, data in config.session_records().items()
+             if not watch.seat_stopped_at(name)}
     projects = {name: orch.checkout_of(data.get("repo"), stands) for name, data in seats.items()}
     for checkout in orch.checkouts(stands):
         merged = sorted((row for row in rows if row.get("repo") == checkout.name),
@@ -90,17 +91,16 @@ def tick(log):
 
 def _start(checkout, merged, seat, day, task):
     env = gitcall.project_env(checkout)
-    gitcall.fetch(checkout, "origin", "main", check=True, env=env)
+    gitcall.fetch(checkout, "origin", f"+refs/heads/main:{MAIN}", check=True, env=env)
     wanted = {row.get("merge_sha") for row in merged}
     commits = [sha for sha in gitcall.git(checkout, "rev-list", "--first-parent", "--reverse",
-                                        "origin/main", env=env).splitlines() if sha in wanted]
+                                        MAIN, env=env).splitlines() if sha in wanted]
     if not commits or set(commits) != wanted:
         raise config.Error("the day's merged commits are not all on origin/main")
-    tests = gitcall.declared_at(checkout, "origin/main", "tests", env=env)
+    tests = gitcall.declared_at(checkout, MAIN, "tests", env=env)
     if not tests:
         raise config.Error("no tests: on origin/main")
-    body = TASK.format(
-        repo=checkout, day=day, first=commits[0], last=commits[-1], tests=tests)
+    body = TASK.format(repo=checkout, main=MAIN, day=day, first=commits[0], last=commits[-1], tests=tests)
     task.parent.mkdir(parents=True, exist_ok=True)
     orch.replace_file(task, body.encode())
     directory = handback.free_run_dir(f"night-review-{checkout.name}-{day}")
