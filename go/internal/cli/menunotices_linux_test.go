@@ -25,6 +25,7 @@ func TestMenuNoticesWaitForDraftsAndRestartTheReplacedProgram(t *testing.T) {
 import os, shlex, shutil, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))
+from fixtures import akconfig
 from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
@@ -68,6 +69,45 @@ with Home() as home:
     assert (home.path / "restarted").read_text() == "beta\n", "restart lost its highlighted seat"
     menu.keys("Escape")
     assert menu.exit_code() == 0
+
+for launch in ("binary", "symlink", "path"):
+    with Home() as home:
+        program, original = home.bin / "ak", home.bin / "original"
+        shutil.copy2(sys.argv[1], original)
+        if launch == "binary":
+            shutil.copy2(original, program)
+        else:
+            program.symlink_to(original)
+        akconfig.write(home, ["opus"])
+        made = int(time.time()) - 900
+        Seat(home, "acme", record={"created": made})
+        beta = Seat(home, "beta", record={"created": made + 60})
+        home.write("beta-after", dict(beta.record, created=made - 60))
+        if launch == "path":
+            (home.path / "launch").mkdir()
+            (home.path / "launch/ak").symlink_to(program)
+        menu = Terminal(home, program=program.name if launch == "path" else str(program),
+                        env={"PATH": "launch:" + home.env["PATH"]} if launch == "path" else None)
+        menu.wait("› 1  acme")
+        replacement = home.bin / "replacement"
+        replacement.write_text('#!/bin/sh\nprintf "%s\\n" "$AK_MENU_CURSOR" > "$HOME/restarted"\n'
+                               + 'cp "$HOME/beta-after" "$HOME/.agentkit/state/session-beta.json"\n'
+                               + 'exec ' + shlex.quote(str(original)) + ' "$@"\n')
+        replacement.chmod(0o755)
+        next_program = replacement
+        if launch != "binary":
+            next_program = home.bin / "next"
+            next_program.symlink_to(replacement)
+        os.replace(next_program, program)
+        akconfig.write(home, ["opus", "astra"])
+        home.write(".agentkit/state/installed-at", f"{time.time()}\n")
+        menu.keys("i")
+        screen = menu.wait(lambda screen: "ChatGPT" in screen and "esc leave" in screen)
+        assert (home.path / "restarted").exists(), "restart skipped the replaced launch path"
+        assert (home.path / "restarted").read_text() == "acme\n", "restart lost the initial highlight"
+        assert any(line.startswith("› 2  acme") for line in screen.splitlines()), screen
+        menu.keys("Escape")
+        assert menu.exit_code() == 0
 `, program)
 	call.Dir = "../../.."
 	if out, err := call.CombinedOutput(); err != nil {

@@ -1,9 +1,11 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -12,9 +14,17 @@ import (
 	"agentkit/internal/config"
 )
 
-// Remember the path before an install replaces the running image.
-var menuProgram, menuProgramError = os.Executable()
+// Keep the launch path, including its symlink, before the menu can change directories.
+var menuProgram, menuProgramError = menuLaunchPath()
 var menuStarted = time.Now()
+
+func menuLaunchPath() (string, error) {
+	program, err := exec.LookPath(os.Args[0])
+	if err != nil && !errors.Is(err, exec.ErrDot) {
+		return "", err
+	}
+	return filepath.Abs(program)
+}
 
 func menuOutdated() bool {
 	data, err := os.ReadFile(filepath.Join(config.Home(), "state", "installed-at"))

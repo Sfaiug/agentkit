@@ -137,6 +137,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			keyboard.Give()
 			return notImplemented(errOut, "attach")
 		}
+		model.Highlight.Cursor = menu.Step(shown.seats, model.Highlight.Cursor, 0)
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
 			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
