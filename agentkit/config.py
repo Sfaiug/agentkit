@@ -509,7 +509,7 @@ def _policy_in(path, data):
 
 
 def in_force(text, table=None):
-    """ak's own text with host POLICY numbers. `$Review_rounds` starts a budget line, replaced
+    """ak's own text with POLICY numbers. `$Review_rounds` starts a budget line, replaced
     whole when review is off. Owner and project text stays theirs, dollars included."""
     try:
         numbers = host_policy(table)
@@ -2190,14 +2190,15 @@ def rulebook_path(name):
     return seat_file("rulebook", name)
 
 
-def rulebook_text():
-    """The rulebook a session receives: ak's rules with this host's numbers, then its own.
+def rulebook_text(repo=None):
+    """The rulebook a session receives: ak's rules with its project's numbers, else the host's,
+    then the host's own rules.
 
     Only a host that has written no rules of its own has none: a rules.md that is there and
     cannot be read is an error, never an empty one, because a session opened without rules the
     owner did write is a session working to rules nobody chose.
     """
-    body = in_force((REPO / "orchestrator.md").read_text())
+    body = in_force((REPO / "orchestrator.md").read_text(), policy(repo) if repo else None)
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:
@@ -2225,7 +2226,7 @@ def seat_rulebook(session, repo=None):
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
     project = gitcall.agents_body(repo, RULES_REF)
-    body = rulebook_text()
+    body = rulebook_text(repo)
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "

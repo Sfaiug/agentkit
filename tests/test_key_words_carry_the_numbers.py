@@ -16,6 +16,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, REPO, Home
+from fixtures.gitrig import Rig
 
 ECHO = {"one": {"harness": "echo", "model": "echo-1", "provider": "test"},
         "two": {"harness": "echo", "model": "echo-2", "provider": "test"}}
@@ -81,7 +82,7 @@ class Help(unittest.TestCase):
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class Rulebook(unittest.TestCase):
-    def book(self, **settings):
+    def book(self, project=None, **settings):
         """The rulebook a seat opened on this host is handed, then its task template."""
         with Home() as home:
             adapters = home.root / "adapters"
@@ -89,8 +90,13 @@ class Rulebook(unittest.TestCase):
             akconfig.write(home, ECHO, settings=settings)
             home.write(".agentkit/rules.md", OWN)
             task = home.write(".agentkit/tasks/task.md", DRAFT)
-            cwd = home.path / "code" / "acme"
-            cwd.mkdir(parents=True)
+            if project:
+                rules = "---\ntests: none\nhealth: none\n" + "".join(
+                    f"{key}: {value}\n" for key, value in project.items()) + "---\nA project.\n"
+                cwd = Rig(home, "acme", files={"AGENTS.md": rules}).path
+            else:
+                cwd = home.path / "code" / "acme"
+                cwd.mkdir(parents=True)
             done = home.ak("orch", "acme", "--model", "one", "--workers", "two", tty=True,
                            cwd=cwd, env={"AGENTKIT_ADAPTER_DIR": str(adapters)})
             self.assertEqual(done.code, 0, done.err)
@@ -135,6 +141,13 @@ class Rulebook(unittest.TestCase):
             self.assertIn("Executors are off; the orchestrator builds every change itself.", text)
             self.assertNotIn("at most 0 added lines", text)
         self.assertIn("at most 50 added lines per PR; split larger changes", book)
+        self.assertNotIn("Launch with `ak run <task>.md", book)
+        self.assertNotIn("as a task and an executor builds it", book)
+
+    def test_project_executors_off_overrides_the_host_in_the_rulebook(self):
+        book, _ = self.book(project={"executor_lines": 0, "orchestrator_lines": 2})
+        self.assertIn("Executors are off; the orchestrator builds every change itself.", book)
+        self.assertIn("at most 2 added lines per PR; split larger changes", book)
         self.assertNotIn("Launch with `ak run <task>.md", book)
         self.assertNotIn("as a task and an executor builds it", book)
 

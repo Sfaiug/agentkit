@@ -36,6 +36,19 @@ class ExecutorsOff(unittest.TestCase):
     def turns(self):
         return [turn for fake in self.fakes.values() for turn in fake.runs()]
 
+    def test_project_seat_help_says_executors_are_off(self):
+        self.prepare(True, executor_lines=0, orchestrator_lines=2)
+        Seat(self.home, "maker", model="opus", cwd=self.home.path, alive=False,
+             record={"repo": str(self.rig.path)})
+        for seat, cwd in (("acme", self.rig.path), ("maker", self.home.path)):
+            with self.subTest(seat=seat):
+                shown = self.home.ak("run", "--help", cwd=cwd, env={"AGENTKIT_SESSION": seat})
+                self.assertEqual(shown.code, 0, shown.err)
+                self.assertIn("Executors are off; the orchestrator builds every change itself.", shown.out)
+                self.assertIn("at most 2 added lines per PR; split larger changes", shown.out)
+                self.assertNotIn("Task size:", shown.out)
+                self.assertNotIn("as a task and an executor builds it", shown.out)
+
     def test_negative_executor_lines_are_refused_naming_zero_as_the_floor(self):
         for front in (False, True):
             with self.subTest(front=front):
