@@ -64,6 +64,7 @@ class DoneWaitsForTheRules(unittest.TestCase):
         rows = [json.loads(line) for line in (turn / "hand-in.jsonl").read_text().splitlines()]
         self.assertEqual(rows[1:], [{"kind": "done"}])
         self.assertEqual(rows[0]["checks"]["base"], rig.head())
+        self.assertEqual(rows[0]["checks"]["upstream"], "origin/main")
         self.assertEqual(rows[0]["checks"]["files"], [front["files"]] if front else [])
         self.assertFalse(rows[0]["checks"]["scratch"])
         self.assertEqual(done.code, 0, done.out + done.err)
@@ -104,6 +105,39 @@ class DoneWaitsForTheRules(unittest.TestCase):
             "only shrinks. Move what this adds into a test, a check or a comment at the code "
             "it is about; words that are the product itself need the base's `content:` to "
             "name them first.")
+
+    def workspace_done(self, home, rig, base, files=(), **extra):
+        turn = home.root / "hand-in.jsonl"
+        checks = {"base": base, "files": files, "scratch": False, "commands": [], **extra}
+        turn.write_text(json.dumps({"kind": "turn", "workspace": str(rig.path),
+                                   "role": "executor", "checks": checks}) + "\n")
+        before = rig.git("rev-parse", "HEAD"), rig.git("ls-files", "--stage")
+        result = home.ak("hand-in", "done", cwd=rig.path, env={"AK_HAND_IN": str(turn)})
+        self.assertEqual((rig.git("rev-parse", "HEAD"), rig.git("ls-files", "--stage")), before)
+        return result
+
+    def test_integrated_target_changes_are_not_the_workers_change(self):
+        for integration in ("rebase", "merge"):
+            with self.subTest(integration=integration), Home() as home:
+                rig = Rig(home, files={"docs/change.txt": "before\n"})
+                base = rig.head()
+                rig.branch("fix-api", {"docs/change.txt": "after\n"}, push=False)
+                rig.commit({"notes.md": "upstream prose\n"})
+                rig.git("checkout", "-q", "fix-api")
+                rig.git(integration, "-q", "origin/main")
+                for extra in ({}, {"upstream": "origin/main"}):
+                    result = self.workspace_done(home, rig, base, ["docs/"], **extra)
+                    self.assertEqual(result.code, 0, result.out + result.err)
+
+    def test_an_unstaged_attributes_deletion_removes_the_filter(self):
+        with Home() as home:
+            rig = Rig(home, files={".gitattributes": "AGENTS.md filter=old\n",
+                                  "AGENTS.md": "Acme.\n"})
+            base = rig.head()
+            (rig.path / ".gitattributes").unlink()
+            (rig.path / "AGENTS.md").write_text("Acme rules.\n")
+            result = self.workspace_done(home, rig, base)
+            self.assertEqual(result.code, 0, result.out + result.err)
 
 
 if __name__ == "__main__":

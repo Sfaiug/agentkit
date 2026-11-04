@@ -59,7 +59,7 @@ def files_scope(wt, base_sha, specs=(), scratch=False, *, head="HEAD"):
     return "outside files: " + ", ".join(outside) if outside else ""
 
 
-def rules_check(wt, base_sha, scratch=False, *, head="HEAD"):
+def rules_check(wt, base_sha, scratch=False, *, head="HEAD", env=None):
     """Refuse a branch that grows prose past what it may hold (`prose_grown`), changes Python
     with no answer key (`keyless_python`), or changes AGENTS.md so workers would not get it as
     written: a link, a Git filter, more than a harness reads of it, or a front matter line ak
@@ -80,11 +80,12 @@ def rules_check(wt, base_sha, scratch=False, *, head="HEAD"):
         # following it would mean redoing how Linux opens a path, inside Git's trees
         return ("AGENTS.md is a link, which ak does not follow, so workers would get no rules "
                 "from it: make AGENTS.md the file itself.")
-    if not gitcall.git(wt, "check-attr", "filter", "--", "AGENTS.md").endswith(("unspecified", "unset")):
+    if not gitcall.git(wt, "check-attr", *(("--cached",) if env else ()), "filter", "--", "AGENTS.md",
+                       env=env).endswith(("unspecified", "unset")):
         return "AGENTS.md must not go through a Git filter: ak reads its front matter as committed."
     ceiling = config.instruction_ceiling()
     try:
-        held = gitcall.rules_bytes(wt, head)
+        held = gitcall.rules_bytes(wt, head, env=env)
     except gitcall.Stopped:
         raise
     except config.Error as exc:

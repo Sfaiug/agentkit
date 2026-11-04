@@ -356,9 +356,10 @@ def check_workspace(turn):
     if not checks.get("base") or checks.get("scratch"):
         return
     wt, base = turn["workspace"], checks["base"]
-    head = gitcall.leftover_tree(wt, checks.get("artifacts", ()), Path(os.environ[ENV]).parent)
-    failures = (change_rules.files_scope(wt, base, checks.get("files", ()), head=head),
-                change_rules.rules_check(wt, base, head=head))
+    base = gitcall.integrated_base(wt, base, checks.get("upstream"))
+    with gitcall.leftover_tree(wt, checks.get("artifacts", ()), Path(os.environ[ENV]).parent) as (head, index):
+        failures = (change_rules.files_scope(wt, base, checks.get("files", ()), head=head),
+                    change_rules.rules_check(wt, base, head=head, env=index))
     if any(failures):
         raise config.Error("done refused: " + "\n".join(filter(None, failures)))
 

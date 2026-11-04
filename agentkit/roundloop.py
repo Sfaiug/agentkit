@@ -767,11 +767,8 @@ def follow_target(lp):
     read, or a fork point not past the base, keeps it."""
     if lp.scratch or not lp.upstream:
         return
-    code, fork = gitcall.git_out(lp.wt, "merge-base", "HEAD", lp.upstream)
-    fork = fork.strip()
-    if code != 0 or not fork or fork == lp.base_sha:
-        return
-    if gitcall.git_out(lp.wt, "merge-base", "--is-ancestor", lp.base_sha, fork)[0] == 0:
+    fork = gitcall.integrated_base(lp.wt, lp.base_sha, lp.upstream)
+    if fork != lp.base_sha:
         lp.log(f"base: the branch took in {lp.upstream} up to {fork[:12]}")
         set_base(lp, fork)
 
@@ -1162,6 +1159,7 @@ def execute(lp, role, text, name):
                                                              lp.log, lp.turn_limit,
                                                              checks={"commands": own_checks(lp),
                                                                      "base": None if lp.scratch else lp.base_sha,
+                                                                     "upstream": getattr(lp, "upstream", None),
                                                                      "files": getattr(lp, "files", ()),
                                                                      "scratch": lp.scratch,
                                                                      "artifacts": sorted(getattr(lp, "artifacts", ())),
