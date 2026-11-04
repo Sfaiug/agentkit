@@ -807,6 +807,31 @@ def add_paths(wt, paths, env=None):
         git(wt, "add", "--", *selected, env=env)
 
 
+@contextmanager
+def leftover_tree(wt, artifacts=(), directory=None):
+    """Borrow the predicted commit tree and the index the loop will leave for its reads."""
+    real, sandbox = committable_paths(wt, artifacts)
+    deleted = git(wt, "diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD")
+    gone = sorted(set(sandbox) & set(deleted.split("\0")))
+    with tempfile.TemporaryDirectory(dir=directory) as tmp:
+        index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        git(wt, "read-tree", "HEAD", env=index)
+        add_paths(wt, real, env=index)
+        if gone:
+            git(wt, "rm", "-q", "--cached", "--", *gone, env=index)
+        tree = git(wt, "write-tree", env=index)
+        # The loop keeps other staged entries, which Git reads when attributes are absent on disk.
+        source = Path(wt) / git(wt, "rev-parse", "--git-path", "index")
+        if source.is_file():
+            shutil.copyfile(source, index["GIT_INDEX_FILE"])
+        else:
+            git(wt, "read-tree", "--empty", env=index)
+        if unstage := sorted(set(sandbox) - set(gone)):
+            git(wt, "reset", "-q", "HEAD", "--", *unstage, env=index)
+        add_paths(wt, real, env=index)
+        yield tree, index
+
+
 def commit_leftovers(wt, log, artifacts, state):
     """Commit whatever the executor left uncommitted, so the reviewer sees a real diff.
 
@@ -1102,7 +1127,21 @@ def commit_identity(wt):
             "tree_sha": git(wt, "rev-parse", "HEAD^{tree}")}
 
 
-def rules_bytes(repo, rev):
+def integrated_base(wt, base, upstream=None):
+    """The newest target fork already integrated, never behind the run's base."""
+    if upstream is None:
+        # Older turns named only a base; a single remote tip is unambiguous.
+        tips = set(git(wt, "for-each-ref", "--format=%(objectname)", "refs/remotes/").split())
+        upstream = tips.pop() if len(tips) == 1 else None
+    if not upstream:
+        return base
+    code, fork = git_out(wt, "merge-base", "HEAD", upstream)
+    if code != 0 or not fork or fork == base:
+        return base
+    return fork if git_out(wt, "merge-base", "--is-ancestor", base, fork)[0] == 0 else base
+
+
+def rules_bytes(repo, rev, env=None):
     """The bytes of AGENTS.md at `rev` as a checkout holds it, Git's line-end conversion and
     filters applied: what a harness reads, not the stored blob, and read as bytes, since a text
     read would fold CRLF to LF.  None where `rev` has no AGENTS.md file -- none, or a link,
@@ -1113,7 +1152,7 @@ def rules_bytes(repo, rev):
     try:
         read = subprocess.run(["git", "-C", str(repo), "cat-file", "--filters", f"{rev}:AGENTS.md"],
                               capture_output=True, stdin=subprocess.DEVNULL, timeout=TOOL_CAP,
-                              env=tool_env())
+                              env={**tool_env(), **(env or {})})
     except subprocess.TimeoutExpired as exc:
         raise Stopped(f"git cat-file --filters {rev}:AGENTS.md was killed after {TOOL_CAP:g}s "
                       f"in {repo}") from exc

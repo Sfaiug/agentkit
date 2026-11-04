@@ -212,31 +212,31 @@ def pick(rated, role):
 
     Owner, 3 Nov 2026: an executor's mistake costs a round and still faces review; an
     orchestrator's has no catcher and a reviewer's miss ships. Only execution may trade
-    measured quality for cost. On the frontier's upper convex hull (cost, quality), pick
-    the bend with the largest growth in price per point: next step / previous step.
-    For the other roles a bend must be indistinguishable from the best priced row:
-    best.quality - row.quality < 1.96 * hypot(best.se, row.se). Keep the original hull's
-    steps when filtering bends. Without an eligible bend, take the best; without a cost,
-    nothing. Equal costs keep the better quality; collinear rows add no bend.
+    measured quality for cost. The other roles compare only rows indistinguishable from
+    the best priced row: best.quality - row.quality < 1.96 * hypot(best.se, row.se).
+    Among the compared rows, the frontier keeps each quality better than every row at
+    equal or lower cost. Draw a line in quality against cost from its cheapest row to
+    its best; pick the row most quality points above it, cheaper on a tie. With one row
+    or no cost span, pick the best; without a cost, nothing.
     """
-    hull = []
-    for row in sorted((row for row in rated if row["cost"] is not None),
-                      key=lambda row: (row["cost"], -row["quality"])):
-        if hull and (row["cost"] == hull[-1]["cost"] or row["quality"] <= hull[-1]["quality"]):
-            continue
-        while len(hull) > 1:
-            a, b = hull[-2:]
-            if ((b["quality"] - a["quality"]) * (row["cost"] - b["cost"])
-                    > (row["quality"] - b["quality"]) * (b["cost"] - a["cost"])):
-                break
-            hull.pop()
-        hull.append(row)
-    if not hull:
+    rows = sorted((row for row in rated if row["cost"] is not None),
+                  key=lambda row: (row["cost"], -row["quality"]))
+    if not rows:
         return None
-    best = hull[-1]
-    bends = [(row, ((after["cost"] - row["cost"]) / (after["quality"] - row["quality"]))
-                   / ((row["cost"] - before["cost"]) / (row["quality"] - before["quality"])))
-             for before, row, after in zip(hull, hull[1:], hull[2:])
-             if role == "execute" or best["quality"] - row["quality"]
-             < 1.96 * math.hypot(best["se"], row["se"])]
-    return max(bends, key=lambda bend: bend[1], default=(best, None))[0]
+    best = max(rows, key=lambda row: row["quality"])
+    if role != "execute":
+        rows = [row for row in rows if row is best or best["quality"] - row["quality"]
+                < 1.96 * math.hypot(best["se"], row["se"])]
+    front = []
+    for row in rows:
+        if front and (row["cost"] == front[-1]["cost"] or row["quality"] <= front[-1]["quality"]):
+            continue
+        front.append(row)
+    cheapest = front[0]
+    span = best["cost"] - cheapest["cost"]
+    if not span:
+        return best
+    rise = best["quality"] - cheapest["quality"]
+    # Scale every distance by the same span: division can round equal gaps apart.
+    return max(front, key=lambda row: (row["quality"] - cheapest["quality"]) * span
+               - rise * (row["cost"] - cheapest["cost"]))

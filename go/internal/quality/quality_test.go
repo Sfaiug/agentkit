@@ -2,6 +2,7 @@ package quality
 
 import (
 	"fmt"
+	"slices"
 	"testing"
 
 	"agentkit/internal/run"
@@ -27,7 +28,7 @@ func shown(rows []*Rating) []string {
 }
 
 // The role rule picks over all rows and over yours; dominated rows leave the front.
-func TestAnswerPicksTheRoleBend(t *testing.T) {
+func TestAnswerPicksAboveTheLine(t *testing.T) {
 	share := func(release, effort string, yours bool, value, cost float64) Row {
 		return row(release, effort, yours, intel, 60.0, "aa.frontierCode20", value, "arena.agent", value,
 			"aa.terminalBench40", value, taskCost, cost, "aa.omniscience", 50.0)
@@ -49,6 +50,47 @@ func TestAnswerPicksTheRoleBend(t *testing.T) {
 	}
 	if none := Answer(rows, map[string]bool{"nothing": true})["execute"]; none.Best != nil || none.Pick != nil || len(none.Front) != 0 {
 		t.Fatalf("none compared %+v", none)
+	}
+}
+
+func TestRoleChoicesStayVisible(t *testing.T) {
+	var rows []Row
+	names := []string{"acme-cheap", "acme-noisy", "acme-best", "acme-higher"}
+	for n, p := range [][4]float64{{1, .93, 93, 0}, {2, .92, 92, 10}, {10, .99, 99, 0}, {20, 1, 100, 5}} {
+		rows = append(rows, row(names[n], "high", n < 3, intel, 50.0, taskCost, p[0],
+			"aa.frontierCode20", p[1], "aa.frontierCode20.lower95ci", p[1]-3.92*p[3]/80,
+			"aa.frontierCode20.upper95ci", p[1], "aa.omniscience", p[2],
+			"aa.omniscience.lower95ci", p[2], "aa.omniscience.upper95ci", p[2]))
+	}
+	for n, want := range []string{"acme-noisy", "acme-best"} {
+		said := Answer(rows[:3+n], nil)["review"]
+		if said.Pick.Release != want || said.Take.Release != "acme-noisy" {
+			t.Fatalf("pick %s, take %s", said.Pick.Release, said.Take.Release)
+		}
+		for _, chosen := range []*Rating{said.Pick, said.Take} {
+			if !slices.Contains(said.Front, chosen) {
+				t.Errorf("selected %s is absent from Front", chosen.Release)
+			}
+		}
+	}
+}
+
+func TestEqualPositiveLineDistancesChooseCheaper(t *testing.T) {
+	var rows []*Rating
+	for _, pair := range [][2]float64{{0, 91}, {.125, 92}, {.75, 96.5}, {1.25, 100}} {
+		cost := pair[0]
+		rows = append(rows, &Rating{Cost: &cost, Quality: pair[1], SE: 4})
+	}
+	for _, role := range Roles {
+		if pick(rows, role) != rows[1] {
+			t.Errorf("%s did not choose the cheaper row on a tie", role)
+		}
+	}
+	rows[2].Quality += 1e-10
+	for _, role := range Roles {
+		if pick(rows, role) != rows[2] {
+			t.Errorf("%s did not choose the row further above the line", role)
+		}
 	}
 }
 

@@ -12,9 +12,9 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, EVALUATIONS, aa, boards
 
-# Every role has qualities 70, 90, 99, 100: the first bend's price-per-point grows
-# 106.7 times, the next's 9.375 times. Only the latter cannot be told from the best.
-ROWS = [("acme-base-1", .60, 1), ("acme-bend-1", .80, 2),
+# Every role has qualities 70, 90, 99, 100: the second row is farthest above the line.
+# Only the last two cannot be told from the best; their cheaper row wins the tie.
+ROWS = [("acme-base-1", .60, 1), ("acme-value-1", .80, 10),
         ("acme-near-1", .89, 50), ("acme-best-1", .90, 100)]
 
 
@@ -47,7 +47,7 @@ class RolePicks(unittest.TestCase):
             picks = {role: next(row["release"] for row in answers[0][role]["front"]
                                 if "pick" in row["notes"])
                      for role in ("orchestrate", "execute", "review")}
-            self.assertEqual(picks, {"execute": "acme-bend-1", "review": "acme-near-1",
+            self.assertEqual(picks, {"execute": "acme-value-1", "review": "acme-near-1",
                                      "orchestrate": "acme-near-1"})
 
 

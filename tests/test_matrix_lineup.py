@@ -126,9 +126,32 @@ class Answer(unittest.TestCase):
                          {"rated": [], "best": None, "pick": None, "front": [], "take": None})
 
     def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
-        execute = matrix.answer(self.lineup, {"bolt-2", "crux-1"})["execute"]
+        lineup = [dict(row, yours=row["yours"] if row["release"] == "crux-1" else [])
+                  for row in self.lineup]
+        execute = matrix.answer(lineup)["execute"]
         self.assertEqual((key(execute["pick"]), key(execute["take"])),
                          (("bolt-2", "high"), ("crux-1", "medium")))
+
+    def test_role_picks_and_takes_stay_visible_outside_the_global_frontier(self):
+        lineup = []
+        for name, cost, share, error, yours in (
+                ("acme-cheap-1", 1, .93, 0, True), ("acme-noisy-1", 2, .92, 10, True),
+                ("acme-best-1", 10, .99, 0, True), ("acme-higher-1", 20, 1, 5, False)):
+            lineup.append({"release": name, "effort": "high",
+                           "yours": [{"harness": "anvil", "model": name}] if yours else [],
+                           "values": {quality.INTEL: 50, COST: cost,
+                                      "aa.frontierCode20": share,
+                                      "aa.frontierCode20.lower95ci": share - 3.92 * error / 80,
+                                      "aa.frontierCode20.upper95ci": share,
+                                      "aa.omniscience": 100 * share,
+                                      "aa.omniscience.lower95ci": 100 * share,
+                                      "aa.omniscience.upper95ci": 100 * share}})
+        for rows, chosen in ((lineup[:3], "acme-noisy-1"), (lineup, "acme-best-1")):
+            said = matrix.answer(rows)["review"]
+            self.assertEqual(key(said["pick"]), (chosen, "high"))
+            self.assertEqual(key(said["take"]), ("acme-noisy-1", "high"))
+            for selected in (said["pick"], said["take"]):
+                self.assertTrue(any(row is selected for row in said["front"]))
 
 
 if __name__ == "__main__":

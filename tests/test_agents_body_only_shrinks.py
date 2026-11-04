@@ -5,13 +5,12 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, roundloop
+from agentkit import change_rules, config
 
 
 def words(n):
@@ -48,7 +47,7 @@ class AgentsBodyOnlyShrinks(unittest.TestCase):
         """rules_check on a branch from `base` whose AGENTS.md body is `body` words."""
         self.git("checkout", "-q", "-B", "fix-api", base)
         self.commit(f"---\n{front}---\n{words(body)}\n" if front is not None else f"{words(body)}\n")
-        return roundloop.rules_check(SimpleNamespace(wt=self.repo, base_sha=base, scratch=False))
+        return change_rules.rules_check(self.repo, base)
 
     def test_a_body_past_the_floor_only_shrinks(self):
         base = self.commit(f"{words(400)}\n")
@@ -60,26 +59,26 @@ class AgentsBodyOnlyShrinks(unittest.TestCase):
 
     def test_a_body_under_the_floor_grows_to_it(self):
         base = self.commit(f"{words(100)}\n")
-        self.assertEqual(self.check(base, roundloop.BODY_WORDS), "")
-        self.assertIn(f"from 100 to {roundloop.BODY_WORDS + 1} words",
-                      self.check(base, roundloop.BODY_WORDS + 1))
+        self.assertEqual(self.check(base, change_rules.BODY_WORDS), "")
+        self.assertIn(f"from 100 to {change_rules.BODY_WORDS + 1} words",
+                      self.check(base, change_rules.BODY_WORDS + 1))
 
     def test_a_new_file_starts_under_the_floor(self):
         base = self.commit()
-        self.assertEqual(self.check(base, roundloop.BODY_WORDS), "")
-        self.assertIn(f"from 0 to {roundloop.BODY_WORDS + 1}",
-                      self.check(base, roundloop.BODY_WORDS + 1))
+        self.assertEqual(self.check(base, change_rules.BODY_WORDS), "")
+        self.assertIn(f"from 0 to {change_rules.BODY_WORDS + 1}",
+                      self.check(base, change_rules.BODY_WORDS + 1))
 
     def test_front_matter_is_not_body(self):
-        base = self.commit(f"{words(roundloop.BODY_WORDS)}\n")
-        self.assertEqual(self.check(base, roundloop.BODY_WORDS, front="users: none\ntests: true\n"), "")
-        self.assertEqual(self.check(base, roundloop.BODY_WORDS, front=""), "")
+        base = self.commit(f"{words(change_rules.BODY_WORDS)}\n")
+        self.assertEqual(self.check(base, change_rules.BODY_WORDS, front="users: none\ntests: true\n"), "")
+        self.assertEqual(self.check(base, change_rules.BODY_WORDS, front=""), "")
 
     def test_a_branch_leaving_the_file_alone_passes(self):
         base = self.commit(f"{words(5000)}\n")
         self.git("checkout", "-q", "-B", "fix-api", base)
         self.commit("acme\n", path="api.py")
-        self.assertEqual(roundloop.rules_check(SimpleNamespace(wt=self.repo, base_sha=base, scratch=False)), "")
+        self.assertEqual(change_rules.rules_check(self.repo, base), "")
 
 
 if __name__ == "__main__":
