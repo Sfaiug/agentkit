@@ -119,6 +119,9 @@ def require_project_contract(repo):
     if repo is None:
         return
     tip = git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF, check=False)
+    if not tip:
+        default_base(repo, lambda _: None)
+        tip = git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF, check=False)
     missing = [f"{key}: {meaning}" for key, meaning in (
         ("tests", "the command that runs the whole suite at landing, or none where the project has no suite"),
         ("health", "the command that checks the live product works, or none where nothing is live"))

@@ -71,6 +71,7 @@ class ProjectContract(unittest.TestCase):
         rig = self.project("---\ntests: none\n---\n# widgets\n")
         rig.git("checkout", "-qb", "local")
         rig.commit({"AGENTS.md": NONE}, push=False)
+        rig.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
         self.refused(self.launch(rig.path), "health")
 
     def test_none_merges_without_a_suite_or_a_health_command(self):
@@ -86,6 +87,21 @@ class ProjectContract(unittest.TestCase):
         self.assertIn("retry.txt", rig.files())
         self.assertFalse((state.get("health") or {}).get("command"))
         self.assertFalse((self.home.path / "none-ran").exists())
+        checked = state["final_check"]
+        self.assertEqual((checked["outcome"], checked["suite"]), ("passed", None))
+        self.assertEqual(rig.origin("log", "-1", "--format=%b", "main"), "* add retry.txt")
+
+    def test_uncached_default_is_resolved_for_tasks_and_jobs(self):
+        rig = self.project(NONE)
+        for count in (1, 2):
+            with self.subTest(tasks=count):
+                rig.git("symbolic-ref", "--delete", "refs/remotes/origin/HEAD")
+                tasks = [taskfile.write(self.home, rig.path, name=f"task-{count}-{n}")
+                         for n in range(count)]
+                done = self.home.ak("run", *map(str, tasks), "--no-merge", timeout=300)
+                self.assertEqual(done.code, 0, done.out + done.err)
+                self.assertEqual(rig.git("symbolic-ref", "refs/remotes/origin/HEAD"),
+                                 "refs/remotes/origin/main")
 
     def test_a_review_pr_can_add_the_missing_line(self):
         rig = self.project("---\ntests: none\n---\n# widgets\n")
