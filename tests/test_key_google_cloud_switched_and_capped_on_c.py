@@ -63,7 +63,13 @@ class CloudSettings(unittest.TestCase):
             before = self.config.read_bytes()
             term.keys("Enter")
             term.wait("whole euros per month")
-            term.type(" " + value)
+            if value == "150":
+                term.type(" 1")
+                term.wait(lambda screen: any(line.strip() == "1" for line in screen.splitlines()))
+                self.home.write(".agentkit/state/google-cloud-ssh-config", "Host *\n")
+                term.type("50")
+            else:
+                term.type(" " + value)
             term.keys("Enter")
             if value in ("150", "1000000000000", "0"):
                 term.wait(lambda screen: "⏎ open" in screen and (

@@ -12,6 +12,7 @@ reached only where the real `ssh -G`, connecting to nothing, reads ak's options 
 from datetime import UTC, datetime
 import os
 from pathlib import Path
+import pwd
 import shutil
 import subprocess
 import sys
@@ -32,9 +33,12 @@ HELPER = "".join((REPO / "tools/helper" / name).read_text() for name in ("linux.
 SSH = """#!{python}
 import os, pathlib, subprocess, sys
 *options, host, line = sys.argv[1:]
-# the system's config, which ssh refuses to read in a tick's box, only where ak hands none
+# Only the fixture's settings: the tick's box cannot read the host's system config.
 config = () if "-F" in options else ("-F", "none")
-seen = subprocess.run([{ssh!r}, "-G", *config, *options, host], capture_output=True, text=True)
+box = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
+       "--ro-bind", {system!r}, "/etc/ssh/ssh_config", "--"]
+seen = subprocess.run([*box, {ssh!r}, "-G", *config, *options, host],
+                      capture_output=True, text=True)
 seen = seen.stdout.splitlines()
 machine = pathlib.Path({machines!r}, next((one[9:] for one in seen if one[:9] == "hostname "), "-"))
 if not {{"user ak", "identityfile {key}"}} <= set(seen) or not machine.is_dir():
@@ -68,7 +72,8 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         cls.machines, cls.toml = home.root / "machines", home.path / ".agentkit/config.toml"
         cls.key = home.path / ".agentkit/secrets/google-cloud-ssh"
         home.fake("ssh", SSH.format(python=sys.executable, machines=str(cls.machines),
-                                    ssh=REAL_SSH, key=cls.key))
+                                    ssh=REAL_SSH, key=cls.key,
+                                    system=str(home.write("ssh_system", ""))))
         cls.active(True)
         cls.tick()      # the prices a machine is metered at
         # 1 holds a container, 2 held nothing 11 minutes, 3, 4 and 8 never ran, up 5, 11 and 5
@@ -179,6 +184,35 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
     def test_not_active_a_named_rental_takes_no_new_work(self):
         self.assertEqual(self.off_landed.code, 0, self.off_landed.out + self.off_landed.err)
         self.assertFalse(self.reached_work_off)
+
+    def test_off_preserves_owned_helpers_ssh_settings_even_after_rentals_end(self):
+        system = self.home.write("ssh_config", "Host acme-owned acme-user\n"
+                                 "  HostName 192.0.2.42\n  User acme\n  Port 2222\n")
+        user = self.home.write("ssh_user", "Host acme-user\n  User acme-user\n  Port 2223\n"
+                               "Host acme-other\n  Port 2224\n")
+        real_home = pwd.getpwuid(os.getuid()).pw_dir
+        box = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
+               "--tmpfs", real_home, "--ro-bind", str(self.home.root), str(self.home.root),
+               "--dir", f"{real_home}/.ssh", "--ro-bind", str(user),
+               f"{real_home}/.ssh/config", "--ro-bind", str(system), "/etc/ssh/ssh_config", "--"]
+
+        def resolved(host, options=()):
+            done = subprocess.run([*box, REAL_SSH, "-G", *options, host], cwd="/",
+                                  env={**os.environ, "HOME": real_home},
+                                  capture_output=True, text=True, check=True, timeout=15)
+            values = dict(line.split(" ", 1) for line in done.stdout.splitlines() if " " in line)
+            return tuple(values[key] for key in ("hostname", "user", "port"))
+
+        cases = (("acme-owned", ("192.0.2.42", "acme", "2222")),
+                 ("acme-user", ("192.0.2.42", "acme-user", "2223")))
+        for host, expected in cases:
+            self.assertEqual(resolved(host), expected)
+        for remaining in (self.google.machines, []):
+            self.google.machines = remaining
+            self.tick()
+            for host, expected in cases:
+                self.assertEqual(resolved(host, ("-F", str(
+                    self.home.path / ".agentkit/state/google-cloud-ssh-config"))), expected)
 
 
 if __name__ == "__main__":

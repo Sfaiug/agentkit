@@ -4982,11 +4982,13 @@ def config_page(name, page):
         else:
             # typed in, the arrows move nothing: Enter saves what was typed
             opened, at = None, here[1]
+            field_label = rows[at][0]
             clock.forget()            # drawn off the clock: the page back is drawn as it is
             keys = terminal.keys("esc back", enter="save", move=False)
 
             def draw(lines):          # the page of matrix_key's height that holds the lines
                 rows, note = page()
+                at = next(number for number, row in enumerate(rows) if row[0] == field_label)
                 body, places = page_body([(("row", number), label, value)
                                           for number, (label, value, *_) in enumerate(rows)])
                 # under the row's last line, a value that wrapped included

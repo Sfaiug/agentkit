@@ -614,7 +614,7 @@ def _serve(machines, ready):
     temp.write_text("".join(f"Host {one.name}\n" + f"  # until {int(one.until)}\n" * (
         one.id in ready) + "".join('  %s "%s"\n' % option for option in _reach(one).items())
         for one in machines)
-        + "Host *\n  Include ~/.ssh/config\n")
+        + "Host *\n  Include ~/.ssh/config\nHost *\n  Include /etc/ssh/ssh_config\n")
     temp.replace(path)
 
 
