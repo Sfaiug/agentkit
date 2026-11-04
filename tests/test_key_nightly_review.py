@@ -59,7 +59,7 @@ class NightReview(unittest.TestCase):
         self.env = {"PYTHONPATH": str(clock.parent)}
 
     def seed(self, count=100, breaks=(True, True), seat="last-merge"):
-        self.home.write("clock/seed.py", f"""
+        return self.home.write("clock/seed.py", f"""
 for week in range(2):
     for n in range({count}):
         name = f"merged-{{week}}-{{n}}"
@@ -79,9 +79,8 @@ for week in range(2):
     def doctor(self):
         done = self.home.ak("doctor", env=self.env)
         self.assertEqual(done.code, 0, done.out + done.err)
-        lines = [line for line in done.out.splitlines() if line.startswith("night review  ")]
-        self.assertEqual(len(lines), 1, done.out)
-        return lines[0]
+        line, = [line for line in done.out.splitlines() if line.startswith("night review  ")]
+        return line
 
     def test_armed_launches_once_and_uses_the_last_merges_seat(self):
         self.seed()
@@ -91,9 +90,8 @@ for week in range(2):
         self.rig.git("branch", "origin/main", self.first)
         directory, = self.tick()
         state = json.loads((directory / "run.json").read_text())
-        self.assertEqual(state["task_file"], str(self.task))
-        self.assertEqual(state["launched_session"], "last-merge")
-        self.assertEqual(state["state"], "not_needed", (directory / "log.txt").read_text())
+        self.assertEqual((state["task_file"], state["launched_session"], state["state"]),
+                         (str(self.task), "last-merge", "not_needed"))
         body = self.task.read_text()
         self.assertRegex(body, f"{self.first}.*{self.last}")
         self.assertIn("```bash\ntrue\n```", body)
@@ -104,9 +102,7 @@ for week in range(2):
     def test_point_two_percent_disarms_and_starts_none(self):
         self.seed(500)
         self.assertEqual(self.tick(), [])
-        line = self.doctor()
-        self.assertIn("disarmed", line)
-        self.assertEqual(line.count("0.2%"), 2)
+        self.assertEqual(self.doctor(), "night review  disarmed · last two weeks 1/500 (0.2%) · 1/500 (0.2%)")
 
     def test_any_existing_run_claims_the_task_even_after_it_ends(self):
         self.seed()
@@ -136,12 +132,11 @@ for week in range(2):
         self.assertEqual(json.loads((directory / "run.json").read_text())["state"], "not_needed")
 
     def test_each_repository_gets_its_own_run(self):
-        self.seed()
+        seed = self.seed()
         other = Rig(self.home, "web", files={"AGENTS.md": "---\ntests: true\n---\n"})
         self.home.write(".agentkit/state/session-web.json", {
             "orchestrator": "opus", "workers": ["opus"], "reviewers": ["astra"],
             "repo": str(other.path), "cwd": str(other.path)})
-        seed = self.home.path / "clock/seed.py"
         seed.write_text(seed.read_text() + f"""
 history.start_run("web-merge", repo="web", session="web", started_at={NOW - DAY})
 history.finish_run("web-merge", final_state="pass", finished_at={NOW - DAY}, changed_lines=1)
@@ -152,12 +147,17 @@ history.update_run("web-merge", merge_sha={other.head()!r})
                           for d in directories}, {"last-merge", "web"})
         self.assertEqual(self.tick(), directories)
 
-    def test_a_missing_seat_uses_the_projects_newest_seat(self):
+    def test_an_unavailable_origin_leaves_no_claim_and_the_next_tick_retries(self):
         self.seed()
         self.home.write(".agentkit/state/seat-last-merge.json", {"stopped_at": NOW})
+        self.rig.git("remote", "set-url", "origin", str(self.home.root / "missing"))
+        done = self.home.tick(env=self.env)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertIn("WARN api: no night review", done.out)
+        self.assertEqual(taskfile.runs(self.home), [])
+        self.rig.git("remote", "set-url", "origin", str(self.rig.bare))
         directory, = self.tick()
-        state = json.loads((directory / "run.json").read_text())
-        self.assertEqual(state["launched_session"], "newest")
+        self.assertEqual(json.loads((directory / "run.json").read_text())["launched_session"], "newest")
 
     def test_a_stopped_fallback_seat_is_skipped(self):
         self.seed(seat="gone")
