@@ -189,7 +189,7 @@ func TestQuestionRevivalLeavesOwnerStoppedAndSleepingSeatsAlone(t *testing.T) {
 			if !known {
 				t.Fatal("seat not readable")
 			}
-			if carried, err := found.ReviveQuestions(moment, func(string) {}, io.Discard); !carried || err != nil {
+			if carried, err := found.ReviveQuestions(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || revivalFile("acme").Truthy("reopened_at") {

@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"io"
-	"path/filepath"
 	"time"
 
 	"agentkit/internal/host"
@@ -25,32 +24,30 @@ func (t *ticking) revive() error {
 	if !noRunRevival() && !seat.FileProjects(t.clock()) {
 		return errLeft
 	}
+	going, known := revivalRuns()
+	if !known {
+		return errLeft
+	}
 	home, known := seat.Looking(t.clock())
 	if !known {
 		return errLeft
 	}
-	carried, err := home.ReviveQuestions(t.clock(), t.log.line, t.log.errOut)
+	carried, err := home.ReviveQuestions(t.clock(), going, t.log.line, t.log.errOut)
 	if !carried {
 		return cmp.Or(err, errLeft)
 	}
 	if err != nil {
 		return err
 	}
-	return t.reviveRuns()
+	return t.reviveRuns(going)
 }
 
 // The claim precedes the launch under the lifecycle lock: a failed open is tried once,
 // and an owner's close cannot land between the decision and the reopen.
-func (t *ticking) reviveRuns() error {
+func (t *ticking) reviveRuns(going map[string]string) error {
 	return locked(func() error {
 		home, known := seat.Looking(t.clock())
-		going := map[string]string{}
-		if !known || !run.Every(func(dir string, record *run.Object) bool {
-			if name := run.Seat(record); name != "" && run.Active(record) && going[name] == "" {
-				going[name] = filepath.Base(dir)
-			}
-			return true
-		}) {
+		if !known {
 			return errLeft
 		}
 		for _, each := range home.Revivals() {

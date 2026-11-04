@@ -133,9 +133,9 @@ func (seat reopening) launchable(record map[string]any) bool {
 }
 
 // ReviveQuestions is watch.revive_seats at each seat's turn. Other interrupted work stays
-// Python's; active runs have their own revival. A live seat clears its death history,
+// Python's; reviving names the seats the run revival takes. A live seat clears its death history,
 // and a stopped or sleeping seat stays down.
-func (home Home) ReviveQuestions(now time.Time, log func(string), errOut io.Writer) (bool, error) {
+func (home Home) ReviveQuestions(now time.Time, reviving map[string]string, log func(string), errOut io.Writer) (bool, error) {
 	for _, seat := range home.Seats {
 		file := revivalFile(seat.Name)
 		if seat.live {
@@ -146,7 +146,7 @@ func (home Home) ReviveQuestions(now time.Time, log func(string), errOut io.Writ
 			}
 			continue
 		}
-		if seat.closed || seat.asleep || seat.restingGone() || seat.hasActiveRun() {
+		if seat.closed || seat.asleep || seat.restingGone() || reviving[seat.Name] != "" {
 			continue
 		}
 		if !seat.revivalQuestion() {
