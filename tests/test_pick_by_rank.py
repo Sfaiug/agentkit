@@ -113,6 +113,11 @@ class RankByTheAnswer(Sandbox):
         ranks = matrix.rank(self.cfg, "execute", ["opus", "astra", "fable"])
         self.assertIsNone(ranks["fable"])                         # no row is Fable 5.1
         self.assertEqual(self.pick(), ["opus", "astra", "fable"])
+        # Mark a third priced row: its bend wins, followed by quality rather than price.
+        next(row for row in self.lineup if row["release"] == "bolt-2")["yours"] = [{
+            key: self.cfg["models"]["fable"][key] for key in ("harness", "model")}]
+        self.store()
+        self.assertEqual(self.pick(), ["astra", "opus", "fable"])
 
     def test_a_model_run_at_a_lower_effort_ranks_by_that_effort_s_quality(self):
         self.store()
