@@ -1066,12 +1066,7 @@ def save(cfg, defaults=None):
     none moves with them.
     """
     if "turns_on_machines" in cfg:
-        from . import google_cloud, machines
-        # Removing the shared switch must not move an owned helper's unwritten marks.
-        marks = {name: machines.work(name, cfg) for name in machines.helpers()
-                 if not google_cloud.ssh_config(name)}
-        for name, work in marks.items():
-            cfg.setdefault("machines", {}).setdefault(name, {}).setdefault("work", work)
+        from . import machines
         cfg.setdefault("google_cloud", {}).setdefault("work", machines.work(None, cfg))
         del cfg["turns_on_machines"]
     _work_in(cfg)

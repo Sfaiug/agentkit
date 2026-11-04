@@ -106,6 +106,21 @@ class MachinesOnC(unittest.TestCase):
         self.page("10 of 32 GB used · tests", "sessions, builds, reviews, tests")
         self.leave()
 
+    def test_a_save_before_the_first_probe_leaves_defaults_to_the_probe(self):
+        for system, work in (("macOS", "tests"), ("Linux", "builds, reviews, tests")):
+            with self.subTest(system=system):
+                self.write_config()
+                self.readings.unlink(missing_ok=True)
+                self.page()
+                self.term.keys("Down", "Down", "Down", "Space")
+                self.term.wait("○ off")
+                self.assertNotIn("work", akconfig.read(self.home)["machines"]["acme-mac"])
+                self.leave()
+                self.home.write(".agentkit/state/machines.json", {
+                    "acme-mac": self.machine(system, 4, 8, 6, 1)})
+                self.page(f"4 cores · 8 GB · 25% busy · 2 of 8 GB used · {work}")
+                self.leave()
+
     def test_inactive_cloud_says_off(self):
         self.write_config(active=False)
         shown = " ".join(self.page("Google Cloud ○ off · 2 machines going once idle").split())

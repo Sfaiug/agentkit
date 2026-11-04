@@ -194,11 +194,14 @@ def watch():
         idle = _idle(listed)
     except (OSError, subprocess.CalledProcessError):    # no ssh here: the meter moves all the same
         idle = {}
+    starting = {one.id for one in listed if not one.address or idle.get(one.id, 0) < 0}
+    idle = {key: seconds for key, seconds in idle.items() if seconds >= 0}
     reached = []
     for machine in listed:
         if why := ("past its end" if now >= machine.until else "with no price kept" if not prices
                    else "past the cap" if not ledger or ledger["spent"] > cap
-                   else "no work marked" if not work and idle.get(machine.id, 0) > 0
+                   else "no work marked" if not work and (
+                       machine.id in starting or idle.get(machine.id, 0) > 0)
                    else "idle" if idle.get(machine.id, 0) >= IDLE_FOR else None):
             try:
                 give_back(machine)
@@ -585,7 +588,7 @@ def _moved(ledger, listed, now, prices):
 
 
 def _idle(listed):
-    """{id: seconds it has held nothing} of each of `listed` READY, asked side by side by
+    """{id: seconds it has held nothing, -1 if still starting} of each of `listed`, asked by
     tools/helper's `idle` with ak's key, made when missing; the address of one with no route yet
     forgotten first, as Google hands addresses out again and ssh refuses an old host key there.
     Past that, a key ssh learned stays: Google's agent writes it before sshd first starts."""
@@ -599,11 +602,11 @@ def _idle(listed):
         if f"Host {one.name}\n" not in routes:
             subprocess.run(["ssh-keygen", "-R", one.address, "-f", known], capture_output=True)
     known.with_name(f"{KNOWN_HOSTS}.old").unlink(missing_ok=True)     # ssh-keygen's copy
-    line = f"test -e {SET_UP} && {helper._line('idle')}"
+    line = f"if test -e {SET_UP}; then {helper._line('idle')}; else echo -1; fi"
     said = machines.ask([[*machines.SSH, *(word for option in _reach(one).items()
                                            for word in ("-o", '%s="%s"' % option)),
                           "--", one.name, line] for one in reached])
-    return {one.id: int(answer) if answer.strip().isdigit() else 0
+    return {one.id: int(answer) if answer.strip().removeprefix("-").isdigit() else 0
             for one, answer in zip(reached, said) if answer is not None}
 
 

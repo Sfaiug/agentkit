@@ -64,7 +64,7 @@ def helpers():
 def work(name, cfg=None):
     """The work `name` takes; None names every rental, including one not rented yet.
 
-    Unwritten marks keep the old switch's meaning. A Mac's last probe rules out turns.
+    Unwritten marks follow the old switch, now the cloud's turns mark, and the last probe.
     """
     cfg = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}) if cfg is None else cfg
     config._work_in(cfg)
@@ -72,7 +72,8 @@ def work(name, cfg=None):
         return ["turns", "tests"]
     rented = name is None or bool(google_cloud.ssh_config(name))
     named = cfg.get("machines")
-    table = (cfg.get("google_cloud") or {}) if rented else \
+    cloud = cfg.get("google_cloud") or {}
+    table = cloud if rented else \
         named.get(name, {}) if isinstance(named, dict) else {}
     if isinstance(table, dict) and "work" in table:
         return table["work"]
@@ -80,7 +81,8 @@ def work(name, cfg=None):
         said = (config._read_json(_path()) or {}).get(name, {}).get("said") if not rented else None
     except config.Error:
         said = None
-    return (["turns"] if cfg.get("turns_on_machines") is True and
+    turns = cfg.get("turns_on_machines", "turns" in cloud.get("work", []))
+    return (["turns"] if turns is True and
             (said or {}).get("system") != "macOS" else []) + ["tests"]
 
 
