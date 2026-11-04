@@ -1152,6 +1152,12 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             groups["efforts"] = config.run_efforts(cfg, selection)
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
+    plan_line = None
+    if (task_file is not None and from_seat() and not bound and not url
+            and run_kind(receipt) == "task"):
+        task_path = run_dir / "task.md"
+        _, body, _ = taskfile.parse_task(task_path)
+        plan_line = plan.served_line(session_at_launch, taskfile.done_when(body, task_path))
     with gate.slot_lock():
         # two runs on one PR both land it, and the second fails on a head the first moved: read
         # under the lock its receipt is written in, so of two launches at once the second sees
@@ -1159,7 +1165,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         going = next((other["run_id"] for other in (runs_on(pr=url, exclude=run_dir) if url else ())
                       if other.get("state") not in run_record.ENDED), None)
         state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
-                         "launched_session": session_at_launch, "started_at": time.time(),
+                         "launched_session": session_at_launch, "plan_line": plan_line,
+                         "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
                          "run_depth": 0 if bound else run_depth(),
                          "parent_run": None if bound else os.environ.get("AK_PARENT_RUN"),

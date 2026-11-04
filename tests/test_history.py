@@ -40,6 +40,15 @@ class HistoryTests(unittest.TestCase):
         row = self.row()
         self.assertEqual(row[1:7], ("project", "opus", "astra", 2, "pass", "PASS"))
 
+    def test_the_plan_line_stays_as_it_was_when_the_row_started(self):
+        line = "acme api · written 2026-11-03 09:00"
+        state = {"run_id": "r1", "plan_line": line}
+        transitions.history_start(state)
+        self.assertEqual(history.get("r1")["plan_line"], line)
+        for later in (None, "acme web · written 2026-11-03 09:01"):
+            transitions.history_start({**state, "plan_line": later})
+            self.assertEqual(history.get("r1")["plan_line"], line)
+
     def test_launch_kind_follows_the_origin_before_review_ownership(self):
         pr = {"review_pr": "https://github.com/acme/widgets/pull/1", "own_pr": True}
         followup = {"followup": {"run": "earlier"}}

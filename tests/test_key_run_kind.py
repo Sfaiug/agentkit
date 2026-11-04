@@ -72,6 +72,8 @@ class TaskAndFollowUp(unittest.TestCase):
         self.assertEqual(state(self.fix)["followup"]["run"], self.task.name)
         self.assertEqual(self.rows[self.task.name]["kind"], "task")
         self.assertEqual(self.rows[self.fix.name]["kind"], "follow-up")
+        self.assertIsNone(state(self.fix).get("plan_line"))
+        self.assertIsNone(self.rows[self.fix.name]["plan_line"])
 
     def test_the_size_line_reads_the_task_s_one_round_and_not_the_fix_s_three(self):
         task, fix = self.rows[self.task.name], self.rows[self.fix.name]
@@ -100,6 +102,8 @@ class SeatPr(unittest.TestCase):
             run_dir = taskfile.only_run(home)
             self.assertTrue(state(run_dir)["own_pr"])
             self.assertTrue(state(run_dir)["merged"])
+            self.assertIsNone(state(run_dir).get("plan_line"))
+            self.assertIsNone(read(home, "SELECT plan_line FROM runs")[0]["plan_line"])
             self.assertEqual(read(home, "SELECT run_id, kind FROM runs"),
                              [{"run_id": run_dir.name, "kind": "seat PR"}])
 
