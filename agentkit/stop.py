@@ -290,7 +290,7 @@ def _stop_processes(run_id, state, log):
     # instead of replacing it. The scope and marker both catch escaped grandchildren.
     pid = state.get("pid")
     if orch.user_manager() and pid == os.getpid():
-        # A waited stop of the loop's own unit would end it before its record is saved.
+        # A waited stop of the loop's own unit would end this call before cleanup finishes.
         orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
     elif orch.user_manager():
         unit = f"agentkit-run-{run_id}"
