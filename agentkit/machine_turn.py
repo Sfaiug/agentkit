@@ -1,4 +1,4 @@
-"""A model turn on a rented machine once config.toml says `turns_on_machines = true`, its results
+"""A model turn on a machine marked for turns in config.toml, its results
 back here when it ends. Hidden here: the machine, the busiest taking turns and outliving its login
 (agentkit/helper.py), and the ssh to it; the parcel beside a suite's: the out dir, the checkout's
 uncommitted paths, ak itself, a HOME of the turn's own, holding a copy of its login the adapter
@@ -26,7 +26,7 @@ import tempfile
 import threading
 import time
 
-from . import config, gitcall, helper
+from . import config, gitcall, helper, machines
 
 AK = ("adapters", "agentkit", "bin", "tools")    # ak itself, read-only there, `bin` on PATH
 # Seconds a lent login must last, else the turn runs here: a longer turn would end on an expired
@@ -69,8 +69,8 @@ def call(entry, cmd, cwd, out_dir, env, places, session, watch):
     came home leaves the conversation it reported, whatever its exit."""
     harness = entry["harness"]
     try:
-        on = (config._read_toml(config.HOME / config.CONFIG_NAME) or {}).get("turns_on_machines")
-        program = _program(harness) if on is True and not places and _sessions(harness) else None
+        on = any("turns" in machines.work(name) for name in [None, *machines.helpers()])
+        program = _program(harness) if on and not places and _sessions(harness) else None
     except config.Error:    # a config.toml mid-edit fails no turn: it runs here
         program = None
     if not program or _stopped(cwd):

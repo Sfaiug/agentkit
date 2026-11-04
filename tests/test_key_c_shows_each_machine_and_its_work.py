@@ -86,15 +86,16 @@ class MachinesOnC(unittest.TestCase):
             "acme-rental rented until 15:44 · 16 cores · 32 GB · 50% busy · "
             "10 of 32 GB used · builds, reviews, tests",
             "Google Cloud ● on · €31.74 of €200 this month · 2 machines up").split())
-        self.assertIn("3 · Google Cloud on · €31.74 of €200 this month",
+        self.assertIn("3 machines · Google Cloud on · €31.74 of €200 this month",
                       " ".join(self.config_screen.split()))
+        self.assertNotIn("machines up", self.config_screen)
         self.assertLess(shown.index("this one"), shown.index("acme-mac"))
         self.assertLess(shown.index("acme-mac"), shown.index("acme-rental"))
-        # Enter and Space on these rows have no act, and the key line offers neither.
+        # This host has no marks; another machine opens its work with Enter.
         self.term.keys("Enter", "Space", "Down")
         same = self.term.wait("› acme-mac")
         keys = next(line for line in reversed(same.splitlines()) if line.strip())
-        self.assertNotIn("⏎", keys)
+        self.assertIn("⏎ open", keys)
         self.assertNotIn("␣", keys)
         self.assertEqual(before, [path.read_bytes() for path in (
             self.config, self.readings, self.ledger, self.route)])
@@ -105,11 +106,39 @@ class MachinesOnC(unittest.TestCase):
         self.page("10 of 32 GB used · tests", "sessions, builds, reviews, tests")
         self.leave()
 
+    def test_a_save_before_the_first_probe_leaves_defaults_to_the_probe(self):
+        for system, work in (("macOS", "tests"), ("Linux", "builds, reviews, tests")):
+            with self.subTest(system=system):
+                self.write_config()
+                self.readings.unlink(missing_ok=True)
+                self.page()
+                self.term.keys("Down", "Down", "Down", "Space")
+                self.term.wait("○ off")
+                self.assertEqual(akconfig.read(self.home)["machines"]["acme-mac"]["work"],
+                                 ["turns", "tests"])
+                self.leave()
+                self.home.write(".agentkit/state/machines.json", {
+                    "acme-mac": self.machine(system, 4, 8, 6, 1)})
+                self.page(f"4 cores · 8 GB · 25% busy · 2 of 8 GB used · {work}")
+                self.leave()
+
+    def test_a_mac_cannot_be_marked_to_build_or_review(self):
+        before = self.config.read_bytes()
+        self.page()
+        self.term.keys("Down", "Enter")
+        self.term.wait("builds and reviews")
+        self.term.keys("Space")
+        self.term.wait("this machine cannot build or review")
+        self.assertEqual(self.config.read_bytes(), before)
+        self.term.keys("Escape")
+        self.term.wait("› acme-mac")
+        self.leave()
+
     def test_inactive_cloud_says_off(self):
         self.write_config(active=False)
         shown = " ".join(self.page("Google Cloud ○ off · 2 machines going once idle").split())
         self.assertNotIn("€", shown)
-        self.assertIn("2 · Google Cloud off", " ".join(self.config_screen.split()))
+        self.assertIn("2 machines · Google Cloud off", " ".join(self.config_screen.split()))
         self.leave()
         self.ledger.write_text('{"answered": 0, "spent": 0, "machines": {}}')
         shown = " ".join(self.page("Google Cloud ○ off").split())

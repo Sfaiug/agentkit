@@ -19,6 +19,22 @@ NOW = 2_000_000_000
 
 
 class AMachineThatRefusedATurnHidesNoNeed(unittest.TestCase):
+    def test_only_requests_for_work_still_marked_reach_the_tick(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(config, "HOME", Path(tmp)), \
+                patch.object(config, "STATE", Path(tmp)), \
+                patch.object(google_cloud, "renting", return_value=True):
+            path, noted = Path(tmp) / config.CONFIG_NAME, Path(tmp) / google_cloud.NEED
+            path.write_text('[google_cloud]\nwork = ["tests"]\n')
+            google_cloud.need(1000, "turns")
+            self.assertFalse(noted.exists())
+            google_cloud.need(2000, "tests")
+            path.write_text('[google_cloud]\nwork = ["turns"]\n')
+            self.assertEqual(google_cloud._noted(noted), 0)
+            google_cloud.need(3000, "turns")
+            self.assertEqual(google_cloud._noted(noted), 3000)
+            noted.write_text("4000\n")     # a request from before kinds were recorded
+            self.assertEqual(google_cloud._noted(noted), 0)
+
     def test_the_turn_on_the_one_ending_soon_asks_for_another(self):
         def remote(alias, verb, *_args, **kw):
             if not kw:    # the argv of a piece, measured
@@ -31,6 +47,7 @@ class AMachineThatRefusedATurnHidesNoNeed(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp, \
                 patch.object(config, "STATE", Path(tmp)), \
                 patch.object(helper.machines, "helpers", return_value=[*CPUS]), \
+                patch.object(helper.machines, "work", return_value=["turns", "tests"]), \
                 patch.object(google_cloud, "renting", return_value=True), \
                 patch.object(google_cloud, "serving", return_value={
                     "acme-full": NOW + 21600, "acme-soon": NOW + 4200}), \

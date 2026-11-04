@@ -62,6 +62,8 @@ class CloudSettings(unittest.TestCase):
         for value in ("150", "-5", "abc", "1.5", "", "1000000000000", "0"):
             before = self.config.read_bytes()
             term.keys("Enter")
+            term.wait("Monthly cap")
+            term.keys("Down", "Down", "Enter")
             term.wait("whole euros per month")
             if value == "150":
                 term.type(" 1")
@@ -72,20 +74,24 @@ class CloudSettings(unittest.TestCase):
                 term.type(" " + value)
             term.keys("Enter")
             if value in ("150", "1000000000000", "0"):
-                term.wait(lambda screen: "⏎ open" in screen and (
-                    f"of €{int(value):g} this month") in " ".join(screen.split()))
+                term.wait(lambda screen: "⏎ open" in screen and
+                          f"Monthly cap €{int(value):g}" in " ".join(screen.split()))
                 self.assertEqual(tomllib.loads(self.config.read_text())["google_cloud"], {
                     "active": True, "max_month": int(value), "x_custom": 7})
             else:
                 term.wait("the monthly cap must be a whole number of euros, 0 or more")
                 self.assertEqual(self.config.read_bytes(), before)
+            term.keys("Escape")
+            term.wait("› Google Cloud")
         term.keys("Enter")
+        term.wait("Monthly cap")
+        term.keys("Down", "Down", "Enter")
         term.wait("whole euros per month")
         term.type("999")
         term.keys("Escape")
         term.wait("⏎ open")
         self.assertEqual(tomllib.loads(self.config.read_text())["google_cloud"]["max_month"], 0)
-        term.keys("Escape", "Escape", "Escape")
+        term.keys("Escape", "Escape", "Escape", "Escape")
         self.assertEqual(term.exit_code(), 0)
         self.assertEqual(self.home.calls("ssh"), [])
 
@@ -129,6 +135,27 @@ class CloudSettings(unittest.TestCase):
         _, deleted, _ = google.at(NOW + 180, 30)
         self.assertEqual(deleted, ["acme-busy"])
         self.assertEqual(google.made, [])
+        # With no work marked, idle and booting rentals go back, busy or silent ones stay.
+        self.config.write_text(self.config.read_text().split("\n[google_cloud]")[0] +
+                               '\n[google_cloud]\nactive = true\nmax_month = 200\nwork = []\n')
+        home.write(".agentkit/state/google-cloud-offers.json", {"at": NOW + 180, "offers": [
+            ["c4a-standard-8", "europe-west4", 8, 32768, 0.5, ["europe-west4-a"], "", ""]]})
+        for name, address in (("starting", False), ("setting-up", True),
+                              ("working", True), ("silent", True)):
+            google.machines.append({**google.machines[0], "id": name, "name": f"acme-{name}",
+                                    "networkInterfaces": google.machines[0]["networkInterfaces"]
+                                    if address else []})
+        home.fake("ssh", '#!/bin/sh\ncase "$*" in *acme-setting-up*) echo -1;; '
+                  '*acme-working*) echo 0;; *acme-silent*) exit 255;; *) echo 1;; esac\n')
+        home.write(".agentkit/state/google-cloud-need", "456 tests\n789 turns\n")
+        start = len(google.asked)
+        done = home.tick(env=google.env)
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual([one for one in google.asked[start:] if one.startswith("DELETE ")],
+                         ["DELETE acme-busy", "DELETE acme-starting", "DELETE acme-setting-up"])
+        self.assertEqual((google.made, google.asks), ([], []))
+        self.assertIn("acme-busy listed no work marked, given back", json.loads(
+            (home.path / ".agentkit/state/google-cloud-late.json").read_text()))
 
     def test_off_sends_no_new_work_to_a_rental(self):
         self.config.write_text(self.config.read_text().replace("active = true", "active = false"))
