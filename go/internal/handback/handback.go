@@ -5,10 +5,9 @@
 // that types it at the seat's quiet prompt (seat.TypeAtPrompt).
 //
 // Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
-// does not type is marked pending, which Python's tick types at the next quiet
+// does not type is marked pending, which the tick offers at the next quiet
 // prompt: a seat that takes no line now, or a line whose compact form cannot fit.
-// A seat not up there is the tick's, which offers every
-// ending nobody has heard.
+// A seat not up there is still Python's to wake or reopen, or to report as gone.
 package handback
 
 import (
@@ -38,7 +37,7 @@ func Give(dir string, say func(string)) bool {
 		return false
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
-	if session == "" || !run.Ended(record) || record.Str("state") == "stopped" ||
+	if session == "" || !run.Ended(record) && !recoveryEnding(record) || record.Str("state") == "stopped" ||
 		record.Str("state") == "error" && run.Going(record, time.Now()) || !seat.Watching(session) {
 		return false
 	}
@@ -62,7 +61,7 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("run %s is a %s", id, preexisting))
 		return true
 	}
-	recordOnly, pending := routineDelivery(said, session)
+	recordOnly, pending := seat.EndingDelivery(said, session)
 	if recordOnly {
 		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", "routine ending: recorded, not typed",
 			"handback_pending", nil, "handback_typed", nil, "handback_wait_reason", nil, "notification_pending", nil) {

@@ -1,0 +1,29 @@
+package handback
+
+import (
+	"time"
+
+	"agentkit/internal/run"
+)
+
+func recoveryEnding(record *run.Object) bool { return record.Str("state") == "interrupted" }
+
+// Awaiting includes an interruption's recovery notice, which uses the same decision line
+// and delivery lock as a finished run (handback.notify_recovery).
+func Awaiting(record *run.Object, now time.Time) bool {
+	return Owed(record, now) || recoveryEnding(record) && !record.Truthy("handed_back") &&
+		!record.Truthy("reported") && !record.Truthy("recovery_notified") && !record.Truthy("recovery_acknowledged_at")
+}
+
+// Announce offers an ending through the run's own hand-back, keeping its pending mark
+// when its seat cannot take the line yet.
+func Announce(dir string, say func(string)) bool {
+	record, _ := run.Read(dir)
+	if record == nil || !Awaiting(record, time.Now()) || !Give(dir, say) {
+		return false
+	}
+	if recoveryEnding(record) {
+		mark(dir, record, "recovery_notified", "orchestrator")
+	}
+	return true
+}

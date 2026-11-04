@@ -23,19 +23,6 @@ func noOldEndings() bool {
 	})
 }
 
-// Endings reap before offering a hand-back or retrying an inbox question. Cleanup still due
-// on an ended loop is Python's; an already swept ending costs no write.
-func noEndings() bool {
-	now := time.Now()
-	return run.Every(func(_ string, record *run.Object) bool {
-		if run.Active(record) || run.NeedsRecovery(record) {
-			return false
-		}
-		_, sweep := run.Reap(record)
-		return !sweep && !handback.Owed(record, now) && !record.Truthy("pending_inbox")
-	})
-}
-
 // Revival files projectless seats from run evidence even when no run is still going.
 func noRunRevival() bool {
 	return run.Every(func(_ string, record *run.Object) bool {
@@ -51,6 +38,7 @@ func noRunRevival() bool {
 // An unfinished run can protect its seat from retirement; settled runs protect none.
 func noRunSweep() bool {
 	return run.Every(func(_ string, record *run.Object) bool {
-		return !run.Active(record) && !(run.NeedsRecovery(record) && !record.Truthy("recovery_acknowledged_at"))
+		return (!run.Active(record) || run.ProcessActive(record)) &&
+			(record.Str("state") == "interrupted" || run.Ended(record) || !run.NeedsRecovery(record) || record.Truthy("recovery_acknowledged_at"))
 	})
 }

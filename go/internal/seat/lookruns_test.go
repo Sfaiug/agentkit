@@ -3,14 +3,13 @@
 package seat
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
-func TestLookRefusesUntoldEndingsBeforePublishingDone(t *testing.T) {
+func TestLookKeepsUntoldEndingsWorkingWithoutDeliveringThem(t *testing.T) {
 	for _, state := range []string{"fail", "blocked", "pass"} {
 		t.Run(state, func(t *testing.T) {
 			home := sandbox(t)
@@ -23,11 +22,8 @@ func TestLookRefusesUntoldEndingsBeforePublishingDone(t *testing.T) {
 			os.Chmod(filepath.Join(bin, "tmux"), 0o700)
 			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			got, err := LookedLive(stateFile(home, ""), "acme")
-			if !errors.Is(err, ErrUnread) {
-				t.Fatalf("look accepted an untold %s: word=%q, err=%v", state, got.Word, err)
-			}
-			if _, err := os.Stat(stateFile(home, "seat-acme.json")); !os.IsNotExist(err) {
-				t.Fatal("refused look published a word")
+			if err != nil || got.Word != "working" || got.reason != "telling it how run fix-api ended" {
+				t.Fatalf("look lost an untold %s: word=%q, err=%v", state, got.Word, err)
 			}
 			if after, _ := os.ReadFile(path); string(after) != string(before) {
 				t.Fatal("refused look changed the ending")
