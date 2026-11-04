@@ -22,12 +22,29 @@ func TestMenuPastAdmissionAndOwnerRemoval(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
-import json, sys, time
+import json, shutil, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))
 from fixtures.akbin import Home
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
+
+for remove_directory in (False, True):
+    with Home() as home:
+        Seat(home, "fix-api")
+        beta = Seat(home, "beta", model="fable")
+        menu = Terminal(home, program=sys.argv[1])
+        menu.wait("beta")
+        if remove_directory:
+            shutil.rmtree(beta.cwd)
+        stopped = home.run(sys.argv[1], "orch", "stop", "beta")
+        assert stopped.code == 0, stopped
+        if remove_directory:
+            assert menu.exit_code(bound=25) == 3, menu.screen()
+        else:
+            menu.wait("p past")
+            menu.keys("Escape")
+            assert menu.exit_code() == 0
 
 mark = {"stopped_at": time.time() - 9000, "closed_by_owner": True}
 for file, data in (

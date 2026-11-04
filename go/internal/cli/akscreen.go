@@ -24,6 +24,7 @@ type reading struct {
 	cells    []menu.Cell
 	standing string
 	past     []menu.PastSeat
+	handoff  bool
 }
 
 // readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it;
@@ -38,7 +39,7 @@ func readFrame(now time.Time) (reading, bool) {
 		if each.Past() {
 			row, known := pastRow(each, now)
 			if !known {
-				return reading{}, false
+				return reading{handoff: true}, true
 			}
 			found.past = append(found.past, row)
 			continue
@@ -60,7 +61,7 @@ func readFrame(now time.Time) (reading, bool) {
 }
 
 // akScreen is bare `ak` on a server: it takes the terminal, draws the frame and gives the terminal
-// back.  A read refused once the frame is up keeps that frame.
+// back. A refused read keeps that frame; an unsupported past seat hands it over to Python.
 func akScreen(args []string, errOut io.Writer) int {
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
@@ -68,7 +69,7 @@ func akScreen(args []string, errOut io.Writer) int {
 		return notImplemented(errOut, "attach")
 	}
 	first, known := readFrame(time.Now())
-	if !known {
+	if !known || first.handoff {
 		return notImplemented(errOut, "attach")
 	}
 	keyboard := terminal.NewKeyboard()
@@ -111,6 +112,10 @@ func akScreen(args []string, errOut io.Writer) int {
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
 	for {
 		screen, shown := keyboard.Screen(), latest.Load()
+		if shown.handoff {
+			keyboard.Give()
+			return notImplemented(errOut, "attach")
+		}
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
 			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
