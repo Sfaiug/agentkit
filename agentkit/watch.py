@@ -3370,7 +3370,7 @@ def wait_fact(wait):
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
             return True, f"run {on} stalled: resume it with ak run resume {on}", None
-        if transitions.going(state):
+        if transitions.going(state) or awaiting_live(state):
             return False, "", None
         ended = state.get("verdict") or state.get("state") or "ended"
         return True, f"run {on} ended {ended}" + (", merged" if state.get("merged") else ""), on
@@ -3398,9 +3398,11 @@ def wait_fact(wait):
     if data["state"] == "MERGED":
         sha = str((data.get("mergeCommit") or {}).get("oid") or "")[:12]
         # its lander may still be finishing: `merged` is written before the run's ending
-        lander = next((state["run_id"] for state in transitions.runs_on(pr=on)
+        lander = next((state for state in transitions.runs_on(pr=on)
                        if state.get("merged")), None)
-        return True, f"PR #{number} merged" + (f" as {sha}" if sha else ""), lander
+        if lander and awaiting_live(lander):
+            return False, "", None
+        return True, f"PR #{number} merged" + (f" as {sha}" if sha else ""), lander and lander["run_id"]
     return True, f"PR #{number} closed without merging", None
 
 
@@ -3473,14 +3475,15 @@ def wait_over(cfg, log):
             # its own run hands this ending back with the verdict, PR and result: that line is
             # the one the seat hears, and a second for the same ending would join it in the
             # composer (22 Oct).  A routine ending, or one said elsewhere, is not typed to it;
-            # one its seat's own look printed has told it as the typed line would
+            # its live notice or its seat's own look tells it as the hand-back would
             if not handback.routine_ending(run) and (
                     run.get("state") not in run_record.ENDED or handback.owes_ending(run)):
                 continue        # the hand-back is on its way
-            if handback.already_handed_back(run) and run.get("handback_note") in (
-                    None, handback.LOOKED_NOTE):
+            if (handback.already_handed_back(run) and run.get("handback_note") in (
+                    None, handback.LOOKED_NOTE) or run.get("live_notified")
+                    and run.get("live_note") != handback.ROUTINE_NOTE):
                 if wait_mark(name, wait, told=time.time()):
-                    log(f"{name}: its own run's hand-back told it that {wait['over']}; its "
+                    log(f"{name}: its own run's notice told it that {wait['over']}; its "
                         "wait is over")
                 continue
         # one line, whatever gh said over several: a newline typed is a key of its own
@@ -7419,7 +7422,7 @@ def start_live_probe(run_dir):
 def follow_live(run_dir):
     """One follower per run, bounded by the same window and probe timeout as the tick.
 
-    Only health runs here: updating agentkit's live checkout remains the tick's go_live.
+    Health and its notice run here; updating agentkit's live checkout remains the tick's go_live.
     """
     with (run_dir / "live.lock").open("a") as lock:
         try:
@@ -7432,7 +7435,9 @@ def follow_live(run_dir):
             if not st:
                 return 0
             ready = st.get("finished_at") is not None
-            if not awaiting_live(st if ready else {**st, "finished_at": began}, now):
+            delivering = ready and handback.live_owed(st) and not handback.rides(st)
+            if not (awaiting_live(st if ready else {**st, "finished_at": began}, now)
+                    or delivering and 0 <= now - st["finished_at"] <= AFTER_MERGE_WINDOW):
                 return 0
             if not ready:
                 # A merge precedes its ending; delivery must see that stable attempt.
@@ -7443,7 +7448,10 @@ def follow_live(run_dir):
                 health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
                                             now, False, print, {"clock": (now, now)})
                 if health and health[0] == "passed":
-                    return 0
+                    if handback.carries_live(st):
+                        handback.announce(st, run_dir, print)
+                    if not handback.live_owed(st) or handback.rides(st):
+                        return 0
             time.sleep(LIVE_INTERVAL)
 
 
@@ -7723,12 +7731,20 @@ def after_merge_deliver(run_dir, run_state, repo_key, line, log, cfg=None, typed
     The seat's name when the line was told, else None.
     """
     if run_dir is not None:
-        line = handback.not_live_line(line, run_dir)
-    seat = after_merge_seat(run_state, repo_key, typed, log)
-    if seat is None:
-        return None
-    return seat["name"] if type_at_prompt(seat, line, log, cfg=cfg, typed=typed,
-                                          receipt=receipt) else None
+        run_dir.mkdir(parents=True, exist_ok=True)
+    with handback.delivery_lock(run_dir) if run_dir is not None else nullcontext():
+        state = run_record.read_state(run_dir) if run_dir is not None else None
+        if run_dir is not None:
+            line = handback.not_live_line(line, run_dir)
+        seat = after_merge_seat(run_state, repo_key, typed, log)
+        if seat is None or not type_at_prompt(seat, line, log, cfg=cfg, typed=typed, receipt=receipt):
+            return None
+        if state and state.get("merged") and transitions.launched_session(state) == seat["name"]:
+            # Its NOT LIVE decision also settles the merge held for that decision.
+            handback.mark_delivery(run_dir, state, handed_back=time.time(), reported=True,
+                                  handback_pending=None, handback_typed=None, handback_note=None,
+                                  handback_wait_reason=None, notification_pending=None)
+        return seat["name"]
 
 
 def after_merge_seat(run_state, repo_key, typed, log):

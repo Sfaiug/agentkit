@@ -1017,6 +1017,26 @@ def routine_ending(state, records=None):
             or not (ends_wait(state, records) or rides(state, records)))
 
 
+def _other_going(state, records=None):
+    session = transitions.launched_session(state)
+    records = run_record.runs() if records is None else records
+    return [other for _, other in transitions.runs_by_seat(records).get(session, [])
+            if other.get("run_id") != state.get("run_id") and transitions.going(other)]
+
+
+def _unserved_line(session, going):
+    served = {other.get("plan_line") for other in going}
+    try:
+        for line in plan.lines(session):
+            if plan.owed(session, line):
+                found = plan.LINE.match(line.strip())
+                if not found or f"{found['what']} · written {found['when']}" not in served:
+                    return True
+    except config.Error:
+        return True     # an unread plan proves no line served
+    return False
+
+
 def ends_wait(state, records=None):
     """Whether a delivery or its going live wakes a seat owing work, after its plan checks:
     its `ak wait` names this run or PR, no other run of its is going, or it owes a line none
@@ -1029,21 +1049,21 @@ def ends_wait(state, records=None):
             state.get("run_id") in (wait.get("on"), wait.get("run"))
             or state.get("pr") and state.get("pr") == wait.get("on")):
         return True
-    records = run_record.runs() if records is None else records
-    going = [other for _, other in transitions.runs_by_seat(records).get(session, [])
-             if other.get("run_id") != state.get("run_id") and transitions.going(other)]
-    if not going:
-        return True
-    served = {other.get("plan_line") for other in going}
-    try:
-        for line in plan.lines(session):
-            if plan.owed(session, line):
-                found = plan.LINE.match(line.strip())
-                if not found or f"{found['what']} · written {found['when']}" not in served:
-                    return True
-    except config.Error:
-        return True     # an unread plan proves no line served
-    return False
+    going = _other_going(state, records)
+    return not going or _unserved_line(session, going)
+
+
+def merge_waits_for_live(state, records=None):
+    """Hold a wake for health, except work to launch beside the seat's other going runs.
+
+    A line already in the composer keeps its Enter; merges riding a prompt start no turn.
+    """
+    from . import watch
+    if state.get("handback_typed") or not watch.awaiting_live(state):
+        return False
+    going = _other_going(state, records)
+    return not going or (not _unserved_line(transitions.launched_session(state), going)
+                         and ends_wait(state, records))
 
 
 def rides(state, records=None):
@@ -1688,11 +1708,14 @@ def riding(session):
                 said = held and run_record.read_state(run_dir)
                 if not said or not same_attempt(state, said):
                     continue
-                if waits(said):
-                    line = handback_line(said, run_dir)
+                if waits(said) and not merge_waits_for_live(said):
+                    # Routine context keeps each notice's time; only a wake joins them.
+                    live = carries_live(said) and ends_wait(said)
+                    line = handback_line(said, run_dir, live=live)
                     if mark_delivery(run_dir, said, handed_back=time.time(), reported=True,
                                      handback_pending=None, handback_note=None,
-                                     handback_wait_reason=None, notification_pending=None):
+                                     handback_wait_reason=None, notification_pending=None,
+                                     **({"live_notified": time.time()} if live else {})):
                         lines.append((said.get("finished_at") or 0, line))
                 if live_owed(said) and not said.get("live_typed"):
                     line = live_line(said, run_dir)
@@ -1789,6 +1812,10 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
             mark_delivery(run_dir, state, handback_pending=True)
             log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
                 f"rides on the {session} seat's next prompt")
+        return
+    if merge_waits_for_live(state, records):
+        if not state.get("handback_pending"):
+            mark_delivery(run_dir, state, handback_pending=True)
         return
     if not sleep.wake(session, log, cfg):
         mark_delivery(run_dir, state, handback_pending=True)   # owed: the next tick wakes it
