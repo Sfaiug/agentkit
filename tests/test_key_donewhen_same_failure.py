@@ -29,8 +29,10 @@ BLOCKED = ("the same checks fail the same way after a fix round: "
 
 def attempt(n):
     """A turn that changes the work, but never writes the file the failing check wants."""
+    # Bypass hand-in: the loop's independent checks must still fail this work.
     return {"write": {"other.txt": f"attempt {n}\n"}, "commit": f"attempt {n}",
-            "final": f"## Summary\nattempt {n}", "hand_in": [["done"]]}
+            "sh": 'echo \'{"kind": "done"}\' >> "$AK_HAND_IN"',
+            "final": f"## Summary\nattempt {n}"}
 
 
 class SameFailureBlocks(unittest.TestCase):

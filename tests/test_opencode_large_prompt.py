@@ -153,6 +153,7 @@ class LargePrompt(unittest.TestCase):
         calls, fake = self.worker([(126, "", "", f"{line}\n"),
                                    (0, "## Summary\nDone elsewhere.\n", "s2")])
         lp = SimpleNamespace(cfg=self.cfg, state={"executor": "opus"}, executor="opus",
+                             every=[], done_when_limit=60,
                              exec_sid=None, wt=self.root, turn_limit=60, rnd=1,
                              dir=lambda name: self.root / "round-1" / name,
                              role=lambda role: role, save=lambda: None, log=lambda _: None)

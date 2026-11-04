@@ -5,8 +5,10 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
+import time
 
 from . import command_help, config
 
@@ -15,6 +17,7 @@ REPORT = "review.md"
 ENV = "AK_HAND_IN"
 CONTINUE = "AK_HAND_IN_CONTINUE"
 FINDINGS_ENV = "AK_HAND_IN_FINDINGS"
+CHECKS_ENV = "AK_HAND_IN_CHECKS"
 FINDINGS_FILE = "findings.json"
 OUTPUT_CAP = 8 * 1024
 CLOSING = ("done", "blocked", "not-needed")
@@ -178,7 +181,7 @@ def read(path):
         return Review([])
 
 
-def start(out_dir, workspace, previous=None, role="reviewer", findings=None):
+def start(out_dir, workspace, previous=None, role="reviewer", findings=None, checks=None):
     """A resumed session keeps its records, but completion belongs to this call alone."""
     path = Path(out_dir).resolve() / FILE
     review = read(previous) if previous else None
@@ -186,6 +189,8 @@ def start(out_dir, workspace, previous=None, role="reviewer", findings=None):
               else review.handed_findings if review else [])
     rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve()), "role": role,
              "findings": handed}]
+    if checks is not None:
+        rows[0]["checks"] = checks
     if review:
         rows += [row for row in review.records if row["kind"] not in CLOSING]
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
@@ -295,33 +300,49 @@ def checked(argv, workspace, role="reviewer", findings=()):
     return row
 
 
-def check_fixer_proofs(turn, records):
+def failed_checks(turn, commands):
     from . import record, worker
-    disputed = {(row["path"], row["line"]) for row in records if row["kind"] == "dispute"}
+    timeout = shutil.which("timeout")
+    if not timeout:
+        return []
+    checks = turn.get("checks", {})
+    deadline = time.monotonic() + checks.get("limit", record.CEILING_HOURS * 3600)
     env = dict(os.environ)
-    for key in (ENV, CONTINUE, FINDINGS_ENV):
+    for key in (ENV, CONTINUE, FINDINGS_ENV, CHECKS_ENV):
         env.pop(key, None)
     failed = []
-    for finding in turn.get("findings", []):
-        command = finding["evidence"].get("run")
-        if not command or (finding["path"], finding["line"]) in disputed:
-            continue
-        # The fixer already has its checkout and sandbox; never reset its uncommitted fix.
+    for name, command in commands:
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        # The worker already has its checkout and sandbox; never reset its uncommitted fix.
         with tempfile.TemporaryDirectory(dir=Path(os.environ[ENV]).parent) as cache, \
                 tempfile.NamedTemporaryFile(dir=cache) as output:
             env["PYTHONPYCACHEPREFIX"] = cache
             try:
+                # A timeout kills the group, distinct from a check that itself exits 124.
                 code, _, killed = worker.limited(
-                    ["bash", "-c", command], record.CEILING_HOURS * 3600,
-                    silence=record.SILENCE_MINUTES * 60, activity=output.name, output=output,
+                    [timeout, "-s", "KILL", str(left), "bash", "-c", command], left,
+                    silence=checks.get("silence", record.SILENCE_MINUTES * 60),
+                    # The declared bound holds off the turn's silence, not this check's.
+                    declared=lambda pid: False, activity=output.name, output=output,
                     cwd=turn["workspace"], env=env, stdin=subprocess.DEVNULL,
                     stderr=subprocess.STDOUT)
             except (FileNotFoundError, PermissionError):
                 continue
             if proof_failed({"returncode": code, "killed": killed}):
                 tail = "\n".join(output_excerpt(output).splitlines()[-10:])
-                failed.append(f"{finding['path']}:{finding['line']} - {finding['what']} "
-                              f"[exit {code}]\n{tail}")
+                failed.append(f"{name} [exit {code}]\n{tail}")
+    return failed
+
+
+def check_fixer_proofs(turn, records):
+    disputed = {(row["path"], row["line"]) for row in records if row["kind"] == "dispute"}
+    failed = failed_checks(turn, [
+        (f"{finding['path']}:{finding['line']} - {finding['what']}", command)
+        for finding in turn.get("findings", [])
+        if (command := finding["evidence"].get("run"))
+        and (finding["path"], finding["line"]) not in disputed])
     if failed:
         raise config.Error("done refused: earlier findings still fail:\n" + "\n".join(failed)
                            + '\nFix the code or dispute the finding with '
@@ -345,8 +366,14 @@ def main(argv):
                 raise config.Error("this turn is already closed; hand in records before done, blocked or not-needed")
             row = checked(argv, rows[0]["workspace"], rows[0].get("role", "reviewer"),
                           rows[0].get("findings", []))
-            if row["kind"] == "done" and rows[0].get("role", "reviewer").startswith("fixer"):
-                check_fixer_proofs(rows[0], rows[1:])
+            if row["kind"] == "done" and not rows[0].get("role", "reviewer").startswith("reviewer"):
+                failed = failed_checks(rows[0], [(f"$ {cmd}", cmd)
+                                               for cmd in rows[0].get("checks", {}).get("commands", [])])
+                if failed:
+                    raise config.Error("done refused: task checks still fail:\n" + "\n".join(failed)
+                                       + '\nFix the cause or hand in `ak hand-in blocked "why"`.')
+                if rows[0].get("role", "").startswith("fixer"):
+                    check_fixer_proofs(rows[0], rows[1:])
             fh.write(json.dumps(row) + "\n")
     except (OSError, ValueError, KeyError, AttributeError) as exc:
         raise config.Error("cannot hand in this record: " + " ".join(str(exc).split())) from None

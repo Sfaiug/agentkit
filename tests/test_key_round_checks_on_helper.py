@@ -94,9 +94,9 @@ class AllGreenThere(Round, unittest.TestCase):
     # The second reads what the first left untracked: one piece, one tree.
     done_when = ("echo made >made.txt", MARK.format('"$(cat made.txt)"'))
 
-    def test_nothing_runs_here_and_the_round_passes(self):
+    def test_only_the_hand_in_runs_here_and_the_round_passes(self):
         self.passed()
-        self.assertEqual(self.marks(), ([], ["made"]))
+        self.assertEqual(self.marks(), (["made"], ["made"]))
         self.assertEqual(self.calls(), ["probe", "known", "prepare", "run", "finish"])
         self.assertIn("done-when on the suite helper acme-mac, as one piece", self.log)
 
@@ -112,7 +112,7 @@ class RedThere(Round, unittest.TestCase):
 
     def test_the_commands_run_here_which_decides(self):
         self.passed()
-        self.assertEqual(self.marks(), (["mark"], ["mark"]))
+        self.assertEqual(self.marks(), (["mark"] * 2, ["mark"]))
         self.assertEqual(self.calls()[-2:], ["run", "finish"])
         self.assertIn("done-when runs here: helper acme-mac failed (exit 1)", self.log)
 
@@ -127,7 +127,7 @@ class NoRoomThere(Round, unittest.TestCase):
 
     def test_the_commands_run_here_at_once(self):
         self.passed()
-        self.assertEqual(self.marks(), (["mark"], []))
+        self.assertEqual(self.marks(), (["mark"] * 2, []))
         self.assertNotIn("run", self.calls())
         self.assertIn("done-when runs here: helper acme-mac has no room "
                       "(0 spare CPUs and 65536 MiB)", self.log)
@@ -138,7 +138,7 @@ class NamingTheShard(Round, unittest.TestCase):
 
     def test_no_piece_of_the_list_goes_and_its_other_commands_run_here(self):
         self.passed()
-        self.assertEqual(self.marks(), (["mark"], []))
+        self.assertEqual(self.marks(), (["mark"] * 2, []))
         self.assertFalse([line for line in self.log if line.startswith("done-when runs here")])
         self.assertNotIn("On the suite helper", self.checks)
 
