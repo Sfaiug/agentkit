@@ -37,12 +37,12 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 // more than the conversation it hands out, a name a gone seat left files under, a folder that is
 // a checkout of its own, whose git ak keeps from collecting, reviewers Go binds otherwise, or an
 // adapter giving no command, where only the rulebook is written.
-func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool) (bool, error) {
+func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
 	models, err := config.Models()
-	if !known || !unclaimed(state, name, cwd) || unbound != nil || err != nil {
+	if !known || !opensAt(model, cwd) || !unclaimed(state, name, cwd) || unbound != nil || err != nil {
 		return false, nil
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
@@ -67,6 +67,9 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	var reviewers []string
 	for _, each := range bound.Reviewers {
 		reviewers = append(reviewers, each.(string))
+	}
+	if len(reviews) > 0 {
+		reviewers = reviews[0]
 	}
 	if reviewers != nil {
 		fields = append(fields, field{"reviewers", modelList(reviewers)})

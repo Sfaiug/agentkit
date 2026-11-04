@@ -26,6 +26,7 @@ type Seat struct {
 	Done, Total                               int    // its plan's lines done, of how many; none without one
 	Builds, Reviews                           []string
 	Tasks                                     []Task
+	draft                                     *Draft
 
 	// where it moves this frame (moving): its mark as drawn now, "" where it holds still, and its
 	// line moved (0 to 1) from the share it stood at, its count from counted, its head lit
@@ -51,6 +52,7 @@ type View struct {
 	Clock, Keys string
 	Standing    string // what stands under the usage: a worker token that ends soon
 	Highlight   Highlight
+	New         *Draft
 	Motion      *motion.Clock // where what moves is this frame; nil, all still
 }
 
@@ -86,10 +88,11 @@ func Lines(view View, width, height int) []string {
 
 // Draw lays out the frame and the places navigation can reach on it together.
 func Draw(view View, width, height int) Frame {
+	view = view.withNew()
 	s := view.Screen
 	view.Seats = moving(s, view.Seats, view.Motion)
 	layout := max(1, min(width, 120))
-	projects := grouped(view.Seats)
+	projects := projects(view.Seats)
 	sized := columns(s, view.Seats, width)
 	full := usageLines(s, view.Cells, layout)
 	summary := usageSummary(view.Cells, layout, -1)
@@ -467,6 +470,10 @@ func cell(s terminal.Screen, text string, room int, kind string) string {
 func seatBlocks(s terminal.Screen, seats []Seat, w widths, most int) [][]row {
 	var blocks [][]row
 	for _, seat := range seats {
+		if seat.draft != nil {
+			blocks = append(blocks, seat.draft.block(s, seat, w))
+			continue
+		}
 		line := head(s, seat, w)
 		last := ""
 		if !w.under {

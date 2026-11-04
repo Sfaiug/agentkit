@@ -24,7 +24,7 @@ import (
 // (`--dry-run`) prints what the seat would take and the command it would run, its rulebook written
 // into a scratch folder gone once that is printed, and saves and starts nothing; an open, from a
 // person's terminal, opens the seat and hands it that terminal.  The rest is Python's: a seat
-// tmux or a record holds under the name, the orchestrator question, a seat filed under a project,
+// tmux or a record holds under the name, a seat filed under a project,
 // one on a provider's accounts, which opens on the one its login and usage pick, and an open with
 // no tmux, whose harness runs in the terminal itself.
 func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
@@ -40,10 +40,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	}
 	cwd, err := os.Getwd()
 	cwd = config.Resolve(cwd)
-	if orchestrator == "" || err != nil || seat.Project(cwd) != "" {
-		return notImplemented(errOut, "orch")
-	}
-	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 {
+	if err != nil || seat.Project(cwd) != "" {
 		return notImplemented(errOut, "orch")
 	}
 	if _, err := exec.LookPath("tmux"); err != nil && !dryRun {
@@ -65,6 +62,24 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	if seat.ReadNames().Held(name) {
 		fmt.Fprintf(errOut, "ak orch: tmux already holds a session named %s, and it is no seat; pick another name\n", commandhelp.Quote(name))
 		return 2
+	}
+	reason := "--model"
+	if orchestrator == "" {
+		var ok bool
+		orchestrator, reason, ok, err = askOrchestrator(out)
+		if err != nil {
+			return notImplemented(errOut, "orch")
+		}
+		if !ok {
+			return 0
+		}
+		model, err = config.ModelNamed(orchestrator)
+		if err != nil {
+			return notImplemented(errOut, "orch")
+		}
+	}
+	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 {
+		return notImplemented(errOut, "orch")
 	}
 	if crew == nil {
 		asked, ok, err := askWorkers(out)
@@ -101,7 +116,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	if !ok {
 		return notImplemented(errOut, "orch")
 	}
-	fmt.Fprintf(out, "orch: %s (--model)\nsession %s in %s (new)\nworkers %s\n", orchestrator, name, cwd, strings.Join(crew, " "))
+	fmt.Fprintf(out, "orch: %s (%s)\nsession %s in %s (new)\nworkers %s\n", orchestrator, reason, name, cwd, strings.Join(crew, " "))
 	if tmux.Term() != "" {
 		fmt.Fprint(out, "TERM=xterm-256color ")
 	}

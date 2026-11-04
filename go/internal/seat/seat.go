@@ -211,15 +211,16 @@ func order(seats []Seat) {
 }
 
 // onServer is the seats of those names tmux holds, the ones whose panes have all died and the rest,
-// and whether it holds no others: nothing on ak's server but seats with records, and none ak opened
-// on the default one.
+// and whether Go knows the rest: ordinary sessions run no harness, and no seat is on the default server.
 func onServer(names []string) (held, live []string, known bool) {
 	own := tmux.Sessions(tmux.Own())
 	dead := tmux.Dead(tmux.Own())
 	for _, session := range own {
 		switch {
 		case !slices.Contains(names, session.Name):
-			return nil, nil, false
+			if !unrecorded(session) {
+				return nil, nil, false
+			}
 		case slices.Contains(dead, session.Name):
 			held = append(held, session.Name)
 		default:

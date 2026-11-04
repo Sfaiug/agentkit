@@ -98,10 +98,10 @@ func akScreen(args []string, errOut io.Writer) int {
 		}
 	}()
 	painter := terminal.NewPainter(os.Stdout)
-	clock, highlight := &motion.Clock{}, menu.Highlight{}
+	clock, model := &motion.Clock{}, menu.Model{}
 	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
 	if overlay {
-		highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
+		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
 	}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
 	for {
@@ -112,7 +112,10 @@ func akScreen(args []string, errOut io.Writer) int {
 		}
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown.past, overlay), Highlight: highlight, Motion: clock}, screen.Width(), screen.Height())
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown.past, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
+		if model.New != nil && model.New.Picker {
+			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))
+		}
 		painter.Write(drawn.Lines, screen)
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
@@ -123,14 +126,37 @@ func akScreen(args []string, errOut io.Writer) int {
 		if key.Name != "wake" && key.Name != "again" {
 			clock.Finish()
 		}
+		if model.New != nil {
+			switch model.New.Key(key) {
+			case "esc":
+				model.New = nil
+			case "eof":
+				keyboard.Give()
+				return 0
+			case "start":
+				if leave, code := startMenuRow(&model, dry, overlay, keyboard, painter, errOut); leave {
+					return code
+				}
+				if model.New == nil {
+					reread()
+				}
+			}
+			continue
+		}
 		choice := menuChoice(key, drawn, shown.seats, keyboard)
 		switch {
 		case choice != "":
 			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
-			highlight, clock = menu.Highlight{Cursor: choice}, &motion.Clock{}
-		case highlight.Move(key, drawn):
+			model.Highlight, clock = menu.Highlight{Cursor: choice}, &motion.Clock{}
+		case key.Name == "char" && (key.Char == "n" || key.Char == "N"):
+			var known bool
+			if model.New, known = newMenuRow(); !known {
+				keyboard.Give()
+				return notImplemented(errOut, "attach")
+			}
+		case model.Highlight.Move(key, drawn):
 		case key.Name == "esc" || key.Name == "eof":
 			keyboard.Give()
 			return 0
@@ -147,24 +173,9 @@ func akScreen(args []string, errOut io.Writer) int {
 				return notImplemented(errOut, "attach")
 			}
 		case key.Name == "char" && (key.Char == "x" || key.Char == "X") && overlay:
-			if leave, code := menuStop(shown, dry, keyboard, painter, &highlight, errOut); leave {
+			if leave, code := menuStop(shown, dry, keyboard, painter, &model.Highlight, errOut); leave {
 				return code
 			}
-		case opensSomething(key):
-			keyboard.Give()
-			return notImplemented(errOut, "attach")
 		}
 	}
-}
-
-// opensSomething is whether a key leads where Go has no road yet, every other being let go.
-func opensSomething(key terminal.Key) bool {
-	switch key.Name {
-	case "char":
-		switch key.Char {
-		case "n", "N":
-			return true
-		}
-	}
-	return false
 }

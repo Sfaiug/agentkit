@@ -81,7 +81,7 @@ func (h *Highlight) Move(key terminal.Key, frame Frame) bool {
 
 func seatOrder(seats []Seat) []string {
 	var order []string
-	for _, project := range grouped(seats) {
+	for _, project := range projects(seats) {
 		for _, seat := range project.seats {
 			order = append(order, seat.Name)
 		}

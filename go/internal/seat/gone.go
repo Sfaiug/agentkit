@@ -46,7 +46,7 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	seat := rows[at]
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	own := models[record.Str("orchestrator")].Harness
-	_, complaint, crewed := crew(record.Get("workers"), models)
+	_, complaint, crewed := recordCrew(record, models)
 	if !crewed || failed(name, own) || notify.Standing(name) || loggedOut(state, own) || record.Truthy(harness.Receipt(own)) {
 		return Seat{}, nil, false
 	}

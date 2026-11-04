@@ -84,6 +84,8 @@ test_key_menu_ascii MenuAscii
 test_key_menu_colour_depth ColourDepth
 test_key_menu_frame
 test_key_menu_highlight
+test_key_menu_new_row
+test_key_menu_new_seat
 test_key_menu_open_line
 test_key_menu_open_seat
 test_key_menu_order
