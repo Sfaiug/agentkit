@@ -1,6 +1,6 @@
 """A quota refusal during a landing fix waits for its executor, despite a pending review.
 
-Black-box through AK_BIN: main moves while the worker runs, its rebase fixer refuses for an
+Black-box through AK_BIN: main moves while the reviewer runs, its rebase fixer refuses for an
 hour, and neither an explicit resume nor ticks may spend another turn before that reset.
 """
 
@@ -52,14 +52,15 @@ class DryRunMakesNoCall(unittest.TestCase):
         self.fakes = fakeadapter.install(home, claude="work", codex="pass")
         worker = self.fakes["claude"]
         held, go = worker.dir / "held", worker.dir / "go"
-        worker.behave({**fakeadapter.WORK, "sh": f"touch {held}; "
-                       f"until test -f {go}; do sleep 0.1; done"}, REFUSED, RESOLVE)
+        worker.behave("work", REFUSED, RESOLVE)
+        self.fakes["codex"].behave({**fakeadapter.PASS, "sh": f"touch {held}; "
+                                    f"until test -f {go}; do sleep 0.1; done"})
         week = {"name": "weekly", "used": 10, "resets_at": int(time.time()) + 86400,
                 "window_secs": 604800}
         for fake in self.fakes.values():
             fake.answer("usage", json.dumps({"meters": [week], "error": None}))
         running = home.spawn("run", str(taskfile.write(home, rig.path)))
-        wait_for(held.exists, "worker waiting for main")
+        wait_for(held.exists, "reviewer waiting for main")
         rig.commit({"retry.txt": "main\n"}, "main moves")
         go.touch()
         self.assertEqual(running.wait(timeout=120), 1, home.log("spawn-1.out").read_text())
@@ -67,6 +68,7 @@ class DryRunMakesNoCall(unittest.TestCase):
         state = record(self.directory)
         self.assertEqual(state["state"], "exhausted")
         self.assertTrue(state["review_pending"])
+        self.assertIs(state["review_pending"]["record"], False)
         self.assertEqual(state["step"], "executor")
         self.assertEqual(worker.n, 2)
 

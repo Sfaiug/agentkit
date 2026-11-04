@@ -535,8 +535,7 @@ def replay_section(replayed, left, since):
               "site with its proof is weighed as ak's replay is; one fixed needs no word. "
             + (f"A new finding blocks only inside the fix delta since {since[:12]}, or with a "
                "proof that passes on that commit: the fix broke it." if since else
-               "This is the commit the last review judged, again: a new finding blocks "
-               "wherever it is in the change."))
+               "A new finding blocks wherever it is in the change."))
 
 
 def weigh_review(lp, submitted, head=None, since=None, replayed=()):

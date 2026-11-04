@@ -80,7 +80,7 @@ class TargetLinesFirst(unittest.TestCase):
             self.assertTrue(gitcall.in_progress(scratch, "merge"))
         seen = []
 
-        def resolve(lp, upstream, out, how, pinned):
+        def resolve(lp, upstream, out, how, pinned, **_kw):
             seen.append((how, pinned, gitcall.in_progress(self.wt, "merge")))
             return False
 

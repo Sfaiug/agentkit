@@ -588,6 +588,9 @@ def verify_work(lp, cmds=None):
             leases.scan_safely(Path(lp.state["repo"]), lp.log)
             lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        # Landing rechecks a completed round; its own integration stays in charge there.
+        if lp.rnd > len(lp.state.get("round_summaries", [])):
+            rebase_for_review(lp)
         check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
@@ -644,8 +647,8 @@ def affected_suite(lp):
     names: the paths the change edits relative to the target, one per line.  It runs on HEAD
     merged onto the target as just fetched, so a sibling merged since meets the change here
     rather than in the landing line, in a clone of its own, on the heavy-suite turns and shares
-    a landing check takes.  A sibling that conflicts with the change is landing's to bring in,
-    in conflict rounds outside the task budget (`integrate`): the round then judges its own
+    a landing check takes.  A sibling that arrives during the checks and conflicts is landing's
+    to bring in, in conflict rounds outside the task budget (`integrate`): the round judges its own
     work, merged onto the target it last integrated with.  The suite is the line of the target
     the change meets, whose tree holds what it runs.  A red whose failing tests (`AK_FAILED`)
     all fail again on that target alone (`AK_ONLY`) is the target's, not the change's: it
@@ -877,7 +880,7 @@ def how_to_integrate(lp):
     brings origin in without touching what is already there.  Everything else rebases, so the
     common case still arrives at the PR as a straight line on top of the target.
     """
-    if lp.state["merge_method"] == "merge":
+    if lp.state.get("merge_method") == "merge":
         return "merge"
     merges = gitcall.git(lp.wt, "rev-list", "--merges", f"{lp.base_sha}..HEAD", check=False)
     return "merge" if merges else "rebase"
@@ -898,6 +901,39 @@ def follow_target(lp):
     if gitcall.git_out(lp.wt, "merge-base", "--is-ancestor", lp.base_sha, fork)[0] == 0:
         lp.log(f"base: the branch took in {lp.upstream} up to {fork[:12]}")
         set_base(lp, fork)
+
+
+def rebase_for_review(lp):
+    """Meet target changes to this branch's files before the round checks and reviews it."""
+    if not lp.upstream:
+        return
+    if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
+        lp.log(f"WARN cannot fetch {lp.upstream}: the review meets it as last fetched")
+        return
+    follow_target(lp)
+    tip = gitcall.git(lp.wt, "rev-parse", f"{lp.upstream}^{{commit}}")
+    head = gitcall.git(lp.wt, "rev-parse", "HEAD")
+    if integrated(lp.wt, tip) or target_disjoint_from_branch(lp.wt, lp.base_sha, head, tip):
+        return
+    # Integration changes the review's base. Review the whole change; never map the old head.
+    lp.state.pop("delta_from", None)
+    lp.save()
+    how = how_to_integrate(lp)
+    verb = "merging" if how == "merge" else "rebasing"
+    lp.log(f"--- round {lp.rnd}: {verb} onto {lp.upstream} ({tip[:12]})")
+    try:
+        code, out = (gitcall.merge(lp.wt, tip) if how == "merge"
+                     else gitcall.git_out(lp.wt, "rebase", tip))
+        if code:
+            with released_gate_turn():
+                if not resolve_conflicts(lp, lp.upstream, out, how, tip, recheck=False):
+                    raise turns.Exhausted(lp.state["merge_note"])
+            lp.step("done-when")
+    except gitcall.Stopped:
+        abort_stopped_integration(lp, how)
+        raise
+    lp.state.setdefault("rebases", []).append({"round": lp.rnd, "onto": tip, "method": how})
+    set_base(lp, tip)
 
 
 def set_base(lp, tip):
@@ -1373,7 +1409,7 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         # re-review (`record` off: the repair that brought it here is nobody's fix round),
         # the whole change is judged again
         delta = prompts.reviewed_before(lp, delta_from, at) if record and earlier else None
-        if record and delta_from and earlier:
+        if record and earlier:
             # a later round, on a new commit or the same again: ak re-proves the earlier findings.
             # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh:
             # listed, not replayed
@@ -1964,7 +2000,7 @@ def conflict_added_only(wt, path):
         return 0
 
 
-def resolve_conflicts(lp, upstream, out, how, tip=None):
+def resolve_conflicts(lp, upstream, out, how, tip=None, *, recheck=True):
     """Hand a conflicted rebase or merge back to the executor, then re-test and re-review it.
 
     True once the branch carries the pinned `tip` and still passes.  False parks the run
@@ -1979,7 +2015,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     `upstream` names the branch for messages; every check uses `tip`, never the moving name
     again.  A re-test that fails on the target's tip but passes on the last reviewed
     head's target base parks `waiting`, spending no round.  An unchanged base needs
-    only the tip probe.
+    only the tip probe. With `recheck` off, the current task round checks and reviews next.
     """
     tip = tip or upstream
     conflicts = [p for p in gitcall.git(lp.wt, "diff", "--name-only", "--diff-filter=U",
@@ -2018,7 +2054,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
                 summary = landing_fixer(lp, text, f"{how}-fixer")
             except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
                 pending = lp.state.get("review_pending")
-                if isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired)) and pending:
+                if (recheck and pending
+                        and isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired))):
                     # A stopped conflict fixer retries landing even at the task round budget.
                     pending.update(round=lp.rnd, record=False)
                 # whatever stops here, the retry starts from a clean tree: a rebase or merge
@@ -2039,6 +2076,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         return park_waiting(lp, f"the fixer did not finish {what}; it was aborted",
                             upstream, tip)
     set_base(lp, tip)
+    if not recheck:
+        return True
     # Keep the passed head for target probes; a provider wait also resumes as a
     # conflict round, outside the task budget.
     lp.state["review_pending"] = {**(lp.state.get("review_pending") or {}),
