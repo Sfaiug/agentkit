@@ -1,7 +1,7 @@
-"""Each file handed to a conflict fixer leaves its git classification and final outcome.
+"""Each file handed to a landing conflict fixer leaves its git classification and final outcome.
 
 Black-box: AK_BIN runs against Home, Rig, GitHub and fakeadapter. Both branches append
-notes.md and change app.py; the target moves while the executor holds its first turn.
+notes.md and change app.py; the target moves while the reviewer holds its first turn.
 """
 
 import json
@@ -40,9 +40,9 @@ class ConflictRows(unittest.TestCase):
         work = {**fakeadapter.PASS, "write": {
             cls.notes: "shared notes\nbranch note\n", "app.py": "value = 2\n"},
             "commit": "update notes and app",
-            "sh": f"touch {shlex.quote(str(ready))}; "
-                  f"while test ! -f {shlex.quote(str(release))}; do sleep 0.1; done"
-                  + ("; git add app.py && git commit -qm 'update app'" if cls.split else "")}
+            **({"sh": "git add app.py && git commit -qm 'update app'"} if cls.split else {})}
+        review = {**fakeadapter.PASS, "sh": f"touch {shlex.quote(str(ready))}; "
+                  f"while test ! -f {shlex.quote(str(release))}; do sleep 0.1; done"}
         finish = ("git -c core.editor=true rebase --continue" if cls.how == "rebase"
                   else "git commit -qm 'resolve conflicts'")
         contents = {cls.notes: "shared notes\nbranch note\ntarget note\n", "app.py": "value = 3\n"}
@@ -53,7 +53,7 @@ class ConflictRows(unittest.TestCase):
         fix = {**fakeadapter.PASS,
                "sh": f"python3 -c {shlex.quote(resolve)} && git add -A && {finish}"}
         cls.fakes = fakeadapter.install(home, claude=[
-            work, fix if cls.outcome == "resolved" else "pass"], codex="pass")
+            work, fix if cls.outcome == "resolved" else "pass"], codex=review)
         task = taskfile.write(home, rig.path, "Combine notes and app", done_when=(
             f"test -f {shlex.quote(cls.notes)} && test -f app.py",),
             front={"merge": "merge" if cls.how == "merge" else "squash"})
@@ -100,6 +100,7 @@ class ConflictRows(unittest.TestCase):
         diagnostic = self.home.log("spawn-1.out").read_text() + self.home.log("spawn-1.err").read_text()
         diagnostic += (self.run_dir / "round-1/donewhen.log").read_text()
         self.assertEqual(self.code, 0 if self.outcome == "resolved" else 1, diagnostic)
+        self.assertEqual([row["verdict"] for row in self.state["round_summaries"]], ["PASS"])
         if self.outcome == "resolved":
             self.assertEqual((self.state["state"], self.state["merged"]), ("pass", True))
             self.assertEqual(self.rig.origin("show", f"main:{self.notes}"),
