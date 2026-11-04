@@ -496,7 +496,7 @@ def _policy_in(path, data):
     numbers = {}
     for key, (default, floor, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
-        unlimited = ' or "no limit"' if key.endswith("_lines") else ""
+        unlimited = ' or "no limit"' if key.endswith("_lines") and isinstance(value, str) else ""
         if unlimited and value == "no limit":
             continue
         if type(value) is not int or value < floor:

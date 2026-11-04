@@ -101,9 +101,9 @@ class Refused(unittest.TestCase):
                 ({"review_rounds": 2.5}, f"{ROUNDS} (got 2.5)"),
                 ({"review_rounds": True}, f"{ROUNDS} (got True)"),
                 ({"review_rounds": "no limit"}, f"{ROUNDS} (got 'no limit')"),
-                ({"executor_lines": 0}, f'executor_lines must be a whole number of at least 1 or "no limit", '
+                ({"executor_lines": 0}, f"executor_lines must be a whole number of at least 1, "
                                       f"{REVIEW} (got 0)"),
-                ({"orchestrator_lines": -1}, f'orchestrator_lines must be a whole number of at least 0 or "no limit", '
+                ({"orchestrator_lines": -1}, f"orchestrator_lines must be a whole number of at least 0, "
                                      f"{SEAT} (got -1)")):
             with self.subTest(settings=settings):
                 akconfig.write(home, ["opus"], settings=settings)
