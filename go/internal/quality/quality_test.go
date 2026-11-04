@@ -27,7 +27,7 @@ func shown(rows []*Rating) []string {
 }
 
 // The role rule picks over all rows and over yours; dominated rows leave the front.
-func TestAnswerPicksTheRoleBend(t *testing.T) {
+func TestAnswerPicksAboveTheLine(t *testing.T) {
 	share := func(release, effort string, yours bool, value, cost float64) Row {
 		return row(release, effort, yours, intel, 60.0, "aa.frontierCode20", value, "arena.agent", value,
 			"aa.terminalBench40", value, taskCost, cost, "aa.omniscience", 50.0)

@@ -2,7 +2,7 @@
 never helps it: a measure is measured, carried from another effort of the release (from above
 growing by what the intelligence index loses, never shrinking; else from below as it is) or
 missing, as far behind as the row's furthest-behind (tests/test_quality_missing_never_helps.py).
-`quality.pick` selects a role's bend on the upper hull of quality against cost."""
+`quality.pick` selects the frontier row farthest above its cheapest-to-best line."""
 
 from pathlib import Path
 import sys
@@ -83,13 +83,35 @@ class QualityRatesEveryEffort(unittest.TestCase):
                          [2.0, 1.0, None])
         self.assertNotIn("fizz-1", {r["release"] for r in self.rated})
 
-    def test_pick_discards_dominated_and_collinear_rows_and_falls_back_to_best(self):
+    def test_pick_uses_the_frontier_and_ignores_rows_without_cost(self):
         rows = [{"quality": q, "cost": c, "se": 0} for q, c in
                 ((70, 0), (80, 1), (90, 2), (100, 100), (95, 100), (99, None))]
         self.assertIs(quality.pick(rows, "execute"), rows[2])
         self.assertIs(quality.pick(rows, "review"), rows[3])
-        self.assertIs(quality.pick(rows[:2], "execute"), rows[1])
+        self.assertIs(quality.pick(rows[:2], "execute"), rows[0])
         self.assertIsNone(quality.pick(rows[-1:], "execute"))
+
+    def test_ties_choose_cheaper_and_no_cost_span_chooses_best(self):
+        rows = [{"quality": q, "cost": c, "se": 10} for q, c in
+                ((100, 4), (99, 3), (98, 2), (96, 0))]
+        for role in quality.ROLES:
+            self.assertIs(quality.pick(rows, role), rows[-1])
+            self.assertIs(quality.pick(rows[:1], role), rows[0])
+            same_cost = [dict(row, cost=0) for row in rows]
+            self.assertIs(quality.pick(same_cost, role), same_cost[0])
+
+    def test_other_roles_draw_the_line_only_among_indistinguishable_rows(self):
+        rows = [{"quality": q, "cost": c, "se": se} for q, c, se in
+                ((0, 0, 0), (96, 10, 3), (99, 50, 1), (100, 100, 0))]
+        self.assertIs(quality.pick(rows, "execute"), rows[1])
+        for role in ("orchestrate", "review"):
+            self.assertIs(quality.pick(rows, role), rows[2])
+
+    def test_an_ineligible_row_cannot_dominate_an_eligible_one(self):
+        rows = [{"quality": q, "cost": c, "se": se} for q, c, se in
+                ((94, 1, 0), (93, 2, 10), (100, 10, 0))]
+        for role in ("orchestrate", "review"):
+            self.assertIs(quality.pick(rows, role), rows[1])
 
     def test_the_quality_difference_must_be_strictly_under_the_interval(self):
         rows = [{"quality": q, "cost": c, "se": se} for q, c, se in
