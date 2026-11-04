@@ -38,7 +38,7 @@ for n in range(2):
 
 
 class DoneWaitsForTheRules(unittest.TestCase):
-    def run_turn(self, write, repair, refusal, front=None):
+    def run_turn(self, write, repair, refusal, front=None, *, committed=False, fixer=False):
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={"widget.py": "VALUE = 1\n",
@@ -46,13 +46,15 @@ class DoneWaitsForTheRules(unittest.TestCase):
                   "docs/guide.md": "Acme.\n"})
         akconfig.write(home, ["opus", "astra"])
         script = f"AK = {AK!r}\nREPAIR = {repair!r}\n" + WORK
-        fakes = fakeadapter.install(home, claude={"write": write,
-            "sh": "python3 -c " + shlex.quote(script), "final": "## Summary\nFixed the work."},
-            codex="pass")
+        command = ("git add -A && git commit -qm work && " if committed else "")
+        worker = {"write": write, "sh": command + "python3 -c " + shlex.quote(script),
+                  "final": "## Summary\nFixed the work."}
+        fakes = fakeadapter.install(home, claude=["work", worker] if fixer else worker,
+                                   codex=["fail", "pass"] if fixer else "pass")
         task = taskfile.write(home, rig.path, front=front, done_when=("true",))
         done = home.ak("run", str(task), "--no-merge", timeout=300)
         run_dir = taskfile.only_run(home)
-        turn = Path(fakes["claude"].runs()[0]["argv"][4])
+        turn = Path(fakes["claude"].runs()[-1]["argv"][4])
         evidence = json.loads((turn / "attempts.json").read_text())
         self.assertEqual([item[0] for item in evidence["attempts"]], [2, 0], evidence)
         self.assertIn(refusal, evidence["attempts"][0][1])
@@ -65,17 +67,30 @@ class DoneWaitsForTheRules(unittest.TestCase):
         self.assertEqual(rows[0]["checks"]["files"], [front["files"]] if front else [])
         self.assertFalse(rows[0]["checks"]["scratch"])
         self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertEqual([call["role"] for call in fakes["claude"].runs()], ["executor"])
+        self.assertEqual([call["role"] for call in fakes["claude"].runs()],
+                         ["executor", "fixer"] if fixer else ["executor"])
         state = json.loads((run_dir / "run.json").read_text())
         self.assertEqual(state["state"], "pass")
         self.assertEqual(state["round_summaries"][0]["done_when"], True)
 
     def test_uncommitted_python_needs_a_key_and_an_untracked_key_closes_the_turn(self):
-        self.run_turn({"widget.py": "VALUE = 2\n", "new.py": "VALUE = 3\n"},
+        self.run_turn({"widget.py": "VALUE = 2\n", "new.py": "VALUE = 3\n",
+                       "venv/ignored.py": "VALUE = 4\n"},
             "Path('tests/test_key_turns.py').write_text('# checks the change\\n')",
             "Python changed with no answer key: new.py, widget.py. A change to a .py file "
             "outside tests/ adds, edits or moves in a tests/test_key_*.py in the same change: "
             "a black-box test of what it does.")
+
+    def test_committed_python_still_needs_a_key_against_the_runs_base(self):
+        self.run_turn({"widget.py": "VALUE = 2\n"},
+            "Path('tests/test_key_turns.py').write_text('# checks the change\\n')",
+            "Python changed with no answer key: widget.py.", committed=True)
+
+    def test_a_fixer_is_held_to_the_same_rules(self):
+        self.run_turn({"widget.py": "VALUE = 2\n"},
+            "Path('retry.txt').unlink(); "
+            "Path('tests/test_key_turns.py').write_text('# checks the fix\\n')",
+            "Python changed with no answer key: widget.py.", fixer=True)
 
     def test_a_path_outside_files_is_refused_until_removed(self):
         self.run_turn({"outside.txt": "outside\n"},
