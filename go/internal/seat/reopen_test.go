@@ -137,9 +137,11 @@ func TestReopensLeftToPython(t *testing.T) {
 		}
 	}
 	for name, file := range map[string]string{
-		"lines owed":            `{"owed_lines": [{"line": "go on"}]}`,
-		"a seat cut off asking": `{"state": "asking"}`,
-		"background work":       `{"holds": ["a watch"]}`,
+		"an account's line":           `{"owed_lines": [{"line": "go on", "switch": true}]}`,
+		"a seat cut off asking":       `{"state": "asking"}`,
+		"background work":             `{"holds": ["a watch"]}`,
+		"an unknown screen":           `{"rule": "none"}`,
+		"a queued line during a turn": `{"state": "working", "owed_lines": [{"line": "go on"}]}`,
 	} {
 		write(t, filepath.Join(state, "seat-acme.json"), file)
 		if _, known := comingBack(state, "acme", record(nil), false, false); known {

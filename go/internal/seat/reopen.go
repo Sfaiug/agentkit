@@ -206,7 +206,7 @@ func handOver(name string, how How, out, errOut io.Writer) error {
 // would refuse or reconcile; a conversation only its harness's own evidence or store can name; a
 // login of an account's; a folder gone; an unnamed seat or a move from another conversation.
 // A launch also leaves Python a harness whose launch writes more than its id, a checkout's git,
-// a seat cut off that its relaunch tells so, and lines owed it.
+// a seat cut off that its relaunch tells so, and queued account moves or editor sends.
 func comingBack(state, name string, record map[string]any, held, dryRun bool) (reopening, bool) {
 	orchestrator, _ := record["orchestrator"].(string)
 	models, err := config.Models()
@@ -240,7 +240,7 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 	_, opens := harness.Opens(model.Harness)
 	_, checkout := os.Lstat(filepath.Join(cwd, ".git"))
 	if !opens || checkout == nil || err != nil && !errors.Is(err, fs.ErrNotExist) ||
-		file != nil && file.Truthy("owed_lines") || cutOff(name, model.Harness, file) {
+		!owedReadable(file) || cutOff(name, model.Harness, file) {
 		return reopening{}, false
 	}
 	return seat, true
@@ -311,7 +311,7 @@ func cutOff(name, own string, file *run.Object) bool {
 		return true
 	}
 	return file != nil && (file.Truthy("holds") || file.Str("state") == "asking" || file.Str("state") == "working" ||
-		file.Str("hooked") == "working" || file.Str("rule") == "none")
+		file.Str("hooked") == "working" || file.Str("rule") == "none" && !continuationQueued(file))
 }
 
 // command is the seat's line and the conversation it owns on it (orch.resume, resume_command): the

@@ -295,3 +295,52 @@ func TestADeathDuringALiveLookKeepsTheLastScreenForRevival(t *testing.T) {
 		t.Fatal(run.Line(file))
 	}
 }
+
+func TestAQueuedContinuationSurvivesTheNextReopen(t *testing.T) {
+	home := sandbox(t)
+	cwd := filepath.Join(home, "work", "acme")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record(t, home, "acme", nil)
+	for _, rule := range []string{"prompt.composer", "none"} {
+		file := run.Fields("state", "at_prompt", "rule", rule, "owed_lines", []any{
+			run.Fields("id", "old-death", "line", "your run r-build is still going"),
+		})
+		write(t, seatFile("acme"), run.Line(file))
+		found, known := Looking(time.Now())
+		if !known || len(found.Revivals()) != 1 || !found.Revivals()[0].CanOpen {
+			t.Fatalf("a continuation at %s prevented reopening", rule)
+		}
+		after, _ := run.ReadJSON(seatFile("acme"))
+		if !run.Equal(file, after) {
+			t.Fatalf("reading reopening changed its queued line: %s", run.Line(after))
+		}
+	}
+}
+
+func TestADeathBetweenListingAndCaptureKeepsTheLastPrompt(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	write(t, seatFile("acme"), `{"state":"at_prompt","rule":"prompt.composer"}`)
+	bin := filepath.Join(home, "bin")
+	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
+case "$*" in
+  *list-panes*) echo '%1 0' ;;
+  *capture-pane*) echo 'Pane is dead (status 0)' ;;
+  *display-message*) echo 1 ;;
+esac
+`)
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	seat := Seat{Name: "acme", own: "claude"}
+	if _, err := seat.look(stateFile(home, ""), 1000); err != nil {
+		t.Fatal(err)
+	}
+	file, _ := run.ReadJSON(seatFile("acme"))
+	if file.Str("rule") != "prompt.composer" {
+		t.Fatalf("a dead pane replaced the last prompt: %s", run.Line(file))
+	}
+}

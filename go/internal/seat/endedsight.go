@@ -1,5 +1,18 @@
 package seat
 
+import "agentkit/internal/tmux"
+
+// The pane may die after its first listing. Read death again after the capture so
+// its dead-pane banner never becomes a screen an interrupted turn is inferred from.
+func captureHarness(target string) (string, bool) {
+	shown, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", target)
+	dead, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", target, "#{pane_dead}")
+	if err == nil && dead == "1" {
+		return "", true
+	}
+	return shown, false
+}
+
 // A look can find the harness dead after listing it live. Its empty capture must
 // not replace its last screen with rule=none: revival would invent a cut-off turn.
 // Only the error it can no longer be retrying is cleared (watch.live_state).

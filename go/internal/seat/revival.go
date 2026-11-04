@@ -36,6 +36,7 @@ type Revival struct {
 	Name                string
 	Live, Closed, Owing bool
 	CanOpen, Fresh      bool
+	Failed              bool // a failed revival still needs the owner
 	File                *run.Object
 }
 
@@ -59,17 +60,22 @@ func (home Home) Revivals() []Revival {
 		_, opens := harness.Opens(each.own)
 		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
 			Owing:   !each.restingGone(),
-			CanOpen: canOpen && opens, Fresh: back.conversation == "" || !back.opened, File: file})
+			CanOpen: canOpen && opens, Fresh: back.conversation == "" || !back.opened, File: file,
+			Failed: revivalFailure(notify.Last(each.Name))})
 	}
 	return seats
 }
 
 // A failed automatic reopen outranks its runs: only the owner can bring this seat back.
 func failedRevival(facts climbing) (*answer, error) {
-	if facts.gone != nil && !facts.gone.closed && facts.notice != nil && strings.HasPrefix(facts.notice.Str("source"), "revive:") {
+	if facts.gone != nil && !facts.gone.closed && revivalFailure(facts.notice) {
 		return &answer{word: "needs you", reason: config.Fold(facts.notice.Str("text")), since: facts.notice.Get("time")}, nil
 	}
 	return nil, nil
+}
+
+func revivalFailure(notice *run.Object) bool {
+	return notice != nil && strings.HasPrefix(notice.Str("source"), "revive:")
 }
 
 // Files a launch leaves remain readable when that harness dies again.

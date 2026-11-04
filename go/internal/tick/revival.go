@@ -76,7 +76,8 @@ func (t *ticking) reviveRuns() error {
 			}
 			if len(deaths) > 0 {
 				last, ok := run.Num(deaths[len(deaths)-1])
-				if !ok || now-last < 600 || len(deaths) > 2 {
+				// A paged failure stays the owner's until seen live, however old its claim.
+				if each.Failed || !ok || now-last < 600 || len(deaths) > 2 {
 					continue
 				}
 			}

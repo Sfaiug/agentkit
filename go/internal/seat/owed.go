@@ -61,6 +61,12 @@ func owedReadable(file *run.Object) bool {
 	return true
 }
 
+// A slow startup's unknown screen adds no interrupted turn to a continuation
+// already owed. That queue still belongs to ak after its next reopen.
+func continuationQueued(file *run.Object) bool {
+	return file != nil && file.Truthy("owed_lines") && owedReadable(file)
+}
+
 // TellOwed keeps the first line until its confirmed send, however late the prompt shows.
 // Both the receipt and each key are conditional on that same line still heading the queue.
 func TellOwed(name string, log func(string)) (bool, error) {

@@ -120,8 +120,7 @@ func harnessScreen(name string) (shown string, exited bool) {
 	if saved {
 		target = pane
 	}
-	shown, _ = tmux.Ask(tmux.Own(), "capture-pane", "-p", "-e", "-J", "-t", target)
-	return shown, false
+	return captureHarness(target)
 }
 
 // look is watch.look_at: one capture, classified and kept.
