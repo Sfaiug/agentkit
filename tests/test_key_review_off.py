@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sqlite3
 import sys
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -33,7 +34,7 @@ class ReviewOff(unittest.TestCase):
                                  f"the review rounds a change has before it goes back to its orchestrator to split or re-scope (got {value!r})\n")
                 self.assertEqual(taskfile.runs(home), [])
 
-    def launch(self, rounds, *, project=False, pr=False, own=False, work="work", checks=("test -f retry.txt",)):
+    def staged(self, rounds, *, project=False, work="work"):
         home = Home()
         self.addCleanup(home.close)
         home.env.update(AK_NOTIFY_SINK=None,
@@ -47,14 +48,19 @@ class ReviewOff(unittest.TestCase):
         gh = GitHub(home)
         gh.grant(rig.slug, "WRITE")
         fakes = fakeadapter.install(home, claude=work, codex=FAILING)
+        return home, rig, gh, fakes
+
+    def launch(self, rounds, *, project=False, pr=False, own=False, work="work",
+               checks=("test -f retry.txt",), files=None, flags=()):
+        home, rig, gh, fakes = self.staged(rounds, project=project, work=work)
         if pr:
-            rig.branch("contrib", {"retry.txt": "hello\n"})
+            rig.branch("contrib", files or {"retry.txt": "hello\n"})
             if own:
                 Seat(home, "acme", model="opus", cwd=rig.path, alive=False, planned=True)
             args = ("--review-pr", gh.open_pr(rig, "contrib", author="acme" if own else "other-dev"))
         else:
             args = (str(taskfile.write(home, rig.path, done_when=checks)),)
-        done = home.ak("run", *args, timeout=300, env={"AGENTKIT_SESSION": "acme"} if own else {})
+        done = home.ak("run", *args, *flags, timeout=300, env={"AGENTKIT_SESSION": "acme"} if own else {})
         directory = taskfile.only_run(home)
         state = json.loads((directory / "run.json").read_text())
         return home, rig, fakes, done, directory, state
@@ -107,11 +113,45 @@ class ReviewOff(unittest.TestCase):
         bad = {**fakeadapter.WORK, "write": {"retry.txt": "hello\n", "bad.txt": "bad\n"}}
         fix = {"sh": "git rm -q bad.txt", "commit": "remove bad.txt", "hand_in": [["done"]],
                "final": "## Summary\nremoved bad.txt"}
-        _, _, fakes, done, _, state = self.launch(0, work=[bad, fix])
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertTrue(state["merged"])
-        self.assertEqual([turn["role"] for turn in fakes["claude"].runs()], ["executor", "fixer"])
-        self.assertEqual(fakes["codex"].n, 0)
+        for pr in (False, True):
+            with self.subTest(pr=pr):
+                _, _, fakes, done, _, state = self.launch(
+                    0, pr=pr, own=pr, work=fix if pr else [bad, fix], files=bad["write"])
+                self.assertEqual(done.code, 0, done.out + done.err)
+                self.assertTrue(state["merged"])
+                self.assertEqual([turn["role"] for turn in fakes["claude"].runs()],
+                                 ["fixer"] if pr else ["executor", "fixer"])
+                self.assertEqual(fakes["codex"].n, 0)
+
+    def test_unmerged_prs_run_the_suite_without_review(self):
+        for own in (False, True):
+            for red in (False, True):
+                with self.subTest(own=own, red=red):
+                    files = {"retry.txt": "hello\n", **({"bad.txt": "bad\n"} if red else {})}
+                    _, _, fakes, done, directory, state = self.launch(
+                        0, pr=True, own=own, files=files, flags=("--no-merge",))
+                    self.assertEqual(done.code, int(red), done.out + done.err)
+                    self.assertFalse(state["merged"])
+                    self.assertEqual((fakes["claude"].n, fakes["codex"].n), (0, 0))
+                    self.assertIn("$ test ! -f bad.txt", (directory / "round-1/donewhen.log").read_text())
+
+    def test_batches_need_only_the_executor_when_review_is_off(self):
+        for project in (False, True):
+            with self.subTest(project=project):
+                home, rig, _, fakes = self.staged(0, project=project)
+                fakes["codex"].answer("usage", json.dumps({"meters": [{"name": "weekly", "used": 100}]}))
+                tasks = [taskfile.write(home, rig.path if project else "none", title) for title in ("Alpha", "Beta")]
+                proc = home.spawn("run", *map(str, tasks), "--no-merge")
+                deadline, state = time.monotonic() + 90, {}
+                while proc.poll() is None and time.monotonic() < deadline:
+                    receipts = list((home.path / ".agentkit/jobs").glob("*/job.json"))
+                    state = json.loads(receipts[0].read_text()) if receipts else {}
+                    if any(task.get("budget_wait") for task in state.get("tasks", [])):
+                        break
+                    time.sleep(.05)
+                self.assertIsNotNone(proc.poll(), state)
+                self.assertEqual(proc.wait(), 0, home.log("spawn-1.err").read_text())
+                self.assertEqual((fakes["claude"].n, fakes["codex"].n), (2, 0))
 
 
 if __name__ == "__main__":

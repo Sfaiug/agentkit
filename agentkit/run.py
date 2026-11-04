@@ -2536,8 +2536,8 @@ def review_pr_round(cfg, run_dir, url, opts, log):
             return pr_review_failed(lp, why)
         if why:
             raise config.Error(why)
-    advancing = bool(summaries and (summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale")
-                                   or prior.get("own_pr_wait"))
+    advancing = bool((prior.get("own_pr_wait") or (summaries and (
+                         summaries[-1]["verdict"] == "FAIL" or prior.get("review_stale"))))
                      and prior.get("head_sha") != info["headRefOid"])
     if prior.get("worktree"):
         at = git(prior["worktree"], "rev-parse", "HEAD")
@@ -2582,9 +2582,10 @@ def review_pr_round(cfg, run_dir, url, opts, log):
     else:
         wt, branch = make_worktree(repo, run_dir.name, f"pr-{number}", head)
     tests = gitcall.declared_suite(wt, base, ref=target_sha)
-    # an own PR's suite runs once, at landing; somebody else's PR has no line behind it --
-    # only the inbox's yes -- so its suite runs here, in its one review round
-    cmds = [f"{tests}  # once" if is_own or off else tests] if tests else []
+    # With review off the suite runs at landing, unless this PR stays local. Reviewed own
+    # PRs defer their suite; other reviews have no landing line.
+    defer = not opts.get("--no-merge") if off else is_own
+    cmds = [f"{tests}  # once" if defer else tests] if tests else []
     title = f"Review PR #{number}: {info['title']}"
     if is_own:
         # what the seat wrote of its own PR stays on GitHub: its reviewer judges the diff

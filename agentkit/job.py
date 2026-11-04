@@ -1295,12 +1295,16 @@ def run_job_loop(cfg, job_dir, job):
             if task.get("budget_wait") and now - last_picker[0] < JOB_PICKER_INTERVAL:
                 continue
             try:
+                kept = task.get("run_id")
+                saved = record.read_state(config.RUNS / kept) if kept else None
+                policy = record.policy_of(saved) if saved else run.launch_policy(task["task_file"])
+                want_review = False if policy["review_rounds"] == 0 else opts.get("--review")
                 providers = staffing.collect_usage(cfg)
-                staffing.pick_models(cfg, providers, opts.get("--exec"), opts.get("--review"), lambda _: None)
+                staffing.pick_models(cfg, providers, opts.get("--exec"), want_review, lambda _: None)
             except turns.Exhausted:
                 # a pair no budget can make is not waited for: the task's run refuses it at launch
                 if not staffing.pair_refusal(cfg, providers, None, opts.get("--exec"),
-                                    opts.get("--review")):
+                                    want_review):
                     task["budget_wait"] = True
                     task["retry_after"] = now + JOB_PICKER_INTERVAL
                     last_picker[0] = now
@@ -1319,7 +1323,6 @@ def run_job_loop(cfg, job_dir, job):
                 log(task["verdict_line"])
                 continue
             task.pop("budget_wait", None)
-            kept = task.get("run_id")
             kept_dir = config.RUNS / kept if kept else None
             if kept_dir is not None and (kept_dir / "run.json").exists():
                 # an exhausted or interrupted run kept across ticks: reap it here so a live
