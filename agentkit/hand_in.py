@@ -193,8 +193,10 @@ def start(out_dir, workspace, previous=None, role="reviewer", findings=None, che
     handed = (json.loads(Path(findings).read_text()) if findings
               else review.handed_findings + review.handed_disputes if review else [])
     rows = [{"kind": "turn", "workspace": str(Path(workspace).resolve()), "role": role,
-             "findings": [row for row in handed if row["kind"] != "dispute"],
-             "disputes": [row for row in handed if row["kind"] == "dispute"]}]
+             "findings": [row for row in handed if row["kind"] != "dispute"]}]
+    disputes = [row for row in handed if row["kind"] == "dispute"]
+    if disputes:
+        rows[0]["disputes"] = disputes
     if checks is not None:
         rows[0]["checks"] = checks
     if review:

@@ -47,6 +47,7 @@ class Conceded(unittest.TestCase):
             helped = self.home.ak("hand-in", "concede", flag)
             self.assertEqual((helped.code, helped.err), (0, ""))
             self.assertIn('usage: ak hand-in concede PATH:LINE "WHY"', helped.out)
+            self.assertIn('       ak hand-in concede PATH:LINE "WHY"', self.home.ak("hand-in", flag).out)
 
 
 class Upheld(unittest.TestCase):
