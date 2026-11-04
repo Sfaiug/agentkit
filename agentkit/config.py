@@ -771,6 +771,8 @@ def shipped():
 def company(cfg, maker):
     """The provider a board's `maker` makes the models of: the one whose `maker` names it,
     the config's own table before the shipped one, else its name in lower case."""
+    if not isinstance(maker, str):
+        return None
     tables = [*cfg["providers"].items(), *(shipped().get("providers") or {}).items()]
     return next((name for name, entry in tables
                  if isinstance(entry, dict) and entry.get("maker") == maker), maker.lower())

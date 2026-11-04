@@ -1,6 +1,6 @@
 """AK_BIN prices role picks in measured subscription usage, scaling every unmeasured row.
 
-Invented boards, capacity pairs and launch receipts in a temporary HOME; only models output
+Invented boards, capacity pairs and launch receipts in a temporary HOME; models and usage output
 is observed. Shares retain task_usage's units; prices multiply them only for a full lineup.
 """
 
@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, EVALUATIONS, aa, boards
+from test_key_config_save_keeps import UNKNOWN
 from test_key_usage_per_task import pair
 
 # release, effort, provider, quality's coding share, board dollars
@@ -25,7 +26,7 @@ class PicksPricedInUsage(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
-        fake = fakeadapter.install(home, claude="pass")["claude"]
+        self.fake = fake = fakeadapter.install(home, claude="pass")["claude"]
         fake.answer("models", "".join(f"{name}-1\t{name}\tlow high\n"
                                       for name in dict.fromkeys(row[0] for row in ROWS)))
         # Crown is on the boards and harness, but has no configured alias or measurement.
@@ -97,6 +98,35 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertAlmostEqual(echo["cost"], 20 * 2.5 / 62)
         self.assertEqual((echo["board_cost"], echo["cost_rule"]), (20, "global"))
         self.assertAlmostEqual(self.row("dune", "review")["cost"], 10 * 10 / 52)
+
+    def test_unlisted_models_keep_their_measurements_and_conversion_pools(self):
+        before = self.row("anvil")
+        self.fake.answer("models", "bloom-1\tBloom\thigh\n")
+        (self.home.path / ".agentkit/state/matrix.json").unlink()
+        after = self.row("anvil")
+        self.assertEqual((after["cost"], after["cost_rule"]), (before["cost"], "measured"))
+        self.assertAlmostEqual(self.row("crown")["cost"], 100 * .5 / 52)
+        self.assertAlmostEqual(self.row("echo")["cost"], 20 * 2.5 / 62)
+
+    def test_pricing_cache_accepts_unrelated_toml_dates_and_times(self):
+        text = ("at = 12:34:56\nstamp = 2026-10-01T12:34:56Z\n" + UNKNOWN).replace(
+            "custom_flag = true", "custom_when = 2026-10-01").replace(
+                "accounts = []", "accounts = []\ncustom_at = 12:34:56")
+        self.home.write(".agentkit/config.toml", text)
+        self.home.write(".agentkit/state/matrix.json", {"matrix": {"lineup": []}})
+        done = self.home.ak("usage", "--json", env=ENV)
+        self.assertEqual(done.code, 0, done.out + done.err)
+
+    def test_missing_board_creators_keep_known_models_measured_and_unknown_models_scaled(self):
+        path = self.home.path / ".agentkit/state/boards.json"
+        held = json.loads(path.read_text())
+        for row in held["artificialanalysis.ai"]["rows"]:
+            row["maker"] = None
+        self.home.write(".agentkit/state/boards.json", held)
+        self.assertAlmostEqual(self.row("anvil")["cost"], .2)
+        self.assertEqual(self.row("crown")["cost_rule"], "global")
+        self.home.write(".agentkit/state/capacity.json", {})
+        self.assertEqual(self.row("anvil")["cost"], 2)
 
     def test_no_measurements_keep_board_dollars_and_say_so(self):
         answer = self.answer()

@@ -96,6 +96,15 @@ def found(index, model):
     return []
 
 
+def _release_index(releases):
+    index = {}
+    for release in releases:
+        # the name first: `found` reads the first hit's for a bracketed qualifier; either may lack
+        for name in filter(None, (release["name"], release["slug"])):
+            index.setdefault(normal(name), []).append({"model": name, "release": release})
+    return index
+
+
 def lineup(boards, offers):
     """A row per current release (`catalog.current`) and effort, with its `values` as the
     catalog joins them and `yours`: each model of `offers` ({harness: config.catalog(harness)})
@@ -103,11 +112,7 @@ def lineup(boards, offers):
     lists and at a row naming no effort, which is the model however it is run, or at the
     release's default where it lists none but `none`."""
     releases = catalog.current(boards)
-    index = {}
-    for release in releases:
-        # the name first: `found` reads the first hit's for a bracketed qualifier; either may lack
-        for name in filter(None, (release["name"], release["slug"])):
-            index.setdefault(normal(name), []).append({"model": name, "release": release})
+    index = _release_index(releases)
     yours = {}
     for harness, models in offers.items():
         for model in models:
@@ -131,23 +136,37 @@ def _task_usage(cfg):
     return usage.task_usage(usage.model_rates(cfg))
 
 
+def _pricing(cfg):
+    """Only inputs to cached pricing: unrelated TOML values need no JSON representation."""
+    from . import usage
+    return {"models": {name: {key: cfg["models"][name][key]
+                              for key in ("harness", "model", "provider")}
+                       for name in config.offered(cfg)},
+            "providers": {name: {"maker": entry.get("maker")
+                                 if isinstance(entry.get("maker"), str) else None,
+                                 "price": usage.price(cfg, name)}
+                          for name, entry in cfg["providers"].items()}}
+
+
 def _costs(rows, role, lineup, cfg, shares):
     """One unit per role: measured shares, board dollars scaled by pooled shares/dollars,
     or board dollars without any measurement. Money requires every lineup provider's price."""
     from . import usage
-    models = [(name, cfg["models"][name]) for name in config.offered(cfg)]
+    releases = {row["release"]: {"slug": row["release"], "name": row["name"]} for row in lineup}
+    index = _release_index(releases.values())
+    models = [(name, entry, {hit["release"]["slug"] for hit in found(index, entry["model"])})
+              for name in config.offered(cfg) for entry in [cfg["models"][name]]]
 
     def measured_share(name, effort):
         return shares.get(name, {}).get(effort, {}).get(CONFIG_ROLES[role])
 
     sources = {}
     for row in lineup:
-        yours = {(one["harness"], one["model"]) for one in row["yours"]}
-        matches = [(name, entry["provider"]) for name, entry in models
-                   if (entry["harness"], entry["model"]) in yours]
+        matches = [(name, entry["provider"]) for name, entry, hits in models
+                   if hits == {row["release"]}]
         sources[row["release"], row["effort"]] = next(
             (one for one in matches if measured_share(one[0], row["effort"]) is not None),
-            next(iter(matches), (None, config.company(cfg, row["maker"]))))
+            matches[0] if matches else (None, config.company(cfg, row["maker"])))
     prices = {provider: usage.price(cfg, provider) for _, provider in sources.values()}
     measured, pools = {}, {}
     for row in rows:
@@ -350,7 +369,7 @@ def rank(cfg, role, names):
     effort the config runs it at there. The role's pick among these rows first, then the
     rest by quality; None for a model no row is, or a lineup nobody stored.  A pick reads this and never the boards."""
     try:
-        rated = _answered(cache_path().read_text(), json.dumps(cfg),
+        rated = _answered(cache_path().read_text(), json.dumps(_pricing(cfg)),
                           json.dumps(_task_usage(cfg)))[role]["rated"]
     except (OSError, ValueError):
         rated = []
