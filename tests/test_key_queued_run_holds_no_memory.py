@@ -12,7 +12,9 @@ and each first in line is let in on a stall, the queue's own clock set back two 
 
 import fcntl
 import json
+import os
 from pathlib import Path
+import signal
 import sqlite3
 import sys
 import time
@@ -49,6 +51,23 @@ def private_kb(pid):
     rollup = Path(f"/proc/{pid}/smaps_rollup").read_text()
     return sum(int(line.split()[1]) for line in rollup.splitlines()
                if line.split(":")[0] in ("Private_Clean", "Private_Dirty", "Swap"))
+
+
+def small(first, *behind):
+    # An exec keeps the pid but invalidates an open smaps_rollup (ESRCH). Stop every
+    # process before opening any snapshot, so neither an exec nor a fork changes it.
+    pids = (first, *behind)
+    try:
+        for pid in pids:
+            os.kill(pid, signal.SIGSTOP)
+        for pid in pids:
+            wait(lambda: Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "T",
+                 f"{pid} paused for its memory snapshot")
+        memory = private_kb(first)
+        return all(3 * private_kb(pid) < memory for pid in behind)
+    finally:
+        for pid in pids:
+            os.kill(pid, signal.SIGCONT)
 
 
 class QueuedRunHoldsNoMemory(unittest.TestCase):
@@ -115,11 +134,8 @@ class QueuedRunHoldsNoMemory(unittest.TestCase):
 
     def test_runs_behind_the_first_hold_a_third_of_its_memory_and_go_in_in_order(self):
         first, *behind = [state["pid"] for state in self.held]
-
-        def small():
-            return all(3 * private_kb(pid) < private_kb(first) for pid in behind)
-
-        wait(small, "the runs behind the first holding less than a third of its memory", 30)
+        wait(lambda: small(first, *behind),
+             "the runs behind the first holding less than a third of its memory", 30)
         for run in self.runs:
             wait(lambda: self.stall(run), f"{run.name} let in on a stall")
         for run, held in zip(self.runs, self.held):
@@ -135,7 +151,7 @@ class QueuedRunHoldsNoMemory(unittest.TestCase):
     def test_a_run_stopped_while_it_waits_behind_the_first_is_stopped(self):
         third = self.runs[2]
         pid = self.held[2]["pid"]
-        wait(lambda: 3 * private_kb(pid) < private_kb(self.held[0]["pid"]),
+        wait(lambda: small(self.held[0]["pid"], pid),
              "the third waiting in next to no memory", 30)
         done = self.home.ak("run", "stop", third.name)
         self.assertEqual(done.code, 0, done.out + done.err)
