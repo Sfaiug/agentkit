@@ -37,7 +37,7 @@ ROWS = ["Claude Code",
         # models by their full names, the line wrapped at a word under its value
         "  Weekly audit  off · orch Fable 5.1 · builds Fable 5.1, GPT-6-Astra · reviews Fable 5.1,",
         "                GPT-6-Astra",
-        "  Machines      1 · Google Cloud off",
+        "  Machines      1 machines · Google Cloud off",
         "  Limits        review 3 rounds · executor 300 lines · orchestrator 50 lines",
         ""]
 KEYS = "  ↑↓←→ move   ␣ mark   r recommended   esc back"   # a seat's, on a mark
