@@ -71,7 +71,7 @@ class IntentLive(Sandbox):
         self.assertEqual(self.live(), NOW - 5 * HOUR)
         with patch.object(scoreboard.time, "time", return_value=NOW):
             self.assertEqual(scoreboard.compute(NOW)["intent"][0],
-                             {"measured": 1, "hours": 8.0, "live": 1, "live_hours": 5.0})
+                             {"measured": 1, "hours": 8.0, "live": 1, "live_hours": 5.0, "answer_share": 0})
             row = [line for line in scoreboard.render() if line.startswith("intent")][0]
         self.assertIn("1 intents measured, median 8.0 hours from the owner's first message to done; "
                       "1 live, median 5.0 hours to live", row)
@@ -85,7 +85,7 @@ class IntentLive(Sandbox):
     def test_a_history_from_before_done_runs_keeps_its_dones(self):
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute("DROP TABLE done_runs")
-        self.assertEqual(history.dones(0, NOW), [(NOW - 2 * HOUR, NOW - 10 * HOUR, None)])
+        self.assertEqual(history.dones(0, NOW), [(NOW - 2 * HOUR, NOW - 10 * HOUR, None, 0)])
 
 
 if __name__ == "__main__":

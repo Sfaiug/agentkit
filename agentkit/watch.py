@@ -2439,8 +2439,8 @@ def answered_kept(name, replies, at):
         if not any(answers(reply, q) for reply in noticed):
             asked[key] = min(q["at"], asked.get(key, math.inf))
     for moment in asked.values():
-        history.owner_time("asked", moment)
-    notify.waited({"asked_at": asked}, at)
+        history.owner_time("asked", moment, session=name)
+    notify.waited(name, {"asked_at": asked}, at)
     return True
 
 

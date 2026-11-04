@@ -2,15 +2,18 @@
 sent to them, and the median hours a question answered that week had waited since it was last
 asked.  notify writes each moment as it decides it -- a question new to a notice, a card
 delivered, each standing question answered, by the owner's prompt or, where nothing reports or
-reads one, by output after an open -- as a row naming no seat.  A moment on the boundary between
-the weeks counts in the last 7 days only.  A new install, with no database, shows `not
+reads one, by output after an open -- as a row dated when it happened. A moment on the boundary
+between the weeks counts in the last 7 days only. A new install, with no database, shows `not
 recorded`.
 
 Offline: a sandbox HOME with its own history database, the webhook post faked, git answering
 nothing.
 """
 
+from contextlib import closing
+import sqlite3
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -55,6 +58,9 @@ class OwnerRow(Sandbox):
         return history.owner(0, NOW)
 
     def test_notify_writes_each_moment_as_it_decides_it(self):
+        seat = (SimpleNamespace(name="claude"), {}, "/acme", "c1")
+        self.stack.enter_context(patch.object(notify, "conversation_of",
+                                             lambda name: seat if name == SEAT else None))
         self.said("needs", "Which schema?", 100.0)
         self.said("needs", "And the port?", 160.0)        # asked beside the standing one
         self.said("needs", "Which schema?", 170.0)        # asked again: not a new question
@@ -68,6 +74,8 @@ class OwnerRow(Sandbox):
         notify.answered(SEAT, 400.0)      # nothing stands: no answer
         self.assertCountEqual(self.moments(), [*asked, (350.0, "answered", 180.0),
                                                (350.0, "answered", 190.0)])
+        with closing(sqlite3.connect(history.path())) as db:
+            self.assertEqual(db.execute("SELECT conversation FROM owner").fetchall(), [("claude:c1",)] * 5)
 
     def test_a_card_answered_before_its_question_is_asked_again_keeps_its_own_time(self):
         with patch.object(watch.time, "time", return_value=100.0):
