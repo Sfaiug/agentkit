@@ -23,6 +23,7 @@ NOW = 1_800_000_000
 WEEK = 7 * 86400
 
 
+# these numbers never pick a model. [2 Oct, 14 Oct, 27 Oct]
 class Scoreboard(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-scoreboard-", dir=REPO)
@@ -199,7 +200,8 @@ class Scoreboard(unittest.TestCase):
                                  "owner": [None, None],
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
                                  "checks": [None, None],
-                                 "parks": [None, None], "sunk": [None, None], "broke": [None, None],
+                                 "parks": [None, None], "conflicts": [None, None],
+                                 "sunk": [None, None], "broke": [None, None],
                                  "pairs": [None, None], "findings": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
@@ -274,6 +276,7 @@ class Scoreboard(unittest.TestCase):
             "merged": [{"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0}, None],
             "checks": [{"suites": 1.32, "hours": 1.45}, None],
             "parks": [None, None],
+            "conflicts": [None, None],
             "sunk": [{"share": .4, "tokens": 1200}, None],
             "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "flakes": 2, "unknown": 1}, None],
             "pairs": [{"self": .5, "self_landing": .25, "same_provider": .3,
@@ -305,6 +308,7 @@ class Scoreboard(unittest.TestCase):
             "checks        1.32 suite runs and 1.45 check hours per    not recorded",
             "              merged change",
             "parks         not recorded                                not recorded",
+            "conflicts     no merged change                            no merged change",
             "sunk          40% of the week's tokens, 1,200, went to    no tokens recorded",
             "              runs that never merged",
             "broke         1 of 2 merged changes broke main or live    no merged change",

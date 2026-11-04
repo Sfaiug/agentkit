@@ -82,7 +82,7 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
               ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
-              ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"))
+              ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
@@ -388,15 +388,17 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, change=None, kind=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, kind=None,
+              plan_line=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
     seat's at the first write, whatever that seat runs by a resume.  `change` names the
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.  A new row is followed for breaks and landing flakes, none yet 0 and '', where a
-    row from before they were recorded keeps NULL: unknown, not unbroken.
+    runs by.  `plan_line` stays as it was at the first write.  A new row is followed for
+    breaks and landing flakes, none yet 0 and '', where a row from before they were
+    recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
@@ -409,7 +411,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "", kind, 0)
+              change, 0, "", kind, 0, plan_line)
 
     def insert(connection):
         connection.execute(
@@ -418,8 +420,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge, kind, landing_flakes) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge, kind, landing_flakes, plan_line) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -1100,6 +1102,27 @@ def ended_runs(since, until):
                 return [dict(row) for row in connection.execute(
                     "SELECT * FROM runs WHERE finished_at >= ? AND finished_at <= ? "
                     f"AND {REAL_WORK}", (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
+def conflict_rows(since, until):
+    """Real conflicts by date, plus earlier conflicts on changes merged in the range."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    'SELECT c.at, c.path, c.added_only, repo, '
+                    'COALESCE(NULLIF("change", \'\'), run_id) AS "change" '
+                    'FROM conflicts c JOIN runs USING (run_id) WHERE c.at <= ? AND '
+                    '(c.at >= ? OR (repo, COALESCE(NULLIF("change", \'\'), run_id)) IN ('
+                    'SELECT repo, COALESCE(NULLIF("change", \'\'), run_id) FROM runs '
+                    'WHERE finished_at >= ? AND finished_at <= ? AND changed_lines IS NOT NULL)) '
+                    f'AND {REAL_WORK}', (until, since, since, until))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

@@ -30,6 +30,7 @@ MEASURES = (
     ("merged", "merged", ("model", "ak", "waiting", "seat")),
     ("checks", "checks", ("suites", "hours")),
     ("parks", "parks", ("parked",)),
+    ("conflicts", "conflicts", ("share", "files")),
     ("sunk", "sunk", ("share", "tokens")),
     ("broke", "broke", ("merged", "after_merge", "landing", "flakes", "unknown")),
     ("pairs", "review pairs", ("self", "self_landing", "same_provider", "same_provider_landing", "other_landing")),
@@ -199,6 +200,23 @@ def compute(now=None):
         return saved is None or (saved.get("state"), saved.get("finished_at")) == (
             row["final_state"], row["finished_at"])
 
+    def collided(ended, end):
+        """Merged changes that ever conflicted, and files by their conflicts' own dates."""
+        merged = {(row["repo"], row.get("change") or row["run_id"]) for row in ended
+                  if row.get("changed_lines") is not None}
+        seen = {(row["repo"], row["change"]) for row in conflict_rows
+                if row["at"] <= end and (end == now or row["at"] < end)}
+        counts = {}
+        for row in conflict_rows:
+            if in_week(row["at"], end):
+                key = row["repo"], row["path"]
+                count, added = counts.get(key, (0, True))
+                counts[key] = count + 1, added and row["added_only"] == 1
+        files = sorted(((*key, count, added) for key, (count, added) in counts.items() if count >= 2),
+                       key=lambda file: (-file[2], file[0], file[1]))[:3]
+        return {"share": len(merged & seen) / len(merged) if merged else None,
+                "files": files} if merged or counts else None
+
     def git(*args):
         return _git(config.REPO, *args, ok=(0, 1) if args[0] == "grep" else (0,))
 
@@ -277,6 +295,7 @@ def compute(now=None):
             if row["final_state"] in ("pass", *record.FAILED, "exhausted", "not_needed")]
     check_rows = history.checks(now - 2 * week, now)
     finding_rows = history.findings(now - 2 * week, now)
+    conflict_rows = history.conflict_rows(now - 2 * week, now)
 
     held = history.parks(now - 2 * week, now)       # stopped rows: not among `rows`
     moments = history.owner(now - 2 * week, now)
@@ -285,6 +304,7 @@ def compute(now=None):
     board, waits, merged_changes, broken = {"products": [], "ak": [], "tokens": []}, [], [], []
     built, parks, sunk, owner, intent, check_costs = [], [], [], [], [], []
     review_pairs, finding_counts = [], []
+    conflicts = []
     for end in (now, now - week):
         finished = [row for row in rows if in_week(row["finished_at"], end)]
         # A run found not needed waited and ran like any other, but delivered nothing to score.
@@ -321,6 +341,7 @@ def compute(now=None):
             "raised_again": sum(row["raised_again"] for row in blocking)} if weighed else None)
         built.append(who_built(ended))
         parks.append(None if held is None else {"parked": sum(in_week(at, end) for at in held)})
+        conflicts.append(collided(ended, end))
         # the week's tokens that bought no merge: every ended run that delivered nothing
         wasted = sum((row.get(role + "_tokens") or 0) for row in ended if not history.merged(row)
                      for role in ("executor", "reviewer"))
@@ -385,6 +406,7 @@ def compute(now=None):
     board["merged"] = merged_changes
     board["checks"] = check_costs
     board["parks"] = parks
+    board["conflicts"] = conflicts
     board["sunk"] = sunk
     board["broke"] = broken
     board["pairs"] = review_pairs
@@ -502,6 +524,15 @@ def render(board=None):
         return (f"{stats['share']:.0%} of the week's tokens, {stats['tokens']:,}, went to runs "
                 "that never merged")
 
+    def conflicts(stats):
+        if stats is None:
+            return "no merged change"
+        text = ("no merged change" if stats["share"] is None
+                else f"{stats['share']:.0%} of merged changes met a conflict")
+        return text + "".join(f"; {repo}/{path}: {count} conflicts"
+                              + (" (added lines only)" if added else "")
+                              for repo, path, count, added in stats["files"])
+
     def intent(stats):
         if stats is None:
             return "not recorded"
@@ -532,7 +563,8 @@ def render(board=None):
 
     words = {"products": lambda stats: week(stats, False), "ak": lambda stats: week(stats, True), "tokens": tokens,
              "intent": intent, "owner": owner, "built": built, "waits": waited, "merged": split, "parks": parked,
-             "checks": checks, "sunk": sunk, "broke": broke, "pairs": pairs, "findings": findings, "size": size}
+             "checks": checks, "conflicts": conflicts, "sunk": sunk, "broke": broke, "pairs": pairs,
+             "findings": findings, "size": size}
     rows = [("", "last 7 days", "7 days before"),
             *((label, *(words[key](stats) for stats in board[key])) for key, label, _ in MEASURES)]
     label_width = max(len(label) for _, label, _ in MEASURES)

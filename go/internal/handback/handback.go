@@ -6,8 +6,8 @@
 //
 // Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
 // does not type is marked pending, which Python's tick types at the next quiet
-// prompt: a seat that takes no line now, and a line Go does not build yet, every one but a
-// BLOCKED's decision line said whole. A seat not up there is the tick's, which offers every
+// prompt: a seat that takes no line now, and a line Go does not build or shorten yet.
+// A seat not up there is the tick's, which offers every
 // ending nobody has heard.
 package handback
 
@@ -62,8 +62,23 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("run %s is a %s", id, preexisting))
 		return true
 	}
+	recordOnly, pending := routineDelivery(said, session)
+	if recordOnly {
+		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", "routine ending: recorded, not typed",
+			"handback_pending", nil, "handback_typed", nil, "handback_wait_reason", nil, "notification_pending", nil) {
+			return false
+		}
+		say(fmt.Sprintf("run %s ended: recorded, not typed", id))
+		return true
+	}
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
-	line := decisionLine(record, dir)
+	line := ""
+	if !pending {
+		line = decisionLine(record, dir)
+		if line == "" {
+			line = finishedLine(record, dir)
+		}
+	}
 	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
 		return nil
@@ -132,18 +147,7 @@ func sameAttempt(a, b *run.Object) bool {
 // handedBack is whether this ending, and not an earlier attempt's, was handed back: an undated
 // mark is taken at its word.
 func handedBack(record *run.Object) bool {
-	said, dated := run.Num(record.Get("handed_back"))
-	if !dated {
-		return record.Truthy("handed_back")
-	}
-	ended := record.Get("finished_at")
-	if !record.Truthy("finished_at") {
-		ended = record.Get("interrupted_at")
-	}
-	if at, ok := run.Num(ended); ok {
-		return said >= at
-	}
-	return true
+	return run.HandedBack(record)
 }
 
 // history is an ending older than an hour, or with no date to age by but a start that is: never

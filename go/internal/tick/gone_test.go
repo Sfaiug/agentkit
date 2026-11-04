@@ -36,7 +36,7 @@ func TestTickReadsGoneSeatsAndLeavesRevivalAndCardsToPython(t *testing.T) {
 		{"resting", "", `{}`, "", "idle", true},
 		{"closed owing", "- [ ] Last\n", fmt.Sprintf(`{"stopped_at":%d,"closed_by_owner":true}`, time.Now().Unix()), "", "idle", true},
 		{"open work", "- [ ] Last\n", `{}`, "", "", false},
-		{"finished", "- [x] Last\n", `{}`, "", "done", false},
+		{"finished", "- [x] Last\n", `{}`, "", "done", true},
 		{"cut off turn", "", `{"state":"working"}`, "", "", false},
 		{"newer stop", "", `{"state":"working"}`, "Stop", "idle", true},
 		{"newer prompt", "", `{}`, "UserPromptSubmit", "", false},

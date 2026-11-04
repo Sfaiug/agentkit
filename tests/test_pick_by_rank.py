@@ -103,6 +103,7 @@ class RankByTheAnswer(Sandbox):
     def pick(self):
         return usage.pick_order(self.cfg, self.providers, ["opus", "astra", "fable"], quiet=True)
 
+    # nothing ak shows or picks credits speed or cost while the result got worse. [14 Oct]
     def test_the_pick_is_recomputed_among_the_marked_rows(self):
         self.assertEqual(matrix.rank(self.cfg, "execute", ["opus", "fable"]),
                          {"opus": None, "fable": None})          # nothing stored yet

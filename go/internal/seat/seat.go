@@ -74,7 +74,7 @@ func (home Home) Seatless() bool { return len(home.records) == 0 }
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
 // file's, its typing lock, and the plan of a seat the owner stopped, whose word no plan decides.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}}
+	"plan": {"md"}, "verify": {"lock"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
@@ -104,7 +104,7 @@ type ran struct {
 func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil) }
 
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
-func Looking(now time.Time) (Home, bool) { return reading(now, true, readRuns, nil) }
+func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
 func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
@@ -128,7 +128,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
 		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
 		if harness.KeptInState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json"}, entry.Name()) ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "task-template.md" || usages.Owns(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {

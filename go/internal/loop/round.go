@@ -128,6 +128,9 @@ func (l *loop) execute(word, name, body, findings string) (string, error) {
 				return "", err
 			}
 			submitted, _ := handin.Read(filepath.Join(done.out, handin.File))
+			if err := l.notNeeded(submitted); err != nil {
+				return "", err
+			}
 			return workerResult(done, submitted)
 		}
 		out = freeDir(l.roundDir(), name+"-"+l.executor)
