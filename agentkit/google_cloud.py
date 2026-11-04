@@ -249,6 +249,11 @@ def serving():
                                                              _routes(), re.M)}
 
 
+def not_serving():
+    """Rentals keeping a route but taking no work, even when explicitly named as helpers."""
+    return set(re.findall(r"^Host (.+)$", _routes(), re.M)) - {"*", *serving()}
+
+
 def _routes():
     """The ssh config's text, including routes finishing work while renting is off."""
     return (config.STATE / SSH_CONFIG).read_text() if ssh_config() else ""

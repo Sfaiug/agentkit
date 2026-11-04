@@ -1,6 +1,7 @@
 """A machine ak rents serves suites once ready and goes back once it has held nothing for ten
 minutes; one not ready is left alone; one serving that stops answering keeps its route for the
-work it holds and takes no new work; with `[google_cloud]` not active, none serves or goes back.
+work it holds and takes no new work; with `[google_cloud]` not active, idle machines still go
+back and busy ones keep their routes, with no new work even when named as a suite helper.
 
 Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box, `ak doctor` and a lander against the
 fake Google of tests/fixtures/google.py.  A fake ssh is the machines, each a directory named by its
@@ -109,6 +110,12 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         cls.active(False)
         (cls.machines / "203.0.113.1/reached").unlink()
         cls.off, cls.reached_off = cls.tick(), (cls.machines / "203.0.113.1/reached").exists()
+        (cls.machines / "203.0.113.1/reached").unlink()
+        line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"},
+                    home=home, name="acme-off")
+        line.member({"api.txt": "x\n"})
+        cls.off_landed = line.land()
+        cls.reached_work_off = (cls.machines / "203.0.113.1/reached").exists()
 
     @classmethod
     def active(cls, on):
@@ -165,9 +172,13 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         self.assertIn("land", self.verdict)
         self.assertIn("suite on acme-1:", self.landed.out + self.landed.err)
 
-    def test_not_active_none_serves_or_goes_back(self):
-        # the owner's own acme-1 shows what it last answered, and ssh takes it there no more
-        self.assertEqual((self.off, self.reached_off), (([], ["this one", "acme-1"], []), False))
+    def test_not_active_idle_machines_go_back_and_busy_ones_keep_their_routes(self):
+        self.assertEqual((self.off, self.reached_off), ((["acme-3", "acme-5"], [
+            "this one", "acme-1"], []), True))
+
+    def test_not_active_a_named_rental_takes_no_new_work(self):
+        self.assertEqual(self.off_landed.code, 0, self.off_landed.out + self.off_landed.err)
+        self.assertFalse(self.reached_work_off)
 
 
 if __name__ == "__main__":

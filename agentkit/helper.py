@@ -191,7 +191,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
     lasts a rent and a pass more (google_cloud.READY, PASS) asks for a machine, as none does:
     the next is ready as the chosen one stops taking that work, not turns run here meanwhile."""
     try:
-        aliases = machines.helpers()
+        not_serving = google_cloud.not_serving()
+        aliases = [alias for alias in machines.helpers() if alias not in not_serving]
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
         aliases = []
     if not aliases and not google_cloud.renting():
