@@ -17,7 +17,7 @@ func questionTransition(name string, said func(string) (string, any), clock func
 	}
 	carried := false
 	err := Held(context.Background(), name, func(current string) error {
-		word, _ := said(current)
+		word, since := said(current)
 		if word != "needs you" {
 			return nil
 		}
@@ -47,17 +47,17 @@ func questionTransition(name string, said func(string) (string, any), clock func
 		asked := number(notice, "time")
 		fresh := card.Str("word") != "needs you"
 		if fresh {
-			if card.Str("word") == "done" || gone {
+			if card.Str("word") == "done" {
 				return nil
 			}
-			card = episode(card, "needs you", run.Float(asked), run.Float(asked))
+			card = questionEpisode(current, card, asked, since, gone)
 		}
 		began := card.Get("began")
 		if !card.Has("began") {
 			began = card.Get("since")
 		}
-		start, known := finite(began)
-		if _, dated := finite(card.Get("since")); !dated || !known || start < installedAt() ||
+		_, known = finite(began)
+		if _, dated := finite(card.Get("since")); !dated || !known ||
 			max(number(card, "answered_at"), number(notice, "earlier_answer_at")) > number(card, "since") {
 			return nil
 		}
@@ -75,7 +75,7 @@ func questionTransition(name string, said func(string) (string, any), clock func
 				return err
 			}
 		}
-		if present || now-number(card, "left") < cardWait || now-max(asked, last) < wait {
+		if cardHistory(card) || present || now-number(card, "left") < cardWait || now-max(number(card, "since"), asked, last) < wait {
 			return nil
 		}
 		if gone {

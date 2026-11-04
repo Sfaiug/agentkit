@@ -3,15 +3,14 @@ package notify
 import (
 	"context"
 	"io"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
-// RetryPending carries waiting question cards through the same sender as their first attempt.
-// Other pages and history stay Python's. Each event is read again under the seat's lock, then
-// the outbox's: an answer or a competing sender may have retired or delivered it while we waited.
+// RetryPending carries waiting cards through the same sender as their first attempt.
+// Each event is read again under the seat's lock, then the outbox's: an answer or
+// a competing sender may have retired or delivered it while we waited.
 func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, error) {
 	if !config.Listable(outbox()) {
 		return false, nil
@@ -24,7 +23,7 @@ func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, erro
 		if retrySettled(event) {
 			continue
 		}
-		if !retryQuestion(event) {
+		if !retryCard(event) && !retryHistory(event) {
 			return false, nil
 		}
 		carried := true
@@ -38,6 +37,9 @@ func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, erro
 			if err != nil || event == nil || retrySettled(event) {
 				return err
 			}
+			if retryHistory(event) {
+				return dropHistory(event)
+			}
 			seat, err := readObject(seatFile("seat", current, "json"))
 			if err != nil {
 				return err
@@ -48,7 +50,15 @@ func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, erro
 				event.Set("next_attempt", nil)
 				return writeEvent(event)
 			}
-			if !retryQuestion(event) || !UnansweredQuestion(current) {
+			if !retryCard(event) {
+				carried = false
+				return nil
+			}
+			if event.Str("kind") == "done" {
+				_, err = attempt(event, errOut)
+				return err
+			}
+			if !UnansweredQuestion(current) && (seat == nil || seat.Str("state") != "asking") {
 				carried = false
 				return nil
 			}
@@ -72,11 +82,4 @@ func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, erro
 
 func retrySettled(event *run.Object) bool {
 	return event.Str("status") == "delivered" || event.Str("status") == "disabled" || event.Str("status") == "held"
-}
-
-func retryQuestion(event *run.Object) bool {
-	at, dated := finite(event.Get("created_at"))
-	return event.Str("session") != "" && event.Str("kind") == "needs" && event.Truthy("episode") &&
-		strings.HasPrefix(event.Str("source"), "card:") && dated && at >= installedAt() &&
-		(event.Str("status") == "pending" || event.Str("status") == "blocked")
 }

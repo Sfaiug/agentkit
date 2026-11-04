@@ -14,7 +14,7 @@ import (
 // under that lock, as the seat's last announce published them.  A card dated at or after that is the
 // word the last transition carded, so a word other than its began at this transition.  False, with
 // nothing written, where the card or the word is `needs you` or `done`, or no word was published.
-func turned(name string, said func(current string) (word string, since any), done func(string, *run.Object, any) (bool, error)) (bool, error) {
+func turned(name string, said func(current string) (word string, since any), page func(string, *run.Object, string, any) (bool, error)) (bool, error) {
 	carried := false
 	err := Held(context.Background(), name, func(current string) error {
 		card, err := readObject(seatFile("card", current, "json"))
@@ -25,10 +25,12 @@ func turned(name string, said func(current string) (word string, since any), don
 			card = run.NewObject()
 		}
 		word, since := said(current)
-		if word == "done" && done != nil && card.Str("word") != "needs you" {
+		if page != nil {
 			var err error
-			carried, err = done(current, card, since)
-			return err
+			carried, err = page(current, card, word, since)
+			if carried || err != nil {
+				return err
+			}
 		}
 		carded := card.Get("word")
 		if carried = word != "" && !slices.Contains([]any{"needs you", "done"}, carded) && word != "needs you" && word != "done"; !carried ||

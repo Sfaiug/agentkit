@@ -8,7 +8,7 @@ import (
 )
 
 // Looks is whether Go reads the screen of that harness's seats.
-func Looks(name string) bool { return plugins[name].looks }
+func Looks(name string) bool { return seatDefaults(name).looks }
 
 // RecordedError is the error a seat's conversation ends on, "" where it went on after one, as
 // Python's plugin `error` reads it; false where its harness keeps no record of that conversation
