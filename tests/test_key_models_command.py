@@ -36,7 +36,7 @@ class ModelsCommand(unittest.TestCase):
         return done.out
 
     def test_each_role_s_answer_then_ak_s_own_numbers(self):
-        shown = lines(self.models())
+        shown = lines(self.models().rstrip("\n"))
         at = shown.index(ORCH[0])
         answer = [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND]
         self.assertEqual(shown[at:at + len(answer)], answer)
