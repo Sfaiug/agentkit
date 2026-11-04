@@ -24,6 +24,7 @@ func noLeaseScan() bool {
 	return run.Every(func(_ string, record *run.Object) bool {
 		return !record.Truthy("repo") || !record.Truthy("base_sha") || record.Truthy("no_merge") ||
 			record.Truthy("lease_wait") || !run.Going(record, time.Now()) ||
+			record.Str("state") == "waiting" ||
 			record.Str("state") == "exhausted" || record.Str("state") == "stalled" || record.Str("state") == "waiting_login" ||
 			!directory(record.Str("worktree")) || record.Str("worktree") == record.Str("repo")
 	})

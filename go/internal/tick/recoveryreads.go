@@ -2,7 +2,6 @@ package tick
 
 import (
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -90,30 +89,6 @@ func noErrorRetry() bool {
 		// Even a future retry needs Python's resumability and supersession reads: a worktree
 		// or task gone, or a later merge, can make the row remove that retry now.
 		return run.TickAdmission(record, time.Now()) == "" && !record.Has("error_retry_at") && !record.Has("error_retries")
-	})
-}
-
-var conflictNote = regexp.MustCompile(`(?i)conflict|did not finish the (?:rebase|merge)`)
-
-// Waiting resume reads landing-line receipts before the job and conflict gates.
-func noWaitingResume() bool {
-	return run.Every(func(_ string, record *run.Object) bool {
-		state := record.Str("state")
-		if state != "fail" && state != "waiting" {
-			return true
-		}
-		if wait := record.Dict("waiting_on"); wait != nil && wait.Truthy("line") {
-			return false
-		}
-		if record.Truthy("job_id") {
-			return true
-		}
-		if state == "waiting" {
-			return run.TickAdmission(record, time.Now()) == ""
-		}
-		rounds, _ := record.Int("rounds")
-		return !conflictNote.MatchString(record.Str("merge_note")) || len(record.List("round_summaries")) >= rounds ||
-			run.TickAdmission(record, time.Now()) == ""
 	})
 }
 

@@ -51,7 +51,7 @@ func dependency(record *run.Object) string {
 // Python's, delivering from its own account rather than a fork's, out of a checkout still there.
 func Mergeable(record *run.Object) bool {
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && key != "launched_session" && key != "session" && record.Truthy(key) {
+		if key != "waiting_on" && record.Truthy(key) {
 			return false
 		}
 	}

@@ -239,7 +239,7 @@ func telling(facts climbing) (*answer, error) {
 	wait := facts.file.Dict("wait")
 	if wait == nil || !wait.Truthy("over") || wait.Truthy("told") || facts.found.authority == "" ||
 		facts.found.state != "at_prompt" && facts.found.state != "draft" {
-		return nil, nil
+		return endingNews(facts)
 	}
 	return &answer{word: "working", reason: fmt.Sprintf("telling it its wait on %v is over", wait.Get("on")), since: facts.found.began}, nil
 }

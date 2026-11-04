@@ -72,7 +72,7 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	state := record.Str("state")
-	if !run.Active(record) && !run.Ended(record) && state != "waiting" {
+	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" {
 		return runView{}, false
 	}
 	for _, field := range []string{"waiting_on", "gate_turn", "transient_wait", "process_identity", "lease_wait", "health"} {
@@ -85,9 +85,12 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 			return runView{}, false
 		}
 	}
+	if view, known := decisionRun(record); known {
+		return view, true
+	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
-	// Parked recovery and an ending still owed to the seat need Python's hand-back reader.
-	if !view.going && (run.NeedsRecovery(record) || state == "error" || state == "waiting") || record.Truthy("handback_pending") {
+	// Other parked recovery still needs Python's reader.
+	if !view.going && (run.NeedsRecovery(record) || state == "error" || state == "waiting") {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]

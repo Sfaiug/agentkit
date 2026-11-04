@@ -16,13 +16,16 @@ import (
 )
 
 // pythonRoads are what a record holds on a road Go does not drive: Python's to resume.
-var pythonRoads = []string{"launched_session", "session", "job_id", "review_pr", "from_pass", "waiting_on", "pickup",
+var pythonRoads = []string{"job_id", "review_pr", "from_pass", "waiting_on", "pickup",
 	"stall_resume_at", "resume_after", "lease_wait", "waiting_for"}
 
 // Pickup is whether Go carries that dead run on from where it was cut off: at the review, at the
 // executor or the fixer, or at the next round's start.  Decided before anything is written, as
 // Python's resume takes any other point.
 func Pickup(dir string, record *run.Object) bool {
+	if record.Str("state") == "waiting" {
+		return waitingPickup(dir, record)
+	}
 	if state := record.Str("state"); state != "running" && state != "interrupted" {
 		return false
 	}
@@ -54,7 +57,7 @@ func Woken(record *run.Object) bool {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && key != "launched_session" && key != "session" && record.Truthy(key) {
+		if key != "waiting_on" && record.Truthy(key) {
 			return false
 		}
 	}
@@ -140,6 +143,11 @@ func Reopen(dir string, read *run.Object) error {
 	return run.Change(dir, func(record *run.Object) error {
 		if !run.Equal(record, read) {
 			return ErrChanged
+		}
+		if record.Str("state") == "waiting" && !parkedInLine(record) {
+			if err := resumeWaiting(dir, record); err != nil {
+				return err
+			}
 		}
 		host.EndMarked(dir, io.Discard)
 		if record.Str("state") == "running" {
