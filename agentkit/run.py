@@ -2363,7 +2363,7 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
     read, limit = lines - carried, numbers["orchestrator_lines"]
-    if read > limit:
+    if limit != "no limit" and read > limit:
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
                       f"too big for the seat, which builds at most {limit} added "
                       "lines. Write it as a task and launch it; a worker builds it")

@@ -63,7 +63,10 @@ def shipped_rules():
     """ak's rules beside the program, as a Home that sets no number of its own is handed them."""
     written = (Path(AK).resolve().parents[1] / "orchestrator.md").read_text()
     return Template(written).safe_substitute(review_rounds=3, Review_rounds="Three", s="s", one_over="a fourth",
-                                             executor_lines=300, orchestrator_lines=50)
+        executor_size="at most 300 added lines with its tests; ak refuses more with `split it`",
+        orchestrator_size="you build at most 50 added lines; anything bigger you write as a task "
+                          "and an executor builds it while you write the next. "
+                          "ak refuses your own PR above 50 lines")
 
 
 # cron's line: a tick's two streams appended to its log, the program as $0

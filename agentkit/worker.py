@@ -144,6 +144,8 @@ SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a larg
 
 def size_rule(lines):
     """What a builder is told of the first review's ceiling of `lines` added lines."""
+    if lines == "no limit":
+        return "[checked by ak: tests/test_key_no_limit.py] The change has no line limit."
     return (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
             f"its first review would read more than {lines} added lines, the tests among "
             "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")

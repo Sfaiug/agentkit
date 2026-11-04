@@ -496,12 +496,12 @@ def _policy_in(path, data):
     numbers = {}
     for key, (default, floor, meaning, _) in POLICY.items():
         value = numbers[key] = data.get(key, default)
+        unlimited = ' or "no limit"' if key.endswith("_lines") and isinstance(value, str) else ""
+        if unlimited and value == "no limit":
+            continue
         if type(value) is not int or value < floor:
-            raise Error(f"{path}: {key} must be a whole number of at least {floor}, {meaning} "
+            raise Error(f"{path}: {key} must be a whole number of at least {floor}{unlimited}, {meaning} "
                         f"(got {value!r})")
-    if numbers["orchestrator_lines"] > numbers["executor_lines"]:
-        raise Error(f"{path}: orchestrator_lines {numbers['orchestrator_lines']}, {POLICY['orchestrator_lines'][2]}, is "
-                    f"over executor_lines {numbers['executor_lines']}, {POLICY['executor_lines'][2]}")
     return numbers
 
 
@@ -514,7 +514,15 @@ def in_force(text, table=None):
         numbers = host_policy({})
     rounds = numbers["review_rounds"]
     opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
+    executor, orchestrator = numbers["executor_lines"], numbers["orchestrator_lines"]
+    executor_size = ("no limit on added lines, tests included" if executor == "no limit" else
+                     f"at most {executor} added lines with its tests; ak refuses more with `split it`")
+    orchestrator_size = ("you build with no line limit" if orchestrator == "no limit" else
+                         f"you build at most {orchestrator} added lines; anything bigger you write "
+                         "as a task and an executor builds it while you write the next. "
+                         f"ak refuses your own PR above {orchestrator} lines")
     return Template(text).safe_substitute(numbers, Review_rounds=opening, one_over=over,
+                                          executor_size=executor_size, orchestrator_size=orchestrator_size,
                                           s="" if rounds == 1 else "s")
 
 
