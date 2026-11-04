@@ -93,7 +93,7 @@ class DecisionLine(Sandbox):
         directory, state = self.ending("acme-legacy", state="blocked", verdict="BLOCKED", error="Go claims the keys.")
         with patch.object(config, "host_policy", side_effect=config.Error("config.toml: rounds must be at least 1")):
             line = handback.handback_line(state, directory, self.cfg)
-        self.assertIn("Next: rewrite the task and relaunch it with `from: ak/acme-legacy`. Result: ", line)
+        self.assertIn("Next: rewrite the task and relaunch it. Result: ", line)
 
     def test_an_ending_nothing_decides_about_has_no_decision_line(self):
         for name, extra in (("acme-merged", {"merged": True, "pr": "https://github.com/a/b/pull/1"}),

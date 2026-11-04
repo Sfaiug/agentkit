@@ -1458,11 +1458,11 @@ def next_move(state, run_dir):
         return "split the task", ""
     if state.get("state") == "blocked" or failed_check(state):
         # a launch `from:` the branch inherits its change's rounds, refused once none is left; a
-        # record keeping no numbers, on a host whose own do not read, has a launch that says so
+        # budget that will not read offers no `from:` either, since that launch meets the same error
         try:
             left = transitions.change_budget(state, run_dir, 1, own=len(state.get("round_summaries") or []))[0]
         except config.Error:
-            left = 1
+            left = 0
         return "rewrite the task and relaunch it", f" with `from: {state['branch']}`" if state.get("branch") and left else ""
     return "read the result", ""
 
