@@ -322,7 +322,7 @@ def _bind(own, writable, homes=()):
         parent = next((parent for parent in path.parents if parent in binds), None)
         if path in overlays:
             args.extend(["--overlay-src", str(path), "--tmp-overlay", str(path)])
-        elif (parent is None or parent in overlays
+        elif (parent is None or parent in overlays or (parent in readonly and path in writable)
               or binds[parent] / path.relative_to(parent) != binds[path]):
             args.extend(["--ro-bind" if path in readonly - writable else "--bind",
                          str(binds[path]), str(path)])
