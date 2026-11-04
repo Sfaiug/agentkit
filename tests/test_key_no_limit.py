@@ -23,6 +23,7 @@ class NoLimit(unittest.TestCase):
         akconfig.write(self.home, ["opus", "astra"], settings={} if front else {key: value})
         files = {"AGENTS.md": f"---\n{key}: {value}\n---\nA project.\n"} if front else {}
         self.rig = Rig(self.home, "widgets", files=files)
+        self.rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")
 
     def reviews(self):
@@ -63,7 +64,7 @@ class NoLimit(unittest.TestCase):
                 with self.subTest(front=front, key=key):
                     self.prepare(key, "lots", front=front)
                     task = taskfile.write(self.home, self.rig.path)
-                    done = self.home.ak("run", str(task), timeout=60)
+                    done = self.home.ak("run", str(task), "--no-merge", timeout=60)
                     self.assertEqual(done.code, 2, done.out + done.err)
                     self.assertIn(f'{key} must be a whole number of at least {floor} or "no limit"',
                                   done.err)
