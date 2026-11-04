@@ -56,6 +56,13 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         return sorted(git(path, "rev-parse", "HEAD")
                       for path in (config.HOME / versions.VERSIONS).iterdir())
 
+    def test_run_checkouts_are_shared_by_commit(self):
+        self.go_live()
+        with versions.checkout(self.new) as first:
+            inode = first.stat().st_ino
+        with versions.checkout(self.new) as second:
+            self.assertEqual((second, second.stat().st_ino), (first, inode))
+
     def test_a_lock_a_killed_git_left_is_in_no_move_s_way(self):
         for name in ("HEAD.lock", "index.lock"):
             (self.clone / ".git" / name).write_text("")
