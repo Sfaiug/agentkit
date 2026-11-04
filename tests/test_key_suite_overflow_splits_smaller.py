@@ -142,7 +142,7 @@ def passes(case, cap=UNCAPPED, swap_cap=0, helper=False):
     home.env.update(AK_CGROUP_ROOT=str(home.root / "cgroups"),
                     AK_CGROUP_FILE=str(home.root / "cgroup"), AK_HOST_READINGS=json.dumps(READINGS))
     rig = Rig(home, "widgets", files={
-        "AGENTS.md": "---\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
+        "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
         "suite.py": SUITE.format(address=kernel.address),
         "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
     GitHub(home).grant(rig.slug, "WRITE")

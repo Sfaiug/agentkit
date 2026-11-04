@@ -94,7 +94,7 @@ class ARun(unittest.TestCase):
 
     def prompts(self, name, front, executor):
         """Each role's prompts, by `round-N/role`, of a two-round run in a fresh project."""
-        rig = Rig(self.home, name, files={"AGENTS.md": agents_md(front)})
+        rig = Rig(self.home, name, files={"AGENTS.md": agents_md(f"tests: none\nhealth: none\n{front}")})
         # the fixer disputes the finding, as its done waits on every earlier finding's proof
         fakeadapter.install(self.home, claude=[executor, "dispute"], codex="fail")
         task = taskfile.write(self.home, rig.path, f"Add retry file to {name}",

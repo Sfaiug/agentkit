@@ -52,6 +52,7 @@ def make_repos(root):
         run.git(cwd, "config", "user.name", "fixture")
         run.git(cwd, "config", "user.email", "fixture@localhost")
     (owner / "base.txt").write_text("base\n")
+    (owner / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
     run.git(owner, "add", ".")
     run.git(owner, "commit", "-m", "base")
     run.git(owner, "push", "origin", "main")

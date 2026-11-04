@@ -83,7 +83,7 @@ class AMachineFetchesTheHarness(unittest.TestCase):
         """(where the task's turns ran, what the program said in each) once it passed: opus's first
         turn writes, and with no other model about it reviews too."""
         rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\ntests: true\n---\n# widgets\n",
+            "AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, list(models),

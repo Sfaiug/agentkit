@@ -43,7 +43,7 @@ class MergeBodyQueryFails(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, "widgets",
-                      files={"AGENTS.md": f"---\ntests: {SUITE}\n---\n# widgets\n"})
+                      files={"AGENTS.md": f"---\nhealth: none\ntests: {SUITE}\n---\n# widgets\n"})
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         refuse_merge_body_text(cls.home)
         akconfig.write(cls.home, ["opus", "astra"])

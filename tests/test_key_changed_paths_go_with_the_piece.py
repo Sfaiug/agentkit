@@ -31,7 +31,7 @@ class ChangedPathsGoWithThePiece(unittest.TestCase):
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
-            "AGENTS.md": '---\ntests: : "$AK_SHARD"; sh suite.sh "$AK_CHANGED"\n---\n# widgets\n',
+            "AGENTS.md": '---\nhealth: none\ntests: : "$AK_SHARD"; sh suite.sh "$AK_CHANGED"\n---\n# widgets\n',
             "suite.sh": SUITE_SH, "widget.txt": "v1\n",
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")

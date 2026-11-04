@@ -50,7 +50,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
         home = Home()
         self.addCleanup(home.close)
         rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\ntests: true\n---\n# widgets\n",
+            "AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"],
@@ -137,7 +137,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
 class AResumeItsHarnessCannotOpen(unittest.TestCase):
     def test_goes_to_a_fresh_conversation_at_once(self):
         with Home() as home:
-            rig = Rig(home, "widgets", files={"AGENTS.md": "---\ntests: true\n---\n# widgets\n"})
+            rig = Rig(home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n"})
             akconfig.write(home, ["opus", "astra"])
             lost = {"exit": 1, "events": '{"type": "result", "num_turns": 0}\n',
                     "stderr": "No conversation found with session ID: sid-1\n"}

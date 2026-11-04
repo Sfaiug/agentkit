@@ -114,6 +114,20 @@ def from_refusal(task_path, from_branch, repo, no_worktree):
     return None
 
 
+def require_project_contract(repo):
+    """A task cannot supply its own contract: read the rules tip before allocating its run."""
+    if repo is None:
+        return
+    tip = git(repo, "rev-parse", "--verify", "--quiet", config.RULES_REF, check=False)
+    missing = [f"{key}: {meaning}" for key, meaning in (
+        ("tests", "the command that runs the whole suite at landing, or none where the project has no suite"),
+        ("health", "the command that checks the live product works, or none where nothing is live"))
+        if gitcall.declared_at(repo, tip or config.RULES_REF, key) is None]
+    if missing:
+        raise config.Error(f"{repo}/AGENTS.md on {config.RULES_REF} is missing "
+                           + "; ".join(missing) + ".")
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     fetched = False
@@ -3258,6 +3272,7 @@ def main(argv):
                       f"started {started}, \"{first['title']}\") shares {detail}; "
                       f"{rival_advice()}", file=sys.stderr)
                 return 2
+        require_project_contract(task_repo(meta, task_path))
         check_seat_queue(1)
         run_id = f"{datetime.now():%Y%m%d-%H%M}-{slugify(title)}"
         run_dir = config.RUNS / run_id

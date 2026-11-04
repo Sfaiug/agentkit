@@ -26,7 +26,7 @@ FAILING = "echo the acme cluster is not there; exit 3"
 
 
 def agents_md(cleanup):
-    return f"---\nusers: none\ncleanup: {cleanup}\n---\n# widgets\n"
+    return f"---\nusers: none\ntests: none\nhealth: none\ncleanup: {cleanup}\n---\n# widgets\n"
 
 
 class RepoCleanup(unittest.TestCase):

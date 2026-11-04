@@ -453,7 +453,9 @@ def declared_suite(wt, target=None, *, ref=None):
     if not ref and target:
         ref = target if target.startswith("origin/") else f"origin/{target}"
     suite = declared_at(wt, ref, "tests") if ref else None
-    return suite or declared(wt, "tests")
+    if suite is None:
+        suite = declared(wt, "tests")
+    return suite or None
 
 
 def with_suite(cmds, wt, target=None, *, landing=True, ref=None):
@@ -1254,7 +1256,7 @@ def _patch_name(header, mark, prefix):
 
 
 def declared(wt, key):
-    """`key`'s value in the front matter of the checkout's AGENTS.md as written, or None."""
+    """`key`'s declared value (`front_value`) in the checkout's AGENTS.md."""
     try:
         text = (Path(wt) / "AGENTS.md").read_text(errors="replace")
     except OSError:
@@ -1263,14 +1265,15 @@ def declared(wt, key):
 
 
 def front_value(text, key):
-    """`key`'s value in AGENTS.md front matter text as written, or None."""
+    """`key`'s value, None if missing, or empty for `tests: none` and `health: none`."""
     match = FRONT.match(text)
     if not match:
         return None
     for line in match.group(1).splitlines():
         name, sep, value = line.strip().partition(":")
         if sep and name.strip() == key and value.strip():
-            return value.strip()
+            value = value.strip()
+            return "" if key in ("tests", "health") and value == "none" else value
     return None
 
 

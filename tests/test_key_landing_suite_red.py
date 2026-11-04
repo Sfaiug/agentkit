@@ -44,7 +44,7 @@ class LandingSuiteRed(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, "widgets",
-                      files={"AGENTS.md": f"---\ntests: {SUITE}\n---\n# widgets\n"})
+                      files={"AGENTS.md": f"---\nhealth: none\ntests: {SUITE}\n---\n# widgets\n"})
         cls.gh = GitHub(cls.home)
         cls.gh.grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])

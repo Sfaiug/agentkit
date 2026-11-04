@@ -50,7 +50,7 @@ elif verb == "prepare":
 
 
 def front(image):
-    return f"---\ntests: {SUITE}\nsuite_image: {image}\n---\n# widgets\n"
+    return f"---\nhealth: none\ntests: {SUITE}\nsuite_image: {image}\n---\n# widgets\n"
 
 
 def staged(case, files):

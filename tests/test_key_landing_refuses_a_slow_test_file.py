@@ -44,7 +44,7 @@ class LandingRefusesASlowTestFile(unittest.TestCase):
     def land(self, seconds, *, existed=False, anchor=1000, revised=False):
         home = Home()
         self.addCleanup(home.close)
-        rules = f"---\ntests: {SUITE}\n---\n# sprouts\n"
+        rules = f"---\nhealth: none\ntests: {SUITE}\n---\n# sprouts\n"
         rig = Rig(home, "sprouts", files={
             "AGENTS.md": rules.replace(SUITE, SUITE + " anchor") if revised else rules,
             "suite.sh": RUNNER, ANCHOR: f"{anchor}\n",

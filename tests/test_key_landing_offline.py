@@ -74,7 +74,7 @@ class LandingOffline(unittest.TestCase):
         cls.addClassCleanup(cls.listener.close)
         port = cls.listener.getsockname()[1]
         cls.rig = Rig(cls.home, "widgets", files={
-            "AGENTS.md": f"---\ntests: {LINE}\n---\n# widgets\n",
+            "AGENTS.md": f"---\nhealth: none\ntests: {LINE}\n---\n# widgets\n",
             "tests/suite.py": SUITE.replace("HOST_PORT", str(port))})
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])

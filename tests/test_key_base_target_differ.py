@@ -60,7 +60,7 @@ class BaseTargetDiffer(unittest.TestCase):
         self.assertEqual(self.rig.head(), merge["commit"])
         parents = self.rig.origin("rev-parse", "main^1", "main^2").split()
         self.assertEqual(parents, [self.main, self.state["delivery_sha"]])
-        self.assertEqual(sorted(self.rig.files()), [".keep", "feature.txt", "retry.txt"])
+        self.assertEqual(sorted(self.rig.files()), [".keep", "AGENTS.md", "feature.txt", "retry.txt"])
         self.assertEqual(self.rig.branches(), ["feature", "main"])
 
     def test_it_merges_the_reviewed_commit_whose_tree_the_final_check_tested(self):

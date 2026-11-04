@@ -114,7 +114,7 @@ class RunSwapShare(unittest.TestCase):
             self.addCleanup(manager.close)
             home.fake("busctl", "#!/bin/sh\nexit 1\n")     # nor does the manager move a process
             # a suite to land with: only a lander runs it
-            rig = Rig(home, "widgets", files={"AGENTS.md": "---\ntests: true\n---\n# widgets\n"})
+            rig = Rig(home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n"})
             GitHub(home).grant(rig.slug, "WRITE")
             akconfig.write(home, ["opus", "astra"])
             fakeadapter.install(home, claude="work", codex="pass")

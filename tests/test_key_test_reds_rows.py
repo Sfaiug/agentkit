@@ -56,7 +56,7 @@ class SuiteRun:
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         cls.rig = Rig(cls.home, cls.repo, files={
-            "AGENTS.md": f"---\ntests: {cls.suite}\n---\n# widgets\n", "suite.py": cls.runner,
+            "AGENTS.md": f"---\nhealth: none\ntests: {cls.suite}\n---\n# widgets\n", "suite.py": cls.runner,
             ".gitignore": ".web-seen\n", **cls.tests})
         GitHub(cls.home).grant(cls.rig.slug, "WRITE")
         akconfig.write(cls.home, ["opus", "astra"])

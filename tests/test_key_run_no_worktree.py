@@ -19,7 +19,7 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
-AGENTS = '---\ncleanup: pwd >>"$HOME/cleaned"\n---\n# widgets\n'
+AGENTS = '---\ntests: none\nhealth: none\ncleanup: pwd >>"$HOME/cleaned"\n---\n# widgets\n'
 
 
 class NoWorktree(unittest.TestCase):

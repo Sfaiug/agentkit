@@ -20,7 +20,7 @@ class Project(unittest.TestCase):
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
-        self.rig = Rig(self.home, "widgets", files={"AGENTS.md": "# widgets\n"})
+        self.rig = Rig(self.home, "widgets")
 
     def test_the_clone_tracks_a_bare_origin_holding_one_init_commit(self):
         rig = self.rig

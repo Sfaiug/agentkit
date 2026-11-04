@@ -35,7 +35,7 @@ class Round:
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         cls.rig = rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\ntests: test -f retry.txt\n---\n# widgets\n",
+            "AGENTS.md": "---\nhealth: none\ntests: test -f retry.txt\n---\n# widgets\n",
             "widget.txt": BASE, "other.txt": "base\n"})
         cls.base = rig.head()
         GitHub(home).grant(rig.slug, "WRITE")

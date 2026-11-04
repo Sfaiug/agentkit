@@ -78,6 +78,7 @@ class Sandbox(unittest.TestCase):
         repo.mkdir()
         self.git("init", "-q", cwd=repo)
         (repo / "README.md").write_text("v5ad fixture\n")
+        (repo / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
         self.git("add", "-A", cwd=repo)
         self.git("-c", "user.name=v5ad", "-c", "user.email=v5ad@example.invalid",
                  "commit", "-qm", "init", cwd=repo)
@@ -86,6 +87,7 @@ class Sandbox(unittest.TestCase):
         self.git("init", "-q", "--bare", str(bare), cwd=self.root)
         self.git("remote", "add", "origin", str(bare), cwd=repo)
         self.git("push", "-q", "origin", "main", cwd=repo)
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main", cwd=repo)
         return repo
 
     def task_text(self, title, cmds, repo):
@@ -281,6 +283,7 @@ class Sandbox(unittest.TestCase):
         task.write_text("---\nrounds: 1\n---\n# Task\n\n## Done when\n```bash\ntrue\n```\n")
         # Assume a ready box: the hostile Popen mock is for repository resolution and launch.
         with patch.object(run.box, "check", return_value=None), \
+                patch.object(run, "tool_run", return_value=(1, "", "")), \
                 patch.object(run.subprocess, "Popen", **{"return_value.pid": 99999999}), \
                 patch.object(orch, "scope_oom_policy", return_value=False), \
                 patch.object(run, "preflight", return_value=None), \

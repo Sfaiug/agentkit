@@ -64,7 +64,7 @@ def land(case, first, cue, then):
     if first:
         room.write_text(first)
     rig = Rig(home, "widgets", files={
-        "AGENTS.md": "---\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
+        "AGENTS.md": "---\nhealth: none\ntests: python3 suite.py # AK_SHARD\n---\n# widgets\n",
         "suite.py": SUITE.format(here=address),
         "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
     GitHub(home).grant(rig.slug, "WRITE")

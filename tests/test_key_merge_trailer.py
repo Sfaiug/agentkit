@@ -43,7 +43,7 @@ class SuitePasses(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.home, cls.rig, cls.done, cls.state = merged_run(
-            cls, {"AGENTS.md": f"---\ntests: {SUITE}\n---\n# widgets\n"})
+            cls, {"AGENTS.md": f"---\nhealth: none\ntests: {SUITE}\n---\n# widgets\n"})
 
     def test_the_declared_suite_runs_once_at_landing_and_the_run_records_it(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)

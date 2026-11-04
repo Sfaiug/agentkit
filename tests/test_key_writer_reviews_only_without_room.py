@@ -136,7 +136,7 @@ class ResumeAfterPassedReview(unittest.TestCase):
                "final": "## Summary\nremoved bad.txt", "hand_in": [["done"]]}
         home = staged(cls, ["opus", "astra"], ["opus", "astra"],
                       {"codex": [meter(100, over, HOURS), meter(10, time.time() + 86400)]},
-                      files={"AGENTS.md": f"---\ntests: {suite}\n---\n# widgets\n"},
+                      files={"AGENTS.md": f"---\nhealth: none\ntests: {suite}\n---\n# widgets\n"},
                       claude=[work, "pass", fix], codex="pass")
         GitHub(home).grant(cls.rig.slug, "WRITE")
         first = threading.Thread(target=home.ak, args=(

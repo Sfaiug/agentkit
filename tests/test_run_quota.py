@@ -549,10 +549,12 @@ class QuotaDry(unittest.TestCase):
                      ("config", "user.name", "Fixture")):
             subprocess.run(["git", "-C", str(repo), *args], check=True)
         (repo / "README.md").write_text("fixture\n")
+        (repo / "AGENTS.md").write_text("---\ntests: none\nhealth: none\n---\n")
         subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
         subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True,
                        env={**os.environ, "GIT_AUTHOR_DATE": "@1 +0000",
                             "GIT_COMMITTER_DATE": "@1 +0000"})
+        subprocess.run(["git", "-C", str(repo), "update-ref", config.RULES_REF, "HEAD"], check=True)
         self.task.write_text(f"---\nrepo: {repo}\nbase: main\nrounds: 1\n---\n# Ran dry\n\n"
                              "## Done when\n```bash\ntest -f deliverable\n```\n")
         return repo

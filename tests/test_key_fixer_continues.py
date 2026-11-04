@@ -133,7 +133,7 @@ class AProvenFindingTheFixMakesPassPasses(Run, unittest.TestCase):
         self.assert_passed_in_the_second_round()
         tree = self.home.run("git", "-C", self.state["worktree"], "ls-tree", "--name-only",
                              "HEAD")
-        self.assertEqual(sorted(tree.out.split()), [".keep", "fixed.txt", "retry.txt"])
+        self.assertEqual(sorted(tree.out.split()), [".keep", "AGENTS.md", "fixed.txt", "retry.txt"])
 
     def test_the_fixed_finding_stays_in_the_result_as_a_note_not_a_finding(self):
         self.assertNotIn("## Reviewer findings", self.result)
