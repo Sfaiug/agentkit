@@ -1345,9 +1345,10 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
         flaky = ("A `flaky:` record is ak's own rule, not a weakened check: a done-when command "
                  "that fails runs once more at once, and it passes if that re-run does.")
     lp.log(f"--- round {lp.rnd}: reviewer {lp.reviewer}")
+    decided = prompts.decided_section(lp.run_dir / "task.md")
 
     def body_with(section):
-        text = (f"{lp.body}\n\n" + prompts.decided_section(lp.body) + f"{section}\n\n"
+        text = (f"{lp.body}\n\n{decided}{section}\n\n"
                 + (disputes.text + "\n" if disputes.disputes else "")
                 + f"{heading}\n"
                 + (f"{deferred}\n" if deferred else "")

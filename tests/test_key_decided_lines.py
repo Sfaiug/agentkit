@@ -84,6 +84,25 @@ class LaunchDecisions(unittest.TestCase):
         done = self.home.ak("run", str(task), timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
 
+    def test_repository_decided_headings_are_not_task_decisions(self):
+        prose = "Use Python for scripts.\nAccepted: repository rules are prose."
+        rig = Rig(self.home, files={"AGENTS.md":
+            "---\ntests: true\nhealth: none\n---\n# Project rules\n\n## Decided\n" + prose + "\n"})
+        for decisions in ((), (ACCEPTED,)):
+            with self.subTest(decisions=decisions):
+                task = taskfile.write(self.home, rig.path, f"Task with {len(decisions)} decisions",
+                                      decided=decisions)
+                done = self.home.ak("run", str(task), "--no-merge", timeout=300)
+                self.assertEqual(done.code, 0, done.out + done.err)
+                prompt = Path(self.fakes["codex"].runs()[-1]["argv"][3]).read_text()
+                self.assertIn(prose, prompt)
+                if decisions:
+                    settled = prompt.split(MARKER, 1)[1].split("\n## ", 1)[0]
+                    self.assertIn(ACCEPTED, settled)
+                    self.assertNotIn(prose, settled)
+                else:
+                    self.assertNotIn(MARKER, prompt)
+
     def test_accepted_lines_do_not_dismiss_a_failing_finding_proof(self):
         self.fakes["codex"].behave("fail")
         task = taskfile.write(self.home, "none", front={"rounds": 1},

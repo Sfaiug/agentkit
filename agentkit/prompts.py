@@ -61,8 +61,11 @@ def plan_context(seat):
             "whose proof is that line's check, run with `--run`.\n\n")
 
 
-def decided_section(body):
-    lines = taskfile.decided(body)
+def decided_section(path):
+    """Read only the task: the worker body also carries repository rules."""
+    if not path.is_file():
+        return ""
+    lines = taskfile.decided(taskfile.parse_task(path)[1])
     if not lines:
         return ""
     return ("## Decided before the build\n"
