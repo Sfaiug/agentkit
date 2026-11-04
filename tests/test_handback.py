@@ -203,6 +203,72 @@ class HandBack(Sandbox):
                               "VERDICT: FAIL\n\n## Findings\n- a.py:1 - one - why\n"
                               "- b.py:2 - two - why\n"))
 
+    def health_merge(self, name="run-api"):
+        self.stack.enter_context(patch.object(watch, "start_live_probe"))
+        self.rows = [self.live()]
+        directory = self.ended(name, owner=SEAT, repo=str(self.root), merged=True,
+                               pr="https://github.com/acme/widget/pull/7", merge_sha="a" * 40,
+                               health={"command": "false", "output": "still deploying"}, deployed=None)
+        with record.record(directory) as current:
+            current["review"].update(head_sha="a" * 40, tree_sha="b" * 40)
+        return directory
+
+    def test_a_wait_accepted_after_a_routine_merge_ends_with_one_live_notice(self):
+        for kind in ("run", "pr"):
+            with self.subTest(kind=kind):
+                self.setUp()
+                config.plan_path(SEAT).write_text("- [x] previous outcome\n")
+                directory = self.health_merge(f"run-{kind}")
+                handback.announce(record.read_state(directory), directory, self.logs.append)
+                self.assertEqual(record.read_state(directory)["handback_note"], handback.ROUTINE_NOTE)
+                config.plan_path(SEAT).write_text("- [ ] verify the api\n")
+                state = record.read_state(directory)
+                self.stack.enter_context(patch.object(watch, "gh_json", return_value=(
+                    {"state": "MERGED", "number": 7, "mergeCommit": {"oid": "a" * 40}}, "")))
+                with patch.dict(os.environ, {config.SESSION_ENV: SEAT}):
+                    self.assertEqual(watch.wait_main([directory.name if kind == "run" else state["pr"]]), 0)
+                with patch.object(watch, "health_command", return_value=(True, "")):
+                    watch.after_merge_health(directory, state, "acme/widget", "a" * 40,
+                                             state["pr"], 10000, False, self.logs.append, {})
+                watch.offer_endings(self.logs.append)
+                watch.wait_over(self.cfg, self.logs.append)
+                self.assertEqual(self.typed, [(SEAT, handback.live_line(state, directory))])
+                self.assertTrue(watch.seat_read(SEAT)["wait"]["told"])
+
+    def test_not_live_settles_the_held_merge_on_a_seat_without_prompt_context(self):
+        directory = self.health_merge()
+        config.update_session(SEAT, orchestrator="grok")
+        config.plan_path(SEAT).write_text("- [ ] verify the api\n")
+        handback.announce(record.read_state(directory), directory, self.logs.append)
+        with patch.object(watch.time, "time", return_value=9991 + watch.AFTER_MERGE_WINDOW):
+            watch.after_merge_checks({}, False, self.logs.append)
+            watch.offer_endings(self.logs.append)
+        self.assertEqual(len(self.typed), 1, self.typed)
+        self.assertIn(" NOT LIVE ", self.typed[0][1])
+
+    def test_the_live_follower_waits_for_the_sleeping_seats_prompt(self):
+        directory = self.health_merge()
+        config.plan_path(SEAT).write_text("- [ ] verify the api\n")
+        config.update_session(SEAT, launched=1, asleep=2)
+        self.rows, self.screen = [], "working"
+
+        def resume(_cfg, name, **_kw):
+            self.rows = [self.live()]
+            config.update_session(name, launched=10000)
+            return name
+
+        with patch.object(orch, "resume", side_effect=resume) as wake, \
+                patch.object(watch, "health_command", return_value=(True, "")), \
+                patch.object(watch.time, "sleep", side_effect=lambda _s: setattr(self, "screen", "at_prompt")):
+            handback.announce(record.read_state(directory), directory, self.logs.append)
+            wake.assert_not_called()
+            self.assertEqual(watch.follow_live(directory), 0)
+        wake.assert_called_once()
+        self.assertTrue(record.read_state(directory).get("live_notified"))
+        self.assertEqual(len(self.typed), 1, self.typed)
+        self.assertIn("merged", self.typed[0][1])
+        self.assertIn(" is live:", self.typed[0][1])
+
     def tick(self):
         """One real `ak watch` of the hand-back's passes, with GitHub unavailable so it stops
         before its PR passes."""
