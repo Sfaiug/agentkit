@@ -2697,15 +2697,6 @@ def colour(cfg, name):
     return COLOURS.get(name, "accent")
 
 
-def company(cfg, maker):
-    """The provider a board's `maker` makes the models of, as COLOURS names it: the one whose
-    `maker` names it, the config's own table before the shipped one, else its name in lower
-    case: `Acme`, acme."""
-    tables = [*cfg["providers"].items(), *(config.shipped().get("providers") or {}).items()]
-    return next((name for name, entry in tables
-                 if isinstance(entry, dict) and entry.get("maker") == maker), maker.lower())
-
-
 def hue(kind):
     """Where a colour sorts: red through violet by its hue, then the near-greys, lightest first.
 
@@ -3202,7 +3193,7 @@ DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
             "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
             "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0"}
-# a cost is a task of the evaluation of the measure of that name
+# a board cost is a task of the evaluation of the measure of that name
 TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
     ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
     ("review", "aa.frontierCode20"))}
@@ -3212,6 +3203,10 @@ BEHIND = "behind the best"
 def pointed(role, row):
     """Where the models screen's pointer is on `row` of `role`'s answer."""
     return ("row", role, row["release"], row["effort"])
+
+
+def model_cost(found, row):
+    return f"{row['cost']:.2f}%" if found["cost_unit"] == "share" else f"${row['cost']:.2f}"
 
 
 def models_said(answer, lineup):
@@ -3237,12 +3232,14 @@ def models_said(answer, lineup):
                 pointed(role, row), mark, row["name"], terminal.effort_cells(
                     len(taken), taken.index(row["effort"]) + 1),
                 row["effort"] or "", max(0, 1 - (found["best"] - row["quality"]) / 10),
-                f"{row['quality']:.1f}", f"${row['cost']:.2f}", notes, row["maker"]))
+                f"{row['quality']:.1f}", model_cost(found, row), notes, row["maker"]))
             if row is pick and not take:
                 lines.append("no harness of yours runs a model this good")
         # the first row is the best but where the best has no cost, so the head says it then
         said.append((f"{head} · none" if not front else f"{head} · best {found['best']:.1f}"
-                     if front[0]["quality"] < found["best"] else head, lines))
+                     if front[0]["quality"] < found["best"] else head, lines,
+                     {"share": "week %", "money": "plan $", "board_dollars": "a task"}[
+                         found["cost_unit"]]))
     return said
 
 
@@ -3267,7 +3264,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     `compared` (matrix.compared) and when
     the boards were read, broken only at ` · `."""
     room = terminal.layout_width()
-    rows = [line for _, lines in said for line in lines if isinstance(line, tuple)]
+    rows = [line for _, lines, _ in said for line in lines if isinstance(line, tuple)]
     tall = max((len(cells) for _, _, _, cells, *_ in rows), default=0)
 
     def effort(cells, word):
@@ -3277,7 +3274,8 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     levelled = max((terminal.cells(effort(cells, word)) for _, _, _, cells, word, *_ in rows),
                    default=0)
     widths = [*(max(terminal.cells(text) for text in [head, *(row[n] for row in rows)])
-                for n, head in ((6, "quality"), (7, "a task"))),
+                for n, head in ((6, "quality"), (7, max((unit for _, _, unit in said),
+                                                       key=terminal.cells, default="a task")))),
               max((terminal.cells(note) for *_, notes, _ in rows for note in notes), default=0)]
     after = 2 + widths[0] + 2 + widths[1] + 2 + widths[2]     # the columns after the line
     before = 2 + MARK + 2 + label + 2 + levelled + 2          # the cells before a row's line
@@ -3287,7 +3285,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     before = before if wide else 4                            # folded, the line under the name
     size = max(8, room - before - after)
     under = 2 + MARK + 2 + 2 if wide else 6                   # 2 cells in from a row's name
-    first = next((number for number, (_, lines) in enumerate(said) if lines), None)
+    first = next((number for number, (_, lines, _) in enumerate(said) if lines), None)
     lines, places = [], {}
 
     def put(line, here=None):
@@ -3304,14 +3302,15 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
         moves.append((len(lines) - 1, LINES, None, lambda clock, row, since, _: grow_line(
             clock, row, drawn, slice(start, start + size), lambda cells: motion.growing(
                 cells, since + above * motion.STAGGER))))
-    for number, (head, said_lines) in enumerate(said):
+    for number, (head, said_lines, unit) in enumerate(said):
         here = None
         if number:
             put("")
-        if number != first or not wide:
+        headings = number == first or (said_lines and number and unit != said[number - 1][2])
+        if not (headings and wide):
             put("  " + head)
-        if number == first:
-            put(terminal.table_row([head if wide else "", "quality", "a task"],
+        if headings:
+            put(terminal.table_row([head if wide else "", "quality", unit],
                                    [before + size - 2, *widths[:2]], indent="  ",
                                    kinds=(None, "dim", "dim"), right=(1, 2)))
         for line in said_lines:
@@ -3401,7 +3400,8 @@ def models_why(found, role, row):
     wide = width + 2 + len(BEHIND) + 2 + max(terminal.cells(how) for _, _, how in hows) <= room
     lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}",
              *packed([f"quality {row['quality']:.1f} ± {row['se']:.1f}",
-                      f"${row['cost']:.2f} a {TASKS[quality.COSTS[role]]} task"
+                      model_cost(found, row) + (" a task" if found["cost_unit"] != "board_dollars"
+                                               else f" a {TASKS[quality.COSTS[role]]} task")
                       if row["cost"] is not None else "no cost"], "   ", room),
              *(["the best"] if row is top else packed(
                  [f"{top['quality'] - row['quality']:.1f} {BEHIND},", named(top, room)], " ",
@@ -3448,9 +3448,9 @@ def models_screen(cfg, session, selected, providers):
                 clock.touch(LINES)    # news as they first show: the lines grow in
             current = {row["release"] for row in lineup}
             compared = matrix.compared(cfg, current)
-            answer = matrix.answer(lineup, compared)
+            answer = matrix.answer(lineup, compared, cfg=cfg)
             said = models_said(answer, lineup)
-            makers = {line[0]: line[-1] for _, lines in said for line in lines
+            makers = {line[0]: line[-1] for _, lines, _ in said for line in lines
                       if isinstance(line, tuple)}
             rows = list(makers)
             if here not in rows:
@@ -3461,7 +3461,7 @@ def models_screen(cfg, session, selected, providers):
         moves, lit = [], pointing and not terminal.away() and makers.get(here)
         body, places = models_body(said, compared, len(current),
                                    held.get("fetched_at"), None if terminal.away() else here,
-                                   moves, lit and (lit, colour(cfg, company(cfg, lit))))
+                                   moves, lit and (lit, colour(cfg, config.company(cfg, lit))))
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == LEGEND_ROW)
         places = {line: place for line, place in places.items() if line < fold}

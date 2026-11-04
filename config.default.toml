@@ -108,7 +108,7 @@ mode = "subscription"
 
 # No mode: MiMo's is read off the global OpenCode opencode.json, over any mode written here --
 # a plain token-plan URL is a subscription, anything else payg.  `maker` is the boards' name for
-# who makes a provider's models, where that is not the provider's own (menu.company).
+# who makes a provider's models, where that is not the provider's own (config.company).
 [providers.mimo]
 maker = "Xiaomi"
 

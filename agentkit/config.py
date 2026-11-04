@@ -768,6 +768,14 @@ def shipped():
         return {}
 
 
+def company(cfg, maker):
+    """The provider a board's `maker` makes the models of: the one whose `maker` names it,
+    the config's own table before the shipped one, else its name in lower case."""
+    tables = [*cfg["providers"].items(), *(shipped().get("providers") or {}).items()]
+    return next((name for name, entry in tables
+                 if isinstance(entry, dict) and entry.get("maker") == maker), maker.lower())
+
+
 def _fall_back(defaults, left, written=True):
     """Keep defaults to models `left`; executors written empty beside reviewers stay empty,
     and a `[defaults]` that never named its executors falls back to the first model."""
