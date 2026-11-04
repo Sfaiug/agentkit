@@ -71,7 +71,18 @@ class SettledRuns(unittest.TestCase):
                    body=FIX + "\n")
         cls.launch("Add web file", [work("web.txt")], ["pass"], "--no-merge")
         cls.stopped()
-        cls.launch("Add api file", [work("api.txt")], ["pass"])
+        cls.launch("Add api file", [work("api.txt")], ["pass"], "--no-merge")
+        # Publish the reviewed local work externally; the tick starts with a settled receipt.
+        directory = next(path for path in taskfile.runs(home) if path.name.endswith("-add-api-file"))
+        merged = json.loads((directory / "run.json").read_text())
+        cls.rig.git("push", "-q", "origin", merged["branch"])
+        url = cls.gh.open_pr(cls.rig, merged["branch"], author="acme")
+        done = home.run("gh", "pr", "merge", url, "--squash", "--delete-branch", cwd=cls.rig.path)
+        assert done.code == 0, done.out + done.err
+        cls.rig.git("worktree", "remove", "--force", merged["worktree"])
+        cls.rig.git("branch", "-D", merged["branch"])
+        merged.update(merged=True, no_merge=False, pr=url, health={}, deployed=None)
+        home.write(f".agentkit/runs/{directory.name}/run.json", merged)
         # the seat's plan, read, ticks its one line: the merge proved it
         cls.seat_says("plan")
         # the checkout has fetched since, which forgot the merged branch origin deleted, and git
