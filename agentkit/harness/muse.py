@@ -651,7 +651,8 @@ def running(record, cwd, conversation):
     path = session_log(conversation)
     entry = path and last_entry(path, lambda each: isinstance(model(each), str)
                                and type(each.get("recorded_at")) is int)
-    return ((model(entry), None, entry["recorded_at"] / 1_000_000)
+    effort = ((record.get("efforts") or {}).get(record.get("orchestrator")) or {}).get("effort")
+    return ((model(entry), effort, entry["recorded_at"] / 1_000_000)
             if entry else None)
 
 

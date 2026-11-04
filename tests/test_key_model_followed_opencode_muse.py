@@ -2,7 +2,7 @@
 `/model` typed in a Claude or Codex seat does (the owner, 30 Oct 2026): once ak has looked at
 the seat, `ak orch list` names the model its latest answer since the launch ran on, and its
 record holds the effort OpenCode recorded with it.  Muse records no effort of a session's own,
-so a Muse seat follows the model alone.  An answer from before the launch moves nothing.
+so a Muse seat keeps its effort across a model change.  An answer before the launch moves nothing.
 Black-box: `AK_BIN` lists akseat.py seats on each harness's prompt screen, whose answers are
 written where each harness keeps them -- opencode.db's rows as OpenCode 2.1.1 writes them, a
 session.jsonl's lines as Muse 1.4 does; it fails against `/bin/false`."""
