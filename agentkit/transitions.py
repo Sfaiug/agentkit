@@ -147,7 +147,8 @@ def history_start(state, log=None):
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
                       orchestrator=record.get("orchestrator") if record else None,
-                      change=change_name(state), kind=run_kind(state), log=log)
+                      change=change_name(state), kind=run_kind(state),
+                      plan_line=state.get("plan_line"), log=log)
 
 
 def changed_files(state):
