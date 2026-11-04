@@ -38,7 +38,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"usage", "--json"},
 		{"worker", "acme", task},
 		{"run", task},
-		{"run", "gc"},
 		{"run", "--review-pr", "https://github.com/acme/api/pull/12"},
 		{"orch", "acme", "--dry-run"},
 		{"orch", "acme"},
@@ -48,7 +47,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"plan", "check", "²", "a\nb"},
 		{"plan", "check", "1", "true \xff"},
 		{"notify", "needs", "Which branch?"},
-		{"watch"},
 		{"watch", "--dry-run"},
 	}
 	if runtime.GOOS == "darwin" {

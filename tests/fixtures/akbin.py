@@ -62,8 +62,8 @@ Done = namedtuple("Done", "code out err")
 def shipped_rules():
     """ak's rules beside the program, as a Home that sets no number of its own is handed them."""
     written = (Path(AK).resolve().parents[1] / "orchestrator.md").read_text()
-    return Template(written).safe_substitute(rounds=3, Rounds="Three", s="s", one_over="a fourth",
-                                             review_lines=300, seat_lines=50)
+    return Template(written).safe_substitute(review_rounds=3, Review_rounds="Three", s="s", one_over="a fourth",
+                                             executor_lines=300, orchestrator_lines=50)
 
 
 # cron's line: a tick's two streams appended to its log, the program as $0

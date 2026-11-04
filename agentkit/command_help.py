@@ -66,14 +66,14 @@ COMMANDS = {
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
-       ak run status [ID] [--history] [--why] [--plain] [--json]
+       ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]
        ak run resume ID [--rounds N] [--bg]
        ak run stop ID [--keep]
        ak run merge ID | ak run clean ID | ak run gc [--dry-run]""",
             """Execute, verify, review, push, open a PR and merge.
---rounds sets the round limit, at most $rounds (default: task rounds or $rounds).
+--rounds sets the round limit, at most $review_rounds (default: task rounds or $review_rounds).
 --anyway starts even when a run in the same repository looks already under way;
-a task over $rounds round$s is refused regardless.
+a task over $review_rounds round$s is refused regardless.
 --no-worktree uses the repo's current branch; --no-merge keeps work local.
 --bg detaches and prints a launch receipt, run ID and result path.
 --first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.
@@ -86,12 +86,14 @@ max_runs caps the count when positive; 0 leaves host memory as the gate
 PASS with green checks, anyone else's asks the inbox.
 Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
             "ak run task.md --bg"),
-    "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json]",
-                   "Show current work and result paths; --history includes older runs.",
+    "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]",
+                   "Show current work and result paths; --history includes older runs.\n"
+                   "--tests alone audits this checkout's test times, flakes, catches and main reds\n"
+                   "over its retained rows, proposing splits and fixes or deletions.",
                    "ak run status --history --json"),
     "run resume": ("usage: ak run resume ID [--rounds N] [--bg]",
-                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most $rounds.",
-                   "ak run resume RUN_ID --rounds $rounds --bg"),
+                   "Resume interrupted or exhausted work; --rounds raises the round limit, at most $review_rounds.",
+                   "ak run resume RUN_ID --rounds $review_rounds --bg"),
     "run merge": ("usage: ak run merge ID",
                   "Retry delivery of a finished PASS; reverify if integration changes its commit.",
                   "ak run merge RUN_ID"),

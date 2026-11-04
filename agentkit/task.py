@@ -13,6 +13,13 @@ TASK_KEYS = ("after", "base", "done_when_minutes", "files", "from", "merge", "re
 # What a task tells its run to make a given failing command pass: a repair, a follow-up, a night.
 FIX_THE_COMMAND = (
     "Your checkout starts on the target branch's tip, fetched when this run "
+    "started. ak checked the command below there before your first turn. "
+    "Fix the root cause so it passes, and show it failing before the "
+    "fix and passing afterwards in your summary. If only the owner can decide, "
+    'run `ak hand-in blocked "<question>"`.')
+# Queued and interrupted tasks keep their original instructions.
+OLD_FIX_THE_COMMAND = (
+    "Your checkout starts on the target branch's tip, fetched when this run "
     "started: run the command below there first. If it "
     'passes there now, run `ak hand-in not-needed "<why>"`, with no edits or PR. '
     "Otherwise fix the root cause so it passes, and show it failing before the "
@@ -59,6 +66,26 @@ def parse_task(path):
     pairs, body = front_matter(path)
     title = next((l[2:].strip() for l in body.splitlines() if l.startswith("# ")), path.stem)
     return dict(pairs), body, title
+
+
+def goal_text(body):
+    """Keep the Goal's indentation and examples; headings inside fences are its text."""
+    lines, found, fence = [], False, ""
+    for line in body.splitlines(keepends=True):
+        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)", line)
+        if fence:
+            if marker and marker[1].startswith(fence) and not marker[2].strip():
+                fence = ""
+        elif marker and (marker[1][0] == "~" or "`" not in marker[2]):
+            fence = marker[1]
+        elif re.match(r"##[ \t]+", line):
+            if found:
+                break
+            found = bool(re.fullmatch(r"##[ \t]+Goal[ \t]*\n?", line, re.I))
+            continue
+        if found:
+            lines.append(line)
+    return "".join(lines).strip("\n")
 
 
 def task_files(path):
@@ -200,7 +227,7 @@ def opens_heredoc(command):
 def rounds_refusal(value, what, budget):
     """One sentence when a round budget asked for is over the rule, else None.
 
-    `budget`, the `rounds` in force (`config.policy`), is never a default to raise: a run
+    `budget`, the `review_rounds` in force (`config.policy`), is never a default to raise: a run
     that has not passed by then goes back to its orchestrator with its findings, to split or
     re-scope, and no flag carries it further.  A value that is no number is left to the check
     that says so.

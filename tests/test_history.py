@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, history, run, status, transitions, turns, usage  # noqa: E402
-from agentkit import record
+from agentkit import gitcall, record, roundloop, staffing
 
 
 class HistoryTests(unittest.TestCase):
@@ -40,6 +40,40 @@ class HistoryTests(unittest.TestCase):
         row = self.row()
         self.assertEqual(row[1:7], ("project", "opus", "astra", 2, "pass", "PASS"))
 
+    def test_the_plan_line_stays_as_it_was_when_the_row_started(self):
+        line = "acme api · written 2026-11-03 09:00"
+        state = {"run_id": "r1", "plan_line": line}
+        transitions.history_start(state)
+        self.assertEqual(history.get("r1")["plan_line"], line)
+        for later in (None, "acme web · written 2026-11-03 09:01"):
+            transitions.history_start({**state, "plan_line": later})
+            self.assertEqual(history.get("r1")["plan_line"], line)
+
+    def test_launch_kind_follows_the_origin_before_review_ownership(self):
+        pr = {"review_pr": "https://github.com/acme/widgets/pull/1", "own_pr": True}
+        followup = {"followup": {"run": "earlier"}}
+        cases = (({}, "task"), ({"restarted": "earlier"}, "task"),
+                 ({**pr, "own_pr": False}, "PR"), (pr, "seat PR"),
+                 ({**pr, "night": "2026-11-03"}, "night"),
+                 ({**pr, "night": "2026-11-03", **followup}, "follow-up"),
+                 ({**followup, "split_suite": "python3 checks.py"}, "split"),
+                 ({**followup, "split_suite": "python3 checks.py",
+                   "repair": {"target": "main", "command": "python3 checks.py"}}, "repair"))
+        for n, (origin, expected) in enumerate(cases):
+            with self.subTest(expected=expected, origin=origin):
+                transitions.history_start({"run_id": f"r{n}", **origin})
+                self.assertEqual(history.get(f"r{n}")["kind"], expected)
+
+    def test_size_reads_only_tasks_and_unknown_kinds_before_taking_its_limit(self):
+        kinds = ((None, 1), ("task", 3), ("repair", 10), ("split", 10),
+                 ("follow-up", 10), ("night", 10), ("seat PR", 10), ("PR", 10))
+        for at, (kind, rounds) in enumerate(kinds, 1):
+            history.start_run(f"r{at}", repo="acme", kind=kind, started_at=0,
+                              task_words=500, task_points=4)
+            history.finish_run(f"r{at}", final_state="pass", finished_at=at, rounds_used=rounds)
+        self.assertEqual(history.size_summary("acme", limit=2), (2, 2, 2))
+        self.assertEqual(history.size_summary("acme", limit=1), (3, 3, 3))
+
     def test_live_at_migrates_an_existing_database_without_changing_its_ending(self):
         with closing(sqlite3.connect(history.path())) as db, db:
             db.execute(history.SCHEMA)
@@ -60,7 +94,94 @@ class HistoryTests(unittest.TestCase):
         history.finish_run("r1", final_state="pass", finished_at=4)
         row = history.get("r1")
         # its landing failures were never counted: NULL, never the 0 and '' of an unbroken row
-        self.assertEqual((row["landing_breaks"], row["broke_after_merge"]), (None, None))
+        self.assertEqual((row["landing_breaks"], row["landing_flakes"], row["broke_after_merge"]),
+                         (None, None, None))
+
+    def test_review_pairs_migrate_as_unknown_and_resolve_the_recorded_pair_at_ending(self):
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.execute(history.SCHEMA)
+            db.execute("INSERT INTO runs (run_id) VALUES ('old')")
+        history.start_run("r1", started_at=1)
+        self.assertIsNone(history.get("old")["review_pair"])
+        cfg = {"providers": {"acme": {}, "beta": {}}, "models": {
+            name: {"provider": provider, "model": model, "harness": "fake", "effort": "high"}
+            for name, provider, model in (("cedar", "acme", "cedar"), ("alias", "acme", "cedar"),
+                                           ("birch", "acme", "birch"), ("elm", "beta", "elm"))}}
+        state = {"run_id": "r1", "executor": "elm", "reviewer": "elm", "state": "pass"}
+        with patch.object(config, "load", return_value=cfg):
+            for at, (reviewer, expected) in enumerate((("alias", "self"), ("birch", "same provider"),
+                                                      ("elm", "other provider"), ("gone", None)), 2):
+                state["finished_at"] = at
+                state["review"] = {"executor": "cedar", "reviewer": reviewer}
+                ending = transitions.history_ending(state)
+                history.finish_run("r1", **ending)
+                self.assertEqual(history.get("r1")["review_pair"], expected)
+                self.assertEqual(staffing.self_reviewed(state, cfg), expected == "self")
+            state.update(own_pr=True, own_orchestrator="cedar", executor=None,
+                         review={"executor": None, "reviewer": "alias"})
+            self.assertEqual(transitions.history_ending(state)["review_pair"], "self")
+            self.assertTrue(staffing.self_reviewed(state, cfg))
+            for review in (None, {}, {"executor": "gone", "reviewer": "gone"}):
+                state["review"] = review
+                self.assertIsNone(transitions.history_ending(state)["review_pair"])
+        state["review"] = {"executor": "cedar", "reviewer": "alias"}
+        with patch.object(config, "load", side_effect=config.Error("unreadable")):
+            self.assertIsNone(transitions.history_ending(state)["review_pair"])
+
+    def test_recovering_an_ending_judges_each_red_against_the_merged_patch(self):
+        directory = self.home / "runs" / "r1"
+        directory.mkdir(parents=True)
+        state = {"run_id": "r1", "state": "blocked", "finished_at": 2,
+                 "repo": str(self.home / "repo"), "worktree": str(self.home / "gone"),
+                 "base_sha": "base", "delivery_sha": "delivered",
+                 "landing_red_patches": ["changed", "same", None, "same"]}
+        with patch.object(config, "RUNS", directory.parent), \
+                patch.object(roundloop, "patch_id", return_value="same") as patch_id:
+            history.start_run("r1", started_at=1)
+            record.save_state(directory, state)
+            transitions.history_agree()
+            patch_id.assert_not_called()
+            row = history.get("r1")
+            self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (0, 0))
+            history.start_run("r1", started_at=3)
+            state.update(state="pass", merged=True, finished_at=4)
+            record.save_state(directory, state)
+            transitions.history_agree()
+            transitions.history_agree()
+            patch_id.assert_called_once_with(state["repo"], "base", "delivered")
+            row = history.get("r1")
+            self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (2, 2))
+
+    def test_a_timed_out_patch_read_does_not_prevent_a_merged_runs_terminal_receipt(self):
+        state = {"run_id": "r1", "state": "pass", "verdict": "PASS", "merged": True,
+                 "repo": str(self.home), "base_sha": "base", "delivery_sha": "delivered",
+                 "started_at": 1, "finished_at": 2, "landing_red_patches": ["same"]}
+        with patch.object(config, "RUNS", self.home / "runs"), \
+                patch.dict(os.environ, {"HOME": str(self.home)}):
+            history.start_run("r1", started_at=1)
+            with patch.object(gitcall, "git_out", side_effect=gitcall.Stopped("git diff timed out")), \
+                    patch.object(gitcall, "git", side_effect=gitcall.Stopped("git read timed out")):
+                transitions.history_finish(state)
+            row = history.get("r1")
+        self.assertEqual((row["final_state"], row["verdict"], row["finished_at"], row["total_seconds"]),
+                         ("pass", "PASS", 2, 1))
+        self.assertEqual((row["landing_breaks"], row["landing_flakes"]), (1, 0))
+
+    def test_review_pair_stays_with_its_ending_even_when_unknown(self):
+        for n, pair in enumerate(("other provider", None)):
+            name = f"r{n}"
+            history.start_run(name, started_at=1)
+            history.finish_run(name, final_state="pass", finished_at=2, review_pair=pair)
+            for later in ("same provider", None):
+                history.finish_run(name, final_state="pass", finished_at=2,
+                                   review_pair=later, changed_lines=7)
+                self.assertEqual(history.get(name)["review_pair"], pair)
+                self.assertEqual(history.get(name)["changed_lines"], 7)
+            history.start_run(name)  # resuming allows a new pair, even if the clock has not moved
+            history.finish_run(name, final_state="pass", finished_at=2, review_pair="self")
+            self.assertEqual(history.get(name)["review_pair"], "self")
+            history.finish_run(name, final_state="error", finished_at=3)
+            self.assertIsNone(history.get(name)["review_pair"])
 
     def test_a_lost_ending_lands_only_while_its_run_still_reads_it(self):
         # the tick read a run that failed at 20 (`transitions.history_agree`), and its write
@@ -198,8 +319,7 @@ class HistoryTests(unittest.TestCase):
         # a row started since breaks are recorded was followed for them: none is 0 and ''
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (0, ""))
-        history.add_landing_break("merged")
-        history.update_run("merged", broke_after_merge="health")
+        history.update_run("merged", landing_breaks=1, broke_after_merge="health")
         history.finish_run("merged", final_state="pass", verdict="PASS", finished_at=100)
         self.assertEqual((history.get("merged")["landing_breaks"],
                           history.get("merged")["broke_after_merge"]), (1, "health"))
@@ -271,6 +391,7 @@ class HistoryTests(unittest.TestCase):
         class Fixture:
             state = {"run_id": "r1", "round_summaries": []}
             executor, exec_sid, wt, scratch, turn_limit = "opus", None, root, True, 1
+            every, done_when_limit = [], 1
 
             def __init__(self):
                 self.cfg = cfg

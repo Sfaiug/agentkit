@@ -939,7 +939,7 @@ def live_tick(log, now, fetched):
     exit code in time, is `stopped` before anything is signalled: red from then on, whatever
     it says later.  While origin/main has a `tests/live.sh` and no check of it passed, one is
     started, detached, as soon as none runs; a red one is started again on
-    `watch.RETRY_BACKOFF` from its end.  As `watch.after_merge_checks` does, the newest red
+    `watch.RETRY_BACKOFF` from its end.  The newest red
     check no later check passed is handed back (`live_hand_back`), wherever main went since,
     once it is the second red in a row (a first red is only logged and waits for its retry),
     unless an older one's notice was typed or told already.

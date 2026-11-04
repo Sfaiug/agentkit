@@ -1,9 +1,7 @@
 """Two milestones claiming neighbouring keys merge cleanly, each claim kept.
 
-go/keys.txt holds one claim a line, and a run whose lines git cannot merge with an older run's is
-stopped until that one lands (agentkit/leases.py).  Claims are never in conflict: this repository's
-own .gitattributes, in a repository of its own, merges two branches through `git merge-tree`, the
-same call leases.py asks.
+go/keys.txt holds one claim a line. This repository's own .gitattributes, in a repository of
+its own, merges two branches through `git merge-tree` with both claims kept.
 """
 
 from pathlib import Path

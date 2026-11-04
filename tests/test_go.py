@@ -30,7 +30,10 @@ class Go(unittest.TestCase):
         self.assertTrue(release, "go/go.mod names no toolchain: the Go release that judges go/")
         judge = {"GOTOOLCHAIN": release[1]}
         gofmt = Path(self.check("go", "env", "GOROOT", **judge).strip(), "bin", "gofmt")
-        self.assertEqual(self.check(gofmt, "-l", "."), "", "`go fmt ./...` formats these files")
+        # the module's own files, as `go fmt ./...` reads them: never a vendored module's
+        own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
+               if path.relative_to(GO).parts[0] != "vendor"]
+        self.assertEqual(self.check(gofmt, "-l", *own), "", "`go fmt ./...` formats these files")
         self.check("go", "vet", "./...", **judge)
         self.check("go", "test", "./...", **judge)
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:

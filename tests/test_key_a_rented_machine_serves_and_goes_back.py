@@ -1,6 +1,7 @@
 """A machine ak rents serves suites once ready and goes back once it has held nothing for ten
 minutes; one not ready is left alone; one serving that stops answering keeps its route for the
-work it holds and takes no new work; with `[google_cloud]` not active, none serves or goes back.
+work it holds and takes no new work; with `[google_cloud]` not active, idle machines still go
+back and busy ones keep their routes, with no new work even when named as a suite helper.
 
 Black-box: `AK_BIN` runs `ak watch` in `home.tick()`'s box, `ak doctor` and a lander against the
 fake Google of tests/fixtures/google.py.  A fake ssh is the machines, each a directory named by its
@@ -11,6 +12,7 @@ reached only where the real `ssh -G`, connecting to nothing, reads ak's options 
 from datetime import UTC, datetime
 import os
 from pathlib import Path
+import pwd
 import shutil
 import subprocess
 import sys
@@ -31,9 +33,10 @@ HELPER = "".join((REPO / "tools/helper" / name).read_text() for name in ("linux.
 SSH = """#!{python}
 import os, pathlib, subprocess, sys
 *options, host, line = sys.argv[1:]
-# the system's config, which ssh refuses to read in a tick's box, only where ak hands none
+# Only the fixture's settings: the tick's box cannot read the host's system config.
 config = () if "-F" in options else ("-F", "none")
-seen = subprocess.run([{ssh!r}, "-G", *config, *options, host], capture_output=True, text=True)
+seen = subprocess.run([*{ssh!r}, "-G", *config, *options, host],
+                      capture_output=True, text=True)
 seen = seen.stdout.splitlines()
 machine = pathlib.Path({machines!r}, next((one[9:] for one in seen if one[:9] == "hostname "), "-"))
 if not {{"user ak", "identityfile {key}"}} <= set(seen) or not machine.is_dir():
@@ -66,8 +69,11 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         google.key()
         cls.machines, cls.toml = home.root / "machines", home.path / ".agentkit/config.toml"
         cls.key = home.path / ".agentkit/secrets/google-cloud-ssh"
+        cls.ssh = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
+                   "--ro-bind", str(home.write("ssh_system", "")), "/etc/ssh/ssh_config",
+                   "--", REAL_SSH]
         home.fake("ssh", SSH.format(python=sys.executable, machines=str(cls.machines),
-                                    ssh=REAL_SSH, key=cls.key))
+                                    ssh=cls.ssh, key=cls.key))
         cls.active(True)
         cls.tick()      # the prices a machine is metered at
         # 1 holds a container, 2 held nothing 11 minutes, 3, 4 and 8 never ran, up 5, 11 and 5
@@ -98,8 +104,9 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         google.machines = [listed(n) for n in (1, 3, 5, 6, 8, 9)]
         cls.second = cls.tick()
         cls.route = subprocess.run(
-            [REAL_SSH, "-G", "-F", home.path / ".agentkit/state/google-cloud-ssh-config", "acme-8"],
-            capture_output=True, text=True, env={"HOME": str(home.path)}).stdout.splitlines()
+            [*cls.ssh, "-G", "-F", home.path / ".agentkit/state/google-cloud-ssh-config", "acme-8"],
+            capture_output=True, text=True, env={"HOME": str(home.path)},
+            check=True, timeout=15).stdout.splitlines()
         cls.tick()      # 8 served no pass now
         cls.known = known.read_text()
         line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"}, home=home)
@@ -109,6 +116,12 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         cls.active(False)
         (cls.machines / "203.0.113.1/reached").unlink()
         cls.off, cls.reached_off = cls.tick(), (cls.machines / "203.0.113.1/reached").exists()
+        (cls.machines / "203.0.113.1/reached").unlink()
+        line = Line({"t/a.sh": "true\n", "tools/helper/Containerfile": "FROM acme\n"},
+                    home=home, name="acme-off")
+        line.member({"api.txt": "x\n"})
+        cls.off_landed = line.land()
+        cls.reached_work_off = (cls.machines / "203.0.113.1/reached").exists()
 
     @classmethod
     def active(cls, on):
@@ -165,9 +178,46 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         self.assertIn("land", self.verdict)
         self.assertIn("suite on acme-1:", self.landed.out + self.landed.err)
 
-    def test_not_active_none_serves_or_goes_back(self):
-        # the owner's own acme-1 shows what it last answered, and ssh takes it there no more
-        self.assertEqual((self.off, self.reached_off), (([], ["this one", "acme-1"], []), False))
+    def test_not_active_idle_machines_go_back_and_busy_ones_keep_their_routes(self):
+        self.assertEqual((self.off, self.reached_off), ((["acme-3", "acme-5"], [
+            "this one", "acme-1"], []), True))
+
+    def test_not_active_a_named_rental_takes_no_new_work(self):
+        self.assertEqual(self.off_landed.code, 0, self.off_landed.out + self.off_landed.err)
+        self.assertFalse(self.reached_work_off)
+
+    def test_off_preserves_owned_helpers_ssh_settings_even_after_rentals_end(self):
+        system = self.home.write("ssh/ssh_config", "Include ssh_config.d/*.conf\n").parent
+        self.home.write("ssh/ssh_config.d/owned.conf", "Host acme-owned acme-user\n"
+                        "  HostName 192.0.2.42\n  User acme\n  Port 2222\n")
+        user = self.home.write("ssh_user", "Host acme-user\n  User acme-user\n  Port 2223\n"
+                               "Host acme-other\n  Port 2224\n")
+        real_home = pwd.getpwuid(os.getuid()).pw_dir
+        box = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
+               "--tmpfs", real_home, "--ro-bind", str(self.home.root), str(self.home.root),
+               "--dir", f"{real_home}/.ssh", "--ro-bind", str(user),
+               f"{real_home}/.ssh/config", "--ro-bind", str(system), "/etc/ssh", "--"]
+        self.toml.write_text(self.toml.read_text() + "\n[machines.acme-owned]\n[machines.acme-user]\n")
+        self.home.fake("ssh", f"""#!{sys.executable}
+import json, os, subprocess, sys
+*options, host, line = sys.argv[1:]
+done = subprocess.run({[*box, REAL_SSH]!r} + ["-G", *options, host], cwd="/",
+                      env={{**os.environ, "HOME": {real_home!r}}}, capture_output=True,
+                      text=True, check=True, timeout=15)
+values = dict(line.split(" ", 1) for line in done.stdout.splitlines() if " " in line)
+with open({str(self.home.log("ssh"))!r}, "a") as log:
+    log.write(json.dumps([host, [values[key] for key in ("hostname", "user", "port")]]) + "\\n")
+sys.exit(255)
+""")
+        cases = (("acme-owned", ("192.0.2.42", "acme", "2222")),
+                 ("acme-user", ("192.0.2.42", "acme-user", "2223")))
+        for remaining in (self.google.machines, []):
+            self.google.machines = remaining
+            self.home.log("ssh").unlink(missing_ok=True)
+            self.tick()
+            seen = dict(self.home.calls("ssh"))
+            for host, expected in cases:
+                self.assertEqual(tuple(seen[host]), expected)
 
 
 if __name__ == "__main__":

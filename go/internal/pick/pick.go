@@ -30,7 +30,7 @@ type Room interface {
 	OnCredits(model string) bool
 }
 
-// Rules are config.toml's groups, as a pick outside any seat reads them.
+// Rules are a run's groups, as its picks read them.
 type Rules struct {
 	executors, reviewers []string
 	reviewList           []string // reviewers as the group names them, those barred from reviewing too
@@ -40,20 +40,18 @@ type Rules struct {
 // Load is the Rules of the home's groups as they stand.
 func Load() (*Rules, bool) {
 	executors, reviewers, err := config.Groups()
-	if err != nil {
+	// in a seat the groups are its own, which only a launch binds (config.BindSeat)
+	if _, seat, unread := config.CurrentSession(); err != nil || unread != nil || seat != nil {
 		return nil, false
 	}
 	return Within(executors, reviewers)
 }
 
 // Within is the Rules of these groups, reviewers nil being the executors, false where Python ak
-// picks there: a seat's own groups, a payg provider or model, one whose harness says how it is
-// paid, a pace_margin Python refuses, a model a group names that config.model refuses, a matrix
-// lineup from state/matrix.json that ranks the models, are not yet Go's.
+// picks there: a payg provider or model, one whose harness says how it is paid, a pace_margin
+// Python refuses, a model a group names that config.model refuses, a matrix lineup from
+// state/matrix.json that ranks the models, are not yet Go's.
 func Within(executors, reviewers []string) (*Rules, bool) {
-	if _, seat, err := config.CurrentSession(); err != nil || seat != nil {
-		return nil, false
-	}
 	if _, ok := config.PaceMargin(); !ok || ranked() {
 		return nil, false
 	}
@@ -140,9 +138,22 @@ func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 // of every executor and reviewer with room, the pair of the best tier, then the earlier executor,
 // then the earlier reviewer; false where none forms.
 func (r *Rules) Pair(room Room) (executor, reviewer string, ok bool) {
+	return r.pair(room, r.Order(room, false, nil))
+}
+
+// PairFor is the reviewer a run whose executor was named takes, Python's staffing.pick_models
+// with --exec: the named executor's meter is never read; false where none forms.
+func (r *Rules) PairFor(room Room, executor string) (reviewer string, ok bool) {
+	_, reviewer, ok = r.pair(room, []string{executor})
+	return reviewer, ok
+}
+
+// pair is the pair of the best tier of these executors, in their order, and every reviewer with
+// room, Python's best_pair.
+func (r *Rules) pair(room Room, executors []string) (executor, reviewer string, ok bool) {
 	best, reviewers := 3, r.Order(room, true, nil) // 3: past every tier
 	// pairs come executor by executor, so the first of the best tier is the one taken
-	for _, each := range r.Order(room, false, nil) {
+	for _, each := range executors {
 		for _, other := range reviewers {
 			if tier := r.tier(each, other); tier < best {
 				executor, reviewer, best = each, other, tier

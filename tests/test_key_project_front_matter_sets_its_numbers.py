@@ -1,4 +1,4 @@
-"""A project's AGENTS.md front matter sets its own `rounds`, `review_lines` and `seat_lines`.
+"""A project's AGENTS.md front matter sets its own `review_rounds`, `executor_lines` and `orchestrator_lines`.
 
 A run holds to what was read when its directory was made, and a bad number refuses the launch
 before one is.  A review of a project with no checkout here runs on the host's.
@@ -37,7 +37,7 @@ def front(**numbers):
 def host(case, name, claude="pass", codex="pass", **numbers):
     case.home = Home()
     case.addClassCleanup(case.home.close)
-    akconfig.write(case.home, ["opus", "astra"], settings={"rounds": 5})
+    akconfig.write(case.home, ["opus", "astra"], settings={"review_rounds": 5})
     case.fakes = fakeadapter.install(case.home, claude=claude, codex=codex)
     rig = Rig(case.home, name, files=front(**numbers))
     rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
@@ -54,13 +54,13 @@ def launched(home, *argv, **kw):
 class Rounds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.rig = host(cls, "widgets", ["work", "dispute"], FAILING, rounds=2)
+        cls.rig = host(cls, "widgets", ["work", "dispute"], FAILING, review_rounds=2)
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
         cls.refused = cls.home.ak("run", str(task), "--rounds", "3", timeout=60)
         cls.made = taskfile.runs(cls.home)
         cls.done, cls.run_dir, cls.state = launched(cls.home, str(task), "--no-merge")
         # the default branch moves under the ended run: its budget stays what was read
-        cls.rig.commit(front(rounds=7), "more rounds")
+        cls.rig.commit(front(review_rounds=7), "more rounds")
         cls.rig.git("fetch", "-q", "origin")
         cls.resumed = cls.home.ak("run", "resume", cls.run_dir.name, "--rounds", "3", timeout=60)
         # a record from before the numbers were kept stays on the host's
@@ -71,7 +71,7 @@ class Rounds(unittest.TestCase):
                                 env={"AGENTKIT_RUN_DIR": str(cls.home.root / "gone")})
         # a branch the owner stands on says nothing: the default branch does
         cls.rig.git("checkout", "-q", "-b", "side")
-        cls.rig.commit(front(rounds=9), "on a side branch", push=False)
+        cls.rig.commit(front(review_rounds=9), "on a side branch", push=False)
         cls.side = cls.home.ak("run", str(task), "--rounds", "8", timeout=60)
         job = cls.home.path / ".agentkit/jobs/acme-job"
         job.mkdir(parents=True)
@@ -81,7 +81,7 @@ class Rounds(unittest.TestCase):
         cls.above = launched(cls.home, str(task), "--no-merge", "--anyway", "--rounds", "6")[2]
         plain = Rig(cls.home, "gears")      # no origin/HEAD: its branch says nothing either
         plain.git("checkout", "-q", "-b", "side")
-        plain.commit(front(rounds=1), "on a side branch", push=False)
+        plain.commit(front(review_rounds=1), "on a side branch", push=False)
         cls.plain = launched(cls.home, str(taskfile.write(cls.home, plain.path, "Other")), "--no-merge")[2]
 
     def test_a_rounds_over_the_project_s_is_refused_with_no_run_made(self):
@@ -106,7 +106,7 @@ class Rounds(unittest.TestCase):
 
 class Lines(unittest.TestCase):
     def test_review_lines_and_seat_lines_hold_for_the_project(self):
-        rig = host(self, "widgets", BUILD, review_lines=120, seat_lines=20)
+        rig = host(self, "widgets", BUILD, executor_lines=120, orchestrator_lines=20)
         _, _, state = launched(self.home, str(taskfile.write(self.home, rig.path)), "--no-merge")
         self.assertIn("a first review takes at most 120; split it", state["error"])
         self.assertIn("more than 120 added lines", Path(self.fakes["claude"].runs()[0]["argv"][3]).read_text())
@@ -116,12 +116,12 @@ class Lines(unittest.TestCase):
         done = self.home.ak("run", "--review-pr", gh.open_pr(rig, "big", title="big"), "--no-merge",
                             cwd=rig.path, env={"AGENTKIT_SESSION": "acme"}, timeout=300)
         self.assertEqual(done.code, 2, done.out + done.err)
-        self.assertIn("too big for the seat, which builds under 20 added lines", done.err)
+        self.assertIn("too big for the seat, which builds at most 20 added lines", done.err)
 
 
 class ReviewWithNoCheckout(unittest.TestCase):
     def test_the_first_runs_on_the_host_s_and_the_next_reads_the_checkout_it_cloned(self):
-        rig = host(self, "widgets", rounds=2)
+        rig = host(self, "widgets", review_rounds=2)
         gh = GitHub(self.home)
         away = self.home.path / "elsewhere"
         Seat(self.home, "acme", model="opus", cwd=away, alive=False, planned=True)
@@ -137,10 +137,10 @@ class ReviewWithNoCheckout(unittest.TestCase):
 
 class Refused(unittest.TestCase):
     def test_a_number_nobody_could_mean_refuses_the_launch_with_no_run_directory(self):
-        review, seat = "the most added lines a first review reads", "the added lines a seat's own change stays under"
+        review, seat = "the most added lines a first review reads", "the most added lines an orchestrator builds"
         for numbers, why in (
-                ({"review_lines": "abc"}, f"review_lines must be a whole number of at least 1, {review} (got 'abc')"),
-                ({"seat_lines": 400, "review_lines": 300}, f"seat_lines 400, {seat}, is over review_lines 300, {review}")):
+                ({"executor_lines": "abc"}, f"executor_lines must be a whole number of at least 1, {review} (got 'abc')"),
+                ({"orchestrator_lines": 400, "executor_lines": 300}, f"orchestrator_lines 400, {seat}, is over executor_lines 300, {review}")):
             with self.subTest(numbers=numbers):
                 rig = host(self, "widgets", **numbers)
                 done = self.home.ak("run", str(taskfile.write(self.home, rig.path)), timeout=60)

@@ -3481,16 +3481,16 @@ PY
 FABLE=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' fable)
 ASTRA=$(HOME="$OVH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' astra)
 # the status bar, set on the sessions themselves and on nothing else: two lines, its text in
-# options the bar's formats draw -- the name and the model that orchestrates it, dim, until the
+# options the bar's formats draw -- the name and its orchestrator model and effort, dim, until the
 # first classification, the one key at the right of line two, the name as the title.
 # The tick and every menu draw rewrite them through the one writer; a rename writes them at
 # once. What they come to on screen is asserted further down.
 [ "$(ovtmux show-options -t "$OV1" -v status 2>/dev/null)" = 2 ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v status-style 2>/dev/null)" = default ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV1#[nobold]   #[fg=#6c7086]$FABLE#[default]" ] || OVERLAY=1
+  = " #[bold]$OV1#[nobold]   #[fg=#6c7086]$FABLE xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV2" -v @ak_top 2>/dev/null)" \
-  = " #[bold]$OV2#[nobold]   #[fg=#6c7086]$ASTRA#[default]" ] || OVERLAY=1
+  = " #[bold]$OV2#[nobold]   #[fg=#6c7086]$ASTRA xhigh#[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v @ak_key 2>/dev/null)" \
   = "Ctrl-b m#[fg=#6c7086]  menu #[default]" ] || OVERLAY=1
 [ "$(ovtmux show-options -t "$OV1" -v set-titles-string 2>/dev/null)" = "$OV1" ] || OVERLAY=1
@@ -4021,11 +4021,12 @@ cat >"$WBIN/gh" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   "api user") printf '{"login":"me"}\n' ;;
-  "repo view --json nameWithOwner,owner") printf '{"nameWithOwner":"me/owned","owner":{"login":"me"}}\n' ;;
-  "api --paginate repos/me/owned/pulls?state=open&per_page=100")
-    printf '[]\n[{"number":3,"user":{"login":"bob"},"title":"Fix parser","html_url":"https://github.com/me/owned/pull/3","head":{"sha":"abcdef1234567890"},"draft":false},'
-    printf '{"number":4,"user":{"login":"me"},"title":"Mine","html_url":"https://github.com/me/owned/pull/4","head":{"sha":"1111111111111111"},"draft":false},'
-    printf '{"number":5,"user":{"login":"eve"},"title":"Draft","html_url":"https://github.com/me/owned/pull/5","head":{"sha":"2222222222222222"},"draft":true}]\n' ;;
+  "api --paginate search/issues -X GET -f q=is:pr is:open draft:false user:me -author:me -f per_page=100")
+    printf '{"items":[]}\n{"items":[{"number":3,"user":{"login":"bob"},"pull_request":{"html_url":"https://github.com/me/owned/pull/3"}},'
+    printf '{"number":4,"user":{"login":"me"},"pull_request":{"html_url":"https://github.com/me/owned/pull/4"}},'
+    printf '{"number":5,"user":{"login":"eve"},"pull_request":{"html_url":"https://github.com/me/owned/pull/5"},"draft":true}]}\n' ;;
+  "api repos/me/owned/pulls/3")
+    printf '{"state":"open","number":3,"user":{"login":"bob"},"title":"Fix parser","html_url":"https://github.com/me/owned/pull/3","head":{"sha":"abcdef1234567890"},"draft":false}\n' ;;
   "pr view https://github.com/me/owned/pull/3 --json reviews") printf '{"reviews":[]}\n' ;;
   # our own open PRs anywhere: one on a repo we do not own, opened by hand, with changes requested
   "api --paginate search/issues?q=is:pr+is:open+author:@me&per_page=100")
@@ -5087,7 +5088,7 @@ else
 fi
 # --- turn_cleanup: worker process cleanup ---------------------------------
 if python3 "$REPO/tests/test_turn_leftover_processes.py" >"$WORK/turn-processes.log" 2>&1; then
-  ok "worker turns stop their leftover processes on every harness and ask once to finish in the foreground"
+  ok "worker turns stop their leftover processes on every harness without another turn"
 else
   no "worker turn process cleanup"; tail -30 "$WORK/turn-processes.log"
 fi

@@ -195,8 +195,7 @@ class RunNotice(Sandbox):
             merge_sha="a" * 40, target="origin/main",
             health={"command": "probe", "output": evidence})
         episodes = {}
-        with patch.object(watch, "after_merge_sha", return_value="a" * 40), \
-                patch.object(watch, "after_merge_status", return_value=("passed", None, None)):
+        with patch.object(watch, "after_merge_sha", return_value="a" * 40):
             watch.after_merge_checks(episodes, False, self.logs.append, now=now)
             self.assertEqual(len(self.sent), 1)
             self.assertIsNone(watch.too_long(self.sent[0]))
@@ -209,6 +208,36 @@ class RunNotice(Sandbox):
             watch.after_merge_checks(episodes, False, self.logs.append, now=now + 1)
         self.assertEqual(episodes["after_merge"], {})
         self.assertIn(evidence, (directory / "result.md").read_text())
+
+    def test_retiring_a_check_notice_finishes_its_receipt_before_forgetting_it(self):
+        directory, _ = self.result(merged=True, pr=PR, finished_at=80000, merge_sha="a" * 40)
+        key = watch.after_merge_repo(PR)[3]
+        line = "nightly failed on main after this merge."
+        marked = handback.not_live_line(line, directory)
+        pending = {"sha": "a" * 40, "line": line, "run": directory.name,
+                   "check": "nightly", "source": "checks", "finished": 80000,
+                   "session": "gone-seat", "typed": {"line": marked, "seat": 100}}
+        episodes = {"after_merge": {key: {"pending": pending}}}
+        self.composer = marked
+
+        def lost_enter(*args, **kw):
+            return (1, "not sent") if args[-1] == "Enter" else self.tmux(*args, **kw)
+
+        with patch.object(orch, "sessions", return_value=[self.seat]), \
+                patch.object(watch, "broke_after_merge") as blame:
+            with patch.object(orch, "tmux_out", side_effect=lost_enter):
+                watch.after_merge_checks(episodes, False, self.logs.append, now=100000)
+            self.assertEqual(episodes["after_merge"][key]["pending"], pending)
+            self.assertEqual(self.composer, marked)
+            watch.after_merge_checks(episodes, False, self.logs.append, now=100001)
+            self.assertIn("pending", episodes["after_merge"][key])
+            watch.after_merge_checks(episodes, False, self.logs.append, now=100002)
+            self.assertNotIn(key, episodes["after_merge"])
+            self.assertTrue(watch.type_at_prompt(self.seat, "The next run finished.",
+                                                self.logs.append, cfg=self.cfg))
+        self.assertEqual(self.sent, [marked, "The next run finished."])
+        self.assertEqual(self.composer, "")
+        blame.assert_not_called()
 
     def test_a_report_finishing_after_failure_delivery_keeps_the_whole_notice(self):
         directory, state = self.result(merged=True, pr=PR, repo=str(self.root), finished_at=9999,
@@ -223,10 +252,8 @@ class RunNotice(Sandbox):
 
         with patch.object(run, "git", side_effect=during_diff), patch.object(gitcall, "git", side_effect=during_diff), \
                 patch.object(watch, "after_merge_sha", return_value="a" * 40), \
-                patch.object(watch, "after_merge_health", return_value=None), \
-                patch.object(watch, "gh_json", return_value=([{"check_runs": [{
-                    "name": "release-gate", "status": "completed", "conclusion": "failure",
-                    "details_url": details}]}], "")):
+                patch.object(watch, "after_merge_health",
+                             return_value=("failed", "health: probe", details)):
             run.write_result(directory, state, [], cfg=self.cfg)
         self.assertEqual(len(self.sent), 1)
         self.assertIsNone(watch.too_long(self.sent[0]))
@@ -235,6 +262,10 @@ class RunNotice(Sandbox):
         self.assertIn("notified", episode)
         self.assertNotIn("pending", episode)
         self.assertIn(details, (directory / "result.md").read_text())
+        opening = (directory / "result.md").read_text().splitlines()[:3]
+        self.assertEqual(opening[0], f"# NOT LIVE (0 of 3) — {state['title']}")
+        self.assertIn(details, opening[1])
+        self.assertEqual(opening[2], f"Next: {handback.RESULT_NAMES}")
 
     def test_all_report_rebuilds_keep_saved_notice_details(self):
         directory, state = self.followups(2, **DONE)

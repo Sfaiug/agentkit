@@ -29,8 +29,10 @@ BLOCKED = ("the same checks fail the same way after a fix round: "
 
 def attempt(n):
     """A turn that changes the work, but never writes the file the failing check wants."""
+    # Bypass hand-in: the loop's independent checks must still fail this work.
     return {"write": {"other.txt": f"attempt {n}\n"}, "commit": f"attempt {n}",
-            "final": f"## Summary\nattempt {n}", "hand_in": [["done"]]}
+            "sh": 'echo \'{"kind": "done"}\' >> "$AK_HAND_IN"',
+            "final": f"## Summary\nattempt {n}"}
 
 
 class SameFailureBlocks(unittest.TestCase):
@@ -86,7 +88,7 @@ class SameFailureBlocks(unittest.TestCase):
 
     def test_result_md_names_only_the_check_that_failed_identically_and_its_output(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# BLOCKED — Add retry file")
+        self.assertEqual(lines[0], "# BLOCKED (1 of 3) — Add retry file")
         self.assertIn("VERDICT: BLOCKED", lines)
         start = lines.index("## Blocked")
         end = next(i for i in range(start + 1, len(lines)) if lines[i].startswith("## "))

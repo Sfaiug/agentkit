@@ -51,12 +51,16 @@ def record_limits(state):
     """Migrate old receipts without reviving task-specific time budgets."""
     for key in ("done_when_minutes", "turn_hours", "stall_minutes"):
         state.pop(key, None)
+    if state.get("policy"):
+        config.rename_policy(state["policy"])
     state.setdefault("silence_minutes", SILENCE_MINUTES)
     state.setdefault("ceiling_hours", CEILING_HOURS)
 
 
 def _state(path):
     state = json.loads(path.read_text())
+    if isinstance(state, dict) and state.get("policy"):
+        config.rename_policy(state["policy"])
     return state if isinstance(state, dict) else None
 
 
@@ -211,6 +215,13 @@ def _write_state(run_dir, state, temp=_RUN_TEMP, onto=None):
         # A wake's bookkeeping must not put another suite ahead of its delivery.
         for name in {wait["line"] for wait in waits if isinstance(wait.get("line"), str)}:
             land.start_line(config.RUNS / name)
+    if (state.get("merged") and not state.get("live_at")
+            and (state.get("health") or {}).get("command")
+            and not (previous.get("merged") and (previous.get("health") or {}).get("command"))):
+        from . import watch
+        pending = {**state, "finished_at": now} if state.get("finished_at") is None else state
+        if watch.awaiting_live(pending, now):
+            watch.start_live_probe(run_dir)
     return True
 
 

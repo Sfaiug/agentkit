@@ -266,9 +266,12 @@ func TestWhatItsConversationRecordedSpeaksForTheScreen(t *testing.T) {
 
 func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T, home string){
-		"a plan": func(t *testing.T, home string) { write(t, stateFile(home, "plan-acme.md"), openLine) },
-		"a run of its own": func(t *testing.T, home string) {
-			runRecord(t, home, "going", map[string]any{"state": "running", "started_at": 1, "finished_at": nil})
+		"a plan line its stop said, which the tick may send it back to": func(t *testing.T, home string) {
+			write(t, stateFile(home, "plan-acme.md"), openLine)
+			write(t, stateFile(home, "seat-acme.json"), `{"stop_said": "Your plan owes a line"}`)
+		},
+		"a run parked on its login": func(t *testing.T, home string) {
+			runRecord(t, home, "going", map[string]any{"state": "waiting_login", "started_at": 1, "finished_at": nil})
 		},
 		"a wait on its usage": func(t *testing.T, home string) {
 			write(t, stateFile(home, "seat-acme.json"), `{"usage_wait": {"reason": "spent", "since": 1}}`)
@@ -276,8 +279,9 @@ func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 		"a login to renew": func(t *testing.T, home string) {
 			write(t, stateFile(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`)
 		},
-		"another harness": func(t *testing.T, home string) {
-			record(t, home, "acme", map[string]any{"orchestrator": "astra"})
+		"a harness whose screen Go does not read": func(t *testing.T, home string) {
+			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+"[models.vela]\nharness='opencode'\nmodel='vela'\nprovider='test'\n")
+			record(t, home, "acme", map[string]any{"orchestrator": "vela"})
 		},
 		"the owner's stop mark": func(t *testing.T, home string) {
 			write(t, stateFile(home, "seat-acme.json"), `{"stopped_at": 1, "closed_by_owner": true}`)
@@ -330,7 +334,7 @@ func TestARuleGoCannotSayLeavesTheHarnessToPython(t *testing.T) {
 	record(t, home, "acme", nil)
 	drawn(t, home, "acme", prompting)
 	adapters := filepath.Join(home, "adapters")
-	write(t, filepath.Join(adapters, "claude.toml"), "[[rule]]\nid = \"x\"\nstate = \"working\"\nnewest = '(?!x)y'\n")
+	write(t, filepath.Join(adapters, "claude.toml"), "[[rule]]\nid = \"x\"\nstate = \"working\"\nnewest = '[^\\S]'\n")
 	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
 	eyes.Delete("claude")
 	t.Cleanup(func() { eyes.Delete("claude") })

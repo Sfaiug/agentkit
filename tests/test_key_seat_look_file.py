@@ -10,13 +10,14 @@ screens draw it.  Black-box: each seat is a real tmux session showing a captured
 
 import json
 import re
+import subprocess
 import sys
 import time
 from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, boxable, Home
+from fixtures.akbin import REAL_TMUX, boxable, Home, owner
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
@@ -103,6 +104,22 @@ class SeatFile(unittest.TestCase):
                 self.assertEqual(data["word"], shown[2:])
                 for key in ("state", "rule", "evidence"):
                     self.assertIn(key, data)
+
+    def test_the_menu_keeps_a_quiet_run_working_with_its_silence_reason(self):
+        seat = Seat(self.home, "acme", screen="claude-prompt-pane.txt")
+        loop = subprocess.Popen(["sleep", "3600"])
+        self.addCleanup(loop.wait)
+        self.addCleanup(loop.kill)
+        quiet = 2 * 3600
+        self.home.write(".agentkit/runs/quiet/run.json", {
+            "run_id": "quiet", "state": "running", "title": "Fix api",
+            "repo": str(seat.cwd), "launched_session": "acme",
+            "started_at": time.time() - quiet, **owner(loop.pid)}, ago=quiet)
+        menu = Terminal(self.home, size=(100, 30))
+        menu.wait(lambda screen: "● working" in row(screen, "acme"))
+        data = self.seat_file("acme")
+        self.assertEqual(data["word"], "working")
+        self.assertEqual(data["reason"], "1 running · silent 2h · Fix api")
 
     @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
     def test_a_tick_writes_a_working_seat_s_word_and_the_next_reader_keeps_its_beginning(self):

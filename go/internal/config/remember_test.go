@@ -145,7 +145,7 @@ func TestRememberDefaultsKeepsAModelessFilesKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := os.ReadFile(path)
-	head := "unknown keys are kept as they are.\n\nmax_runs = 3\npace_margin = 10\nwithin = 5\nextra = \"x\"\n\n" +
+	head := "unknown keys are kept as they are.\n\nmax_runs = 3\npace_margin = 10\nextra = \"x\"\n\n" +
 		"[defaults]\norchestrator = \"opus\"\nworkers = [\"opus\"]\n\n[models.fable]\n"
 	if !strings.Contains(string(got), head) || !strings.HasSuffix(string(got), "\n\n[google_cloud]\nactive = false\nmax_month = 0\n") {
 		t.Fatalf("wrote:\n%s", got)

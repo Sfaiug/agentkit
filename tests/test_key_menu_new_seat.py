@@ -78,6 +78,8 @@ class NewRow(unittest.TestCase):
         return rows(self.menu.wait(lambda shown: any(line[2:] == row
                                                      for line in rows(shown))))
 
+    # The normal way in is a session: open it, pick who orchestrates, executes and reviews,
+    # type the prompt. [1 Oct]
     def test_enter_on_a_typed_name_starts_the_seat_opens_it_and_lists_it(self):
         self.menu.type("fix-api")
         self.menu.keys("Enter")
@@ -153,6 +155,9 @@ class OrchestratorQuestion(unittest.TestCase):
         self.assertIn("Orchestrator [beta]:", done.out)
         return [line for line in done.out.splitlines() if line.startswith("orch: ")]
 
+    # `n` keeps the orchestrator question so the owner switches freely; here a piped
+    # `ak orch --dry-run` asks it, while the menu's new row uses Tab to pick models.
+    # [18 Sep - 26 Oct 2026]
     def test_a_number_or_a_name_picks_the_orchestrator(self):
         for answer in ("2", "delta"):
             with self.subTest(answer=answer):

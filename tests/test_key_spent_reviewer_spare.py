@@ -28,6 +28,9 @@ REFUSED = re.compile(r"WARN reviewer astra refused: You have hit your usage limi
 FELL_BACK = "WARN reviewer fell back to spark"
 
 
+# Across its provider's accounts, the next once it is spent or cannot run. This
+# check uses a spare model on another provider after a usage refusal, holding the
+# spent provider out for an hour. [18 Sep - 26 Oct 2026]
 class SpentReviewer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -80,7 +83,8 @@ class SpentReviewer(unittest.TestCase):
 
     def test_result_md_names_the_reviewer_that_reviewed(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# PASS, not merged: --no-merge — Add retry file")
+        self.assertEqual(lines[0], "# NOT MERGED (1 of 3) — Add retry file")
+        self.assertEqual(lines[1], "Why: --no-merge")
         named = [line for line in lines if line.startswith("executor:")]
         self.assertEqual(len(named), 1, lines)
         self.assertRegex(named[0], r"^executor: opus\s+reviewer: spark$")

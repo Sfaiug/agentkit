@@ -12,14 +12,16 @@ import json
 import os
 import re
 import shutil
+import stat
 import tempfile
 import threading
 import time
 from contextlib import nullcontext
 from datetime import datetime
+from itertools import islice
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, history, host, login_refusals, orch,
+from . import (box, config, gitcall, hand_in, history, host, login_refusals, orch,
                record as run_record, update, worker)
 from .harness import FAULT, LIMITED, SPENT, load as harness_plugin, says
 
@@ -189,17 +191,22 @@ def latest_turn(round_dir, name):
 def open_turn(round_dir, name):
     """`(resume|fresh, session)` when this role's latest attempt never finished.
 
-    A missing `final.md` is a turn the host cut off. An executor answer without a
-    closing still needs its one extra ask. A recorded session is resumed; without one
-    a fresh turn is needed. A finished attempt is `(None, None)`.
+    A missing `final.md`, a pending call or a refusal has not answered. A recorded
+    session is resumed; without one a fresh turn is needed. An answered attempt is
+    `(None, None)`, whether or not it handed in a closing.
     """
     latest = latest_turn(round_dir, name)
     if latest is None:
         return None, None
-    if (latest / "final.md").exists():
-        submitted = hand_in.read(latest / hand_in.FILE)
-        if (name.startswith("reviewer") or submitted is not None and submitted.closing
-                or "-retry-hand-in" in latest.name or "-retry-foreground" in latest.name):
+    if (latest / "final.md").exists() and not (latest / "pending").exists():
+        # Harnesses write refusals to final.md too; only an answer ends the turn.
+        code, text = box.returncode(latest, 0), read_answer(latest / "final.md") or ""
+        harness = tail(latest / "harness").strip()
+        failed = killed_word(code) or transient(code, text)
+        if harness:
+            failed = failed or worker.auth_scanner(harness)(latest) or harness_plugin(harness).failure(
+                harness_said(latest, text, harness, failures_only=code == 0))[0]
+        if not failed:
             return None, None
     sid = session_of(latest)
     if sid:
@@ -259,32 +266,34 @@ def open_worker(lp, name=""):
 
 
 def open_review(round_dir):
-    """`(name, kind, session)` of the open reviewer attempt, or three Nones.
+    """`(name, kind, session)` of the latest reviewer attempt, or three Nones.
 
     A review that fell back to another model writes under `reviewer-<model>`, so the
     attempt to continue is the newest reviewer directory of any name, not `reviewer`
     alone: a fallback cut off mid-turn would otherwise start its review over. Retries
-    belong to that same attempt, including a foreground finish ended by the host.
+    belong to that same attempt. Its name stays after it answers: the verdict may
+    still be pending, and a finished fallback supersedes an earlier refusal.
     """
     rd = Path(round_dir)
     if not rd.is_dir():
         return None, None, None
     best = None
     for path in rd.glob("reviewer*"):
-        if not path.is_dir() or "-retry" in path.name or "foreground" in path.name:
+        if not path.is_dir() or "-retry" in path.name:
             continue
         base = role_base(path.name)
-        kind, sid = open_turn(rd, base)
-        if not kind:
-            continue
         latest = latest_turn(rd, base)
         try:
-            mtime = latest.stat().st_mtime
+            mtime = latest.stat().st_mtime_ns
         except OSError:
             mtime = 0
-        if best is None or mtime >= best[0]:
-            best = (mtime, base, kind, sid)
-    return (None, None, None) if best is None else (best[1], best[2], best[3])
+        candidate = (mtime, latest.name, base)
+        if best is None or candidate > best:
+            best = candidate
+    if best is None:
+        return None, None, None
+    kind, sid = open_turn(rd, best[2])
+    return best[2], kind, sid
 
 
 def review_turn(round_dir, session, since=""):
@@ -426,10 +435,41 @@ def cut_file(output, start, where, name, cap=OUT_CAP):
     """`cut` of a binary file's bytes from `start` to its end, at `cap`, never read whole: a check
     can print more than the run's memory holds."""
     size = output.seek(0, os.SEEK_END)
-    output.seek(start)
-    line = f"{kept(output, where, name)}\n" if size - start > cap else ""
     output.seek(max(start, size - cap))
-    return line + output.read(cap).decode("utf-8", errors="replace")
+    tail = output.read(cap).decode("utf-8", errors="replace").encode("utf-8")
+    line = ""
+    if size - start > cap or len(tail) > cap:
+        output.seek(start)
+        line = f"{kept(output, where, name)}\n"
+    # Replacement characters can grow the payload; ignore only the new cut's split character.
+    return line + tail[max(0, len(tail) - cap):].decode("utf-8", errors="ignore")
+
+
+def first_lines(text, where):
+    """First diagnostics; only regular kept files under the runner's protected `where` are trusted."""
+    shown = []
+    for line in text.splitlines():
+        if not line.strip():
+            continue
+        named = re.fullmatch(r"\[only part of this output is shown; all of it is in (.+)\]", line)
+        if named:
+            try:
+                path = Path(named[1])
+                if path.parent != where.resolve() or not path.match("*-whole-*.log"):
+                    raise ValueError("not a saved output")
+                with open(path, errors="replace", opener=lambda name, flags: os.open(
+                        name, flags | os.O_NOFOLLOW | os.O_NONBLOCK)) as source:
+                    info = os.fstat(source.fileno())
+                    if not (stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid() and info.st_nlink == 1):
+                        raise ValueError("not a runner-owned regular output")
+                    shown.extend(islice((part.strip() for part in source if part.strip()), 3 - len(shown)))
+            except (OSError, ValueError):
+                shown.append(line.strip())
+        else:
+            shown.append(line.strip())
+        if len(shown) == 3:
+            break
+    return " ".join(shown)
 
 
 # A transient answer is what a person answers by typing `continue`: the same worker session
@@ -617,56 +657,10 @@ def shell_foreground_note():
             "with `timeout <seconds>`, or that silence stops it.")
 
 
-FINISH_IN_FOREGROUND = ("The command you left in the background was stopped when your turn ended. "
-                        "Run it in the foreground now, wait for it, and report.")
-
-
 NO_VERDICT_ASK = ("Your previous turn ended without ak hand-in done. Review the diff now, "
                   "hand in any remaining findings or follow-ups with ak hand-in, then run "
                   "ak hand-in done. Earlier records have been carried into this turn. "
                   "Do not start commands you will not wait for in this turn.")
-
-
-NO_CLOSING_ASK = ('Your previous turn ended without a closing hand-in. Close it now with '
-                  'ak hand-in done, ak hand-in blocked "<why>" or ak hand-in not-needed "<why>" '
-                  'as instructed. Earlier records have been carried into this turn. '
-                  'Do not start commands you will not wait for in this turn.')
-
-
-def turn_unfinished(out_dir):
-    """Did this turn end with a command still running in the background -- unfinished, then.
-
-    Either the harness says so on stderr (`Background tasks still running`, which Claude
-    prints when it stops a turn over background work) or its event log's last
-    `background_tasks_changed` event still lists a task -- Claude 2.1.263 streams those as
-    `{"type": "system", "subtype": "background_tasks_changed", "tasks": [...]}`, and only the
-    last one counts, so a list the turn emptied before ending is finished.  A missing or
-    unreadable file is no signal: the turn counts as finished.
-    """
-    try:
-        if "Background tasks still running" in (Path(out_dir) / "stderr.log").read_text(
-                errors="replace"):
-            return True
-    except OSError:
-        pass
-    try:
-        lines = (Path(out_dir) / "events.jsonl").read_text(errors="replace").splitlines()
-    except OSError:
-        return False
-    last = None
-    for line in lines:
-        try:
-            event = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        if (event.get("type") == "background_tasks_changed"
-                or event.get("subtype") == "background_tasks_changed"):
-            last = event
-    if last is None:
-        return False
-    return bool(last.get("tasks", last.get("background_tasks")))
 
 
 def tail(path, cap=OUT_CAP):
@@ -910,7 +904,7 @@ def resume_failed(out_dir, killed, text, harness, asked=True, failures_only=Fals
     return asked and not (text or "").strip() and worker.said_nothing(out_dir)
 
 
-def note_turn_meters(cfg, name, out_dir, account, before=()):
+def note_turn_meters(cfg, name, out_dir, account, before=(), role="executor"):
     """The meters the turn in `out_dir` reported about the account it ran on are the reading,
     and what it spent beside how far it moved them from `before` is a pair of what a window
     holds in tokens (`usage.record_pairs`).
@@ -929,14 +923,16 @@ def note_turn_meters(cfg, name, out_dir, account, before=()):
     try:
         if meters:
             usage.record_turn_meters(cfg, entry["provider"], meters, account)
-        usage.record_pairs(cfg, name, account, before, tokens, meters)
+        role = "reviewer" if role.startswith("reviewer") else "executor"
+        usage.record_pairs(cfg, name, account, before, tokens, meters,
+                           run_id=Path(out_dir).parent.parent.name, role=role)
     except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError):
         pass
 
 
 def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit=None,
                   fresh_body=None, resume_note=None, handover=None, previous=None, findings=None,
-                  base=None):
+                  base=None, checks=None):
     """worker.call, retried while the harness keeps dying on the provider instead of the task.
 
     Returns (code, text, session, dead): `dead` stays False -- a transient answer is resumed
@@ -950,15 +946,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     A turn killed for emitting no event for `limit` seconds is one of those retries: nothing
     judged it, so it is retried on the same session rather than scored, with the same waits.
 
-    Each turn's box ends its leftovers, without ending the suite or the loop's helpers.
-    A turn that left processes or reports background work is unfinished:
-    the same session is called once more, with no backoff, to run it in the
-    foreground and report -- the same round, and not one of the transient waits.  That
-    turn gets artifacts of its own (`<role>-retry-foreground`, beside the transient retries'
-    `-retryN`, so `written_answer` still finds whose answer the round recorded): the first
-    turn's diagnostics survive it, and only what the second turn itself wrote determines
-    completion and retry behavior.  A second turn that ends the same way is carried on from
-    with a WARN, as if it had been finished.
+    Each turn's box stops and logs its leftover processes. An answered turn is over.
 
     Only an answer that names the account hands the round over.  A provider that lists
     `accounts` runs each call on the one with the most room left, and one that refuses for
@@ -1001,10 +989,12 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**gitcall.run_child_env(), "AK_RUN_ROLE": "worker",
            "AK_RUN_LOG": str(run_dir / "log.txt"),
-           worker.REVIEW_LINES_ENV: str(run_record.policy_of(
-               run_record.read_state(run_dir) or {})["review_lines"])}
+           worker.EXECUTOR_LINES_ENV: str(run_record.policy_of(
+               run_record.read_state(run_dir) or {})["executor_lines"])}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
+    if checks is not None:
+        env[hand_in.CHECKS_ENV] = json.dumps(checks)
     if base:
         env[worker.BASE_ENV] = base
     attempt, calls, last_kill, account, span = 1, 0, None, None, None
@@ -1042,7 +1032,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             span = (began, time.time())
         finally:
             memory_cap_note(run_dir, log)     # however the turn ended
-        note_turn_meters(cfg, name, target, account, before)
+        note_turn_meters(cfg, name, target, account, before, role)
         last_dir, last_sid = target, result[2] or session
         return result
 
@@ -1096,7 +1086,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         # own first attempt left behind is a fresh turn's, and an empty exit on it is the
         # transport failure the three attempts are for, not a session that cannot be opened.
         asked = session if not calls else None
-        code, text, sid, killed, unfinished = turn(body, target, session)
+        code, text, sid, killed, _leftovers = turn(body, target, session)
         calls += 1
         if swapped(code, killed, sid or session):
             session = sid or session
@@ -1104,29 +1094,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         if abandoned(target, code, text, killed, asked):
             continue
         session = sid or session
-        # An ask for a missing closing or verdict is the turn's one extra call already.
-        if (not killed and (unfinished or turn_unfinished(target))
-                and "-retry-hand-in" not in out_dir.name and not body.endswith(NO_VERDICT_ASK)):
-            log(f"{role} {name} ended its turn with a command still in the background; asking "
-                "it to finish in the foreground")
-            finish = target.with_name(f"{target.name}-retry-foreground")
-            # Foreground recovery also asks for the closing, so neither role spends another ask.
-            finish_body = (f"{FINISH_IN_FOREGROUND} "
-                           f"{NO_VERDICT_ASK if role.startswith('reviewer') else NO_CLOSING_ASK}")
-            code, text, sid, killed, unfinished = turn(finish_body, finish, session)
-            if swapped(code, killed, sid or session):
-                session = sid or session
-                continue
-            if abandoned(finish, code, text, killed):
-                continue
-            session = sid or session
-            if not killed and (unfinished or turn_unfinished(finish)):
-                log(f"WARN {role} {name} ended its turn with a command still in the background "
-                    "again; carrying on with what it reported")
-            target = finish
-        elif not killed and (unfinished or turn_unfinished(target)):
-            log(f"WARN {role} {name} ended its turn with a command still in the background "
-                "again; carrying on with what it reported")
         # A harness that never ran the turn says so on stderr, and that outranks the refusal
         # words below: a 404 for a model it does not have reads `API Error` like a 500, and
         # Codex's missing model suggests `try a different model` like its capacity refusal.
@@ -1199,6 +1166,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             # a quota word left only in the model's answer is the answer talking, not the
             # provider: it parks no account and hands nothing over
             login_refusals.answered(entry["harness"])
+            (target / "pending").unlink(missing_ok=True)
             return code, text, session, False
         if handover is not None and attempt == 2 and not handover_tried:
             handover_tried = True

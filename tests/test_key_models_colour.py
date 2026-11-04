@@ -116,12 +116,11 @@ class ModelsColour(unittest.TestCase):
         self.models()
         self.term.keys("Down")
         self.pointed("Acme")
-        self.term.keys("Down", "Down", "Down")
+        self.term.keys("Down")
         self.pointed("Bolt")
 
     def test_up_where_the_highlight_cannot_move_lights_its_maker(self):
-        # within no points of the best the first role's pick is its best, the first row
-        shown = self.models(within=0)
+        shown = self.models()
         self.assertTrue(next(plain(line) for line in shown if plain(line).startswith("› "))
                         .startswith("› ★ pick   Acme"))
         self.term.keys("Up")

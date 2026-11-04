@@ -535,8 +535,7 @@ def replay_section(replayed, left, since):
               "site with its proof is weighed as ak's replay is; one fixed needs no word. "
             + (f"A new finding blocks only inside the fix delta since {since[:12]}, or with a "
                "proof that passes on that commit: the fix broke it." if since else
-               "This is the commit the last review judged, again: a new finding blocks "
-               "wherever it is in the change."))
+               "A new finding blocks wherever it is in the change."))
 
 
 def weigh_review(lp, submitted, head=None, since=None, replayed=()):
@@ -561,8 +560,8 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
             continue
         evidence = row["evidence"]
         kind = was = row["kind"]
-        # a follow-up from before the task is proven on base; one of this change (no `before`)
-        # on this commit, and on base too, where failing makes it one from before the task
+        # Without --before, prove it on both commits: passing on base and failing here
+        # shows the change caused it, wherever the reviewer placed its site.
         deferred = kind == "follow-up" and "before" not in row
         if kind == "follow-up":
             if not lp.scratch and "run" in evidence:
@@ -573,6 +572,8 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                     evidence = {"run": command, "commit": head, **proof_on(
                         lp, command, lp.round_dir / f"proof-{index}-commit.log", head),
                         "base": {"sha": lp.base_sha, **base}}
+                    if hand_in.proof_failed(evidence) and base["returncode"] == 0 and not base["killed"]:
+                        kind = "finding"
                     deferred = not (hand_in.proof_failed(evidence) and hand_in.proof_failed(base))
         elif "quote" in evidence:
             # a quote shows where to look; only a failing command decides what must be fixed

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"agentkit/internal/config"
@@ -23,11 +24,17 @@ type plugin struct {
 	seats   bool
 	fresh   string
 	receipt string
-	answer  func(conversation, cwd, account string) (model, effort, at any, found bool)
+	answer  func(record *run.Object) (model, effort, at any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
 	owns func(record *run.Object, conversation string) bool
+	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
+	// back before writing. The returned hooks use that evidence throughout this listing.
+	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
+	record func(record *run.Object) (plugin, bool)
+	keys   []string
+	kept   *regexp.Regexp
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
@@ -37,7 +44,7 @@ type plugin struct {
 	// looks is whether Go reads the screen of this harness's seats, and recorded the error its
 	// conversation ends on (Python's plugin `error`).
 	looks    bool
-	recorded func(conversation, cwd, account string) (string, bool)
+	recorded func(record *run.Object) (string, bool)
 	// last is the last message of the conversation, its owner's or its model's, nil for none, and
 	// notices above say which of them only record the owner interrupting.
 	last func(conversation, cwd, account string) *run.Object
@@ -56,6 +63,10 @@ type plugin struct {
 	recordTurn func(out, state, account string)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
 	registerMCP func(servers []Server) (string, error)
+	// title is SessionTitle's: nil where its conversation keeps no title Go reads.
+	title func(record *run.Object, cache string) (any, *run.Object)
+	// wrapped is WrappedUp's: nil where its conversation notes no turn wrapped up for its limit.
+	wrapped func(record map[string]any, prompted func(*run.Object) bool) any
 }
 
 var plugins = map[string]plugin{}
@@ -97,9 +108,9 @@ func Opens(name string) (titled, known bool) {
 
 // LastAnswer is the model, effort and time of the last answer a seat's conversation records, as
 // Python's plugin `running` reads them; false where that harness records none Go reads.
-func LastAnswer(name, conversation, cwd, account string) (model, effort, at any, found bool) {
-	if hook := plugins[name].answer; hook != nil {
-		return hook(conversation, cwd, account)
+func (reader Reader) LastAnswer(record *run.Object) (model, effort, at any, found bool) {
+	if hook := reader.own.answer; hook != nil {
+		return hook(record)
 	}
 	return nil, nil, nil, false
 }

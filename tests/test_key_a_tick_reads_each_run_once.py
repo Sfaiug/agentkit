@@ -15,8 +15,7 @@ class ATickReadsEachRunOnce(Sandbox):
         def counted(directory, *args, **kw):
             reads[directory.name] += 1
             return real(directory, *args, **kw)
-        with patch.object(record, "read_state", counted), \
-                patch.object(watch, "after_merge_status", return_value=("passed", None, None)):
+        with patch.object(record, "read_state", counted):
             watch.after_merge_checks({}, False, lambda _: None, now=10000)
         return reads["bystander"]
 

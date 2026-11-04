@@ -3,8 +3,11 @@
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
 // scratch task's or a repository's with --no-merge or --no-worktree, or a review of somebody else's
-// pull request from no seat, and that run goes on in package loop.  Any other it leaves to Python (ErrPython), deciding so before it writes
-// anything, so preflight is settled first.
+// pull request from no seat, and that run goes on in package loop.  A seat's launch it judges as
+// Python's run.parse does, and one that passes is the seat's run: its receipt names the seat and
+// binds the seat's lists and efforts, and the seat's bar and project follow it (seat.go).  Any
+// other it leaves to Python (ErrPython), deciding so before it writes anything, so preflight is
+// settled first.
 package launch
 
 import (
@@ -27,9 +30,9 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 	"agentkit/internal/task"
 )
 
@@ -42,8 +45,8 @@ var ErrStopped = errors.New("a launch a stop ended")
 
 // Values and Switches are a launch's options, in the order Python's launch_opts records them.
 var (
-	Values   = []string{"--rounds", "--exec", "--review", "--review-pr", "--parallel"}
-	Switches = []string{"--no-worktree", "--no-merge", "--bg", "--anyway", "--first"}
+	Values   = run.LaunchValues
+	Switches = run.LaunchSwitches
 )
 
 // Task launches the task file at the absolute path with the options given, saying on out what
@@ -56,7 +59,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	}
 	text := task.Text(data)
 	meta, cmds, err := task.Read(path)
-	bound, unbound := config.Bind()
+	bound, unbound := bind()
 	if err != nil || unbound != nil || python(path, values, flags, bound) {
 		return 0, "", ErrPython
 	}
@@ -73,10 +76,15 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		return 0, "", err
 	}
 	copied := filepath.Join(dir, "task.md")
-	reason, warning, place, err := preflight(meta, cmds, path, copied, values, flags)
+	reason, warning, place, err := preflight(meta, cmds, path, copied, values, flags, bound)
 	var outright *refusedOutright
 	if errors.As(err, &outright) {
 		return 2, outright.why, nil
+	}
+	seated, _, _ := Seat()
+	// a seat's launch a rule refuses is said where the seat typed it, which is Python's yet
+	if err == nil && reason != "" && seated != "" {
+		err = ErrPython
 	}
 	if err != nil {
 		return 0, "", err
@@ -89,7 +97,8 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
 		func() error { return os.WriteFile(logged, nil, 0o666) },
-		func() error { return receive(dir, path, values, flags, bound) },
+		func() error { return receive(dir, path, values, flags, bound, seated) },
+		func() error { seat.Redress(seated); return nil }, // the seat's bar says it from the start
 		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
 	} {
 		if err := step(); err != nil {
@@ -97,7 +106,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		}
 	}
 	if reason == "" {
-		code, err := drive(dir, meta, place, warning, flags, unstopped, log, out, errOut)
+		code, err := drive(dir, meta, place, warning, flags, seated, unstopped, log, out, errOut)
 		return code, "", err
 	}
 	return refuse(dir, reason, warning, log)
@@ -180,33 +189,38 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
-// cannot read as it does: any that leaves unread surroundings to Python, one Python's rival check
-// may refuse, or a string for the record Python would write with a lone surrogate.  A count that
-// is none the gate never reads: Task refuses it.
+// cannot read as it does: any that leaves unread surroundings to Python, one naming no executor,
+// a seat's whose runs Go cannot count its project from, one Python's rival check may refuse, which
+// a seat's asks with its queue (preflight), or a string for the record Python would write with a
+// lone surrogate.  A count that is none the gate never reads: Task refuses it.
 func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
-	if unread() || len(bound.Workers) == 0 || !readable(path) ||
+	name, _, unnamed := Seat()
+	if unnamed != nil || unread() || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) {
 		return true
 	}
-	return !flags["--anyway"] && going()
+	if name != "" {
+		return !seat.Votes(name)
+	}
+	return !flags["--anyway"] && going(path)
 }
 
 // elsewhere is whether this process's surroundings leave any launch or resume to Python: those
-// unread, or a config Python refuses before its run.
+// unread, a seat's, or a config Python refuses before its run.
 func elsewhere() bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	return capped != nil || memory != nil || unread()
+	return capped != nil || memory != nil || unread() || seated()
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
-// start, a seat's, one a history.db that stands would record (no suite's sink marks it), one the
+// start, one a history.db that stands would record (no suite's sink marks it), one the
 // gate does not admit outright, a home HOME does not name, a local time Go reads otherwise, or text
 // Python would write with a lone surrogate.
 func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || os.Getenv("AGENTKIT_SESSION") != "" || sink() == "" && !run.Historyless() ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !run.Historyless() ||
 		os.Getenv("HOME") == "" || !localTime() ||
 		!known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
@@ -298,7 +312,7 @@ func Budget(path string) (int, error) {
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
 // Python a run whose suite is narrowed to its change, or whose landing checks run in pieces.
-func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool) (string, string, place, error) {
+func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool, bound config.Binding) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		return reason, warning, at, err
@@ -315,6 +329,12 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	// here, before any refusal a run records, as Python's launch_refusal is
 	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
 		return refuse("", "", &refusedOutright{why})
+	}
+	// a seat's launch is judged up to its queue, asked last before anything is created
+	if seat, _, _ := Seat(); seat != "" {
+		if err := seatQueue(seat, repo); err != nil {
+			return refuse("", "", err)
+		}
 	}
 	if refused != "" {
 		return refuse(refused, "", nil)
@@ -360,7 +380,7 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(at.every, path, values); err != nil {
+		if err := drivable(path, values, bound); err != nil {
 			return refuse("", "", err)
 		}
 		// a helper takes a repository's checks in Python, and Go has none
@@ -401,17 +421,8 @@ func asPython(err error) error {
 	return nil
 }
 
-// numbers is the numbers in force for a repository's run: the front matter of AGENTS.md on the
-// default branch of its checkout, one commit for all of them, else the host's.
 func numbers(repo string) (config.Numbers, error) {
-	if repo == "" {
-		return config.HostNumbers()
-	}
-	commit, _, _, err := git(repo, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/HEAD")
-	if err != nil || commit == "" {
-		return config.HostNumbers()
-	}
-	return config.ProjectNumbers(repo, func(key string) string { return gitcall.DeclaredAt(repo, commit, key) })
+	return run.LaunchPolicy(repo)
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it
@@ -427,69 +438,25 @@ func git(repo string, args ...string) (string, string, bool, error) {
 
 // holdSlots waits for the lock every run's admission changes under.
 func holdSlots() (*os.File, error) {
-	return lock.Wait(context.Background(), filepath.Join(run.Runs(), ".slots.lock"))
+	return holdAdmission(context.Background())
+}
+
+func holdAdmission(ctx context.Context) (*os.File, error) {
+	return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
 }
 
 // receive writes the launch's receipt under the slots lock.
-func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
+func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
-	return receipt(dir, path, values, flags, bound)
+	return receipt(dir, path, values, flags, bound, seat)
 }
 
-// receipt is the launch's first record, as Python's capture_launch writes it, with the gate's
-// outright admission; its caller holds the slots lock.
-func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding) error {
-	depth, _ := runDepth()
-	var parent, identity any
-	if value, set := os.LookupEnv("AK_PARENT_RUN"); set {
-		parent = value
-	}
-	if born, ok := host.ReadIdentity(os.Getpid()); ok {
-		identity = run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
-	}
-	launched, efforts := run.NewObject(), run.NewObject()
-	for _, flag := range Values {
-		launched.Set(flag, nil)
-		if value, given := values[flag]; given {
-			launched.Set(flag, value)
-		}
-	}
-	for _, flag := range Switches {
-		launched.Set(flag, flags[flag])
-	}
-	first := []any{"run_id", filepath.Base(dir), "state", "running", "verdict", nil,
-		"launched_session", nil, "started_at", now(), "queued_at", now(), "slot_waiting", false,
-		"run_depth", depth, "parent_run", parent, "reservation_pending", true,
-		"unattended", os.Getenv("AGENTKIT_UNATTENDED") != "", "pid", os.Getpid(),
-		"process_identity", identity, "launch_opts", launched}
-	if bound.Reviewers != nil {
-		first = append(first, "workers", bound.Workers, "reviewers", bound.Reviewers)
-	}
-	for _, model := range bound.Models {
-		keys := run.NewObject()
-		for _, effort := range bound.Efforts[model] {
-			keys.Set(effort[0], effort[1])
-		}
-		efforts.Set(model, keys)
-	}
-	// a review's proof is its plan's lines, and it has no task file
-	var reviewed, proof any = nil, "owed"
-	if url, given := values["--review-pr"]; given {
-		reviewed, proof = url, nil
-	}
-	first = append(first, "efforts", efforts, "review_pr", reviewed, "reported", false, "base_proof", proof,
-		"notify_sink", sink())
-	if path != "" {
-		first = append(first, "task_file", path)
-	}
-	if flags["--first"] {
-		first = append(first, "first", true)
-	}
-	return run.Create(dir, run.Fields(append(first, "slot_started_at", now())...))
+func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
+	return run.Create(dir, run.Capture(dir, path, values, flags, bound, seat))
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.

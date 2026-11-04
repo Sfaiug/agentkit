@@ -27,3 +27,7 @@ var Faults = []string{"command not found", "Argument list too long", "not instal
 	"model … not supported", "model~not~found", "ModelNotFoundError", "not logged in", "please~log~in", "please~run~log~in",
 	"unauthorized", "unauthorised", "authentication~failed", "authentication~required", "authentication~error",
 	"invalid~api~key", "invalid~x~api~key"}
+
+// ClaudeWrapUp is the field and value of a Claude conversation's entry where Claude Code wrapped a
+// turn up for a spent subscription (claude.py's `wrapped_up`, Claude Code 2.1.292).
+var ClaudeWrapUp = struct{ Key, Value string }{"usageLimitNote", "wrap_up"}

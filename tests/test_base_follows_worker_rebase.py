@@ -34,7 +34,7 @@ class BaseFollowsWorkerRebase(Sandbox):
         # another change lands on the target after the launch, larger than a first review takes
         # and with prose a branch may not add
         self.git("checkout", "-q", "main")
-        self.write({"other.py": "".join(f"o{k} = {k}\n" for k in range(config.policy()["review_lines"])),
+        self.write({"other.py": "".join(f"o{k} = {k}\n" for k in range(config.policy()["executor_lines"])),
                     "notes.md": "target text\n"}, "Elsewhere")
         self.tip = self.git("rev-parse", "HEAD")
         self.git("update-ref", "refs/remotes/origin/main", self.tip)

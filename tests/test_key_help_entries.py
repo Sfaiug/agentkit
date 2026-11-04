@@ -54,7 +54,6 @@ USAGE = {
     "macbridge": "usage: ak macbridge [--reader]",
     "attach": "usage: ak attach [--client] [--overlay] [--dry-run]",
     "doctor": "usage: ak doctor",
-    "run status": "usage: ak run status [ID] [--history] [--why] [--plain] [--json]",
     "orch rules": "usage: ak orch rules CODE",
     "hand-in done": "usage: ak hand-in done",
     "notify needs": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]',

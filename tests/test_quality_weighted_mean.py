@@ -32,6 +32,8 @@ def rated(*rows):
 
 
 class QualityWeightedMean(unittest.TestCase):
+    # 100 less its weighted mean points behind the best on that role's benchmarks.
+    # [18 Sep - 26 Oct 2026]
     def test_quality_and_error_weigh_each_measure_by_its_weight(self):
         bolt = rated(BEST, BOLT)["bolt-2"]
         self.assertAlmostEqual(bolt["quality"], 100 - (0.4 * 10 + 0.4 * 5 + 0.2 * 30))

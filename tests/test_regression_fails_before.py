@@ -7,6 +7,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -36,7 +37,7 @@ class RegressionFailsBefore(unittest.TestCase):
             "HOME": str(self.root), "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1",
             "PYTHONDONTWRITEBYTECODE": "1", "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
             "AGENTKIT_RUN": "", "AK_PARENT_RUN": "", "AK_RUN_LOG": "",
-            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0"}))
+            "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_NOTIFY_SINK": "dry-run"}))
         self.stack.enter_context(patch.object(worker, "kill_marked"))
         config.ensure_dirs()
         self.cfg = config.load()
@@ -80,6 +81,14 @@ class RegressionFailsBefore(unittest.TestCase):
         lp.rnd = 1
         return lp
 
+    def checked(self, lp):
+        """The gate and a passing review, after which the proof has been recorded."""
+        ok, text = run.verify_work(lp)
+        with patch.object(run.turns, "call_retrying", side_effect=submitting(
+                (0, "VERDICT: PASS", None, False))):
+            run.review(lp, "", ok, text)
+        return ok, text + "\n\n" + prompts.base_proof_line(lp.state)
+
     def assert_restored(self, head, untracked=False):
         self.assertEqual(run.git(self.wt, "rev-parse", "HEAD"), head)
         self.assertEqual(run.git(self.wt, "symbolic-ref", "--short", "HEAD"), "ak/fix-api")
@@ -93,7 +102,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.script.write_text("exit 0\n")
         lp = self.loop()
         head = run.git(self.wt, "rev-parse", "HEAD")
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn(f"base proof: none shown (every check passes on base {self.base[:12]}", text)
         state = record.read_state(self.directory)
@@ -119,7 +128,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.commit("Handle empty input")
         head = run.git(self.wt, "rev-parse", "HEAD")
         lp = self.loop()
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         base_output = (self.directory / "base.log").read_text()
         self.assertIn(self.base, base_output)
@@ -129,10 +138,11 @@ class RegressionFailsBefore(unittest.TestCase):
         self.assertIn("empty input passed", text)
         self.assert_restored(head)
         lp.state["step"] = "reviewer"
-        self.assertEqual(roundloop.settled_gate(lp), (True, text))
+        self.assertEqual(roundloop.settled_gate(lp),
+                         (True, (lp.round_dir / "donewhen.log").read_text()))
         resumed = self.loop(state=record.read_state(self.directory))
         with patch.object(worker, "boxed", wraps=worker.boxed) as limited:
-            self.assertTrue(run.verify_work(resumed)[0])
+            self.assertTrue(self.checked(resumed)[0])
         self.assertEqual(len(limited.call_args_list), 1, "base was probed again after resume")
         self.assertEqual((self.directory / "base.log").read_text(), base_output)
         self.assert_restored(head)
@@ -156,12 +166,12 @@ class RegressionFailsBefore(unittest.TestCase):
         lp = self.loop()
         with patch.dict(os.environ, {"PYTHONDONTWRITEBYTECODE": "", "PYTHONPYCACHEPREFIX": ""}):
             self.assertEqual(roundloop.fails_on_base(lp), "")
-            self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
+            self.assertEqual(record.read_state(self.directory)["base_proof"], "owed")
             base_output = (self.directory / "base.log").read_text()
             self.assertIn("saw base", base_output)
             self.assertIn("[exit 1]", base_output)
             self.assert_restored(head)
-            ok, text = run.verify_work(lp)
+            ok, text = self.checked(lp)
             self.assertTrue(ok, text)
             self.assertIn("saw head", text)
         self.assertTrue(list((self.wt / "__pycache__").glob("same.*.pyc")))
@@ -172,12 +182,12 @@ class RegressionFailsBefore(unittest.TestCase):
         self.commit("Change behaviour")
         head = run.git(self.wt, "rev-parse", "HEAD")
         lp = self.loop(["true"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn(f"every check passes on base {self.base[:12]}", text)
         (self.directory / "base.log").unlink()
         lp = self.loop(["false"])
-        self.assertFalse(run.verify_work(lp)[0])
+        self.assertFalse(self.checked(lp)[0])
         self.assertFalse((self.directory / "base.log").exists())
         self.assert_restored(head)
 
@@ -185,7 +195,7 @@ class RegressionFailsBefore(unittest.TestCase):
         # a PR review, or a run launched before the rule: its record owes none
         lp = self.loop(["true"])
         del lp.state["base_proof"]
-        self.assertTrue(run.verify_work(lp)[0])
+        self.assertTrue(self.checked(lp)[0])
         self.assertFalse((self.directory / "base.log").exists())
 
     def test_a_check_reading_a_changed_file_reads_it_as_base_has_it(self):
@@ -193,7 +203,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.commit("Handle empty input")
         head = run.git(self.wt, "rev-parse", "HEAD")
         lp = self.loop(["grep -q 'if items' broken.py"])     # names a changed file, not a test
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("[exit 1]", (self.directory / "base.log").read_text())
         self.assert_restored(head)
@@ -203,7 +213,7 @@ class RegressionFailsBefore(unittest.TestCase):
         (self.wt / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
         self.commit("Handle empty input")
         lp = self.loop(["true", "PYTHONPATH=. python3 tests/check.py", "test -f keep.txt"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
@@ -215,14 +225,14 @@ class RegressionFailsBefore(unittest.TestCase):
     def test_a_check_s_own_set_e_holds_on_base(self):
         self.fixed()
         lp = self.loop(["set -e; PYTHONPATH=. python3 tests/check.py; echo check-completed"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
     def test_a_task_checked_only_at_landing_has_no_check_of_its_own(self):
         self.fixed()
         lp = self.loop(["PYTHONPATH=. python3 tests/check.py  # once"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("the task has no check of its own that runs each round", text)
 
@@ -236,14 +246,14 @@ class RegressionFailsBefore(unittest.TestCase):
         # it would fail on base; the task's own check does not, whatever the target declares
         self.fixed()
         lp = self.loop(["true"], suite="PYTHONPATH=. python3 tests/check.py")
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("every check passes on base", text)
 
     def test_a_task_with_no_check_of_its_own_proves_nothing(self):
         self.fixed()
         lp = self.loop([], suite="PYTHONPATH=. python3 tests/check.py")
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("the task has no check of its own that runs each round", text)
 
@@ -264,7 +274,7 @@ class RegressionFailsBefore(unittest.TestCase):
                     step = (f"if {ON_BASE}; then sh -c 'kill -{signal_} $$'; fi")
                     lp = self.loop([joined.format(step=step)])
                     lp.state["base_proof"] = "owed"
-                    ok, text = run.verify_work(lp)
+                    ok, text = self.checked(lp)
                     self.assertTrue(ok, text)
                     self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
@@ -273,7 +283,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.fixed()
         lp = self.loop(["printf ready > check-input.tmp",
                         "test -f check-input.tmp && rm check-input.tmp"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("every check passes on base", text)
 
@@ -284,7 +294,7 @@ class RegressionFailsBefore(unittest.TestCase):
             with self.subTest(env=env), patch.dict(os.environ, env):
                 lp = self.loop(["PYTHONPATH=. python3 tests/check.py"])
                 lp.state["base_proof"] = "owed"
-                ok, text = run.verify_work(lp)
+                ok, text = self.checked(lp)
                 self.assertTrue(ok, text)
                 self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
@@ -294,12 +304,12 @@ class RegressionFailsBefore(unittest.TestCase):
         # goes on unproven, as before the rule
         self.fixed()
         in_gate = f"test \"$PWD\" = {shlex.quote(str(self.wt))}"
-        ok, text = run.verify_work(self.loop([in_gate]))
+        ok, text = self.checked(self.loop([in_gate]))
         self.assertTrue(ok, text)
         self.assertNotEqual(record.read_state(self.directory).get("base_proof"), "proven")
         lp = self.loop([in_gate, "PYTHONPATH=. python3 tests/check.py"])
         lp.state["base_proof"] = "owed"
-        ok, text = run.verify_work(lp)    # the other check still proves it
+        ok, text = self.checked(lp)    # the other check still proves it
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
@@ -317,7 +327,7 @@ class RegressionFailsBefore(unittest.TestCase):
             with self.subTest(check=check):
                 lp = self.loop(["python3 tests/check.py", check])
                 lp.state["base_proof"] = "owed"
-                run.verify_work(lp)
+                self.checked(lp)
                 self.assertNotEqual(record.read_state(self.directory).get("base_proof"), "proven")
                 self.assert_restored(head)
 
@@ -328,7 +338,7 @@ class RegressionFailsBefore(unittest.TestCase):
         run.git(self.wt, "config", "--unset", "user.email")
         head = run.git(self.wt, "rev-parse", "HEAD")
         lp = self.loop(["PYTHONPATH=. python3 tests/check.py"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
         proof = prompts.proof_on(lp, "PYTHONPATH=. python3 tests/check.py",
@@ -341,7 +351,7 @@ class RegressionFailsBefore(unittest.TestCase):
         # beside it passes everywhere: the replays cannot tell, which never fails the round
         self.fixed()
         in_gate = f"test \"$PWD\" = {shlex.quote(str(self.wt))}"
-        ok, text = run.verify_work(self.loop(["true", in_gate]))
+        ok, text = self.checked(self.loop(["true", in_gate]))
         self.assertTrue(ok, text)
         self.assertNotEqual(record.read_state(self.directory).get("base_proof"), "proven")
 
@@ -354,13 +364,13 @@ class RegressionFailsBefore(unittest.TestCase):
         (self.wt / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
         self.commit("Handle empty input")
         lp = self.loop(['for f in spec/*_spec.py; do PYTHONPATH=. python3 "$f" || exit 1; done'])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
     def test_the_second_replay_runs_only_once_a_check_did_not_pass_on_base(self):
         self.fixed()
-        ok, text = run.verify_work(self.loop(["true"]))
+        ok, text = self.checked(self.loop(["true"]))
         self.assertTrue(ok, text)
         self.assertTrue((self.directory / "base.log").exists())
         self.assertFalse((self.directory / "head.log").exists())
@@ -371,7 +381,7 @@ class RegressionFailsBefore(unittest.TestCase):
         for index in range(12000):
             (data / f"{'x' * 200}-{index}").write_text("")
         self.fixed()
-        ok, text = run.verify_work(self.loop(["PYTHONPATH=. python3 tests/check.py"]))
+        ok, text = self.checked(self.loop(["PYTHONPATH=. python3 tests/check.py"]))
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
@@ -399,14 +409,14 @@ class RegressionFailsBefore(unittest.TestCase):
                 test = next(name for name in files if "/test_" in name)
                 lp = self.loop([f"PYTHONPATH=tests python3 {test}"])
                 lp.state["base_proof"] = "owed"
-                ok, text = run.verify_work(lp)
+                ok, text = self.checked(lp)
                 self.assertTrue(ok, text)
                 self.assertNotEqual(record.read_state(self.directory).get("base_proof"), "proven")
 
     def test_a_branch_changing_nothing_but_tests_owes_no_proof(self):
         (self.wt / "tests/test_more.py").write_text("assert True\n")
         self.commit("One more test")
-        ok, text = run.verify_work(self.loop(["python3 tests/test_more.py"]))
+        ok, text = self.checked(self.loop(["python3 tests/test_more.py"]))
         self.assertTrue(ok, text)
         self.assertFalse((self.directory / "base.log").exists())
 
@@ -418,7 +428,7 @@ class RegressionFailsBefore(unittest.TestCase):
         run.git(self.wt, "rm", "-q", "-r", "settings")
         (self.wt / "settings").write_text("new\n")
         self.commit("Settings as a file")
-        ok, text = run.verify_work(self.loop(["test -f settings"]))
+        ok, text = self.checked(self.loop(["test -f settings"]))
         self.assertTrue(ok, text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
@@ -442,7 +452,7 @@ class RegressionFailsBefore(unittest.TestCase):
                                 f"{in_gate} || git config ak.ready yes"])):
             with self.subTest(kind=kind):
                 lp = self.loop(checks)
-                ok, _ = run.verify_work(lp)
+                ok, _ = self.checked(lp)
                 self.assertNotEqual(record.read_state(self.directory).get("base_proof"), "proven")
                 self.assert_restored(head, untracked=True)
                 self.assertEqual(run.git(self.wt, "config", "--get", "ak.ready", check=False), "")
@@ -453,7 +463,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.fixed()
         lp = self.loop(["(sleep 1; printf ready > check-input.tmp) &",
                         "test -f check-input.tmp && rm check-input.tmp"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("every check passes on base", text)
 
@@ -461,7 +471,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.fixed()
         lp = self.loop(["PYTHONPATH=. python3 tests/check.py || { sleep 60 & exit 1; }"])
         lp.done_when_limit = 5
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("did not finish on base", text)
         self.assertNotEqual(record.read_state(self.directory).get("base_proof"), "proven")
@@ -471,7 +481,7 @@ class RegressionFailsBefore(unittest.TestCase):
         (self.wt / "probe-tool.sh").write_text("exit 0\n")
         (self.wt / "probe-tool.sh").chmod(0o755)
         self.fixed()
-        ok, text = run.verify_work(self.loop(["./probe-tool.sh"]))
+        ok, text = self.checked(self.loop(["./probe-tool.sh"]))
         self.assertTrue(ok, text)
         self.assertIn("did not finish on base", text)
 
@@ -481,7 +491,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.commit("A check that prints another's header")
         self.base = run.git(self.wt, "rev-parse", "HEAD")
         self.fixed()
-        ok, text = run.verify_work(self.loop(["python3 tests/spoof.py", "true"]))
+        ok, text = self.checked(self.loop(["python3 tests/spoof.py", "true"]))
         self.assertTrue(ok, text)
         self.assertIn("every check passes on base", text)
 
@@ -489,7 +499,7 @@ class RegressionFailsBefore(unittest.TestCase):
         self.fixed()
         lp = self.loop(["rm -f twice.tmp", "printf x >> twice.tmp", "printf x >> twice.tmp",
                         'test "$(cat twice.tmp)" = xx'])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("every check passes on base", text)
 
@@ -509,15 +519,83 @@ class RegressionFailsBefore(unittest.TestCase):
 
         with patch.object(worker, "boxed", side_effect=interrupt):
             with self.assertRaises(run.Stopped):
-                run.verify_work(lp)
+                self.checked(lp)
         self.assert_restored(head)
         self.assertEqual(record.read_state(self.directory).get("base_proof"), "owed")
+
+    def test_only_the_main_thread_records_the_proof_after_the_reviewer_returns(self):
+        self.fixed()
+        lp = self.loop(["true"])
+        ok, text = run.verify_work(lp)
+        reviewed = threading.Event()
+
+        def proof(_lp, **_kw):
+            self.assertIsNot(threading.current_thread(), threading.main_thread())
+            self.assertTrue(reviewed.wait(10))
+            return ""
+
+        def reviewer(*_args, **_kw):
+            self.assertEqual(lp.state["base_proof"], "owed")
+            reviewed.set()
+            return 0, "VERDICT: PASS", None, False
+
+        saved = lp.save
+
+        def save():
+            self.assertIs(threading.current_thread(), threading.main_thread())
+            saved()
+
+        with patch.object(roundloop, "fails_on_base", side_effect=proof), \
+                patch.object(run.turns, "call_retrying", side_effect=submitting(reviewer)), \
+                patch.object(lp, "save", side_effect=save):
+            self.assertEqual(run.review(lp, "", ok, text), "PASS")
+        self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
+
+    def test_an_interrupted_review_replays_the_proof_again_on_resume(self):
+        self.fixed()
+        lp = self.loop(["PYTHONPATH=. python3 tests/check.py"])
+        ok, text = run.verify_work(lp)
+        started, stopped = threading.Event(), threading.Event()
+
+        def proof(_lp, **_kw):
+            started.set()
+            stopped.wait(10)
+            return ""
+
+        def reviewer(*_args, **_kw):
+            self.assertTrue(started.wait(10))
+            raise KeyboardInterrupt
+
+        def stop(marker, **_kw):
+            if threading.current_thread() is threading.main_thread():
+                self.assertEqual(marker, worker.run_marker(lp.state["run_id"]) + "/base-proof")
+                stopped.set()
+
+        with patch.object(run._RUN_CONTEXT, "state", lp.state, create=True), \
+                patch.object(roundloop, "fails_on_base", side_effect=proof), \
+                patch.object(worker, "kill_marked", side_effect=stop), \
+                patch.object(run.turns, "call_retrying", side_effect=reviewer):
+            with self.assertRaises(KeyboardInterrupt):
+                run.review(lp, "", ok, text)
+        self.assertTrue(stopped.is_set(), "review exit joined without stopping the replay")
+        state = record.read_state(self.directory)
+        self.assertEqual(state["base_proof"], "owed")
+        self.assertTrue(state["review_pending"])
+        (self.directory / "base.log").write_text("partial replay\n")
+        resumed = self.loop(lp.cmds, state=state)
+        with patch.object(roundloop, "fails_on_base", wraps=roundloop.fails_on_base) as replay, \
+                patch.object(run.turns, "call_retrying", side_effect=submitting(
+                    (0, "VERDICT: PASS", None, False))):
+            self.assertEqual(roundloop.resume_review(resumed), "PASS")
+        self.assertEqual(replay.call_count, 1)
+        self.assertIn(self.base, (self.directory / "base.log").read_text())
+        self.assertEqual(record.read_state(self.directory)["base_proof"], "proven")
 
     def test_a_check_a_signal_ends_on_base_is_unfinished_not_failing(self):
         self.fixed()
         # passes on HEAD; on base a signal ends it before it says anything
         lp = self.loop([f"{ON_BASE} && kill -TERM $$; true"])
-        ok, text = run.verify_work(lp)
+        ok, text = self.checked(lp)
         self.assertTrue(ok, text)
         self.assertIn("did not finish on base", text)
         self.assertEqual(record.read_state(self.directory)["base_proof"], "owed")

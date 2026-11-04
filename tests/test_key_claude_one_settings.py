@@ -23,6 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home
 
+# ak compacts no seat itself: each harness's own compaction does (Claude's idle compaction,
+# its minimum set in the login's settings). Reason: Claude Code compacts an idle seat itself,
+# and two compactors on one seat can only clash. [16 Oct 2026]
 USUAL = '{"theme": "dark", "autoCompactWindow": 1000000}\n'
 STARTED = """#!{python}
 import json, os, time
@@ -93,6 +96,11 @@ class ClaudeLogins(unittest.TestCase):
                 self.assertLinked(login)
         self.assertUsualUntouched()
 
+    # A harness's settings are its own, changed in any of its sessions (its settings screen, or
+    # by asking its model): every login of a harness reads one settings file (not yet
+    # Antigravity's: 1.3.5 replaces links), so the change reaches every session and worker of
+    # that harness. Reason: an edit made on one Claude login was reverted by the next launch.
+    # [15 Oct 2026]
     def test_a_change_made_on_one_login_reaches_the_other_and_outlasts_their_launches(self):
         self.open_seat("acme", "harbor")
         self.open_seat("beta", "quay")

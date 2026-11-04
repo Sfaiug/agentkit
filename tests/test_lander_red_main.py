@@ -92,8 +92,15 @@ class RedMain(unittest.TestCase):
         self.assertEqual(len(self.checks), 2)
         self.assertEqual(self.checks[1][0], [SUITE])
         self.assertEqual(self.prepared, [])
-        self.exhaust()
-        self.assertEqual(len(self.checks), 3)
+        blame_tip = land._blame_tip
+
+        def after_launch(*args, **_kw):
+            self.assertEqual(len(self.prepared), 1)
+            return blame_tip(*args, **_kw)
+
+        with patch.object(land, "_blame_tip", side_effect=after_launch):
+            self.exhaust()
+        self.assertEqual(len(self.checks), 5)
         self.assertEqual(self.checks[2][0], [SUITE])
         self.assertEqual(len(self.prepared), 1)
         directory, opts = self.prepared[0]
@@ -105,7 +112,7 @@ class RedMain(unittest.TestCase):
         for _ in range(3):
             land.check_line(self.turn)
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(len(self.checks), 5)
         self.assert_parked(before)
         self.wake.assert_not_called()
         self.assertIn("Tree: ", (first / "target-probe.log").read_text())
@@ -244,7 +251,8 @@ class RedMain(unittest.TestCase):
         land.check_line(self.turn)
         self.assertIn("piece", self.wait(repair)["fix"])
         history.start_run(repair.name, started_at=1)
-        lp = SimpleNamespace(state=record.read_state(repair), write=lambda: None, log=lambda _: None)
+        lp = SimpleNamespace(state=record.read_state(repair), wt=self.repo,
+                             base_sha=state["base_sha"], write=lambda: None, log=lambda _: None)
         with patch.object(roundloop, "integrate", return_value=False):
             deliver.land_from_line(lp, "origin/main", lambda: True)
         # the lander never probed the red target for it: its red says nothing of its review
@@ -256,7 +264,8 @@ class RedMain(unittest.TestCase):
                                   "fix": {"line": "required checks failed: unit", "log": str(log)}}
         with patch.object(roundloop, "integrate", return_value=False):
             deliver.land_from_line(lp, "origin/main", lambda: True)
-        self.assertEqual(history.get(repair.name)["landing_breaks"], 1)
+        self.assertEqual(history.get(repair.name)["landing_breaks"], 0)
+        self.assertEqual(len(lp.state["landing_red_patches"]), 1)
 
     def test_a_green_bare_target_wakes_only_the_members_that_fail(self):
         first = self.member(**{"broken.txt": "branch breakage\n"})
@@ -325,13 +334,13 @@ class RedMain(unittest.TestCase):
         self.wake.reset_mock()
         land.check_line(self.turn)
         self.exhaust()
-        self.assertEqual([cmds for cmds, _, _ in self.checks], [["true", suite], [suite], [suite]])
+        self.assertEqual([cmds for cmds, _, _ in self.checks], [["true", suite]] + [[suite]] * 4)
         self.assertEqual(len(self.prepared), 1)
         self.assert_parked(before)
         self.wake.assert_not_called()
         # Covered evidence must not bypass a repair already holding this target either.
         land.check_line(self.turn)
-        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(len(self.checks), 5)
         self.assertEqual(len(self.prepared), 1)
         self.assert_parked(before)
         self.wake.assert_not_called()
@@ -395,7 +404,7 @@ class RedMain(unittest.TestCase):
         run.git(self.repo, "push", "origin", "main")
         land.check_line(self.turn)
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(len(self.checks), 5)
         self.assert_parked(before)
         self.wake.assert_not_called()
 
@@ -412,7 +421,7 @@ class RedMain(unittest.TestCase):
                         transitions.schedule_error_retry(state)
                 land.check_line(self.turn)
                 self.assertEqual(len(self.prepared), 1)
-                self.assertEqual(len(self.checks), 3)
+                self.assertEqual(len(self.checks), 5)
                 self.assert_parked(before)
                 self.wake.assert_not_called()
 
@@ -441,7 +450,7 @@ class RedMain(unittest.TestCase):
         self.assertEqual([call.args[0] for call in self.wake.call_args_list],
                          [first.name, later.name])
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 4)
+        self.assertEqual(len(self.checks), 6)
         self.assertEqual(run.git(self.repo, "rev-parse", "origin/main^{tree}"), tree)
         self.assertEqual(self.wait(later)["land"], self.wait(first)["land"])
         self.assert_cleaned()
@@ -492,7 +501,7 @@ class RedMain(unittest.TestCase):
             self.exhaust()
         land.check_line(self.turn)
         self.assertEqual(len(self.prepared), 1)
-        self.assertEqual(len(self.checks), 3)
+        self.assertEqual(len(self.checks), 5)
         self.assert_parked(before)
         self.wake.assert_not_called()
 

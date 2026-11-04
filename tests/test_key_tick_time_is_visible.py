@@ -73,7 +73,8 @@ class TickTime(unittest.TestCase):
         home.write(".agentkit/state/seat-beta.json",
                    {"owed_lines": [{"id": "1", "line": "first\rsecond\r"}]})
         cls.log = home.write(".agentkit/tmp/watch.log", "")
-        cls.gh.reply("repo view", err="network unavailable\n\nplease retry\n", code=1)
+        cls.gh.reply("api --paginate search/issues -X GET",
+                     err="network unavailable\n\nplease retry\n", code=1)
         cls.lines, cls.record, cls.before, cls.after = cls.tick()
         cls.gh.restore()
 

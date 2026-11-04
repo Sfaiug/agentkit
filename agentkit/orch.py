@@ -1366,12 +1366,17 @@ def processes():
     """{pid: (ppid, the words of its command)} from one `ps`, or None where there is none.
 
     Held for as long as `one_reading` lasts, else for AGENT_LOOK_EVERY seconds: a menu draw
-    asks for every seat, and one table answers them all.  A failed reading is held too.
+    asks for every seat, and one table answers them all.  A failed reading is held too.  A
+    screen's pass (`look`) holds it while reading it costs at most `open_runs.SHARE` of a core,
+    `open_runs.CEILING` at most: hundreds of processes made each `ps` a fifth of a second here.
     """
+    every = AGENT_LOOK_EVERY
+    if look.passing() and "took" in _PROCESSES:
+        every = max(every, min(open_runs.CEILING, _PROCESSES["took"] / open_runs.SHARE))
     if "table" in _PROCESSES and (_PROCESSES.get("held")
-                                  or time.monotonic() - _PROCESSES["at"] < AGENT_LOOK_EVERY):
+                                  or time.monotonic() - _PROCESSES["at"] < every):
         return _PROCESSES["table"]
-    table = None
+    table, began = None, time.monotonic()
     try:
         proc = subprocess.run(["ps", "-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "args="],
                               capture_output=True, encoding="utf-8", errors="replace")
@@ -1385,7 +1390,7 @@ def processes():
                 table[int(words[0])] = (int(words[1]), words[2:])
             except (IndexError, ValueError):
                 continue
-    _PROCESSES.update(at=time.monotonic(), table=table)
+    _PROCESSES.update(at=time.monotonic(), table=table, took=time.monotonic() - began)
     return table
 
 
@@ -2956,17 +2961,18 @@ def rulebook_pointer(name, told, conversation, sha, news, fits):
 
 
 def prompt_news(session, conversation, said=None):
-    """The rulebook news, beside the run endings and the questions an owner's prompt may answer.
+    """Rulebook news, run endings, open questions and files the owner pasted.
 
     `said` is None for harness bookkeeping; the hook extracts the owner's words once for
     both this foreground context and its background answer.  Endings ride only on words
     (`handback.riding`): one that rode is told for good, and a slash command may start no
     turn to read it in.
     """
-    from . import handback, notify
+    from . import handback, macbridge, notify
     name = config.resolve_session(session)
     record = config.session_records().get(name)
-    besides = ((handback.riding(name), notify.answer_context(name, said))
+    besides = ((handback.riding(name), notify.answer_context(name, said),
+                macbridge.pasted_context(said))
                if said is not None and takes_prompt_context(record, conversation) else ())
 
     def context(news):

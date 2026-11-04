@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/lock"
@@ -54,6 +55,24 @@ func hold(dir, name string) (func(), error) {
 // RecoveryLock is the lock file a run's record is written under, which no commit of a checkout takes.
 const RecoveryLock = "recovery.lock"
 
+// holding is each directory whose recovery lock this process holds through Hold.
+var holding sync.Map
+
+// Hold waits for a run's or job's recovery lock and holds it until release, a Change of that
+// run inside taking it as its own, as Python's recovery_lock is reentrant: the collector holds it
+// across a checkout's removal, which records a checkout kept.
+func Hold(dir string) (func(), error) {
+	release, err := hold(dir, RecoveryLock)
+	if err != nil {
+		return nil, err
+	}
+	holding.Store(filepath.Clean(dir), true)
+	return func() {
+		holding.Delete(filepath.Clean(dir))
+		release()
+	}, nil
+}
+
 // Change is Python's `record`: change changes the record as it stands under recovery.lock,
 // and what it changed is written, the old time budgets gone with the write as Python's
 // record_limits drops them.  Nothing is written where change returns an error or changes
@@ -64,11 +83,13 @@ func Change(dir string, change func(*Object) error) error {
 
 // ChangeThen is Change with what then follows a write that landed, still under recovery.lock.
 func ChangeThen(dir string, change func(*Object) error, then func()) error {
-	release, err := hold(dir, RecoveryLock)
-	if err != nil {
-		return err
+	if _, held := holding.Load(filepath.Clean(dir)); !held {
+		release, err := hold(dir, RecoveryLock)
+		if err != nil {
+			return err
+		}
+		defer release()
 	}
-	defer release()
 	path := filepath.Join(dir, "run.json")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -89,6 +110,31 @@ func ChangeThen(dir string, change func(*Object) error, then func()) error {
 	return nil
 }
 
+// Deliver is Python's mark_delivery write: change changes the record as it stands, read and
+// written under the run directory's lock alone, into delivery.tmp, nothing written where it returns
+// an error.  Past recovery.lock on purpose: its caller holds delivery.lock, which Python's reap
+// takes inside recovery.lock, so taking that one here would invert their order.
+func Deliver(dir string, change func(*Object) error) error {
+	release, err := hold(dir, "")
+	if err != nil {
+		return err
+	}
+	defer release()
+	data, err := os.ReadFile(filepath.Join(dir, "run.json"))
+	if err != nil {
+		return errUnreadable
+	}
+	record, err := object(data)
+	if record == nil {
+		return cmp.Or(err, errUnreadable)
+	}
+	before := encoded(record)
+	if err := change(record); err != nil || maps.Equal(before, encoded(record)) {
+		return err
+	}
+	return lay(dir, data, before, record, "delivery.tmp")
+}
+
 // Create writes a run's first record as Change writes one, but without recovery.lock, as
 // Python's first save: a stop refuses a run with no record, so none races it.
 func Create(dir string, record *Object) error {
@@ -98,9 +144,7 @@ func Create(dir string, record *Object) error {
 // write puts what changed from before, the record data held, to record onto the record as it
 // stands under the run directory's lock.
 func write(dir string, data []byte, before map[string]string, record *Object) error {
-	path := filepath.Join(dir, "run.json")
-	after := encoded(record)
-	if maps.Equal(before, after) {
+	if maps.Equal(before, encoded(record)) {
 		return nil
 	}
 	release, err := hold(dir, "")
@@ -108,6 +152,13 @@ func write(dir string, data []byte, before map[string]string, record *Object) er
 		return err
 	}
 	defer release()
+	return lay(dir, data, before, record, "run.tmp")
+}
+
+// lay is a write of what changed under the run directory's lock its caller holds, through that
+// temporary file.
+func lay(dir string, data []byte, before map[string]string, record *Object, tmp string) error {
+	path, after := filepath.Join(dir, "run.json"), encoded(record)
 	if again, err := os.ReadFile(path); err == nil {
 		if current, err := object(again); errors.Is(err, ErrLoneSurrogate) {
 			return err
@@ -157,7 +208,7 @@ func write(dir string, data []byte, before map[string]string, record *Object) er
 		}
 		lines[i] = "  " + text[0] + ": " + laidOut(value, "  ")
 	}
-	temp := filepath.Join(dir, "run.tmp")
+	temp := filepath.Join(dir, tmp)
 	if err := os.WriteFile(temp, []byte("{\n"+strings.Join(lines, ",\n")+"\n}"), 0666); err != nil {
 		return err
 	}

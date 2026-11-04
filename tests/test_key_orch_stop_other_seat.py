@@ -1,7 +1,7 @@
 """A seat cannot stop another seat: `ak orch stop` from inside one names the owner, changes nothing.
 
 A seat stops only its own work, so a model's guess in one seat never ends the owner's
-conversation in another (owner rules: seats never act on one another).  Run inside a seat (its
+conversation in another (tests/test_key_tmux_shim_other_seat.py).  Run inside a seat (its
 environment names it, as the seat's tmux session gives each process in it), stopping another
 seat exits 2 saying whose it is, and that seat is left as it was: its session and pane still
 there with nothing typed into them, its record unchanged and no stop mark on it, whether tmux

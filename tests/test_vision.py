@@ -27,6 +27,10 @@ VISION = textwrap.dedent("""\
 
 
 class Vision(unittest.TestCase):
+    # the landing gate and pinned measures change on review like any other line;
+    # Owner rules change on review like any other line; only the vision waits for the owner's yes.
+    # Reason: asked after a build, the owner cannot judge the change, and ak would stop
+    # several times a day. [27 Oct 2026]
     def test_the_vision_is_the_owners_text(self):
         # the whole section: the next one starts right after its last line
         self.assertIn(f"\n{VISION}\n\n## ", (REPO / "AGENTS.md").read_text())

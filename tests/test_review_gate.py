@@ -113,6 +113,8 @@ sys.exit(1)
         self.stack.enter_context(patch.object(worker, "marked_pids", return_value=[]))
         self.stack.enter_context(patch.object(run.orch, "stop_scope"))
         self.stack.enter_context(patch.object(run.history, "sample_rss", return_value=None))
+        # A moving install must not replace this test process and discard its patches.
+        self.stack.enter_context(patch.object(run, "pickup_new_code", return_value=False))
         config.ensure_dirs()
         self.cfg = config.load()
         for harness in {entry["harness"] for entry in self.cfg["models"].values()}:
@@ -322,6 +324,22 @@ sys.exit(1)
 
 
 class ReviewGateIsolation(unittest.TestCase):
+    def test_install_change_does_not_replace_test_process(self):
+        fixture = ReviewGate()
+        try:
+            fixture.setUp()
+            fixture.reviews(PASS)
+            with patch.object(run, "_PICKUP_START", "aaa1111"), \
+                    patch.object(run, "installed_head", return_value="bbb2222"), \
+                    patch.object(run.os, "execv", side_effect=AssertionError(
+                        "review fixture must not replace the test process")) as execv:
+                code, directory, state = fixture.launch(rounds=1)
+            self.assertEqual(code, 0, (directory / "log.txt").read_text())
+            self.assertNotIn("pickup", state)
+            execv.assert_not_called()
+        finally:
+            fixture.doCleanups()
+
     def test_same_minute_sandboxes_have_distinct_process_markers(self):
         now = run.datetime(2026, 1, 1, 9)
         markers = []

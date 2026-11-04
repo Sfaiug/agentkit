@@ -97,8 +97,8 @@ class Answer(unittest.TestCase):
     def setUp(self):
         self.lineup = matrix.lineup(BOARDS, OFFERS)
 
-    def test_a_pick_no_harness_runs_takes_the_cheapest_of_yours_within_the_best(self):
-        execute = matrix.answer(self.lineup, 5)["execute"]
+    def test_a_pick_no_harness_runs_takes_the_role_pick_of_yours(self):
+        execute = matrix.answer(self.lineup)["execute"]
         self.assertEqual({key(row): round(row["quality"], 6) for row in execute["rated"]},
                          {("acme-5", "high"): 100, ("acme-5", "low"): 96, ("bolt-2", "high"): 98,
                           ("crux-1", "medium"): 80, ("dune-1", "high"): 70})
@@ -110,8 +110,8 @@ class Answer(unittest.TestCase):
         self.assertEqual(key(execute["take"]), ("acme-5", "low"))     # 2.0, not high's 4.0
 
     def test_what_is_compared_never_changes_a_row_s_quality_and_a_pick_of_yours_is_taken(self):
-        everything = matrix.answer(self.lineup, 5)["execute"]
-        execute = matrix.answer(self.lineup, 5, {"acme-5", "crux-1"})["execute"]
+        everything = matrix.answer(self.lineup)["execute"]
+        execute = matrix.answer(self.lineup, {"acme-5", "crux-1"})["execute"]
         self.assertEqual(execute["rated"], everything["rated"])
         self.assertEqual(key(execute["pick"]), ("acme-5", "low"))
         self.assertIs(execute["take"], execute["pick"])
@@ -119,15 +119,16 @@ class Answer(unittest.TestCase):
                          [("acme-5", "high"), ("acme-5", "low"), ("crux-1", "medium")])
 
     def test_nothing_with_a_cost_picks_and_takes_nothing(self):
-        execute = matrix.answer(self.lineup, 5, {"dune-1"})["execute"]
+        execute = matrix.answer(self.lineup, {"dune-1"})["execute"]
         self.assertEqual((round(execute["best"], 6), execute["pick"], execute["front"],
                           execute["take"]), (70, None, [], None))
-        self.assertEqual(matrix.answer(self.lineup, 5)["orchestrate"],
+        self.assertEqual(matrix.answer(self.lineup)["orchestrate"],
                          {"rated": [], "best": None, "pick": None, "front": [], "take": None})
 
-    def test_none_of_yours_within_the_best_takes_nothing(self):
-        execute = matrix.answer(self.lineup, 1, {"bolt-2", "crux-1"})["execute"]
-        self.assertEqual((key(execute["pick"]), execute["take"]), (("bolt-2", "high"), None))
+    def test_a_take_is_picked_even_when_yours_is_measurably_worse(self):
+        execute = matrix.answer(self.lineup, {"bolt-2", "crux-1"})["execute"]
+        self.assertEqual((key(execute["pick"]), key(execute["take"])),
+                         (("bolt-2", "high"), ("crux-1", "medium")))
 
 
 if __name__ == "__main__":

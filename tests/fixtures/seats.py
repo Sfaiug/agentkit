@@ -81,6 +81,9 @@ class Seats(unittest.TestCase):
             self.assertEqual(target, f"={self.seat['name']}:")
             return 0, PANE
         self.assertIn(target, (f"={self.seat['name']}:", PANE))
+        if (args[0] == "display-message"
+                and args[-1] == "#{session_attached}\t#{session_last_attached}"):
+            return 0, "0"       # detached, with no previous attachment timestamp
         if args[0] == "display-message" and args[-1].startswith("#{pane_tty}"):
             return 1, "no tty in this screen fixture"
         if args[-1] == "#{cursor_y}":

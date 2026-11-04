@@ -81,6 +81,7 @@ class RedTargetRepair(unittest.TestCase):
                     directory = config.RUNS / name
                     run.capture_launch(directory, opts, cfg=config.load())
                     self.assertEqual(record.read_state(directory)["base_proof"], "at landing")
+                    self.assertIsNone(record.read_state(directory).get("plan_line"))
                     _, body, _ = task.parse_task(directory / "task.md")
                     checks = run.with_suite(task.done_when(body, directory / "task.md"),
                                             self.wt, "main")

@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, transitions, turns, update
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -320,10 +320,64 @@ def _probe_tip(turn, directory, state, scratch, tip, upstream, tree, suite, piec
                f"{what} alone through the retry ladder")
         log(f"{upstream} at {tip[:12]} fails {how}: the target's own red, repaired")
         _repair(turn, directory, state, tree, red, log)
+        _blame_tip(directory, state, scratch, tip, suite, piece, again, log)
     else:
         log(f"{upstream} at {tip[:12]} fails {what} alone: the line waits, nobody is blamed; "
             f"probed again in {turns.transient_delay(probes) // 60} min")
     return False
+
+
+def _blame_tip(directory, state, scratch, tip, suite, piece, tests, log):
+    """Find the first red first-parent commit within KEEP and 64 commits (six steps).
+
+    The tip already failed twice. Start its repair before walking; no blame waits on a
+    repair's outcome, and no repair waits on these checks. Missing tests fall back to the
+    piece, as in the probe. A fail followed by a pass ends the walk, never a green boundary.
+    """
+    from . import history, run
+    try:
+        commits = run.git(scratch, "rev-list", "--first-parent", "--max-count=64",
+                          f"--since=@{int(time.time() - KEEP)} +0000", tip).splitlines()[::-1]
+        low, high = -1, len(commits) - 1
+        while high - low > 1:
+            mid = (low + high) // 2
+            sha = commits[mid]
+            for only in (tests, None) if tests else (None,):
+                _put_back(scratch, sha)
+                exits, flaky = [], []
+                ok, _, red = _check(directory, state, scratch, [suite],
+                                    directory / f"tip-{sha}.log", log, suite=suite,
+                                    shard=piece or None, only=only, kind="tip",
+                                    exits=exits, flaky=flaky)
+                if flaky or any(0 in attempts and any(code != 0 for code in attempts)
+                                for attempts in exits):
+                    log(f"{sha[:12]} is flaky: nobody is blamed")
+                    return
+                if not ok and only and not red.get("tests"):
+                    continue
+                break
+            repeated = any(len(attempts) >= 2 and all(code is not None and code > 0
+                                                     for code in attempts) for attempts in exits)
+            if not exits or red.get("short") or (not ok and not repeated):
+                log(f"{sha[:12]} has no repeated red: nobody is blamed")
+                return
+            if ok:
+                low = mid
+            else:
+                high = mid
+        if not commits:
+            return
+        if high == 0:
+            log(f"red before {commits[0][:12]}: nobody is blamed")
+            return
+        sha = commits[high]
+        name = history.blame_merge(sha, "tip", log=log)
+        log(f"{sha[:12]} first turned the target red: {name}" if name else
+            f"{sha[:12]} merged outside ak: no history row to blame")
+    except (OSError, config.Error) as exc:
+        log(f"WARN could not find the target's first red commit: {exc}")
+    finally:
+        _put_back(scratch, tip)
 
 
 def _repair(turn, directory, state, tree, red, log):
@@ -618,12 +672,13 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
 
 
 def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=None,
-           only=None, kind="landing"):
+           only=None, kind="landing", exits=None, flaky=None):
     """(whether the checks passed, their output, what they found red as `red_part` reads it,
     `suite` standing for a red no command showed); with `shard` every command runs as that
     one piece alone, on one turn, and with `only` just those tests, on none.  Each command, or
     piece of one, leaves its `kind` row in history under the member's run, on the commit
-    checked: `landing`, or `tip` for a probe of the target's."""
+    checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
+    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -632,7 +687,9 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     context = {"repo": state["repo"], "run_id": directory.name, "landing": True,
                "since": wait["joined"], "line": wait["line"]}
     sharded = None if shard else next((cmd for cmd in cmds if gate.names_shard(cmd)), None)
-    marks, pieces, confirmed, flaky = [], {}, {}, []
+    marks, pieces, confirmed = [], {}, {}
+    timings = {}
+    flaky = [] if flaky is None else flaky
     # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
     # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
     with nullcontext() if only else gate.gate_turn(None, log_path, log, sharded, scratch,
@@ -642,11 +699,18 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
             3600 * state.get("ceiling_hours", record.CEILING_HOURS), log,
             silence=60 * state.get("silence_minutes", record.SILENCE_MINUTES), heavy=True,
             marks=marks, shard=shard, pieces=pieces, only=only, confirmed=confirmed,
-            flaky=flaky, checked=(directory, None, kind, identity["head_sha"]))
+            flaky=flaky, checked=(directory, None, kind, identity["head_sha"]), exits=exits,
+            timings=timings)
+    if ok and suite and kind == "landing" and not shard and not only:
+        if failure := suite_times.refusal(scratch, _upstream(state), suite, timings):
+            ok = False
+            text += "\n\n" + failure
     moved = (not clean or gitcall.commit_identity(scratch) != identity
              or run.git_out(scratch, "diff", "--quiet", "HEAD")[0])
     if moved:
         ok = False
+        if exits is not None:
+            exits.clear()
         confirmed.clear()   # a test that failed on whatever it moved to says nothing of the pin
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")

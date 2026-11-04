@@ -18,7 +18,6 @@ from itertools import accumulate
 from pathlib import Path
 
 from . import config, gitcall, history, record as run_record, task as taskfile, turns
-from .harness import load as harness_plugin
 
 
 RESUME_VISIBLE = 3600           # ak run status names a mid-turn resume in the age column for this long
@@ -118,6 +117,17 @@ def stands_on_dependency(state):
             f"waits for; once that has merged, relaunch with `from: {branch}`")
 
 
+def run_kind(state):
+    """The launch origin a history row keeps after its run record is collected."""
+    for field, kind in (("repair", "repair"), ("split_suite", "split"),
+                        ("followup", "follow-up"), ("night", "night")):
+        if state.get(field):
+            return kind
+    if state.get("review_pr"):
+        return "seat PR" if state.get("own_pr") else "PR"
+    return "task"
+
+
 def history_start(state, log=None):
     """Publish the launch receipt without making SQLite part of run correctness.
 
@@ -137,7 +147,8 @@ def history_start(state, log=None):
                       task_points=state.get("task_points"),
                       task_checks=state.get("task_checks"),
                       orchestrator=record.get("orchestrator") if record else None,
-                      change=change_name(state), log=log)
+                      change=change_name(state), kind=run_kind(state),
+                      plan_line=state.get("plan_line"), log=log)
 
 
 def changed_files(state):
@@ -224,7 +235,7 @@ MOVED_BLOCK = 20    # alphanumeric characters a moved block holds at least, as g
 
 def first_review_refusal(what, lines, ceiling, carried=0):
     """One sentence when `what` (a pull request, a task's change) adds more lines than a first
-    review takes at once (`config.policy`'s `review_lines`), else None: `lines` as `diff_lines`
+    review takes at once (`config.policy`'s `executor_lines`), else None: `lines` as `diff_lines`
     counts the added ones, less `carried`, the ones `carried_lines` found moved unchanged from
     lines the diff deletes -- what a reviewer reads; nothing deleted counts."""
     if lines - carried <= ceiling:
@@ -381,24 +392,49 @@ def _windows(lines):
             for at, end in enumerate(ends)]
 
 
-def history_ending(state):
+def history_ending(state, cfg=None):
     """The ending a run's record holds, in `history.finish_run`'s terms: rounds unknown where
-    it keeps none, never zero."""
+    it keeps none, never zero. Use the run's config when supplied; recovery loads it afresh."""
+    from . import staffing
+    pair = None
+    if isinstance(state.get("review"), dict) and state["review"].get("reviewer"):
+        try:
+            cfg = config.load() if cfg is None else cfg
+            executor, reviewer = staffing.review_pair(state)
+            for name in (executor, reviewer):
+                config.model(cfg, name)  # even equal names must still be known
+            pair = ("other provider", "same provider", "self")[staffing.pair_tier(cfg, executor, reviewer)]
+        except config.Error:
+            pass
     rounds = state.get("round_summaries")
-    return {"repo": state.get("repo"), "executor": state.get("executor"),
-            "reviewer": state.get("reviewer"),
-            "rounds_used": len(rounds) if isinstance(rounds, list) else None,
-            "final_state": state.get("state"), "verdict": state.get("verdict"),
-            "started_at": state.get("started_at"),
-            "finished_at": state.get("finished_at") or time.time(),
-            "session": launched_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
-            "own_orchestrator": state.get("own_orchestrator"),
-            "own_orchestrator_effort": state.get("own_orchestrator_effort")}
+    ending = {"repo": state.get("repo"), "executor": state.get("executor"),
+              "reviewer": state.get("reviewer"), "review_pair": pair,
+              "rounds_used": len(rounds) if isinstance(rounds, list) else None,
+              "final_state": state.get("state"), "verdict": state.get("verdict"),
+              "started_at": state.get("started_at"),
+              "finished_at": state.get("finished_at") or time.time(),
+              "session": launched_session(state), "peak_rss_mb": state.get("peak_rss_mb"),
+              "own_orchestrator": state.get("own_orchestrator"),
+              "own_orchestrator_effort": state.get("own_orchestrator_effort")}
+    if state.get("merged") and (reds := state.get("landing_red_patches")):
+        from . import roundloop
+        wt = state.get("worktree")
+        repo = wt if wt and Path(wt).is_dir() else state.get("repo")
+        head = state.get("delivery_sha") or (state.get("review") or {}).get("head_sha")
+        try:
+            patch = (roundloop.patch_id(repo, state.get("base_sha"), head)
+                     if repo and head and state.get("base_sha") else None)
+        except gitcall.Stopped:
+            patch = None
+        # Only an unchanged patch proves a flake; failed git reads prove nothing.
+        flakes = sum(bool(red) and red == patch for red in reds)
+        ending.update(landing_breaks=len(reds) - flakes, landing_flakes=flakes)
+    return ending
 
 
-def history_finish(state, log=None):
+def history_finish(state, log=None, cfg=None):
     """Publish a terminal receipt and close the step this process was running, if any."""
-    ending = history_ending(state)
+    ending = history_ending(state, cfg)
     history.close_step(state.get("run_id"), ending["finished_at"], log=log)
     files = changed_files(state)
     # git is read from the run's worktree while it exists, else from its repository
@@ -458,11 +494,7 @@ def history_role_tokens(run_id, role, out, log=None, cfg=None, model=None):
         harness = None
     out = Path(out)
     paths = [out, *sorted(out.parent.glob(f"{out.name}-retry*"))]
-    values = [harness_plugin(harness).tokens(path) for path in paths]
-    values = [value for value in values if value is not None]
-    if not values:
-        return
-    history.add_tokens(run_id, role, sum(values), log=log)
+    history.add_turn_tokens(run_id, role, paths, harness=harness, log=log)
 
 
 def park_exhausted(state, exc):
@@ -482,7 +514,7 @@ def over_lineage(state, run_dir, n_rounds):
     cap = lineage_cap(state, run_dir)
     if n_rounds > cap:
         raise config.Error(f"--rounds {n_rounds} is over this change's budget: {cap} of "
-                           f"{run_record.policy_of(state)['rounds']} rounds across its runs; split or redesign the task")
+                           f"{run_record.policy_of(state)['review_rounds']} rounds across its runs; split or redesign the task")
 
 
 def failed_at_budget(state):
@@ -491,7 +523,7 @@ def failed_at_budget(state):
     Deliberately not part of `needs_recovery`: nothing was interrupted here, so this is no
     recovery decision for the menu to raise, for the seat to be told about or for `announce`
     to swallow the finished-run notice over.  An explicit `--rounds` above the saved budget,
-    and no higher than the host's `rounds` (`config.policy`), continues it and nothing else
+    and no higher than the host's `review_rounds` (`config.policy`), continues it and nothing else
     does -- see `cmd_resume`.
     """
     return (state.get("state") == "fail" and not state.get("review_pr")
@@ -693,15 +725,23 @@ def seat_runs(name):
     return found
 
 
-def launched_session(state, resolved=None):
-    """The seat this run was launched from, by its name now, or None: it was launched from none.
+def launched_name(state):
+    """The name of the seat this run was launched from as it recorded it, or None: from none.
 
-    `session` is what a run.json written before the field was renamed calls the same thing.  A
-    pass over many runs hands each call the same `resolved`, so a seat many runs name is
-    resolved once: following a rename reads the seat's record.
+    `session` is what a run.json written before the field was renamed calls the same thing.
     """
     name = state.get("launched_session") or state.get("session")
-    if not isinstance(name, str) or not name:
+    return name if isinstance(name, str) and name else None
+
+
+def launched_session(state, resolved=None):
+    """The seat this run was launched from, by its name now (`launched_name`), or None.
+
+    A pass over many runs hands each call the same `resolved`, so a seat many runs name is
+    resolved once: following a rename reads the seat's record.
+    """
+    name = launched_name(state)
+    if name is None:
         return None
     if resolved is None:
         return config.resolve_session(name)
@@ -719,7 +759,7 @@ def runs_by_seat(records):
         try:
             seat = launched_session(state, resolved)
         except config.Error:
-            seat = resolved[state.get("launched_session") or state.get("session")] = None
+            seat = resolved[launched_name(state)] = None
         if seat is not None:
             mine.setdefault(seat, []).append((run_dir, state))
     return mine
@@ -1040,7 +1080,7 @@ def going(state, now=None):
     and an exhausted run keeps one working only while the tick can resume it
     (`exhausted_wait`): one that waits on nobody is his, not going. Line members
     stay going until the lander ends them, and a run stopped to wait on an older run's
-    change (`leases.park`) until the tick has started its task again.
+    change (`leases.parked`) until the tick has started its task again.
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery
@@ -1308,14 +1348,14 @@ def round_budget(asked, budget, *, pr=None, change=None, exclude=None, what, own
 def change_budget(state, run_dir, asked, own=0):
     """`round_budget` for a run's own pull request or change: the one place a record is
     read into its arguments."""
-    return round_budget(asked, run_record.policy_of(state)["rounds"],
+    return round_budget(asked, run_record.policy_of(state)["review_rounds"],
                         pr=state.get("pr") or state.get("review_pr"),
                         change=change_of(state), exclude=run_dir, what="this change", own=own)
 
 
 def lineage_cap(state, run_dir):
     """The rounds that run may have in all: the change's budget less what other runs spent."""
-    return change_budget(state, run_dir, run_record.policy_of(state)["rounds"])[0]
+    return change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"])[0]
 
 
 def allowed_rounds(lp):

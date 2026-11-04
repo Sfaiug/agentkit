@@ -47,8 +47,8 @@ BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak h
            "as the `# once` suite.\n"
            "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings "
            "and records after a closing.\n"
-           "[checked by ak: tests/test_executor_text_ignored.py] ak asks once for a missing closing, "
-           "then sends the work to checks and review.")
+           "[checked by ak: tests/test_executor_text_ignored.py] ak sends an answer without a closing "
+           "straight to checks and review.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
 GATE = ("[worker judgement] Hand in a **blocking** finding only for what a command can show "
         "fails: a correctness defect in the task's outcome, asked-for work missing among them, a "
@@ -103,7 +103,7 @@ REAL_USERS = ("[worker judgement] This repository has real users: new user-visib
 # The commit a turn's `users:` line is read at, handed in the turn's env like the findings
 # path and taken out of it before the harness starts.
 BASE_ENV = "AK_USERS_BASE"
-REVIEW_LINES_ENV = "AK_REVIEW_LINES"    # the run's `review_lines`, handed in the same way
+EXECUTOR_LINES_ENV = "AK_EXECUTOR_LINES"    # the run's `executor_lines`, handed in the same way
 
 
 def users_declared(workspace, base=None):
@@ -132,9 +132,9 @@ LEAST = ("[worker judgement] Minimum change that solves the task completely; the
          "code; nothing callers must do that a module could; and what the change makes dead deleted.")
 COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
 PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
-             "when your turn ends and asks once to finish in the foreground.")
-CHECKS = ("[checked by ak: tests/test_reviewer_judges_the_diff.py] ak runs per-round done-when "
-          "commands even when the worker skips them.")
+             "when your turn ends.")
+CHECKS = ("[checked by ak: tests/test_key_done_waits_for_the_checks.py] ak refuses done while "
+          "per-round done-when fails; rechecks after turns.")
 # 24 Oct 2026: an ATLAS builder ran its repository's whole suite, 7,417 tests, in one 3-hour
 # command on a host already swapping; the gate runs that suite once, at landing.
 SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it: "
@@ -151,7 +151,7 @@ def size_rule(lines):
 
 # PREAMBLES hold ak's default, whatever this host sets, because Go's rules are generated from
 # them; `call` puts the number in force in a turn's.
-SIZE = size_rule(config.POLICY["review_lines"][0])
+SIZE = size_rule(config.POLICY["executor_lines"][0])
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -397,11 +397,20 @@ def _lineage():
 def marked_pids(run_id, exact=False):
     """Every pid carrying the given marker or below it, except this process and its ancestors.
 
+    A kill from inside a run must not take the run that asked for it.
+    """
+    if not run_id:
+        return []
+    skip = _lineage()
+    return [pid for pid in run_pids(run_id, exact=exact) if pid not in skip]
+
+
+def run_pids(run_id, exact=False):
+    """Every pid carrying the given marker or below it, including this process and its ancestors.
+
     Found by scanning /proc/*/environ, so a child that left its process group -- setsid,
     a double fork, a harness that starts each shell command as its own session leader --
-    is still one of the run's.  The caller and its ancestors are never among them,
-    whatever marker they carry and whatever marker was asked for: a kill from inside a run
-    must not take the run that asked for it.  Entries are matched whole, so one run marker
+    is still one of the run's. Entries are matched whole, so one run marker
     is never a prefix of another's -- except below a slash: `<marker>/suite` is the run's
     own suite, so a sweep of the run ends it too, while a sweep of the suite ends only
     the suite.  `exact` matches only the marker itself: a failed turn's cleanup ends
@@ -411,7 +420,6 @@ def marked_pids(run_id, exact=False):
     """
     if not run_id:
         return []
-    skip = _lineage()
     want = f"{RUN_MARKER}={run_id}".encode()
     prefix = want + b"/"
     try:
@@ -421,8 +429,6 @@ def marked_pids(run_id, exact=False):
     found = []
     for entry in entries:
         pid = int(entry)
-        if pid in skip:
-            continue
         try:
             with open(f"/proc/{pid}/environ", "rb") as fh:
                 env = fh.read()
@@ -498,13 +504,18 @@ def within_declared_timeout(pid):
     A command started under `timeout` has said how long it may take, however little it prints:
     `| tail` hides a slow test's output, and its silence is no hang before that bound."""
     from . import watch     # here, not at the top: the babysitter imports this module
-    for child in watch.descendants(pid):
+    return declared_in(host.PROC, watch.descendants(pid))
+
+
+def declared_in(proc, pids):
+    """Whether any of those pids, read in that /proc, is a `timeout N` still inside its N seconds."""
+    for pid in pids:
         try:
-            argv = Path(f"/proc/{child}/cmdline").read_bytes().decode(errors="replace").split("\0")
+            argv = (proc / str(pid) / "cmdline").read_bytes().decode(errors="replace").split("\0")
         except OSError:
             continue
         seconds = timeout_seconds(argv)
-        if seconds and (age := host.process_age(child)) is not None and age < seconds:
+        if seconds and (age := host.process_age(pid, proc)) is not None and age < seconds:
             return True
     return False
 
@@ -586,8 +597,8 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
     this is here to stop.  It must be cheap and must not raise.
 
     `declared(pid)` says whether a command the process runs is inside the timeout it declared,
-    which holds off silence: `within_declared_timeout` reads the tree under the pid, a turn on a
-    machine asks the machine (agentkit/machine_turn.py).
+    which holds off silence: `within_declared_timeout` reads the tree under the pid, a box its own
+    /proc (agentkit/box.py), a turn on a machine asks the machine (agentkit/machine_turn.py).
 
     `began()`, for a command a box starts, says the box is up.  Silence is the command's, and
     counts from then: on a busy host the box alone can outlast a short limit.  One still not up
@@ -666,23 +677,27 @@ def limited(cmd, limit, *, silence=None, activity=None, heartbeats=(), output=No
             stop(proc, KILL_GRACE)
 
     def watch_output():
-        last, seen, longest, held = started, previous, 0, started
+        last, seen, longest, held, bound = started, previous, 0, started, False
         starting = began is not None
         while not finished.is_set():
             now = time.monotonic()
             current = heard()
             if current != seen:
                 longest = max(longest, now - last)
-                last, seen = now, current
+                last, seen, bound = now, current, False
             if starting:
                 last = now
                 try:
                     starting = not began() and now - started < BOX_START
                 except OSError:     # the box's own directory closed: only its command can do that
                     starting = False
-            if (silence is not None and now - last >= silence
-                    and declared(proc.pid)):
-                held = now      # silence counts from the last poll a declared bound held
+            if silence is not None and now - last >= silence:
+                # A bound ends between the last scan that found it and the first that finds it
+                # gone, a poll and a slow scan of the process table apart on a busy host: silence
+                # counts from that first scan's end, never from before the bound's.
+                was, bound = bound, declared(proc.pid)
+                if was or bound:
+                    held = time.monotonic()
             reason = ("abort" if abort is not None and abort() else
                       "ceiling" if limit is not None and now - started >= limit else
                       "silence" if silence is not None and now - max(last, held) >= silence
@@ -866,12 +881,16 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
         raise LoginExpired(entry["harness"], why)
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Authentication can refuse before launch; only a started call needs a pending record.
+    (out_dir / "pending").touch()
+    (out_dir / "harness").write_text(entry["harness"])
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
-                                       role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None))
+                                       role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None),
+                                       checks=json.loads(turn_env.pop(hand_in.CHECKS_ENV, "null")))
     base = turn_env.pop(BASE_ENV, None)
     preamble = (PREAMBLES[role].format(workspace=workspace)
-                .replace(SIZE, size_rule(turn_env.pop(REVIEW_LINES_ENV, None)
-                                         or config.policy()["review_lines"])))
+                .replace(SIZE, size_rule(turn_env.pop(EXECUTOR_LINES_ENV, None)
+                                         or config.policy()["executor_lines"])))
     if GATE in preamble:
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")

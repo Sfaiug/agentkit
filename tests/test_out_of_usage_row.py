@@ -55,6 +55,7 @@ def today_at(hour, minute):
     return time.mktime(time.localtime(10000)[:3] + (hour, minute, 0, 0, 0, -1))
 
 
+# `out of usage`: red, until it comes back or the owner moves it. [14, 20 Oct 2026]
 class OutOfUsageRow(Sandbox):
     def decide(self, live=None, records=()):
         found = watch.session_state(SEAT, now=10000, session={"name": SEAT}, records=list(records),
@@ -217,6 +218,7 @@ class OutOfUsageRow(Sandbox):
             menu.go_on_now(self.cfg, SEAT, "gpt-sol")
         said.assert_called_once_with("gpt-sol: codex is not installed")
 
+    # red without usage. [2, 14, 19, 23, 26 Oct 2026]
     def test_a_run_waiting_for_usage_is_a_red_square(self):
         run = (config.RUNS / "acme-run", {"state": "exhausted", "quota_dry": True,
                                           "step": "reviewer", "launched_session": SEAT})

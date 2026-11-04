@@ -227,21 +227,18 @@ sys.exit(1)
         # while reaping, so the absence of backoff is pinned on the log
         self.assertNotIn("retrying in", self.log(directory))
 
-    def test_v5aj_unfinished_no_verdict_gets_one_combined_ask(self):
+    def test_v5aj_background_no_verdict_gets_one_verdict_ask(self):
         first = {"text": NO_VERDICT, "stderr": "Background tasks still running\n",
                  "session": "sess-1"}
         self.reviews(first, PASS)
         code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 0, self.log(directory))
         reviewers = self.calls("reviewer")
-        # one mechanism, one extra call: it finishes the background work and asks
-        # for the verdict in the same turn, on the same session
+        # Only the missing verdict buys another turn, on the same session.
         self.assertEqual(len(reviewers), 2)
-        self.assertIn(turns.FINISH_IN_FOREGROUND, reviewers[1]["prompt"])
         self.assertIn(NO_VERDICT_PROMPT, reviewers[1]["prompt"])
         self.assertEqual(reviewers[1]["session"], ["sess-1"])
-        self.assertEqual(Path(reviewers[1]["out"]).name, "reviewer-retry-foreground")
-        self.assertIn("asking it to finish in the foreground", self.log(directory))
+        self.assertEqual(Path(reviewers[1]["out"]).name, "reviewer-attempt2")
         self.assertEqual(len(state["round_summaries"]), 1)
         self.assertEqual(state["verdict"], "PASS")
         # the loop's only backoff announces itself; usage probes may sleep
@@ -256,7 +253,7 @@ sys.exit(1)
         code, directory, state = self.launch(rounds=1)
         self.assertEqual(code, 1, self.log(directory))
         self.assertEqual(state["state"], "exhausted")
-        # the combined ask already spent the turn's one extra call: silence twice
+        # The verdict ask already spent the turn's one extra call: silence twice
         # means the reviewer is gone, never a third call and never a FAIL round
         self.assertEqual(len(self.calls("reviewer")), 2)
         self.assertEqual(len(state.get("round_summaries") or []), 0)

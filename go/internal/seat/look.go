@@ -96,15 +96,15 @@ func Look(launched, pid string, heard *Prompt) {
 		return
 	}
 	state := filepath.Join(config.Home(), "state")
-	if _, live, known := liveSeat(name, time.Now()); known {
-		if failed(name, live.own) {
-			return
-		}
-		if answering(state, name, heard) != nil {
-			return
-		}
+	home, live, known := liveSeat(name, time.Now(), nil)
+	if !known {
+		lookAgain(state, name)
+		return
 	}
-	if _, err := LookedLive(state, name); errors.Is(err, ErrUnread) {
+	if failed(name, live.own) || answering(state, name, heard) != nil {
+		return
+	}
+	if _, err := lookedLive(state, name, home.readers); errors.Is(err, ErrUnread) {
 		lookAgain(state, name)
 	}
 }

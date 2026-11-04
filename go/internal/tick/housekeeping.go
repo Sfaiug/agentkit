@@ -25,12 +25,29 @@ import (
 // gcEvery is how often a repository is collected, Python's gc.GC_INTERVAL.
 const gcEvery = 86400
 
-// housekeeping is the git housekeeping row on a home with no run and no seat
-// (gc.git_housekeeping): each checkout's repository once, kept from collecting itself and
-// collected in the foreground once a day while nothing holds it; a busy one waits for a later
-// tick.
+// housekeeping is the git housekeeping row (gc.git_housekeeping): each
+// repository a checkout or a seat works in once, kept from collecting itself and collected in the
+// foreground once a day while nothing holds it; a busy one waits for a later tick.
 func (t *ticking) housekeeping() error {
+	lives, err := lives()
+	if err != nil {
+		return err
+	}
+	var seatPaths []string
+	for _, live := range lives {
+		if live.Path != "" {
+			seatPaths = append(seatPaths, live.Path)
+		}
+	}
 	checkouts, _ := seat.Checkouts()
+	if !runRepositories(&checkouts) {
+		return errLeft
+	}
+	for _, path := range seatPaths {
+		if !slices.Contains(checkouts, path) {
+			checkouts = append(checkouts, path)
+		}
+	}
 	slices.Sort(checkouts)
 	seen := map[string]bool{}
 	for _, repo := range checkouts {
@@ -39,14 +56,14 @@ func (t *ticking) housekeeping() error {
 			continue
 		}
 		seen[common] = true
-		if err := t.collect(repo, common); err != nil {
+		if err := t.collect(repo, common, seatPaths); err != nil {
 			t.log.line(fmt.Sprintf("WARN git gc could not run in %s: %s", repo, config.PyError(err)))
 		}
 	}
 	return nil
 }
 
-func (t *ticking) collect(repo, common string) error {
+func (t *ticking) collect(repo, common string, seatPaths []string) error {
 	if err := noAutoGC(repo, common); err != nil {
 		return err
 	}
@@ -69,6 +86,11 @@ func (t *ticking) collect(repo, common string) error {
 	if err != nil {
 		return err
 	}
+	if !runBusyPaths(&paths) {
+		return errLeft
+	}
+	// a seat's session works where it says, whatever this tick can see of its processes
+	paths = append(paths, seatPaths...)
 	trees := worktrees(repo)
 	if !known || len(trees) == 0 || slices.ContainsFunc(trees, func(tree string) bool {
 		return slices.ContainsFunc(paths, func(path string) bool { return path == tree || strings.HasPrefix(path, tree+"/") })
@@ -149,8 +171,8 @@ func worktrees(repo string) []string {
 	return trees
 }
 
-// busyPaths is every path a process of this user holds (gc.git_busy_paths, on a home with no run
-// and no seat): its working directory and open files, and of one hiding those, as a login's own
+// busyPaths is every path a process of this user holds (gc.git_busy_paths):
+// its working directory and open files, and of one hiding those, as a login's own
 // daemons do, the absolute words of its command line. Not known where one hides even that.
 func busyPaths() (paths []string, known bool, err error) {
 	entries, err := os.ReadDir("/proc")

@@ -31,7 +31,7 @@ PASSES = (
     (watch, "resume_dead_loops", "dead loops", True),
     (watch, "resume_dead_jobs", "dead jobs", True),
     (watch, "recover_runs", "stall recovery", True),
-    (leases, "scan_all", "lease scan", False),
+    (leases, "restart", "lease restart", False),
     (watch, "save_state", "state save", False),
     (usage, "collect", "usage refresh", False),
     (logins, "remind", "login reminder", False),

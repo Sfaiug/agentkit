@@ -133,8 +133,8 @@ func TestASpentWindowParksTheProviderAndGoesNoFurtherHere(t *testing.T) {
 	}
 }
 
-func TestARefusedReviewKeepsWhatItsFinishingTurnHandedIn(t *testing.T) {
-	l, _ := adapterRig(t, time.Minute, `1) echo "Background tasks still running" > "$out/stderr.log"; echo "## Partial" > "$out/final.md";;
+func TestARefusedReviewKeepsWhatItsVerdictAskHandedIn(t *testing.T) {
+	l, _ := adapterRig(t, time.Minute, `1) echo "## Partial" > "$out/final.md";;
 *) echo '{"kind":"finding","path":"a.txt","line":1,"what":"w","why":"y","evidence":{"run":"false","returncode":1,"output":""}}' >> "$AK_HAND_IN"
    echo "You hit your usage limit." > "$out/final.md"; exit 1;;`)
 	l.executor, l.reviewer = "opus", "opus"
@@ -145,7 +145,7 @@ func TestARefusedReviewKeepsWhatItsFinishingTurnHandedIn(t *testing.T) {
 		t.Fatal("the review went on with nobody to give it")
 	}
 	record, _ := run.Read(l.dir)
-	if filepath.Base(filepath.Dir(record.Str("findings_file"))) != "reviewer-retry-foreground" || len(record.List("review_records")) != 1 {
+	if filepath.Base(filepath.Dir(record.Str("findings_file"))) != "reviewer-attempt2" || len(record.List("review_records")) != 1 {
 		t.Fatalf("record %s", run.Line(record))
 	}
 }
@@ -228,19 +228,21 @@ func TestAResumeThatNeverOpensGoesOnInANewConversation(t *testing.T) {
 	}
 }
 
-func TestACommandLeftRunningIsAskedToFinishInTheForegroundOnce(t *testing.T) {
-	l, c := adapterRig(t, time.Minute, `1) echo "Background tasks still running" > "$out/stderr.log";;
-2) echo "## Summary" > "$out/final.md";;`)
-	done, err := c.run()
-	if err != nil {
-		t.Fatal(err)
-	}
-	told, _ := os.ReadFile(filepath.Join(done.out, "prompt.md"))
-	if filepath.Base(done.out) != "executor-retry-foreground" || !c.foreground || !strings.Contains(string(told), finishInForeground+" "+noClosingAsk) {
-		t.Fatalf("answered in %s: %q", done.out, told)
-	}
-	if !strings.Contains(l.logged(t), "executor opus ended its turn with a command still in the background; asking it to finish in the foreground") {
-		t.Fatal(l.logged(t))
+func TestABackgroundReportDoesNotGetAnotherTurn(t *testing.T) {
+	for _, role := range []string{"executor", "fixer", "reviewer"} {
+		t.Run(role, func(t *testing.T) {
+			_, c := adapterRig(t, time.Minute, `*) echo "Background tasks still running" > "$out/stderr.log"
+   echo '{"type":"background_tasks_changed","tasks":[{}]}' > "$out/events.jsonl"
+   echo "## Summary" > "$out/final.md";;`)
+			c.role, c.out = role, filepath.Join(c.l.roundDir(), role)
+			done, err := c.run()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if done.out != c.out || done.text != "## Summary\n" || c.calls != 1 {
+				t.Fatalf("answered in %s after %d calls: %q", done.out, c.calls, done.text)
+			}
+		})
 	}
 }
 

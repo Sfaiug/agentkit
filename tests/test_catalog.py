@@ -68,6 +68,9 @@ class Catalog(unittest.TestCase):
         patcher = patch.dict(os.environ, self.env)
         patcher.start()
         self.addCleanup(patcher.stop)
+        paths = patch.multiple(config, RUNS=self.home / "runs", STATE=self.home / "state")
+        paths.start()
+        self.addCleanup(paths.stop)
         for name in (config.ADAPTER_DIR_ENV, config.ACCOUNT_ENV, "GROK_BIN_DIR", "GROK_HOME",
                      "CLAUDE_CODE_OAUTH_TOKEN", "CLAUDE_CONFIG_DIR"):
             os.environ.pop(name, None)
@@ -268,7 +271,9 @@ class Catalog(unittest.TestCase):
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(watch.doctor([]), 0)
         self.assertEqual(out.getvalue().splitlines()[:-1], [    # the last is the rented machine
-            "slice test", "tick  lock free", "machine  this one: new · never answered",
+            "slice test", "tick  lock free", "runs  0 going · 0 ended today · 0 endings owed",
+            "gates  admission never held · suite turns never held · memory never held",
+            "machine  this one: new · never answered",
             "effort  haiku: claude-haiku-4-5 takes none, not low",
             "effort  grok: grok-4.5 takes low medium high, not xhigh"])
         self.assertEqual(path.read_text(), text, "flagged, never changed")

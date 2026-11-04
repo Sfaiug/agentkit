@@ -14,22 +14,22 @@ const defaultRounds = 3
 const (
 	roundsMeaning = "the review rounds a change has before it goes back to its orchestrator to split or re-scope"
 	reviewLines   = "the most added lines a first review reads"
-	seatLines     = "the added lines a seat's own change stays under"
+	seatLines     = "the most added lines an orchestrator builds"
 )
 
-// Rounds is config.toml's `rounds`, Python's config.policy: its default where the file names none.
+// Rounds is config.toml's `review_rounds`, Python's config.policy: its default where the file names none.
 // load has refused anything under 1; what is left to refuse is a number an int cannot hold.
 func Rounds() (int, error) {
 	root, err := load()
 	if err != nil {
 		return 0, err
 	}
-	number, set := root.get("rounds").(*big.Int)
+	number, set := root.get("review_rounds").(*big.Int)
 	if !set {
 		return defaultRounds, nil
 	}
 	if !number.IsInt64() {
-		return 0, fmt.Errorf("%s: rounds must be a whole number of at least 1, %s (got %v)",
+		return 0, fmt.Errorf("%s: review_rounds must be a whole number of at least 1, %s (got %v)",
 			filepath.Join(Home(), "config.toml"), roundsMeaning, number)
 	}
 	return int(number.Int64()), nil
@@ -43,9 +43,9 @@ func checkPolicy(root *table) error {
 		fallback, floor int64
 		meaning         string
 	}{
-		{"rounds", defaultRounds, 1, roundsMeaning},
-		{"review_lines", 300, 1, reviewLines},
-		{"seat_lines", 50, 0, seatLines},
+		{"review_rounds", defaultRounds, 1, roundsMeaning},
+		{"executor_lines", 300, 1, reviewLines},
+		{"orchestrator_lines", 50, 0, seatLines},
 	} {
 		value, set := root.values[number.key]
 		whole, isWhole := value.(*big.Int)
@@ -57,8 +57,8 @@ func checkPolicy(root *table) error {
 		}
 		numbers[number.key] = whole
 	}
-	if numbers["seat_lines"].Cmp(numbers["review_lines"]) > 0 {
-		return fmt.Errorf("seat_lines %s, %s, is over review_lines %s, %s", numbers["seat_lines"], seatLines, numbers["review_lines"], reviewLines)
+	if numbers["orchestrator_lines"].Cmp(numbers["executor_lines"]) > 0 {
+		return fmt.Errorf("orchestrator_lines %s, %s, is over executor_lines %s, %s", numbers["orchestrator_lines"], seatLines, numbers["executor_lines"], reviewLines)
 	}
 	return nil
 }

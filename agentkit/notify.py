@@ -415,6 +415,11 @@ def session_lock(session, wait=True):
                     continue       # a rename won while this writer waited for the lock
                 _HELD.names.add(session)
                 try:
+                    for path in outbox().glob("*.clear"):
+                        request = config._read_json(path)
+                        if request and _name_now(request["session"]) == session:
+                            clear(session, prefix=request["prefix"])
+                            path.unlink(missing_ok=True)
                     yield session
                 finally:
                     _HELD.names.discard(session)
@@ -782,18 +787,47 @@ def progress(session, capture, seat_harness):
             return True
 
 
-def clear(session, *, notice=None):
+def clear(session, *, notice=None, prefix=None, wait=True):
     """Retire a conversation's notice and the question it kept back for its turn's end, or
-    retract only the watcher's matching alert."""
-    with session_lock(session) as session:
+    retract only the watcher's matching alert. With `prefix`, retire only those questions,
+    standing or kept back; every other question keeps its words and dates. A hook's
+    `wait=False` leaves retirement for the next lock holder if this one is busy."""
+    if prefix is not None and not wait:
+        outbox().mkdir(parents=True, exist_ok=True)
+        config._write_json(outbox() / f"{secrets.token_hex(16)}.clear",
+                           {"session": session, "prefix": prefix})
+    with session_lock(session, wait=wait) as session:
+        if session is None:
+            return
         if notice is None:
             from . import watch    # here, not at the top: watch imports this module
-            watch.seat_write(session, unasked=None)
-        previous = last(session, include_seen=True)
+            if prefix is None:
+                watch.seat_write(session, unasked=None)
+            else:
+                with watch.seat_lock(session):
+                    data = watch.seat_read(session)
+                    kept = watch.questions_kept(data.get("unasked"))
+                    remaining = [q for q in kept if not q["text"].startswith(prefix)]
+                    if remaining != kept:
+                        watch._seat_put(session, data, {"unasked": watch._kept(remaining)})
+        previous = dict(last(session, include_seen=True) or {})
         if not previous or previous.get("seen"):
             return
         if notice is not None and previous["text"] != notice:
             return
+        if prefix is not None:
+            remaining = [q for q in questions(previous) if not q.startswith(prefix)]
+            if remaining == questions(previous):
+                return
+            if remaining:
+                keys = {question_key(q) for q in remaining}
+                previous.update(text=ALSO.join(remaining), questions=remaining)
+                for field in ("asked_at", "question_times", "question_ids"):
+                    if field in previous:
+                        previous[field] = {k: v for k, v in previous[field].items() if k in keys}
+                record(session, previous["kind"], previous["text"],
+                       **{k: v for k, v in previous.items() if k not in ("session", "kind", "text")})
+                return
         # its episode ends here, as an answer's does, so a question asked before the next
         # tick gets a card of its own (`needs_transition`)
         card = _card_read(session)

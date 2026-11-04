@@ -18,7 +18,7 @@ import (
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
 	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, conversation: claudeConversation, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
-		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true, registerMCP: claudeRegisterMCP}
+		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true, registerMCP: claudeRegisterMCP, title: claudeTitle, wrapped: claudeWrapped}
 }
 
 // claudeOwns is whether the record names that conversation on a launcher-issued id or its own
@@ -37,8 +37,8 @@ const projectCut = 200
 // claudeAnswer is the last answer a conversation records, and its time (claude.py `running`), read back from
 // its end: its own, never a subagent's or one Claude Code made up itself. Read anywhere else
 // Claude Code would keep it, or not read, there is none.
-func claudeAnswer(conversation, cwd, account string) (model, effort, at any, found bool) {
-	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": conversation, "cwd": cwd, "account": account}), func(entry *run.Object) bool {
+func claudeAnswer(record *run.Object) (model, effort, at any, found bool) {
+	entry, _ := lastEntry(claudeConversation(map[string]any{"conversation": record.Str("conversation"), "cwd": record.Str("cwd"), "account": record.Str("account")}), func(entry *run.Object) bool {
 		if entry.Str("type") != "assistant" || entry.Truthy("isSidechain") || entry.Dict("message") == nil {
 			return false
 		}

@@ -38,11 +38,11 @@ class FixerDoneWaitsForItsProofs(unittest.TestCase):
                 "why": "breaks callers", "evidence": {"run": command, "returncode": 1,
                                                         "output": "earlier failure"}}
 
-    def start(self, role="fixer", previous=None):
+    def start(self, role="fixer", previous=None, checks=None):
         findings = self.root / "findings.json"
         findings.write_text(json.dumps(self.findings))
         self.file = Path(hand_in.start(self.root, self.workspace, previous=previous,
-                                      role=role, findings=findings))
+                                      role=role, findings=findings, checks=checks))
         self.env[hand_in.ENV] = str(self.file)
 
     def cli(self, *args):
@@ -156,6 +156,43 @@ class FixerDoneWaitsForItsProofs(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("needs an active worker turn", result.stderr)
         self.assertFalse(hand_in.read(self.file).done)
+
+    def test_task_checks_judge_exit_codes_and_only_work_turns(self):
+        self.findings = []
+        for role in ("executor", "fixer", "executor-scratch", "fixer-scratch", "reviewer", "reviewer-pr"):
+            for command, fails in (("echo FAIL; exit 0", False), ("echo missing; exit 7", True),
+                                   ("exit 124", True), ("exit 126", False), ("exit 127", False),
+                                   ("kill -TERM $$", False)):
+                with self.subTest(role=role, command=command):
+                    self.start(role, checks={"commands": [command]})
+                    result = self.cli("done")
+                    self.assertEqual(result.returncode,
+                                     2 if fails and not role.startswith("reviewer") else 0, result.stderr)
+
+    def test_a_check_stopped_at_either_recorded_limit_allows_done(self):
+        for limits in ({"silence": 0.05}, {"limit": 0.05}):
+            with self.subTest(limits=limits):
+                self.start("executor", checks={"commands": ["exec sleep 30"], **limits})
+                result = self.cli("done")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(hand_in.read(self.file).done)
+
+    def test_without_timeout_on_path_no_check_runs(self):
+        bindir = self.root / "check-bin"
+        bindir.mkdir()
+        (bindir / "bash").symlink_to("/bin/bash")
+        self.env["PATH"] = str(bindir)
+        self.start("executor", checks={"commands": ["echo ran > ran-check; exit 7"]})
+        result = self.cli("done")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.workspace / "ran-check").exists())
+
+    def test_the_list_s_ceiling_starts_no_check_after_it_is_spent(self):
+        self.start("executor", checks={"commands": ["exec sleep 30", "echo ran > ran-check; exit 7"],
+                                       "limit": 0.05})
+        result = self.cli("done")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((self.workspace / "ran-check").exists())
 
 
 if __name__ == "__main__":

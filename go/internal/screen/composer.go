@@ -360,23 +360,20 @@ func (r *Rules) framedRows(pane string, rows []string) ([]string, bool) {
 	if top = top[max(0, len(top)-tailRows):]; len(top) > 0 {
 		source = strings.Join(drawn[top[0]:], "\n")
 	}
-	found := r.draft.FindAllStringSubmatch(source, -1)
+	found := r.draft.FindAll(source, -1)
 	if len(found) == 0 && (r.composer == nil || !slices.ContainsFunc(rows, r.composer.MatchString)) {
 		return nil, false
 	}
 	var parts []string
-	textAt, edgeAt := r.draft.SubexpIndex("text"), r.draft.SubexpIndex("edge")
 	for _, match := range found {
-		edge := 0
-		if edgeAt >= 0 {
-			edge = utf8.RuneCountInString(match[edgeAt])
-		}
-		if textAt < 0 {
+		edge, _ := match.Group("edge")
+		text, ok := match.Group("text")
+		if !ok {
 			return nil, false
 		}
-		for _, row := range config.SplitLines(match[textAt]) {
+		for _, row := range config.SplitLines(text) {
 			runes := []rune(row)
-			parts = append(parts, strings.TrimFunc(string(runes[min(edge, len(runes)):]), config.Space))
+			parts = append(parts, strings.TrimFunc(string(runes[min(utf8.RuneCountInString(edge), len(runes)):]), config.Space))
 		}
 	}
 	return r.unscrolled(parts), true
@@ -397,7 +394,7 @@ func (r *Rules) unscrolled(rows []string) []string {
 	var kept []string
 	for _, row := range rows {
 		if r.scrolled != nil {
-			row = r.scrolled.ReplaceAllString(row, "")
+			row = r.scrolled.RemoveAll(row)
 		}
 		if strings.TrimFunc(row, config.Space) != "" {
 			kept = append(kept, row)

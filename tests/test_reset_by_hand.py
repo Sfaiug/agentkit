@@ -28,6 +28,7 @@ WEEK = 604800
 AGAIN = "↻ log in again"     # what a meter's list opens lit, where offered
 
 
+# The owner spends one by hand, from its meter. [2 Oct, 20 Oct 2026]
 class ResetByHand(unittest.TestCase):
     def setUp(self):
         stack = ExitStack()

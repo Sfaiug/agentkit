@@ -1,7 +1,7 @@
-"""Markdown merges sentence by sentence wherever ak merges: the lease scan and a rebase.
+"""Markdown merges sentence by sentence when rebasing.
 
 Two edits of one paragraph's line that change different sentences, neighbours included, merge,
-so the scan parks nobody and a rebase onto the moved base finishes with both; two edits of one
+so a rebase onto the moved base finishes with both; two edits of one
 sentence still clash as git's line merge has them, markers included.  The cut is undone byte
 for byte.  Every other path keeps the attributes this call's git reads, as it reads them now,
 and the lookup runs under the call's timeout.  Offline: the lease stage (`fixtures.leases`), a
@@ -17,8 +17,8 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.leases import OLDER, YOUNGER, LiveRuns
-from agentkit import gitcall, leases, sentences
+from fixtures.leases import YOUNGER, LiveRuns
+from agentkit import gitcall, sentences
 
 PARAGRAPH = ("# Widget\n\nThe first sentence says one thing. The second says another! "
              "Does the third ask? The fourth ends it.\n")
@@ -36,21 +36,6 @@ class SentenceMerge(LiveRuns):
         readme = checkout / "README.md"
         readme.write_text(readme.read_text().replace(old, new))
         self.git(checkout, "commit", "-qam", f"README: {new}")
-
-    def building(self, name, started):
-        return self.run_on(name, started, step="executor", rounds=0)
-
-    def test_edits_of_different_sentences_of_one_line_park_nobody(self):
-        self.change(self.building(OLDER, 900), "first sentence", "first sentence, older,")
-        self.change(self.building(YOUNGER, 1000), "fourth ends", "fourth, younger, ends")
-        found = leases.scan(self.repo, self.logs.append, now=2000)
-        self.assertNotIn(YOUNGER, found)
-        self.assertEqual(self.state(YOUNGER)["state"], "running")
-
-    def test_edits_of_neighbouring_sentences_park_nobody(self):
-        self.change(self.building(OLDER, 900), "first sentence", "first sentence, older,")
-        self.change(self.building(YOUNGER, 1000), "second says", "second, younger, says")
-        self.assertNotIn(YOUNGER, leases.scan(self.repo, self.logs.append, now=2000))
 
     def test_a_rebase_onto_a_moved_paragraph_keeps_both_sentences(self):
         branch = self.run_on(YOUNGER, 1000)

@@ -66,8 +66,8 @@ class WatchesTheBill(unittest.TestCase):
         google.machines = [machine("5", "2026-12-01T01:40:00Z", 2)]
         cls.taken_over = cls.at(BOOKED + 2 * HOUR)
 
-    def test_off_asks_nothing_on_one_past_its_end_or_unpriced_goes_back_and_prices_follow(self):
-        self.assertEqual((*self.off[:2], self.off[2][0][:23]), ([], [], "best now c4a-standard-8"))
+    def test_off_still_watches_unpriced_and_expired_machines_and_prices_follow(self):
+        self.assertEqual((self.off[1], self.off[2][0][:23]), (["acme-1"], "best now c4a-standard-8"))
         self.assertEqual(self.unpriced[1:], (["acme-1"], [
             "1 running · €0.00 of €50.00 this month",
             "acme-1 listed with no price kept, given back"]))

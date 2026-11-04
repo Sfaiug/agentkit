@@ -157,6 +157,7 @@ class Antigravity(unittest.TestCase):
                          state=paths["state"], logins=paths["logins"]) as (cmd, env, spawn):
             spawn.pop("stop", None)
             spawn.pop("began", None)
+            spawn.pop("declared", None)
             done = subprocess.run(cmd, env=env, cwd=workspace, capture_output=True, text=True,
                                   timeout=60, **spawn)
         self.assertEqual(done.returncode, 0, done.stderr)

@@ -90,7 +90,7 @@ def _start(checkout, started, names, tests):
     task = _write_task(checkout, started, names, tests)
     meta, body, title = taskfile.parse_task(task)
     commands = taskfile.done_when(body, task)
-    refusal = taskfile.launch_refusal(meta, commands, run.launch_policy(task)["rounds"])
+    refusal = taskfile.launch_refusal(meta, commands, run.launch_policy(task)["review_rounds"])
     rivals = run.already_under_way(task, meta, title, commands)
     if refusal or rivals:
         raise config.Error(refusal or f"{rivals[0]['id']} is under way")
@@ -110,9 +110,8 @@ def _start(checkout, started, names, tests):
 
 def _write_task(checkout, started, names, tests):
     """The fix run's task and the file of names its done-when exports as `AK_ONLY`, the contract
-    a red piece's retry uses (`worker.boxed`); the task's path.  Its title is every night's, so
-    `_start` refuses a night's run while another night's is under way.  Their names hash what the
-    night says, so a read writing them, refused or not, never changes a running fix's list."""
+    a red piece's retry uses (`worker.boxed`); the task's path. Their names hash what the night
+    says, so a read writing them, refused or not, never changes a running fix's list."""
     held = hashlib.sha256(json.dumps([started, names]).encode()).hexdigest()[:16]
     task = config.HOME / "tasks" / checkout.name / f"night-{held}.md"
     task.parent.mkdir(parents=True, exist_ok=True)

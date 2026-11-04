@@ -11,6 +11,7 @@ would cost every landing the deadlines of each key whose verb Go lacks.
 
 Key file names keep it to those files' claims, and one go/keys.txt does not list fails.  With
 AK_BIN set it judges that program, a relative name read from the checkout, instead of building.
+Without names, this file and test_go_keys_part_*.py each run a fixed slice of the claims.
 """
 
 import os
@@ -33,11 +34,15 @@ PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK\n\Z", re.MULTILINE)
 
 
 class Claims(unittest.TestCase):
+    part, parts = 0, 4
+
     def test_each_claim_passes(self):
         listed = [line.split() for line in (REPO / "go/keys.txt").read_text().splitlines()]
         asked = sys.argv[1:]
         self.assertFalse(set(asked) - {claim[0] for claim in listed},
                          "go/keys.txt does not list these")
+        if not asked:
+            listed = listed[self.part::self.parts]
         named = os.environ.get("AK_BIN")
         # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
         # checkout counts on that lying outside the temporary places a worker's box makes its own.

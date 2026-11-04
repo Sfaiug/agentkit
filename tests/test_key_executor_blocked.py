@@ -78,7 +78,7 @@ class ExecutorBlocked(unittest.TestCase):
 
     def test_result_md_says_blocked_and_why(self):
         lines = (self.run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# BLOCKED — Add retry file")
+        self.assertEqual(lines[0], "# BLOCKED (0 of 3) — Add retry file")
         for line in ("VERDICT: BLOCKED", "rounds: 0 of 3", "pr: (none)", "merged: no"):
             self.assertIn(line, lines)
         after = lines[lines.index("## Blocked") + 1:]

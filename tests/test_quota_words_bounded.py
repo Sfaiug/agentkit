@@ -121,6 +121,7 @@ class QuotaWordsBounded(unittest.TestCase):
                 state = {"executor": model, "reviewer": other, "workers": [model, other],
                          "reviewers": [other], "round_summaries": []}
                 lp = SimpleNamespace(cfg=self.cfg, state=state, run_dir=run_dir, wt=self.work,
+                                     every=[], done_when_limit=120,
                                      executor=model, reviewer=other, exec_sid=None, rnd=1,
                                      scratch=True, turn_limit=120, log=self.lines.append,
                                      save=lambda: None, role=lambda role: role,
@@ -284,6 +285,7 @@ class SeatWordsBounded(unittest.TestCase):
         self.harness, self.provider, self.pane = "claude", "anthropic", ""
         self.stack.enter_context(patch.object(watch, "seat_model",
                                               lambda *_: (self.harness, self.provider)))
+        self.stack.enter_context(patch.object(watch, "follow_model", return_value=None))
         self.stack.enter_context(patch.object(watch, "pane_text", lambda _: self.pane))
         self.typed = []
         self.stack.enter_context(patch.object(

@@ -83,7 +83,7 @@ class RulebookNews(unittest.TestCase):
 
     def test_a_changed_number_reaches_the_task_template_with_the_news(self):
         self.launched()
-        akconfig.write(self.home, ["opus"], settings={"review_lines": 150})
+        akconfig.write(self.home, ["opus"], settings={"executor_lines": 150})
         self.assertIn("at most 150 added lines", self.told())
         template = self.home.path / ".agentkit/state/task-template.md"
         self.assertIn("at most 150 added lines", template.read_text())

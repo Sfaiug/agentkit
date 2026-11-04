@@ -31,6 +31,7 @@ from agentkit import config, history, matrix, record, terminal
 import test_model_rows as rows_test
 
 
+# these numbers never pick a model. [2 Oct, 14 Oct, 27 Oct]
 class LiveColumn(Sandbox):
     def setUp(self):
         super().setUp()

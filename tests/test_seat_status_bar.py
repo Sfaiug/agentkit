@@ -141,7 +141,7 @@ class Bar(Sandbox):
                               cfg=self.cfg)
         self.assertEqual(tmux("show-options", "-t", name, "-v", "status-left-length"), "")
         top = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.TOP}}}"))
-        self.assertEqual(top, f" ! needs you    {name}   Fable 5.1")   # stripped
+        self.assertEqual(top, f" ! needs you    {name}   Fable 5.1 xhigh")   # stripped
         why = drawn(tmux("display-message", "-p", "-t", name, f"#{{E:{statusbar.WHY}}}"))
         self.assertEqual(why, reason)
 

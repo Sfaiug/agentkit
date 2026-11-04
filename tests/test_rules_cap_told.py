@@ -104,6 +104,8 @@ class RulesCapTold(unittest.TestCase):
         lp.round_dir.mkdir()
         return lp
 
+    # A project's `AGENTS.md` is handed whole to every worker it concerns, across rounds and
+    # resume. [1 Oct, 4 Oct, 16 Oct, 20 Oct]
     def test_workers_get_whole_base_rules_across_rounds_and_resume(self):
         body = "x" * OLD_CUT + "éLAST RULE"
         self.commit_rules("---\nusers: none\n---\n" + body)
@@ -127,7 +129,7 @@ class RulesCapTold(unittest.TestCase):
         self.commit_rules("x" * (OLD_CUT + 1))
         state = {"repo": str(self.repo), "state": "blocked", "error": "acme ending",
                  "rules_truncated": True, "lessons_truncated": True}
-        line = handback.handback_line(state, config.RUNS / "acme-run", self.cfg)
+        line = handback.handback_line(state, config.RUNS / "acme-run", self.cfg, save=False)
         self.assertNotIn("cut short", line)
         self.assertNotIn(str(self.path), line)
 
@@ -199,8 +201,8 @@ class RulesCapTold(unittest.TestCase):
         self.path.write_text("---\nusers: none\ntest: make check\npreview: make serve\n---\nAcme.\n")
         self.assert_round_fails_with(
             "AGENTS.md front matter has lines ak does not read: `test: make check`, "
-            "`preview: make serve` (it reads tests, health, cleanup, users, features, suite_image, "
-            "content, setup, alive, nightly, rounds, review_lines, seat_lines): remove them, or fix the misspelled name.")
+            "`preview: make serve` (it reads tests, health, deployed, cleanup, users, features, suite_image, "
+            "content, setup, alive, nightly, review_rounds, executor_lines, orchestrator_lines): remove them, or fix the misspelled name.")
 
     def test_a_project_names_its_product_text_in_its_front_matter(self):
         self.commit_rules("---\nusers: none\n---\nAcme.\n")

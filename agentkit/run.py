@@ -33,19 +33,19 @@ from .deliver import (GITHUB_RETRIES, MERGE_METHODS, PICKUP_HELD, do_merge, end_
 from .deliver import (LANDING_COUNTS, PUSH_RIGHTS, checks, gh_json, github_body,
     push, require_review_pass, rights, wait_checks)
 from .roundloop import execute, final_check, integrate, review, rounds
-from .roundloop import (Loop, note, pin_checkout, pinned_head,
+from .roundloop import (Loop, check_fix_on_tip, note, pin_checkout, pinned_head,
     restore_review_checkout, rules_check, verify_work)
 from .handback import (announce, announce_safely, clear_delivery, join_session_project,
     launch_line, printed_at_launch, reap, record_result, redress_seat, settle_delivered_line, stamp_origin,
     start_followups, task_project, write_result)
-from .staffing import (barred_refusal, best_pair, collect_usage, head_writers, next_executor,
+from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
-    refuse_unready, replace_reviewer, reviewer_order, run_workers, same_model, started_round)
+    refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
 from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, runs_on, settled, stands_on_dependency)
+    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, settled, stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
@@ -69,8 +69,8 @@ def ignore_time_keys(run_dir, meta, log):
 
 
 def task_repo(meta, task_path, task_file=None):
-    """`repo:` if the task names one, else the git repository the `ak run` was invoked from,
-    else the checkout its task folder is named for.
+    """`repo:` if the task names one, else the checkout its task folder is named for,
+    else the git repository the `ak run` was invoked from.
 
     `task_file` is the file the run was launched from, where `task_path` is the run's own
     copy of it: only the original stands in a task folder.
@@ -88,15 +88,15 @@ def task_repo(meta, task_path, task_file=None):
         if not (repo / ".git").exists():
             raise config.Error(f"{task_path}: repo {repo} is not a git repository")
         return repo
+    checkout = task_project(None, str(task_file or task_path))
+    if checkout:
+        return checkout.resolve()
     code, out, err = tool_run(["git", "rev-parse", "--show-toplevel"])
     if stopped(code, err):
         # "no repository here" is an answer; a git that never gave one must not be read as it,
         # or the work asked for in a checkout would quietly run in a scratch workspace instead
         raise Stopped(f"git rev-parse --show-toplevel failed: {err.strip()}")
-    if code != 0:
-        checkout = task_project(None, str(task_file or task_path))
-        return checkout.resolve() if checkout else None
-    return Path(out.strip()).resolve()
+    return Path(out.strip()).resolve() if code == 0 else None
 
 
 def from_refusal(task_path, from_branch, repo, no_worktree):
@@ -116,6 +116,7 @@ def from_refusal(task_path, from_branch, repo, no_worktree):
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
+    fetched = False
     # a --bg parent's pick, consumed here: one launch, one pick, whichever process prints it
     preset_exec = receipt.pop("launch_executor", None)
     preset_rev = receipt.pop("launch_reviewer", None)
@@ -162,7 +163,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
         else:
             repo = task_repo(meta, task_path, receipt.get("task_file"))  # receipts before preflight saved it
         scratch = repo is None
-        raw_rounds = opts["--rounds"] or meta.get("rounds") or run_record.policy_of(receipt)["rounds"]
+        raw_rounds = opts["--rounds"] or meta.get("rounds") or run_record.policy_of(receipt)["review_rounds"]
         try:
             n_rounds = int(raw_rounds)
         except (TypeError, ValueError):
@@ -207,6 +208,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             ref = f"refs/remotes/origin/{name}"
             if code == 0 and git_out(repo, "show-ref", "--verify", "--quiet", ref)[0] != 0:
                 code, out = 1, f"origin has no branch {name}"
+            fetched = code == 0
             if code != 0:
                 # git's reason is its first line; the rest is advice
                 why = out.partition(chr(10))[0]
@@ -225,7 +227,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
                 # the change continues on that branch: the run the branch belongs to names it,
                 # and the rounds earlier runs spent on it are spent
                 change = change_on(from_branch, repo, exclude=run_dir)
-                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["rounds"],
+                n_rounds, why = round_budget(n_rounds, run_record.policy_of(receipt)["review_rounds"],
                                              change=change, exclude=run_dir,
                                              what=f"branch {from_branch}")
                 if why:
@@ -337,40 +339,18 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     if prior and state["executor"]:
         executor, reviewer = state["executor"], state.get("reviewer")
         if not review_pass(state, cfg):
-            # A saved reviewer must still be eligible. The executor keeps its work's identity.
-            if reviewer not in reviewer_order(cfg, executor, order):
-                reviewer = None
-            # Nor is a saved executor: relaunching a model whose provider is spent would only
-            # earn the same refusal, so the work is handed over here exactly as it is mid-round,
-            # note and all -- the round it was cut off in resumes with another model in it.
-            spent, why = usage.model_exhausted(cfg, executor, providers)
-            gone = usage.unready(cfg, executor, providers)
-            if spent or gone:
-                log(f"saved executor {executor} cannot run: {why or gone}")
-                try:
-                    picked = next_executor(
-                        cfg, providers, {config.model(cfg, executor)["provider"]} if spent
-                        else set(), reviewer, log, workers=workers, reviewers=reviewers)
-                except (Exhausted, config.Error):
-                    # nowhere to hand the saved turn to: keep the saved pair and let the
-                    # round itself surface the quota, exactly as a fresh launch would.
-                    picked = None
-                if picked is None:
-                    handed = None
-                    executor, reviewer = pick_models(cfg, providers, executor, reviewer,
-                                                     log, resuming=True, repo=repo,
-                                                     workers=workers, reviewers=reviewers)
-                else:
-                    handed = executor
-                    executor, reviewer = picked
-                    note_handover(state, handed, "ran dry" if spent else gone,
-                                  started_round(run_dir, state), to=executor, reason="dry")
-                    log(f"handing executor to {executor}: {handed} "
-                        + ("ran dry" if spent else gone))
+            saved = executor
+            executor, reviewer = resume_models(cfg, providers, state, log, repo=repo)
+            if executor != saved:
+                spent, why = usage.model_exhausted(cfg, saved, providers)
+                gone = usage.unready(cfg, saved, providers) or "is no longer eligible"
+                log(f"saved executor {saved} cannot run: {why or gone}")
+                handed = saved
+                note_handover(state, handed, "ran dry" if spent else gone,
+                              started_round(run_dir, state), to=executor, reason="dry")
+                log(f"handing executor to {executor}: {handed} "
+                    + ("ran dry" if spent else gone))
             else:
-                executor, reviewer = pick_models(cfg, providers, executor, reviewer, log,
-                                                 resuming=True, repo=repo, workers=workers,
-                                                 reviewers=reviewers)
                 if reviewer is not None and same_model(cfg, executor, reviewer):
                     # A saved self-review steps aside when a better pair is ready: its own
                     # model reviews only as the last choice, never while another pair runs.
@@ -470,6 +450,8 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
     lp.body, lp.cmds, lp.context = body, cmds, context
     lp.every, lp.once = every, once
     try:
+        if prior is None and fetched:
+            check_fix_on_tip(lp)
         rounds(lp)
         if (not state.get("no_merge")
                 and (review_pass(state, cfg) or (state.get("waiting_on") or {}).get("line"))):
@@ -1170,6 +1152,12 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
             groups["efforts"] = config.run_efforts(cfg, selection)
     limit = config.max_runs()
     url = (opts or {}).get("--review-pr")
+    plan_line = None
+    if (task_file is not None and from_seat() and not bound and not url
+            and run_kind(receipt) == "task"):
+        task_path = run_dir / "task.md"
+        _, body, _ = taskfile.parse_task(task_path)
+        plan_line = plan.served_line(session_at_launch, taskfile.done_when(body, task_path))
     with gate.slot_lock():
         # two runs on one PR both land it, and the second fails on a head the first moved: read
         # under the lock its receipt is written in, so of two launches at once the second sees
@@ -1177,7 +1165,8 @@ def capture_launch(run_dir, opts=None, job_id=None, cfg=None, task_file=None, re
         going = next((other["run_id"] for other in (runs_on(pr=url, exclude=run_dir) if url else ())
                       if other.get("state") not in run_record.ENDED), None)
         state = stamp_origin({**receipt, "run_id": run_dir.name, "state": "queued", "verdict": None,
-                         "launched_session": session_at_launch, "started_at": time.time(),
+                         "launched_session": session_at_launch, "plan_line": plan_line,
+                         "started_at": time.time(),
                          "queued_at": time.time(), "slot_waiting": True,
                          "run_depth": 0 if bound else run_depth(),
                          "parent_run": None if bound else os.environ.get("AK_PARENT_RUN"),
@@ -1376,6 +1365,7 @@ def preflight(run_dir, opts, log):
         state.setdefault("own_orchestrator", orch if is_own else None)
         state.setdefault("own_orchestrator_effort", effort if is_own else None)
         run_record.save_state(run_dir, state)
+        history.update_run(state.get("run_id"), kind=run_kind(state), log=log)
         if is_own and not orch:
             raise Refused(f"no session record names the writer of this PR; "
                           f"review of the seat's own PR needs its orchestrator")
@@ -1453,7 +1443,7 @@ def preflight(run_dir, opts, log):
         ignore_time_keys(run_dir, meta, log)
         if opts.get("--anyway"):
             # the run starts regardless; name the run it starts next to, read-only
-            rivals = already_under_way(run_dir / "task.md", meta, title,
+            rivals = already_under_way(state.get("task_file") or run_dir / "task.md", meta, title,
                                        taskfile.done_when(body, run_dir / "task.md"),
                                        exclude=run_dir)
             alongside = rivals[0]["id"] if rivals else None
@@ -1536,7 +1526,7 @@ def finish(state, run_dir, log, cfg=None):
     except Exception as exc:  # noqa: BLE001 - the ending matters, not the bar
         log(f"WARN could not redraw the seat's bar: {exc}")
     announce(state, run_dir, log, cfg)
-    history_finish(state, log)
+    history_finish(state, log, cfg=cfg)
     worktrees.settle_run(run_record.read_state(run_dir) or state, run_dir, log)
     if state["state"] == "error":
         log(f"FAIL -> {run_dir / 'result.md'} (error)")
@@ -1755,7 +1745,7 @@ def resume_run(argv):
     config.ensure_dirs()
     run_dir = config.RUNS / argv[0]
     state = run_record.read_state(run_dir) if (run_dir / "run.json").exists() else None
-    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["rounds"])
+    refusal = taskfile.rounds_refusal(n_rounds, "--rounds", run_record.policy_of(state or {})["review_rounds"])
     if refusal:
         raise config.Error(refusal)
     if state is None:
@@ -1860,7 +1850,7 @@ def resume_run(argv):
         # the change's budget with this run's own rounds counted: spent, no --rounds carries
         # it on and the task is what changes; else the way on names the bound `over_lineage`
         # holds a --rounds to
-        left, why = change_budget(state, run_dir, run_record.policy_of(state)["rounds"], own=state["rounds"])
+        left, why = change_budget(state, run_dir, run_record.policy_of(state)["review_rounds"], own=state["rounds"])
         if why:
             raise config.Error(f"{argv[0]} FAILed at its round budget ({state['rounds']}); {why}")
         if n_rounds is None or n_rounds <= state["rounds"]:
@@ -1903,6 +1893,19 @@ def resume_run(argv):
     if not state.get("review_pr"):
         _, body, _ = taskfile.parse_task(run_dir / "task.md")
         taskfile.done_when(body, run_dir / "task.md")
+    if state.get("state") == "exhausted" and state.get("quota_dry"):
+        try:
+            resume_models(cfg, collect_usage(cfg), state)
+        except QuotaDry as exc:
+            log = logger(run_dir)
+            with gate.slot_lock(), run_record.recovery_lock(run_dir):
+                if run_record.read_state(run_dir) != expected:
+                    raise config.Error("the run changed while choosing recovery; select it again")
+                park_exhausted(state, exc)
+                state["slot_waiting"] = False
+                run_record.save_state(run_dir, state)
+            log(f"exhausted: {exc}")
+            return 1
     if n_rounds is not None:
         if n_rounds < (state.get("rounds") or 0):
             raise config.Error("--rounds cannot reduce the saved round budget")
@@ -2351,7 +2354,7 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR a review already judged in this run
     or any, whose later rounds review whatever the fix left.  The
-    seat builds under `config.policy`'s `seat_lines` added lines, the ones moved unchanged aside
+    seat builds at most `config.policy`'s `orchestrator_lines` added lines, the ones moved unchanged aside
     and the files the target's tip marks generated, as the change will land on it, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
@@ -2359,12 +2362,12 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
         return None
     lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
-    read, limit = lines - carried, numbers["seat_lines"]
-    if read >= limit:
+    read, limit = lines - carried, numbers["orchestrator_lines"]
+    if read > limit:
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
-                      f"too big for the seat, which builds under {limit} added "
+                      f"too big for the seat, which builds at most {limit} added "
                       "lines. Write it as a task and launch it; a worker builds it")
-    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["rounds"],
+    return read, replacement_refusal(repo, target_sha, head, number, read, numbers["review_rounds"],
                                      exclude=run_dir)
 
 
@@ -2866,7 +2869,7 @@ def settle_pr_round(lp, url, info):
 def own_pr_budget(url, run_dir, own=0):
     """`round_budget` for a seat's own pull request, `own` the rounds this run spent on it:
     the one place its arguments are read."""
-    budget = run_record.policy_of(run_record.read_state(run_dir) or {})["rounds"]
+    budget = run_record.policy_of(run_record.read_state(run_dir) or {})["review_rounds"]
     return round_budget(budget, budget, pr=url, exclude=run_dir,
                         what=f"PR #{PR_PARTS.match(url).group(3)}", own=own)
 
@@ -2876,18 +2879,16 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
 
     A match is a run whose state is `running` or `queued` with a live process
     (`process_active`), in the task's repository, launched by anybody, where either a
-    done-when of the new task and of the running run name the same test file -- not a
-    general check, which three other jobs there whose titles do not name it ran too,
-    unless both titles name it -- or their titles share at least four significant words, at
-    least half of the shorter title's.  Each match is a dict with the run's
+    done-when of the new task and of the running run name the same test file absent
+    from the local origin default tip -- not a general check, which three other jobs
+    there whose titles do not name it ran too,
+    unless both titles name it -- or the new task's resolved path is the `task_file`
+    recorded at launch.  Each match is a dict with the run's
     id, seat (None for nobody's), started_at, title, shared test files and shared
-    title-word count.  Read-only: run state comes only from run_dirs(), read_state()
+    task file.  Read-only: run state comes only from run_dirs(), read_state()
     and process_active(), and a run's done-when from its own task.md.  A
     scratch task, or one whose repository cannot be resolved, is never checked.
     """
-    stop = {"the", "a", "an", "and", "or", "of", "to", "for", "in", "on", "with",
-            "is", "are", "that", "this", "from", "into"}
-
     def test_files(commands):
         """Done-when tokens naming a test file, quotes stripped for the comparison.
 
@@ -2906,14 +2907,6 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 if stem.startswith("test_") or base.endswith("_test"):
                     found.add(name)
         return found
-
-    def significant_words(text, repo_name):
-        """Lowercased words of four or more letters outside the stop list."""
-        words = (text or "").lower()
-        if repo_name and words.startswith(repo_name.lower() + ":"):
-            words = words[len(repo_name) + 1:]
-        return {word for word in re.findall(r"[a-z0-9]+", words)
-                if len(word) >= 4 and word not in stop}
 
     try:
         repo = task_repo(meta, task_path)
@@ -2990,7 +2983,20 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
                 or len(named.get(name, set()) - {title, other_title}) < 3}
 
     mine_files = test_files(cmds)
-    mine_words = significant_words(title, repo.name)
+    if mine_files:
+        # Existing guards say nothing about which change a run builds. A partial clone
+        # may hold their paths but not their blobs, and neither lookup may fetch.
+        env = {"GIT_NO_LAZY_FETCH": "1"}
+        try:
+            tip = git(repo, "rev-parse", "--verify", "--quiet",
+                      f"{config.RULES_REF}^{{commit}}", check=False, env=env)
+            if tip:
+                mine_files = {name for name in mine_files
+                              if not git(repo, "--literal-pathspecs", "ls-tree", "-z",
+                                         "--full-tree", tip, "--", name, check=False, env=env)}
+        except (config.Error, OSError):
+            pass  # an unreadable tip keeps every candidate, as before
+    task_path = Path(task_path).expanduser().resolve()
     matches = []
     for directory in run_record.run_dirs():
         if exclude is not None and Path(directory) == Path(exclude):
@@ -3009,12 +3015,9 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
             continue
         other_title = state.get("title") or parsed_title or directory.name
         shared = sorted(specific(mine_files & test_files(other_cmds), other_title))
-        theirs = (significant_words(other_title, repo.name)
-                  if state.get("title") or parsed_title else set())
-        words = len(mine_words & theirs)
-        # Long titles share four common words (`line`, `turn`, `only`, `wait`) without being
-        # one job: 20 of 27 refusals on title words alone in a week of Oct 2026 named other work.
-        if not shared and (words < 4 or 2 * words < min(len(mine_words), len(theirs))):
+        same_task = bool(state.get("task_file")) and \
+            Path(state["task_file"]).expanduser().resolve() == task_path
+        if not shared and not same_task:
             continue
         try:
             seat = launched_session(state)
@@ -3024,7 +3027,8 @@ def already_under_way(task_path, meta, title, cmds, exclude=None):
         started = state.get("started_at")
         matches.append({"id": directory.name, "seat": seat,
                         "started": started if isinstance(started, (int, float)) else None,
-                        "title": other_title, "files": shared, "words": words})
+                        "title": other_title, "files": shared,
+                        "task_file": str(task_path) if same_task else None})
     matches.sort(key=lambda match: (match["started"] if match["started"] is not None
                                     else float("-inf"), match["id"]), reverse=True)
     return matches
@@ -3162,7 +3166,7 @@ def main(argv):
     queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
     for task in positional if opts["--rounds"] and not queued_child else ():
-        refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["rounds"])
+        refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["review_rounds"])
         if refusal:
             raise config.Error(refusal)
     parallel = None
@@ -3237,7 +3241,7 @@ def main(argv):
         # says to start regardless.  A run's own child launch never runs the
         # already-under-way check.
         cmds = taskfile.done_when(body, task_path)
-        refusal = taskfile.launch_refusal(meta, cmds, launch_policy(task_path)["rounds"])
+        refusal = taskfile.launch_refusal(meta, cmds, launch_policy(task_path)["review_rounds"])
         if refusal:
             print(f"ak run: {refusal}", file=sys.stderr)
             return 2
@@ -3249,7 +3253,7 @@ def main(argv):
                 if first["files"]:
                     detail = ", ".join(first["files"])
                 else:
-                    detail = f"{first['words']} title words"
+                    detail = f"task file {first['task_file']}"
                 if len(rivals) > 1:
                     detail += f" and {len(rivals) - 1} more"
                 try:

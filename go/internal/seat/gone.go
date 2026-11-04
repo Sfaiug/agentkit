@@ -16,7 +16,6 @@ import (
 	"agentkit/internal/hookfact"
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
 )
@@ -52,13 +51,13 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 		return Seat{}, nil, false
 	}
 	// the follow moves the seat from the model this record names, so both come from one reading
-	seat.Orchestrator = record.Str("orchestrator")
+	seat.Orchestrator, seat.own = record.Str("orchestrator"), own
 	file, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || keptBack(file) {
 		return Seat{}, nil, false
 	}
 	if complaint == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, file, models, offered); !known {
+		if seat.follow, known = follows(record, file, models, offered, harness.For(own)); !known {
 			return Seat{}, nil, false
 		}
 	}
@@ -67,7 +66,9 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	}
 	seat.closed = file != nil && file.Truthy("closed_by_owner")
 	seat.asleep = putToSleep(record, file)
-	seat.Word, seat.reason = goneWord(seat, name, at+1)
+	if err := seat.goneAt(state, at+1, now); err != nil {
+		return Seat{}, nil, false
+	}
 	return seat, models, true
 }
 
@@ -77,28 +78,6 @@ func putToSleep(record, file *run.Object) bool {
 	asleep, _ := number(record.Get("asleep"))
 	launched, _ := number(record.Get("launched"))
 	return asleep > launched && (file == nil || !file.Truthy("stopped_at"))
-}
-
-// goneWord is the word and reason of a seat nobody is in: one the owner closed rests; one gone on
-// its own is the owner's while its plan owes work, and with none owed says done where its plan
-// is finished, or rests.  Asleep, it keeps its way back in beside that done; otherwise a done says
-// what it did.
-func goneWord(seat Seat, name string, place int) (string, string) {
-	reason := seat.closedReason(place)
-	if seat.closed {
-		return "idle", reason
-	}
-	if owes, _ := plan.Owes(name); owes {
-		return "needs you", reason
-	}
-	done := config.Fold(plan.LastDone(name))
-	switch {
-	case done == "":
-		return "idle", reason
-	case seat.asleep:
-		return "done", reason
-	}
-	return "done", done
 }
 
 // closedReason is why a seat nobody is in reads as it does, and its way back in, that way being

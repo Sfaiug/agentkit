@@ -34,20 +34,28 @@ const (
 )
 
 // An Item is one thing the collector would take: what it does, to what kind, where, and why
-// where the family says.
-type Item struct{ Action, Kind, Path, Why string }
+// where the family says; and how its family takes it, nil where Python takes it.
+type Item struct {
+	Action, Kind, Path, Why string
+	take                    func(*collection) (bool, error)
+}
 
 // Line is the item as a dry run prints it.
-func (item Item) Line() string {
+func (item Item) Line() string { return "gc: would " + item.words() }
+
+// said is the item as the collection says it went.
+func (item Item) said() string { return "gc: " + item.words() }
+
+func (item Item) words() string {
 	why := ""
 	if item.Why != "" {
 		why = ": " + item.Why
 	}
-	return fmt.Sprintf("gc: would %s %s %s%s", item.Action, item.Kind, item.Path, why)
+	return fmt.Sprintf("%s %s %s%s", item.Action, item.Kind, item.Path, why)
 }
 
 // families is the collector's plan in Python's order (gc.gc_candidates), each family a scan of
-// its own: the collection adds each one's removal beside it.
+// its own whose items carry their removal: the collection takes each family's just after it.
 var families = []func(*reads) []Item{
 	(*reads).goneJobs,
 	(*reads).runs,
@@ -68,9 +76,7 @@ func DryRun() ([]Item, error) {
 	if !ported {
 		return nil, ErrPython
 	}
-	r := &reads{now: float64(time.Now().UnixNano()) / 1e9, paths: processPaths()}
-	r.left = r.leftovers()
-	r.pressure = diskPressure()
+	r := newReads()
 	plan := r.sweep()
 	listed := map[string]bool{}
 	for _, item := range plan {
@@ -88,6 +94,17 @@ func DryRun() ([]Item, error) {
 	}
 	return plan, nil
 }
+
+// newReads is a pass's reads: its clock, what this user's processes hold, what gc gave up on and
+// the disk's pressure, read as it begins (gc.gc_candidates).
+func newReads() *reads {
+	r := &reads{now: epoch(), paths: processPaths()}
+	r.left = r.leftovers()
+	r.pressure = diskPressure()
+	return r
+}
+
+func epoch() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 
 // reads is what the families share, each read once.
 type reads struct {

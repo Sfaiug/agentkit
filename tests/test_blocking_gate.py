@@ -278,7 +278,7 @@ out = pathlib.Path(sys.argv[6])
         prompt = self.prompt()
         self.assertNotIn("## Fix delta", prompt)
         self.assertIn("## Earlier findings, re-proven by ak on this commit\n- api.py:1 - mode is wrong - still fails", prompt)
-        self.assertIn("the commit the last review judged, again", prompt)
+        self.assertIn("A new finding blocks wherever it is in the change.", prompt)
         self.assertEqual(self.records("finding"), [("api.py", 1, "still failing; it blocks until its proof passes")])
 
     def disputed(self):

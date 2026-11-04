@@ -1,9 +1,8 @@
-"""Only moving work holds lines: a run waiting on a person or a spent provider window holds none.
+"""A legacy parked run is restarted when its holder stands still.
 
-A going run whose expired login, stall or spent window keeps it still (`leases.STILL`) parks
-nobody, and a run already parked on it starts again at the next tick, as it would once the
-holder had landed; a holder ak still moves keeps its younger waiting.  Offline: the lease
-stage (`fixtures.leases`), a fake launch.
+A legacy run parked on a holder whose expired login keeps it still starts again at the
+next tick, as it would once the holder had landed; a holder ak still moves keeps its younger
+waiting. Offline: the lease stage (`fixtures.leases`), a fake launch.
 """
 
 from pathlib import Path
@@ -16,9 +15,6 @@ sys.path.insert(0, str(REPO))
 from fixtures.leases import OLDER, TASK, YOUNGER, LiveRuns
 from agentkit import config, leases, run
 from agentkit import record
-
-STILL = ({"state": "waiting_login"}, {"state": "stalled"},
-         {"state": "exhausted", "quota_dry": True})
 
 
 class StuckHolderReleases(LiveRuns):
@@ -33,18 +29,10 @@ class StuckHolderReleases(LiveRuns):
             leases.restart(log=self.logs.append, now=now)
         return launched
 
-    def test_a_holder_standing_still_parks_nobody(self):
-        self.collide()
-        for fields in STILL:
-            with self.subTest(**fields):
-                self.holder(**fields)
-                self.assertNotIn(YOUNGER, leases.scan(self.repo, self.logs.append, now=2000))
-                self.assertEqual(self.state(YOUNGER)["state"], "running")
-
     def test_a_run_parked_on_a_holder_that_stands_still_starts_again(self):
         self.collide()
         (config.RUNS / YOUNGER / "task.md").write_text(TASK)
-        leases.scan(self.repo, now=2000)
+        self.parked()
         self.assertEqual(self.state(YOUNGER)["state"], "stopped")
         self.assertEqual(self.restarts(3000), [])                   # the holder still moves
         self.holder(state="waiting_login")

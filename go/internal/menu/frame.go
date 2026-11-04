@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"agentkit/internal/motion"
 	"agentkit/internal/terminal"
 )
 
@@ -22,6 +23,16 @@ const (
 type Seat struct {
 	Number                                    int
 	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none
+	Done, Total                               int    // its plan's lines done, of how many; none without one
+	Builds, Reviews                           []string
+	Tasks                                     []Task
+
+	// where it moves this frame (moving): its mark as drawn now, "" where it holds still, and its
+	// line moved (0 to 1) from the share it stood at, its count from counted, its head lit
+	mark        string
+	from, moved float64
+	counted     int
+	lit         bool
 }
 
 // A Cell is a subscription on the grid: Left is 1 to 100 with a meter, 0 for credits, -1 for none;
@@ -39,6 +50,8 @@ type View struct {
 	Cells       []Cell
 	Clock, Keys string
 	Standing    string // what stands under the usage: a worker token that ends soon
+	Highlight   Highlight
+	Motion      *motion.Clock // where what moves is this frame; nil, all still
 }
 
 // Keys is the main screen's key line, `p past` on it while a seat the owner stopped is offered.
@@ -66,9 +79,15 @@ type widths struct {
 // rule, the usage grid, the line under it, the projects and their seats, and the key line, always
 // last.  What does not fit folds as docs/cli-design.md says: the usage to its readings and then, with
 // the frame's blank lines, away; a row's last column under it; more seats than fit, to pages, with
-// the arrow toward a seat that needs the owner in amber.  The first seat is highlighted.
+// the arrow toward a seat that needs the owner in amber.
 func Lines(view View, width, height int) []string {
+	return Draw(view, width, height).Lines
+}
+
+// Draw lays out the frame and the places navigation can reach on it together.
+func Draw(view View, width, height int) Frame {
 	s := view.Screen
+	view.Seats = moving(s, view.Seats, view.Motion)
 	layout := max(1, min(width, 120))
 	projects := grouped(view.Seats)
 	sized := columns(s, view.Seats, width)
@@ -77,15 +96,13 @@ func Lines(view View, width, height int) []string {
 	single := len(keyLine(s, view.Keys, width, ""))
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
-	cursor := ""
-	if len(view.Seats) > 0 {
-		cursor = view.Seats[0].Name
-	}
+	cursor := Step(view.Seats, view.Highlight.Cursor, 0)
+	frame := Frame{cursor: cursor, width: width, order: seatOrder(view.Seats)}
 	saidRoom := max(1, sized.room-(2+sized.num+2))
 	said := map[string]int{}
 	opens := 0
 	for _, seat := range view.Seats {
-		said[seat.Name] = opened(s, seat, saidRoom)
+		said[seat.Name] = len(detail(s, seat, saidRoom, nil))
 		opens = max(opens, said[seat.Name])
 	}
 	opens = min(opens, max(1, height/2))
@@ -186,6 +203,7 @@ func Lines(view View, width, height int) []string {
 	page := max(0, slices.IndexFunc(pages, func(lines []row) bool {
 		return slices.ContainsFunc(lines, func(each row) bool { return each.seat == cursor && cursor != "" })
 	}))
+	frame.page, frame.turns = page, pageTurns(pages)
 	keys := keyLine(s, view.Keys, width, "")
 	if len(pages) > 1 {
 		needs := func(lines []row) bool { return needing(view.Seats, lines) }
@@ -208,11 +226,21 @@ func Lines(view View, width, height int) []string {
 		body = pages[page]
 	}
 	above := ""
-	for _, each := range body {
-		if each.seat != "" && each.seat == cursor {
+	frame.spots = make([]string, len(out))
+	for at, each := range body {
+		lit := !view.Highlight.Hidden && each.seat != "" && each.seat == cursor
+		if lit {
 			out = append(out, s.Highlight(each.line, each.seat != above))
 		} else {
 			out = append(out, each.line)
+		}
+		frame.spots = append(frame.spots, each.seat)
+		if lit && view.Highlight.Open && (at+1 == len(body) || body[at+1].seat != each.seat) {
+			seat := view.Seats[slices.IndexFunc(view.Seats, func(seat Seat) bool { return seat.Name == each.seat })]
+			for _, line := range keepDetail(detail(s, seat, saidRoom, view.Motion), opens, saidRoom) {
+				out = append(out, strings.Repeat(" ", 2+sized.num+2)+line)
+				frame.spots = append(frame.spots, each.seat)
+			}
 		}
 		above = each.seat
 	}
@@ -222,7 +250,8 @@ func Lines(view View, width, height int) []string {
 	for len(out) < height-2-len(keys) {
 		out = append(out, "")
 	}
-	return append(out, keys...)
+	frame.Lines = append(out, keys...)
+	return frame
 }
 
 // A project is a heading and the seats filed under it, each project where its first seat is.
@@ -318,24 +347,6 @@ func needing(seats []Seat, lines []row) bool {
 	})
 }
 
-// opened is how many lines open under a row (menu.detail), which the pages keep room for though no
-// row is open on this frame: the owner's unsent text; then what a seat not working says, wrapped; or
-// the one line of who builds and reviews.
-func opened(s terminal.Screen, seat Seat, room int) int {
-	count := 0
-	if seat.Unsent != "" {
-		count = len(terminal.Wrap(unsentMark(s, seat.Unsent), room))
-	}
-	said := ""
-	if seat.Word != "working" {
-		said = terminal.Plain(seat.Said)
-	}
-	if said != "" || seat.Word == "needs you" {
-		return count + len(terminal.Wrap(said, room))
-	}
-	return count + 1
-}
-
 func unsentMark(s terminal.Screen, text string) string {
 	if s.ASCII() {
 		return "* " + text
@@ -344,10 +355,10 @@ func unsentMark(s terminal.Screen, text string) string {
 }
 
 // lastColumn is a row's one last column in room cells (menu.last_column), none where room is
-// negative saying the fewest cells that hold it: a working seat's empty line and `no plan yet`, and
-// `✎ unsent` two cells after where the owner left text.  The line keeps eight cells at least, unless
-// narrow, where it takes the room and never more: the count alone where no cell of line fits, the
-// mark alone where both do not.
+// negative saying the fewest cells that hold it: its progress (planBar, barred), and `✎ unsent` two
+// cells after where the owner left text.  The line keeps eight cells at least, unless narrow, where
+// it takes the room and never more: the count alone where no cell of line fits, the mark alone where
+// both do not.
 func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 	mark := ""
 	if seat.Unsent != "" {
@@ -358,13 +369,13 @@ func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, text := "", ""
-	if seat.Word == "working" {
+	if barred(seat) {
 		smallest := 8
 		if narrow {
 			smallest = 0
 		}
-		bar = planLine(s, left, smallest)
-		text = terminal.Plain(planLine(s, left, 0))
+		bar = planBar(s, seat, left, smallest)
+		text = terminal.Plain(planBar(s, seat, left, 0))
 	}
 	if narrow && mark != "" && room >= 0 && terminal.Cells(text) > left {
 		bar = ""
@@ -376,16 +387,6 @@ func lastColumn(s terminal.Screen, seat Seat, room int, narrow bool) string {
 		return s.Styled(mark, "amber")
 	}
 	return bar + "  " + s.Styled(mark, "amber")
-}
-
-// planLine is a seat's progress with no plan: its line, nothing done, and `no plan yet`, never under
-// smallest cells of line.
-func planLine(s terminal.Screen, room, smallest int) string {
-	size := max(smallest, room-terminal.Cells(noPlan)-1)
-	if size < 1 {
-		return noPlan
-	}
-	return s.ShareLine(0, size, "dim") + " " + noPlan
 }
 
 // columns sizes the rows' fixed columns: number, name, model and state, and the room their last one
@@ -429,7 +430,8 @@ func head(s terminal.Screen, seat Seat, w widths) string {
 	number = "  " + strings.Repeat(" ", max(0, w.num-terminal.Cells(number))) + s.Styled(number, "dim")
 	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.Model, w.orch, "dim")}
 	if w.count > 0 {
-		rest = append(rest, cell(s, s.StateText(seat.Word), w.count, tone(seat.Word)))
+		text := terminal.Cut(s.StateText(seat.Word), w.count)
+		rest = append(rest, state(s, seat, text)+strings.Repeat(" ", w.count-terminal.Cells(text)))
 	}
 	line := strings.Join(append([]string{number}, rest...), "  ")
 	if terminal.Cells(line) <= w.room {
@@ -447,6 +449,15 @@ func tone(word string) string {
 		return "dim"
 	}
 	return word
+}
+
+// state is a seat's state text, or a piece of it, in its word's colour, its mark as the clock draws
+// it this frame (moving).
+func state(s terminal.Screen, seat Seat, text string) string {
+	if rest, marked := strings.CutPrefix(text, s.Glyph(seat.Word)); marked && seat.mark != "" {
+		return seat.mark + s.Styled(rest, tone(seat.Word))
+	}
+	return s.Styled(text, tone(seat.Word))
 }
 
 // cell is text cut, then styled, then padded, so the pads land outside the escapes.
@@ -479,11 +490,11 @@ func seatBlocks(s terminal.Screen, seats []Seat, w widths, most int) [][]row {
 			}
 		}
 		if w.count == 0 {
-			var state []string
+			var under []string
 			for _, each := range terminal.Wrap(s.StateText(seat.Word), w.room-4) {
-				state = append(state, "    "+s.Styled(each, tone(seat.Word)))
+				under = append(under, "    "+state(s, seat, each))
 			}
-			lines = slices.Insert(lines, 1, state...)
+			lines = slices.Insert(lines, 1, under...)
 		}
 		if most >= 0 && len(lines) > max(1, most) {
 			keep := max(1, most)

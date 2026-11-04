@@ -47,8 +47,9 @@ class ATurnPacksOntoTheBusiestMachine(unittest.TestCase):
     def placed(self, cpus, lives=None):
         """{machine: (turns, other containers)} after a task's run on machines of `cpus`, {name:
         CPUs}: those `lives` names ak rents, {name: seconds Google lets it live}, the others named
-        under `[machines]`; and what Google was asked while it ran."""
-        home, lives = Home(), lives or {}
+        under `[machines]`; and what Google was asked while it ran. Its home stays `self.home`."""
+        self.home = home = Home()
+        lives = lives or {}
         self.addCleanup(home.close)
         google = Google(home, [SKUS], [{"zones/europe-west4-a": {
             "machineTypes": [kind("c4a-standard-8", 8, 32)]}}])

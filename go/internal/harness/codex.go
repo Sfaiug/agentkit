@@ -1,8 +1,10 @@
 package harness
 
-// A Codex seat owns a conversation only by a launch receipt (codex.py `conversation`), which no
-// record Go follows names, so it starts fresh; Python then writes `resumable: false` into its
-// record (codex.py `reconcile`), a record Go does not follow.
+// A Codex seat owns a conversation only by its launch receipt (codex.py `conversation`), which
+// Go reads to tell its seat's word; a seat only its record holds still starts fresh, as Go does
+// not reopen one on a receipt yet.
 func init() {
-	plugins["codex"] = plugin{seats: true, fresh: "starts a new Codex conversation", receipt: "codex_launch", registerMCP: codexRegisterMCP}
+	plugins["codex"] = plugin{seats: true, looks: true, recorded: codexError, answer: codexAnswer, owns: codexOwns,
+		record: codexRecord, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
+		fresh: "starts a new Codex conversation", receipt: codexLaunch, registerMCP: codexRegisterMCP}
 }

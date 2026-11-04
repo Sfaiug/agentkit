@@ -94,21 +94,17 @@ func TestSchemaRefusals(t *testing.T) {
 	path := filepath.Join(Home(), "config.toml")
 	const models = "[models.acme]\nharness='echo'\nmodel='echo-1'\neffort='low'\nprovider='test'\n[providers.test]\n"
 	for _, example := range []struct{ config, reason string }{
-		{"rounds=0\n" + models, "rounds must be a whole number of at least 1, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 0)"},
-		{"review_lines='many'\n" + models, "review_lines must be a whole number of at least 1, the most added lines a first review reads (got 'many')"},
-		{"seat_lines=true\n" + models, "seat_lines must be a whole number of at least 0, the added lines a seat's own change stays under (got True)"},
-		{"review_lines=10\nseat_lines=20\n" + models, "seat_lines 20, the added lines a seat's own change stays under, is over review_lines 10, the most added lines a first review reads"},
-		{"rounds=0\n", "rounds must be a whole number of at least 1, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 0)"},
-		{"within=-1\n", "within must be a number of points from 0 to 10 (got -1)"},
+		{"review_rounds=0\n" + models, "review_rounds must be a whole number of at least 1, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 0)"},
+		{"executor_lines='many'\n" + models, "executor_lines must be a whole number of at least 1, the most added lines a first review reads (got 'many')"},
+		{"orchestrator_lines=true\n" + models, "orchestrator_lines must be a whole number of at least 0, the most added lines an orchestrator builds (got True)"},
+		{"executor_lines=10\norchestrator_lines=20\n" + models, "orchestrator_lines 20, the most added lines an orchestrator builds, is over executor_lines 10, the most added lines a first review reads"},
+		{"review_rounds=0\n", "review_rounds must be a whole number of at least 1, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 0)"},
 		{"compare=5\n", "compare must list release slugs (compare = [\"acme-pro-5\"]) (got 5)"},
 		{"[models.acme]\nprovider='test'\n[providers.test]\n", "no [models.*] entry names a provider with a [providers.*] table"},
 		{"[defaults]\n", "missing [models] table"},
 		{"[models]\n", "missing [providers] table"},
 		{"[models]\n[providers]\n", "no [models.*] entry names a provider with a [providers.*] table"},
 		{"defaults=1\n" + models, "[defaults] must be a table"},
-		{"within=-1\n" + models, "within must be a number of points from 0 to 10 (got -1)"},
-		{"within=11\n" + models, "within must be a number of points from 0 to 10 (got 11)"},
-		{"within=true\n" + models, "within must be a number of points from 0 to 10 (got True)"},
 		{"compare='acme-pro-5'\n" + models, "compare must list release slugs (compare = [\"acme-pro-5\"]) (got 'acme-pro-5')"},
 		{"compare=['acme-pro-5',1]\n" + models, "compare must list release slugs (compare = [\"acme-pro-5\"]) (got ['acme-pro-5', 1])"},
 		{"[defaults]\norchestrator=1\n" + models, "[defaults].orchestrator must be a model name (got 1)"},
@@ -158,10 +154,10 @@ func TestRoundsReadsWhatLoadLeaves(t *testing.T) {
 		reason string
 	}{
 		{config: models, want: defaultRounds},
-		{config: "rounds=5\n" + models, want: 5},
-		{config: "rounds=5\n", want: 5},
-		{config: "rounds=0\n" + models, reason: "(got 0)"},
-		{config: "rounds=99999999999999999999\n" + models, reason: "(got 99999999999999999999)"},
+		{config: "review_rounds=5\n" + models, want: 5},
+		{config: "review_rounds=5\n", want: 5},
+		{config: "review_rounds=0\n" + models, reason: "(got 0)"},
+		{config: "review_rounds=99999999999999999999\n" + models, reason: "(got 99999999999999999999)"},
 	} {
 		if err := os.WriteFile(path, []byte(example.config), 0600); err != nil {
 			t.Fatal(err)
@@ -170,7 +166,7 @@ func TestRoundsReadsWhatLoadLeaves(t *testing.T) {
 		if example.reason == "" && (err != nil || got != example.want) {
 			t.Errorf("%q: got %d, %v, want %d", example.config, got, err, example.want)
 		}
-		if example.reason != "" && (err == nil || !strings.HasPrefix(err.Error(), path+": rounds must be a whole number of at least 1, ") || !strings.HasSuffix(err.Error(), example.reason)) {
+		if example.reason != "" && (err == nil || !strings.HasPrefix(err.Error(), path+": review_rounds must be a whole number of at least 1, ") || !strings.HasSuffix(err.Error(), example.reason)) {
 			t.Errorf("%q: got %v, want a refusal ending %s", example.config, err, example.reason)
 		}
 	}

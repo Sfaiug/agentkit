@@ -221,7 +221,7 @@ def job_create(cfg, task_paths, opts, parallel):
         seen[info["name"]] = info["path"]
     for info in infos:
         refusal = taskfile.launch_refusal(info["meta"], info["cmds"],
-                                          run.launch_policy(info["path"])["rounds"])
+                                          run.launch_policy(info["path"])["review_rounds"])
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         gitcall.repo_line(info["meta"], info["path"])
@@ -231,7 +231,7 @@ def job_create(cfg, task_paths, opts, parallel):
             if rivals:
                 first = rivals[0]
                 detail = ", ".join(first["files"]) if first["files"] \
-                    else f"{first['words']} title words"
+                    else f"task file {first['task_file']}"
                 if len(rivals) > 1:
                     detail += f" and {len(rivals) - 1} more"
                 try:
@@ -685,7 +685,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
     meta, body, title = taskfile.parse_task(task_path)
     # the file as it reads now, which may have changed since the job began
     refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path),
-                                      run.launch_policy(task_path)["rounds"])
+                                      run.launch_policy(task_path)["review_rounds"])
     if refusal:
         raise RefusedTask(refusal)
     run_dir = job_allocate_run_dir(title)
@@ -919,7 +919,7 @@ def job_ladder(cfg, job_dir, job, task, run_dir, run_state, rc, log, lock):
             save_job(job_dir, job)
         log(task["verdict_line"])
         return
-    # a FAIL at its round budget gets no more rounds: the host's `rounds` is the budget.  One
+    # a FAIL at its round budget gets no more rounds: the host's `review_rounds` is the budget.  One
     # its reviews failed goes back to the seat with its findings, as a single run's does, to be
     # split or re-scoped.  One a check or integration left behind -- or an `exhausted` that is
     # really a spent round budget -- starts once more on the next executor model in
@@ -1513,7 +1513,7 @@ def cmd_job_resume(argv):
         job = read_job(job_dir)
     if not job or not isinstance(job.get("tasks"), list):
         raise config.Error(f"no resumable job: {argv[0]} (looked in {config.JOBS})")
-    refusal = asked and taskfile.rounds_refusal(asked, "--rounds", config.policy(job.get("cwd"))["rounds"])
+    refusal = asked and taskfile.rounds_refusal(asked, "--rounds", config.policy(job.get("cwd"))["review_rounds"])
     if refusal:
         raise config.Error(refusal)
     box.check()

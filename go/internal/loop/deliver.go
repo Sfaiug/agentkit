@@ -17,7 +17,6 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
-	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -499,19 +498,7 @@ func (r *repoPlace) mergeLock(l *loop, upstream string) (*os.File, error) {
 	if err := os.MkdirAll(run.Runs(), 0o777); err != nil {
 		return nil, err
 	}
-	held, err := lock.Try(path)
-	if !errors.Is(err, lock.ErrHeld) {
-		return held, err
-	}
-	if err := l.save(func(record *run.Object) { record.Set("delivery_wait", os.Getpid()) }); err != nil {
-		return nil, err
-	}
-	held, err = lock.Wait(l.ctx, path)
-	if unmarked := write(l.dir, func(record *run.Object) { record.Delete("delivery_wait") }); err == nil && unmarked != nil {
-		held.Close()
-		return nil, unmarked
-	}
-	return held, err
+	return l.deliveryLock(path)
 }
 
 // turn is the delivery lock for the repository and target, Python's turn_path: the landing line

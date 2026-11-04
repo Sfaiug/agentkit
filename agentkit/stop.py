@@ -285,53 +285,12 @@ def stop_line(run_id, branch, kept):
     return f"stopped {run_id}: branch {branch} kept; relaunch with from: {branch}"
 
 
-def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=None):
-    """End that run: its record first (`stopped`, under the lock, `why` its error and `extra`
-    on it), then its loop and everything it started, then its checkout unless `keep`.  The
-    state as recorded; a run already stopped as it stands; None where the run had ended
-    already, or where `only_if` no longer holds of the record read under the lock, so there
-    was nothing to stop.  `owner_check` is the command's: only the seat a run belongs to stops
-    it by hand, while ak's own stops (`leases.park`) are anybody's."""
-    run_id = run_dir.name
-    log = log or run.note_in(run_dir / "log.txt")
-    with run_record.recovery_lock(run_dir):
-        current = run_record.read_state(run_dir) or {}
-        if owner_check:
-            config.check_stop_owner(current.get("launched_session") or current.get("session"))
-        if current.get("state") == "stopped" and not stoppable(current):
-            return current
-        if not stoppable(current) or (only_if and not only_if(current)):
-            return None
-        kept = bool(keep or not worktrees.checkout_removable(current))
-        current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),
-                       error=why, reported=True, stop_kept=kept)
-        for key in ("recovery_pending", "recovery_notified", "recovery_acknowledged_at",
-                    "lease_wait", "handback_pending", "handback_wait_reason", "handback_note",
-                    "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
-                    "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
-                    "resume_after", "error_retry_at", "error_retries", "waiting_on",
-                    "waiting_resume_at", "slot_waiting", "launch_pending", "resume_from"):
-            current.pop(key, None)
-        current.update(extra or {})
-        run_record.save_state(run_dir, current)
-        transitions.history_finish(current, log)
-        try:
-            handback.redress_seat(transitions.launched_session(current))
-        except config.Error:
-            pass
-        try:
-            handback.record_result(run_dir, current, log)
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-        state = current
-    # The scope where one exists, else the tree by the run's marker -- in practice both,
-    # so a scope that refused to stop still loses its processes, and a plain start loses
-    # nothing by the scope attempt missing.  The record already says stopped, so whatever
-    # notices the dead children aborts instead of replacing them.
+def _stop_processes(run_id, state, log):
+    # The record already says stopped, so whatever notices the dead children aborts
+    # instead of replacing it. The scope and marker both catch escaped grandchildren.
     pid = state.get("pid")
     if orch.user_manager() and pid == os.getpid():
-        # this process is the run's loop, parking itself at its commit step (`leases.park`):
-        # a waited stop of its own unit would end it here, before its save raises the stop
+        # A waited stop of the loop's own unit would end this call before cleanup finishes.
         orch.stop_scope(f"agentkit-run-{run_id}", log, wait=False)
     elif orch.user_manager():
         unit = f"agentkit-run-{run_id}"
@@ -356,6 +315,48 @@ def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=
             watch.kill_tree(member, log)
         except (OSError, ValueError):
             pass
+
+
+def end(run_dir, *, keep, why, log=None, extra=None, owner_check=False, only_if=None):
+    """End that run: its record first (`stopped`, under the lock, `why` its error and `extra`
+    on it), then its loop and everything it started, then its checkout unless `keep`.  The
+    state as recorded; a run already stopped as it stands; None where the run had ended
+    already, or where `only_if` no longer holds of the record read under the lock, so there
+    was nothing to stop.  `owner_check` is the command's: only the seat a run belongs to stops
+    it by hand, while ak's own stops are anybody's."""
+    run_id = run_dir.name
+    log = log or run.note_in(run_dir / "log.txt")
+    with run_record.recovery_lock(run_dir):
+        current = run_record.read_state(run_dir) or {}
+        if owner_check:
+            config.check_stop_owner(current.get("launched_session") or current.get("session"))
+        if current.get("state") == "stopped" and not stoppable(current):
+            return current
+        if not stoppable(current) or (only_if and not only_if(current)):
+            return None
+        kept = bool(keep or not worktrees.checkout_removable(current))
+        current.update(state="stopped", verdict="STOPPED", finished_at=time.time(),
+                       error=why, reported=True, stop_kept=kept)
+        for key in ("recovery_pending", "recovery_notified", "recovery_acknowledged_at",
+                    "lease_wait", "handback_pending", "handback_wait_reason", "handback_note",
+                    "notification_pending", "pending_inbox", "quota_dry", "refusal_retry",
+                    "waiting_for", "login_resume_at", "login_back_at", "stall_resume_at",
+                    "resume_after", "error_retry_at", "error_retries", "waiting_on",
+                    "waiting_resume_at", "slot_waiting", "launch_pending", "resume_from"):
+            current.pop(key, None)
+        current.update(extra or {})
+        run_record.save_state(run_dir, current)
+        _stop_processes(run_id, current, log)
+        transitions.history_finish(current, log)
+        try:
+            handback.redress_seat(transitions.launched_session(current))
+        except config.Error:
+            pass
+        try:
+            handback.record_result(run_dir, current, log)
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        state = current
     if not keep and not worktrees.stop_checkout(state, log):
         # The checkout is still there -- a live loop, or a git that said no --
         # so the branch stays with it, and the record says kept: `from:` carries

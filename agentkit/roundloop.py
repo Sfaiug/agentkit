@@ -20,8 +20,8 @@ import time
 from contextlib import contextmanager, nullcontext
 from pathlib import Path
 
-from . import (config, gitcall, hand_in, handback, history, prompts, record as run_record,
-               staffing, task as taskfile, transitions, turns, worker)
+from . import (beside_review, config, gitcall, hand_in, handback, history, prompts, record as run_record,
+               staffing, suite_times, task as taskfile, transitions, turns, worker)
 
 
 # The front matter lines ak reads; any other name (a typo of `tests:` included) is read by nothing.
@@ -30,9 +30,9 @@ from . import (config, gitcall, hand_in, handback, history, prompts, record as r
 # `setup:` names the file that makes the machine ak runs on ready for the project (`machine_setup`).
 # `alive:` names the command that tells ak, from its own machine, the product is up (`alive`).
 # `nightly:` names the command that prints the project's newest night (`nightly`).
-# `rounds:`, `review_lines:` and `seat_lines:` are the project's own numbers (`config.policy`).
-FRONT_KEYS = ("tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup",
-              "alive", "nightly", "rounds", "review_lines", "seat_lines")
+# config.POLICY's keys are the project's own numbers (`config.policy`).
+FRONT_KEYS = ("tests", "health", "deployed", "cleanup", "users", "features", "suite_image", "content",
+              "setup", "alive", "nightly", *config.POLICY)
 
 
 # The words an AGENTS.md body may grow to: what the project is, and the few facts no code can
@@ -102,6 +102,11 @@ class Loop:
     def scope(self):
         return "\n\nfiles: " + ", ".join(self.files) if self.files else ""
 
+    @property
+    def fix_run(self):
+        return bool(self.state.get("followup") or any(words in self.body for words in (
+            taskfile.FIX_THE_COMMAND, taskfile.OLD_FIX_THE_COMMAND)))
+
     body = property(lambda self: self._body + self.scope,
                     lambda self, text: setattr(self, "_body", text))
     context = property(lambda self: self._context + self.scope,
@@ -157,8 +162,7 @@ class Loop:
         refused by `record`'s guard as a whole save refused it.  Every save a live loop makes
         ends here; the merge pipeline's and a PR review's change neither seats nor history.
         """
-        # what the done-when generated, on the record for readers outside the loop: the lease
-        # scan leaves it out of the run's diff as a commit does
+        # Keep generated paths on the record so later commits leave them out too.
         self.state["artifacts"] = sorted(self.artifacts)
         if not (self.run_dir / "run.json").exists():
             run_record.save_state(self.run_dir, self.state)
@@ -262,14 +266,45 @@ def worker_result(lp, summary, out):
             raise turns.Blocked(closing["why"], f"## Blocked\n\n{closing['why']}")
         # a fix run's: a seat's says so on its record, a failed night's in its task's own words
         if (closing["kind"] == "not-needed" and not lp.state.get("round_summaries")
-                and (lp.state.get("followup") or taskfile.FIX_THE_COMMAND in lp.body)):
+                and lp.fix_run):
             raise turns.NotNeeded(closing["why"])
-    # A closing reply may be only an acknowledgement; retain the work prose on restart too.
-    name = re.split(r"-retry-(?:hand-in|foreground)", answer.name, maxsplit=1)[0]
-    work = turns.read_answer(answer.with_name(name) / "final.md")
-    if work and work != summary:
-        summary = f"{work}\n\n{summary}"
     return summary
+
+
+def check_fix_on_tip(lp):
+    """A given command passing on the target needs no model turn to fix it."""
+    from . import gate  # here, not at the top: it reaches run
+    if (lp.scratch or not lp.fix_run or not lp.every or lp.state.get("split_suite")
+            or (lp.state.get("repair") or {}).get("flaky")):
+        return
+    try:
+        tip = gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet",
+                          f"refs/remotes/{lp.upstream}^{{commit}}", check=False)
+        if not tip:
+            return
+        lp.log(f"--- fix check on {lp.upstream} ({tip}) before the first turn")
+        lp.step("done-when")
+        # A continued branch or --no-worktree may hold other work; the target alone decides.
+        with tempfile.TemporaryDirectory(dir=lp.run_dir) as tmp:
+            checkout = Path(tmp) / "checkout"
+            # Keep fetched target refs without copying local object replacements.
+            gitcall.clone_borrowing(lp.wt, checkout, "--no-checkout")
+            gitcall.git(checkout, "remote", "remove", "origin")
+            gitcall.git(checkout, "remote", "add", "origin",
+                        gitcall.git(lp.wt, "remote", "get-url", "origin"))
+            gitcall.git(checkout, "fetch", "--quiet", "--no-tags", str(lp.wt),
+                        "+refs/remotes/*:refs/remotes/*")
+            gitcall.git(checkout, "checkout", "--quiet", "--detach", tip)
+            ok, _ = gate.run_round(lp.every, checkout, lp.run_dir / "tip.log", set(),
+                                   lp.done_when_limit, lp.log, silence=lp.turn_limit,
+                                   run_dir=lp.run_dir,
+                                   checked=(lp.run_dir, 0, "done-when", tip))
+    except (config.Error, OSError) as exc:
+        lp.log(f"fix check unavailable: {exc}; continuing to the first executor turn")
+        return
+    if ok:
+        commands = "; ".join(f"`{cmd}`" for cmd in lp.every)
+        raise turns.NotNeeded(f"{commands} passed on {lp.upstream} at {tip}")
 
 
 def suite_evidence(lp, cmds, identity):
@@ -446,7 +481,7 @@ def own_checks(lp):
 def fails_on_base(lp):
     """Why no check of the task's own was shown to fail on the old code, or "" once one was:
     a check that finishes failing on base with the branch's tests laid over, and passes on base
-    with every file the branch changed laid over, proves it (`base_proof` turns `proven`).
+    with every file the branch changed laid over, proves it (the caller records `proven`).
 
     It never fails a round, by the owner's rule (7 Oct): ak proves the failing test wherever
     it can and records why when it cannot, as no path tells every project's tests from its
@@ -498,8 +533,6 @@ def fails_on_base(lp):
     # a check finishes failing as a reviewer's proof does (`hand_in.proof_failed`)
     if any(after == 0 and before is not None and hand_in.proof_failed({"returncode": before})
            for before, after in zip(on_base, on_head)):
-        lp.state["base_proof"] = "proven"
-        lp.save()
         return ""
     if any(after != 0 for after in on_head):
         return ("a check fails in a checkout made from git alone even with the branch's changes: "
@@ -587,14 +620,10 @@ def verify_work(lp, cmds=None):
     lp.step("done-when")
     check = gate.run_done_when
     if not lp.scratch and not lp.state.get("review_pr"):
-        if lp.state.get("repo"):
-            # ak's commit step runs the lease scan itself: a diff that cannot merge with an
-            # older live run's is parked here, before anything of it is reviewed, and the
-            # save below raises the stop the scan recorded (`leases.park`)
-            from . import leases
-            leases.scan_safely(Path(lp.state["repo"]), lp.log)
-            lp.save()
         gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
+        # Landing rechecks a completed round; its own integration stays in charge there.
+        if lp.rnd > len(lp.state.get("round_summaries", [])):
+            rebase_for_review(lp)
         check = gate.run_round      # the tree at HEAD is the checkout's: the helper may run it
     follow_target(lp)
     lp.validation = {} if lp.scratch else gitcall.commit_identity(lp.wt)
@@ -625,11 +654,6 @@ def verify_work(lp, cmds=None):
         if failure:
             ok = False
             text += f"\n\n$ regression.sh must fail on base\n[exit 1]\n{failure}"
-    if ok and needs_base_proof(lp):
-        # recorded, never a failure: the owner's rule (7 Oct)
-        lp.state["base_proof_note"] = fails_on_base(lp) or None
-        lp.save()
-        text += "\n\n" + prompts.base_proof_line(lp.state)
     if lp.validation:
         text = (f"Commit: {lp.validation['head_sha']}\nTree: {lp.validation['tree_sha']}\n\n"
                 + text)
@@ -656,8 +680,8 @@ def affected_suite(lp):
     names: the paths the change edits relative to the target, one per line.  It runs on HEAD
     merged onto the target as just fetched, so a sibling merged since meets the change here
     rather than in the landing line, in a clone of its own, on the heavy-suite turns and shares
-    a landing check takes.  A sibling that conflicts with the change is landing's to bring in,
-    in conflict rounds outside the task budget (`integrate`): the round then judges its own
+    a landing check takes.  A sibling that arrives during the checks and conflicts is landing's
+    to bring in, in conflict rounds outside the task budget (`integrate`): the round judges its own
     work, merged onto the target it last integrated with.  The suite is the line of the target
     the change meets, whose tree holds what it runs.  A red whose failing tests (`AK_FAILED`)
     all fail again on that target alone (`AK_ONLY`) is the target's, not the change's: it
@@ -859,10 +883,10 @@ def integrated(wt, rev):
     return rc == 0
 
 
-def patch_id(wt, base_sha):
-    """The stable id of `base...HEAD`, or None for an empty diff or any git failure."""
+def patch_id(wt, base_sha, head="HEAD"):
+    """The stable id of `base...head`, or None for an empty diff or any git failure."""
     try:
-        rc, diff = gitcall.git_out(wt, "diff", f"{base_sha}...HEAD")
+        rc, diff = gitcall.git_out(wt, "diff", f"{base_sha}...{head}")
     except gitcall.Stopped:
         raise
     except Exception:
@@ -889,7 +913,7 @@ def how_to_integrate(lp):
     brings origin in without touching what is already there.  Everything else rebases, so the
     common case still arrives at the PR as a straight line on top of the target.
     """
-    if lp.state["merge_method"] == "merge":
+    if lp.state.get("merge_method") == "merge":
         return "merge"
     merges = gitcall.git(lp.wt, "rev-list", "--merges", f"{lp.base_sha}..HEAD", check=False)
     return "merge" if merges else "rebase"
@@ -910,6 +934,39 @@ def follow_target(lp):
     if gitcall.git_out(lp.wt, "merge-base", "--is-ancestor", lp.base_sha, fork)[0] == 0:
         lp.log(f"base: the branch took in {lp.upstream} up to {fork[:12]}")
         set_base(lp, fork)
+
+
+def rebase_for_review(lp):
+    """Meet target changes to this branch's files before the round checks and reviews it."""
+    if not lp.upstream:
+        return
+    if gitcall.fetch(lp.wt, "origin", lp.upstream.removeprefix("origin/"))[0]:
+        lp.log(f"WARN cannot fetch {lp.upstream}: the review meets it as last fetched")
+        return
+    follow_target(lp)
+    tip = gitcall.git(lp.wt, "rev-parse", f"{lp.upstream}^{{commit}}")
+    head = gitcall.git(lp.wt, "rev-parse", "HEAD")
+    if integrated(lp.wt, tip) or target_disjoint_from_branch(lp.wt, lp.base_sha, head, tip):
+        return
+    # Integration changes the review's base. Review the whole change; never map the old head.
+    lp.state.pop("delta_from", None)
+    lp.save()
+    how = how_to_integrate(lp)
+    verb = "merging" if how == "merge" else "rebasing"
+    lp.log(f"--- round {lp.rnd}: {verb} onto {lp.upstream} ({tip[:12]})")
+    try:
+        code, out = (gitcall.merge(lp.wt, tip) if how == "merge"
+                     else gitcall.git_out(lp.wt, "rebase", tip))
+        if code:
+            with released_gate_turn():
+                if not resolve_conflicts(lp, lp.upstream, out, how, tip, recheck=False):
+                    raise turns.Exhausted(lp.state["merge_note"])
+            lp.step("done-when")
+    except gitcall.Stopped:
+        abort_stopped_integration(lp, how)
+        raise
+    lp.state.setdefault("rebases", []).append({"round": lp.rnd, "onto": tip, "method": how})
+    set_base(lp, tip)
 
 
 def set_base(lp, tip):
@@ -1245,12 +1302,6 @@ def execute(lp, role, text, name):
         lp.exec_sid = None
         note = {"at": time.time(), "role": role, "restarted": True}
         lp.state["resume_notice"] = note
-    # The ask's directory survives a host interruption, so resuming it cannot buy a third ask.
-    closing_asked = previous is not None and ((previous / "final.md").exists()
-                       or "-retry-hand-in" in previous.name or "-retry-foreground" in previous.name)
-    if closing_asked:
-        body = turns.NO_CLOSING_ASK
-        out = turns.free_dir(lp, f"{previous.name}-retry-hand-in")
     if role == "fixer" and "## Reviewer findings to fix\n" in text and lp.state.get("findings_file"):
         findings = Path(lp.state["findings_file"]).with_name(hand_in.FINDINGS_FILE)
         if findings.is_file():
@@ -1269,6 +1320,9 @@ def execute(lp, role, text, name):
             code, summary, lp.exec_sid, dead = turns.call_retrying(lp.cfg, lp.executor, body, lp.wt,
                                                              out, lp.role(role), lp.exec_sid,
                                                              lp.log, lp.turn_limit,
+                                                             checks={"commands": own_checks(lp),
+                                                                     "limit": lp.done_when_limit,
+                                                                     "silence": lp.turn_limit},
                                                              handover=handover, **resume)
         except worker.LoginExpired as expired:
             lp.exec_sid = expired.session or lp.exec_sid
@@ -1285,7 +1339,6 @@ def execute(lp, role, text, name):
             if staffing.hand_executor(lp, "cannot run", broken.detail, dry) is None:
                 raise
             body = text
-            closing_asked = False
             out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         except turns.RanDry as refused:
@@ -1301,14 +1354,12 @@ def execute(lp, role, text, name):
                                   else "resume when a meter refills. ") +
                                f"See {out}*/stderr.log")
             body = f"{prompts.HANDOVER.format(before=before)}\n\n{text}"
-            closing_asked = False
             out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         except turns.TransientHandover as handed:
             # hand_executor already moved the role inside the callback; the new model
             # joins a round another started, in a fresh out dir on a fresh session.
             body = f"{prompts.HANDOVER.format(before=handed.before)}\n\n{text}"
-            closing_asked = False
             out = turns.free_dir(lp, f"{name}-{lp.executor}")
             continue
         finally:
@@ -1319,19 +1370,16 @@ def execute(lp, role, text, name):
             lp.log(f"WARN {role} {turns.killed_word(code) or f'exited {code}'}; "
                    f"see {out / 'stderr.log'}")
         lp.save()
-        submitted = prompts.review_records(out, summary)
-        if (not (submitted is not None and submitted.closing) and not closing_asked
-                and not list(out.parent.glob(f"{out.name}-retry*foreground*"))):
-            lp.log(f"{role} {lp.executor} gave no closing; asking once more")
-            resume["previous"] = prompts.written_answer(out, summary).parent
-            body = turns.NO_CLOSING_ASK
-            closing_asked = True
-            out = turns.free_dir(lp, f"{resume['previous'].name}-retry-hand-in")
-            continue
         return worker_result(lp, summary, out)
 
 
 def review(lp, summary, ok, dw_log, preface="", record=True):
+    action = (lambda: fails_on_base(lp)) if ok and needs_base_proof(lp) else None
+    with beside_review.check("base-proof", action) as start_check:
+        return _review(lp, summary, ok, dw_log, preface, record, start_check)
+
+
+def _review(lp, summary, ok, dw_log, preface, record, start_check):
     """Commit what the executor left, hand the work to the reviewer, record the round's verdict.
 
     A repo run is judged on its diff.  A scratch run has no commits at all -- what it produced
@@ -1394,7 +1442,7 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # re-review (`record` off: the repair that brought it here is nobody's fix round),
         # the whole change is judged again
         delta = prompts.reviewed_before(lp, delta_from, at) if record and earlier else None
-        if record and delta_from and earlier:
+        if record and earlier:
             # a later round, on a new commit or the same again: ak re-proves the earlier findings.
             # One at a site the fixer disputed (a dispute names a site) is the reviewer's to weigh:
             # listed, not replayed
@@ -1525,6 +1573,8 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         transitions.review_providers(lp.cfg, exec_for_rule, lp.reviewer)
         lp.log(f"WARN reviewer fell back to {lp.reviewer}")
         return f"reviewer-{lp.reviewer}"
+    # Earlier finding replays have finished cleaning the run's scope before this check starts.
+    proof = start_check() if start_check else None
     ask = None      # where the answer that gave no verdict is, for the call asking once more
     while True:
         if not lp.executor and not lp.state.get("review_pr"):
@@ -1612,16 +1662,23 @@ def review(lp, summary, ok, dw_log, preface="", record=True):
         # A missing verdict is a reviewer that has not answered, never an answer: ask the
         # same session once more, same round, no backoff, through the same call as the
         # review itself, so a window spent on the ask is a spent window and waits for its
-        # refill.  When the turn already spent its one extra call finishing background
-        # work in the foreground, that call already carried the verdict ask, so a second
-        # silence means the reviewer is gone: no round is recorded, same as a dead reviewer.
-        if asked_body == turns.NO_VERDICT_ASK or list(lp.round_dir.glob(f"{out.name}*foreground*")):
+        # refill. A second silence means the reviewer is gone: no round is recorded,
+        # same as a dead reviewer.
+        if asked_body == turns.NO_VERDICT_ASK:
             prompts.record_findings(lp, out, text)
             lp.save()
             name = fall_back("gave no verdict twice", out)
             continue
         lp.log(f"reviewer {lp.reviewer} gave no verdict; asking once more")
         ask = prompts.written_answer(out, text).parent
+
+    if proof is not None:
+        # Join before saving any verdict: a death while waiting must resume the proof too.
+        why = proof()
+        lp.state["base_proof_note"] = why or None
+        if not why:
+            lp.state["base_proof"] = "proven"
+        lp.save()
 
     checkout_changed = not lp.scratch and (
         identity != validation or gitcall.commit_identity(lp.wt) != identity
@@ -1886,7 +1943,7 @@ def rounds(lp, execv=None):
 
 
 def first_review_ceiling(lp, record=True):
-    """A task's change gets its first review only up to `review_lines` added lines
+    """A task's change gets its first review only up to `executor_lines` added lines
     (`transitions.first_review_refusal`): past it the run ends blocked with `split it`
     before the reviewer reads a line, and the branch it keeps holds the work for the pieces.
     Only the change's first review, a resumed one too: once a review of it, in this run or in
@@ -1902,7 +1959,7 @@ def first_review_ceiling(lp, record=True):
     lines = transitions.diff_lines(lp.wt, lp.base_sha, "HEAD", added_only=True)
     carried = transitions.carried_lines(lp.wt, lp.base_sha, "HEAD")
     why = transitions.first_review_refusal(f"The change on {lp.state.get('branch') or 'its branch'}",
-                                           lines, run_record.policy_of(lp.state)["review_lines"], carried)
+                                           lines, run_record.policy_of(lp.state)["executor_lines"], carried)
     if why:
         raise turns.Blocked(why, f"## Blocked\n\n{why}")
     if record:
@@ -1946,7 +2003,37 @@ def fix_after_failed_review(lp, upstream, how):
     return False
 
 
-def resolve_conflicts(lp, upstream, out, how, tip=None):
+def conflict_added_only(wt, path):
+    """Every diff3 conflict must have an empty base; never read or rewrite the worktree."""
+    try:
+        with tempfile.TemporaryDirectory(prefix="ak-conflict-") as work:
+            stages = [Path(work) / str(n) for n in (1, 2, 3)]
+            call = dict(cwd=wt, env=gitcall.tool_env(), timeout=gitcall.TOOL_CAP,
+                        stderr=subprocess.DEVNULL)
+            for n, stage in enumerate(stages, 1):
+                with stage.open("wb") as output:
+                    if subprocess.run(["git", "show", f":{n}:{path}"], stdout=output,
+                                      **call).returncode:
+                        return 0
+            # A source line resembling a marker must never stand in for git's separator.
+            source = b"".join(stage.read_bytes() for stage in stages)
+            size = 7
+            while any(char * size in source for char in (b"<", b"|", b"=", b">")):
+                size += 1
+            merged = Path(work) / "merged"
+            with merged.open("wb") as output:
+                code = subprocess.run(["git", "merge-file", "-p", "--diff3",
+                                       f"--marker-size={size}", "-L", "ours", "-L", "base",
+                                       "-L", "theirs", str(stages[1]), str(stages[0]),
+                                       str(stages[2])], stdout=output, **call).returncode
+            bases = re.findall(re.escape(b"|" * size + b" base") + rb"\r?\n(.*?)"
+                               + re.escape(b"=" * size) + rb"\r?\n", merged.read_bytes(), re.S)
+            return int(0 < code < 128 and bool(bases) and not any(bases))
+    except (OSError, subprocess.TimeoutExpired):
+        return 0
+
+
+def resolve_conflicts(lp, upstream, out, how, tip=None, *, recheck=True):
     """Hand a conflicted rebase or merge back to the executor, then re-test and re-review it.
 
     True once the branch carries the pinned `tip` and still passes.  False parks the run
@@ -1961,7 +2048,7 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
     `upstream` names the branch for messages; every check uses `tip`, never the moving name
     again.  A re-test that fails on the target's tip but passes on the last reviewed
     head's target base parks `waiting`, spending no round.  An unchanged base needs
-    only the tip probe.
+    only the tip probe. With `recheck` off, the current task round checks and reviews next.
     """
     tip = tip or upstream
     conflicts = [p for p in gitcall.git(lp.wt, "diff", "--name-only", "--diff-filter=U",
@@ -1978,26 +2065,42 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
             + "\n".join(f"- {p}" for p in conflicts)
             + f"\n\n```\n{turns.cut(out, lp.run_dir, f'{how}-conflict')}\n```")
     summary, landed = "", False
-    hand_to_writer(lp)
-    for attempt in range(1, CONFLICT_ROUNDS + 1):
-        lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
-               f"fixer {lp.executor} ({how} conflict)")
-        try:
-            summary = landing_fixer(lp, text, f"{how}-fixer")
-        except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
-            pending = lp.state.get("review_pending")
-            if isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired)) and pending:
-                # A stopped conflict fixer retries landing even at the task round budget.
-                pending.update(round=lp.rnd, record=False)
-            # whatever stops here, the retry starts from a clean tree: a rebase or merge
-            # left in progress behind it would be a conflict round nobody asked for
-            abort_integration(lp, how)
-            raise
-        if not gitcall.in_progress(lp.wt, how):
-            landed = integrated(lp.wt, tip)
-            break
-        if attempt < CONFLICT_ROUNDS:
-            lp.log(f"WARN the fixer did not finish {what}; another conflict round works it")
+    seen = set()
+    with history.conflicts(lp.state["run_id"], how, upstream, tip, log=lp.log) as (record, ended):
+        hand_to_writer(lp)
+        for attempt in range(1, CONFLICT_ROUNDS + 1):
+            # A later rebase commit can stop on new conflicts, including the same path again.
+            stop = (gitcall.git(lp.wt, "rev-parse", "--verify", "--quiet", "REBASE_HEAD",
+                                check=False) if how == "rebase" else None)
+            files = []
+            for entry in gitcall.git(lp.wt, "ls-files", "--unmerged", "-z", check=False).split("\0"):
+                if entry:
+                    path = entry.partition("\t")[2]
+                    key = (stop, path)
+                    if key not in seen:
+                        files.append((path, conflict_added_only(lp.wt, path)))
+                        seen.add(key)
+            record(files)
+            lp.log(f"--- merge: conflict round {attempt}/{CONFLICT_ROUNDS}: "
+                   f"fixer {lp.executor} ({how} conflict)")
+            try:
+                summary = landing_fixer(lp, text, f"{how}-fixer")
+            except (turns.Dead, turns.Blocked, turns.Exhausted, turns.Killed, worker.LoginExpired) as exc:
+                pending = lp.state.get("review_pending")
+                if (recheck and pending
+                        and isinstance(exc, (turns.Exhausted, turns.Killed, worker.LoginExpired))):
+                    # A stopped conflict fixer retries landing even at the task round budget.
+                    pending.update(round=lp.rnd, record=False)
+                # whatever stops here, the retry starts from a clean tree: a rebase or merge
+                # left in progress behind it would be a conflict round nobody asked for
+                abort_integration(lp, how)
+                raise
+            if not gitcall.in_progress(lp.wt, how):
+                landed = integrated(lp.wt, tip)
+                break
+            if attempt < CONFLICT_ROUNDS:
+                lp.log(f"WARN the fixer did not finish {what}; another conflict round works it")
+        ended.append(landed)
     if not landed:
         # only an unfinished rebase or merge is aborted, and only then is it said to be:
         # a fixer that finished the `git` but left the tip out is reported the same way
@@ -2006,6 +2109,8 @@ def resolve_conflicts(lp, upstream, out, how, tip=None):
         return park_waiting(lp, f"the fixer did not finish {what}; it was aborted",
                             upstream, tip)
     set_base(lp, tip)
+    if not recheck:
+        return True
     # Keep the passed head for target probes; a provider wait also resumes as a
     # conflict round, outside the task budget.
     lp.state["review_pending"] = {**(lp.state.get("review_pending") or {}),
@@ -2332,12 +2437,18 @@ def final_check(lp, upstream):
         else:
             ok_every, text_every = True, ""
         left = lp.done_when_limit - (time.monotonic() - began)
+        timings = {}
         ok_once, text_once = gate.run_done_when(
             cmds_once, lp.wt, log_path, lp.artifacts, max(0, left), lp.log,
-            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True) if cmds_once else (True, "")
+            silence=lp.turn_limit, run_dir=lp.run_dir, heavy=True,
+            timings=timings) if cmds_once else (True, "")
         gate.split_suite_run(lp, suite)
         ok = ok_every and ok_once
         text = "\n\n".join(part.strip() for part in (text_every, text_once) if part.strip())
+        if ok and (failure := suite_times.refusal(
+                lp.wt, lp.state.get("target_sha") or upstream, suite, timings)):
+            ok = False
+            text += "\n\n" + failure
         if (not clean or gitcall.commit_identity(lp.wt) != identity
                 or gitcall.git_out(lp.wt, "diff", "--quiet", "HEAD")[0] != 0):
             ok = False

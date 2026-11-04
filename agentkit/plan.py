@@ -421,6 +421,18 @@ def identity(line):
     return undone(line.strip(), found)[6:] if found and found["check"] else None
 
 
+def served_line(name, commands):
+    """The first open line matching a task's check, else the sole open line, else None.
+
+    Outcome and written stamp keep the link when `ak plan check` replaces the check.
+    """
+    opened = [LINE.match(line) for line in open_lines(name)]
+    checks = {" ".join(command.split()) for command in commands}
+    found = next((line for line in opened if " ".join(line["check"].split()) in checks),
+                 opened[0] if len(opened) == 1 else None)
+    return f"{found['what']} · written {found['when']}" if found else None
+
+
 def finished(name):
     """The words of the plan's last done line where the plan holds done work and owes none
     (`owed`): the seat's work is done, which ak reads here and nobody declares.  None for no
@@ -606,6 +618,8 @@ def add(name, what, check, repo=None, proven=None, deferred=False):
     repo = Path(repo) if repo else project_of(name)
     check = one_command(check)
     holds_checkout(check, repo)
+    from . import retire
+    retire.vet_check(repo, check)
     passed = None
     if proven:
         found, base = root(repo, proven), proven[:12]

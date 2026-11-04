@@ -35,6 +35,7 @@ STEP_COLUMNS = {"executor": "executor_seconds", "done-when": "done_when_seconds"
 # A landing check's wait for a heavy-suite turn is the lander's, inside the run's line wait.
 # Each counted in its `<wait>_wait_seconds` column (`waiter.add_wait`).
 WAITS = ("slot", "suite", "merge", "lander")
+SLOT_GATES = {"count": "admission", "load": "admission", "memory": "memory", "unit memory": "memory"}
 _OPEN = {}     # run_id -> [step, since, opened]: the step this process runs, counted up to
                # `since`, and its phase row's start
 _OPEN_LOCK = threading.Lock()
@@ -80,11 +81,13 @@ MIGRATIONS = (("task_words", "INTEGER"), ("task_points", "INTEGER"),
               ("merge_sha", "TEXT"), ("parked_at", "REAL"), ("first_review_lines", "INTEGER"),
               ("landing_breaks", "INTEGER"), ("broke_after_merge", "TEXT"),
               ("own_orchestrator", "TEXT"), ("executor_effort", "TEXT"),
-              ("own_orchestrator_effort", "TEXT"))
+              ("own_orchestrator_effort", "TEXT"), ("kind", "TEXT"), ("counted_turns", "TEXT"),
+              ("review_pair", "TEXT"), ("landing_flakes", "INTEGER"), ("plan_line", "TEXT"))
 # Columns of runs an older agentkit made for a suite's measures and nothing wrote, dropped where a
 # history still holds them: each check is a `checks` row now.  `suite_wait_seconds` stays, the
 # heavy-suite turn waits `WAITS` counts, which the board's compute row reads.
-DROPPED = ("suite_cpu_seconds", "suite_wall_seconds", "suite_peak_mb", "suite_repo")
+# `merged` was also made outside the schema and never written; `merged()` reads changed_lines.
+DROPPED = ("suite_cpu_seconds", "suite_wall_seconds", "suite_peak_mb", "suite_repo", "merged")
 
 # One row per phase of a run, in order: each step a process ran (`STEP_COLUMNS`) and each wait
 # it counted (`WAITS`, named `<wait> wait`), its end moved by each checkpoint or poll and
@@ -99,6 +102,7 @@ CREATE TABLE IF NOT EXISTS phases (
     PRIMARY KEY (run_id, phase, started_at)
 )
 """
+PHASE_MIGRATIONS = (("wait_kind", "TEXT"),)
 
 # One row per check a round, the lander or a merged run's live probe runs, written where it runs
 # (`check`): `kind` is a round's `done-when`, `rules`, `base-proof` or `replay`, the lander's
@@ -121,6 +125,32 @@ CREATE TABLE IF NOT EXISTS checks (
     started_at REAL,
     finished_at REAL,
     rerun INTEGER
+)
+"""
+
+# One row per test a suite named as confirmed red or flaky, once its retries end.
+TEST_REDS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS test_reds (
+    run_id TEXT,
+    round INTEGER,
+    kind TEXT,
+    tree TEXT,
+    test TEXT,
+    flaky INTEGER,
+    at REAL
+)
+"""
+
+CONFLICTS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS conflicts (
+    run_id TEXT,
+    at REAL,
+    how TEXT,
+    target TEXT,
+    tip TEXT,
+    path TEXT,
+    added_only INTEGER,
+    outcome TEXT
 )
 """
 
@@ -222,12 +252,15 @@ def _connect(*, readonly=False):
     connection.execute(SCHEMA)
     connection.execute(PHASES_SCHEMA)
     connection.execute(CHECKS_SCHEMA)
+    connection.execute(TEST_REDS_SCHEMA)
+    connection.execute(CONFLICTS_SCHEMA)
     connection.execute(REVIEWS_SCHEMA)
     connection.execute(FINDINGS_SCHEMA)
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
-    for table, migrations in (("runs", MIGRATIONS), ("reviews", REVIEW_MIGRATIONS),
+    for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
+                              ("reviews", REVIEW_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
@@ -355,15 +388,17 @@ def suite_run(run_id, repo):
 
 def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
               started_at=None, session=None, task_words=None, task_points=None,
-              task_checks=None, task_files=None, orchestrator=None, change=None, log=None):
+              task_checks=None, task_files=None, orchestrator=None, change=None, kind=None,
+              plan_line=None, log=None):
     """Create or refresh the durable row written before a run does work.
 
     A sandbox's run is never recorded: the row a launch wrote before its repository was known
     goes, and every later write finds no row to change.  The orchestrator is the launching
     seat's at the first write, whatever that seat runs by a resume.  `change` names the
     change the run belongs to (its PR, or the run it continues), which the scoreboard groups
-    runs by.  A new row is followed for breaks (`add_landing_break`, `broke_after_merge`), none
-    yet 0 and '', where a row from before they were recorded keeps NULL: unknown, not unbroken.
+    runs by.  `plan_line` stays as it was at the first write.  A new row is followed for
+    breaks and landing flakes, none yet 0 and '', where a row from before they were
+    recorded keeps NULL: unknown, not unbroken.
     """
     if sandbox(repo):
         def forget(connection):
@@ -376,7 +411,7 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
     values = (run_id, repo, executor, reviewer, rounds_used, "running", None, started_at,
               None, 0.0, 0.0, 0.0, 0.0, None, None, None, None, session,
               task_words, task_points, task_checks, task_files, orchestrator, 0.0, 0.0, 0.0, 0.0,
-              change, 0, "")
+              change, 0, "", kind, 0, plan_line)
 
     def insert(connection):
         connection.execute(
@@ -385,8 +420,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "merge_seconds, total_seconds, executor_tokens, reviewer_tokens, peak_rss_mb, session, "
             "task_words, task_points, task_checks, task_files, orchestrator, "
             "slot_wait_seconds, suite_wait_seconds, merge_wait_seconds, lander_wait_seconds, change, "
-            "landing_breaks, broke_after_merge) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+            "landing_breaks, broke_after_merge, kind, landing_flakes, plan_line) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
             "ON CONFLICT(run_id) DO UPDATE SET repo=COALESCE(excluded.repo,runs.repo), "
             "executor=COALESCE(excluded.executor,runs.executor), reviewer=COALESCE(excluded.reviewer,runs.reviewer), "
             "rounds_used=excluded.rounds_used, final_state='running', verdict=NULL, "
@@ -397,7 +432,8 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
             "task_checks=COALESCE(excluded.task_checks,runs.task_checks), "
             "task_files=COALESCE(excluded.task_files,runs.task_files), "
             "orchestrator=COALESCE(runs.orchestrator,excluded.orchestrator), "
-            "change=COALESCE(excluded.change,runs.change)", values)
+            "change=COALESCE(excluded.change,runs.change), "
+            "kind=COALESCE(excluded.kind,runs.kind)", values)
 
     _write(insert, log)
 
@@ -405,6 +441,17 @@ def start_run(run_id, *, repo=None, executor=None, reviewer=None, rounds_used=0,
 def update_run(run_id, *, log=None, **fields):
     """Update known row fields, silently retaining unknown state keys."""
     _write(lambda connection: _update(connection, run_id, fields), log)
+
+
+def blame_merge(sha, source, *, log=None):
+    """Mark the run that merged `sha` broken after merge, once; return its id, if known."""
+    def blame(connection):
+        row = connection.execute("SELECT run_id FROM runs WHERE merge_sha=?", (sha,)).fetchone()
+        if row:
+            connection.execute("UPDATE runs SET broke_after_merge=? WHERE run_id=? "
+                               "AND COALESCE(broke_after_merge,'')=''", (source, row[0]))
+            return row[0]
+    return _write(blame, log)
 
 
 def first_review(run_id, lines, *, log=None):
@@ -422,7 +469,7 @@ def _update(connection, run_id, fields):
                "reviewer_tokens", "peak_rss_mb", "session", "task_words", "task_points",
                "task_checks", "task_files", "orchestrator", "changed_lines", "live_at",
                "rules_bytes", "merge_sha", "parked_at", "broke_after_merge", "own_orchestrator",
-               "executor_effort", "own_orchestrator_effort"}
+               "executor_effort", "own_orchestrator_effort", "kind", "landing_breaks", "landing_flakes"}
     fields = {key: value for key, value in fields.items() if key in allowed}
     if not fields:
         return
@@ -443,14 +490,7 @@ def add_seconds(run_id, step, seconds, *, log=None):
         (max(0.0, seconds), run_id)), log)
 
 
-def add_landing_break(run_id, *, log=None):
-    """One more time a change review passed failed its tests at landing (`deliver.suite_red`)."""
-    _write(lambda connection: connection.execute(
-        "UPDATE runs SET landing_breaks=COALESCE(landing_breaks,0)+1 WHERE run_id=?",
-        (run_id,)), log)
-
-
-def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
+def add_wait(run_id, wait, seconds, at=None, *, began=None, kind=None, log=None):
     """Add a wait's seconds, counted up to `at`, to its column and end its phase row there: the
     row of the wait that began at `began`, a wait counted whole without it.  A row from before
     the columns stays unrecorded."""
@@ -459,7 +499,28 @@ def add_wait(run_id, wait, seconds, at=None, *, began=None, log=None):
     seconds = max(0.0, seconds)
     at = time.time() if at is None else at
     began = at - seconds if began is None else began
-    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at), log)
+    if wait == "slot" and kind is None:
+        kind = (record.read_state(config.RUNS / str(run_id)) or {}).get("slot_wait_kind")
+    _write(lambda connection: waiter.add_wait(connection, run_id, wait, seconds, began, at, kind), log)
+
+
+def gate_holds():
+    """Last counted hold of each gate, retained when its run directory is collected."""
+    try:
+        with contextlib.closing(_connect(readonly=True)) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info(phases)")}
+            kind = "wait_kind" if "wait_kind" in columns else "NULL"
+            last = {}
+            for phase, reason, at in connection.execute(
+                f"SELECT phase, {kind}, MAX(ended_at) "
+                "FROM phases WHERE phase IN ('slot wait', 'suite wait', 'lander wait') "
+                f"AND ended_at > started_at GROUP BY phase, {kind}"):
+                name = SLOT_GATES.get(reason) if phase == "slot wait" else "suite turns"
+                if name:
+                    last[name] = max(last.get(name, at), at)
+            return last
+    except (OSError, sqlite3.Error):
+        return {}
 
 
 @contextlib.contextmanager
@@ -496,6 +557,87 @@ def _started(connection, values):
     return cursor.lastrowid if cursor.rowcount else None
 
 
+def test_reds(checked, confirmed, flaky):
+    """Keep a suite's named outcomes with its check's identity; a run with no row keeps none."""
+    if checked is None:
+        return
+    tests = [(test, 0) for names in confirmed.values() for test in names]
+    tests.extend((test, 1) for test in flaky)
+    if not tests:
+        return
+    run_dir, round_no, kind, tree = checked
+    at = time.time()
+    _write(lambda connection: connection.executemany(
+        "INSERT INTO test_reds (run_id, round, kind, tree, test, flaky, at) "
+        "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+        [(round_no, kind, tree, test, flake, at, Path(run_dir).name)
+         for test, flake in dict.fromkeys(tests)]))
+
+
+def test_audit(repo):
+    """Per-file outcomes, median piece seconds and the span in days of retained repo rows."""
+    reds, pieces = {}, []
+    try:
+        with contextlib.closing(_connect(readonly=True)) as connection:
+            connection.row_factory = sqlite3.Row
+            tables = {row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'")}
+            if "test_reds" in tables:
+                reds = {row["test"]: dict(row) for row in connection.execute(
+                    "SELECT test, SUM(CASE WHEN flaky=1 THEN 1 ELSE 0 END) AS flakes, "
+                    "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind IN "
+                    "('done-when','rules','landing') THEN t.run_id END) AS catches, "
+                    "COUNT(DISTINCT CASE WHEN flaky=0 AND t.kind='tip' THEN t.run_id END) "
+                    "AS main_red, MIN(at) AS first, MAX(at) AS last "
+                    "FROM test_reds t JOIN runs r USING (run_id) WHERE r.repo=? GROUP BY test",
+                    (repo,))}
+            if "checks" in tables:
+                pieces = list(connection.execute(
+                    "SELECT c.finished_at-c.started_at, c.started_at, c.finished_at "
+                    "FROM checks c JOIN runs r USING (run_id) WHERE r.repo=? "
+                    "AND command GLOB 'AK_SHARD=*' AND c.finished_at>=c.started_at", (repo,)))
+    except (OSError, sqlite3.Error):
+        pass
+    moments = [at for row in reds.values() for at in (row["first"], row["last"])
+               if at is not None] + [at for piece in pieces for at in piece[1:]]
+    days = (max(moments) - min(moments)) / 86400 if moments else 0
+    return reds, median(piece[0] for piece in pieces) if pieces else None, days
+
+
+@contextlib.contextmanager
+def conflicts(run_id, how, target, tip, *, log=None):
+    """One row per file handed to a conflict fixer; its outcome ends with the fixer rounds.
+
+    NULL means those rounds have not ended. A run with no history row keeps none here.
+    """
+    rows, ended = [], []
+
+    def record(files):
+        at = time.time()
+
+        def insert(connection):
+            added = []
+            for path, added_only in files:
+                cursor = connection.execute(
+                    "INSERT INTO conflicts (run_id, at, how, target, tip, path, added_only) "
+                    "SELECT run_id, ?, ?, ?, ?, ?, ? FROM runs WHERE run_id=?",
+                    (at, how, target, tip, path, added_only, run_id))
+                if cursor.rowcount:
+                    added.append(cursor.lastrowid)
+            return added
+
+        if files:
+            rows.extend(_write(insert, log) or [])
+    try:
+        yield record, ended
+    finally:
+        if rows:
+            outcome = "resolved" if ended and ended[0] else "aborted"
+            _write(lambda connection: connection.executemany(
+                "UPDATE conflicts SET outcome=? WHERE rowid=?",
+                [(outcome, row) for row in rows]), log)
+
+
 phase = waiter.phase
 
 
@@ -516,15 +658,36 @@ def phases(run_id):
         return []
 
 
-def add_tokens(run_id, role, tokens, *, log=None):
-    """Accumulate role tokens across rounds when an event log reports them."""
+def add_turn_tokens(run_id, role, paths, *, harness=None, log=None):
+    """Count reported turns once, whether their finally block or their run's ending gets here."""
+    _write(lambda connection: _add_turn_tokens(connection, run_id, role, paths, harness), log)
+
+
+def _add_turn_tokens(connection, run_id, role, paths, harness):
+    from .harness import load as harness_plugin
     column = "executor_tokens" if role == "executor" else "reviewer_tokens" \
         if role == "reviewer" else None
-    if column is None or not isinstance(tokens, (int, float)) or isinstance(tokens, bool):
+    if column is None:
         return
-    _write(lambda connection: connection.execute(
-        f"UPDATE runs SET {column}=COALESCE({column},0)+? WHERE run_id=?",
-        (int(tokens), run_id)), log)
+    row = connection.execute("SELECT counted_turns FROM runs WHERE run_id=?", (run_id,)).fetchone()
+    if row is None:
+        return
+    counted = set(json.loads(row[0] or "[]"))
+    values = []
+    for out in paths:
+        out = Path(out)
+        turn = str(out.resolve())
+        if turn not in counted:
+            value = harness_plugin(harness).tokens(out)
+            if value is not None:
+                values.append(value)
+                counted.add(turn)
+    if not values:
+        return
+    # The total and the turns it includes survive or roll back together, even after a kill.
+    connection.execute(
+        f"UPDATE runs SET {column}=COALESCE({column},0)+?, counted_turns=? WHERE run_id=?",
+        (int(sum(values)), json.dumps(sorted(counted)), run_id))
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
@@ -600,8 +763,8 @@ def merged(row):
 
 
 def parks(since, until):
-    """The moments the park stopped runs in the inclusive range (`parked_at`, which
-    `leases.park` stamps); None where the database cannot answer.  Stopped rows, which
+    """The moments runs were parked in the inclusive range (legacy `parked_at` records);
+    None where the database cannot answer. Stopped rows, which
     `REAL_WORK` leaves out of every other count: a park is a stop."""
     try:
         with _LOCK:
@@ -722,7 +885,8 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                finished_at=None, started_at=None, peak_rss_mb=None,
                executor=None, reviewer=None, session=None, repo=None, task_files=None,
                changed_lines=None, rules_bytes=None, own_orchestrator=None,
-               own_orchestrator_effort=None, saved=None, log=None):
+               own_orchestrator_effort=None, review_pair=None, landing_breaks=None,
+               landing_flakes=None, saved=None, log=None):
     """Record the row's final lifecycle fields and duration in one commit.
 
     No reader sees an ending without the run time it closes.  `own_orchestrator` names the
@@ -734,12 +898,14 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
     since writes its own row.
     """
     finished_at = time.time() if finished_at is None else finished_at
+    run_dir = config.RUNS / str(run_id)
     values = {"final_state": final_state, "verdict": verdict, "rounds_used": rounds_used,
               "finished_at": finished_at, "peak_rss_mb": peak_rss_mb,
               "executor": executor, "reviewer": reviewer, "session": session, "repo": repo,
               "task_files": task_files, "changed_lines": changed_lines,
               "rules_bytes": rules_bytes, "own_orchestrator": own_orchestrator,
-              "own_orchestrator_effort": own_orchestrator_effort}
+              "own_orchestrator_effort": own_orchestrator_effort,
+              "landing_breaks": landing_breaks, "landing_flakes": landing_flakes}
     values = {key: value for key, value in values.items() if value is not None}
     peak = values.pop("peak_rss_mb", None)
 
@@ -750,6 +916,11 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
                     "SELECT 1 FROM runs WHERE run_id=? AND final_state='running'",
                     (run_id,)).fetchone():
                 return
+        # A maintainer merge republishes the same ending: its pair, even NULL, belongs to
+        # the config at that ending. A resume clears finished_at so its next ending records anew.
+        connection.execute(
+            "UPDATE runs SET review_pair=? WHERE run_id=? AND finished_at IS NOT ?",
+            (review_pair, run_id, finished_at))
         _update(connection, run_id, values)
         if peak is not None:
             connection.execute(
@@ -764,8 +935,20 @@ def finish_run(run_id, *, final_state=None, verdict=None, rounds_used=None,
         connection.execute(
             "UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "
             "ELSE MAX(0, ?-started_at) END WHERE run_id=?", (finished_at, run_id))
+        # Only launches with a harness receipt participate: old recorded totals stay as written.
+        for receipt in sorted(run_dir.glob("round-*/*/harness")):
+            try:
+                out = receipt.parent
+                role = "reviewer" if out.name.startswith("reviewer") else "executor"
+                _add_turn_tokens(connection, run_id, role, [out], receipt.read_text().strip())
+            except (OSError, ValueError, TypeError, config.Error):
+                continue
 
-    _write(publish, log)
+    # A tick that saw the stop's record must wait until its worker has stopped writing.
+    with contextlib.suppress(OSError):
+        with (record.recovery_lock(run_dir) if saved is not None and run_dir.is_dir()
+              else contextlib.nullcontext()):
+            _write(publish, log)
 
 
 def sample_rss(run_id, pid=None, *, log=None):
@@ -871,6 +1054,7 @@ def size_summary(repo, limit=SUMMARY_TASKS):
                 rows = connection.execute(
                     "SELECT rounds_used, task_words, task_points FROM runs "
                     "WHERE repo=? AND finished_at IS NOT NULL AND rounds_used IS NOT NULL "
+                    "AND (kind='task' OR kind IS NULL) "
                     f"AND {REAL_WORK} "
                     "ORDER BY finished_at DESC LIMIT ?", (Path(repo).name, limit)).fetchall()
             finally:
@@ -918,6 +1102,65 @@ def ended_runs(since, until):
                 return [dict(row) for row in connection.execute(
                     "SELECT * FROM runs WHERE finished_at >= ? AND finished_at <= ? "
                     f"AND {REAL_WORK}", (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
+def conflict_rows(since, until):
+    """Real conflicts by date, plus earlier conflicts on changes merged in the range."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    'SELECT c.at, c.path, c.added_only, repo, '
+                    'COALESCE(NULLIF("change", \'\'), run_id) AS "change" '
+                    'FROM conflicts c JOIN runs USING (run_id) WHERE c.at <= ? AND '
+                    '(c.at >= ? OR (repo, COALESCE(NULLIF("change", \'\'), run_id)) IN ('
+                    'SELECT repo, COALESCE(NULLIF("change", \'\'), run_id) FROM runs '
+                    'WHERE finished_at >= ? AND finished_at <= ? AND changed_lines IS NOT NULL)) '
+                    f'AND {REAL_WORK}', (until, since, since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
+def findings(since, until):
+    """Weighed rows of real runs by their own date, with whether an earlier blocking round
+    raised the same path and proof. Earlier rounds may predate the inclusive range."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT f.at, f.kind, f.outcome, EXISTS (SELECT 1 FROM findings earlier "
+                    "WHERE earlier.run_id=f.run_id AND earlier.path=f.path AND earlier.proof=f.proof "
+                    "AND earlier.kind='finding' AND earlier.round<f.round) AS raised_again "
+                    "FROM findings f JOIN runs USING (run_id) WHERE f.at >= ? AND f.at <= ? "
+                    f"AND {REAL_WORK}", (since, until))]
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
+def checks(since, until):
+    """Check rows of runs ended in the inclusive range, including unfinished checks.
+    No rows before checks were kept (30 Oct 2026), or where the database cannot answer."""
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            connection.row_factory = sqlite3.Row
+            try:
+                return [dict(row) for row in connection.execute(
+                    "SELECT checks.* FROM checks JOIN runs USING (run_id) "
+                    "WHERE runs.finished_at >= ? AND runs.finished_at <= ?",
+                    (since, until))]
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):

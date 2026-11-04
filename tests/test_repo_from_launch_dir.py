@@ -4,7 +4,7 @@ The installed CLI path starts a fake detached child from another directory. Git 
 real worktrees in a temporary HOME; the loop stops before asking a model to do anything.
 """
 
-from contextlib import chdir, redirect_stdout
+from contextlib import chdir, redirect_stderr, redirect_stdout
 import io
 import os
 from pathlib import Path
@@ -74,6 +74,7 @@ class RepoFromLaunchDir(Sandbox):
         with chdir(cwd or self.root), patch.dict(os.environ, env, clear=True), \
                 (directory / "log.txt").open("a") as output, redirect_stdout(output):
             self.assertEqual(run.main(argv), 0)
+        self.interrupt(directory)
         return directory
 
     def follow(self, directory, _cfg, _offset):
@@ -123,11 +124,15 @@ class RepoFromLaunchDir(Sandbox):
                     self.child()
                 self.assert_checkout(directory)
 
-    def resume(self, directory, background):
+    def interrupt(self, directory):
+        # Fake children use this process's pid, which stays alive after they exit.
         state = record.read_state(directory)
         run.interrupt(state, "fixture interrupted")
         state["pid"] = None
         record.save_state(directory, state)
+
+    def resume(self, directory, background):
+        self.interrupt(directory)
         self.starts.reset_mock()
         self.follows.reset_mock()
         # Neither the terminal doing the resume nor its child stands in the launch checkout.
@@ -191,11 +196,36 @@ class RepoFromLaunchDir(Sandbox):
 
     def test_foreground_and_background_launches_from_a_folder_of_checkouts(self):
         self.folder_task()
-        for background in (False, True):
-            with self.subTest(background=background):
-                directory = self.launch(background, config.CODE)
+        for background, cwd in ((False, config.CODE), (True, config.CODE),
+                                (False, self.other), (True, self.other)):
+            with self.subTest(background=background, cwd=cwd):
+                directory = self.launch(background, cwd)
                 self.pending = None
                 self.assert_folder_repo(directory)
+                self.interrupt(directory)
+
+    def test_resume_keeps_the_task_folder_checkout(self):
+        self.folder_task()
+        directory = self.launch(cwd=self.other)
+        self.pending = None
+        self.resume(directory, True)
+        self.assert_folder_repo(directory)
+        self.assert_checkout(directory)
+
+    def test_duplicate_check_and_anyway_preflight_use_the_task_folder_checkout(self):
+        self.folder_task()
+        self.task.write_text(self.task.read_text().replace("Fix API", "Repair parser retry handling"))
+        first = self.launch(cwd=self.other)
+        self.pending = None
+        with chdir(self.other), redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+            self.assertEqual(run.main([str(self.task), "--bg"]), 2)
+            self.assertEqual(record.run_dirs(), [first])
+            self.assertEqual(run.main([str(self.task), "--bg", "--anyway"]), 0)
+        second = self.pending[2]
+        self.pending = None
+        self.assert_folder_repo(second)
+        self.assertIn(f"--- preflight: started alongside {first.name} (--anyway)",
+                      (second / "log.txt").read_text())
 
     def test_a_job_task_launched_from_a_folder_of_checkouts(self):
         self.folder_task()

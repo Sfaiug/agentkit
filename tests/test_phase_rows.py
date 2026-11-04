@@ -6,9 +6,11 @@ seat between its runs, every run of the change grouped by its PR or the run it c
 second of a run's phase rows in one part.  Offline: a temporary HOME.
 """
 
-from contextlib import ExitStack
+from contextlib import ExitStack, closing
+import json
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import time
@@ -17,7 +19,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, gate, history, run, scoreboard
+from agentkit import config, gate, history, run, scoreboard, waiter
 
 NOW = 1_800_000_000
 HOUR = 3600
@@ -32,6 +34,7 @@ class PhaseRows(unittest.TestCase):
         stack = ExitStack()
         self.addCleanup(stack.close)
         stack.enter_context(patch.object(config, "HOME", self.root))
+        stack.enter_context(patch.object(config, "RUNS", self.root / "runs"))
         stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root)}))
         history._OPEN.clear()
         history.start_run("r1", repo="/home/fixture/code/acme", started_at=100)
@@ -85,6 +88,74 @@ class PhaseRows(unittest.TestCase):
         history.start_run("r1", repo="/home/fixture/.agentkit/tmp/sandbox")     # a sandbox's row goes
         self.assertEqual((history.get("r1"), history.phases("r1")), (None, []))
 
+    def test_slot_reasons_survive_changes_the_final_count_and_run_cleanup(self):
+        directory = self.root / "runs/r1"
+        directory.mkdir(parents=True)
+        path = directory / "run.json"
+        for at, kind in ((230, "memory"), (260, "unit memory"), (290, "count"), (320, "load")):
+            path.write_text(json.dumps({"slot_wait_kind": kind}))
+            history.add_wait("r1", "slot", 30, at, began=200)
+        path.unlink()   # admission cleared the reason; the final count keeps the last one
+        history.add_wait("r1", "slot", 10, 330, began=200)
+        self.assertEqual(history.gate_holds(), {"memory": 260, "admission": 330})
+        self.assertEqual(history.phases("r1"), [
+            {"phase": "slot wait", "started_at": 200, "ended_at": 230},
+            {"phase": "slot wait", "started_at": 230, "ended_at": 260},
+            {"phase": "slot wait", "started_at": 260, "ended_at": 290},
+            {"phase": "slot wait", "started_at": 290, "ended_at": 330}])
+        self.assertEqual(history.get("r1")["slot_wait_seconds"], 130)
+
+    def test_the_small_waiter_records_the_count_gate(self):
+        with patch.object(waiter.time, "monotonic", return_value=30), \
+                patch.object(waiter.time, "time", return_value=230):
+            self.assertEqual(waiter.count(history.path(), "r1", 200, 0), 30)
+        self.assertEqual(history.gate_holds(), {"admission": 230})
+
+    def test_the_small_waiter_keeps_unwritten_time_until_the_schema_is_migrated(self):
+        with closing(sqlite3.connect(history.path())) as connection:
+            connection.executescript("DROP TABLE phases;" + history.PHASES_SCHEMA)
+        with patch.object(waiter.time, "monotonic", return_value=230), \
+                patch.object(waiter.time, "time", return_value=230):
+            since = waiter.count(history.path(), "r1", 200, 200)
+        self.assertEqual(since, 200)
+        history.update_run("r1", rounds_used=1)   # a new launch migrates the old waiter's database
+        with patch.object(waiter.time, "monotonic", return_value=260), \
+                patch.object(waiter.time, "time", return_value=260):
+            self.assertEqual(waiter.count(history.path(), "r1", 200, since), 260)
+        self.assertEqual(history.get("r1")["slot_wait_seconds"], 60)
+
+    def test_sharded_piece_waits_are_kept_for_rounds_and_line_checkers(self):
+        moment = [1000.0]
+        with ExitStack() as stack:
+            stack.enter_context(patch.dict(os.environ, {"AK_MAX_RUNS": "1"}))
+            for name in ("time", "monotonic"):
+                stack.enter_context(patch.object(time, name, lambda: moment[0]))
+            for module, name, value in ((gate, "suite_cost", (None, 1, 100)), (gate, "_run_readings", {}),
+                                        (gate.host, "kept_cpu", None), (gate.orch, "run_slice_cgroup", None),
+                                        (gate, "derived_heavy_limit", 1), (gate, "_gate_waiter_before", False)):
+                stack.enter_context(patch.object(module, name, return_value=value))
+            for landing in (False, True):
+                directory = config.RUNS / ("checker" if landing else "piece")
+                directory.mkdir(parents=True)
+                state = dict(run_id=directory.name, repo="acme", state="running", pid=os.getpid(), landing=landing)
+                gate.run_record.save_state(directory, state)
+                history.start_run(directory.name, repo="acme", started_at=moment[0])
+                hold = gate._acquire_gate_turn(None if landing else directory, directory / "suite.log",
+                                               None, "AK_SHARD=1 true", context=state if landing else None)
+                try:
+                    first = hold.take(lambda: False)
+                    def waited(_seconds):
+                        moment[0] += 30
+                        hold.give(first)
+                    with patch.object(hold.lock, "wait", side_effect=waited):
+                        second = hold.take(lambda: False)
+                    hold.give(second)
+                finally:
+                    hold.release()
+                column = "lander_wait_seconds" if landing else "suite_wait_seconds"
+                self.assertEqual(history.get(directory.name)[column], 30)
+                self.assertEqual(history.gate_holds()["suite turns"], moment[0])
+
 
 class TimeSplit(PhaseRows):
     """The scoreboard's split of a merged change's hours."""
@@ -132,7 +203,7 @@ class TimeSplit(PhaseRows):
                          {"model": 1.875, "ak": 0.625, "waiting": 1.375, "seat": 1.0})
         self.assertIsNone(before)
         with patch.object(scoreboard.terminal, "content_width", return_value=300):
-            self.assertIn("merged    median hours per merged change: 1.9 in model turns, 0.6 ak's own "
+            self.assertIn("merged        median hours per merged change: 1.9 in model turns, 0.6 ak's own "
                           "work, 1.4 waiting, 1.0 with its seat between runs", "\n".join(scoreboard.render()))
 
     def test_a_change_whose_run_ended_before_any_step_counts_with_that_run_at_zero(self):

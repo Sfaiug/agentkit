@@ -6,8 +6,8 @@ The matrix every pick reads is the one the models screen or `ak models` last com
 anew or the config's models or the harnesses installed changed; `matrix.rank` reads each
 configured model's place for a role off it, rated once per stored lineup as the models screen
 rates it (`matrix.answer`), at the effort the config runs it at there, None where no row is it.
-`usage.pick_order` puts the ranked models first: those within `within` of the best of them, the
-cheapest first, then the others by quality, budget only among models ranked alike or by nothing,
+`usage.pick_order` puts the role's pick among the marks first, then the others by quality,
+budget only among models ranked alike or by nothing,
 a model on credits after every one with a window left, and a spent model out; the reviewer's
 rank is the review score's.
 
@@ -75,7 +75,7 @@ class PickByRank(Sandbox):
 
 
 # Execute's quality here: 100 less how far the two shares are behind the best's, in hundredths.
-# Bolt 2, the cheapest within 5 of the best, is the pick, and no harness runs it.
+# Astra is the full lineup's bend; among two marks there is no bend, so the best picks.
 ROWS = [("claude-opus-5-5", "Claude Opus 5.5", "high", 0.60, 4.0),        # 100
         ("claude-opus-5-5", "Claude Opus 5.5", "low", 0.50, 2.0),         # 90
         ("gpt-6-astra", "GPT 6 Astra", "high", 0.58, 1.0),                # 98
@@ -103,38 +103,42 @@ class RankByTheAnswer(Sandbox):
     def pick(self):
         return usage.pick_order(self.cfg, self.providers, ["opus", "astra", "fable"], quiet=True)
 
-    def test_a_pick_no_harness_runs_never_ranks(self):
+    # nothing ak shows or picks credits speed or cost while the result got worse. [14 Oct]
+    def test_the_pick_is_recomputed_among_the_marked_rows(self):
         self.assertEqual(matrix.rank(self.cfg, "execute", ["opus", "fable"]),
                          {"opus": None, "fable": None})          # nothing stored yet
         self.assertEqual(self.pick(), ["opus", "fable", "astra"])     # budget alone
         self.store()
-        pick = matrix.answer(self.lineup, matrix.within(self.cfg))["execute"]["pick"]
-        self.assertEqual((pick["release"], pick["yours"]), ("bolt-2", []))
+        pick = matrix.answer(self.lineup)["execute"]["pick"]
+        self.assertEqual(pick["release"], "gpt-6-astra")
         ranks = matrix.rank(self.cfg, "execute", ["opus", "astra", "fable"])
         self.assertIsNone(ranks["fable"])                         # no row is Fable 5.1
+        self.assertEqual(self.pick(), ["opus", "astra", "fable"])
+        # Mark a third priced row: its bend wins, followed by quality rather than price.
+        next(row for row in self.lineup if row["release"] == "bolt-2")["yours"] = [{
+            key: self.cfg["models"]["fable"][key] for key in ("harness", "model")}]
+        self.store()
         self.assertEqual(self.pick(), ["astra", "opus", "fable"])
 
     def test_a_model_run_at_a_lower_effort_ranks_by_that_effort_s_quality(self):
         self.store()
         self.cfg["models"]["opus"]["exec_effort"] = "low"
         opus = matrix.rank(self.cfg, "execute", ["opus", "astra"])["opus"]
-        self.assertEqual(opus[:3], (1, False, 0.0))               # 90: more than 5 under 98
+        self.assertEqual(opus[:3], (1, False, 0.0))               # the best wins among two rows
         self.assertAlmostEqual(opus[3], -90)
         self.cfg["models"]["opus"]["exec_effort"] = "max"         # an effort no row is
         self.assertIsNone(matrix.rank(self.cfg, "execute", ["opus"])["opus"])
 
-    def test_a_cheaper_model_within_within_ranks_first_rated_once(self):
+    def test_the_role_pick_ranks_first_rated_once(self):
         self.store()
         with patch.object(quality, "rated", wraps=quality.rated) as rated:
             matrix._answered.cache_clear()
             ranks = matrix.rank(self.cfg, "execute", ["opus", "astra"])
             self.assertEqual([ranks[name][:3] for name in ("astra", "opus")],
-                             [(0, False, 1.0), (0, False, 4.0)])
-            self.assertEqual(self.pick(), ["astra", "opus", "fable"])
-            self.assertEqual(self.pick(), ["astra", "opus", "fable"])
+                             [(1, False, 0.0), (0, False, 0.0)])
+            self.assertEqual(self.pick(), ["opus", "astra", "fable"])
+            self.assertEqual(self.pick(), ["opus", "astra", "fable"])
         self.assertEqual(rated.call_count, len(quality.ROLES))    # once per stored lineup
-        self.cfg["within"] = 1                                    # 98 is more than 1 under 100
-        self.assertEqual(self.pick(), ["opus", "astra", "fable"])
 
 
 if __name__ == "__main__":

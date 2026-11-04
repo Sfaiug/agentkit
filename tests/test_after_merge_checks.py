@@ -1,4 +1,4 @@
-"""After a merge, the tick follows the target's checks and hands a break back to fix.
+"""After a merge, the tick follows live health and hands a break back to fix.
 
 Offline: a temporary HOME, fake run records, a fake `gh` on PATH and fake seats.
 """
@@ -7,7 +7,6 @@ from contextlib import ExitStack
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -15,28 +14,18 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, history, orch, run, watch
+from agentkit import config, history, orch, watch
 from agentkit import record
 
 PR = "https://github.com/acme/widget/pull/7"
 NOW = 2000000
 SEAT = "fix-api"
-CHECK = "release-gate"
-URL = "https://github.com/acme/widget/actions/runs/123"
+CHECK = "health: probe"
+URL = PR + "; down"
 
 FAKE_GH = """#!/usr/bin/env python3
-import json, os, re, sys
+import json, os, sys
 args = sys.argv[1:]
-endpoint = next((a for a in args if "check-runs" in a), None)
-if endpoint:
-    match = re.search(r"commits/([^/]+)/check-runs", endpoint)
-    sha = match.group(1) if match else ""
-    try:
-        mapping = json.loads(open(os.environ["AFTER_MERGE_CHECKS"]).read())
-    except (OSError, ValueError, KeyError):
-        mapping = {}
-    print(json.dumps({"check_runs": mapping.get(sha, [])}))
-    sys.exit(0)
 if args[:2] == ["pr", "view"]:
     url = args[2] if len(args) > 2 else ""
     try:
@@ -52,11 +41,6 @@ if args[:2] == ["pr", "view"]:
 print(f"fake gh: unexpected call: {args}", file=sys.stderr)
 sys.exit(1)
 """
-
-
-def completed(name, conclusion, url=URL):
-    return {"name": name, "status": "completed", "conclusion": conclusion,
-            "html_url": url}
 
 
 class AfterMerge(unittest.TestCase):
@@ -76,13 +60,14 @@ class AfterMerge(unittest.TestCase):
         gh = bindir / "gh"
         gh.write_text(FAKE_GH)
         gh.chmod(0o755)
-        self.checks_path = self.root / "checks.json"
-        self.checks_path.write_text("{}")
+        self.health = {}
+        self.stack.enter_context(patch.object(
+            watch, "after_merge_health",
+            lambda directory, st, key, sha, *_args, **_kw: self.health.get(sha)))
         self.prs_path = self.root / "prs.json"
         self.prs_path.write_text("{}")
         self.stack.enter_context(patch.dict(os.environ, {
             "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}",
-            "AFTER_MERGE_CHECKS": str(self.checks_path),
             "AFTER_MERGE_PRS": str(self.prs_path)}))
         self.rows = []
         self.typed = []
@@ -117,8 +102,8 @@ class AfterMerge(unittest.TestCase):
         record.save_state(directory, state)
         return directory
 
-    def set_checks(self, mapping):
-        self.checks_path.write_text(json.dumps(mapping))
+    def set_health(self, mapping):
+        self.health = mapping
 
     def set_prs(self, mapping):
         self.prs_path.write_text(json.dumps(mapping))
@@ -128,11 +113,11 @@ class AfterMerge(unittest.TestCase):
         watch.after_merge_checks(state, False, self.logs.append, now=NOW)
         return state
 
-    def test_failed_check_hands_back_to_its_seat(self):
+    def test_failed_health_hands_back_to_its_seat(self):
         sha = "a" * 40
         self.merged("run-old", sha)
         history.start_run("run-old", started_at=NOW - 660)
-        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.set_health({sha: ("failed", CHECK, URL)})
         self.rows = [self.live(SEAT)]
         self.follow()
         self.assertEqual(self.typed, [(SEAT, (
@@ -140,75 +125,59 @@ class AfterMerge(unittest.TestCase):
             "Fix the target. Next: launch the fix the result names. "
             f"Result: {config.tilde(config.RUNS / 'run-old/result.md')}"))])
         # what got past review and landing is on the change's row once it is told
-        self.assertEqual(history.get("run-old")["broke_after_merge"], "checks")
+        self.assertEqual(history.get("run-old")["broke_after_merge"], "health")
 
-    def test_a_check_named_like_a_health_probe_is_a_check(self):
-        # where the failing verdict came from decides, never what the check is called
-        sha = "a" * 40
-        self.merged("run-old", sha)
-        history.start_run("run-old", started_at=NOW - 660)
-        self.set_checks({sha: [completed("health: smoke", "failure")]})
-        self.rows = [self.live(SEAT)]
-        self.follow()
-        self.assertEqual(len(self.typed), 1)
-        self.assertEqual(history.get("run-old")["broke_after_merge"], "checks")
-
-    def test_no_health_with_unreachable_checkout_preserves_green_and_later_break(self):
-        checkout = self.root / "widget"
-        subprocess.run(["git", "init", "-q", str(checkout)], check=True, timeout=10)
-        subprocess.run(["git", "-C", str(checkout), "remote", "add", "origin",
-                        str(self.root / "unreachable.git")], check=True, timeout=10)
-        told, green, broken = "a" * 40, "b" * 40, "c" * 40
-        key = watch.after_merge_repo(PR)[3]
-        state = {"after_merge": {key: {"notified": told, "at": NOW - 1200,
-                                       "run": "run-told", "check": "gate-told",
-                                       "finished": NOW - 1200}}}
-        for name, sha, age in (("run-green", green, 900), ("run-broken", broken, 600)):
-            directory = self.merged(name, sha, age=age)
-            with record.record(directory) as current:
-                current["repo"] = str(checkout)
-        self.set_checks({green: [completed(CHECK, "success")],
-                         broken: [completed("gate-new", "failure", URL + "/new")]})
-        self.rows = [self.live(SEAT)]
-        with patch.object(run, "fetch", wraps=run.fetch) as fetch:
-            self.follow(state)
-        self.assertEqual(len(self.typed), 1, self.logs)
-        self.assertIn("gate-new", self.typed[0][1])
-        self.assertFalse(any("WARN" in line for line in self.logs), self.logs)
-        fetch.assert_not_called()
-
-    def test_two_failing_commits_hand_back_only_the_newer_once(self):
+    def test_two_failing_commits_hand_back_only_the_first_once(self):
         old, new = "a" * 40, "b" * 40
         self.merged("run-old", old, age=1200)
         self.merged("run-new", new, age=600)
-        self.set_checks({old: [completed("gate-old", "failure", URL + "/old")],
-                         new: [completed("gate-new", "failure", URL + "/new")]})
+        self.set_health({old: ("failed", "health: old", URL + "/old"),
+                         new: ("failed", "health: new", URL + "/new")})
         self.rows = [self.live(SEAT)]
         state = self.follow()
         self.assertEqual(len(self.typed), 1)
         seat, line = self.typed[0]
         self.assertEqual(seat, SEAT)
-        self.assertIn("gate-new", line)
-        self.assertIn(URL + "/new", line)
-        self.assertNotIn("gate-old", line)
+        self.assertIn("health: old", line)
+        self.assertIn(URL + "/old", line)
+        self.assertNotIn("health: new", line)
         self.follow(state)
         self.assertEqual(len(self.typed), 1)
 
-    def test_passing_or_cancelled_check_sends_nothing(self):
+    def test_passing_or_absent_health_sends_nothing(self):
         sha = "a" * 40
         self.merged("run-old", sha)
         self.rows = [self.live(SEAT)]
-        self.set_checks({sha: [completed(CHECK, "success")]})
+        self.set_health({sha: ("passed", None, None)})
         self.follow()
-        self.set_checks({sha: [completed(CHECK, "cancelled")]})
+        self.set_health({sha: None})
         self.follow()
         self.assertEqual((self.typed, [line for line in self.logs if "handed" in line]),
                          ([], []))
 
+    def test_only_the_first_failure_after_the_latest_pass_is_told(self):
+        for number, verdict in enumerate(("failed", "passed", "failed", "failed")):
+            sha = str(number) * 40
+            self.merged(f"run-{number}", sha, age=2400 - number * 600)
+            self.health[sha] = verdict, CHECK, URL
+        self.rows = [self.live(SEAT)]
+        self.follow()
+        self.assertEqual(len(self.typed), 1)
+        self.assertTrue(self.typed[0][1].startswith("run run-2 NOT LIVE"))
+
+    def test_a_newer_pass_ends_the_break_without_a_notice(self):
+        old, new = "a" * 40, "b" * 40
+        self.merged("run-old", old, age=1200)
+        self.merged("run-new", new, age=600)
+        self.set_health({old: ("failed", CHECK, URL), new: ("passed", None, None)})
+        self.rows = [self.live(SEAT)]
+        self.assertEqual(self.follow()["after_merge"], {})
+        self.assertEqual(self.typed, [])
+
     def test_composed_line_retries_with_its_mark_and_completes(self):
         sha = "a" * 40
         self.merged("run-old", sha)
-        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.set_health({sha: ("failed", CHECK, URL)})
         self.rows = [self.live(SEAT, created=100)]
         calls, marks = [], []
 
@@ -241,7 +210,7 @@ class AfterMerge(unittest.TestCase):
     def test_a_kept_break_says_it_waits_for_a_seat_at_its_prompt_while_nothing_is_typed(self):
         sha = "a" * 40
         self.merged("run-old", sha)
-        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.set_health({sha: ("failed", CHECK, URL)})
         self.rows = [self.live(SEAT)]
         with patch.object(watch, "type_at_prompt", lambda *_a, **_kw: False):
             self.follow(self.follow())
@@ -253,7 +222,7 @@ class AfterMerge(unittest.TestCase):
         old_age = 3 * 3600 + 600
         self.merged("run-old", old, age=old_age)
         self.merged("run-new", new, age=600)
-        self.set_checks({new: [completed(CHECK, "failure", URL + "/new")]})
+        self.set_health({new: ("failed", CHECK, URL + "/new")})
         self.rows = [self.live(SEAT)]
         key = watch.after_merge_repo(PR)[3]
         state = {"after_merge": {key: {"notified": old, "at": NOW - 1000,
@@ -275,7 +244,7 @@ class AfterMerge(unittest.TestCase):
     def test_unreadable_merge_commit_keeps_the_told_break(self):
         sha = "a" * 40
         self.merged("run-old")
-        self.set_checks({sha: [completed(CHECK, "failure")]})
+        self.set_health({sha: ("failed", CHECK, URL)})
         self.rows = [self.live(SEAT)]
         key = watch.after_merge_repo(PR)[3]
         state = {"after_merge": {key: {"notified": sha, "at": NOW - 1000,

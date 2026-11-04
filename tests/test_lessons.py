@@ -112,6 +112,7 @@ class Lessons(unittest.TestCase):
         state = run.loop(self.cfg, directory, task, self.opts, self.logs.append, None)
         self.assertEqual((state["state"], state.get("base_proof")), ("pass", None), self.logs)
 
+    # Nothing else instructs a model ak runs, no lessons file. [1 Oct, 4 Oct, 16 Oct, 20 Oct]
     def test_executor_reviewer_and_fixer_prompts_carry_agents_md_not_lessons(self):
         self.review_failures = 1
         self.launch()

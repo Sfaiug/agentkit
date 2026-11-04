@@ -45,11 +45,16 @@ def once(key, compute):
     return found[key]
 
 
+def passing():
+    """Whether this thread is in a pass."""
+    return hasattr(_FOUND, "by")
+
+
 def held(key, every, compute):
     """`compute()`; in a pass, what any pass in this process computed for `key` less than `every`
     seconds before it asked, so a wrong answer lasts that long at most and nothing invalidates
     it.  `compute` asks nothing held.  Outside a pass nothing is kept."""
-    if not hasattr(_FOUND, "by"):
+    if not passing():
         return compute()
     with _HOLDING:
         now = time.monotonic()

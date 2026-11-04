@@ -1,5 +1,5 @@
 """↑/↓ on the models screen move a pointer over the rows its answer shows, from the first role's
-pick; a knob step keeps it on its row while that row is shown, else puts it on its role's pick.
+pick.
 ⏎ opens the pointed row's why: its quality and cost, how far behind the role's best it is, and
 each measure's points behind and how it was got; Esc returns with the pointer where it was.  On
 40 cells each measure's how takes a line under it.
@@ -48,7 +48,6 @@ def boards():
             for board, found in rows.items()}
 
 
-ORCH_PICK = "› ★ pick   Bolt 3          medium  ~     96.7   $3.00  1 missing"
 CRUX_ORCH = ["  why Crux 2 low orchestrates",
              "  quality 93.2 ± 0.0   $1.00 a AA-Briefcase task",
              "  6.8 behind the best, Acme Max 5 max",
@@ -120,21 +119,9 @@ class ModelsWhy(unittest.TestCase):
         tests/test_key_models_rows_drawn_as_c.py's."""
         return [re.sub("[━╸─]{8,}", "~", line) for line in lines(screen)]
 
-    def test_the_pointer_keeps_its_row_through_a_knob_step_or_goes_to_its_pick(self):
-        term, _ = self.models()
-        self.assertIn(ORCH_PICK, self.rows(term.screen()))
-        term.keys("Right")              # within 6: the orchestrator's front stands as it was
-        shown = self.rows(term.wait("within 6 points"))
-        self.assertIn(ORCH_PICK, shown)
-        self.assertIn("           Crux 2          low     ~     80.0   $1.00  1 missing", shown)
-        term.keys("Down", "Left", "Left", "Left", "Left")   # within 2: Crux 2 low leaves
-        shown = self.rows(term.wait("within 2 points"))
-        self.assertIn("› ★ pick   Acme Mid 5      high    ~     99.2  $15.00  1 missing", shown)
-        self.assertEqual(sum(line.startswith("›") for line in shown), 1)
-
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
         term, _ = self.models()
-        self.assertEqual(self.why(term, "Down")[:len(CRUX_ORCH)], CRUX_ORCH)
+        self.assertEqual(self.why(term, *["Down"] * 4)[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
         shown = self.rows(term.wait("comparing all 4 models"))
         self.assertIn("›          Crux 2          low     ~     93.2   $1.00  2 missing", shown)
@@ -143,9 +130,7 @@ class ModelsWhy(unittest.TestCase):
 
     def test_on_40_cells_each_measures_how_takes_a_line_under_it(self):
         term, _ = self.models(40)
-        term.keys("Right")
-        term.wait("within 6")
-        self.assertEqual(self.why(term, *["Down"] * 6)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
+        self.assertEqual(self.why(term, *["Down"] * 9)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
 
     def test_a_why_taller_than_the_screen_turns_its_pages(self):
         term, _ = self.models(40, 14)

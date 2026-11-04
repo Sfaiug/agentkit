@@ -533,17 +533,18 @@ def claim_slot(state, limit, readings=None, launch=False):
     return True
 
 
-def count_wait(run_id, wait, counted):
+def count_wait(run_id, wait, counted, *, kind=""):
     """Add what this process waited since `counted` to its run's history; returns it moved to now.
 
     `counted` is the wait's start on the wall clock, which keys its one phase row, and the
     monotonic time it is counted up to.  The waiting process counts its own wait as it polls,
     so one that dies loses at most a poll, and no recovery can count time no process spent
     waiting -- nor a clock correction.
+    `kind` comes from the last poll's record, so counting opens no run.json behind the first.
     """
     began, since = counted
     now = time.monotonic()
-    history.add_wait(run_id, wait, now - since, began=began)
+    history.add_wait(run_id, wait, now - since, began=began, kind=kind)
     return began, now
 
 
@@ -570,7 +571,7 @@ def wait_for_slot(run_dir, between=None):
         if not first_poll:
             counted = counted or (time.time(), time.monotonic())
             time.sleep(SLOT_POLL)
-            counted = count_wait(run_dir.name, "slot", counted)
+            counted = count_wait(run_dir.name, "slot", counted, kind="count" if behind else wait_kind or "")
             waiting_behind = behind_first(run_dir.name)
             if between is not None:
                 between(counted if waiting_behind else None)
@@ -599,6 +600,7 @@ def wait_for_slot(run_dir, between=None):
             if behind:
                 # The polls it skipped were count waits.
                 state.update(slot_waited=True, slot_wait_kind="count")
+                wait_kind = "count"
                 behind = False
             first_poll = False
             if claim_slot(state, limit):
@@ -612,7 +614,7 @@ def wait_for_slot(run_dir, between=None):
             handback.redress_seat(state.get("launched_session"))
             announced = True
     if counted:
-        count_wait(run_dir.name, "slot", counted)
+        count_wait(run_dir.name, "slot", counted, kind=wait_kind or "")
     if state.get("slot_waited"):
         minutes = max(0, int((time.time() - state["queued_at"]) / 60))
         kind = wait_kind or "count"
@@ -1277,6 +1279,7 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
 
     @contextmanager
     def queued():
+        counted = (time.time(), time.monotonic())
         with landing_wait(is_landing, place, self_id, line):
             if run_dir:
                 mark_gate_wait(run_dir, repo, place)
@@ -1285,6 +1288,8 @@ def _acquire_gate_turn(run_dir, log_path, log, command=None, cwd=None, *, contex
             finally:
                 if run_dir:
                     mark_gate_wait(run_dir, None)
+                if run_dir or is_landing:
+                    count_wait(self_id, "suite" if run_dir else "lander", counted)
     return _GateHold(files, slot, context, limit, more, queued)
 
 
@@ -1629,9 +1634,9 @@ class _SuiteMeasure:
             pass
 
 
-def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed", cap=None):
-    """Keep the whole failure, even when its distinguishing lines precede the output cap; those
-    lines stop at `cap` bytes. No line ends blank: a record is what lies between two blank lines."""
+def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed"):
+    """Keep the whole failure, even when its distinguishing lines precede the output cap: the
+    record's head, and those lines at most OUT_CAP bytes, for `flaky_text`."""
     with tempfile.NamedTemporaryFile(dir=run_dir or log_path.parent,
                                      prefix=f"{log_path.stem}-failed-",
                                      suffix=".log", delete=False) as saved:
@@ -1640,11 +1645,26 @@ def flaky_record(command, failed, rerun, log_path, run_dir, log, how="failed", c
              if line.strip()]
     reran = {flaky_key(line) for line in rerun.decode("utf-8", errors="replace").splitlines()}
     diff = "\n".join([line for line in lines if flaky_key(line) not in reran][:20])
-    diff = diff.encode()[:cap].decode(errors="ignore").rstrip()
     note = f"flaky: {command} {how}, then passed on its re-run"
     if log is not None:
         log(f"done-when: {note}")
-    return "\n".join(filter(None, [note, f"failed output: {Path(saved.name).resolve()}", diff]))
+    return (f"{note}\nfailed output: {Path(saved.name).resolve()}",
+            diff.encode()[:turns.OUT_CAP])
+
+
+def flaky_text(record, cap=None):
+    """A `flaky_record` as handed on, its distinguishing lines cut at `cap` bytes. No line ends
+    blank: a record is what lies between two blank lines."""
+    head, diff = record
+    return "\n".join(filter(None, [head, diff[:cap].decode(errors="ignore").rstrip()]))
+
+
+def shares(reds, others):
+    """What each of `reds` red pieces, then each of `others` (green pieces and flaky records),
+    hands on of the suite's PIECES_CAP, at most OUT_CAP each: the red pieces take theirs first, so
+    one red piece keeps its whole OUT_CAP however many ran, and the others share the rest."""
+    red = min(turns.OUT_CAP, turns.PIECES_CAP // max(reds, 1))
+    return red, min(turns.OUT_CAP, (turns.PIECES_CAP - reds * red) // max(others, 1))
 
 
 def unnamed(code, only, ran, output):
@@ -1657,10 +1677,24 @@ def unnamed(code, only, ran, output):
     return 1
 
 
-def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
+def run_suite(command, limit, *, confirmed=None, flaky=None, checked=None, **kwargs):
+    """Run a suite and keep its named reds and flakes beside its check rows."""
+    reds = {} if confirmed is not None or checked is not None else None
+    flakes = [] if flaky is not None or checked is not None else None
+    try:
+        return _run_suite(command, limit, confirmed=reds, flaky=flakes, checked=checked, **kwargs)
+    finally:
+        if confirmed is not None:
+            confirmed.update(reds)
+        if flaky is not None:
+            flaky.extend(flakes)
+        history.test_reds(checked, reds, flakes)
+
+
+def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
               on_wait=None, measure=False, shard=None, pieces=None, later=None, only=None,
               confirmed=None, changed=None, flaky=None, named=None, checked=None, asked=None,
-              **kwargs):
+              raw=None, **kwargs):
     """One command, or all its opted-in pieces, with failed pieces retried alone.
 
     Callers keep one command and one outcome. Each piece has its own silence window;
@@ -1686,11 +1720,16 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
     so (`AK_FLAKY`), here or on the suite helper, and a red piece's named tests that passed run
     alone.  `named`, a list, gets those a failing run of the command as one piece (not split,
     or `shard`) named as failed, confirmed or not.
+    `raw` receives each piece's process exits by share, before checking coverage of `only`.
     Every piece gets the file times recorded as the suite starts (`suite_times`): a record
     another suite changes meanwhile would cut a later piece's share differently.
     With `checked` (`run_done_when`'s) each go of a piece leaves its row where it runs, its first
     go asked for at `asked`, a later one as the go before it ended: a turn it waits for is wait.
     """
+    def observed(share, code, killed):
+        if raw is not None and (code != SUITE_BUSY or killed):
+            raw.setdefault(share, []).append(None if killed else code)
+
     times = suite_times.handed(cwd)
     env = suite_env(changed, times)
     if shard is not None:
@@ -1706,6 +1745,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             ["bash", "-c", command], limit, cwd=str(cwd), activity=activity, output=output,
             env={**env, "AK_SHARD": share}, only=only, ran=ran, failed=failed, flaky=flaky,
             **kwargs)
+        observed(shard, code, killed)
         if confirmed is not None and only is not None:
             confirmed[shard] = [test for test in only if code > 0 and test in ran and test in failed]
         if named is not None and code > 0:
@@ -1731,6 +1771,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                               cpu=measured.cpu if measured else None,
                               quiet=measured.quiet if measured else None, failed=failed,
                               flaky=flaky, **kwargs)
+        observed("", result[0], result[2])
         if confirmed is not None:
             confirmed["1/1"] = failed if result[0] > 0 else []
         if named is not None and result[0] > 0:
@@ -1859,6 +1900,8 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                             on_timeout=stopped, silence=silence if first else later or silence,
                             **here, **kwargs)
                         ended.append(None if killed else code)
+                    if not there or code not in (*helper.GONE, helper.FULL):
+                        observed(shard, code, killed)
                     if not there and not killed and measure.starved(code, kills):
                         starved.add(shard)
                     else:
@@ -2060,7 +2103,6 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
             if hold is not None:
                 hold.alone()
             chunks, red, flakes, alones = [], [], [], {}
-            share = min(turns.OUT_CAP, turns.PIECES_CAP // count)
             for index, (code, piece, killed, tests) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 failed = only = alone = None
@@ -2105,8 +2147,7 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         # passing alone, they failed, then passed, whatever the piece does next
                         piece.seek(0)
                         flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                                   piece.read(), activity, run_dir, log, how,
-                                                   share))
+                                                   piece.read(), activity, run_dir, log, how))
                         if flaky is not None:
                             flaky.extend(only)
                         only = None
@@ -2122,12 +2163,13 @@ def run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                 if failed is not None and code == 0 and alone is None:
                     piece.seek(0)
                     flakes.append(flaky_record(f"{command} (AK_SHARD={shard})", failed,
-                                               piece.read(), activity, run_dir, log, how, share))
+                                               piece.read(), activity, run_dir, log, how))
                 results[index - 1] = code, piece, killed, tests
                 alones[shard] = alone
-            # A red piece's share rests on how many ended red, known only now, reruns included.
+            # The shares rest on how many ended red, known only now, reruns included.
             reds = sum(1 for code, _, _, _ in results if code)
-            red_share = min(turns.OUT_CAP, turns.PIECES_CAP // max(reds, 1))
+            red_share, share = shares(reds, count - reds + len(flakes))
+            flakes = [flaky_text(record, share) for record in flakes]
             for index, (code, piece, killed, _) in enumerate(results, 1):
                 shard = f"{index}/{count}"
                 text = turns.cut_file(piece, 0, run_dir or activity.parent,
@@ -2192,7 +2234,7 @@ def _running_commands(pid):
 
 def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=None,
                   run_dir=None, heavy=False, marks=None, shard=None, pieces=None, only=None,
-                  confirmed=None, changed=None, flaky=None, checked=None):
+                  confirmed=None, changed=None, flaky=None, checked=None, exits=None, timings=None):
     """Run commands while they produce output, with a ceiling on the whole list.
 
     Each command gets its own silence window. The list's ceiling never resets,
@@ -2228,7 +2270,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
 
     `marks`, a list, gets each command's exit as the runner saw it, in order -- None for one
     killed at the limit or never run, and none for those after a kill: what decides a proof,
-    never the text, which a command can print anything into.  `pieces`, a dict, gets the same
+    never the text, which a command can print anything into. `exits` keeps each piece's attempt
+    exits as a list (None for a kill), before coverage validation, so names cannot hide a flake.
+    `pieces`, a dict, gets the same
     for each sharded command's pieces, by command then share (`run_suite`); `shard` runs
     every command as that one piece alone, a command like any other, its re-run included,
     and with `only` just those of its tests.  `confirmed`, a dict, gets by command what
@@ -2239,7 +2283,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
     tree)`, has each run of a command, or of a piece of one, leave its row in history
     (`history.check`), a re-run one of its own.
     The test files' times the commands printed are kept (`suite_times`) before the log, whole
-    until then, takes `text`, its capped form.
+    until then, takes `text`, its capped form. `timings`, a dict, gets each passing command's
+    ({file: seconds}, piece count) from this pass alone, before that cap.
     """
     limit = 3600 * run_record.CEILING_HOURS if limit is None else limit
     silence = 60 * run_record.SILENCE_MINUTES if silence is None else silence
@@ -2269,11 +2314,14 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
             first_span = None   # the gate log's byte span of a first run that failed, while its
                                 # re-run decides: the flaky diff reads whole runs
             named = []          # the tests this command's run named failed
+            reds = {} if confirmed is not None or checked is not None else None
+            flakes = [] if flaky is not None or checked is not None else None
             busy = False
             # stopped sooner at its suite's pace on its first go; a second has the rest
             window = quiet_window(cmd, cwd, run_dir, silence) if heavy else None
             rest = silence - (window or 0)
             how = "failed"
+            raw = {} if exits is not None or timings is not None else None
             while True:
                 run_record.stop_check(run_dir)
                 left = deadline - time.monotonic()
@@ -2292,9 +2340,9 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                         stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
                         run_dir=run_dir, log=log, on_wait=waited, measure=heavy, shard=shard,
                         pieces=None if pieces is None else pieces.setdefault(cmd, {}),
-                        only=only,
-                        confirmed=None if confirmed is None else confirmed.setdefault(cmd, {}),
-                        changed=changed, flaky=flaky, named=named, checked=checked, asked=asked)
+                        only=only, confirmed=reds, changed=changed, flaky=flakes, named=named,
+                        # Whole commands retry here; their named outcomes must wait for that.
+                        checked=checked if split(cmd) else None, asked=asked, raw=raw)
                     ended.append(None if killed else code)
                     end = progress.tell()
                 if log is not None and run_dir is not None:
@@ -2315,6 +2363,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     how = f"was stopped after {window / 60:g} min of silence"
                     del reason[:], running[:]     # a stop of its second go is the one to name
                 first_span, first, named = (offset, end), named, []
+            if exits is not None:
+                exits.extend(raw.values())
             if left <= 0 and first_span is None:
                 # the list is out of time: starting this command would give it a limit of its own
                 spent, killed, kept = cmd, False, ""
@@ -2323,6 +2373,8 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     marks.append(None)
                 break
             ok &= code == 0
+            if timings is not None and code == 0 and not killed:
+                timings[cmd] = suite_times.measured(log_path, offset), max(1, len(raw))
             if marks is not None:
                 marks.append(None if killed else code)
             if split(cmd):
@@ -2343,9 +2395,16 @@ def run_done_when(cmds, cwd, log_path, artifacts, limit=None, log=None, silence=
                     failed = progress.read(first_span[1] - first_span[0])
                     progress.seek(offset)
                     rerun = progress.read(end - offset)
-                chunks.append(flaky_record(cmd, failed, rerun, log_path, run_dir, log, how))
-                if flaky is not None:
-                    flaky.extend(first)
+                chunks.append(flaky_text(flaky_record(cmd, failed, rerun, log_path, run_dir, log,
+                                                      how)))
+                if flakes is not None:
+                    flakes.extend(first)
+            if confirmed is not None:
+                confirmed.setdefault(cmd, {}).update(reds)
+            if flaky is not None:
+                flaky.extend(flakes)
+            if not split(cmd):
+                history.test_reds(checked, reds, flakes)
             if killed:
                 spent, kept = cmd, out
                 break

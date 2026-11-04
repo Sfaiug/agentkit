@@ -257,7 +257,7 @@ func page(name string, card, notice *run.Object, attached bool, errOut io.Writer
 	asked, _ := notice.Num("time")
 	stamp := clock()
 	if card.Str("word") != "needs you" {
-		card = episode(card, asked, asked)
+		card = episode(card, "needs you", run.Float(asked), run.Float(asked))
 	}
 	if !card.Truthy("sent") {
 		card.Set("began", run.Float(stamp)) // `ak notify` begins its episode at the command
@@ -272,7 +272,7 @@ func page(name string, card, notice *run.Object, attached bool, errOut io.Writer
 		if err := retire(card); err != nil {
 			return 0, err
 		}
-		return 0, writeCard(name, episode(card, max(stamp, asked), max(answered, asked)))
+		return 0, writeCard(name, episode(card, "needs you", run.Float(max(stamp, asked)), run.Float(max(answered, asked))))
 	}
 	if card.Truthy("sent") {
 		return 0, nil
@@ -291,12 +291,12 @@ func page(name string, card, notice *run.Object, attached bool, errOut io.Writer
 	return sendCard(name, card, notice, errOut)
 }
 
-// episode is a new needs-you card, unsent, the work an older one covered kept.
-func episode(old *run.Object, since, began float64) *run.Object {
+// episode is a new card of that word, unsent, the work an older one covered kept.
+func episode(old *run.Object, word string, since, began any) *run.Object {
 	id := make([]byte, 16)
 	rand.Read(id)
 	card := run.NewObject()
-	for _, f := range []field{{"word", "needs you"}, {"since", run.Float(since)}, {"began", run.Float(began)},
+	for _, f := range []field{{"word", word}, {"since", since}, {"began", began},
 		{"episode", hex.EncodeToString(id)}, {"sent", false}} {
 		card.Set(f.key, f.value)
 	}

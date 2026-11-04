@@ -5,8 +5,7 @@ Every row is rated, none left out for a missing score, and a missing score never
 measure another effort of its release has is carried from there, never credited upward, and
 one no effort has counts as far behind as the row's furthest-behind measure, with that one's
 error.  Every score carries its standard error, each error counted once however many scores
-take it, shown beside a quality and never picking: a model with noisier scores would win more
-often.  Reads no board, config or clock: rows come in, ratings go out.
+take it.  Reads no board, config or clock: rows come in, ratings and role picks go out.
 """
 
 import math
@@ -208,9 +207,36 @@ def rated(rows, role):
     return out
 
 
-def pick(rated, within):
-    """The cheapest of `rated` with a cost whose quality is within `within` of the best, the
-    higher quality on an equal cost; None when no row has a cost."""
-    top = max((row["quality"] for row in rated), default=None)
-    near = [row for row in rated if row["cost"] is not None and row["quality"] >= top - within]
-    return min(near, key=lambda row: (row["cost"], -row["quality"]), default=None)
+def pick(rated, role):
+    """One recommendation from the priced rows, independent of usage or settings.
+
+    Owner, 3 Nov 2026: an executor's mistake costs a round and still faces review; an
+    orchestrator's has no catcher and a reviewer's miss ships. Only execution may trade
+    measured quality for cost. On the frontier's upper convex hull (cost, quality), pick
+    the bend with the largest growth in price per point: next step / previous step.
+    For the other roles a bend must be indistinguishable from the best priced row:
+    best.quality - row.quality < 1.96 * hypot(best.se, row.se). Keep the original hull's
+    steps when filtering bends. Without an eligible bend, take the best; without a cost,
+    nothing. Equal costs keep the better quality; collinear rows add no bend.
+    """
+    hull = []
+    for row in sorted((row for row in rated if row["cost"] is not None),
+                      key=lambda row: (row["cost"], -row["quality"])):
+        if hull and (row["cost"] == hull[-1]["cost"] or row["quality"] <= hull[-1]["quality"]):
+            continue
+        while len(hull) > 1:
+            a, b = hull[-2:]
+            if ((b["quality"] - a["quality"]) * (row["cost"] - b["cost"])
+                    > (row["quality"] - b["quality"]) * (b["cost"] - a["cost"])):
+                break
+            hull.pop()
+        hull.append(row)
+    if not hull:
+        return None
+    best = hull[-1]
+    bends = [(row, ((after["cost"] - row["cost"]) / (after["quality"] - row["quality"]))
+                   / ((row["cost"] - before["cost"]) / (row["quality"] - before["quality"])))
+             for before, row, after in zip(hull, hull[1:], hull[2:])
+             if role == "execute" or best["quality"] - row["quality"]
+             < 1.96 * math.hypot(best["se"], row["se"])]
+    return max(bends, key=lambda bend: bend[1], default=(best, None))[0]

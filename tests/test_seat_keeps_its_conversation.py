@@ -33,6 +33,8 @@ class SeatKeepsItsConversation(unittest.TestCase):
         self.env.update(HOME=str(self.root), PATH=f"{bin_dir}{os.pathsep}{self.env.get('PATH', '')}",
                         AGENTKIT_SESSION="lagoon")
 
+    # Claude seats run with `/background`'s daemon off; the daemon mixed them up.
+    # [4 Oct, 14 Oct, 17 Oct]
     def test_the_seat_command_turns_the_background_daemon_off_for_the_tui(self):
         for account in ("", "quay"):
             for extra in ([CONVERSATION, "new"], [CONVERSATION]):

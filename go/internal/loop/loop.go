@@ -38,9 +38,11 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 	"agentkit/internal/task"
 	"agentkit/internal/usage"
 	"agentkit/internal/worker"
@@ -82,12 +84,16 @@ func Start(dir string, out io.Writer, detached bool) error {
 		if record.Str("state") == "stopped" {
 			return ErrStopped
 		}
-		pid, err := spawn(dir, detached)
+		waiting := record.Str("state") == "queued" && record.Truthy("slot_waiting")
+		pid, err := spawn(dir, detached, record)
 		if err != nil {
 			return err
 		}
 		run.SetAll(record, "state", "running", "slot_waiting", false, "launch_pending", false, "pid", pid,
 			"process_identity", identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
+		if waiting {
+			run.SetAll(record, "state", "queued", "slot_waiting", true)
+		}
 		record.Delete("reservation_pending")
 		record.Delete("resume_from")
 		return nil
@@ -97,7 +103,7 @@ func Start(dir string, out io.Writer, detached bool) error {
 	}
 	if started != nil {
 		reason := "Could not launch the run: " + started.Error()
-		End(dir, reason)
+		failedStart(dir, reason)
 		return errors.New(reason)
 	}
 	appendLog(dir, stamped("scope: none (no user systemd manager)"))
@@ -115,7 +121,7 @@ func identity(pid int) any {
 
 // spawn starts the run's driver, writing to the run's log, and reaps it when it ends: a zombie
 // still answers as alive.
-func spawn(dir string, detached bool) (int, error) {
+func spawn(dir string, detached bool, record *run.Object) (int, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, err
@@ -126,6 +132,12 @@ func spawn(dir string, detached bool) (int, error) {
 	}
 	defer log.Close()
 	cmd := exec.Command(self, "run", DriveFlag, dir)
+	if record.Truthy("followup") {
+		cmd.Env, err = siblingEnv(record)
+		if err != nil {
+			return 0, err
+		}
+	}
 	cmd.Stdout, cmd.Stderr = log, log
 	if detached {
 		cmd.SysProcAttr = host.Detached()
@@ -263,7 +275,10 @@ func drive(dir string, job func(*loop) error) (code int) {
 	ctx, release := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
-	err := l.adopt()
+	err := l.admitQueued()
+	if err == nil {
+		err = l.adopt()
+	}
 	if err == nil {
 		err = job(l)
 	}
@@ -515,11 +530,11 @@ func (l *loop) rules() (*pick.Rules, bool) {
 // pick chooses who executes and who reviews, as Python's pick_models and best_pair: a harness that
 // cannot run a turn here is left out before any budget rule reads the list.
 func (l *loop) pick() error {
+	record, err := run.Read(l.dir)
+	if record == nil {
+		return cmp.Or(err, errors.New("run.json cannot be read"))
+	}
 	if l.prior {
-		record, err := run.Read(l.dir)
-		if record == nil {
-			return cmp.Or(err, errors.New("run.json cannot be read"))
-		}
 		l.executor, l.reviewer = record.Str("executor"), record.Str("reviewer")
 		l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", l.executor, l.reviewer, l.budget))
 		return nil
@@ -528,7 +543,16 @@ func (l *loop) pick() error {
 	if !ok {
 		return notYet("the models cannot be picked here", "a pick Python makes")
 	}
+	// the launch's --exec, a worker of the run (launch.drivable): whether it can run is asked of it alone
+	named := ""
+	if opts := launchOpts(record); opts != nil {
+		named = opts.Str("--exec")
+	}
+	// refused before the meters are read: nothing a meter says lets a harness that cannot run here run
 	cannot := unable()
+	if why := cannot[named]; why != "" {
+		return fmt.Errorf("%s cannot run here: %s", named, why)
+	}
 	if why := rules.Unstaffed(cannot); why != "" {
 		return errors.New(why)
 	}
@@ -541,10 +565,15 @@ func (l *loop) pick() error {
 	rules.Order(room, false, logged)
 	rules.Order(room, true, logged)
 	executor, reviewer, found := rules.Pair(room)
-	if len(rules.Order(room, false, nil)) == 0 {
+	switch {
+	case named != "":
+		executor = named
+		if reviewer, found = rules.PairFor(room, named); !found {
+			return &exhausted{"no eligible reviewer: no worker with budget is left to review for executor " + named + "; waiting for review", true}
+		}
+	case len(rules.Order(room, false, nil)) == 0:
 		return &exhausted{"every worker has a gate meter at 100% used", true}
-	}
-	if !found {
+	case !found:
 		return &exhausted{"no eligible reviewer: no worker with budget is left to review; waiting for review", true}
 	}
 	l.executor, l.reviewer = executor, reviewer
@@ -556,12 +585,14 @@ func (l *loop) pick() error {
 		return err
 	}
 	l.say(fmt.Sprintf("executor=%s reviewer=%s rounds=%d", executor, reviewer, rounds))
+	l.sayLaunched()
 	return nil
 }
 
 // finish is how a run ends once its work stopped, as Python's loop and finish say it.
 func (l *loop) finish(err error) int {
 	var cannot *blocked
+	var unnecessary *notNeeded
 	switch {
 	case errors.Is(err, errStop):
 		return 1
@@ -576,6 +607,8 @@ func (l *loop) finish(err error) int {
 			record.Delete("quota_dry")
 			record.Delete("transient_wait")
 		})
+	case errors.As(err, &unnecessary):
+		err = l.finishNotNeeded(unnecessary)
 	case err != nil:
 		said, park, stands := parked(err)
 		if !stands {
@@ -642,6 +675,9 @@ func conclude(dir string) int {
 		return 2
 	}
 	said := stampedLog{dir}
+	if handback.Give(dir, func(line string) { fmt.Fprintln(said, line) }) {
+		dropTold(dir, said)
+	}
 	if record.Str("state") == "error" {
 		fmt.Fprintln(said, "FAIL -> "+filepath.Join(dir, "result.md")+" (error)")
 		return 2
@@ -658,6 +694,10 @@ func settle(dir string) *run.Object {
 		return nil
 	}
 	said := stampedLog{dir}
+	record = finishSeat(dir, record)
+	if record == nil {
+		return nil
+	}
 	recordResult(dir, record)
 	host.EndMarked(dir, said)
 	if record.Truthy("merged") {
@@ -668,6 +708,7 @@ func settle(dir string) *run.Object {
 	write(dir, func(record *run.Object) {
 		record.Set("tree_stopped", []any{record.Get("pid"), record.Get("process_identity")})
 	})
+	seat.Redress(run.Seat(record)) // the ending lands on the bar too
 	return record
 }
 

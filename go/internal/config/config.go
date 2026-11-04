@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"math/big"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -259,9 +258,6 @@ func hasTables(root *table) bool {
 	return false
 }
 
-// the most `within` can be: past ten points under the best, a point says nothing
-const points = 10
-
 // harnessName is a name that is one path component, as a harness's or an account's is.
 var harnessName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
 
@@ -325,18 +321,6 @@ func validate(root *table) error {
 	defaults, ok := root.values["defaults"].(*table)
 	if !ok {
 		return fmt.Errorf("[defaults] must be a table")
-	}
-	if value, exists := root.values["within"]; exists {
-		valid := false
-		switch number := value.(type) {
-		case *big.Int:
-			valid = number.Sign() >= 0 && number.Cmp(big.NewInt(points)) <= 0
-		case float64:
-			valid = number >= 0 && number <= points
-		}
-		if !valid {
-			return fmt.Errorf("within must be a number of points from 0 to %d (got %s)", points, valueRepr(value))
-		}
 	}
 	if value, exists := root.values["compare"]; exists {
 		marks, ok := value.([]any)

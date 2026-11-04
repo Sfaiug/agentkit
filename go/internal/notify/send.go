@@ -46,42 +46,7 @@ var backoff = []float64{60, 180, 600, 1800, 3600}
 // sendCard queues the episode's one card under the seat's lock and makes its first attempt; the
 // tick's retries take it from there.
 func sendCard(name string, card, notice *run.Object, errOut io.Writer) (int, error) {
-	page, err := payload(name)
-	if err != nil {
-		return 0, err
-	}
-	held, err := holdOutbox()
-	if err != nil {
-		return 0, err
-	}
-	defer held.Close()
-	key := cardKey(card.Get("episode"))
-	event, err := readEvent(key)
-	if err != nil {
-		return 0, err
-	}
-	text := notice.Str("text")
-	fresh := event == nil
-	if fresh {
-		event = run.NewObject()
-		for _, f := range []field{{"id", key}, {"source", "card:" + card.Str("episode")}, {"episode", card.Get("episode")},
-			{"session", name}, {"kind", "needs"}, {"text", text}, {"files", []any{}}, {"payload", page},
-			{"message", "Needs you · " + name + ": " + text}, {"created_at", run.Float(clock())},
-			{"sink", sink() != ""}, {"status", "pending"}, {"attempts", 0}, {"next_attempt", 0}} {
-			event.Set(f.key, f.value)
-		}
-		if err := writeEvent(event); err != nil {
-			return 0, err
-		}
-	}
-	card.Set("sent", true)
-	if err := writeCard(name, card); err != nil {
-		return 0, err
-	}
-	if fresh {
-		terminalNotice(name, "Needs you · "+name+": "+text)
-	}
-	return attempt(event, errOut)
+	return sendEpisode(name, "needs", card, notice, nil, errOut)
 }
 
 // attempt sends a queued event once its time has come: 1 only for one blocked, which waits for

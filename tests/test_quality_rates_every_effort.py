@@ -2,7 +2,7 @@
 never helps it: a measure is measured, carried from another effort of the release (from above
 growing by what the intelligence index loses, never shrinking; else from below as it is) or
 missing, as far behind as the row's furthest-behind (tests/test_quality_missing_never_helps.py).
-`quality.pick` is the cheapest row with a cost within `within` of the best quality."""
+`quality.pick` selects a role's bend on the upper hull of quality against cost."""
 
 from pathlib import Path
 import sys
@@ -43,6 +43,9 @@ def points(rated, release, effort):
             for column, m in found(rated, release, effort)["measures"].items()}
 
 
+# A missing score carried from the nearest effort, else its worst: nearest above
+# needs the intelligence index at both efforts and adds only its loss; otherwise
+# nearest below is carried unchanged. [18 Sep - 26 Oct 2026]
 class QualityRatesEveryEffort(unittest.TestCase):
     def setUp(self):
         self.rated = quality.rated(ROWS, "execute")
@@ -65,6 +68,12 @@ class QualityRatesEveryEffort(unittest.TestCase):
     def test_the_best_is_of_rows_with_the_index(self):
         self.assertEqual(points(self.rated, "echo-1", "none")[F], (-30, "measured"))
 
+    # ak rates every current model per effort and role on quality and cost alone;
+    # speed is ak's to fix, subscriptions follow the choice. The check rates only
+    # rows with at least two measured or carried role measures.
+    # Reason: the marks were intuition; on quality alone the smartest row took every
+    # role at twelve times the cost of one the boards cannot tell from it.
+    # [18 Sep - 26 Oct 2026]
     def test_quality_and_cost(self):
         self.assertAlmostEqual(found(self.rated, "acme-5", "low")["quality"],
                                100 - (0.4 * 5 + 0.2 * 10 + 0.4 * 5))
@@ -74,14 +83,22 @@ class QualityRatesEveryEffort(unittest.TestCase):
                          [2.0, 1.0, None])
         self.assertNotIn("fizz-1", {r["release"] for r in self.rated})
 
-    def test_pick_is_the_cheapest_within_of_the_best(self):
-        rated = [r for r in self.rated if r["release"] != "echo-1"]     # above 100, unpriced
-        self.assertEqual(quality.pick(rated, 5), found(rated, "acme-5", "high"))
-        self.assertEqual(quality.pick(rated, 10), found(rated, "acme-5", "low"))
-        self.assertIsNone(quality.pick(self.rated, 5))
-        same = [{"quality": 90, "cost": 1.0}, {"quality": 95, "cost": 1.0}, {"quality": 99, "cost": None}]
-        self.assertEqual(quality.pick(same, 10), same[1])
-        self.assertIsNone(quality.pick([{"quality": 99, "cost": None}], 10))
+    def test_pick_discards_dominated_and_collinear_rows_and_falls_back_to_best(self):
+        rows = [{"quality": q, "cost": c, "se": 0} for q, c in
+                ((70, 0), (80, 1), (90, 2), (100, 100), (95, 100), (99, None))]
+        self.assertIs(quality.pick(rows, "execute"), rows[2])
+        self.assertIs(quality.pick(rows, "review"), rows[3])
+        self.assertIs(quality.pick(rows[:2], "execute"), rows[1])
+        self.assertIsNone(quality.pick(rows[-1:], "execute"))
+
+    def test_the_quality_difference_must_be_strictly_under_the_interval(self):
+        rows = [{"quality": q, "cost": c, "se": se} for q, c, se in
+                ((0, 1, 0), (2, 2, 0), (100, 1000, 50))]
+        for role in ("orchestrate", "review"):
+            self.assertIs(quality.pick(rows, role), rows[2])
+            rows[1]["se"] = 0.1
+            self.assertIs(quality.pick(rows, role), rows[1])
+            rows[1]["se"] = 0
 
 
 if __name__ == "__main__":

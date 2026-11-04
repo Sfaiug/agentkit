@@ -23,6 +23,7 @@ NOW = 1_800_000_000
 WEEK = 7 * 86400
 
 
+# these numbers never pick a model. [2 Oct, 14 Oct, 27 Oct]
 class Scoreboard(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-scoreboard-", dir=REPO)
@@ -198,8 +199,10 @@ class Scoreboard(unittest.TestCase):
                                  "intent": [None, None],
                                  "owner": [None, None],
                                  "built": [None, None], "waits": [None, None], "merged": [None, None],
-                                 "parks": [None, None], "sunk": [None, None], "broke": [None, None],
-                                 "size": [None, None]})
+                                 "checks": [None, None],
+                                 "parks": [None, None], "conflicts": [None, None],
+                                 "sunk": [None, None], "broke": [None, None],
+                                 "pairs": [None, None], "findings": [None, None], "size": [None, None]})
         text = self.status("--history")
         self.assertIn("no runs ended", text)
         self.assertIn("size unavailable", text)
@@ -217,7 +220,44 @@ class Scoreboard(unittest.TestCase):
         before = history.path().read_bytes()
         stats = scoreboard.compute(NOW)["products"][0]
         self.assertEqual((stats["runs"], stats["hours"], stats["tokens"]), (1, 1, 100))
+        self.assertEqual(scoreboard.compute(NOW)["checks"], [None, None])
         self.assertEqual(history.path().read_bytes(), before)
+
+    def test_review_pairs_count_merged_changes_with_known_pairs_and_landing_results(self):
+        cases = (("self-red", "self", 2), ("self-green", "self", 0),
+                 ("same", "same provider", 0), ("other", "other provider", 1),
+                 ("unknown", None, 1), ("unmerged", "self", 1),
+                 ("previous", "same provider", None), ("earlier", "other provider", 1))
+        for name, pair, red in cases:
+            self.ended(name, ago=WEEK + 1 if name == "previous" else 2 if name == "earlier" else 1,
+                       merged=name != "unmerged")
+            with sqlite3.connect(history.path()) as db:
+                db.execute("UPDATE runs SET review_pair=?, landing_breaks=?, change=? WHERE run_id=?",
+                           (pair, red, "acme/widgets#1" if name in ("earlier", "same") else name, name))
+        self.assertEqual(scoreboard.compute(NOW)["pairs"], [
+            {"self": .5, "self_landing": .5, "same_provider": .25,
+             "same_provider_landing": 0, "other_landing": 1},
+            {"self": 0, "self_landing": None, "same_provider": 1,
+             "same_provider_landing": None, "other_landing": None}])
+
+    def test_findings_match_earlier_blocking_rounds_and_count_each_date_boundary_once(self):
+        history.start_run("fix-api", repo="acme", started_at=NOW - 3 * WEEK)
+        rows = [(1, "api.py", "finding", "first", NOW - 2 * WEEK - 1),
+                (2, "api.py", "finding", "first", NOW),
+                (2, "api.py", "finding", "first", NOW - WEEK),
+                (2, "api.py", "finding", "second", NOW - 1),
+                (2, "api.py", "finding", "second", NOW - 2),
+                (3, "other.py", "finding", "first", NOW - 3),
+                (1, "api.py", "note", "note proof", NOW - 10),
+                (2, "api.py", "finding", "note proof", NOW - 4),
+                (1, "before.py", "finding", "old", NOW - 2 * WEEK),
+                (3, "api.py", "finding", "first", NOW + 1)]
+        with closing(sqlite3.connect(history.path())) as db, db:
+            db.executemany("INSERT INTO findings (run_id, round, path, kind, proof, at) "
+                           "VALUES ('fix-api', ?, ?, ?, ?, ?)", rows)
+        self.assertEqual(scoreboard.compute(NOW)["findings"], [
+            {"blocking": 6, "disputed": 0, "conceded": 0, "raised_again": 2},
+            {"blocking": 1, "disputed": 0, "conceded": 0, "raised_again": 0}])
 
     def test_render_keeps_the_existing_text(self):
         board = {
@@ -234,40 +274,56 @@ class Scoreboard(unittest.TestCase):
             "built": [None, None],
             "waits": [{"compute": .25, "merge_hours": 1.5, "lander_hours": .5}, None],
             "merged": [{"model": 1.375, "ak": 1.875, "waiting": 0.75, "seat": 1.0}, None],
+            "checks": [{"suites": 1.32, "hours": 1.45}, None],
             "parks": [None, None],
+            "conflicts": [None, None],
             "sunk": [{"share": .4, "tokens": 1200}, None],
-            "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "unknown": 1}, None],
+            "broke": [{"merged": 2, "after_merge": 1, "landing": 1, "flakes": 2, "unknown": 1}, None],
+            "pairs": [{"self": .5, "self_landing": .25, "same_provider": .3,
+                       "same_provider_landing": .4, "other_landing": .1}, None],
+            "findings": [{"blocking": 4, "disputed": 3, "conceded": 2, "raised_again": 1}, None],
         }
         expected = [
             "Scoreboard (reported tokens; size now and 7 days ago)",
-            "          last 7 days                                   7 days before",
-            "products  3 runs ended; 33% merged in round 1; 33%      no runs ended",
-            "          ended without merging; median 1.5 hours to",
-            "          merge; median 1,500 tokens per merged run",
-            "ak        1 runs ended; 0% merged in round 1; 100%      1 runs ended; 100% merged in round 1; 0%",
-            "          ended without merging; no merged runs; 60%    ended without merging; merge hours unknown;",
-            "          of all recorded tokens                        median tokens per merged run unknown; no",
-            "                                                        tokens recorded",
-            "tokens    no tokens recorded                            no tokens recorded",
-            "intent    not recorded                                  no intent measured",
-            "owner     2 questions asked, 3 cards sent, median 1.2   0 questions asked, 0 cards sent",
-            "          hours waiting for an answer",
-            "built     no runs ended                                 no runs ended",
-            "waits     25% of run time waiting for a slot or its     not recorded",
-            "          own suite turn; 1.5 hours in a landing line,",
-            "          where checks waited 0.5 hours for a suite",
-            "          turn",
-            "merged    median hours per merged change: 1.4 in model  no merged change",
-            "          turns, 1.9 ak's own work, 0.8 waiting, 1.0",
-            "          with its seat between runs",
-            "parks     not recorded                                  not recorded",
-            "sunk      40% of the week's tokens, 1,200, went to      no tokens recorded",
-            "          runs that never merged",
-            "broke     1 of 2 merged changes broke main or live      no merged change",
-            "          after merge; 1 went red at landing; 1 merged",
-            "          before breaks were recorded",
-            "ak size   17 code lines, 5 README words, 9 AGENTS.md    size unavailable",
-            "          words",
+            "              last 7 days                                 7 days before",
+            "products      3 runs ended; 33% merged in round 1; 33%    no runs ended",
+            "              ended without merging; median 1.5 hours to",
+            "              merge; median 1,500 tokens per merged run",
+            "ak            1 runs ended; 0% merged in round 1; 100%    1 runs ended; 100% merged in round 1; 0%",
+            "              ended without merging; no merged runs; 60%  ended without merging; merge hours",
+            "              of all recorded tokens                      unknown; median tokens per merged run",
+            "                                                          unknown; no tokens recorded",
+            "tokens        no tokens recorded                          no tokens recorded",
+            "intent        not recorded                                no intent measured",
+            "owner         2 questions asked, 3 cards sent, median     0 questions asked, 0 cards sent",
+            "              1.2 hours waiting for an answer",
+            "built         no runs ended                               no runs ended",
+            "waits         25% of run time waiting for a slot or its   not recorded",
+            "              own suite turn; 1.5 hours in a landing",
+            "              line, where checks waited 0.5 hours for a",
+            "              suite turn",
+            "merged        median hours per merged change: 1.4 in      no merged change",
+            "              model turns, 1.9 ak's own work, 0.8",
+            "              waiting, 1.0 with its seat between runs",
+            "checks        1.32 suite runs and 1.45 check hours per    not recorded",
+            "              merged change",
+            "parks         not recorded                                not recorded",
+            "conflicts     no merged change                            no merged change",
+            "sunk          40% of the week's tokens, 1,200, went to    no tokens recorded",
+            "              runs that never merged",
+            "broke         1 of 2 merged changes broke main or live    no merged change",
+            "              after merge; 1 went red at landing; 2 more",
+            "              were flakes; 1 merged before breaks were",
+            "              recorded",
+            "review pairs  50% self-reviewed (25% went red at          not recorded",
+            "              landing); 30% reviewed by another model of",
+            "              the same provider (40% went red at",
+            "              landing); another provider: 10% went red",
+            "              at landing",
+            "findings      4 blocking; 3 disputed; 2 of 3 conceded; 1  not recorded",
+            "              of 4 raised again",
+            "ak size       17 code lines, 5 README words, 9 AGENTS.md  size unavailable",
+            "              words",
         ]
         with patch.object(scoreboard, "compute", return_value=board), \
                 patch.object(terminal, "content_width", return_value=100):

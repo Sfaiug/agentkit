@@ -26,7 +26,7 @@ INFO = {"state": "OPEN", "title": "Change line 5", "author": "owner", "baseRefNa
 
 class ReviewRestart(LiveRuns):
     def parked_review(self):
-        """A seat's own pull request's review, stopped waiting on the older run (`leases.park`)
+        """A seat's own pull request's review, stopped waiting on the older run before parking retired,
         with the writer it captured at its launch; the older run has landed since."""
         self.run_on(OLDER, 900, state="pass")
         record.save_state(config.RUNS / OLDER, {**self.state(OLDER), "merged": True})

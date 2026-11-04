@@ -1,12 +1,12 @@
-"""A task's first review takes at most 300 added lines, a seat's own pull request under 50.
+"""A task's first review takes at most 300 added lines, a seat's own pull request at most 50.
 
 Big changes merged far less often, so a task's change reaches its first reviewer only up to 300
-added lines, past them refused with `split it`, and a seat builds only what stays under 50,
-from 50 told to write a task for a worker.  What counts is what a reviewer reads: deleted lines
+added lines, past them refused with `split it`, and a seat builds at most 50,
+above 50 told to write a task for a worker.  What counts is what a reviewer reads: deleted lines
 never count, nor files the target marks generated, nor blocks moved unchanged (whitespace
 aside) from lines the same change deletes.  A task's change past the ceiling ends the run
 blocked before any reviewer turn, its work kept on its branch for the pieces; a seat's own pull
-request from 50 lines is refused at launch.  A later review of the same change, after a fix, is
+request above 50 lines is refused at launch.  A later review of the same change, after a fix, is
 not held to it.  Black-box: the program `AK_BIN` names runs from outside
 through tests/fixtures/akbin.py, on a project from gitrig.py, with scripted harnesses from
 fakeadapter.py and, for pull requests, the GitHub of fakegh.py.
@@ -109,7 +109,7 @@ class TaskChange(unittest.TestCase):
         self.assertEqual((state["state"], state["verdict"], reviewed), ("blocked", "BLOCKED", 0))
         self.assertIn(f"BLOCKED {why}\n", (run_dir / "log.txt").read_text())
         lines = (run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], f"# BLOCKED — {title}")
+        self.assertEqual(lines[0], f"# BLOCKED (0 of 3) — {title}")
         for line in ("VERDICT: BLOCKED", "rounds: 0 of 3", "## Blocked", why):
             self.assertIn(line, lines)
 
@@ -165,7 +165,7 @@ class SeatPullRequest(unittest.TestCase):
         fakes = fakeadapter.install(cls.home, claude="pass", codex="pass")
         Seat(cls.home, "acme", model="opus", cwd=cls.rig.path, alive=False, planned=True)
         cls.reviews = {}
-        for branch, count in (("big-change", 50), ("fit-change", 49)):
+        for branch, count in (("big-change", 51), ("fit-change", 50)):
             cls.rig.branch(branch, {f"{branch}.txt": rows(count)})
             url = cls.gh.open_pr(cls.rig, branch, title=branch)
             before = reviews(fakes)
@@ -176,20 +176,20 @@ class SeatPullRequest(unittest.TestCase):
                         if path.name.endswith(f"-review-pr-widgets-{url.split('/')[-1]}")]
             cls.reviews[branch] = (done, run_dir, reviews(fakes) - before)
 
-    def test_a_pull_request_of_50_lines_is_refused_at_launch_unreviewed(self):
+    def test_a_pull_request_of_51_lines_is_refused_at_launch_unreviewed(self):
         done, run_dir, reviewed = self.reviews["big-change"]
-        why = ("PR #1 adds 50 lines (generated files and unchanged moves aside): too big for the "
-               "seat, which builds under 50 added lines. Write it as a task and launch it; a "
+        why = ("PR #1 adds 51 lines (generated files and unchanged moves aside): too big for the "
+               "seat, which builds at most 50 added lines. Write it as a task and launch it; a "
                "worker builds it")
         self.assertEqual(done.code, 2, done.out + done.err)
         self.assertIn(why, done.err)
         self.assertEqual(reviewed, 0)
         lines = (run_dir / "result.md").read_text().splitlines()
-        self.assertEqual(lines[0], "# FAIL — Review PR #1: big-change")
+        self.assertEqual(lines[0], "# ERROR (0 of 0) — Review PR #1: big-change")
         self.assertIn(why, lines)
         self.assertEqual((self.gh.pr(1)["state"], self.gh.pr(1)["reviews"]), ("OPEN", []))
 
-    def test_a_pull_request_of_49_lines_gets_its_review(self):
+    def test_a_pull_request_of_50_lines_gets_its_review(self):
         done, run_dir, reviewed = self.reviews["fit-change"]
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual(reviewed, 1)

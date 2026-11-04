@@ -34,6 +34,9 @@ MONITOR = {"id": "bg1", "type": "monitor", "status": "running", "description": "
 SHELL = {"id": "bg2", "type": "shell", "status": "running", "description": "sleep 600"}
 
 
+# Between turns a seat leaves one running low, or, holding background work, only
+# one spent, told to pick that work up; a phone prompt as it restarts may be lost.
+# [29 Sep, 21, 24 Oct 2026]
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class BackgroundWorkHoldsTheAccount(unittest.TestCase):
     def setUp(self):
