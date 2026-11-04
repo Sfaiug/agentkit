@@ -48,6 +48,7 @@ def finish(cls):
     cls.result = (cls.run_dir / "result.md").read_text().splitlines()
 
 
+# Review rounds per change are settings on the settings screen. [30 Oct 2026]
 class FiveRounds(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
