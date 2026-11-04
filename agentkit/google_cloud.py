@@ -256,13 +256,14 @@ def not_serving():
 
 def _routes():
     """The ssh config's text, including routes finishing work while renting is off."""
-    return (config.STATE / SSH_CONFIG).read_text() if ssh_config() else ""
+    path = config.STATE / SSH_CONFIG
+    return path.read_text() if path.exists() else ""
 
 
-def ssh_config():
-    """ssh's words reaching rented machines, including work finishing while renting is off."""
-    path = config.STATE / SSH_CONFIG     # replaced whole, never removed
-    return ("-F", str(path)) if path.exists() else ()
+def ssh_config(alias=None):
+    """A rental's route, even while renting is off; other aliases keep SSH's own config."""
+    return (("-F", str(config.STATE / SSH_CONFIG))
+            if alias and f"Host {alias}\n" in _routes() else ())
 
 
 def give_back(machine):
@@ -614,7 +615,7 @@ def _serve(machines, ready):
     temp.write_text("".join(f"Host {one.name}\n" + f"  # until {int(one.until)}\n" * (
         one.id in ready) + "".join('  %s "%s"\n' % option for option in _reach(one).items())
         for one in machines)
-        + "Host *\n  Include ~/.ssh/config\nHost *\n  Include /etc/ssh/ssh_config\n")
+        + "Host *\n  Include ~/.ssh/config\n")
     temp.replace(path)
 
 

@@ -76,7 +76,7 @@ def check():
     """The tick's: asks each machine once, side by side, and records what it answered."""
     script, now, machines = PROBE.read_text(), time.time(), known()
     answers = ask([["bash", "-c", script] if machine.name == HERE else
-                   [*SSH, *google_cloud.ssh_config(), "--", machine.name,
+                   [*SSH, *google_cloud.ssh_config(machine.name), "--", machine.name,
                     shlex.join(["bash", "-c", script])] for machine in machines])
     record = {}
     for machine, answer in zip(machines, answers):

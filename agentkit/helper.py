@@ -50,7 +50,7 @@ Away = namedtuple("Away", "alias key repo image count cpus memory_mb most branch
 
 
 def _remote(alias, verb, *args, **kwargs):
-    argv = [*SSH, *google_cloud.ssh_config(), alias, _line(verb, *args)]
+    argv = [*SSH, *google_cloud.ssh_config(alias), alias, _line(verb, *args)]
     return subprocess.run(argv, capture_output=True, **kwargs) if kwargs else argv
 
 

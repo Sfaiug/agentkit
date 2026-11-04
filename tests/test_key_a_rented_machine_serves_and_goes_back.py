@@ -187,33 +187,37 @@ class ARentedMachineServesAndGoesBack(unittest.TestCase):
         self.assertFalse(self.reached_work_off)
 
     def test_off_preserves_owned_helpers_ssh_settings_even_after_rentals_end(self):
-        system = self.home.write("ssh_config", "Host acme-owned acme-user\n"
-                                 "  HostName 192.0.2.42\n  User acme\n  Port 2222\n")
+        system = self.home.write("ssh/ssh_config", "Include ssh_config.d/*.conf\n").parent
+        self.home.write("ssh/ssh_config.d/owned.conf", "Host acme-owned acme-user\n"
+                        "  HostName 192.0.2.42\n  User acme\n  Port 2222\n")
         user = self.home.write("ssh_user", "Host acme-user\n  User acme-user\n  Port 2223\n"
                                "Host acme-other\n  Port 2224\n")
         real_home = pwd.getpwuid(os.getuid()).pw_dir
         box = ["bwrap", "--ro-bind", "/", "/", "--dev-bind", "/dev", "/dev", "--unshare-net",
                "--tmpfs", real_home, "--ro-bind", str(self.home.root), str(self.home.root),
                "--dir", f"{real_home}/.ssh", "--ro-bind", str(user),
-               f"{real_home}/.ssh/config", "--ro-bind", str(system), "/etc/ssh/ssh_config", "--"]
-
-        def resolved(host, options=()):
-            done = subprocess.run([*box, REAL_SSH, "-G", *options, host], cwd="/",
-                                  env={**os.environ, "HOME": real_home},
-                                  capture_output=True, text=True, check=True, timeout=15)
-            values = dict(line.split(" ", 1) for line in done.stdout.splitlines() if " " in line)
-            return tuple(values[key] for key in ("hostname", "user", "port"))
-
+               f"{real_home}/.ssh/config", "--ro-bind", str(system), "/etc/ssh", "--"]
+        self.toml.write_text(self.toml.read_text() + "\n[machines.acme-owned]\n[machines.acme-user]\n")
+        self.home.fake("ssh", f"""#!{sys.executable}
+import json, os, subprocess, sys
+*options, host, line = sys.argv[1:]
+done = subprocess.run({[*box, REAL_SSH]!r} + ["-G", *options, host], cwd="/",
+                      env={{**os.environ, "HOME": {real_home!r}}}, capture_output=True,
+                      text=True, check=True, timeout=15)
+values = dict(line.split(" ", 1) for line in done.stdout.splitlines() if " " in line)
+with open({str(self.home.log("ssh"))!r}, "a") as log:
+    log.write(json.dumps([host, [values[key] for key in ("hostname", "user", "port")]]) + "\\n")
+sys.exit(255)
+""")
         cases = (("acme-owned", ("192.0.2.42", "acme", "2222")),
                  ("acme-user", ("192.0.2.42", "acme-user", "2223")))
-        for host, expected in cases:
-            self.assertEqual(resolved(host), expected)
         for remaining in (self.google.machines, []):
             self.google.machines = remaining
+            self.home.log("ssh").unlink(missing_ok=True)
             self.tick()
+            seen = dict(self.home.calls("ssh"))
             for host, expected in cases:
-                self.assertEqual(resolved(host, ("-F", str(
-                    self.home.path / ".agentkit/state/google-cloud-ssh-config"))), expected)
+                self.assertEqual(tuple(seen[host]), expected)
 
 
 if __name__ == "__main__":
