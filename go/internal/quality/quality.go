@@ -148,10 +148,10 @@ func worth(kind string, best, value float64) float64 {
 
 // A Row is one release at one effort: Effort "" where it names none, Values its numbers by column.
 type Row struct {
-	Release, Name, Effort string
-	Values                *run.Object
-	Yours                 bool
-	Runners               [][2]string // harness and model pairs the lineup found for this row
+	Release, Name, Effort, Maker string
+	Values                       *run.Object
+	Yours                        bool
+	Runners                      [][2]string // harness and model pairs the lineup found for this row
 }
 
 // A Measure is how a row got its score on one column: How "measured", "carried" (from the effort

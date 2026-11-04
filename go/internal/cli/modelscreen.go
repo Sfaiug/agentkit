@@ -38,8 +38,11 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 	answer := quality.Answer(found.Rows, compared)
 	var rows []*quality.Rating
 	var roles []string
+	var colours map[string]string
+	pointing := false
 	at, top, note := -1, 0, ""
 	lineup := func() {
+		colours = modelColours(found.Rows)
 		rows, roles = nil, nil
 		at = -1
 		for _, role := range quality.Roles {
@@ -77,8 +80,12 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 			current[row.Release] = true
 		}
 		s := keyboard.Screen()
+		light := menu.ModelLight{}
+		if pointing && at >= 0 && at < len(rows) {
+			light = menu.ModelLight{Maker: rows[at].Maker, Colour: colours[rows[at].Maker]}
+		}
 		frame := menu.ModelsFrame(s, "config · recommended · "+scope, menu.ModelsSaid(s, answer, found.Rows),
-			compared, len(current), found.Fetched, at, top, note)
+			compared, len(current), found.Fetched, at, top, note, light)
 		top = frame.Top
 		painter.Write(frame.Lines, s)
 		key := keyboard.ReadKey()
@@ -88,22 +95,28 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 		case key.Name == "again":
 			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
+			pointing = true
 			at = max(0, at-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
+			pointing = true
 			at = min(len(rows)-1, at+1)
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
+				pointing = true
 				step := -1
 				if mouse.Button&1 != 0 {
 					step = 1
 				}
 				at = max(0, min(len(rows)-1, at+step))
 			} else if row, _, hit := frame.Hit(mouse); hit {
+				pointing = true
 				at = row
 				if mouse.Released && mouse.Button&3 == 0 {
 					key.Name = "enter"
 				}
+			} else {
+				pointing = false
 			}
 		case key.Name == "char" && key.Char == "p":
 			return false // choosing the compared releases follows in models_pick
