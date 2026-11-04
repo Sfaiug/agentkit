@@ -38,6 +38,16 @@ func RetryPending(said func(string) (string, any), errOut io.Writer) (bool, erro
 			if err != nil || event == nil || retrySettled(event) {
 				return err
 			}
+			seat, err := readObject(seatFile("seat", current, "json"))
+			if err != nil {
+				return err
+			}
+			if seat != nil && seat.Truthy("closed_by_owner") {
+				event.Set("status", "disabled")
+				event.Set("error", "its seat was closed by the owner")
+				event.Set("next_attempt", nil)
+				return writeEvent(event)
+			}
 			if !retryQuestion(event) || !UnansweredQuestion(current) {
 				carried = false
 				return nil
