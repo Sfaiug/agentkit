@@ -55,7 +55,7 @@ class MachinesOnC(unittest.TestCase):
             "memory_mb": memory * 1024, "free_mb": free * 1024, "load": load,
             "disk_free_mb": 102400, "battery": system == "macOS", "power": 1}}
 
-    def page(self, width=120):
+    def page(self, *rows, width=120):
         self.term = Terminal(self.home, "attach", "--overlay", size=(width, 40),
                              env={"NO_COLOR": "1"})
         self.term.wait("esc leave")
@@ -65,8 +65,11 @@ class MachinesOnC(unittest.TestCase):
         self.term.keys(*(["Down"] * 5))       # one model, then the fifth config row
         self.term.wait("› Machines")
         self.term.keys("Enter")
+        # A new title can still have the preceding config body beneath it.
         return self.term.wait(lambda screen: "config · machines" in screen
-                              and "Google Cloud" in screen and "esc back" in screen)
+                              and "Google Cloud" in screen and "esc back" in screen
+                              and all(row in " ".join(screen.split()) for row in (
+                                  "this one home", "acme-mac", *rows)))
 
     def leave(self):
         self.term.keys("Escape", "Escape", "Escape")
@@ -76,18 +79,17 @@ class MachinesOnC(unittest.TestCase):
 
     def test_each_machine_says_what_it_is_and_what_work_it_takes(self):
         before = [path.read_bytes() for path in (self.config, self.readings, self.ledger, self.route)]
-        shown = " ".join(self.page().split())
+        shown = " ".join(self.page(
+            "this one home · 8 cores · 16 GB · 55% busy · 7 of 16 GB used · "
+            "sessions, builds, reviews, tests",
+            "acme-mac sometimes on · 4 cores · 8 GB · 25% busy · 2 of 8 GB used · tests",
+            "acme-rental rented until 15:44 · 16 cores · 32 GB · 50% busy · "
+            "10 of 32 GB used · builds, reviews, tests",
+            "Google Cloud on · €31.74 of €200 this month · 2 machines up").split())
         self.assertIn("3 · Google Cloud on · €31.74 of €200 this month",
                       " ".join(self.config_screen.split()))
         self.assertLess(shown.index("this one"), shown.index("acme-mac"))
         self.assertLess(shown.index("acme-mac"), shown.index("acme-rental"))
-        self.assertIn("this one home · 8 cores · 16 GB · 55% busy · 7 of 16 GB used · "
-                      "sessions, builds, reviews, tests", shown)
-        self.assertIn("acme-mac sometimes on · 4 cores · 8 GB · 25% busy · 2 of 8 GB used · tests",
-                      shown)
-        self.assertIn("acme-rental rented until 15:44 · 16 cores · 32 GB · 50% busy · "
-                      "10 of 32 GB used · builds, reviews, tests", shown)
-        self.assertIn("Google Cloud on · €31.74 of €200 this month · 2 machines up", shown)
         # Enter and Space on these rows have no act, and the key line offers neither.
         self.term.keys("Enter", "Space", "Down")
         same = self.term.wait("› acme-mac")
@@ -100,15 +102,12 @@ class MachinesOnC(unittest.TestCase):
 
     def test_turns_off_the_other_machines_take_tests_alone(self):
         self.write_config(turns=False)
-        shown = " ".join(self.page().split())
-        self.assertIn("10 of 32 GB used · tests", shown)
-        self.assertIn("sessions, builds, reviews, tests", shown)
+        self.page("10 of 32 GB used · tests", "sessions, builds, reviews, tests")
         self.leave()
 
     def test_inactive_cloud_says_off(self):
         self.write_config(active=False)
-        shown = " ".join(self.page().split())
-        self.assertIn("Google Cloud off", shown)
+        shown = " ".join(self.page("Google Cloud off").split())
         self.assertNotIn("€", shown)
         self.assertIn("2 · Google Cloud off", " ".join(self.config_screen.split()))
         self.leave()
@@ -121,8 +120,7 @@ class MachinesOnC(unittest.TestCase):
                     self.ledger.unlink()
                 else:
                     self.ledger.write_text(content)
-                shown = " ".join(self.page().split())
-                self.assertIn("Google Cloud on · spend unknown", shown)
+                shown = " ".join(self.page("Google Cloud on · spend unknown").split())
                 self.assertNotIn("€", shown + self.config_screen)
                 self.leave()
 
@@ -133,11 +131,9 @@ class MachinesOnC(unittest.TestCase):
         self.home.write(".agentkit/state/machines.json", {
             "this one": self.machine("Linux", 8, 16, 9, 4.4),
             "acme-mac": silent})
-        screen = self.page(width=40)
-        shown = " ".join(screen.split())
-        self.assertIn("not answering since 18:40 · tests", shown)
-        self.assertIn("acme-rental rented until 15:44 · never answered · builds, reviews, tests",
-                      shown)
+        screen = self.page("not answering since 18:40 · tests",
+                           "acme-rental rented until 15:44 · never answered · builds, reviews, tests",
+                           width=40)
         self.assertTrue(all(len(line) <= 40 for line in screen.splitlines()))
         self.leave()
 
