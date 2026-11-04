@@ -940,7 +940,8 @@ def _attempt(event):
     post(event["payload"], [], event["message"], receipt)
     event["status"] = receipt["status"]
     if event["status"] == "delivered":
-        history.owner_time("paged", time.time(), session=event["session"])
+        session = _name_now(event["session"]) if event["session"] else None
+        history.owner_time("paged", time.time(), session=session)
     event["receipt"] = {k: receipt[k] for k in ("message_id", "webhook") if k in receipt}
     if receipt.get("error"):
         event["error"] = receipt["error"]

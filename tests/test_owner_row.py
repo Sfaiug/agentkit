@@ -18,7 +18,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import history, notify, scoreboard, terminal, watch
+from agentkit import config, history, notify, scoreboard, terminal, watch
 
 SEAT = "fix-api"
 NOW = 1_800_000_000
@@ -76,6 +76,24 @@ class OwnerRow(Sandbox):
                                                (350.0, "answered", 190.0)])
         with closing(sqlite3.connect(history.path())) as db:
             self.assertEqual(db.execute("SELECT conversation FROM owner").fetchall(), [("claude:c1",)] * 5)
+
+    def test_a_page_retried_after_a_rename_keeps_its_conversation(self):
+        config.save_session(self.cfg, SEAT, "opus", ["astra"],
+                            {"cwd": str(self.root), "conversation": "c1"})
+        self.attempt("pending", NOW - 60)
+        config.rename_session(SEAT, "parser")
+
+        def post(payload, files, message, receipt):
+            receipt.update(status="delivered")
+
+        with patch.object(notify, "webhook", return_value="https://hooks.invalid/x"), \
+                patch.object(notify, "post", post), \
+                patch.object(notify, "installed_at", return_value=0), \
+                patch.object(watch, "seat_closed_by_owner", return_value=False):
+            notify.retry_pending()
+        with closing(sqlite3.connect(history.path())) as db:
+            self.assertEqual(db.execute("SELECT kind, conversation FROM owner").fetchall(),
+                             [("paged", "claude:c1")])
 
     def test_a_card_answered_before_its_question_is_asked_again_keeps_its_own_time(self):
         with patch.object(watch.time, "time", return_value=100.0):
