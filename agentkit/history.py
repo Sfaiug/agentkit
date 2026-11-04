@@ -195,8 +195,8 @@ CREATE TABLE IF NOT EXISTS findings (
 )
 """
 
-# The owner's time, one row per moment and no seat named: each is whole when written, so no
-# rename, reused name or order of hooks can change it later.
+# The owner's time, one row per moment, keyed by harness and conversation as dones are: no
+# rename or reused seat name moves it. NULL with no record, an unknown conversation or an older row.
 OWNER_SCHEMA = """
 CREATE TABLE IF NOT EXISTS owner (
     at REAL,
@@ -204,6 +204,7 @@ CREATE TABLE IF NOT EXISTS owner (
     waited REAL
 )
 """
+OWNER_MIGRATIONS = (("conversation", "TEXT"),)
 # A seat's done, one row each, keyed by its harness and conversation so a rename or a reused
 # name moves nothing: `began` is the owner's first message there since its previous done, NULL
 # where ak cannot know it or the done finished nothing new.  `work` fingerprints the seat's
@@ -260,7 +261,7 @@ def _connect(*, readonly=False):
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
-                              ("reviews", REVIEW_MIGRATIONS),
+                              ("reviews", REVIEW_MIGRATIONS), ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
@@ -779,11 +780,17 @@ def parks(since, until):
         return None
 
 
-def owner_time(kind, at, waited=None, *, log=None):
+def owner_time(kind, at, waited=None, *, session=None, log=None):
     """A moment of the owner's time: a question a seat `asked` them, a card `paged` to them, or
     a question `answered`, `waited` seconds after it was asked."""
-    _write(lambda connection: connection.execute(
-        "INSERT INTO owner (at, kind, waited) VALUES (?, ?, ?)", (at, kind, waited)), log)
+    from . import notify
+
+    def insert(connection):
+        seat = notify.conversation_of(session) if session else None
+        conversation = f"{seat[0].name}:{seat[3]}" if seat and seat[3] else None
+        connection.execute("INSERT INTO owner (at, kind, waited, conversation) VALUES (?, ?, ?, ?)",
+                           (at, kind, waited, conversation))
+    _write(insert, log)
 
 
 def owner(since, until):
@@ -822,10 +829,11 @@ def done(conversation, at, began, runs=(), *, work=None, log=None):
 
 
 def dones(since, until):
-    """The dones in the inclusive range, `(at, began, live)`: `live` once each of its runs has
+    """The dones in the inclusive range, `(at, began, live, answered)`: `live` once each run has
     ended and each that passed is live, the last of them; None while one runs, where one passed
     without going live (no merge, or no `health:` to prove it), a run has no row, or none
-    passed.  None where the database cannot answer."""
+    passed. `answered` sums that conversation's answered waits between began and done, zero
+    with none, None before owner rows named conversations. None where the database cannot answer."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -839,7 +847,12 @@ def dones(since, until):
                         "WHERE done_runs.conversation = dones.conversation AND done_runs.at = dones.at)"
                         if connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'done_runs'").fetchone()
                         else "NULL")
-                return connection.execute(f"SELECT at, began, {live} FROM dones WHERE at >= ? AND at <= ?",
+                answers = ("(SELECT COALESCE(SUM(waited), 0) FROM owner WHERE kind = 'answered' "
+                           "AND owner.conversation = dones.conversation "
+                           "AND owner.at >= dones.began AND owner.at <= dones.at)"
+                           if "conversation" in {row[1] for row in connection.execute("PRAGMA table_info(owner)")}
+                           else "NULL")
+                return connection.execute(f"SELECT at, began, {live}, {answers} FROM dones WHERE at >= ? AND at <= ?",
                                           (since, until)).fetchall()
             finally:
                 connection.close()

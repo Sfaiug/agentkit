@@ -131,7 +131,8 @@ def answer(lineup, compared=None):
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
     for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
-    no harness of yours runs is no reason to leave it out; and `take`: the same rule over yours."""
+    no harness of yours runs is no reason to leave it out; and `take`: the same rule over yours.
+    Keep the pick and take visible even if rows outside their eligible pool beat them."""
     out = {}
     for role in quality.ROLES:
         rated = quality.rated(lineup, role)
@@ -139,11 +140,12 @@ def answer(lineup, compared=None):
         best = max((row["quality"] for row in them), default=None)
         priced = sorted((row for row in them if row["cost"] is not None),
                         key=lambda row: (row["cost"], -row["quality"]))
-        front = sorted((row for n, row in enumerate(priced) if all(
+        pick = quality.pick(them, role)
+        take = quality.pick([row for row in them if row["yours"]], role)
+        front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
-        take = quality.pick([row for row in them if row["yours"]], role)
-        out[role] = {"rated": rated, "best": best, "pick": quality.pick(them, role),
+        out[role] = {"rated": rated, "best": best, "pick": pick,
                      "front": front, "take": take}
     return out
 

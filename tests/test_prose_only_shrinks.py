@@ -10,13 +10,12 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
-from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, roundloop
+from agentkit import change_rules, config
 
 
 def words(n):
@@ -57,7 +56,7 @@ class ProseOnlyShrinks(unittest.TestCase):
         """rules_check on a branch from `base` that writes `files` (None deletes one)."""
         self.git("checkout", "-q", "-B", "fix-api", base)
         self.commit(files)
-        return roundloop.rules_check(SimpleNamespace(wt=self.repo, base_sha=base, scratch=False))
+        return change_rules.rules_check(self.repo, base)
 
     def test_a_prose_file_only_shrinks(self):
         base = self.commit({"docs/guide.md": words(50)})
@@ -85,9 +84,9 @@ class ProseOnlyShrinks(unittest.TestCase):
 
     def test_a_root_readme_grows_to_300_words(self):
         base = self.commit({"api.py": "acme\n"})
-        self.assertEqual(self.check(base, {"README.md": words(roundloop.README_WORDS)}), "")
-        self.assertIn(f"past {roundloop.README_WORDS} words",
-                      self.check(base, {"README.md": words(roundloop.README_WORDS + 1)}))
+        self.assertEqual(self.check(base, {"README.md": words(change_rules.README_WORDS)}), "")
+        self.assertIn(f"past {change_rules.README_WORDS} words",
+                      self.check(base, {"README.md": words(change_rules.README_WORDS + 1)}))
 
     def test_a_rename_is_a_new_file(self):
         base = self.commit({"docs/guide.md": words(50)})

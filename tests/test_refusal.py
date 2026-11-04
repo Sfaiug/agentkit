@@ -202,7 +202,7 @@ class RefusalTests(unittest.TestCase):
 
     def test_nobody_to_hand_to_parks_exhausted_with_refusal_message(self):
         lp = SimpleNamespace(cfg=self.cfg, state={"executor": "astra"}, executor="astra",
-                             every=[], done_when_limit=60,
+                             every=[], done_when_limit=60, scratch=True,
                              exec_sid=None, wt=self.root, turn_limit=60, rnd=1,
                              dir=lambda name: self.root / "round-1" / name,
                              role=lambda role: role, save=lambda: None, log=lambda _: None)

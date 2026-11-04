@@ -13,7 +13,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from fixtures.hand_in import submitting
-from agentkit import config, deliver, gc, gitcall, handback, prompts, record, roundloop, run, worker
+from agentkit import change_rules, config, deliver, gc, gitcall, handback, prompts, record, roundloop, run, worker
 
 LIMIT = 64          # the test harness's read limit, far below any real one
 OLD_CUT = 8 * 1024  # where workers' rules used to be cut
@@ -194,6 +194,7 @@ class RulesCapTold(unittest.TestCase):
         self.assertFalse(ok, text)
         self.assertEqual(text.splitlines()[-1], line)
 
+    # its front matter holds only lines ak reads. [5 Oct]
     def test_a_front_matter_line_ak_does_not_read_fails_the_round(self):
         # a misspelled `tests:` would silently run no suite at landing
         self.commit_rules("---\nusers: none\n---\nAcme.\n")
@@ -276,6 +277,16 @@ class RulesCapTold(unittest.TestCase):
         self.commit_rules("x\n" * (LIMIT // 2))
         self.assertEqual(self.git("cat-file", "-s", "HEAD:AGENTS.md"), str(LIMIT))
         self.assertIn(f"AGENTS.md is {LIMIT // 2 * 3} bytes", run.rules_check(lp))
+
+    def test_an_unstaged_attributes_deletion_removes_crlf_from_the_byte_count(self):
+        attrs = self.repo / ".gitattributes"
+        attrs.write_text("AGENTS.md text eol=crlf\n")
+        self.git("add", ".gitattributes")
+        base = self.commit_rules("Acme.\n")
+        attrs.unlink()
+        self.path.write_text("\n" * (LIMIT // 2 + 1))
+        with gitcall.leftover_tree(self.repo) as (head, index):
+            self.assertEqual(change_rules.rules_check(self.repo, base, head=head, env=index), "")
 
     def test_a_pr_review_with_no_suite_checks_agents_md_and_says_why(self):
         # own PRs run no suite in review, nor do others' PRs with no `tests:`; a PASS merges

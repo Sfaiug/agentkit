@@ -92,6 +92,23 @@ class CardGoesOutOnce(Sandbox):
         self.assertEqual(self.late(), [503, 200])
         self.assertEqual(self.late(), [503, 200])
 
+    def test_an_unreadable_seat_record_after_acceptance_never_resends_the_card(self):
+        path = config.session_path(SEAT)
+        saved, post = path.read_text(), notify.post
+
+        def accepted(payload, files, message, receipt):
+            result = post(payload, files, message, receipt)
+            path.write_text("{")
+            return result
+
+        with patch.object(notify, "post", side_effect=accepted):
+            self.says("needs you", 10000, after=notify.CARD_WAIT)
+        event, = [json.loads(path.read_text()) for path in notify.outbox().glob("*.json")]
+        self.assertEqual((event["status"], event["receipt"]["message_id"]), ("delivered", "1"))
+        path.write_text(saved)
+        self.now += notify.RETRY_BACKOFF[0]
+        self.assertEqual(self.late(), [200])
+
     def test_an_answered_question_never_goes_out_late(self):
         self.asked_while_discord_was_down()
         notify.answered(SEAT, self.now)

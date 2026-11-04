@@ -75,11 +75,11 @@ class PickByRank(Sandbox):
 
 
 # Execute's quality here: 100 less how far the two shares are behind the best's, in hundredths.
-# Astra is the full lineup's bend; among two marks there is no bend, so the best picks.
+# Bolt is farthest above the full lineup's line; two marks tie, so the cheaper picks.
 ROWS = [("claude-opus-5-5", "Claude Opus 5.5", "high", 0.60, 4.0),        # 100
         ("claude-opus-5-5", "Claude Opus 5.5", "low", 0.50, 2.0),         # 90
         ("gpt-6-astra", "GPT 6 Astra", "high", 0.58, 1.0),                # 98
-        ("bolt-2", "Bolt 2", "high", 0.57, 0.5)]                          # 97
+        ("bolt-2", "Bolt 2", "high", 0.59, 1.5)]                          # 99
 OFFERS = {"claude": [{"id": "claude-opus-5-5", "efforts": ["low", "high"]},
                      {"id": "claude-fable-5-1", "efforts": ["high"]}],
           "codex": [{"id": "gpt-6-astra", "efforts": ["high"]}]}
@@ -110,21 +110,21 @@ class RankByTheAnswer(Sandbox):
         self.assertEqual(self.pick(), ["opus", "fable", "astra"])     # budget alone
         self.store()
         pick = matrix.answer(self.lineup)["execute"]["pick"]
-        self.assertEqual(pick["release"], "gpt-6-astra")
+        self.assertEqual(pick["release"], "bolt-2")
         ranks = matrix.rank(self.cfg, "execute", ["opus", "astra", "fable"])
         self.assertIsNone(ranks["fable"])                         # no row is Fable 5.1
-        self.assertEqual(self.pick(), ["opus", "astra", "fable"])
-        # Mark a third priced row: its bend wins, followed by quality rather than price.
+        self.assertEqual(self.pick(), ["astra", "opus", "fable"])
+        # A third priced mark moves the line: its farthest row wins, then quality ranks.
         next(row for row in self.lineup if row["release"] == "bolt-2")["yours"] = [{
             key: self.cfg["models"]["fable"][key] for key in ("harness", "model")}]
         self.store()
-        self.assertEqual(self.pick(), ["astra", "opus", "fable"])
+        self.assertEqual(self.pick(), ["fable", "opus", "astra"])
 
     def test_a_model_run_at_a_lower_effort_ranks_by_that_effort_s_quality(self):
         self.store()
         self.cfg["models"]["opus"]["exec_effort"] = "low"
         opus = matrix.rank(self.cfg, "execute", ["opus", "astra"])["opus"]
-        self.assertEqual(opus[:3], (1, False, 0.0))               # the best wins among two rows
+        self.assertEqual(opus[:3], (1, False, 0.0))               # the cheaper wins among two rows
         self.assertAlmostEqual(opus[3], -90)
         self.cfg["models"]["opus"]["exec_effort"] = "max"         # an effort no row is
         self.assertIsNone(matrix.rank(self.cfg, "execute", ["opus"])["opus"])
@@ -135,9 +135,9 @@ class RankByTheAnswer(Sandbox):
             matrix._answered.cache_clear()
             ranks = matrix.rank(self.cfg, "execute", ["opus", "astra"])
             self.assertEqual([ranks[name][:3] for name in ("astra", "opus")],
-                             [(1, False, 0.0), (0, False, 0.0)])
-            self.assertEqual(self.pick(), ["opus", "astra", "fable"])
-            self.assertEqual(self.pick(), ["opus", "astra", "fable"])
+                             [(0, False, 0.0), (1, False, 0.0)])
+            self.assertEqual(self.pick(), ["astra", "opus", "fable"])
+            self.assertEqual(self.pick(), ["astra", "opus", "fable"])
         self.assertEqual(rated.call_count, len(quality.ROLES))    # once per stored lineup
 
 

@@ -51,6 +51,7 @@ python3 "$REPO/tests/test_after.py"
 '''
 
 
+# its suite runs every test file. [5 Oct]
 class SuiteRunsEveryFile(unittest.TestCase):
     def checkout(self, files, smoke="#!/usr/bin/env bash\n"):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-every-file-", dir=REPO)

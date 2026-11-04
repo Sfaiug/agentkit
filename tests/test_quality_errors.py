@@ -117,8 +117,9 @@ class QualityErrors(unittest.TestCase):
 
     def test_execution_pick_does_not_depend_on_error(self):
         high, low = found(self.rated, "acme-5", "high"), found(self.rated, "acme-5", "low")
+        # Two endpoints tie on line distance, so the cheaper wins at either error.
         for error in (0.0, 9.0):
-            self.assertEqual(quality.pick([high, dict(low, se=error)], "execute")["effort"], "high")
+            self.assertEqual(quality.pick([high, dict(low, se=error)], "execute")["effort"], "low")
 
 
 if __name__ == "__main__":

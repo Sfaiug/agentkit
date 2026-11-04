@@ -23,7 +23,7 @@ MEASURES = (
     ("products", "products", ("runs", "merged", "first_round", "unmerged", "hours", "tokens")),
     ("ak", "ak", ("runs", "merged", "first_round", "unmerged", "hours", "tokens", "token_share")),
     ("tokens", "tokens", ("total_tokens", "seat_tokens", "not_counted")),
-    ("intent", "intent", ("measured", "hours", "live", "live_hours")),
+    ("intent", "intent", ("measured", "hours", "live", "live_hours", "answer_share")),
     ("owner", "owner", ("asked", "paged", "hours")),
     ("built", "built", ("seat_merged", "seat_first_round", "worker_merged", "worker_first_round")),
     ("waits", "waits", ("compute", "merge_hours", "lander_hours")),
@@ -355,12 +355,15 @@ def compute(now=None):
             "hours": median(answers) if answers else None})
         # the time the owner feels: from their first message of an intent to the done that ends
         # it, and to the last of its changes live
-        known = [(at, began, live) for at, began, live in dones or () if began is not None and in_week(at, end)]
-        took = [(at - began) / 3600 for at, began, _ in known]
-        lived = [(live - began) / 3600 for _, began, live in known if live is not None]
+        known = [(at, began, live, answered) for at, began, live, answered in dones or ()
+                 if began is not None and in_week(at, end)]
+        took = [(at - began) / 3600 for at, began, _, _ in known]
+        lived = [(live - began) / 3600 for _, began, live, _ in known if live is not None]
+        answers = [answered for _, _, _, answered in known]
         intent.append(None if dones is None else {
             "measured": len(took), "hours": median(took) if took else None,
-            "live": len(lived), "live_hours": median(lived) if lived else None})
+            "live": len(lived), "live_hours": median(lived) if lived else None,
+            "answer_share": sum(answers) / (sum(took) * 3600) if sum(took) and None not in answers else None})
         for label in ("products", "ak"):
             group = [row for row in ended if (row["repo"] in own_names) == (label == "ak")]
             if not group and not (label == "ak" and own_spent):
@@ -542,6 +545,8 @@ def render(board=None):
                 "owner's first message to done")
         if stats["live"]:
             text += f"; {stats['live']} live, median {stats['live_hours']:.1f} hours to live"
+        if stats["answer_share"] is not None:
+            text += f"; {stats['answer_share']:.1%} of intent time waiting for the owner's answers"
         return text
 
     def owner(stats):
