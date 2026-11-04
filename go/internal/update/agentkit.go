@@ -1,7 +1,6 @@
 package update
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"errors"
@@ -34,29 +33,13 @@ const (
 // updateSelf moves ~/agentkit at checkout as Python's update_self does once it has one: what the
 // move said, a failure only the first time for each origin commit, and its exit code.
 func updateSelf(env []string, checkout string, out io.Writer) int {
-	var said bytes.Buffer
-	code := moveAgentkit(env, checkout, &said)
-	if code != 0 {
-		// a refusal comes before any pull, so origin is asked afresh: a stale origin/main would
-		// hold a new commit to the one already said
-		git(env, checkout, "fetch", "--quiet", "origin", "main")
-		head, _ := git(env, checkout, "rev-parse", "origin/main")
-		record := filepath.Join(config.Home(), "state", "agentkit-said-update")
-		if last, err := os.ReadFile(record); err == nil && strings.TrimFunc(string(last), config.Space) == head {
-			return code
-		}
-		os.WriteFile(record, []byte(head+"\n"), 0o666)
-	}
-	for _, line := range config.SplitLines(said.String()) {
-		fmt.Fprintln(out, line)
-	}
-	return code
+	return updateOnce(env, checkout, "update", out, "", true)
 }
 
 // moveAgentkit is Python's update_agentkit: ~/agentkit forward on main to liveTarget, swapped
 // in whole, then its install.sh; the exit code.  A checkout that is somebody's work is left as
-// it is, saying so.
-func moveAgentkit(env []string, checkout string, out io.Writer) int {
+// it is, saying so. With fetch off, target is already fetched, or empty to reinstall only.
+func moveAgentkit(env []string, checkout string, out io.Writer, target string, fetch bool) int {
 	tmp := filepath.Join(config.Home(), "tmp")
 	held, err := lock.Wait(context.Background(), filepath.Join(tmp, moving))
 	if err != nil {
@@ -76,15 +59,16 @@ func moveAgentkit(env []string, checkout string, out io.Writer) int {
 		return 0
 	}
 	upgrade.Close()
-	if code := step(env, out, "git", "-C", checkout, "fetch", "--quiet", "origin", "main"); code != 0 {
-		return code
+	if fetch {
+		if code := step(env, out, "git", "-C", checkout, "fetch", "--quiet", "origin", "main"); code != 0 {
+			return code
+		}
+		target = liveTarget(env, checkout)
+		if target == "" {
+			fmt.Fprintln(out, "update: agentkit: origin/main moves here once its tests/live.sh passed")
+			return 0
+		}
 	}
-	target := liveTarget(env, checkout)
-	if target == "" {
-		fmt.Fprintln(out, "update: agentkit: origin/main moves here once its tests/live.sh passed")
-		return 0
-	}
-	fmt.Fprintf(out, "update: %s goes to %s\n", checkout, short(target))
 	// here until install.sh passes: the swap moves HEAD, so origin/main is no longer ahead of
 	// it, and only this says the install is owed
 	pending := filepath.Join(config.Home(), "state", "agentkit-install-pending")
@@ -92,9 +76,12 @@ func moveAgentkit(env []string, checkout string, out io.Writer) int {
 		fmt.Fprintf(out, "update: %s\n", config.PyError(err))
 		return 1
 	}
-	if why := swap(env, checkout, target); why != "" {
-		fmt.Fprintf(out, "update: %s\n", why)
-		return 1
+	if target != "" {
+		fmt.Fprintf(out, "update: %s goes to %s\n", checkout, short(target))
+		if why := swap(env, checkout, target); why != "" {
+			fmt.Fprintf(out, "update: %s\n", why)
+			return 1
+		}
 	}
 	if code := step(env, out, filepath.Join(checkout, "install.sh")); code != 0 {
 		return code

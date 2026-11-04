@@ -30,9 +30,8 @@ import (
 	"agentkit/internal/harness"
 )
 
-// ErrPython leaves an update to Python ak before Go has written anything: one that would move a
-// harness where movable says not, or ~/agentkit where Go swaps no version in, or output Go cannot
-// read as Python does.
+// ErrPython leaves an update to Python ak: a harness where movable says not, ~/agentkit where
+// Go swaps no version in, live checks, or output Go cannot read as Python does.
 var ErrPython = errors.New("left to Python")
 
 // pins keep each harness from upgrading itself while it is asked its release.
