@@ -1,11 +1,11 @@
-"""A finding the fixer disputes is dropped unless the next reviewer hands it in again.
+"""A fixer disputes a handed finding; the next reviewer reads it and may uphold it.
 
 A fixer handed a blocking finding may answer it with `ak hand-in dispute` and a passing proof
 instead of changing code; it may not file findings of its own, and no other turn may dispute.
 ak gives the next reviewer the dispute and ak's own run of its proof beside the finding and
 does not re-prove the disputed finding itself: a reviewer who hands it in again upholds it and
-the round fails, and one who does not drops it into result.md's Disputes, where a person reads
-what was let go and why.  Black-box: the program `AK_BIN` names runs `ak run --no-merge` from
+the round fails. Explicit concessions and refused silence have their own key. Black-box:
+the program `AK_BIN` names runs `ak run --no-merge` from
 outside through tests/fixtures/akbin.py, on a project from gitrig.py with scripted harnesses
 from fakeadapter.py; the reviewer's finding is fakeadapter's `fail`.
 """
@@ -29,18 +29,19 @@ FIXER = {"final": "Disputed.", "hand_in": [
     ["dispute", "retry.txt:1", "it is right", "--run", "false"],
     ["dispute", "retry.txt:1", "it is right", "--run", "true"], ["done"]]}
 REVIEWER_DISPUTES = {"final": "Looks right.", "hand_in": [
-    ["dispute", "retry.txt:1", "a reviewer's dispute", "--run", "true"], ["done"]]}
+    ["dispute", "retry.txt:1", "a reviewer's dispute", "--run", "true"],
+    *fakeadapter.FAIL["hand_in"]]}
 
 
-def start(cls, reviews, rounds=None):
+def start(cls, reviews, rounds=None, fixer=FIXER, env=None):
     cls.home = Home()
     cls.addClassCleanup(cls.home.close)
     cls.rig = Rig(cls.home, "widgets")
     akconfig.write(cls.home, ["opus", "astra"])
-    cls.fakes = fakeadapter.install(cls.home, claude=["work", FIXER], codex=reviews)
+    cls.fakes = fakeadapter.install(cls.home, claude=["work", fixer], codex=reviews)
     task = taskfile.write(cls.home, cls.rig.path, "Add retry file",
                           front={"rounds": rounds} if rounds else None)
-    cls.done = cls.home.ak("run", str(task), "--no-merge", timeout=300)
+    cls.done = cls.home.ak("run", str(task), "--no-merge", timeout=300, env=env)
     cls.run_dir = taskfile.only_run(cls.home)
     cls.state = json.loads((cls.run_dir / "run.json").read_text())
     cls.result = (cls.run_dir / "result.md").read_text()
@@ -54,10 +55,10 @@ def section(text, heading):
     return rest[:next((i for i, line in enumerate(rest) if line.startswith("## ")), len(rest))]
 
 
-class DisputeDropped(unittest.TestCase):
+class DisputeReconsidered(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        start(cls, ["fail", REVIEWER_DISPUTES])
+        start(cls, ["fail", REVIEWER_DISPUTES], rounds=2)
 
     def codes(self, harness, call):
         run = self.fakes[harness].runs()[call - 1]
@@ -68,7 +69,7 @@ class DisputeDropped(unittest.TestCase):
                          ["executor", "fixer"])
         self.assertEqual(self.codes("claude", 2), [
             ("finding", 2), ("dispute", 2), ("dispute", 2), ("dispute", 0), ("done", 0)])
-        self.assertEqual(self.codes("codex", 2), [("dispute", 2), ("done", 0)])
+        self.assertEqual(self.codes("codex", 2), [("dispute", 2), ("finding", 0), ("done", 0)])
         # A refused hand-in leaves nothing in the turn's record.
         record = self.run_dir / "round-2/executor/hand-in.jsonl"
         rows = [json.loads(line) for line in record.read_text().splitlines()]
@@ -88,20 +89,6 @@ class DisputeDropped(unittest.TestCase):
         left = "\n".join(section(prompt, "## Earlier findings left to you"))
         self.assertIn("retry.txt:1 - fixture defect", left)
         self.assertIn("disputed", left)
-
-    def test_a_finding_not_handed_in_again_is_dropped_into_disputes_and_the_run_passes(self):
-        self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
-        self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
-        self.assertEqual([summary["verdict"] for summary in self.state["round_summaries"]],
-                         ["FAIL", "PASS"])
-        lines = self.result.splitlines()
-        self.assertEqual(lines[0], "# NOT MERGED (2 of 3) — Add retry file")
-        self.assertEqual(lines[1], "Why: --no-merge")
-        self.assertIn("rounds: 2 of 3", lines)
-        disputes = section(self.result, "## Disputes")
-        self.assertEqual(disputes[:2], ["", f"- Dropped: {FINDING}"])
-        self.assertIn("  Dispute: it is right", disputes)
-        self.assertNotIn("## Findings", lines)
 
 
 class DisputeUpheld(unittest.TestCase):

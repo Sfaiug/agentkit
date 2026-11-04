@@ -81,7 +81,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
                  + adds(f"{CLAUDE}/tools/part", "tool") + ELSEWHERE}
         second = {**fakeadapter.DISPUTE, "sh": WHERE + adds(f"{CLAUDE}.jsonl", "second", "first")}
         review = {**fakeadapter.FAIL, "session": "rev-1", "sh": WHERE + adds(CODEX, "found")}
-        again = {**fakeadapter.PASS, "sh": WHERE + adds(CODEX, "passed", "found")}
+        again = {**fakeadapter.CONCEDE, "sh": WHERE + adds(CODEX, "passed", "found")}
         home, fakes, machine, rig = self.ready([first, second], [review, again])
         tar = machine / "bin/tar"
         tar.write_text(CLIMBS.format(tar=shutil.which("tar")))
@@ -111,7 +111,7 @@ class ATurnCarriesItsConversation(unittest.TestCase):
                 work = {**fakeadapter.WORK, "sh": WHERE, "session": sid}
                 home, fakes, _, rig = self.ready(
                     [work, {**fakeadapter.DISPUTE, "sh": WHERE}],
-                    [{**fakeadapter.FAIL, "sh": WHERE}, {**fakeadapter.PASS, "sh": WHERE}])
+                    [{**fakeadapter.FAIL, "sh": WHERE}, {**fakeadapter.CONCEDE, "sh": WHERE}])
                 home.write(".claude/projects/acme/deep/other.jsonl", "other\n")
                 self.finish(home, rig)
                 self.assertEqual(self.where(fakes["claude"]), ["docker", "here"])
@@ -143,7 +143,7 @@ class AResumeItsHarnessCannotOpen(unittest.TestCase):
                     "stderr": "No conversation found with session ID: sid-1\n"}
             fakes = fakeadapter.install(
                 home, claude=[{**fakeadapter.WORK, "session": "sid-1"}, lost, fakeadapter.DISPUTE],
-                codex=[fakeadapter.FAIL, fakeadapter.PASS])
+                codex=[fakeadapter.FAIL, fakeadapter.CONCEDE])
             done = home.ak("run", str(taskfile.write(home, rig.path)), "--no-merge", timeout=200)
             self.assertEqual(done.code, 0, done.out + done.err)
             self.assertEqual([run["argv"][5:] for run in fakes["claude"].runs()[1:3]], [["sid-1"], []])

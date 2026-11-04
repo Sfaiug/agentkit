@@ -41,7 +41,7 @@ def build(lines):
 TASKS = {
     "Cut to 120": ({"executor_lines": 120}, [build(150)], ["pass"]),
     "Left at 300": ({}, [build(301)], ["pass"]),
-    "Raised to 500": ({"executor_lines": 500}, [build(350), "dispute"], [FINDING, "pass"]),
+    "Raised to 500": ({"executor_lines": 500}, [build(350), "dispute"], [FINDING, "concede"]),
 }
 # branch: (config.toml's settings, the lines its pull request adds)
 PULLS = {

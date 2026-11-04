@@ -191,9 +191,9 @@ sys.exit(1)
                 self.assertIn("[checked by ak: tests/test_hand_in.py] ak refuses malformed "
                               "or evidence-free findings", text)
                 self.assertIn("ak supplies each dispute beside its finding with ak's proof output", text)
-                self.assertIn("Uphold a disputed finding by handing it in again with "
-                              "`ak hand-in finding`.", text)
-                self.assertIn("Drop it by not handing it in again.", text)
+                self.assertIn("uphold with `ak hand-in finding`", text)
+                self.assertIn('concede with `ak hand-in concede path:line "why"`', text)
+                self.assertIn("done waits for every answer", text)
 
     def test_every_fixer_may_dispute_with_evidence_and_must_fix_the_rest(self):
         for role, work in (("fixer", "the diff"), ("fixer-scratch", "the workspace")):

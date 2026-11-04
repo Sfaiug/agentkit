@@ -100,7 +100,7 @@ out = pathlib.Path(sys.argv[6])
             {"commands": [finding]},
             {"commands": [["dispute", "api.py:1", WHY, "--quote", "enabled = True"]],
              "says": f"## Summary\nFixer {CLAIM}: nothing to fix."},
-            {}]))
+            {"commands": [["concede", "api.py:1", "The task asks for it on."]]}]))
         self.lp.rnd = 0
         run.rounds(self.lp)
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
