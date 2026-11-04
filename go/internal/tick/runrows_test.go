@@ -1,0 +1,110 @@
+//go:build unix
+
+package tick
+
+import (
+	"bytes"
+	"io"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"agentkit/internal/run"
+)
+
+func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	for _, state := range []string{"pass", "fail", "stopped", "not_needed", "blocked", "error"} {
+		put(t, filepath.Join(ak, "runs", state, "run.json"), `{"state":"`+state+`", "handed_back":true, "reported":true, "tree_stopped":[null,null]}`)
+		put(t, filepath.Join(ak, "runs", state, "result.md"), "the result\n")
+	}
+	before := files(t, filepath.Join(ak, "runs"))
+	for range 2 {
+		var out bytes.Buffer
+		if !Carry(&out, io.Discard) {
+			t.Fatalf("left settled runs to Python: %s", &out)
+		}
+		for path, want := range before {
+			if want != "" && read(t, path) != want {
+				t.Fatalf("idle tick rewrote %s", path)
+			}
+		}
+	}
+}
+
+// A record changes after the preceding row: each row must read it at its own turn, leave
+// that record byte for byte, and stop before the following row when its work is Python's.
+func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
+	for row, due := range map[string]string{
+		"login resume":     `{"state":"waiting_login"}`,
+		"seat health":      `{"state":"waiting_login"}`,
+		"dead loops":       `{"state":"running"}`,
+		"stall recovery":   `{"state":"stalled"}`,
+		"lease restart":    `{"state":"stopped","lease_wait":{"on":"older"}}`,
+		"exhausted resume": `{"state":"exhausted","quota_dry":true}`,
+		"error retry":      `{"state":"error","error_retry_at":1}`,
+		"waiting resume":   `{"state":"waiting","waiting_on":{"line":"older"}}`,
+		"old endings":      `{"state":"pass","finished_at":1}`,
+		"endings":          `{"state":"pass"}`,
+		"seat sweep":       `{"state":"running"}`,
+	} {
+		t.Run(row, func(t *testing.T) {
+			ak, _ := idleHome(t, answers)
+			path := filepath.Join(ak, "runs", "fix-api", "run.json")
+			put(t, path, `{"state":"stopped"}`)
+			tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
+			var chosen pass
+			for _, each := range table(tick) {
+				if each.name == row {
+					chosen = each
+				}
+			}
+			if chosen.idle == nil || !chosen.idle() {
+				t.Fatal("stopped run was not idle")
+			}
+			after := false
+			if tick.through([]pass{
+				{"before", false, nil, func() error { put(t, path, due); return nil }}, chosen,
+				{"after", false, nil, func() error { after = true; return nil }},
+			}) || after || read(t, path) != due {
+				t.Fatal("did not hand over at this row without writing")
+			}
+		})
+	}
+}
+
+func TestHousekeepingReadsRunWritersAndRepositories(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	path := filepath.Join(ak, "runs", "fix-api", "run.json")
+	put(t, path, `{"repo":"/acme/api","worktree":"/acme/work","pid":"unreadable"}`)
+	var repos, busy []string
+	if !runRepositories(&repos) || !runBusyPaths(&busy) || len(repos) != 1 || len(busy) != 2 {
+		t.Fatalf("repos=%v, busy=%v", repos, busy)
+	}
+	put(t, filepath.Join(ak, "state", "leases", "api.json"), "{}")
+	if !noLeaseScan() {
+		t.Fatal("an empty collision record was not idle")
+	}
+	put(t, path, `{"waiting_on":{"line":"older"}}`)
+	if runBusyPaths(&busy) {
+		t.Fatal("a lander's separate writer was not left to Python")
+	}
+	put(t, path, run.Line(run.Fields("state", "running", "repo", t.TempDir(), "worktree", t.TempDir(), "base_sha", "abc")))
+	if noLeaseScan() {
+		t.Fatal("a going diff was not left to lease scan")
+	}
+}
+
+func TestLeaseRestartWaitsOnAHolderThatStillGoes(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	put(t, filepath.Join(ak, "runs", "younger", "run.json"), `{"state":"stopped","lease_wait":{"on":"older"}}`)
+	holder := filepath.Join(ak, "runs", "older", "run.json")
+	put(t, holder, `{"state":"running"}`)
+	if !noLeaseRestart() {
+		t.Fatal("the holder is still going")
+	}
+	put(t, holder, `{"state":"pass","merged":true}`)
+	if noLeaseRestart() {
+		t.Fatal("a released lease was not handed over")
+	}
+}

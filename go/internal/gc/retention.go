@@ -333,21 +333,7 @@ func processPaths() []string {
 // writerActive is whether a record's writer may still run: a malformed identity is no proof it
 // exited (retention.writer_active).
 func writerActive(record *run.Object) bool {
-	if record.Get("pid") != nil {
-		if pid, ok := record.Int("pid"); !ok || pid <= 0 {
-			return true
-		}
-	}
-	if identity := record.Get("process_identity"); identity != nil {
-		saved, ok := identity.(*run.Object)
-		if !ok || !saved.Truthy("boot") {
-			return true
-		}
-		if _, ok := saved.Int("ticks"); !ok {
-			return true
-		}
-	}
-	return run.ProcessActive(record)
+	return run.WriterActive(record)
 }
 
 // provablyFinal is a run ended and its loop gone (worktrees.provably_final).

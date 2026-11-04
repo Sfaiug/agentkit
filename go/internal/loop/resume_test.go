@@ -138,7 +138,7 @@ func TestAStopSaysWhatBecameOfTheBranchAndARepeatSaysTheSame(t *testing.T) {
 	l, r := repoRig(t)
 	id := filepath.Base(l.dir)
 	if err := run.Change(l.dir, func(record *run.Object) error {
-		record.Set("state", "running")
+		run.SetAll(record, "state", "running", "launched_session", "acme")
 		return nil
 	}); err != nil {
 		t.Fatal(err)
@@ -173,7 +173,6 @@ func TestAStopRefusesAnEndingAndLeavesToPythonWhatIsNotGos(t *testing.T) {
 		want   string
 	}{
 		"an ending":        {[]any{"state", "pass"}, "", "is already pass; only unfinished work can be stopped"},
-		"a seat's":         {[]any{"state", "running", "launched_session", "acme"}, "", "python"},
 		"a job's":          {[]any{"state", "running", "job_id", "batch"}, "", "python"},
 		"a review's":       {[]any{"state", "running", "review_pr", "https://github.com/acme/api/pull/1"}, "", "python"},
 		"under a unit":     {[]any{"state", "running", "scope", "agentkit-run-x.scope"}, "", "python"},

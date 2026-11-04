@@ -586,6 +586,7 @@ func (l *loop) pick() error {
 // finish is how a run ends once its work stopped, as Python's loop and finish say it.
 func (l *loop) finish(err error) int {
 	var cannot *blocked
+	var unnecessary *notNeeded
 	switch {
 	case errors.Is(err, errStop):
 		return 1
@@ -600,6 +601,8 @@ func (l *loop) finish(err error) int {
 			record.Delete("quota_dry")
 			record.Delete("transient_wait")
 		})
+	case errors.As(err, &unnecessary):
+		err = l.finishNotNeeded(unnecessary)
 	case err != nil:
 		said, park, stands := parked(err)
 		if !stands {

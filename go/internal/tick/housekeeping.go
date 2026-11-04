@@ -25,7 +25,7 @@ import (
 // gcEvery is how often a repository is collected, Python's gc.GC_INTERVAL.
 const gcEvery = 86400
 
-// housekeeping is the git housekeeping row on a home with no run (gc.git_housekeeping): each
+// housekeeping is the git housekeeping row (gc.git_housekeeping): each
 // repository a checkout or a seat works in once, kept from collecting itself and collected in the
 // foreground once a day while nothing holds it; a busy one waits for a later tick.
 func (t *ticking) housekeeping() error {
@@ -40,6 +40,9 @@ func (t *ticking) housekeeping() error {
 		}
 	}
 	checkouts, _ := seat.Checkouts()
+	if !runRepositories(&checkouts) {
+		return errLeft
+	}
 	for _, path := range seatPaths {
 		if !slices.Contains(checkouts, path) {
 			checkouts = append(checkouts, path)
@@ -82,6 +85,9 @@ func (t *ticking) collect(repo, common string, seatPaths []string) error {
 	paths, known, err := busyPaths()
 	if err != nil {
 		return err
+	}
+	if !runBusyPaths(&paths) {
+		return errLeft
 	}
 	// a seat's session works where it says, whatever this tick can see of its processes
 	paths = append(paths, seatPaths...)
@@ -165,7 +171,7 @@ func worktrees(repo string) []string {
 	return trees
 }
 
-// busyPaths is every path a process of this user holds (gc.git_busy_paths, on a home with no run):
+// busyPaths is every path a process of this user holds (gc.git_busy_paths):
 // its working directory and open files, and of one hiding those, as a login's own
 // daemons do, the absolute words of its command line. Not known where one hides even that.
 func busyPaths() (paths []string, known bool, err error) {

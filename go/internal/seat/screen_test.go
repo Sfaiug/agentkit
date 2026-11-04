@@ -270,8 +270,8 @@ func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 			write(t, stateFile(home, "plan-acme.md"), openLine)
 			write(t, stateFile(home, "seat-acme.json"), `{"stop_said": "Your plan owes a line"}`)
 		},
-		"a run of its own": func(t *testing.T, home string) {
-			runRecord(t, home, "going", map[string]any{"state": "running", "started_at": 1, "finished_at": nil})
+		"a run parked on its login": func(t *testing.T, home string) {
+			runRecord(t, home, "going", map[string]any{"state": "waiting_login", "started_at": 1, "finished_at": nil})
 		},
 		"a wait on its usage": func(t *testing.T, home string) {
 			write(t, stateFile(home, "seat-acme.json"), `{"usage_wait": {"reason": "spent", "since": 1}}`)
