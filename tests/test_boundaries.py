@@ -110,18 +110,19 @@ RULES = [
     # Every provider word counts, in code or comment, but none of ak's own names: the
     # `quota_dry` mark and its `QuotaDry` stop, the tests' `.run-quota-` dirs, the cgroup CPU
     # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), the
-    # usage-limit reset and its credits as the name of a feature, and what a subscription's
+    # usage-limit reset and its credits as the name of a feature, what a subscription's
     # week holds in tokens (`capacity.json`, `ak usage --json`'s `capacity_tokens` and
-    # `capacity_pairs`).  Google Compute's refusal codes are agentkit/google_cloud.py's, the one
-    # module that knows Google.
+    # `capacity_pairs`), and GitHub's hourly API allowance (gh's `api rate_limit` endpoint and
+    # the `github_rate_limit` key that waits on it).  Google Compute's refusal codes are
+    # agentkit/google_cloud.py's, the one module that knows Google.
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
-              r"|capacity[._](json|tokens|pairs)",
+              r"|capacity[._](json|tokens|pairs)|(\"api\", \"|github_)rate_limit",
      "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
               "agentkit/google_cloud.py"),
-     "max": 59},
+     "max": 58},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.
