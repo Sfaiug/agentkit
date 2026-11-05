@@ -387,7 +387,9 @@ class LiveStatus(unittest.TestCase):
                 release.wait(5)
             return found
 
-        with patch.object(watch, "classify", side_effect=classify), \
+        # Real usage probes can leave a CLI's service running under this test's HOME.
+        with patch.object(watch.usage, "collect", return_value={}), \
+                patch.object(watch, "classify", side_effect=classify), \
                 patch.object(watch, "seat_model", return_value=("claude", "anthropic")), \
                 patch.object(watch, "type_into", return_value=True), \
                 patch.object(watch.notify, "shaped", return_value=0), \
