@@ -262,7 +262,7 @@ class Lander(LanderFixture, unittest.TestCase):
                 drive.assert_called_once()
                 self.assertEqual(drive.call_args.kwargs["prior"], current)
 
-    def test_a_red_behind_a_run_that_leaves_the_line_unlanded_is_checked_again_alone(self):
+    def test_a_red_behind_a_run_that_leaves_the_line_unlanded_wakes_its_fixer(self):
         green = self.member("acme-land")
         red = self.member("acme-fix", joined=2, **{"broken.txt": "broken\n"})
         self.advance()
@@ -272,9 +272,10 @@ class Lander(LanderFixture, unittest.TestCase):
         with record.record(green) as current:
             current["state"] = "stopped"
         self.wake.reset_mock()
+        wait, checks = self.wait(red), len(self.checks)
         land.check_line(self.turn)
-        self.assertIn("fix", self.wait(red))
-        self.assertEqual(self.wait(red)["after"], {})
+        self.assertEqual(self.wait(red), wait)
+        self.assertEqual(len(self.checks), checks)
         self.assertEqual([call.args[0] for call in self.wake.call_args_list], [red.name])
 
     def test_a_stacked_deliverys_red_required_checks_outlive_the_run_ahead_landing(self):
