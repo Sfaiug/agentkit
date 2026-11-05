@@ -29,8 +29,8 @@ func AskInbox(question, url, sha string, asked bool, typed func(), log func(stri
 		return false, false
 	}
 	if !asked {
-		opened, known := openInbox(name, log)
-		if !known {
+		own, opened := openInbox(name, log)
+		if own == "" {
 			return false, false
 		}
 		if opened {
@@ -40,8 +40,7 @@ func AskInbox(question, url, sha string, asked bool, typed func(), log func(stri
 			"their yes or no here. On yes run `gh pr merge %s --squash --delete-branch --match-head-commit %s` -- it "+
 			"refuses if the author has pushed since the review, and then the PR needs a new review, not a merge; on no "+
 			"leave the PR as it is and say so.", question, url, sha[:min(len(sha), 12)], url, sha)
-		if own, _ := seatHarness(name); own != "" && eyeOf(own).bad == nil &&
-			(seatAt{name, own, "=" + name + ":"}).holds(keyed(line)) == "line" {
+		if (seatAt{name, own, "=" + name + ":"}).holds(keyed(line)) == "line" {
 			return false, false // an earlier try left it in the composer: its Enter is Python's
 		}
 		if !typeAtPrompt(name, line, nil, func(*run.Object) error { return nil }, log, heldBack) {
@@ -51,8 +50,9 @@ func AskInbox(question, url, sha string, asked bool, typed func(), log func(stri
 		log("asked the " + name + " seat: " + question)
 		typed()
 	}
-	// a card Go cannot evaluate now leaves the ping owed: Python's, where nothing was typed for it
-	pinged, err := notify.Needs(name, question, "inbox:"+url+":"+sha, Published, errOut)
+	// a card Go cannot evaluate now leaves the ping owed: the question just typed kept on record for
+	// the word to turn, an earlier try's Python's, nothing written for it
+	pinged, err := notify.Needs(name, question, "inbox:"+url+":"+sha, !asked, Published, errOut)
 	return pinged && err == nil, pinged || err != nil || !asked
 }
 
@@ -64,31 +64,37 @@ func heldBack(name string) bool {
 }
 
 // openInbox opens the inbox seat where tmux holds none, Python's orch.ensure from cron: on the
-// default selection, in ~/code, while its orchestrator has usage left of its own; opened is a seat
-// started now.  Not known where Python refuses the name or would pick another model.
-func openInbox(name string, log func(string)) (opened, known bool) {
+// default selection, in ~/code, while its orchestrator has usage left of its own.  own is the
+// harness the seat runs, "" where Go does not ask: Python refuses the name, would pick another
+// model, or runs a harness Go does not type into; opened is a seat started now.
+func openInbox(name string, log func(string)) (own string, opened bool) {
 	names := ReadNames()
 	if names.Seat(name) {
-		return false, true
+		if own, _ = seatHarness(name); typable(own) {
+			return own, false
+		}
+		return "", false
 	}
 	picked, err := config.Defaults()
 	models, unread := config.Models()
 	readings, unmetered := usages.Read()
+	own = models[picked.Orchestrator].Harness
 	if names.Held(name) || err != nil || unread != nil || unmetered != nil ||
-		readings.Spent(picked.Orchestrator) != "" || readings.OnCredits(picked.Orchestrator) {
-		return false, false
+		readings.Spent(picked.Orchestrator) != "" || readings.OnCredits(picked.Orchestrator) || !typable(own) {
+		return "", false
 	}
 	code := filepath.Join(config.UserHome(), "code")
 	if err := os.MkdirAll(code, 0o777); err != nil {
-		return false, false
+		return "", false
 	}
 	started, err := Open(name, picked.Orchestrator, models[picked.Orchestrator], picked.Workers, code, false)
 	if err != nil {
 		log(fmt.Sprintf("WARN could not open the %s seat: %v", name, err))
-		return false, true
+		return own, false // the question fails at the seat and is asked again
 	}
-	if started {
-		log(fmt.Sprintf("orch: started %s on %s", name, picked.Orchestrator))
+	if !started {
+		return "", false
 	}
-	return started, started
+	log(fmt.Sprintf("orch: started %s on %s", name, picked.Orchestrator))
+	return own, true
 }

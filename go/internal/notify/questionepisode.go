@@ -10,8 +10,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// questionTransition cards a question read under its typing lock, from its notice or screen.
-func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, question func(string, *run.Object) *run.Object) (bool, error) {
+// questionTransition cards a question read under its typing lock, from its notice or screen;
+// `taken` is told once the card is Go's, before anything is written for it.
+func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, question func(string, *run.Object) *run.Object, taken func(current string) error) (bool, error) {
 	if os.Getenv("AK_RUN_ROLE") == "worker" {
 		return true, nil
 	}
@@ -62,6 +63,9 @@ func questionTransition(name string, said func(string) (string, any), clock func
 			return nil
 		}
 		carried = true
+		if err := taken(current); err != nil {
+			return err
+		}
 		if card.Truthy("sent") {
 			return nil
 		}
