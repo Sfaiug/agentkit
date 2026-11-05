@@ -2185,15 +2185,15 @@ def seat_command(name, cmd, socket=None):
 
 def seat_env(name, server):
     """A seat gets the caller's state and delivery boundary, not its server's old one, and no
-    `ak`'s mark (`owner`) or seat's tag, whatever its server holds: it outlives the `ak` that
-    opens it, and is no seat's side session.
+    `ak`'s mark (`owner`), seat's tag or run's checkout (`versions.CODE_ENV`), whatever its server
+    holds: it outlives the `ak` that opens it, and is no seat's side session.
 
     It names its server only where its HOME would not: a seat carrying `agentkit` took an `ak`
     opened inside it under a scratch HOME to the seats' server, past that HOME's own."""
     from . import notify
     values = {"HOME": str(Path.home()), config.SESSION_ENV: name,
               SOCKET_ENV: None if server == home_socket() else server,
-              owner.MARK: None, guard.TMUX_OWNER: None}
+              owner.MARK: None, guard.TMUX_OWNER: None, versions.CODE_ENV: None}
     for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
             values[key] = os.environ.get(key)

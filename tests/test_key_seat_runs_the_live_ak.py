@@ -4,20 +4,22 @@ On 5 Nov 2026 a run pinned to its checkout under ~/.agentkit/versions reopened i
 which ran that checkout's wrapper with its `bin` first on PATH: every `ak` the seat typed after
 ran the run's code.  Offline: a temporary HOME whose ~/agentkit and pinned version are both this
 checkout, the process as `versions.enter` leaves a run's, the real claude adapter's command line,
-and a fake tmux first on PATH that logs each call and the environment it was given.
+and a fake tmux first on PATH that logs each call and the environment it was given; the pane is
+then started from that as tmux 3.5a starts one, on a server a pinned run started earlier.
 """
 
 import json
 import os
 from pathlib import Path
 import shlex
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
 
 from fixtures import pane
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, orch, versions
+from agentkit import config, guard, orch, versions
 
 TMUX = """#!{python}
 import json, os, sys
@@ -54,19 +56,37 @@ class SeatRunsTheLiveAk(Sandbox):
         self.spawn = next(call for call in calls if "new-session" in call["argv"])
         self.words = shlex.split(pane.resolved(self.spawn["argv"])[-1])
 
-    def under_versions(self, path):
-        return Path(path).is_relative_to(config.HOME / versions.VERSIONS)
+    def harness_env(self):
+        """What the harness starts with: the server's environment, one a pinned run started and
+        still holding its checkout, under the spawn's `-e` values and its client's PATH, through
+        the launch file up to the harness."""
+        spawn = next(c for c in guard.commands(self.spawn["argv"]) if "new-session" in c)
+        env = {**self.spawn["env"], versions.CODE_ENV: str(self.pinned)}
+        env.update(word.split("=", 1) for before, word in zip(spawn, spawn[1:]) if before == "-e")
+        env["PATH"] = self.spawn["env"]["PATH"]
+        head = Path(shlex.split(spawn[-1])[1]).read_text().split("\nexec ", 1)[0]
+        probe = shlex.join([sys.executable, "-c",
+                            "import json, os; print(json.dumps(dict(os.environ)))"])
+        done = subprocess.run(["sh", "-c", f"{head}\nexec {probe}", str(self.root / "launch")],
+                              env=env, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
 
     def test_the_seat_runs_the_live_checkouts_wrapper(self):
         self.assertIn(str(self.live / "tools" / "idle-compact.py"), self.words)
-        self.assertEqual([word for word in self.words if str(config.HOME / versions.VERSIONS) in word],
-                         [])
+        pinned = str(config.HOME / versions.VERSIONS)
+        self.assertEqual([word for word in self.words if pinned in word], [])
 
     def test_its_path_holds_no_version_and_its_environment_no_run_code(self):
-        entries = self.spawn["env"]["PATH"].split(os.pathsep)
-        self.assertEqual([entry for entry in entries if self.under_versions(entry)], [])
-        self.assertNotIn("AK_RUN_CODE", self.spawn["env"])
-        self.assertFalse(any(word.startswith("AK_RUN_CODE=") for word in self.spawn["argv"]))
+        env = self.harness_env()
+        self.assertEqual([entry for entry in env["PATH"].split(os.pathsep)
+                          if Path(entry).is_relative_to(config.HOME / versions.VERSIONS)], [])
+        self.assertNotIn(versions.CODE_ENV, env)
+
+    def test_a_starter_in_any_other_checkout_names_the_live_one_too(self):
+        with patch.object(config, "REPO", self.root / "fix-api"):     # a worktree's, say
+            words = orch.command(self.cfg, "opus", rulebook=self.root / "rules.md")
+        self.assertIn(str(self.live / "tools" / "idle-compact.py"), words)
 
     def test_its_shims_and_its_servers_hooks_are_the_live_checkouts(self):
         shim = Path(os.readlink(config.HOME / "bin" / "tmux"))
