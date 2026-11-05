@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
@@ -81,7 +82,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
-	if no {
+	if no || !reaped(entries) {
 		return notImplemented(errOut, "run status")
 	}
 	var db *history.DB
@@ -178,19 +179,29 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// listing is every readable record and the runs a listing shows, each as Python's reap leaves
-// it, or none, and true, where Go leaves the listing to Python (`refused`).
+// listing is every readable record and the runs a listing shows, or none, and true, where Go
+// leaves the listing to Python (`refused`).
 func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, bool) {
 	every, entries := records(seat, wanted)
 	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
 		return nil, nil, true
 	}
+	return every, entries, false
+}
+
+// reaped is whether each run listed is now as Python's reap leaves it, false where one moved on
+// to a reap Go leaves to Python.
+func reaped(entries []listed) bool {
 	for i, entry := range entries {
-		if !entry.unreadable {
-			entries[i].record, _ = run.Reap(entry.record)
+		if entry.unreadable {
+			continue
+		}
+		var err error
+		if entries[i].record, err = handback.Reap(entry.dir, entry.record); err != nil {
+			return false
 		}
 	}
-	return every, entries, false
+	return true
 }
 
 // records are every readable record, and the runs a listing reads: the one wanted, smoke run
@@ -238,13 +249,13 @@ func look(record *run.Object) (bool, error) {
 	return marked, nil
 }
 
-// actedOn is whether Python's reap would act on the run: end processes it left behind, or
-// reap one neither running, stalled nor ended, a running one whose loop is gone, or a place in
-// a landing line, which Go leaves to Python.
+// actedOn is whether Python's reap would act on the run as Go does not: end processes it left
+// behind, or reap one neither running, stalled nor ended, past what handback.Reap does, a running
+// one whose loop is gone, or a place in a landing line, which Go leaves to Python.
 func actedOn(record *run.Object) bool {
 	_, owed := run.Reap(record)
 	state := record.Str("state")
-	return owed || state != "running" && state != "stalled" && !run.Ended(record) ||
+	return owed || state != "running" && state != "stalled" && !run.Ended(record) && !handback.Reapable(record) ||
 		state == "running" && !run.ProcessActive(record) || run.InLine(record)
 }
 
