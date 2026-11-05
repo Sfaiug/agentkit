@@ -63,8 +63,8 @@ func openWork(facts climbing, line string) (*answer, error) {
 }
 
 // nudgeOpenWork runs under Health's announce lock, as watch.stop_nudge does. Only an open plan
-// with no recorded reason to stop joins this path; the existing confirmed send rechecks the
-// composer and hook under the typing lock before its first key.
+// with no recorded reason to stop or queued news joins this path; the existing confirmed send
+// rechecks the composer and hook under the typing lock before its first key.
 func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sight, error) {
 	flight, _ := found.turnInFlight(seat.own)
 	if flight || found.interrupted || found.stall != nil || found.login != nil {
@@ -78,6 +78,20 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	line, _, err := plan.OwedLine(seat.Name)
 	if err != nil || line == "" {
 		return found, err
+	}
+	// News owns the next prompt, including results arriving while we wait for the typing lock.
+	newsOwed := func(latest climbing) bool {
+		now := time.Now()
+		runs, known := lookRuns(nil, now)
+		if !known {
+			return true
+		}
+		latest.mine, latest.now = runs[seat.Name], seconds(now)
+		news, err := telling(latest)
+		return news != nil || err != nil
+	}
+	if newsOwed(facts) {
+		return found, nil
 	}
 	_, record, err := config.ResolveSession(seat.Name)
 	if err != nil {
@@ -99,7 +113,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 		now, unread := stopEpisode(seat.own, latest.file)
 		owed, failed := plan.Owes(current)
 		return current != seat.Name || err != nil || unread != nil || !back || !run.Equal(now, episode) ||
-			latest.found.interrupted || latest.notice != nil || failed != nil || !owed ||
+			latest.found.interrupted || latest.notice != nil || newsOwed(latest) || failed != nil || !owed ||
 			stopWords(eyeOf(seat.own).rules, screen.Tail(pane)) != facts.file.Str("stop_said")
 	}
 	if typeAtPrompt(seat.Name, "continue", func(*run.Object) error { return nil }, log, stale) {
