@@ -98,8 +98,10 @@ def enter(path):
 
 def dispatch(argv):
     from . import record, worker
-    if ((argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
-         or argv[:2] == ["run", "--lander"])
+    if argv[:2] == ["run", "--lander"]:
+        with checkout(config.REPO) as path:
+            enter(path)
+    elif (argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
             and (path := os.environ.get("AK_RUN_CODE"))):
         enter(Path(path))
     elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
