@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"agentkit/internal/run"
 )
 
 func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
@@ -78,9 +80,17 @@ func TestHousekeepingReadsRunWritersAndRepositories(t *testing.T) {
 	if !runRepositories(&repos) || !runBusyPaths(&busy) || len(repos) != 1 || len(busy) != 2 {
 		t.Fatalf("repos=%v, busy=%v", repos, busy)
 	}
+	put(t, filepath.Join(ak, "state", "leases", "api.json"), "{}")
+	if !noLeaseScan() {
+		t.Fatal("an empty collision record was not idle")
+	}
 	put(t, path, `{"waiting_on":{"line":"older"}}`)
 	if runBusyPaths(&busy) {
 		t.Fatal("a lander's separate writer was not left to Python")
+	}
+	put(t, path, run.Line(run.Fields("state", "running", "repo", t.TempDir(), "worktree", t.TempDir(), "base_sha", "abc")))
+	if noLeaseScan() {
+		t.Fatal("a going diff was not left to lease scan")
 	}
 }
 

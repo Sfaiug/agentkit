@@ -53,6 +53,7 @@ func table(t *ticking) []pass {
 		{"dead loops", true, all(configured, noDeadLoops), nil},
 		{"dead jobs", true, jobless, nil},
 		{"stall recovery", true, all(configured, noStallRecovery), nil},
+		{"lease scan", false, noLeaseScan, nil},
 		{"lease restart", false, noLeaseRestart, nil},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
