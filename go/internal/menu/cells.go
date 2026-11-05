@@ -81,7 +81,8 @@ func Cells(now time.Time) ([]Cell, error) {
 			left, said := readings.Cell(each.sub.Name, account)
 			login := logins.Of(each.sub.Name, account)
 			cell := Cell{Label: label, Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
-				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour, Harness: each.sub.Harness}
+				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour,
+				Harness: cmp.Or(each.sub.Harness, config.ShippedHarness(each.sub.Name))} // logins.harness
 			if held := readings.Held(each.sub.Name, account); held > 0 {
 				cell.Held = strconv.Itoa(held) + " resets in hand"
 				if held == 1 {

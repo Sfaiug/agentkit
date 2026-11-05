@@ -41,7 +41,7 @@ func signIn(cell menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Paint
 }
 
 // signedIn is whether the adapter's `login again` for that subscription finished on the terminal: it
-// exited 0 and its harness does not say it has no login for it now.
+// exited 0 and its harness does not say it has no interactive login for it now.
 func signedIn(cell menu.Cell) bool {
 	adapter, err := config.LoginAdapter(cell.Harness)
 	env, envErr := config.ChildEnv()
@@ -56,6 +56,6 @@ func signedIn(cell menu.Cell) bool {
 	if login.Run() != nil {
 		return false
 	}
-	answered, yes, _ := worker.Login(adapter, env)
+	answered, yes, _ := worker.Login(adapter, env, "seat")
 	return !answered || yes
 }
