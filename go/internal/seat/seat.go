@@ -262,6 +262,8 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	stopped := revivalStopped
 	if deferred {
 		stopped = liveStopped
+	} else if live {
+		stopped = waitingStopped
 	}
 	if seat.closed, known = stopped(previous); !known {
 		return Seat{}, false

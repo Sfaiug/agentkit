@@ -85,3 +85,14 @@ func (seat Seat) waitOnUsage(state string, live Live, readings *usages.Readings,
 		return writeSeat(state, seat.Name, []field{{"usage_wait", run.Fields("reason", reason, "until", back, "since", since, "continue", true)}})
 	}, true
 }
+
+// waitingStopped is revivalStopped for a seat whose panes run: a wait on its usage is its
+// ladder's to read (usage), not a mark that leaves the seat to Python.
+func waitingStopped(file *run.Object) (bool, bool) {
+	if file != nil && !file.Truthy("stopped_at") && !file.Truthy("closed_by_owner") {
+		file = file.Copy()
+		file.Delete("usage_wait")
+		file.Delete("usage_refusal")
+	}
+	return revivalStopped(file)
+}
