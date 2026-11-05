@@ -23,6 +23,7 @@ class ClaudeStatusLine(Sandbox):
         self.env = {**os.environ, "AGENTKIT_SESSION": "acme", "AK_RUN_ROLE": "",
                     "AGENTKIT_RULEBOOK": str(self.root / "rules"), "AGENTKIT_ACCOUNT": "",
                     "TMUX": "", "TMUX_PANE": "", "AGENTKIT_CLAUDE_CHECKED": "1"}
+        self.env.pop("CLAUDE_CONFIG_DIR", None)
         self.payload = '{"session_id":"conv-acme","model":{"id":"claude-sonnet-5-5"}}\n\n'
         self.report = config.STATE / "model-conv-acme.json"
 
