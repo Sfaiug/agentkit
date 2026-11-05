@@ -39,8 +39,10 @@ func TestADoneQueuesItsWorkOnceEvenWhenItsCardIsLost(t *testing.T) {
 		if len(events) != 1 {
 			t.Fatalf("queued %d events", len(events))
 		}
+		// went out or was turned away: a held done would neither deliver nor retry
 		event, _ := run.ReadJSON(events[0])
-		if event.Str("kind") != "done" || !retrySettled(event) || event.Dict("payload").Str("content") != "✅ Done · acme" {
+		status := event.Str("status")
+		if event.Str("kind") != "done" || status != "delivered" && status != "disabled" || event.Dict("payload").Str("content") != "✅ Done · acme" {
 			t.Fatal(run.Line(event))
 		}
 		if err := os.Remove(cardPath); err != nil {
