@@ -10,7 +10,6 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_key_picks_priced_in_usage as priced
-from test_key_models_answer import lines
 
 LEGEND = "  week %     a task's share of its subscription's week: measured where the row says"
 
@@ -20,7 +19,7 @@ class MeasuredNote(unittest.TestCase):
     command = priced.PicksPricedInUsage.command
 
     def row(self, table, name, effort):
-        return next(line for line in lines(table)
+        return next(line for line in table.splitlines()
                     if f" {name.title()} " in line and f" {effort} " in line)
 
     def test_only_a_measured_share_says_measured_and_the_legend_says_what_the_rest_are(self):

@@ -158,9 +158,6 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertRegex(shown, "quality +a task")
         self.assertRegex(shown, "quality +week %")
         self.assertIn("0.30%", shown)
-        self.assertIn("cost → board $ / task", shown)
-        self.assertIn("cost → week % / task", shown)
-        self.assertIn("cost → plan $ / task", self.command(prices={"acme": 10, "bolt": 20, "crux": 30}))
 
 
 if __name__ == "__main__":

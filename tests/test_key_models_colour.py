@@ -64,7 +64,7 @@ def rows(lines):
             found.append((role, name.split()[0], [line[at][1] for at in range(
                 drawn.start(1), drawn.start(1) + len(name)) if line[at][0] != " "],
                           line[tip][1], line))
-        elif text.strip() in ("orch", "builds", "reviews"):
+        elif re.match(r"  [a-z]", text):
             role = text.split()[0]
     return found
 
@@ -83,7 +83,7 @@ class ModelsColour(unittest.TestCase):
         akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5"}},
                        providers=PROVIDERS, settings=settings)
         env = {key: value for key, value in answer.ENV.items() if key != "NO_COLOR"}
-        self.term = Terminal(self.home, size=(100, 100), env={**env, "COLORTERM": "truecolor"})
+        self.term = Terminal(self.home, size=(100, 60), env={**env, "COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,
                         "sleep 86400", server=SERVER)
         self.term.wait("esc leave")
