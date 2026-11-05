@@ -15,6 +15,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"net/url"
@@ -290,7 +291,12 @@ func call(address, token string, form url.Values, answer any) error {
 		_, reason, _ := strings.Cut(response.Status, " ")
 		return errors.New("Google refused: " + reason)
 	}
-	if err := json.NewDecoder(response.Body).Decode(answer); err != nil {
+	// all of it: a reply cut short of its length, or more after its JSON, is no answer
+	data, err := io.ReadAll(response.Body)
+	if err == nil {
+		err = json.Unmarshal(data, answer)
+	}
+	if err != nil {
 		return fmt.Errorf("asking Google failed: %w", err)
 	}
 	return nil
