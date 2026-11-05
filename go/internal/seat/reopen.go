@@ -322,7 +322,7 @@ func cutOff(name, own string, file *run.Object) bool {
 func (seat reopening) command(told []string) ([]string, string, bool) {
 	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
 	if seat.conversation == "" {
-		return adapters.Command(seat.model, env)
+		return adapters.Fresh(seat.model, env)
 	}
 	cmd, ok := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
 	return cmd, seat.conversation, ok
@@ -351,8 +351,16 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 	var settled string
 	err := notify.Held(context.Background(), seat.name, func(current string) error {
 		settled = current
-		if seat.still != nil && !seat.still(current) {
-			return errAccountChanged
+		var frozen *frozenPane
+		if seat.still != nil {
+			var err error
+			if frozen, err = freezePane(current); err != nil {
+				return err
+			}
+			defer frozen.thaw()
+			if !seat.still(current) {
+				return errAccountChanged
+			}
 		}
 		var before *run.Object
 		facts := filepath.Join(state, "hook-"+current+".json")
@@ -392,7 +400,7 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			err = retypeOwed(current)
 		}
 		if err == nil {
-			started, err = seat.start(state, current, cmd)
+			started, err = seat.start(state, current, cmd, frozen)
 		}
 		if err != nil {
 			if !started {
@@ -453,12 +461,15 @@ func fill(data *run.Object, fields []field) {
 
 // start is the harness in the seat, respawned in its exited pane or a new session, and whether it
 // runs: what fails after that leaves it be.
-func (seat reopening) start(state, name string, cmd []string) (bool, error) {
+func (seat reopening) start(state, name string, cmd []string, frozen *frozenPane) (bool, error) {
 	if !seat.held {
 		return false, start(state, name, seat.cwd, cmd)
 	}
 	server := tmux.Own()
 	target := harnessPane(name)
+	if frozen != nil {
+		target = frozen.target
+	}
 	values, err := environment(name, server)
 	if err != nil {
 		return false, err
@@ -474,7 +485,7 @@ func (seat reopening) start(state, name string, cmd []string) (bool, error) {
 	// one command list: a failed respawn keeps the old terminal's name, and a new wrapper's client
 	// cannot publish its own before the old one is gone
 	args := slices.Concat([]string{"respawn-pane", "-k", "-t", target}, paneEnvironment(values), []string{command, ";", "set-option", "-pu", "-t", target, tmux.InputTTY})
-	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
+	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), frozen.guarded(args)...); err != nil {
 		os.Remove(launch)
 		return false, Refusal(fmt.Sprintf("cannot resume the session %s: %v", name, err))
 	}

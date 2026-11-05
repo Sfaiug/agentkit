@@ -21,12 +21,7 @@ import (
 // Python's launch says why none opens: no adapter runs, it prints no line, or a file the harness
 // reads on its own, which nothing on the line can stop, is there.
 func Command(model config.Model, env []string) ([]string, string, bool) {
-	conversation := uuid()
-	line, told, ok := command(model, append(slices.Clip(env), "AGENTKIT_ACCOUNT="), []string{conversation, "new"}, nil)
-	if !told {
-		conversation = ""
-	}
-	return line, conversation, ok
+	return Fresh(model, append(slices.Clip(env), "AGENTKIT_ACCOUNT="))
 }
 
 // Resumed is the command a seat of model comes back on with the conversation it owns, as Python's

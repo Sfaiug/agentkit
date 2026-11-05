@@ -127,12 +127,15 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 	if back.account == "" {
 		return false, nil
 	}
-	back.still = func(name string) bool { return live.accountStill(name, !spent) }
 	err = under(filepath.Join(config.Home(), "state", "watch.lock"), func() error {
-		if !back.still(live.Name) {
+		if !live.accountStill(live.Name, !spent) {
 			return errAccountChanged
 		}
-		if work := hookfact.Standing(live.Name).Holds; spent && len(work) > 0 {
+		work := hookfact.Standing(live.Name).Holds
+		back.still = func(name string) bool {
+			return live.accountStill(name, !spent) && slices.Equal(hookfact.Standing(name).Holds, work)
+		}
+		if spent && len(work) > 0 {
 			launch, _ := config.Section(live.Own, "launch")
 			if !back.opened || launch["first_prompt"] != true {
 				return errAccountChanged
