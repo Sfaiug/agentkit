@@ -1,6 +1,7 @@
 package seat
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -43,8 +44,10 @@ var (
 )
 
 // How is what the caller of Reopen has: DryRun only says what would be done, and Terminal is one
-// to hand over, without which the seat's way in is said instead.
-type How struct{ DryRun, Terminal bool }
+// to hand over, without which the seat's way in is said instead.  Detached is a waking with nobody
+// at it (orch.resume's): a seat tmux still holds is left as it is, and one whose recorded directory
+// is gone refused.
+type How struct{ DryRun, Terminal, Detached bool }
 
 // A reopening is what a seat comes back as, read from its record.
 type reopening struct {
@@ -76,6 +79,14 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	notice, _ := run.ReadJSON(filepath.Join(state, "notify-"+name+".json"))
 	if !known {
 		return false, nil
+	}
+	if how.Detached {
+		cwd, _ := record["cwd"].(string)
+		if info, err := os.Stat(cwd); held {
+			return true, nil
+		} else if err != nil || !info.IsDir() {
+			return true, Refusal(fmt.Sprintf("%s: recorded directory is unavailable: %s", name, cmp.Or(cwd, ".")))
+		}
 	}
 	if how.Terminal && !how.DryRun && notice != nil && notice.Get("opened_at") == nil {
 		if !held || exited {

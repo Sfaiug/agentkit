@@ -84,12 +84,11 @@ func Give(dir string, say func(string)) bool {
 	if !pending {
 		line = handbackLine(record, dir, true)
 	}
-	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
+	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, nil, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
 		return nil
 	}, say) {
-		mark(dir, record, "handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
-			"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil)
+		Told(dir, record)
 		say(fmt.Sprintf("handed run %s back to the %s seat", id, session))
 		return true
 	}
@@ -102,6 +101,13 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("the %s seat is not at its prompt (%s); the tick hands run %s back", session, reading, id))
 	}
 	return false
+}
+
+// Told marks the run's ending told to the seat, as its hand-back and the NOT LIVE line of its
+// merge typed into the seat that launched it do; false where the record moved on.
+func Told(dir string, record *run.Object) bool {
+	return mark(dir, record, "handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
+		"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil)
 }
 
 // sameAttempt is whether two records are one attempt of the run, not either side of a resume.

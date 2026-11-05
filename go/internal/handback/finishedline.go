@@ -17,15 +17,8 @@ func handbackLine(record *run.Object, dir string, save bool) string {
 	word, why, move, detail := Decision(record, dir, run.Delivery(record, run.Models()))
 	if move != "" {
 		whole := run.Decision(record, dir, word, sentences(why, utf8.RuneCountInString(why)+1), move+detail, false)
-		for _, step := range [][2]string{{move + detail, why}, {move, why}, {move, "The result says why."}} {
-			frame := run.Decision(record, dir, word, "x", step[0], false)
-			room := min(decisionMost, int(config.Longest())) - utf8.RuneCountInString(frame) + len("x.")
-			if said := sentences(step[1], room); said != "" {
-				line := run.Decision(record, dir, word, said, step[0], false)
-				if fits(line) && (line == whole || !save || saveNotice(dir, record, whole)) {
-					return line
-				}
-			}
+		if line, err := DecisionLine(record, dir, word, why, move, detail); err == nil && (line == whole || !save || saveNotice(dir, record, whole)) {
+			return line
 		}
 		return ""
 	}
@@ -47,6 +40,22 @@ func handbackLine(record *run.Object, dir string, save bool) string {
 		return line
 	}
 	return ""
+}
+
+// DecisionLine is the line a decision is told in, Python's decision without its save: `why` in
+// whole sentences within a typed line's bounds, the move's detail dropped first, then `why` for
+// a pointer to the result; an error where not even that fits.
+func DecisionLine(record *run.Object, dir, word, why, move, detail string) (string, error) {
+	most := min(decisionMost, int(config.Longest()))
+	for _, step := range [][2]string{{move + detail, why}, {move, why}, {move, "The result says why."}} {
+		frame := run.Decision(record, dir, word, "x", step[0], false)
+		if said := sentences(step[1], most-utf8.RuneCountInString(frame)+len("x.")); said != "" {
+			if line := run.Decision(record, dir, word, said, step[0], false); fits(line) {
+				return line, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("run %s's decision line has no room for a reason in %d characters", filepath.Base(dir), most)
 }
 
 func fits(line string) bool {
