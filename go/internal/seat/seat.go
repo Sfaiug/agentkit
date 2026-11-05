@@ -129,7 +129,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
 		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
 		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
-		if harness.KeptInState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
+		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || usages.Owns(entry.Name()) || recommendationState(entry.Name()) ||
@@ -144,7 +144,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
-			!slices.Contains(kinds[kind], suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, name, suffix) &&
+			!slices.Contains(kinds[kind], suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
 				!pastKind(state, name, kind, suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
 			return Home{}, false
 		}

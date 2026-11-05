@@ -1391,7 +1391,6 @@ def run_job_loop(cfg, job_dir, job):
         orch.stop_scope(job.get("scope"), log, wait=False)
         return 1 if any(task["state"] in JOB_UNDELIVERED for task in job["tasks"]) else 0
     job["finished_at"] = time.time()
-    save()
     undelivered = [task for task in job["tasks"] if task["state"] in JOB_UNDELIVERED]
     # a task the owner stopped was ended on purpose: it delivered nothing, yet needs nobody
     failed = [task for task in undelivered if task["state"] != "stopped"]
@@ -1417,9 +1416,16 @@ def run_job_loop(cfg, job_dir, job):
     # own delivery lock, because a tick may be holding a line this loop left pending on an
     # earlier pass: one of them types it, and only one.
     with handback.delivery_lock(job_dir):
+        # A wait seeing the ending must also see its hand-back on the way.
+        if seat:
+            job.update(handback_pending=line, handback_card=text)
+        save()
         answer = job_hand_back(seat, line, log, job.get("handback_typed"),
                                lambda mark: mark_job_delivery(job_dir, job, handback_typed=mark)
                                ) if seat else "gone"
+        if answer == "gone":
+            mark_job_delivery(job_dir, job, handback_pending=None, handback_card=None,
+                              handback_typed=None)
         if not seat:
             log("no seat launched this job, so nothing is sent; "
                 "the result is here and in `ak run status`")
@@ -1430,7 +1436,6 @@ def run_job_loop(cfg, job_dir, job):
             orch.stop_scope(job.get("scope"), log, wait=False)
             return 1 if undelivered else 0
         elif answer == "busy":
-            mark_job_delivery(job_dir, job, handback_pending=line, handback_card=text)
             log(f"job {job['job_id']}: its seat is not at its prompt; the tick hands it back")
             orch.stop_scope(job.get("scope"), log, wait=False)
             return 1 if undelivered else 0
