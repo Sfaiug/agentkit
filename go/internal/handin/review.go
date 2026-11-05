@@ -224,6 +224,9 @@ func itemText(row *run.Object) string {
 			text += "\nBase " + base.Str("sha") + ":\n" + proofText(base)
 		}
 	}
+	if row.Str("kind") == "finding" && row.Str("handed") == "follow-up" {
+		text += "\nBlocking: its proof passes on base and fails on this commit, so this change caused it"
+	}
 	if row.Truthy("before") {
 		text += "\nBefore the task: " + row.Str("before")
 	}
