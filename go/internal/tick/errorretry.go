@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"agentkit/internal/config"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
@@ -122,10 +123,12 @@ func (t *ticking) errorRetry() error {
 		if errors.Is(err, errMovedRun) {
 			return errLeft
 		}
-		if err != nil {
-			return err
-		}
 		id := filepath.Base(each.dir)
+		if err != nil {
+			// one record that cannot be written keeps no other run from its retry
+			t.log.line(fmt.Sprintf("WARN cannot check run %s: %s", id, config.PyError(err)))
+			continue
+		}
 		switch move {
 		case given:
 			t.log.line(fmt.Sprintf("WARN %s: %s; leaving it parked for a person", id, why))
