@@ -44,6 +44,8 @@ test_key_doctor_tick_line
 test_key_done_seat_question_refused
 test_key_donewhen_same_failure
 test_key_dry_tick_lines
+test_key_duplicate_by_task_file
+test_key_duplicate_only_new_tests
 test_key_env_file_checks
 test_key_every_role_names_its_effort
 test_key_executor_blocked ExecutorBlocked NotNeededOutsideAFixRun
@@ -201,6 +203,7 @@ test_key_rulebook_retold
 test_key_run_background
 test_key_run_clean
 test_key_run_depth_refused
+test_key_run_duplicates
 test_key_run_merge_refusals
 test_key_run_no_worktree
 test_key_run_nomerge_pass
