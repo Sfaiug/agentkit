@@ -140,8 +140,8 @@ class InFlight(unittest.TestCase):
             "api.py, docs/api.md")
         run(home, "20261020-0902-cccc", {"state": "queued", "repo": str(code / "Acme-Web"),
                                          "launched_session": "beta"}, "web.py")
-        run(home, "20261020-0903-dddd", {"state": "stopped", **repo, "launched_session": "other",
-                                         "lease_wait": {"run": "20261020-0901-bbbb"}}, "parser.py")
+        run(home, "20261020-0903-dddd", {"state": "running", **repo,
+                                         "launched_session": "other"}, "parser.py")
         run(home, "20261020-0904-eeee", {"state": "pass", **repo, "launched_session": "quiet"},
             "gone.py")
         run(home, "20261020-0905-ffff", {"state": "queued", **repo}, "setup.py")
@@ -156,7 +156,7 @@ class InFlight(unittest.TestCase):
         return done.out
 
     def test_other_seats_open_lines_and_what_their_going_runs_change_are_listed(self):
-        # beta, filed elsewhere, shows only its line written on acme; other's stopped run is over;
+        # beta, filed elsewhere, shows only its line written on acme; other's running run counts;
         # quiet, with nothing open or going, is left out, as are a run with no files and
         # fix-api's own run, which does not stop it being filed
         self.assertEqual(self.project("acme"), (
@@ -168,6 +168,7 @@ class InFlight(unittest.TestCase):
             "  other\n"
             f"    plan: {written('parser ok', '~/code/acme#abc1234')}\n"
             "    plan: a hand-kept line\n"
+            "    changing: parser.py\n"
             "  run 20261020-0905-ffff\n"
             "    changing: setup.py\n"))
         self.assertEqual(record(self.home, "fix-api")["repo"], str(self.home.path / "code/acme"))
