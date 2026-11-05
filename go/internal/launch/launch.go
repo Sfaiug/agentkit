@@ -328,9 +328,7 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 	} else if err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
-	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged
-	// here, before any refusal a run records, as Python's launch_refusal is
-	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
+	if why := gitcall.ContractRefusal(repo); why != "" {
 		return refuse("", "", &refusedOutright{why})
 	}
 	// a change under way is refused next, as Python's already_under_way is

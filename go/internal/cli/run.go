@@ -157,7 +157,11 @@ func validateRun(args []string) string {
 		tasks = append(tasks, read{path, meta, cmds})
 	}
 	for _, each := range tasks {
-		if refusal := task.Refusal(each.meta, each.cmds); refusal != "" {
+		refusal, err := launch.Refusal(each.path, each.meta, each.cmds)
+		if err != nil {
+			return err.Error()
+		}
+		if refusal != "" {
 			if len(tasks) > 1 {
 				return each.path + ": " + refusal
 			}
