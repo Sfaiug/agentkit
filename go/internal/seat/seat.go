@@ -46,6 +46,7 @@ type Seat struct {
 	live                                              bool     // a pane of its session still runs: its screen says what it is
 	own                                               string   // the harness its screen is read as
 	question                                          bool     // its reason is the question its screen shows, not for the bar to repeat
+	back                                              any      // when it comes back, out of usage
 	unsent                                            string   // what nobody sent, left in its composer
 	wordFrom                                          []any    // what its word was decided from (watch.word_from), none for one nobody is in
 	asleep                                            bool     // put to sleep since its harness launched (sleep.asleep)

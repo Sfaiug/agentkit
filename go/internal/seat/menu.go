@@ -33,7 +33,8 @@ func Menu(now time.Time) (Home, bool) {
 			found.stall, found.login = nil, nil
 		}
 		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+each.Name+":", "#{session_attached}")
-		if each.decided(state, found, seconds(now), attached != "" && attached != "0") != nil {
+		// when one out of usage comes back, and the model it could go on with, are Python's to draw
+		if each.decided(state, found, seconds(now), attached != "" && attached != "0") != nil || each.Word == "out of usage" {
 			return Home{}, false
 		}
 	}

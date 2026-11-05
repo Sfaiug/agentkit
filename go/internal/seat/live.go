@@ -29,6 +29,7 @@ type Live struct {
 	Began        any
 	Stall, Login any      // the error the tick would type it back past, and its harness's words for a login out
 	Stuck        bool     // what it stopped on is login trouble or a blocked operation (watch.stuck_on)
+	Refused      string   // the refusal by its window its conversation's record ends on, which watch.seat_account takes
 	Bound        bool     // its session names the pane its launch created (orch.bind_pane has done its work)
 	Attached     bool     // a client is in it
 	Path         string   // where tmux says its session works
@@ -105,9 +106,11 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
 	conversation, cwd := record.Str("conversation"), record.Str("cwd")
 	recorded, kept := seat.reader.RecordedError(record)
-	line := recorded
+	line, refused := recorded, ""
 	if !kept {
 		line = outputLine(seen.rules.Said(tail))
+	} else if window, _ := harness.Refusal(seat.own, recorded); window {
+		refused = recorded
 	}
 	draft, drawn := seen.rules.ComposerDraft(pane)
 	if !drawn {
@@ -118,7 +121,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 		func(entry *run.Object) bool { return script.Prompted(seat.own, entry).Text != "" })
 	return Live{Name: seat.Name, Own: seat.own, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
-		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line),
+		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line), Refused: refused,
 		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2],
 		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: script.Moment(wrapped) != 0, Record: record, File: file}, true
 }
@@ -167,11 +170,24 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if carried = read && ok(live); !carried {
 			return nil
 		}
-		if strings.TrimFunc(pane, config.Space) == "" && found.authority != "hook" && !seat.hasActiveRun() {
+		var wait func() error
+		blank := strings.TrimFunc(pane, config.Space) == ""
+		if live.Refused != "" {
+			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's
+			if carried = !blank; carried {
+				wait, carried = seat.waitOnUsage(state, live, now, log)
+			}
+			if !carried {
+				return nil
+			}
+		}
+		if blank && found.authority != "hook" && !seat.hasActiveRun() {
 			return nil
 		}
-		if carried, err = MoveAccount(live, log); !carried || err != nil {
-			return err
+		if wait == nil { // a refusal is waited on, never moved from at its prompt
+			if carried, err = MoveAccount(live, log); !carried || err != nil {
+				return err
+			}
 		}
 		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
 		if err != nil {
@@ -180,8 +196,11 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if err := seat.askKeptBack(found); err != nil {
 			return err
 		}
-		// A relaunch consumed the old Stop; it cannot nudge the replacement harness.
-		if live.sameRecord() {
+		if wait != nil {
+			if err := wait(); err != nil {
+				return err
+			}
+		} else if live.sameRecord() { // A relaunch consumed the old Stop; it cannot nudge the replacement harness.
 			found, err = seat.nudgeOpenWork(state, found, log)
 			if err != nil {
 				return err

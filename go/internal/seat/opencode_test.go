@@ -15,6 +15,10 @@ func TestOpenCodeReceiptIsReadAtTheListingBoundary(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
 			write(t, filepath.Join(home, ".agentkit", "config.toml"), opencodeConfig)
+			// The session's database is being written into, which is Python's to read.
+			t.Setenv("XDG_DATA_HOME", filepath.Join(home, "share"))
+			write(t, filepath.Join(home, "share", "opencode", "opencode.db"), "pages")
+			write(t, filepath.Join(home, "share", "opencode", "opencode.db-wal"), "pages it has yet to take in")
 			// An earlier record needs reconciliation: handing over must precede every write.
 			record(t, home, "aaa", map[string]any{"id_source": nil, "repo": nil})
 			token := strings.Repeat("a", 32)

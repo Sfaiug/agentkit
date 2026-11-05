@@ -32,8 +32,11 @@ type plugin struct {
 	answer  func(record *run.Object) (model, effort, at any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
-	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
-	owns func(record *run.Object, conversation string) bool
+	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
+	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
+	// record (orch.resumable).
+	owns      func(record *run.Object, conversation string) bool
+	resumable func(record *run.Object) bool
 	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
 	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.

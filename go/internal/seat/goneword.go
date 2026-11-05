@@ -9,6 +9,9 @@ import (
 )
 
 func conversationOwned(reader harness.Reader, record *run.Object) bool {
+	if resumable, known := reader.Resumable(record); known {
+		return resumable
+	}
 	owned, _ := reader.Owns(record, record.Str("conversation"))
 	return record.Str("conversation") != "" && (record.Str("id_source") == "launcher" || owned)
 }

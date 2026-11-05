@@ -60,16 +60,7 @@ func ConversationStores(list func(folder string) []string) []Store {
 
 // ConversationDatabases is each SQLite file a harness keeps its conversations in as rows, which
 // Python reads for its idle ones: OpenCode's opencode.db, as OpenCode resolves it.
-func ConversationDatabases() []string {
-	name, set := os.LookupEnv("OPENCODE_DB")
-	if !set {
-		name = "opencode.db"
-	}
-	if filepath.IsAbs(name) {
-		return []string{name}
-	}
-	return []string{filepath.Join(share(), "opencode", name)}
-}
+func ConversationDatabases() []string { return []string{opencodeDatabase()} }
 
 // OwnsTmp is whether a harness's plugin judges that top-level temporary entry its own way:
 // Claude's scratch, `claude-<uid>`, wherever its adapter is installed.
