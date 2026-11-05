@@ -170,24 +170,25 @@ func onPath(role, home string, out io.Writer) error {
 	if err := os.Symlink(program, link); err != nil {
 		return err
 	}
+	here, _ := os.Stat(bin)
 	for _, name := range []string{"usage", "worker", "run", "notify", "orch", "__pycache__"} {
 		stale := filepath.Join(bin, name)
 		target, err := os.Readlink(stale)
 		if err != nil {
 			continue
 		}
-		// ak's if it names this checkout's, or a bin/ that holds ak, or dangles at a */bin/<name>;
-		// a bare name holds no folder, as install.sh's `${target%/*}/ak` reads it
-		holder := target + "/ak"
-		if slash := strings.LastIndex(target, "/"); slash >= 0 {
-			holder = target[:slash] + "/ak"
+		// ak's if it names this checkout's, or a bin/ that holds ak, or dangles at a */bin/<name>.
+		// The folder is where the link points, wherever install runs from, and never this one:
+		// the ak link just made here says nothing of the owner's tools beside it.
+		folder := filepath.Dir(target)
+		if !filepath.IsAbs(target) {
+			folder = filepath.Dir(filepath.Join(bin, target))
 		}
-		if !filepath.IsAbs(holder) { // where the link points, wherever install runs from
-			holder = filepath.Join(bin, holder)
-		}
-		_, beside := os.Stat(holder)
+		there, err := os.Stat(folder)
+		_, holds := os.Stat(filepath.Join(folder, "ak"))
+		beside := err == nil && holds == nil && !os.SameFile(there, here)
 		_, dangles := os.Stat(stale)
-		if target == filepath.Join(checkout, "bin", name) || beside == nil ||
+		if target == filepath.Join(checkout, "bin", name) || beside ||
 			dangles != nil && strings.HasSuffix(target, "/bin/"+name) {
 			os.Remove(stale)
 			fmt.Fprintf(out, "removed stale symlink %s -> %s\n", stale, target)
