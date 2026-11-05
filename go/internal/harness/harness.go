@@ -6,6 +6,7 @@ package harness
 import (
 	"cmp"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,10 @@ import (
 
 // A plugin is one harness's own answers; a hook it leaves nil takes the default.
 type plugin struct {
-	identity func(text string, argv []string) (string, bool)
+	identity    func(text string, argv []string) (string, bool)
+	interactive func(root string, args []string, out, errOut io.Writer) int
+	seatWords   func(words, env []string) []string
+	hookEvent   func(event *run.Object) *run.Object
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
