@@ -143,7 +143,10 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			continue
 		}
 		if view.Column == 0 && session != "" {
-			return false // moving an orchestrator needs Python's restart confirmation
+			if !moveConfigSeat(session, &view, keyboard, painter) {
+				return false
+			}
+			continue
 		}
 		mark := c.Mark(c.Names[view.Row], view.Column)
 		var changed *run.Object
