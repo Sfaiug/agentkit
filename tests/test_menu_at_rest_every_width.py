@@ -154,9 +154,9 @@ class V5oMenu(Sandbox):
         self.assertLess(screen.index("\natoll\n"), screen.index("\nagentkit\n"))
         self.assertLess(screen.index("\nagentkit\n"), screen.index("\nnot assigned yet\n"))
         # Each needing row carries its number and its one-line reason.
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1\s+! needs you\s+session closed: press 3")
-        self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1\s+● working\s+─+ no plan yet$", re.M))
-        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1\s+! needs you\s+session closed: press 5")
+        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 3")
+        self.assertRegex(screen, re.compile(r"4\s+herdr-long\s+Fable 5\.1 xhigh\s+● working\s+─+ no plan yet$", re.M))
+        self.assertRegex(screen, r"5\s+scribe\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 5")
         # Nothing needs you when nothing does.
         with patch("agentkit.watch.live_state", return_value={"state": "working", "rule": "fixture",
                                                              "since": NOW - 60, "began": NOW - 60}):
@@ -364,7 +364,7 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         # The gone seat names its own number; no ending ever is the reason.
         self.assertNotIn("Herdr first pass", screen)
-        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1\s+! needs you\s+session closed: press 3")
+        self.assertRegex(screen, r"3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 3")
         self.assertNotIn("press r", screen)
         # ak run status <id> marks an ending looked at, and acknowledge does.
         second = self.touching("herdr-second-pass", owner="herdr-quiet",
@@ -396,7 +396,7 @@ class V5oMenu(Sandbox):
         screen, _ = self.draw(100, 30)
         self.assertNotIn("press r", screen.split("not assigned yet")[0])
         self.assertRegex(screen, re.compile(
-            r"^\s*3\s+herdr-quiet\s+Fable 5\.1\s+! needs you\s+session closed: press 3 to reopen$", re.M))
+            r"^\s*3\s+herdr-quiet\s+Fable 5\.1 xhigh\s+! needs you\s+session closed: press 3 to reopen$", re.M))
 
     def test_v5o_k_frame_header_rule_keys_prompt_no_hash(self):
         screen, _ = self.draw(100, 30)

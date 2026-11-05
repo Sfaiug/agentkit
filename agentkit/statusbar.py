@@ -359,11 +359,8 @@ def _write(name, model, word=None, lasts=None, cfg=None, versions=(), every=Fals
     versions = list(versions) or [""] * len(WHYS)
     if model:
         cfg = config.load() if cfg is None else cfg
-        cfg = config.at_efforts(cfg, config.load_session(cfg, name, required=False))
-        effort = config.worker_effort(cfg, model, "orchestrator")
-        model = config.model_name(cfg, model)
-        if effort and effort != "none":
-            model += f" {effort}"
+        model = config.model_at(cfg, config.load_session(cfg, name, required=False), model,
+                                "orchestrator")
     tops = [lines(name, model, word, last)[0] for last in lasts]
     _, _, key, title = lines(name, model, word, lasts[0])
     whys_drawn = [lines(name, model, word, "", version)[1] for version in versions]

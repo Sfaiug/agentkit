@@ -145,7 +145,7 @@ class OpenLine(unittest.TestCase):
         row, line = self.screens["fix-api"]
         self.assertRegex(row, r"● working +─+ no plan yet$")
         # build moving, build waiting its turn, review moving, then waiting in the landing line
-        self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor ⚒   Opus 5.5 ◎   "
+        self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor xhigh ⚒   Opus 5.5 xhigh ◎   "
                                "■□□  ■□□  ■■□  ■■■")
 
     # blue while a model works on it, gray while it waits, with no mark.
@@ -168,7 +168,7 @@ class OpenLine(unittest.TestCase):
     def test_a_seat_at_rest_opens_each_model_once_with_what_it_does(self):
         row, line = self.screens["gamma"]
         self.assertTrue(row.endswith("○ idle"), row)
-        self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor ⚒   Fable 5.1 ⚒◎")
+        self.assertEqual(line, f"{UNDER}muse-spark-1.3-contributor xhigh ⚒   Fable 5.1 xhigh ⚒◎")
 
 
 if __name__ == "__main__":

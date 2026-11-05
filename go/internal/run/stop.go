@@ -33,7 +33,7 @@ var settled = []string{"recovery_pending", "recovery_notified", "recovery_acknow
 var holds = []string{"pid", "scope", "job_id", "worktree", "branch", "review_pr",
 	"followups", "followup_plan", "followup_runs"}
 
-// Historyless is whether no history.db stands: Go's standard library holds no SQLite.
+// Historyless is whether no history.db stands, whose rows of runs and ticks Go writes none of yet.
 func Historyless() bool {
 	base := filepath.Join(config.Home(), "history.db")
 	return absent(base) && absent(base+"-wal")

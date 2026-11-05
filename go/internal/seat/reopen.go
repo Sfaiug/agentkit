@@ -51,6 +51,8 @@ type reopening struct {
 	name, orchestrator, cwd, conversation string
 	model                                 config.Model
 	opened, held                          bool
+	account, line                         string
+	still                                 func(string) bool
 }
 
 // Reopen is what `ak orch`, a tick's revival and the menu do to a seat that exists, as Python's
@@ -204,8 +206,8 @@ func handOver(name string, how How, out, errOut io.Writer) error {
 
 // comingBack is what the seat comes back as, or false where Go does not carry that out: a record it
 // would refuse or reconcile; a conversation only its harness's own evidence or store can name; a
-// login of an account's; a folder gone; an unnamed seat or a move from another conversation.
-// A launch also leaves Python a harness whose launch writes more than its id, a checkout's git,
+// login the provider does not list; a folder gone; an unnamed seat or a move from another conversation.
+// A launch also leaves Python a harness whose launch Go does not carry, a checkout's git,
 // a seat cut off that its relaunch tells so, and queued account moves or editor sends.
 func comingBack(state, name string, record map[string]any, held, dryRun bool) (reopening, bool) {
 	orchestrator, _ := record["orchestrator"].(string)
@@ -219,7 +221,7 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 	cwd, _ := record["cwd"].(string)
 	info, unseen := os.Stat(cwd)
 	account, _ := record["account"].(string)
-	if !known || !owned || unseen != nil || !info.IsDir() || account != "" && account != "default" {
+	if !known || !owned || unseen != nil || !info.IsDir() || !listedAccount(model, account) {
 		return reopening{}, false
 	}
 	opened := true
@@ -232,7 +234,7 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 	if record["unnamed"] != nil || handover == nil {
 		return reopening{}, false
 	}
-	seat := reopening{name, orchestrator, cwd, conversation, model, opened, held}
+	seat := reopening{name: name, orchestrator: orchestrator, cwd: cwd, conversation: conversation, model: model, opened: opened, held: held, account: account}
 	if dryRun {
 		return seat, true
 	}
@@ -318,9 +320,9 @@ func cutOff(name, own string, file *run.Object) bool {
 // one its record holds, or one a new launch can be told, "" for none.  told is what else its adapter
 // is told: the rulebook written for it.
 func (seat reopening) command(told []string) ([]string, string, bool) {
-	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT="}, told)
+	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
 	if seat.conversation == "" {
-		return adapters.Command(seat.model, env)
+		return adapters.Fresh(seat.model, env)
 	}
 	cmd, ok := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
 	return cmd, seat.conversation, ok
@@ -349,6 +351,17 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 	var settled string
 	err := notify.Held(context.Background(), seat.name, func(current string) error {
 		settled = current
+		var frozen *frozenPane
+		if seat.still != nil {
+			var err error
+			if frozen, err = freezePane(current); err != nil {
+				return err
+			}
+			defer frozen.thaw()
+			if !seat.still(current) {
+				return errAccountChanged
+			}
+		}
 		var before *run.Object
 		facts := filepath.Join(state, "hook-"+current+".json")
 		last := facts + ".last"
@@ -366,6 +379,13 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			}
 			fill(data, append(issued, field{"resumable", conversation != ""}, field{"before", nil},
 				field{"rulebook_sha", handed}, field{"rulebook_told", nil}, field{"rulebook_read", nil}))
+			extra, env := harness.LaunchExtras(seat.model.Harness)
+			for _, key := range extra.Keys() {
+				fill(data, []field{{key, extra.Get(key)}})
+			}
+			if len(env) > 0 {
+				cmd = slices.Concat([]string{"env"}, env, cmd)
+			}
 			return true
 		})
 		if err == nil {
@@ -380,7 +400,7 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			err = retypeOwed(current)
 		}
 		if err == nil {
-			started, err = seat.start(state, current, cmd)
+			started, err = seat.start(state, current, cmd, frozen)
 		}
 		if err != nil {
 			if !started {
@@ -404,6 +424,9 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 		// launch keeps it: both harnesses Go opens take a title line
 		if err := update(state, current, func(data *run.Object) bool {
 			fill(data, []field{{"launched", seconds(now)}, {"seen", int(now.Unix())}, {"title_sync", nil}})
+			if seat.account != "" {
+				data.Set("account", seat.account)
+			}
 			echo := before.Str("session_title")
 			if conversation == "" || before.Str("conversation") != conversation || echo == "" || echo == current {
 				title := any(nil)
@@ -438,12 +461,15 @@ func fill(data *run.Object, fields []field) {
 
 // start is the harness in the seat, respawned in its exited pane or a new session, and whether it
 // runs: what fails after that leaves it be.
-func (seat reopening) start(state, name string, cmd []string) (bool, error) {
+func (seat reopening) start(state, name string, cmd []string, frozen *frozenPane) (bool, error) {
 	if !seat.held {
 		return false, start(state, name, seat.cwd, cmd)
 	}
 	server := tmux.Own()
 	target := harnessPane(name)
+	if frozen != nil {
+		target = frozen.target
+	}
 	values, err := environment(name, server)
 	if err != nil {
 		return false, err
@@ -459,7 +485,7 @@ func (seat reopening) start(state, name string, cmd []string) (bool, error) {
 	// one command list: a failed respawn keeps the old terminal's name, and a new wrapper's client
 	// cannot publish its own before the old one is gone
 	args := slices.Concat([]string{"respawn-pane", "-k", "-t", target}, paneEnvironment(values), []string{command, ";", "set-option", "-pu", "-t", target, tmux.InputTTY})
-	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
+	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), frozen.guarded(args)...); err != nil {
 		os.Remove(launch)
 		return false, Refusal(fmt.Sprintf("cannot resume the session %s: %v", name, err))
 	}

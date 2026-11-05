@@ -6,14 +6,14 @@ agentkit                                                                        
 
 
 atoll
-  1  atoll-fix    Fable 5.1  ○ idle
-  2  atoll-proxy  Fable 5.1  ! needs you
+  1  atoll-fix    Fable 5.1 xhigh  ○ idle
+  2  atoll-proxy  Fable 5.1 xhigh  ! needs you
      session closed: press 2 to reopen
 
 agentkit
-  3  herdr        Fable 5.1  ● working    ────────────────────────────────────────────── no plan yet
+  3  herdr        Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
 
 not assigned yet
-  4  scribe       Fable 5.1  ○ idle
+  4  scribe       Fable 5.1 xhigh  ○ idle
 
   n new   c config   esc leave
