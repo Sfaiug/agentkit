@@ -122,7 +122,8 @@ func CompareFrame(s terminal.Screen, title string, rows []CompareLine, marks map
 			spot = -1
 		}
 		lines = append(lines, line)
-		spots = append(spots, matrixRow{row: spot})
+		first := len(line) - len(strings.TrimLeft(line, " ")) + 1
+		spots = append(spots, matrixRow{row: spot, cells: []matrixCell{{first, terminal.Cells(line), 0}}})
 	}
 	if below := cut(rows[top+tall:], "below"); below != "" {
 		lines = append(lines, s.Styled(below, "dim"))

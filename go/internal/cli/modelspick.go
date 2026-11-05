@@ -62,7 +62,7 @@ func modelsPick(title string, lineup []quality.Row, keyboard *terminal.Keyboard,
 					step = 1
 				}
 				at = max(0, min(len(choices)-1, at+step))
-			} else if row, _, hit := frame.Hit(mouse); hit {
+			} else if row, column, hit := frame.Hit(mouse); hit && column >= 0 {
 				at = slices.Index(choices, row)
 				if mouse.Released && mouse.Button&3 == 0 {
 					key.Name = "space"
