@@ -21,6 +21,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -34,6 +35,7 @@ FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees thi
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
+WAKE = 10           # seconds between a pass's looks for blamed runs it may wake (`_waking`)
 
 
 def _trees(turn, kind="trees"):
@@ -198,6 +200,44 @@ def red_stack(wait):
 def red_behind(wait, names):
     """Whether a `red_stack` verdict still waits on runs in the line, `names`."""
     return red_stack(wait) and bool(wait["after"].keys() & names)
+
+
+@contextmanager
+def _waking(turn, log):
+    """The pass's `wake`: each parked member of the line as it stands with a `fix` that waits
+    on no run in it (`red_behind`) is woken, once a pass.  Asked as the pass starts and ends,
+    for each verdict it gives, and every WAKE seconds while it runs: the runs ahead leave on
+    their own time, and one check holds a pass for hours (a run blamed behind runs that all
+    merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026)."""
+    from . import watch
+    woken, done = set(), threading.Event()
+
+    def wake():
+        members = line(turn)
+        names = {directory.name for directory, _ in members}
+        for directory, state in members:
+            if (state.get("state") == "waiting" and "fix" in state["waiting_on"]
+                    and not red_behind(state["waiting_on"], names)):
+                # `woken` under the run's own lock: two threads of the pass wake it once
+                with record.recovery_lock(directory):
+                    if (directory.name not in woken and record.read_state(directory) == state
+                            and not record.process_active(state)):
+                        woken.add(directory.name)
+                        watch.launch_resume(directory.name, log)
+
+    def watching():
+        while not done.wait(WAKE):
+            wake()
+
+    wake()
+    watcher = threading.Thread(target=watching, daemon=True)
+    watcher.start()
+    try:
+        yield wake
+    finally:
+        done.set()
+        watcher.join()
+    wake()
 
 
 def start_line(turn, log=lambda _: None):
@@ -389,7 +429,6 @@ def _repair(turn, directory, state, tree, red, log):
     and is handed the red target as its own landing finding -- its next head is checked on
     its own merits, so one that repairs the target lands (see `check_line`).
     """
-    from . import handback, watch
     if state.get("review_pr"):
         path = directory / "target-red.log"
         path.write_text(red["probe"]["text"] + "\n")
@@ -399,8 +438,7 @@ def _repair(turn, directory, state, tree, red, log):
             with record.record(directory) as current:
                 current["waiting_on"] = {**current["waiting_on"], "fix": {
                     "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
-        watch.launch_resume(directory.name, log)
-        return None
+        return None     # the pass wakes it (`_waking`)
     name = _start_repair(state, directory, red["probe"], log)
     if name:
         note(turn, [], directory.name, red={tree: {**red, "run": name}})
@@ -505,19 +543,13 @@ def check_line(turn, log=lambda _: None):
     from . import handback, roundloop, run, watch
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
-    with _pass(turn) as held:
+    with _pass(turn) as held, ExitStack() as waking:
         if not held:
             return
+        # Checks may return after their first group; no saved red waits for that walk to reach it.
+        wake = waking.enter_context(_waking(turn, log))
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
         members = copy.deepcopy(line(turn))     # its own: it writes its answers into them
-        names = {directory.name for directory, _ in members}
-        # Checks may return after their first group; no saved red waits for that walk to reach it.
-        for directory, state in members:
-            if state.get("state") == "waiting" and "fix" in state["waiting_on"]:
-                with record.recovery_lock(directory):
-                    if (record.read_state(directory) == state and not record.process_active(state)
-                            and not red_behind(state["waiting_on"], names)):
-                        watch.launch_resume(directory.name, log)
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
                 if record.read_state(directory) != state or record.process_active(state):
@@ -629,8 +661,9 @@ def check_line(turn, log=lambda _: None):
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
                     for member, answer in fresh.items():
-                        if not red_behind(answer, names):
+                        if "fix" not in answer:
                             watch.launch_resume(member.name, log)
+                    wake()
                 return True
 
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,
