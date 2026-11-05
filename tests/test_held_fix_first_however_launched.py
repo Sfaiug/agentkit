@@ -3,8 +3,8 @@
 While the install lacks the held commit, the seat's earliest agentkit run launched since it was
 told that has not ended goes first: admitted as `--first` is (`gate.slot_order`) and ahead in
 the landing line of every member that joined without one (`land.line`).  A launch refused as
-another run on its PR has not ended takes nothing; once the place's run is stopped, parked or
-fails, the seat's next run has it, and a run started again after a park keeps it.  An
+another run on its PR has not ended takes nothing; once the place's run is stopped or
+fails, the seat's next run has it.  An
 unreadable record or session gives no place, and once the install moves there is none.
 Black-box: the seat `acme` launches through `bin/ak run` in a Home of tests/fixtures/akbin.py,
 on the agentkit of gitrig.py and the GitHub of fakegh.py, with no slot free and the host short of
@@ -37,7 +37,7 @@ SEAT = {"AGENTKIT_SESSION": "acme"}
 PRELUDE = f"""import json, sys, time
 sys.path.insert(0, {str(REPO)!r})
 from pathlib import Path
-from agentkit import config, gate, land, leases, record, update
+from agentkit import config, gate, land, record, update
 def order():
     print(json.dumps({{"first": sorted(d.name for d in record.run_dirs()
                                         if not gate.slot_order(record.read_state(d) or {{}})[0]),
@@ -130,7 +130,7 @@ class HeldFixFirst(unittest.TestCase):
         self.assertEqual(handed["seat"], "acme")
         self.assertGreater(handed["at"], self.record(self.before)["started_at"])
 
-    def test_the_place_follows_the_seats_runs_however_they_launch_end_and_restart(self):
+    def test_the_place_follows_the_seats_runs_however_they_launch_and_end(self):
         refused, code = self.launch("--review-pr", self.pr)
         self.assertNotEqual(code, 0)
         self.assertEqual(self.record(refused)["state"], "error")
@@ -147,31 +147,21 @@ class HeldFixFirst(unittest.TestCase):
         last = self.task("One more")
         self.assertEqual(self.order()["first"], [again])
 
-        # A record parked before collision scans were retired still starts again.
-        self.home.write(f".agentkit/runs/{again}/run.json", {
-            **self.record(again), "state": "stopped",
-            "lease_wait": {"on": self.before, "files": ["api.py"], "since": time.time()}})
-        self.assertEqual(self.order()["first"], [last])
-        self.assertEqual(self.home.ak("run", "stop", self.before).code, 0)
-        self.ak_code("leases.restart()")
-        restarted = self.record(again)["lease_restarted"]
-        self.assertEqual(self.order()["first"], [restarted])
-
         # in the landing line: behind a green delivery, admitted first too, and ahead of the
         # member that joined first
         delivery = "20261026-0802-delivery"
         self.home.write(f".agentkit/runs/{delivery}/run.json",
                         {"run_id": delivery, "state": "waiting", "started_at": 1,
                          "waiting_on": {"line": "line", "joined": 30, "land": "tree"}})
-        for name, joined in ((last, 10), (restarted, 20)):
+        for name, joined in ((last, 10), (again, 20)):
             self.join(name, joined)
-        self.assertEqual(self.order()["line"], [delivery, restarted, last])
+        self.assertEqual(self.order()["line"], [delivery, again, last])
 
         handed = (self.check / "handed").read_text()
         for unreadable in ("{", "[]"):
             (self.check / "handed").write_text(unreadable)
             self.assertEqual(self.order(), {"first": [delivery],
-                                            "line": [delivery, last, restarted]})
+                                            "line": [delivery, last, again]})
         (self.check / "handed").write_text(handed)
         session = self.home.path / ".agentkit/state/session-acme.json"
         kept = session.read_text()
@@ -179,17 +169,17 @@ class HeldFixFirst(unittest.TestCase):
         self.home.write(".agentkit/state/session-acme-2.json", {"renamed": "acme"})
         self.assertEqual(self.order()["first"], [delivery])
         session.write_text(kept)
-        self.assertEqual(self.order()["first"], [delivery, restarted])
+        self.assertEqual(self.order()["first"], [delivery, again])
         # another seat's hand-back, its session unreadable, takes nothing from this one's
         other = self.check.with_name(f"{self.held}-2000")
         other.mkdir()
         (other / "handed").write_text(json.dumps({"seat": "ghost", "at": 1}))
         self.home.write(".agentkit/state/session-ghost.json", "{")
-        self.assertEqual(self.order()["first"], [delivery, restarted])
+        self.assertEqual(self.order()["first"], [delivery, again])
 
         self.assertEqual(self.home.run("git", "-C", str(self.install), "merge", "-q",
                                        "--ff-only", self.held).code, 0)
-        self.assertEqual(self.order(), {"first": [delivery], "line": [delivery, last, restarted]})
+        self.assertEqual(self.order(), {"first": [delivery], "line": [delivery, last, again]})
 
     def join(self, name, joined):
         """That run as its loop leaves it in the landing line: waiting, with no process."""

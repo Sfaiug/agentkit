@@ -181,6 +181,9 @@ class StatusAlive(Sandbox):
                 self.assertNotIn("processes", text)
                 self.assertNotIn("process ·", text)
 
+    def test_any_other_stop_keeps_its_own_words(self):
+        self.assertEqual(status.stop_note({"state": "stopped"}), "stopped · stopped by the user")
+
     def test_finished_run_shows_neither_count_nor_reason(self):
         run_id = "20260922-0900-alive-done"
         directory = self.receipt(run_id, state="pass", verdict="PASS",

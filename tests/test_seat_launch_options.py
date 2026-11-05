@@ -1,5 +1,5 @@
 """A run the tick launches for a seat (`run.launch_for_seat`) runs with the options its receipt
-recorded: a task started again keeps its --no-merge and --rounds, a review started again its
+recorded: a fix task keeps its --no-merge and --rounds, a review its
 place and reviewer. The launch sends the child no flag; the child reads its record (`run.main`),
 as a resume of a run that never started does.
 Offline: a temporary HOME, a fake launch and a fake loop.
@@ -40,7 +40,7 @@ class SeatLaunchOptions(Sandbox):
         with patch.object(run, "preflight"), \
                 patch.object(run, "spawn_bg", side_effect=lambda d, argv: started.append(argv)):
             run.launch_for_seat(directory, {"launched_session": "fix-api"},
-                                {"restarted": {"run": "older"}}, opts=opts, cfg=self.cfg)
+                                {"followup": {"run": "older"}}, opts=opts, cfg=self.cfg)
         return directory, started[0]
 
     def driven(self, directory, argv):
@@ -51,8 +51,8 @@ class SeatLaunchOptions(Sandbox):
             self.assertEqual(run.main(argv), 0)
         return drive.call_args.args[2]
 
-    def test_a_task_started_again_keeps_its_recorded_options(self):
-        directory, argv = self.launched("20261013-restarted-task",
+    def test_a_fix_task_keeps_its_recorded_options(self):
+        directory, argv = self.launched("20261013-followup-task",
                                         {"--no-merge": True, "--rounds": "1"})
         self.assertEqual(argv, [str(directory / "task.md")])       # no flag: its record has them
         recorded = record.read_state(directory)["launch_opts"]
@@ -60,8 +60,8 @@ class SeatLaunchOptions(Sandbox):
         opts = self.driven(directory, argv)
         self.assertEqual((opts["--no-merge"], opts["--rounds"]), (True, "1"))
 
-    def test_a_review_started_again_keeps_its_place_and_reviewer(self):
-        directory, argv = self.launched("20261013-restarted-review",
+    def test_a_review_keeps_its_place_and_reviewer(self):
+        directory, argv = self.launched("20261013-followup-review",
                                         {"--review-pr": URL, "--review": "astra", "--first": True},
                                         task=False)
         self.assertEqual(argv, ["--review-pr", URL])

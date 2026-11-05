@@ -1147,7 +1147,7 @@ def first_place(state):
 
     While the install lacks a held commit, the seat told of it owns one place: its earliest
     agentkit run of any kind launched since it was told that has not ended.  Read from the
-    runs as they stand, never written at a launch, so no refusal, stop, park or relaunch can
+    runs as they stand, never written at a launch, so no refusal or stop can
     lose it; a record or session that cannot be read gives no place.
     """
     try:
@@ -1158,12 +1158,12 @@ def first_place(state):
                     default=None)
         if since is None or not _contender(state, seat, since):
             return False
-        mine, resolved = (transitions.first_started(state), state.get("run_id") or ""), {}
+        mine, resolved = (state.get("started_at") or 0, state.get("run_id") or ""), {}
     except (config.Error, OSError, TypeError):
         return False
     for _, other in run_record.runs():
         try:
-            if ((transitions.first_started(other), other.get("run_id") or "") < mine
+            if ((other.get("started_at") or 0, other.get("run_id") or "") < mine
                     and _contender(other, seat, since, resolved)):
                 return False
         except (config.Error, OSError, TypeError):
@@ -1188,7 +1188,7 @@ def _told(check, seat):
 def _contender(state, seat, since, resolved=None):
     """Whether that run is the seat's, on agentkit's repository, launched since then and not
     ended: a review of an agentkit PR, or a task in a clone of agentkit."""
-    if (state.get("state") in run_record.ENDED or transitions.first_started(state) < since
+    if (state.get("state") in run_record.ENDED or (state.get("started_at") or 0) < since
             or transitions.launched_session(state, resolved) != seat):
         return False
     found = transitions.PR_PARTS.match(state.get("review_pr") or "")

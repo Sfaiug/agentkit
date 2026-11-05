@@ -882,10 +882,10 @@ def remember_memory_cap(state, placement, cap):
 
 def seat_launch(state):
     """Whether the tick launched that run for a seat (`launch_for_seat`): a fix run
-    (`followup`) or a task started again (`restarted`), whose receipt names the seat and its
+    (`followup`), whose receipt names the seat and its
     lists, and which descends from nothing that launched it; or a failed night's fix (`night`),
     the same with its lists from the defaults and no seat."""
-    return bool(state.get("followup") or state.get("restarted") or state.get("night"))
+    return bool(state.get("followup") or state.get("night"))
 
 
 def launch_for_seat(directory, state, origin, cfg=None, opts=None, task_file=None,
@@ -1324,7 +1324,7 @@ def preflight(run_dir, opts, log):
         state = run_record.read_state(run_dir) or {}
         state["title"] = f"Review PR #{number}: {info['title']}"
         # a config that cannot be read refuses the launch rather than judge the PR external,
-        # and a writer already on the record (`leases.restart` carries one) stays there
+        # and a writer already on the record stays there
         # whatever the config says of its model now: only a probed writer is written down
         is_own, orch, effort = pr_writer(config.load(), state, state.get("launched_session"),
                                          info["author"])
@@ -2177,7 +2177,7 @@ def own_pr_orchestrator(cfg, session_name, author):
 
 def pr_writer(cfg, state, session_name, author):
     """(is_own, orchestrator, effort) for the review `state` records: the writer it captured at
-    launch, in preflight or the first attempt, or carried from a stopped run (`leases.restart`),
+    launch, in preflight or the first attempt,
     stands -- a session record rewritten since must not replace it, or the reviewer's
     independence check would judge another model than the one that wrote this -- and a record
     with none asks the seat (`own_pr_orchestrator`).  A captured model the config no longer

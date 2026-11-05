@@ -50,6 +50,7 @@ seats = lambda: json.loads(SEATS.read_text())
 orch.listing = lambda reconcile=True: [
     {"name": name, "repo": None, "path": "/", "created": 0,
      "closed": 1 if word == STOPPED else None} for name, word in seats().items()]
+orch.held_names = set      # other tests' tmux sessions cannot reserve this fake menu's names
 menu.seat_row_state = lambda cfg, session, **facts: {
     "word": seats().get(session["name"], "working").replace(STOPPED, "idle"),
     "reason": "", "since": None}

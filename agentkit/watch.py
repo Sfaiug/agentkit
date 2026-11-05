@@ -3350,23 +3350,17 @@ def waiting_on(name):
 
 def wait_fact(wait):
     """(whether what that wait names is over, the one line saying how, the run whose ending
-    that is or None): a run once it is no longer going, or the run its task was started again
-    as, a pull request once it is merged (by the run landing it, if one did) or closed, or
+    that is or None): a run once it is no longer going, a pull request once it is merged
+    (by the run landing it, if one did) or closed, or
     while open, once no run reviewing or landing it is going (the last to end since the wait
     began).  (None, why, None) where nothing can say yet: `wait_over` leaves the wait as it is
     while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
     if wait.get("kind") == "run":
-        while True:
-            directory = config.RUNS / on
-            state = run_record.read_state(directory) if directory.is_dir() else None
-            if not state:
-                return True, f"run {on} is gone", None
-            if not state.get("lease_restarted"):
-                break
-            # stopped to wait on an older run's change, and started again (`leases.restart`):
-            # the wait goes on with the new run
-            on = state["lease_restarted"]
+        directory = config.RUNS / on
+        state = run_record.read_state(directory) if directory.is_dir() else None
+        if not state:
+            return True, f"run {on} is gone", None
         if state.get("state") == "stalled":
             # going to the ladder, but nothing moves it except the seat: the wait is over
             return True, f"run {on} stalled: resume it with ak run resume {on}", None
@@ -8249,7 +8243,7 @@ def local_passes(state, dry_run, log):
     Each pass re-derives placement or state from what it finds: a finding remembered from one
     tick to the next loses its race.
     """
-    from . import (alive, google_cloud, history, job as jobs, leases, logins, machine_setup,
+    from . import (alive, google_cloud, history, job as jobs, logins, machine_setup,
                    machines, night_review, nightly, retire, run, waiter)
     providers, fetched = {}, set()
 
@@ -8288,8 +8282,6 @@ def local_passes(state, dry_run, log):
         # Silent runs are recovered from outside the loop, whatever it is doing: nothing new
         # has to be started.
         ("stall recovery", lambda: recover_runs(config.load(), dry_run, log), True),
-        # Runs parked before the scan was retired still need to start again.
-        ("lease restart", lambda: leases.restart(log), False),
         ("seat headroom", lambda: run.give_way(state, log), False),
         ("state save", lambda: save_state(state), False),
         ("usage refresh", read_usage, True),

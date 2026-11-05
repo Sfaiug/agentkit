@@ -4,7 +4,7 @@ Two edits of one paragraph's line that change different sentences, neighbours in
 so a rebase onto the moved base finishes with both; two edits of one
 sentence still clash as git's line merge has them, markers included.  The cut is undone byte
 for byte.  Every other path keeps the attributes this call's git reads, as it reads them now,
-and the lookup runs under the call's timeout.  Offline: the lease stage (`fixtures.leases`), a
+and the lookup runs under the call's timeout.  Offline: `fixtures.live_runs`, a
 real repository.
 """
 
@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from fixtures.leases import YOUNGER, LiveRuns
+from fixtures.live_runs import YOUNGER, LiveRuns
 from agentkit import gitcall, sentences
 
 PARAGRAPH = ("# Widget\n\nThe first sentence says one thing. The second says another! "
