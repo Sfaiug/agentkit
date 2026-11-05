@@ -28,6 +28,9 @@ func Active(record *Object) bool { return stateIn(record, active) }
 func Failed(record *Object) bool { return stateIn(record, failed) }
 func Ended(record *Object) bool  { return stateIn(record, ended) }
 
+// FailedState is whether a run that ended in that state word delivered nothing, not by choice.
+func FailedState(state string) bool { return slices.Contains(failed, state) }
+
 const (
 	SilenceMinutes = 20 // no command output or harness event for this long is a death
 	CeilingHours   = 6  // the whole done-when list, even if it keeps printing
