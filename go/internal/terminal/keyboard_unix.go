@@ -72,13 +72,15 @@ func (k *Keyboard) Take() {
 }
 
 // Give puts the terminal back exactly as Take found it.
-func (k *Keyboard) Give() {
+func (k *Keyboard) Give() { k.give(giveModes) }
+
+func (k *Keyboard) give(modes string) {
 	if !k.taken {
 		return
 	}
 	k.taken = false
 	if k.screen {
-		syscall.Write(outFD, []byte(giveModes))
+		syscall.Write(outFD, []byte(modes))
 	}
 	attrs(setAttrs, &k.saved)
 	signal.Stop(k.heard)

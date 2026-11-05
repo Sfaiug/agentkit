@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/plan"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
+	"agentkit/internal/tick"
 	"agentkit/internal/usage"
 )
 
@@ -72,12 +73,22 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	if !drawable {
 		return notImplemented(errOut, "attach")
 	}
-	first, known := readFrame(time.Now())
+	if !contains(args, "--dry-run") && tick.ResumeAfterBoot() != nil {
+		return notImplemented(errOut, "attach")
+	}
+	left := crossed(menuFrame)    // the frame the program before this exec left up
+	first, handed := handedRead() // a restart's first frame waits on no read
+	known := handed
+	if !handed {
+		first, known = readFrame(time.Now())
+	}
 	if !known || first.handoff {
 		return notImplemented(errOut, "attach")
 	}
 	keyboard := terminal.NewKeyboard()
 	keyboard.Take()
+	painter := terminal.NewPainter(os.Stdout)
+	painter.Restore(left, keyboard.Screen())
 	defer func() { // nothing that breaks here leaves the terminal taken
 		if broke := recover(); broke != nil {
 			keyboard.Give()
@@ -107,18 +118,24 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			time.Sleep(usage.RefreshEvery)
 		}
 	}()
-	painter := terminal.NewPainter(os.Stdout)
+	if handed {
+		go reread()
+	}
 	clock, model := &motion.Clock{}, menu.Model{}
 	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
 	if overlay {
 		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
 	}
-	if cursor := os.Getenv("AK_MENU_CURSOR"); cursor != "" {
-		model.Highlight.Cursor = cursor
+	if cursor, restarted := os.LookupEnv("AK_MENU_CURSOR"); restarted {
+		clock.Finish() // the same screen on new code: no line grows in again
+		if cursor != "" {
+			model.Highlight.Cursor = cursor
+		}
 	}
 	os.Unsetenv("AK_MENU_CURSOR")
-	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
-	framed := false
+	// each draw sets it to its next frame, or to the longest a wait goes whatever a read is doing
+	frame := time.AfterFunc(time.Hour, keyboard.Wake)
+	framed := false // the last wait read no key: its frame is still up
 	for {
 		if model.New == nil {
 			if messages := menuNotices(); len(messages) > 0 {
@@ -129,8 +146,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				clock = &motion.Clock{}
 			} else if framed && menuOutdated() {
 				frame.Stop()
-				keyboard.Give()
-				return restartMenu(model.Highlight.Cursor, errOut)
+				return restartMenu(model.Highlight.Cursor, *latest.Load(), keyboard, painter, errOut)
 			}
 		}
 		screen, shown := keyboard.Screen(), latest.Load()
@@ -146,14 +162,14 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))
 		}
 		painter.Write(drawn.Lines, screen)
-		framed = true
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
 		} else {
-			frame.Stop()
+			frame.Reset(rereadEvery)
 		}
 		key := keyboard.ReadKey()
-		if key.Name != "wake" && key.Name != "again" {
+		framed = key.Name == "wake" || key.Name == "again"
+		if !framed {
 			clock.Finish()
 		}
 		if model.New != nil {
