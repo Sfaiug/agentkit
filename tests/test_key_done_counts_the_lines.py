@@ -1,8 +1,9 @@
 """A first build's `ak hand-in done` counts the workspace's added lines as the size gate does.
 
 Black-box through AK_BIN and fakeadapter, `executor_lines = 40`: an uncommitted 60-line change is
-refused with both ways on, the same change in 30 lines is taken and reaches review; lines under
-a path the base's `.gitattributes` marks generated never count, and `no limit` counts nothing.
+refused with both ways on, fewer lines never meaning denser ones, the same change in 30 lines is
+taken and reaches review; lines under a path the base's `.gitattributes` marks generated never
+count, and `no limit` counts nothing.
 """
 
 import json
@@ -44,7 +45,8 @@ class DoneCountsTheLines(unittest.TestCase):
         said = Path(turn["argv"][4], "said").read_text()
         self.assertNotEqual(Path(turn["argv"][4], "code").read_text().strip(), "0", said)
         for text in ("adds 60 lines", "at most 40", "same change in fewer lines",
-                     "every asked-for behaviour kept", "ak hand-in blocked", "the pieces it splits into"):
+                     "every asked-for behaviour kept", "formatted as the project formats code",
+                     "a denser line is no smaller a change", "ak hand-in blocked", "the pieces it splits into"):
             self.assertIn(text, said)
         for word in ("cut", "drop", "scope"):
             self.assertNotIn(word, said.lower())
