@@ -1000,20 +1000,23 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
 
 def seat_crew(cfg, selection):
     """(who builds, who reviews) a seat's work, from its saved selection: its workers; its
-    reviewers, else its workers, each by its full name (`config.model_name`).  A seat whose
+    reviewers, else its workers, each named at the effort it runs that role at
+    (`config.model_at`).  A seat whose
     orchestrator builds alone names no builder, and nothing beside its orchestrator says so:
     no ⚒ is the seat itself building (the owner's word of 21 Oct 2026).  No selection: nobody.
     The menu row and the seat's own bar both read this, as they read `seat_tasks`."""
     if not selection:
         return [], []
     workers = list(selection.get("workers") or [])
-    return ([config.model_name(cfg, model) for model in workers],
-            [config.model_name(cfg, model) for model in selection.get("reviewers", workers)])
+    return ([config.model_at(cfg, selection, model, "executor") for model in workers],
+            [config.model_at(cfg, selection, model, "reviewer")
+             for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
-    """`astra ⚒   opus ⚒◎   spark ◎`: each model that builds or reviews a seat's work named once,
-    in the order it first comes, ⚒ after it where it builds and ◎ where it reviews, all dim, as
+    """`astra high ⚒   opus xhigh ⚒◎   spark ◎`: each model that builds or reviews a seat's work
+    named once at each effort it runs at (`seat_crew`), in the order it first comes, ⚒ after it
+    where it builds and ◎ where it reviews, all dim, as
     the row's orchestrator is (the owner's pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux` draws
     it as tmux text."""
     builds, reviews = info.get("crew") or ((), ())
@@ -1151,7 +1154,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
                            number=number, run_numbers=run_numbers, index=index, silent=silent_map)
     selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
-    shown = config.model_name(cfg, orchestrator)
+    shown = config.model_at(cfg, selection, orchestrator, "orchestrator")
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
     word = found["word"]
@@ -2294,7 +2297,7 @@ def born_groups(groups, born):
     ordered, infos, *rest = groups
     selected = born["selected"]
     cfg = born["cfg"]
-    shown = config.model_name(cfg, selected["orchestrator"])
+    shown = config.model_at(cfg, selected, selected["orchestrator"], "orchestrator")
     row = {"number": "", "name": BORN, "born": born, "orchestrator": shown, "worker": shown,
            "count": "new", "word": "new", "crew": seat_crew(cfg, selected), "tasks": [],
            "sentence": "", "repo": None}

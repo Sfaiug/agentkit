@@ -42,7 +42,8 @@ Words are plain and explain themselves.
 - **Glyphs:** every glyph is followed by its word (`● working`), except ⚒ for builds and ◎ for
   reviews.
 - **Models:** a model is named in full, its version included: `Opus 5.5`, `gpt-6.1-sol`
-  (`config.model_name`).
+  (`config.model_name`); a seat's, at the effort it runs that role at: `Opus 5.5 max`
+  (`config.model_at`).
 - **Subscriptions:** a subscription is named by its provider, with a roman numeral when there
   are several (`Claude II`), never by its account.
 - **Ages:** ages read `<1m`, `5m`, `2h` or `3d`, never seconds (`terminal.format_age`).
