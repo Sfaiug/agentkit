@@ -21,7 +21,7 @@ import (
 func (t *ticking) endedWaits() error {
 	var paged []string
 	err := locked(func() error {
-		home, known := seat.Looking(t.clock())
+		home, known := seat.TickHome(t.clock())
 		if !known {
 			return errLeft
 		}
@@ -44,7 +44,7 @@ func (t *ticking) endedWaits() error {
 	// transition reads it anew (notify.transition), as each seat nobody is in is published
 	for _, name := range paged {
 		if err == nil {
-			_, err = seat.Health(name, func(seat.Live) bool { return false })
+			_, err = seat.Health(name, func(seat.Live) bool { return false }, t.log.line)
 		}
 	}
 	return err
