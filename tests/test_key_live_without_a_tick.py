@@ -75,7 +75,7 @@ class LiveWithoutATick(unittest.TestCase):
         self.until(lambda: self.record().get("live_notified"))
         self.assertIsInstance(self.record().get("live_at"), (int, float))
         self.assertIsInstance(self.record().get("deployed_at"), (int, float))
-        self.assertNotIn("health", self.record())
+        self.assertEqual(self.record()["health"], {"command": HEALTH})
         self.assertGreaterEqual(len(self.probes()), 3)
         self.assertEqual(set(self.probes()), {self.rig.head()})
         self.assertEqual(self.probes("deploy-probes"), self.probes())

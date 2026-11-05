@@ -2,7 +2,6 @@ package loop
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +15,6 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handback"
-	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -62,31 +60,6 @@ func (r *repoPlace) upstream() string {
 	return "origin/" + r.target
 }
 
-// noAutoGC turns git's own gc off in the checkout: linked worktrees share this config, and a
-// turn's detached gc can lock all their HEADs, then leave those locks behind when the worker
-// stops its leftover processes.  It holds the lock gc takes on the shared git directory.
-func noAutoGC(repo string) error {
-	g := gitcall.Git{Repo: repo, Env: gitcall.ProjectEnv(repo)}
-	held, err := holdRepository(g)
-	if err != nil {
-		return err
-	}
-	defer held.Close()
-	return gcOff(g)
-}
-
-func gcOff(g gitcall.Git) error { return g.NoAutoGC() }
-
-// holdRepository takes the lock on the shared git directory itself: preparation waits for gc, and
-// gc skips a preparation in progress.
-func holdRepository(g gitcall.Git) (*os.File, error) {
-	common, err := g.Must("rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return nil, err
-	}
-	return lock.Wait(context.Background(), common)
-}
-
 // fromRefusal is why no run can start `from:` that branch, "" where one can.
 func (r *repoPlace) fromRefusal(path, from string) (string, error) {
 	if from == "" {
@@ -117,7 +90,7 @@ func (r *repoPlace) open(l *loop, meta map[string]string, path string, common []
 		return errors.New(why)
 	}
 	r.from = from
-	if err := noAutoGC(r.repo); err != nil {
+	if err := gitcall.NoAutoGC(r.repo); err != nil {
 		return err
 	}
 	g := gitcall.Git{Repo: r.repo}
@@ -269,14 +242,11 @@ func (r *repoPlace) makeWorktree(l *loop, slug, start string) error {
 		r.branch = fmt.Sprintf("ak/%s-%d", slug, suffix)
 	}
 	r.wt = filepath.Join(config.Home(), "wt", l.id)
-	held, err := holdRepository(gitcall.Git{Repo: r.repo, Env: gitcall.ProjectEnv(r.repo)})
+	held, err := gitcall.PrepareCheckout(r.repo)
 	if err != nil {
 		return err
 	}
 	defer held.Close()
-	if err := gcOff(gitcall.Git{Repo: r.repo, Env: gitcall.ProjectEnv(r.repo)}); err != nil {
-		return err
-	}
 	code, out, err := g.Out("worktree", "add", "--lock", "--reason", gitcall.Making, r.wt, "-b", r.branch, start)
 	if err == nil && code == 0 {
 		code, out, err = g.Out("worktree", "unlock", r.wt)

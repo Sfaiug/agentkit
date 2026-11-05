@@ -30,7 +30,7 @@ func unrecorded(session tmux.Session) bool {
 	return session.Mark == "" && agent.Agentless(tmux.Own(), []string{session.Name})
 }
 
-func opensAt(model config.Model, cwd string) bool {
+func opensAt(model config.Model) bool {
 	accounts, err := config.Accounts(model.Provider)
-	return err == nil && len(accounts) == 0 && Project(cwd) == ""
+	return err == nil && len(accounts) == 0
 }

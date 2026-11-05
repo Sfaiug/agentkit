@@ -62,7 +62,10 @@ func readFrame(now time.Time) (reading, bool) {
 
 // akScreen is bare `ak` on a server: it takes the terminal, draws the frame and gives the terminal
 // back. A refused read keeps that frame; an unsupported past seat hands it over to Python.
-func akScreen(args []string, errOut io.Writer) int {
+func akScreen(args []string, out, errOut io.Writer) int {
+	if !terminal.Attachable() && !onLiveCheckout() {
+		return pipeMenu(out, errOut)
+	}
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
 	if !drawable {
@@ -86,8 +89,8 @@ func akScreen(args []string, errOut io.Writer) int {
 	reread := func() {
 		if found, known := readFrame(time.Now()); known {
 			latest.Store(&found)
-			keyboard.Wake()
 		}
+		keyboard.Wake()
 	}
 	go func() {
 		for {
@@ -109,13 +112,32 @@ func akScreen(args []string, errOut io.Writer) int {
 	if overlay {
 		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
 	}
+	if cursor := os.Getenv("AK_MENU_CURSOR"); cursor != "" {
+		model.Highlight.Cursor = cursor
+	}
+	os.Unsetenv("AK_MENU_CURSOR")
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame, or stops it
+	framed := false
 	for {
+		if model.New == nil {
+			if messages := menuNotices(); len(messages) > 0 {
+				frame.Stop()
+				if !showMenuNotices(messages, keyboard, painter) {
+					return 0
+				}
+				clock = &motion.Clock{}
+			} else if framed && menuOutdated() {
+				frame.Stop()
+				keyboard.Give()
+				return restartMenu(model.Highlight.Cursor, errOut)
+			}
+		}
 		screen, shown := keyboard.Screen(), latest.Load()
 		if shown.handoff {
 			keyboard.Give()
 			return notImplemented(errOut, "attach")
 		}
+		model.Highlight.Cursor = menu.Step(shown.seats, model.Highlight.Cursor, 0)
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
 			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
@@ -123,6 +145,7 @@ func akScreen(args []string, errOut io.Writer) int {
 			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))
 		}
 		painter.Write(drawn.Lines, screen)
+		framed = true
 		if next, due := clock.Next(); due {
 			frame.Reset(next)
 		} else {

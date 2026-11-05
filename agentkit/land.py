@@ -655,7 +655,8 @@ def check_line(turn, log=lambda _: None):
 
 def red_part(cmds, marks, pieces, confirmed, suite, ok):
     """What the checks found red, from the exits the runner saw (`marks`, and `pieces` by
-    command and share): the first failing `command`, its first red `piece`'s share (`k/N`), and
+    command and share): the first failing `command`, its first confirmed red `piece`'s share
+    (`k/N`), or its first red piece where none is confirmed, and
     the `tests` that piece named that failed again alone (`confirmed`), if any.  The piece is
     "" where the command ran whole or a piece was killed at the limit, which stops its siblings
     with it, and the suite whole where no command failed and yet the checks did not pass (the
@@ -671,7 +672,9 @@ def red_part(cmds, marks, pieces, confirmed, suite, ok):
             continue
         codes = pieces.get(cmd, {})
         reds = sorted((share for share, code in codes.items() if code != 0),
-                      key=lambda share: (codes[share] == gate.OUT_OF_MEMORY, int(share.split("/")[0])))
+                      key=lambda share: (codes[share] == gate.OUT_OF_MEMORY,
+                                         not (confirmed.get(cmd) or {}).get(share),
+                                         int(share.split("/")[0])))
         piece = "" if None in codes.values() or not reds else reds[0]
         if piece and codes[piece] == gate.OUT_OF_MEMORY:
             return {"command": cmd, "piece": piece, "short": True}

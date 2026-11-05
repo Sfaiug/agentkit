@@ -447,14 +447,11 @@ func number(record *run.Object, key string, fallback float64) float64 {
 // locked while git makes it, so gc takes one a killed lander left, and no other checkout for it.
 func addScratch(repo, path, commit string) (int, string, error) {
 	g := gitcall.Git{Repo: repo, Env: gitcall.ProjectEnv(repo)}
-	held, err := holdRepository(g)
+	held, err := gitcall.PrepareCheckout(repo)
 	if err != nil {
 		return 0, "", err
 	}
 	defer held.Close()
-	if err := gcOff(g); err != nil {
-		return 0, "", err
-	}
 	code, out, err := g.Out("worktree", "add", "--lock", "--reason", gitcall.Making, path, "--detach", commit)
 	if err != nil || code != 0 {
 		return code, out, err

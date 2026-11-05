@@ -58,7 +58,7 @@ down.harnesses = {name: f"{name} is not logged in" for name in os.environ["ONE_D
 usage.collect = lambda cfg, **kwargs: down
 orch.switch_orchestrator = lambda cfg, name, model, providers=None, **_kw: (
     config.update_session(name, orchestrator=model), "")[1]
-orch.fresh_command = lambda cfg, name, seat=None, account=None: (["harness"], None)
+orch.fresh_command = lambda cfg, name, seat=None, account=None, **_kw: (["harness"], None)
 config.catalog_now = lambda harness, cfg=None: [{"id": "claude-fable-5-1", "label": "Fable 5.1",
                                        "efforts": ["high", "xhigh", "max"]}]
 orch.launch = lambda name, model, *args, **kwargs: print(f"<launched {name} {model}>", flush=True)

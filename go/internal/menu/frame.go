@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"math"
 	"slices"
 	"strconv"
 	"strings"
@@ -86,8 +87,13 @@ func Lines(view View, width, height int) []string {
 	return Draw(view, width, height).Lines
 }
 
-// Draw lays out the frame and the places navigation can reach on it together.
+// Draw lays out the frame and the places navigation can reach on it together. A nonpositive
+// height lists every row without filling a screen.
 func Draw(view View, width, height int) Frame {
+	bounded := height > 0
+	if !bounded {
+		height = math.MaxInt
+	}
 	view = view.withNew()
 	s := view.Screen
 	view.Seats = moving(s, view.Seats, view.Motion)
@@ -250,7 +256,7 @@ func Draw(view View, width, height int) Frame {
 	if !compact {
 		out = append(out, "")
 	}
-	for len(out) < height-2-len(keys) {
+	for bounded && len(out) < height-2-len(keys) {
 		out = append(out, "")
 	}
 	frame.Lines = append(out, keys...)

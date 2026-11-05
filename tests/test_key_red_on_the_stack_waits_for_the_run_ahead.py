@@ -37,7 +37,8 @@ HOLD = """#!/bin/sh
 pr=
 [ "$1 $2" = "pr merge" ] && for a do case $a in */pull/*|[0-9]|[0-9][0-9]) pr=${{pr:-$a}};; esac
 done
-if [ -n "$pr" ]; then i=0; while [ ! -e {go} ] && [ $i -lt 1800 ]; do sleep 0.05; i=$((i+1)); done; fi
+if [ -n "$pr" ]; then echo "start ${{pr##*/}}" >>{log}
+  i=0; while [ ! -e {go} ] && [ $i -lt 1800 ]; do sleep 0.05; i=$((i+1)); done; fi
 {gh} "$@"; code=$?
 [ -n "$pr" ] && echo "end ${{pr##*/}}" >>{log}
 exit $code
@@ -66,7 +67,9 @@ class RedOnTheStackWaitsForTheRunAhead(unittest.TestCase):
         tasks = [str(taskfile.write(home, cls.rig.path, title, done_when=("test -e api.txt",)))
                  for title in ("Rename greet", "Call greet")]
         cls.runs = [home.spawn("run", tasks[0])]
-        cls.until(lambda: any("rename" in line for line in cls.saw()))
+        # The suite prints before the delivery is ready; Go leaves a launch alongside active
+        # work to Python's rival check. Start the second only once the first is merging.
+        cls.until(cls.merges.exists)
         cls.runs.append(home.spawn("run", tasks[1]))
         cls.stacked = cls.until(lambda: any("rename" in line and "call" in line
                                             for line in cls.saw()))

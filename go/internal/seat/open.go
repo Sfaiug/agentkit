@@ -29,35 +29,37 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 	"set-option", "-g", "remain-on-exit", "on", ";", "set-option", "-g", "allow-passthrough", "on", ";",
 	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks", ";"}
 
-// Open is Python's orch.create and launch of a new seat with both its models, unnamed where its
-// orchestrator is to name it, in a home Python's maintenance finds tidy, filed under no project
-// and on a provider listing no accounts: its rulebook, its command from its harness's adapter,
-// its record, [defaults] remembering its models, and its session on ak's server, ak's shims first
-// on its harness's PATH.  False where Python's open does what Go does not yet: a harness whose launch writes down
-// more than the conversation it hands out, a name a gone seat left files under, a folder that is
-// a checkout of its own, whose git ak keeps from collecting, reviewers Go binds otherwise, or an
-// adapter giving no command, where only the rulebook is written.
+// Open is the shared new-seat launch used by the menu and ak orch. Its rulebook precedes
+// the adapter's command, and its record uses Python's locks and format. False leaves
+// unsupported harness launches, provider accounts and leftover seat files to Python.
 func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
 	models, err := config.Models()
-	if !known || !opensAt(model, cwd) || !unclaimed(state, name, cwd) || unbound != nil || err != nil {
+	if !known || !opensAt(model) || !unclaimed(state, name) || unbound != nil || err != nil {
 		return false, nil
+	}
+	repo := Project(cwd)
+	if repo != "" {
+		cwd = repo
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
 	rulebook := filepath.Join(state, "rulebook-"+name+".md")
-	text, err := Rulebook(name)
+	text, err := openingRulebook(name, repo)
 	if unnamed {
 		text = namingItself(text) // what its record will say, kept only once a seat comes of it
 	}
-	if err != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
+	if err == nil {
+		err = os.WriteFile(rulebook, []byte(text), 0o666)
+	}
+	if err != nil {
 		os.Remove(rulebook)
-		return false, nil
+		return true, fmt.Errorf("no rulebook for %s: %w", name, err)
 	}
 	created := seconds(time.Now())
-	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
+	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
 		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
 	if !ok {
 		os.Remove(rulebook)
@@ -74,7 +76,7 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if reviewers != nil {
 		fields = append(fields, field{"reviewers", modelList(reviewers)})
 	}
-	fields = append(fields, field{"cwd", cwd}, field{"repo", nil}, field{"created", created}, field{"account", nil}, field{"home_account", nil})
+	fields = append(fields, field{"cwd", cwd}, field{"repo", orNone(repo)}, field{"created", created}, field{"account", nil}, field{"home_account", nil})
 	if unnamed {
 		fields = append(fields, field{"unnamed", true})
 	}
@@ -102,6 +104,12 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if err := forgetSeen(state, name, time.Now()); err != nil {
 		return true, err
 	}
+	// Relaunch also takes the repository before the seat lock.
+	release, err := openingCheckout(cwd)
+	if err != nil {
+		return true, err
+	}
+	defer release()
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
 		// before the harness is up: its first prompt may be offered a newer rulebook already
@@ -245,12 +253,10 @@ func environment(name, server string) ([]field, error) {
 	return values, err
 }
 
-// unclaimed is whether nothing holds the name or the folder that Python's open takes over and
-// Go does not yet: a file a gone seat left under the name, but the locks its writers wait on, or
-// a checkout of the folder's own, whose git ak keeps from collecting.
-func unclaimed(state, name, cwd string) bool {
+// unclaimed leaves files of a gone seat to Python, but not the locks its writers wait on.
+func unclaimed(state, name string) bool {
 	entries, err := os.ReadDir(state)
-	if _, git := os.Lstat(filepath.Join(cwd, ".git")); err != nil || git == nil {
+	if err != nil {
 		return false
 	}
 	for _, entry := range entries {

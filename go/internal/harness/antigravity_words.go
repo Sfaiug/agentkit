@@ -18,7 +18,7 @@ var antigravityConversation = regexp.MustCompile(`^[\pL\pN_-]+$`)
 // last answer (antigravity.py `owned`, `store`, `running`). Learned conversations stay Python's
 // even after their store is gone: the listing only follows ids in `conversation`. This decision
 // belongs to its reconciliation boundary, even if a store appears before the word is published.
-func antigravityRecord(record *run.Object) (plugin, bool) {
+func antigravityRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["antigravity"]
 	conversation := record.Str("conversation")
 	if record.Str("id_source") != "launcher" {

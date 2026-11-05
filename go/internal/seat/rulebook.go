@@ -36,7 +36,9 @@ func digest(data []byte) string { return hooks.RulebookDigest(data) }
 // this host's numbers, then this host's own, each read as Python reads text; the AGENTS.md of the
 // project its record files it under, as on that project's default branch; an unnamed seat's
 // instruction to name itself; and, last, where the conversations it moved from are.
-func Rulebook(name string) (string, error) {
+func Rulebook(name string) (string, error) { return rulebook(name, nil) }
+
+func rulebook(name string, project *string) (string, error) {
 	shipped, err := os.ReadFile(filepath.Join(config.Repo(), "orchestrator.md"))
 	if err != nil {
 		return "", err
@@ -53,14 +55,21 @@ func Rulebook(name string) (string, error) {
 	if errors.Is(err, run.ErrLoneSurrogate) {
 		return "", err
 	}
-	if record == nil {
-		return body, nil
+	repo := ""
+	if record != nil {
+		repo = record.Str("repo")
 	}
-	if repo := record.Str("repo"); repo != "" {
+	if project != nil {
+		repo = *project
+	}
+	if repo != "" {
 		if project := gitcall.AgentsBody(repo, rulesRef); project != "" {
 			body = fmt.Sprintf("%s\n\n# The project's AGENTS.md\n\nThe rules of %s, the project this session is filed under, "+
 				"as on its default branch: its workers get the same.\n\n%s\n", rstrip(body), filepath.Base(repo), project)
 		}
+	}
+	if record == nil {
+		return body, nil
 	}
 	if record.Truthy("unnamed") {
 		body = namingItself(body)

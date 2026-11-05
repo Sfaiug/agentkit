@@ -31,8 +31,8 @@ var errLeft = errors.New("left to Python")
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
-// that act whatever the home holds: usage refresh, login reminder, browser tidy, machine check, live
-// update and harness upgrade.  Each row reads the seats at its own turn, and a home holding a seat
+// that act whatever the home holds: usage refresh, login reminder, browser tidy, machine check
+// and harness upgrade.  Each row reads the seats at its own turn, and a home holding a seat
 // Go does not read leaves the tick to Python at the first row that reads one.
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
@@ -91,6 +91,7 @@ func table(t *ticking) []pass {
 		{"project setups", false, checkoutsSeen, setups},
 		{"alive checks", false, all(noSeatAlive, outageless), nil},
 		{"night reads", false, noNights, t.nights},
+		{"live update", false, liveUpdateIdle, t.liveUpdate},
 	}
 }
 

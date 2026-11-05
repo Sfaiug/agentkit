@@ -3330,7 +3330,7 @@ def too_long(line):
 
 
 def waiting_on(name):
-    """That seat's own `ak wait`, while the pull request or run it names is not yet over; else
+    """That seat's own `ak wait`, while the pull request, run or job it names is not over; else
     None.
 
     The wait is the seat's word, kept in its record's `wait` by `ak wait` and dropped by its
@@ -3341,7 +3341,7 @@ def waiting_on(name):
     nothing afterwards, and only a new `ak wait` is a new wait.
     """
     wait = seat_read(name).get("wait")
-    if (not isinstance(wait, dict) or wait.get("over") or wait.get("kind") not in ("pr", "run")
+    if (not isinstance(wait, dict) or wait.get("over") or wait.get("kind") not in ("pr", "run", "job")
             or not isinstance(wait.get("on"), str)):
         return None
     at = _stamp(wait.get("at"))
@@ -3353,9 +3353,16 @@ def wait_fact(wait):
     that is or None): a run once it is no longer going, a pull request once it is merged
     (by the run landing it, if one did) or closed, or
     while open, once no run reviewing or landing it is going (the last to end since the wait
-    began).  (None, why, None) where nothing can say yet: `wait_over` leaves the wait as it is
+    began), or a job once its receipt says it finished.  (None, why, None) where nothing can
+    say yet: `wait_over` leaves the wait as it is
     while that is the owner's login to fix, and for UNREAD_TICKS ticks otherwise."""
     on = wait.get("on")
+    if wait.get("kind") == "job":
+        from . import job as jobs
+        job = jobs.read_job(config.JOBS / on)
+        if not job:
+            return True, f"job {on} is gone", None
+        return (True, f"job {on} finished", None) if job.get("finished_at") else (False, "", None)
     if wait.get("kind") == "run":
         directory = config.RUNS / on
         state = run_record.read_state(directory) if directory.is_dir() else None
@@ -3401,7 +3408,7 @@ def wait_fact(wait):
 
 
 def wait_over(cfg, log):
-    """The tick's wait pass: a seat whose `ak wait` names a pull request or run that is now
+    """The tick's wait pass: a seat whose `ak wait` names a pull request, run or job that is now
     merged, closed or ended, or whose own work is done and live (`work_live`), is told so,
     once, and the wait is over.
 
@@ -3412,7 +3419,7 @@ def wait_over(cfg, log):
     else: no other seat's words, no other seat's screen.  The send that took it is written on
     the wait as `told`, so it is typed once.  A seat gone without the owner closing it is
     reopened with the line instead (`revive`), once, unless its work is done.  An ending its
-    own run hands back to the seat (`handback.hand_back`) is that line already: none is typed
+    own run or job hands back to the seat is that line already: none is typed
     for it, and the wait is told once the hand-back is in.
     """
     waiting = {}
@@ -3428,7 +3435,7 @@ def wait_over(cfg, log):
     for name, wait in waiting.items():
         session = live.get(name)
         closed = session is None or any(session.get(key) for key in orch.CLOSED)
-        if wait.get("kind") not in ("pr", "run"):
+        if wait.get("kind") not in ("pr", "run", "job"):
             # the record `ak wait <session>` wrote before waits named a pull request or run:
             # no fact can end it, so it is over, and there is nothing to type
             if wait_mark(name, wait, over="a wait on a session, from before ak wait named a "
@@ -3464,6 +3471,17 @@ def wait_over(cfg, log):
             wait = seat_read(name).get("wait")
             if not isinstance(wait, dict) or wait.get("told"):
                 continue
+        if wait.get("kind") == "job":
+            from . import job as jobs
+            job = jobs.read_job(config.JOBS / wait["on"])
+            if job and transitions.launched_session({"launched_session": job.get("seat")}) == name:
+                if job.get("handback_pending"):
+                    continue
+                if (job.get("card_sent") or {}).get("kind") == "handback":
+                    if wait_mark(name, wait, told=time.time()):
+                        log(f"{name}: its own job's notice told it that {wait['over']}; its "
+                            "wait is over")
+                    continue
         run = wait.get("run") and run_record.read_state(config.RUNS / wait["run"])
         if run and transitions.launched_session(run) == name:
             # its own run hands this ending back with the verdict, PR and result: that line is
@@ -3510,12 +3528,12 @@ def wait_over(cfg, log):
 
 
 def wait_main(argv):
-    """`ak wait PR_URL|RUN_ID`: this seat ends its turn waiting on that pull request or run.
+    """`ak wait PR_URL|RUN_ID|JOB_ID`: this seat ends its turn waiting on that fact.
 
     The seat is the one `ak notify` speaks for, and the wait is written to its own record and
     nowhere else: no card, no notice.  Its next `ak wait` or `ak notify` replaces it.  A wait
     names a fact ak can read, never a session: the tick ends it when the pull request merges
-    or closes, no run is going on it, or the run ends, and tells the seat so (`wait_over`).
+    or closes, no run is going on it, or the run or job ends, and tells the seat so (`wait_over`).
     One already over is refused with its fact (`wait_fact`), and a run's ending that waits for
     this seat with that ending's line, as is any from a seat whose work is done and live
     (`work_live`): the tick would end it at once and wake the seat for nothing.  A pull
@@ -3536,9 +3554,11 @@ def wait_main(argv):
         kind, shown = "pr", f"PR #{pull.group(3)}"
     elif on and on not in (".", "..") and "/" not in on and (config.RUNS / on).is_dir():
         kind, shown = "run", f"run {on}"
+    elif on and on not in (".", "..") and "/" not in on and (config.JOBS / on).is_dir():
+        kind, shown = "job", f"job {on}"
     else:
-        print(f"ak wait: {on!r} is neither a pull request URL nor a run id; ak waits on a "
-              "pull request or a run, never on a session (ak run status lists runs)",
+        print(f"ak wait: {on!r} is neither a pull request URL nor a run id nor a job id; ak waits "
+              "on a pull request, run or job, never on a session (ak run status lists them)",
               file=sys.stderr)
         return 1
     wait = {"on": on, "kind": kind, "at": time.time()}
@@ -7547,7 +7567,10 @@ def after_merge_health(run_dir, st, key, sha, pr_url, now, dry_run, log, probes,
                                                   if not passed and current["deployed_passed"] else 0)
                 if passed or current.get("live_at") and not deployed:
                     current.setdefault("live_at", now)
-                    current.pop("health", None)
+                    if deployed:
+                        current["health"] = {"command": command}
+                    else:
+                        current.pop("health", None)
                 else:
                     current["health"] = {"command": command, "output": output}
                 st.clear()

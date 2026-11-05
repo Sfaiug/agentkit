@@ -63,6 +63,9 @@ func Lives(now time.Time) ([]Live, bool) {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
+		if exited {
+			continue
+		}
 		found, _ := observed(state, each.Name, each.reader, pane, seconds(now))
 		live, ok := each.lived(state, pane, exited, found, now)
 		if !ok {
@@ -82,7 +85,8 @@ func seated(now time.Time) (Home, bool) {
 }
 
 // lived is the seat as Live reads it off that capture, false where its panes no longer run its
-// harness, its screen reads blank, which says nothing, or its ladder cannot be climbed.
+// harness or its ladder cannot be climbed. A starting harness's blank screen says no more
+// than its unknown screen rule; its going run can still decide its word.
 func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Time) (Live, bool) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json"))
 	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
@@ -92,7 +96,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+seat.Name+":",
 		"#{session_attached}\t#{"+tmux.HarnessPane+"}\t#{session_path}")
 	session := strings.SplitN(said, "\t", 3)
-	if !seat.live || record == nil || err != nil || len(session) != 3 || exited || strings.TrimFunc(pane, config.Space) == "" {
+	if !seat.live || record == nil || err != nil || len(session) != 3 || exited {
 		return Live{}, false
 	}
 	if _, err := climbingOf(state, seat, found, seconds(now)).climb(); err != nil {
@@ -155,6 +159,10 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 			return err
 		}
 		pane, exited := harnessScreen(name)
+		if exited {
+			carried, err = home.healthDied(state, name, now)
+			return err
+		}
 		found, previous := observed(state, name, seat.reader, pane, seconds(now))
 		live, read := seat.lived(state, pane, exited, found, now)
 		if carried = read && ok(live); !carried {

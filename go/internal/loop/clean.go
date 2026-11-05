@@ -122,7 +122,7 @@ func dropBranch(g gitcall.Git, branch string, log func(string)) bool {
 	if !strings.HasPrefix(branch, "ak/") {
 		return true
 	}
-	held, err := holdRepository(g)
+	held, err := gitcall.HoldRepository(g)
 	if err != nil {
 		log(fmt.Sprintf("WARN could not delete branch %s: %v", branch, err))
 		return false

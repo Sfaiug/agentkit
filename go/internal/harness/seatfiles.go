@@ -19,7 +19,7 @@ func For(name string) Reader { return Reader{name, plugins[name]} }
 // False leaves a record owed reconciliation to Python, before the listing writes anything.
 func (reader Reader) Reconciled(name string, record *run.Object) (Reader, bool) {
 	if hook := reader.own.record; hook != nil {
-		own, ready := hook(record)
+		own, ready := hook(name, record)
 		if !ready {
 			return Reader{reader.Name, own}, false
 		}

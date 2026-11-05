@@ -257,7 +257,8 @@ def account_order(cfg, model, readings, first=None):
     return ordered
 
 
-def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None, line=None):
+def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=None, line=None,
+            cwd=None):
     """The TUI command line for this model, straight from its harness's adapter.
 
     Every harness can hold the seat: the adapter owns the flags, exactly as it does for a
@@ -288,7 +289,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
                            *([conversation] if conversation else []),
                            *(["new"] if conversation and fresh else [])],
                           capture_output=True, encoding="utf-8", errors="replace",
-                          env={**os.environ, **told})
+                          env={**os.environ, **told}, cwd=cwd)
     if fresh and proc.returncode == CANNOT_PIN:
         return None
     line = proc.stdout.strip()
@@ -345,7 +346,7 @@ def command_env(cmd):
     return values
 
 
-def fresh_command(cfg, name, seat=None, account=None, line=None):
+def fresh_command(cfg, name, seat=None, account=None, line=None, cwd=None):
     """(command, conversation) for a seat opening a conversation of its own.
 
     The id is generated here, before anything starts, and handed to the adapter as one its
@@ -358,10 +359,10 @@ def fresh_command(cfg, name, seat=None, account=None, line=None):
     with for_seat(seat):
         rulebook = write_rulebook(seat or "")
         cmd = command(cfg, name, conversation, fresh=True, account=account, rulebook=rulebook,
-                      line=line)
+                      line=line, cwd=cwd)
         if cmd:
             return cmd, conversation
-        return command(cfg, name, account=account, rulebook=rulebook, line=line), None
+        return command(cfg, name, account=account, rulebook=rulebook, line=line, cwd=cwd), None
 
 
 # --- tmux sessions ----------------------------------------------------------
@@ -2435,7 +2436,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
                                  line=line)
             conversation = recorded
         else:
-            cmd, conversation = fresh_command(held, orchestrator, seat=name, account=account)
+            cmd, conversation = fresh_command(held, orchestrator, seat=name, account=account, cwd=cwd)
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -2543,14 +2544,16 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None, line=
     keeps what it owns either way.
     """
     harness = config.model(cfg, model)["harness"]
+    launch_cwd = cwd if Path(cwd).is_dir() else seat_cwd()
     with for_seat(seat):
         rulebook = write_rulebook(seat or "")
         if not opened(harness, cwd, conversation):
             fresh = command(cfg, model, conversation, fresh=True, account=account,
-                            rulebook=rulebook)
+                            rulebook=rulebook, cwd=launch_cwd)
             if fresh:
                 return fresh
-        return command(cfg, model, conversation, account=account, rulebook=rulebook, line=line)
+        return command(cfg, model, conversation, account=account, rulebook=rulebook, line=line,
+                       cwd=launch_cwd)
 
 
 # What a launch writes about the conversation it owns: the launcher's own id, each
@@ -4520,7 +4523,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         cmd, conversation = ((resume_command(held, model, kept, ran_in, seat=name,
                                              account=account, line=line), kept) if kept
                              else fresh_command(held, model, seat=name, account=account,
-                                                line=line))
+                                                line=line, cwd=cwd))
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
@@ -4708,7 +4711,7 @@ def create(cfg, name, cwd, forced=None, forced_workers=None, prompting=True, dry
         # the project this launch files it under, which no record says yet
         with scratch(dry_run), for_seat(name, str(repo) if repo else ""):
             cmd, conversation = fresh_command(config.at_efforts(cfg, extra), model, seat=name,
-                                              account=account)
+                                              account=account, cwd=cwd)
     except Exception:
         if unnamed and not dry_run:
             config.discard_session(name, extra["created"])
@@ -4790,7 +4793,7 @@ def ensure(cfg, name, log=print, saved=False, roles=None, repo=None):
     # The usual login when none answers, as this seat always opened: it has a question to take.
     account = opening_account(cfg, model, providers, True)
     with for_seat(name, str(repo) if repo else ""):
-        cmd, conversation = fresh_command(cfg, model, seat=name, account=account)
+        cmd, conversation = fresh_command(cfg, model, seat=name, account=account, cwd=seat_cwd())
     extra = {"cwd": str(seat_cwd()), "repo": str(repo) if repo else None, "created": time.time(),
              "account": account, "home_account": account}
     if conversation:

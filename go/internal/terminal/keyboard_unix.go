@@ -36,6 +36,7 @@ var (
 type Keyboard struct {
 	saved   syscall.Termios
 	taken   bool
+	screen  bool
 	sensed  Screen
 	keyed   []byte // what was read past a key, or typed while Sense waited
 	woken   [2]*os.File
@@ -66,16 +67,7 @@ func NewKeyboard() *Keyboard {
 
 // Take makes keys arrive one at a time, unechoed, on the alternate screen.
 func (k *Keyboard) Take() {
-	if k.taken || attrs(getAttrs, &k.saved) != nil {
-		return
-	}
-	k.taken = true
-	k.listen()
-	raw := k.saved
-	raw.Lflag &^= syscall.ICANON | syscall.ECHO
-	raw.Cc[syscall.VMIN], raw.Cc[syscall.VTIME] = 1, 0
-	attrs(setAttrs, &raw)
-	syscall.Write(outFD, []byte(takeModes))
+	k.take(true)
 }
 
 // Give puts the terminal back exactly as Take found it.
@@ -84,7 +76,9 @@ func (k *Keyboard) Give() {
 		return
 	}
 	k.taken = false
-	syscall.Write(outFD, []byte(giveModes))
+	if k.screen {
+		syscall.Write(outFD, []byte(giveModes))
+	}
 	attrs(setAttrs, &k.saved)
 	signal.Stop(k.heard)
 }
@@ -187,6 +181,7 @@ func (k *Keyboard) ReadKey() Key {
 
 // stop hands the terminal over and stops, which only a person's `fg` or a SIGCONT undoes.
 func (k *Keyboard) stop() {
+	screen := k.screen
 	k.Give()
 	select {
 	case <-k.cont:
@@ -194,7 +189,7 @@ func (k *Keyboard) stop() {
 	}
 	syscall.Kill(syscall.Getpid(), syscall.SIGSTOP)
 	<-k.cont
-	k.Take()
+	k.take(screen)
 }
 
 func (k *Keyboard) keyedByte() (byte, bool) {

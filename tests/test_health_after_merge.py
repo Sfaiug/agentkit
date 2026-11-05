@@ -147,10 +147,12 @@ class HealthAfterMerge(unittest.TestCase):
 
     def test_a_healthy_deployed_release_awaiting_its_notice_never_expires_as_failed(self):
         directory = self.merged(self.declare("exit 0", "exit 0"))
+        with record.record(directory) as current:
+            current["health"] = {"command": "exit 0", "output": "starting up"}
         with patch.object(watch, "live_passed", return_value=("passed", None, None)):
             for elapsed in (0, 60):
                 self.tick(NOW + elapsed)
-                self.assertNotIn("health", record.read_state(directory))
+                self.assertEqual(record.read_state(directory)["health"], {"command": "exit 0"})
             self.assertNotIn("live_notified", record.read_state(directory))
             self.tick(NOW + watch.AFTER_MERGE_WINDOW + 1)
         self.assertEqual(self.lines, [])
@@ -183,6 +185,30 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.launch.call_args.kwargs["repair"]["revert"], sha)
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
         self.git("cat-file", "-e", sha)
+
+    def test_deployed_health_keeps_probing_without_github_after_first_pass(self):
+        command = 'test -e "$HOME/healthy"'
+        healthy = self.root / "healthy"
+        healthy.touch()
+        sha = self.remote_merge(command, deployed="exit 0")
+        head = self.git("rev-parse", "HEAD")
+        directory = self.merged(sha)
+        self.tick()
+        self.assertEqual(record.read_state(directory)["live_at"], NOW)
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.git("cat-file", "-e", f"{sha}^{{commit}}")
+        self.remote.clear()
+        healthy.unlink()
+        for elapsed in (151, 302, 453):
+            self.tick(NOW + elapsed)
+        calls = [call for call in self.probes.call_args_list if call.args[2] == command]
+        self.assertEqual(len(calls), 4)
+        self.api.assert_called_once()
+        self.assertEqual(record.read_state(directory)["health_failures"], 3)
+        self.launch.assert_called_once()
+        self.assertEqual(self.launch.call_args.kwargs["repair"]["sha"], sha)
+        self.assertEqual(self.git("rev-parse", "HEAD"), head)
+        self.assertEqual(self.git("-C", str(self.root / "origin.git"), "rev-parse", "HEAD"), sha)
 
     def test_a_stopped_origin_does_not_hold_other_repositories_back(self):
         remote = self.merged(self.remote_merge("exit 1", deployed="exit 0"))

@@ -14,7 +14,8 @@ func Conversation(name string, record map[string]any) (string, bool) {
 	if hook := plugins[name].conversation; hook != nil {
 		return hook(record), true
 	}
-	return "", false
+	_, plugged := plugins[name]
+	return "", !plugged && seatDefaults(name).seats
 }
 
 // claudeConversation is where Claude Code files it (claude.py `transcript_path`): under the

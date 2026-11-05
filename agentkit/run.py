@@ -1260,7 +1260,10 @@ def launch_policy(task_path=None, task_file=None, pr=None):
     checkout = launch_checkout(task_path, task_file, pr)
     if checkout and not git(checkout, "rev-parse", "--verify", "--quiet", config.RULES_REF, check=False):
         default_base(checkout, lambda _: None)
-    return config.policy(checkout)
+    numbers = config.policy(checkout)
+    if not pr and numbers["executor_lines"] == 0:
+        raise config.Error(f"executor_lines = 0: {config.EXECUTORS_OFF}")
+    return numbers
 
 
 def prepare(run_dir, opts, log, cfg=None, job_id=None, task_file=None, receipt=None,
@@ -2305,9 +2308,11 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
     read, limit = lines - carried, numbers["orchestrator_lines"]
     if limit != "no limit" and read > limit:
+        action = ("Split it into smaller PRs." if numbers["executor_lines"] == 0 else
+                  "Write it as a task and launch it; a worker builds it")
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
                       f"too big for the seat, which builds at most {limit} added "
-                      "lines. Write it as a task and launch it; a worker builds it")
+                      f"lines. {action}")
     return read, replacement_refusal(repo, target_sha, head, number, read, numbers["review_rounds"],
                                      exclude=run_dir)
 
@@ -3116,8 +3121,10 @@ def main(argv):
     queued_child = os.environ.get(config.RUN_DIR_ENV)
     queued_child = queued_child if queued_child and queued(Path(queued_child)) else None
     # a launch's own child holds what its launch read: nothing refuses it for a line landed since
-    for task in positional if opts["--rounds"] and not queued_child else ():
-        refusal = taskfile.rounds_refusal(opts["--rounds"], "--rounds", launch_policy(task)["review_rounds"])
+    for task in positional if not queued_child else ():
+        numbers = launch_policy(task)
+        refusal = (taskfile.rounds_refusal(opts["--rounds"], "--rounds", numbers["review_rounds"])
+                   if opts["--rounds"] else None)
         if refusal:
             raise config.Error(refusal)
     parallel = None
