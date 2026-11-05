@@ -1,10 +1,11 @@
-package scoreboard
+package cli
 
 import (
 	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -12,13 +13,22 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/terminal"
+	"agentkit/internal/tick"
 )
 
-// Render is `--history`'s two weeks side by side, as an empty history gives them: every
+// scoreboard is `--history`'s two weeks side by side, as an empty history gives them: every
 // measure but ak's size reads from history.db, which `refused` leaves to Python while
 // it exists.
-func Render(screen terminal.Screen, now time.Time) []string {
-	return Read(now).Render(screen)
+func scoreboard(screen terminal.Screen, now time.Time) []string {
+	return readScoreboard(now).render(screen)
+}
+
+// The tick receives the same report the history screen renders, keeping its measures here.
+func auditScoreboard(out io.Writer) tick.AuditReport {
+	return func(now time.Time) ([]string, string) {
+		board := readScoreboard(now)
+		return board.render(terminal.For(out)), board.loss()
+	}
 }
 
 type measure struct {
@@ -26,10 +36,10 @@ type measure struct {
 	value *int
 }
 
-// Board is an empty history's two weeks, including the sizes read from the same Git snapshot.
-type Board struct{ sizes [2][]measure }
+// scoreBoard is an empty history's two weeks, with sizes read from the same Git snapshot.
+type scoreBoard struct{ sizes [2][]measure }
 
-func Read(now time.Time) Board {
+func readScoreboard(now time.Time) scoreBoard {
 	repo := config.Repo()
 	size := func(ref string) []measure {
 		if ref == "" {
@@ -65,10 +75,10 @@ func Read(now time.Time) Board {
 		"--before="+now.Add(-7*24*time.Hour).UTC().Format("2006-01-02T15:04:05Z"), "HEAD"); out != nil {
 		before = strings.TrimSpace(string(out))
 	}
-	return Board{[2][]measure{size("HEAD"), size(before)}}
+	return scoreBoard{[2][]measure{size("HEAD"), size(before)}}
 }
 
-func (board Board) Render(screen terminal.Screen) []string {
+func (board scoreBoard) render(screen terminal.Screen) []string {
 	size := func(parts []measure) string {
 		if parts == nil {
 			return "size unavailable"
@@ -107,8 +117,8 @@ func (board Board) Render(screen terminal.Screen) []string {
 	return lines
 }
 
-// Loss follows the vision's order. Without history only size has a reading.
-func (board Board) Loss() string {
+// loss follows the vision's order. Without history only size has a reading.
+func (board scoreBoard) loss() string {
 	first := "no loss to name, since no run ended in two weeks"
 	number := func(value int) string {
 		text := strconv.Itoa(value)

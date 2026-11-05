@@ -144,7 +144,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
-			!slices.Contains(kinds[kind], suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
+			!slices.Contains(kinds[kind], suffix) && !launchKind(kind, suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
 				!pastKind(state, name, kind, suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
 			return Home{}, false
 		}

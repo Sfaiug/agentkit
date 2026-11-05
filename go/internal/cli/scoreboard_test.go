@@ -1,4 +1,4 @@
-package scoreboard
+package cli
 
 import "testing"
 
@@ -18,8 +18,8 @@ func TestAnEmptyHistoryNamesTheFirstGrowingSizeOtherwiseTheFirstKnown(t *testing
 			"the largest loss is ak's README words, 20 against 10 the week before"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			board := Board{[2][]measure{each.current, each.before}}
-			if got := board.Loss(); got != each.want {
+			board := scoreBoard{[2][]measure{each.current, each.before}}
+			if got := board.loss(); got != each.want {
 				t.Fatal(got)
 			}
 		})

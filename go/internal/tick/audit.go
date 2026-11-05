@@ -5,13 +5,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
-	"agentkit/internal/scoreboard"
 	"agentkit/internal/seat"
-	"agentkit/internal/terminal"
 )
+
+// AuditReport gives the tick a report and its loss from the CLI's one scoreboard reader.
+type AuditReport func(time.Time) (lines []string, loss string)
 
 // audit carries a weekly report with no history database. Existing audit deliveries and
 // saved conversations remain Python's; a fresh seat uses the same launch as an owner's.
@@ -39,13 +41,15 @@ func (t *ticking) audit() error {
 	stamp := fmt.Sprintf("%d-W%02d", year, week)
 	write := func() error { return replaceFile(file, run.Encode(state)+"\n") }
 	if state.Str("week") != stamp {
-		board := scoreboard.Read(now)
-		loss := board.Loss()
+		if t.report == nil {
+			return errLeft
+		}
+		body, loss := t.report(now)
 		report := statePath(filepath.Join("audit", stamp+".md"))
 		if err := os.MkdirAll(filepath.Dir(report), 0o777); err != nil {
 			return err
 		}
-		lines := append([]string{"# ak's week " + stamp, ""}, board.Render(terminal.For(t.log.out))...)
+		lines := append([]string{"# ak's week " + stamp, ""}, body...)
 		lines = append(lines, "", strings.ToUpper(loss[:1])+loss[1:]+".")
 		if err := replaceFile(report, strings.Join(lines, "\n")+"\n"); err != nil {
 			return err

@@ -2,8 +2,6 @@ package seat
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -201,25 +199,6 @@ func start(state, name, cwd string, cmd []string) error {
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
 	}
 	return nil
-}
-
-// launchFile is the file a seat's pane runs its harness by, which removes itself, and the pane's
-// command that runs it.
-func launchFile(state, name string, values []field, cmd []string) (string, string, error) {
-	token := make([]byte, 4)
-	rand.Read(token)
-	launch := filepath.Join(state, "launch-"+name+"."+hex.EncodeToString(token))
-	// a pane's -e can set a variable, but not remove one the server holds
-	script := "rm -f -- \"$0\"\n"
-	if unset := slices.DeleteFunc(slices.Clone(values), func(f field) bool { return f.value != nil }); len(unset) > 0 {
-		script += "unset"
-		for _, f := range unset {
-			script += " " + f.key
-		}
-		script += "\n"
-	}
-	err := os.WriteFile(launch, []byte(script+"exec "+commandhelp.ShellJoin(cmd)+"\n"), 0o666)
-	return commandhelp.ShellJoin([]string{"sh", launch}), launch, err
 }
 
 // paneEnvironment is those values as the words that start a pane in them.

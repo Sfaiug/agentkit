@@ -22,6 +22,7 @@ func TestAnAuditKeepsItsWeeksReportWhenItsLaunchIsNotCarried(t *testing.T) {
 	}
 	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
 	tick := &ticking{clock: func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }, log: newLog(io.Discard, io.Discard)}
+	tick.report = func(time.Time) ([]string, string) { return []string{"fixture report"}, "fixture loss" }
 	for i := range 2 {
 		if err := tick.audit(); !errors.Is(err, errLeft) {
 			t.Fatal(err)

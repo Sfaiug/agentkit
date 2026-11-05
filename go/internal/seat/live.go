@@ -168,6 +168,9 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if carried = read && ok(live); !carried {
 			return nil
 		}
+		if strings.TrimFunc(pane, config.Space) == "" && found.authority != "hook" && !seat.hasActiveRun() {
+			return nil
+		}
 		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
 		if err != nil {
 			return err
