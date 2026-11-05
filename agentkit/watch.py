@@ -3870,9 +3870,10 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
-    # New text goes only into a composer read empty: one holding text, under a dialog or read
-    # in part would join the line and send both, and a pane showing none would run it.  A line
-    # left pending was read in its composer, whatever chrome is drawn around it.
+    # New text goes only into a composer read empty: typed onto the owner's text, read whole or
+    # in part, its Enter sends both; under a dialog it answers it; where no composer shows it
+    # runs as a command.  A line left pending was read in its composer, whatever chrome is
+    # drawn around it.
     if harness is not None and not pending and composer_draft(harness, pane_text(seat)) != "":
         return None
     confirm = pending or harness is not None
