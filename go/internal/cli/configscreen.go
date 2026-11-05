@@ -104,7 +104,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 				}
 			}
 		case key.Name == "char" && key.Char == "r":
-			if !menuModels(session, view.Scope, c, keyboard, painter) {
+			if !menuModels(session, "config · recommended · "+view.Scope, c, keyboard, painter) {
 				return false
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
