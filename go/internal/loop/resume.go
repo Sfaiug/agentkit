@@ -27,7 +27,7 @@ func Pickup(dir string, record *run.Object) bool {
 	if record.Str("state") == "waiting" {
 		return waitingPickup(dir, record)
 	}
-	if state := record.Str("state"); state != "running" && state != "interrupted" {
+	if state := record.Str("state"); state != "running" && state != "interrupted" && state != "error" {
 		return false
 	}
 	for _, key := range pythonRoads {
@@ -115,7 +115,8 @@ func retried(round string) bool {
 }
 
 // pairReady is whether the saved pair goes on as it is, which leaves no pick to make: a model that
-// cannot run, a reviewer no longer eligible and a saved self-review are for Python's to hand over.
+// cannot run and a reviewer no longer eligible are for Python's to hand over, and so is a saved
+// self-review, but for one whose executor answered with no other reviewer ready, which Python keeps.
 func pairReady(record *run.Object) bool {
 	l := &loop{workers: names(record.List("workers")), reviewers: names(record.List("reviewers"))}
 	rules, ok := l.rules()
@@ -128,7 +129,10 @@ func pairReady(record *run.Object) bool {
 	}
 	room := ready{readings, unable()}
 	executor, reviewer := record.Str("executor"), record.Str("reviewer")
-	return room.Spent(executor) == "" && !rules.Same(executor, reviewer) && slices.Contains(rules.Order(room, true, io.Discard), reviewer)
+	order := rules.Order(room, true, io.Discard)
+	own := rules.Same(executor, reviewer) && (!record.Truthy("review_pending") ||
+		slices.ContainsFunc(order, func(other string) bool { return !rules.Same(executor, other) }))
+	return room.Spent(executor) == "" && !own && slices.Contains(order, reviewer)
 }
 
 // delivery is what the last attempt's ending said, Python's clear_delivery: this one owes its own.

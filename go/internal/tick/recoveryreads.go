@@ -81,17 +81,6 @@ func noExhaustedResume() bool {
 	})
 }
 
-func noErrorRetry() bool {
-	return run.Every(func(_ string, record *run.Object) bool {
-		if record.Str("state") != "error" {
-			return true
-		}
-		// Even a future retry needs Python's resumability and supersession reads: a worktree
-		// or task gone, or a later merge, can make the row remove that retry now.
-		return run.TickAdmission(record, time.Now()) == "" && !record.Has("error_retry_at") && !record.Has("error_retries")
-	})
-}
-
 func directory(path string) bool {
 	info, err := os.Stat(path)
 	return path != "" && err == nil && info.IsDir()

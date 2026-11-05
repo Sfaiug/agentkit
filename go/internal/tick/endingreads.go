@@ -1,27 +1,9 @@
 package tick
 
 import (
-	"time"
-
 	"agentkit/internal/config"
-	"agentkit/internal/handback"
 	"agentkit/internal/run"
 )
-
-func noOldEndings() bool {
-	now := time.Now()
-	return run.Every(func(_ string, record *run.Object) bool {
-		if !handback.Owed(record, now) || record.Truthy("handback_pending") || record.Truthy("notification_pending") {
-			return true
-		}
-		for _, key := range []string{"finished_at", "interrupted_at", "started_at"} {
-			if at, ok := dated(record, key); ok {
-				return !(epoch(now)-at > 3600)
-			}
-		}
-		return true
-	})
-}
 
 // Revival files projectless seats from run evidence even when no run is still going.
 func noRunRevival() bool {

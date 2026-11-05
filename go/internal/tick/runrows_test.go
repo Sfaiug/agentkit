@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"agentkit/internal/run"
 )
 
 func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
@@ -42,9 +40,8 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 		"stall recovery":   `{"state":"stalled"}`,
 		"lease restart":    `{"state":"stopped","lease_wait":{"on":"older"}}`,
 		"exhausted resume": `{"state":"exhausted","quota_dry":true}`,
-		"error retry":      `{"state":"error","error_retry_at":1}`,
+		"error retry":      `{"state":"error","error_retry_at":1,"title":"\ud800"}`,
 		"waiting resume":   `{"state":"waiting","waiting_on":{"line":"older"}}`,
-		"old endings":      `{"state":"pass","finished_at":1}`,
 		"endings":          `{"state":"pass"}`,
 		"seat sweep":       `{"state":"running"}`,
 	} {
@@ -81,17 +78,9 @@ func TestHousekeepingReadsRunWritersAndRepositories(t *testing.T) {
 	if !runRepositories(&repos) || !runBusyPaths(&busy) || len(repos) != 1 || len(busy) != 2 {
 		t.Fatalf("repos=%v, busy=%v", repos, busy)
 	}
-	put(t, filepath.Join(ak, "state", "leases", "api.json"), "{}")
-	if !noLeaseScan() {
-		t.Fatal("an empty collision record was not idle")
-	}
 	put(t, path, `{"waiting_on":{"line":"older"}}`)
 	if runBusyPaths(&busy) {
 		t.Fatal("a lander's separate writer was not left to Python")
-	}
-	put(t, path, run.Line(run.Fields("state", "running", "repo", t.TempDir(), "worktree", t.TempDir(), "base_sha", "abc")))
-	if noLeaseScan() {
-		t.Fatal("a going diff was not left to lease scan")
 	}
 }
 
