@@ -3,7 +3,9 @@ package harness
 import "testing"
 
 func TestAdapterOnlySeatsUseDefaultHooksWhileUnreadPluginsStayUnread(t *testing.T) {
-	for _, name := range []string{"echo", "", "antigravity"} {
+	plugins["unread"] = plugin{}
+	t.Cleanup(func() { delete(plugins, "unread") })
+	for _, name := range []string{"echo", "", "unread"} {
 		want := name == "echo"
 		if _, known := Reopens(name); known != want || Looks(name) != want {
 			t.Fatalf("%q: reopens=%v, looks=%v", name, known, Looks(name))
