@@ -29,14 +29,13 @@ var (
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
 // before anything is written: a reviewer named outright, an executor no worker of its groups, a
 // pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
-// with no box, one with a user manager to place the run under, or the checkout a task folder is
-// named for.
-func drivable(path string, values map[string]string, bound config.Binding) error {
+// with no box, or one with a user manager to place the run under.
+func drivable(values map[string]string, bound config.Binding) error {
 	executors, reviewers := names(bound.Workers), names(bound.Reviewers)
 	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
 	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !placed() ||
-		usage.Check() != nil && !loop.Unstaffed(rules) || filed(path) {
+		usage.Check() != nil && !loop.Unstaffed(rules) {
 		return ErrPython
 	}
 	return nil
@@ -58,15 +57,13 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 	title := ""
 	if err := unstopped(func(record *run.Object) {
 		title = record.Str("title")
-		if at.repo == "" {
-			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", nil)
-			return
-		}
 		var project any
-		if meta["repo"] != "" {
-			if named := seat.CheckoutOf(at.repo); named != "" {
-				project = named
-			}
+		if at.project != "" {
+			project = at.project
+		}
+		if at.repo == "" {
+			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", project)
+			return
 		}
 		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines.Said(), "seat_lines", at.numbers.SeatLines.Said()),
 			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
@@ -173,12 +170,4 @@ func start(dir string, out io.Writer, detached bool) error {
 	}
 	defer slots.Close()
 	return loop.Start(dir, out, detached)
-}
-
-// filed is whether the task file stands in a task folder of ~/.agentkit/tasks, which is named for
-// a checkout.
-func filed(path string) bool {
-	tasks := config.Resolve(filepath.Join(config.Home(), "tasks")) + string(filepath.Separator)
-	rest, under := strings.CutPrefix(path, tasks)
-	return under && strings.ContainsRune(rest, filepath.Separator)
 }
