@@ -225,6 +225,7 @@ func load() (*table, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
+	renamePolicy(root)
 	if err := checkPolicy(root); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
