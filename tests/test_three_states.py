@@ -623,6 +623,7 @@ class ThreeStates(Sandbox):
 
         def reopened(cfg, name, **_kwargs):
             live.append({**self.seat, "name": name})
+            self.pane = (REPO / "tests/fixtures/claude-prompt-pane.txt").read_text()
             # back at its prompt, which Claude's hook reports once it has sat there a minute
             config.hook_facts_path(name).write_text(json.dumps(
                 {"session": name, "event": "Notification", "kind": "idle_prompt", "at": NOW - 1}))
