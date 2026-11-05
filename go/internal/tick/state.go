@@ -53,11 +53,12 @@ func generation(value any) any {
 	return run.Number("0")
 }
 
-// quiet is whether watch.json holds only what a home with nothing to act on holds: no PR, run,
-// stall, login or worker token kept. Alert generations are bookkeeping, kept even after an open.
+// quiet is whether watch.json holds only what a home with nothing to act on holds: no PR
+// followed, stall, login or worker token kept. Alert generations are bookkeeping, kept even after
+// an open; the heads reviewed are the incoming pass's own, which Go carries.
 func quiet(state *run.Object) bool {
 	for _, key := range kept {
-		if key != "seen_at" && len(state.Dict(key).Keys()) > 0 {
+		if key != "seen_at" && key != "reviewed" && len(state.Dict(key).Keys()) > 0 {
 			return false
 		}
 	}
