@@ -45,7 +45,7 @@ func midturn(live seat.Live, account bool) bool {
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.
 func healthy(live seat.Live) bool {
-	return live.Stall == nil && live.Login == nil && !live.Stuck && live.Bound && titleKept(live) &&
+	return live.Stall == nil && quietLogin(live) && live.Bound && titleKept(live) &&
 		(notify.Last(live.Name) == nil || unansweredQuestion(live)) && stays(live)
 }
 
@@ -84,13 +84,13 @@ func stays(live seat.Live) bool {
 // health is the seat health row (watch.health): each seat looked at and its word published, as the
 // later rows read it, while the look is all the row does there; the first it would do more at ends
 // the tick there, before its publish.
-func health() error {
+func (t *ticking) health() error {
 	names, known := seat.Seats(time.Now())
 	if !known {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := seat.Health(name, healthy); err != nil || !carried {
+		if carried, err := seat.Health(name, healthy, t.log.line); err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
 	}

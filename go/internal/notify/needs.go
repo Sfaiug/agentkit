@@ -50,7 +50,7 @@ func Needs(name, text, source string, kept bool, published func(string) (string,
 		}
 	}
 	var previous, notice *run.Object
-	return questionTransition(name, published, clock, 0, errOut, func(current string, file *run.Object) *run.Object {
+	return questionTransition(name, published, clock, 0, errOut, true, func(current string, file *run.Object) *run.Object {
 		if previous, notice = asking(current); notice == nil || !unanswered(current, notice) || file.Str("state") == "asking" {
 			return nil
 		}

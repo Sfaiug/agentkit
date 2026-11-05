@@ -81,7 +81,7 @@ func (seat Seat) restingGone() bool {
 	if seat.live || seat.closed {
 		return true
 	}
-	if seat.held || seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
+	if seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
 		return false
 	}
 	file := revivalFile(seat.Name)

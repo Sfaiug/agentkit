@@ -1,5 +1,5 @@
 #!/bin/bash
-# Status renders are serialized by Claude Code. The report belongs to its conversation,
+# The report belongs to the status render's conversation,
 # never its launch name; a detached look reads whatever report stands when it gets there.
 set -u
 payload=$(cat; printf .)
@@ -10,7 +10,7 @@ printf '%s' "$payload" 2>/dev/null
 [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || exit 0
 report=$(jq -er 'select(.session_id | strings | test("^[A-Za-z0-9_-]+$"))
     | select(.model.id | strings | length > 0)
-    | .session_id, ({model: .model.id, effort: (.effort.level // null)} | tojson)' \
+    | .session_id, ({model: .model.id, effort: (.model.effort // .effort.level // null)} | tojson)' \
     <<<"$payload" 2>/dev/null) || exit 0
 conversation=${report%%$'\n'*}
 report=${report#*$'\n'}
