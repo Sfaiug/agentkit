@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"path/filepath"
-	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
@@ -34,7 +33,7 @@ type answer struct {
 }
 
 // A rung decides the seat, nil where it passes the seat on, or says with ErrUnread that Go does not
-// read what it hangs on yet.  Every rung is pure: readable asks them all before a look writes.
+// read what it hangs on yet. Every rung is pure, so a look can decide before it writes.
 type rung func(climbing) (*answer, error)
 
 // ladder is watch._session_state's, top rung first. Python's rung names are in brackets where it
@@ -47,6 +46,7 @@ var ladder = []rung{
 	repeatingQuestion, // what questions.unseen sends back
 	ownQuestion,
 	moveFailed,
+	failedRevival,
 	runsGoing, // [2]
 	waitGoing, // [2a]
 	turnRunning,
@@ -71,12 +71,11 @@ func climbingOf(state string, seat Seat, found sight, now float64) climbing {
 		notice: notify.Last(seat.Name), found: found, now: now}
 }
 
-// readable is whether no rung is one Go cannot read yet, whatever a higher one would decide.
+// readable follows the same ladder as the word: a going run already decides the seat
+// before its idle plan's send-back, whose reads are still Python's.
 func (facts climbing) readable() bool {
-	return !slices.ContainsFunc(ladder, func(each rung) bool {
-		_, err := each(facts)
-		return err != nil
-	})
+	_, err := facts.climb()
+	return err == nil
 }
 
 // climb is the first rung's answer; at the top of nothing the seat rests.
