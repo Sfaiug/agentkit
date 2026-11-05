@@ -25,7 +25,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, suite_times, transitions, turns, update, versions
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -214,12 +214,9 @@ def start_line(turn, log=lambda _: None):
             except BlockingIOError:
                 return False
             members = line(turn)
-            parked = [state for _, state in members
-                      if state.get("state") == "waiting" and not record.process_active(state)]
-            if not parked:
+            if not any(state.get("state") == "waiting" and not record.process_active(state)
+                       for _, state in members):
                 return False
-            # A red-only line still needs a pass to wake its fixers, using this checkout.
-            waiting = next((state for state in parked if "fix" not in state["waiting_on"]), {})
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
@@ -241,16 +238,16 @@ def start_line(turn, log=lambda _: None):
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
-        with versions.checkout(waiting["ak_checkout"]) if waiting.get("ak_checkout") else nullcontext(config.REPO) as code:
-            installed = Path.home() / ".local" / "bin" / "ak"
-            if not installed.is_file():
-                installed = code / "bin" / "ak"
-            env["AK_RUN_CODE"] = str(code)
-            return orch.start_in_slice(
-                [sys.executable, str(installed), "run", "--lander", turn.name],
-                f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
-                env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
-                properties=properties, nice=True)
+        # Owner, 5 Nov 2026: a lander fix takes effect when installed, and changes
+        # launched on different versions stack, so the lander runs the installed ak.
+        installed = Path.home() / ".local" / "bin" / "ak"
+        if not installed.is_file():
+            installed = config.REPO / "bin" / "ak"
+        return orch.start_in_slice(
+            [sys.executable, str(installed), "run", "--lander", turn.name],
+            f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
+            env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
+            properties=properties, nice=True)
     except (OSError, config.Error) as exc:
         log(f"WARN could not start lander for {turn.name}: {exc}")
         return False
@@ -532,8 +529,6 @@ def check_line(turn, log=lambda _: None):
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
-            if state.get("ak_checkout") not in (None, str(config.REPO)):
-                return
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
                 gitcall.no_auto_gc(repo)
@@ -586,8 +581,6 @@ def check_line(turn, log=lambda _: None):
                         if (record.read_state(later) != saved or record.process_active(saved)
                                 or saved.get("state") != "waiting" or "fix" in saved["waiting_on"]):
                             continue
-                        if saved.get("ak_checkout") != state.get("ak_checkout"):
-                            break
                         if ((saved.get("review") or {}).get("verdict") == "PASS"
                                 and "land" not in saved["waiting_on"]):
                             candidates.append((later, saved))
