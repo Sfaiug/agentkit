@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 
 	"agentkit/internal/adapters"
 	"agentkit/internal/config"
@@ -32,10 +31,7 @@ func adapter(args []string, out, errOut io.Writer) int {
 	case "lend":
 		return adapters.Lend(harness, rest, out, errOut)
 	case "hook":
-		// a hook verb handed on a launch's command line, what it hands on not Go's to read yet: a
-		// hook stays silent
-		io.Copy(io.Discard, os.Stdin)
-		return 0
+		return adapterHook(harness, out)
 	case "hooks":
 	default:
 		fmt.Fprintf(errOut, "ak adapter: %s %s is not carried out in Go yet\n", harness, verb)

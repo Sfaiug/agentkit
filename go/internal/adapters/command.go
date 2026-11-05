@@ -11,6 +11,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 )
 
 // Command is the TUI command a new seat of model opens on the usual login, as Python's
@@ -44,21 +45,21 @@ func Resumed(model config.Model, conversation string, opened bool, env []string)
 // else this program, to which the stubs under go/adapters hand every verb, where the manifest
 // gives it the words of a seat's line; else the shell adapter shipped beside the manifest, whose
 // line is the one Python's launch runs.
-func answering(harness string) ([]string, error) {
-	adapter, err := config.Adapter(harness)
+func answering(name string) ([]string, error) {
+	adapter, err := config.Adapter(name)
 	if !errors.Is(err, config.ErrNoAdapterDir) {
 		return []string{adapter}, err
 	}
-	launch, err := config.Section(harness, "launch")
+	launch, err := config.Section(name, "launch")
 	if err != nil {
 		return nil, err
 	}
-	if launch["seat"] == nil {
-		return []string{filepath.Join(config.Repo(), "adapters", harness+".sh")}, nil
+	if launch["seat"] == nil && harness.Interactive(name) == nil {
+		return []string{filepath.Join(config.Repo(), "adapters", name+".sh")}, nil
 	}
 	self, _ := os.Executable()
 	self, err = filepath.EvalSymlinks(self)
-	return []string{self, "adapter", filepath.Dir(filepath.Dir(self)), harness}, err
+	return []string{self, "adapter", filepath.Dir(filepath.Dir(self)), name}, err
 }
 
 // command is the seat's line from the adapter's answer to `interactive` with first, whether that
