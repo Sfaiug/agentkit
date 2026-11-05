@@ -254,6 +254,11 @@ def issued(name, conversation, **fields):
                           id_source=LAUNCHER if conversation else None, before=None, **fields)
 
 
+def recorded_conversations(record):
+    """Ids already proven by a seat record; `owned` must neither discover nor claim one."""
+    return [record.get("conversation"), *(module.owned(record) for module in _plugins("owned"))]
+
+
 def user_message(at, text):
     """Keep the recorded text and time, never inventing either for a notice."""
     if not isinstance(text, str) or not text:

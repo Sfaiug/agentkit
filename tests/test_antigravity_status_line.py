@@ -130,8 +130,13 @@ class AntigravityStatusLine(Sandbox):
                 self.assertEqual(gc.gc(lambda _: None), [])
                 self.assertEqual(antigravity.running({}, None, "conv-acme"), before)
                 antigravity.launched("acme", self.root, None)
+                claim = config.STATE / "antigravity-claim.lock"
+                claim.unlink()
+                recorded = config.session_path("acme").read_bytes()
                 self.assertEqual([item["path"] for item in gc.stale_model_reports()], [str(self.report)])
                 self.assertEqual(gc.gc(lambda _: None), [str(self.report)])
+                self.assertFalse(claim.exists())
+                self.assertEqual(config.session_path("acme").read_bytes(), recorded)
             self.assertFalse(self.report.exists())
 
 
