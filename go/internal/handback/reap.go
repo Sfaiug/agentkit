@@ -2,6 +2,7 @@ package handback
 
 import (
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -20,36 +21,51 @@ func Reapable(record *run.Object) bool {
 		!run.ProcessActive(record) && (swept(record) || !run.Lined(record) && !unitStopped(record))
 }
 
-// Reap is the record as Python's reap(dir, record) leaves a run whose listing Go keeps: an
-// ended run as run.Reap leaves it, or a Reapable one reaped under its recovery lock, what its
-// dead loop left behind ended once per loop and the record stamped with the loop it swept for,
-// onto the record as it stands.  errMoved where the run is no longer Reapable once locked.
-func Reap(dir string, record *run.Object) (*run.Object, error) {
-	if !Reapable(record) {
-		reaped, _ := run.Reap(record)
-		return reaped, nil
+var errUnstamped = errors.New("the sweep's stamp was not written")
+
+// Reap is Python's reap of the Reapable runs at dirs, each record as it leaves it: what each dead
+// loop left behind ended, once per loop, and its record stamped with the loop it swept for
+// (`tree_stopped`), onto the record as it stands.  Every run is held under its recovery lock and
+// read again before any is swept, so where one has moved on (errMoved) nothing is written; a
+// stamp that cannot be written is an error too, which Python raises.
+func Reap(dirs []string) ([]*run.Object, error) {
+	records := make([]*run.Object, len(dirs))
+	for i, dir := range dirs {
+		release, err := run.Hold(dir)
+		if err != nil {
+			return nil, err
+		}
+		defer release()
+		if records[i], _ = run.Read(dir); records[i] == nil || !Reapable(records[i]) {
+			return nil, errMoved
+		}
 	}
-	release, err := run.Hold(dir)
-	if err != nil {
-		return nil, err
+	for i, dir := range dirs {
+		if err := sweep(dir, records[i]); err != nil {
+			return nil, err
+		}
 	}
-	defer release()
-	if record, _ = run.Read(dir); record == nil || !Reapable(record) {
-		return nil, errMoved
-	}
+	return records, nil
+}
+
+// sweep ends what the run's dead loop left behind, then stamps the record with that loop under
+// the delivery lock, unless that loop is swept already.
+func sweep(dir string, record *run.Object) error {
 	if swept(record) {
-		return record, nil
+		return nil
 	}
 	if id := record.Str("run_id"); id != "" {
 		host.EndMarked(filepath.Join(run.Runs(), id), io.Discard)
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer held.Close()
-	mark(dir, record, "tree_stopped", loop(record))
-	return record, nil
+	if !mark(dir, record, "tree_stopped", loop(record)) {
+		return errUnstamped
+	}
+	return nil
 }
 
 // loop is what tells one activation of a run from the next, which a sweep is stamped with.

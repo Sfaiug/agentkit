@@ -82,7 +82,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
-	if no || !reaped(entries) {
+	if no {
 		return notImplemented(errOut, "run status")
 	}
 	var db *history.DB
@@ -92,6 +92,10 @@ func runStatus(args []string, out, errOut io.Writer) int {
 			return notImplemented(errOut, "run status")
 		}
 		defer db.Close()
+	}
+	// the reap writes, so it follows every other refusal
+	if !reaped(entries) {
+		return notImplemented(errOut, "run status")
 	}
 	for i := range entries {
 		if looked && !machine && !entries[i].unreadable {
@@ -189,19 +193,26 @@ func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*
 	return every, entries, false
 }
 
-// reaped is whether each run listed is now as Python's reap leaves it, false where one moved on
-// to a reap Go leaves to Python.
+// reaped is whether each run listed is now as Python's reap leaves it: an ended one as run.Reap
+// leaves it, the ones handback reaps reaped together.  False where one moved on to a reap Go
+// leaves to Python, or a stamp could not be written.
 func reaped(entries []listed) bool {
-	for i, entry := range entries {
-		if entry.unreadable {
-			continue
-		}
-		var err error
-		if entries[i].record, err = handback.Reap(entry.dir, entry.record); err != nil {
-			return false
+	var swept []*listed
+	var dirs []string
+	for i := range entries {
+		switch entry := &entries[i]; {
+		case entry.unreadable:
+		case handback.Reapable(entry.record):
+			swept, dirs = append(swept, entry), append(dirs, entry.dir)
+		default:
+			entry.record, _ = run.Reap(entry.record)
 		}
 	}
-	return true
+	records, err := handback.Reap(dirs)
+	for i, record := range records {
+		swept[i].record = record
+	}
+	return err == nil
 }
 
 // records are every readable record, and the runs a listing reads: the one wanted, smoke run
