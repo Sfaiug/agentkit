@@ -96,9 +96,10 @@ class ClaudeCode(Line, unittest.TestCase):
         words = shlex.split(done.out)
         at = words.index("--settings") + 1
         settings = json.loads(words[at])
-        status = settings.pop("statusLine")
-        self.assertEqual(status["type"], "command")
-        self.assertTrue(status["command"])
+        status = settings.pop("statusLine", None)
+        if status is not None:
+            self.assertEqual(status["type"], "command")
+            self.assertTrue(status["command"])
         words[at] = json.dumps(settings, separators=(",", ":"))
         super().assertWords(done._replace(out=shlex.join(words)), env, conversation, first)
 

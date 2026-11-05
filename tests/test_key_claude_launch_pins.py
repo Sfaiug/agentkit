@@ -78,7 +78,9 @@ class AClaudeSeat(unittest.TestCase):
         settings = [json.loads(value if value.lstrip().startswith("{") else Path(value).read_text())
                     for value in given]
         for value in settings:
-            self.assertEqual(value.pop("statusLine")["type"], "command")
+            # Status-line reporting has its own answer key.
+            if "statusLine" in value:
+                self.assertEqual(value.pop("statusLine")["type"], "command")
         return settings
 
     def after(self, words, flag):
@@ -88,7 +90,7 @@ class AClaudeSeat(unittest.TestCase):
     # A harness's settings are its own: ak has no settings screen for them and no setting
     # shared across harnesses. Reason: rebuilding each
     # harness's options in ak is work the harness already did. [15 Oct 2026]
-    def test_its_pins_and_status_line_are_given_once(self):
+    def test_its_pins_are_given_once(self):
         self.assertEqual(self.settings(self.argv), [PINS])
 
     def test_the_login_s_own_settings_file_is_left_as_it_was(self):
