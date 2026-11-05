@@ -43,8 +43,9 @@ func TestMuseReceiptFollowsItsLaunchThroughNewIntoTheReopen(t *testing.T) {
 	}
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("XDG_DATA_HOME", "")
-	registry := filepath.Join(home, ".local", "share", "muse", "runtime", "muse", "sessions")
+	data := filepath.Join(home, "data[acme]") // a path, though it reads as a pattern
+	t.Setenv("XDG_DATA_HOME", data)
+	registry := filepath.Join(data, "muse", "runtime", "muse", "sessions")
 	program := filepath.Join(t.TempDir(), "muse")
 	if os.MkdirAll(registry, 0o700) != nil || os.MkdirAll(filepath.Join(home, ".agentkit", "state"), 0o700) != nil ||
 		os.WriteFile(program, []byte(fakeMuse), 0o700) != nil {

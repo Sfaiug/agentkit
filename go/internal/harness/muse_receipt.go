@@ -147,10 +147,12 @@ func museFollowed(path string) string {
 // home: one `<session>.json` each, `{"session_id": ..., "process_generation_hint": "pid=<pid>"}`
 // (1.4.12).  A crashed Muse leaves its entries behind, under a pid another process may hold.
 func museRegistered() [][2]string {
-	entries, _ := filepath.Glob(filepath.Join(share(), "muse", "runtime", "muse", "sessions", "*.json"))
+	// read, not globbed: the data home is a path, whatever pattern characters it holds
+	registry := filepath.Join(share(), "muse", "runtime", "muse", "sessions")
+	entries, _ := os.ReadDir(registry)
 	var found [][2]string
 	for _, entry := range entries {
-		data, _ := os.ReadFile(entry)
+		data, _ := os.ReadFile(filepath.Join(registry, entry.Name()))
 		read, _ := run.Decode(data)
 		listed, _ := read.(*run.Object)
 		if listed == nil {
@@ -158,7 +160,7 @@ func museRegistered() [][2]string {
 		}
 		session, named := listed.Get("session_id").(string)
 		hint, hinted := listed.Get("process_generation_hint").(string)
-		if named && hinted && session+".json" == filepath.Base(entry) && museSession.MatchString(session) {
+		if named && hinted && session+".json" == entry.Name() && museSession.MatchString(session) {
 			found = append(found, [2]string{session, hint})
 		}
 	}
