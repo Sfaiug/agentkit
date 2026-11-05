@@ -165,7 +165,7 @@ func endedThere(t *testing.T, ak, said string) {
 func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 	for path, content := range map[string]string{
 		"runs/fix-api/run.json":            `{"state":"waiting_login"}`,
-		"jobs/fix-api":                     "",
+		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
 		"secrets/acme":                     "",
 		"history.db":                       "",
 		"state/session-acme.json":          "{}",
@@ -173,13 +173,14 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/notification-outbox/a.json": "{}",
 		"state/watch.json":                 `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
 		"state/watch.json#stalls":          `{"stalls": {"acme": {}}}`,
-		"state/watch.json#merge":           `{"after_merge": {"acme/api": {}}}`,
-		"state/watch.json#auth":            `{"auth_out": {"claude": {"ok": false}}}`,
-		"state/watch.json#tokens":          `{"worker_tokens": {"claude": {}}}`,
-		"state/watch.json#surrogate":       `{"mine": "\ud800"}`,
-		"config.toml":                      "[audit]\non = true\n",
-		"config.toml#absent":               "",
-		"config.toml#renting":              "[audit]\non = false\n[google_cloud]\nactive = true\n",
+		"runs/fix-api/run.json#probe": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {"command": "true"}, "deployed": null}`,
+			time.Now().Unix()),
+		"state/watch.json#auth":      `{"auth_out": {"claude": {"ok": false}}}`,
+		"state/watch.json#tokens":    `{"worker_tokens": {"claude": {}}}`,
+		"state/watch.json#surrogate": `{"mine": "\ud800"}`,
+		"config.toml":                "[audit]\non = true\n",
+		"config.toml#absent":         "",
+		"config.toml#renting":        "[audit]\non = false\n[google_cloud]\nactive = true\n",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)
