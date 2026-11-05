@@ -90,12 +90,12 @@ class SeatPrSizeAtCreate(unittest.TestCase):
         self.assertEqual(ran, "")
 
     def test_the_branch_is_read_as_gh_reads_it(self):
-        # the head grouped behind a switch, and a title that only reads like a head
-        for argv in (["-fHgrow"], ["--title", "--head=main", "--fill"]):
-            with self.subTest(argv=argv):
-                done, ran = self.build(60, *argv)
-                self.assertNotEqual(done.returncode, 0)
-                self.assertEqual(ran, "")
+        # main, grouped behind a switch, adds nothing; a title that only reads like it is no head
+        done, ran = self.build(60, "-fHmain")
+        self.assertEqual((done.returncode, ran), (0, "pr create -fHmain\n"), done.stderr)
+        done, ran = self.build(60, "--title", "--head=main", "--fill")
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(ran, "")
 
     def test_what_the_shim_cannot_measure_reaches_gh(self):
         # another repository's PR, and help: the review gate still holds what reaches GitHub
