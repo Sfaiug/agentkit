@@ -1,5 +1,7 @@
 """Public command help, safe to print before importing operational command modules."""
 
+import os
+
 from . import config
 
 WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--session ID]\n"
@@ -239,12 +241,12 @@ PURPOSES = {
 }
 
 
-def purpose(command):
+def purpose(command, table=None):
     """The command's one-line purpose: the top table's for a top-level command,
     otherwise its description's first line."""
     if command in PURPOSES:
         return PURPOSES[command]
-    return config.in_force(COMMANDS[command][1].splitlines()[0])
+    return config.in_force(COMMANDS[command][1].splitlines()[0], table)
 
 
 def _same_sentence(first, second):
@@ -263,14 +265,22 @@ def render(command):
         lines += [f"  {name.ljust(width)}  {PURPOSES[name]}" for name in ORCHESTRATOR]
         lines += ["", terminal.styled("internal:  " + "  ".join(INTERNAL), "dim"), ""]
         return "\n".join(lines) + "\nUse -h or --help after any command.\nExample: ak run task.md --bg\n"
-    usage, description, example = map(config.in_force, COMMANDS[command])
+    numbers = None
+    if os.environ.get(config.SESSION_ENV):
+        try:
+            seat = config.session_record(config.current_session()) or {}
+            numbers = config.policy(seat.get("repo", seat.get("cwd")))
+        except config.Error:
+            pass        # help still prints when a seat or its settings cannot be read
+    usage, description, example = (config.in_force(text, numbers) for text in COMMANDS[command])
     # the one-line purpose first, then the usage and the rest of the
     # description as today: a description that opens by repeating the purpose
     # keeps only the purpose line, never the same sentence twice
     lines = description.splitlines()
-    if lines and _same_sentence(lines[0], purpose(command)):
+    said = purpose(command, numbers)
+    if lines and _same_sentence(lines[0], said):
         description = "\n".join(lines[1:])
-    body = f"{purpose(command)}\n\n{usage}"
+    body = f"{said}\n\n{usage}"
     if description:
         body += f"\n\n{description}"
     return body + f"\n\nExample: {example}\n"

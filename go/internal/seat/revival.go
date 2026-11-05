@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"agentkit/internal/config"
@@ -25,6 +26,56 @@ const (
 	deathWindow      = 3600
 	revivalWarmup    = 10 * time.Second
 )
+
+// Warmup is the time a newly opened harness gets before its first line (watch.INBOX_WARMUP).
+const Warmup = 10 * time.Second
+
+// Revival is a seat at the revival row's reading, including those only their records hold.
+type Revival struct {
+	Name                string
+	Live, Closed, Owing bool
+	CanOpen, Fresh      bool
+	Supported           bool // Go opens this harness and owns this death's recovery
+	Failed              bool // a failed revival still needs the owner
+	File                *run.Object
+}
+
+func (home Home) Revivals() []Revival {
+	var seats []Revival
+	for _, each := range home.Seats {
+		_, record, _ := config.ResolveSession(each.Name)
+		file, _ := run.ReadJSON(seatFile(each.Name))
+		if file == nil {
+			file = run.NewObject()
+		}
+		state := filepath.Join(config.Home(), "state")
+		back, canOpen := comingBack(state, each.Name, record, each.held, false)
+		supported := each.supportsRunRevival(record)
+		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
+			Owing:   !each.restingGone(),
+			CanOpen: canOpen && supported, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
+			Failed: revivalFailure(notify.Last(each.Name))})
+	}
+	return seats
+}
+
+// A failed automatic reopen outranks its runs: only the owner can bring this seat back.
+func failedRevival(facts climbing) (*answer, error) {
+	if facts.gone != nil && !facts.gone.closed && revivalFailure(facts.notice) {
+		return &answer{word: "needs you", reason: config.Fold(facts.notice.Str("text")), since: facts.notice.Get("time")}, nil
+	}
+	return nil, nil
+}
+
+func revivalFailure(notice *run.Object) bool {
+	return notice != nil && strings.HasPrefix(notice.Str("source"), "revive:")
+}
+
+// Files a launch leaves remain readable when that harness dies again.
+func revivalKind(kind, suffix string) bool {
+	return suffix == "md" && slices.Contains([]string{"rulebook", "held", "change", "rules", "handover"}, kind) ||
+		suffix == "txt" && slices.Contains([]string{"live", "refused"}, kind) || kind == "notify" && suffix == "json"
+}
 
 func (seat Seat) restingGone() bool {
 	if seat.live || seat.closed {
@@ -53,20 +104,20 @@ func revivalFile(name string) *run.Object {
 	return file
 }
 
+func (seat Seat) hasActiveRun() bool {
+	return slices.ContainsFunc(seat.mine, func(each ran) bool { return run.Active(each.record) || each.going() })
+}
+
 // Only an owned, unanswered question with no background work joins this recovery pass. Its
 // old screen and hooks cannot change the continuation: the standing question comes first.
 func (seat Seat) revivalQuestion() bool {
 	file := revivalFile(seat.Name)
 	record, _ := run.ReadJSON(ownFile("session", seat.Name))
 	return record != nil && conversationOwned(seat.reader, record) && notify.UnansweredQuestion(seat.Name) && !file.Truthy("holds") &&
-		len(hookfact.Standing(seat.Name).Holds) == 0 && !slices.ContainsFunc(seat.mine, func(each ran) bool { return run.Active(each.record) || each.going() })
+		len(hookfact.Standing(seat.Name).Holds) == 0 && !seat.hasActiveRun()
 }
 
-func revivalKind(kind, name, suffix string) bool {
-	return kind == "rulebook" && suffix == "md" && notify.UnansweredQuestion(name)
-}
-
-// launchable is the common launch boundary, after comingBack has read the saved selection.
+// Question revival leaves a project's refresh to Reopen.
 func (seat reopening) launchable(record map[string]any) bool {
 	_, opens := harness.Opens(seat.model.Harness)
 	_, checkout := os.Lstat(filepath.Join(seat.cwd, ".git"))
@@ -75,8 +126,9 @@ func (seat reopening) launchable(record map[string]any) bool {
 }
 
 // ReviveQuestions is watch.revive_seats at each seat's turn. Other interrupted work stays
-// Python's; a live seat clears its death history, and a stopped or sleeping seat stays down.
-func (home Home) ReviveQuestions(now time.Time, log func(string), errOut io.Writer) (bool, error) {
+// Python's; reviving names the seats the run revival takes. A live seat clears its death history,
+// and a stopped or sleeping seat stays down.
+func (home Home) ReviveQuestions(now time.Time, reviving map[string]string, log func(string), errOut io.Writer) (bool, error) {
 	for _, seat := range home.Seats {
 		file := revivalFile(seat.Name)
 		if seat.live {
@@ -87,7 +139,7 @@ func (home Home) ReviveQuestions(now time.Time, log func(string), errOut io.Writ
 			}
 			continue
 		}
-		if seat.closed || seat.asleep || seat.restingGone() {
+		if seat.closed || seat.asleep || seat.restingGone() || reviving[seat.Name] != "" {
 			continue
 		}
 		if !seat.revivalQuestion() {

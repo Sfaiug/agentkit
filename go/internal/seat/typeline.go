@@ -47,7 +47,7 @@ var (
 // keeps no cursor of its own, a seat with no question kept back for its next turn and no text kept
 // by ak's editor.  Anywhere else, a composer holding text among them, which Python's own editor
 // types past, it puts nothing in and the line is the tick's.
-func typeAtPrompt(name, line string, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
+func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
 	own, record := seatHarness(name)
 	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
 		return false
@@ -63,6 +63,9 @@ func typeAtPrompt(name, line string, receipt func(mark *run.Object) error, log f
 	}
 	text := keyed(line)
 	at := seatAt{name, own, pane}
+	if typed != nil && run.Equal(typed, run.Fields("line", text, "seat", created(born))) {
+		return at.finishTyped(text, stale, log)
+	}
 	if held, drawn := at.composer(); !drawn || held != "" || !at.takesLine() {
 		return false
 	}
@@ -96,7 +99,7 @@ func typeAtPrompt(name, line string, receipt func(mark *run.Object) error, log f
 			return err
 		}
 		time.Sleep(keyGap)
-		if !poll(ready) || !at.enter(log) {
+		if !poll(ready) || stale(current) || !at.enter(log) {
 			return errUntyped
 		}
 		return nil

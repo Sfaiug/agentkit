@@ -10,7 +10,6 @@ import (
 
 	"agentkit/internal/gitcall"
 	"agentkit/internal/seat"
-	"agentkit/internal/task"
 )
 
 // rulesRef is a project's default branch as last fetched, Python's config.RULES_REF.
@@ -31,11 +30,9 @@ func noneDeclares(key string, written bool) bool {
 	})
 }
 
-// declares is whether the AGENTS.md of the checkout's default branch declares key, or cannot be
-// read for it.
+// declares reads the default branch as Python does: no readable AGENTS.md declares nothing.
 func declares(checkout, key string) bool {
-	text, err := gitcall.Git{Repo: checkout, Env: gitcall.ProjectEnv(checkout)}.Try("show", rulesRef+":AGENTS.md")
-	return err != nil || task.FrontValue(text, key) != ""
+	return gitcall.DeclaredAt(checkout, rulesRef, key, gitcall.ProjectEnv(checkout)...) != ""
 }
 
 // fetchProjects is the project rules row (orch.fetch_projects): each checkout's, and each project's
@@ -55,16 +52,7 @@ func fetchProjects() error {
 	slices.Sort(checkouts)
 	var failed []string
 	for _, repo := range checkouts {
-		g := gitcall.Git{Repo: repo, Env: gitcall.ProjectEnv(repo)}
-		args := []string{"--quiet", "--prune", "origin", "+refs/heads/*:refs/remotes/origin/*"}
-		code, said, err := g.Fetch(args...)
-		if err == nil && code != 0 {
-			err = fmt.Errorf("git fetch %s failed in %s: %s", strings.Join(args, " "), repo, said)
-		}
-		if err == nil {
-			_, err = g.Must("remote", "set-head", "origin", "--auto")
-		}
-		if err != nil {
+		if err := gitcall.Refresh(repo); err != nil {
 			failed = append(failed, err.Error())
 		}
 	}

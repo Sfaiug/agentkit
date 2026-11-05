@@ -334,6 +334,9 @@ func stopped(seat *run.Object) (bool, bool) {
 		return false, true
 	}
 	for _, key := range waits {
+		if key == "owed_lines" && owedReadable(seat) {
+			continue
+		}
 		if seat.Get(key) != nil {
 			return false, false
 		}

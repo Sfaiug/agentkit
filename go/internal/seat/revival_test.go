@@ -189,7 +189,7 @@ func TestQuestionRevivalLeavesOwnerStoppedAndSleepingSeatsAlone(t *testing.T) {
 			if !known {
 				t.Fatal("seat not readable")
 			}
-			if carried, err := found.ReviveQuestions(moment, func(string) {}, io.Discard); !carried || err != nil {
+			if carried, err := found.ReviveQuestions(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || revivalFile("acme").Truthy("reopened_at") {
@@ -224,5 +224,160 @@ func TestOwedLinesHandOverLiveForeignOrPartlyTypedLinesAtTheirOwnTurn(t *testing
 				t.Fatal("delivering a line launched a harness")
 			}
 		})
+	}
+}
+
+func TestRevivalLeavesLaterDeathsAndUnsupportedHarnessesToPython(t *testing.T) {
+	home := sandbox(t)
+	cwd := filepath.Join(home, "work", "acme")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(home, "bin")
+	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
+case "$*" in
+  *show-options*) echo %1 ;;
+  *'#{pane_dead_time}'*) echo "$DIED" ;;
+  *'#{session_name}'*) echo acme ;;
+esac
+`)
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	for _, each := range []struct {
+		model, own, death string
+		canOpen           bool
+	}{
+		{"opus", "claude", "1005", true},
+		{"opus", "claude", "1010", false},
+		{"opus", "claude", "unreadable", false},
+		{"astra", "codex", "1005", false},
+	} {
+		t.Run(each.own+"/"+each.death, func(t *testing.T) {
+			t.Setenv("DIED", each.death)
+			record(t, home, "acme", map[string]any{"orchestrator": each.model, "launched": 1000})
+			home := Home{Seats: []Seat{{Name: "acme", own: each.own, held: true}}}
+			if got := home.Revivals()[0].CanOpen; got != each.canOpen {
+				t.Fatalf("can open=%v", got)
+			}
+		})
+	}
+}
+
+func TestAGoingRunDecidesTheLiveSeatBeforeItsIdlePlan(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	show := drawn(t, home, "acme", prompting)
+	write(t, stateFile(home, "plan-acme.md"), openLine)
+	write(t, seatFile("acme"), `{"stop_said":"your plan owes a line"}`)
+	runRecord(t, home, "r-build", map[string]any{"state": "running"})
+	if _, known := Looking(time.Now()); !known {
+		t.Fatal("a send-back not reached on the ladder hid a live seat")
+	}
+	show("")
+	if _, known := Lives(time.Now()); !known {
+		t.Fatal("a starting harness's blank screen hid its going run")
+	}
+}
+
+func TestADeathDuringALiveLookKeepsTheLastScreenForRevival(t *testing.T) {
+	home := sandbox(t)
+	path := seatFile("acme")
+	write(t, path, `{"state":"at_prompt","rule":"prompt.composer","stall":"overloaded","login":"expired"}`)
+	previous, _ := run.ReadJSON(path)
+	seat := Seat{Name: "acme", own: "claude"}
+	if _, err := seat.keep(stateFile(home, ""), "", true, sight{state: "at_prompt", rule: "none"}, previous, 1000); err != nil {
+		t.Fatal(err)
+	}
+	file, _ := run.ReadJSON(path)
+	if file.Str("state") != "at_prompt" || file.Str("rule") != "prompt.composer" || file.Truthy("stall") || file.Truthy("login") {
+		t.Fatal(run.Line(file))
+	}
+}
+
+func TestAQueuedContinuationSurvivesTheNextReopen(t *testing.T) {
+	home := sandbox(t)
+	cwd := filepath.Join(home, "work", "acme")
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	record(t, home, "acme", nil)
+	for _, rule := range []string{"prompt.composer", "none"} {
+		file := run.Fields("state", "at_prompt", "rule", rule, "owed_lines", []any{
+			run.Fields("id", "old-death", "line", "your run r-build is still going"),
+		})
+		write(t, seatFile("acme"), run.Line(file))
+		found, known := Looking(time.Now())
+		if !known || len(found.Revivals()) != 1 || !found.Revivals()[0].CanOpen {
+			t.Fatalf("a continuation at %s prevented reopening", rule)
+		}
+		after, _ := run.ReadJSON(seatFile("acme"))
+		if !run.Equal(file, after) {
+			t.Fatalf("reading reopening changed its queued line: %s", run.Line(after))
+		}
+	}
+}
+
+func TestADeathBetweenListingAndCaptureKeepsTheLastPrompt(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	write(t, seatFile("acme"), `{"state":"at_prompt","rule":"prompt.composer"}`)
+	bin := filepath.Join(home, "bin")
+	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
+case "$*" in
+  *list-panes*) echo '%1 0' ;;
+  *capture-pane*) echo 'Pane is dead (status 0)' ;;
+  *display-message*) echo 1 ;;
+esac
+`)
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	seat := Seat{Name: "acme", own: "claude"}
+	if _, err := seat.look(stateFile(home, ""), 1000); err != nil {
+		t.Fatal(err)
+	}
+	file, _ := run.ReadJSON(seatFile("acme"))
+	if file.Str("rule") != "prompt.composer" {
+		t.Fatalf("a dead pane replaced the last prompt: %s", run.Line(file))
+	}
+}
+
+func TestADeathAfterListingLeavesLiveRowsForTheRevivalRow(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	runRecord(t, home, "r-build", map[string]any{"state": "running"})
+	write(t, seatFile("acme"), `{"state":"at_prompt","rule":"prompt.composer"}`)
+	bin := filepath.Join(home, "fake")
+	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
+case "$*" in *'-L seat-test '*) ;; *) exit 1 ;; esac
+case "$*" in
+  *list-sessions*) printf 'acme\t1\n' ;;
+  *list-panes*-a*) printf 'acme\t0\n' ;;
+  *list-panes*) echo '%1 0' ;;
+  *capture-pane*) echo 'Pane is dead (status 0)' ;;
+  *display-message*'#{pane_dead}'*) echo 1 ;;
+  *display-message*'#{session_attached}'*) printf '0\t%%1\t%s/work/acme\n' "$HOME" ;;
+esac
+`)
+	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if live, known := Lives(time.Now()); !known || len(live) != 0 {
+		t.Fatalf("a known death prevented the live rows: known=%v, lives=%v", known, live)
+	}
+	carried, err := Health("acme", func(Live) bool {
+		t.Fatal("a dead harness reached the live-screen health predicate")
+		return false
+	})
+	if !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	file, _ := run.ReadJSON(seatFile("acme"))
+	if file.Str("word") != "working" || file.Str("rule") != "prompt.composer" {
+		t.Fatalf("a dead seat lost its run or its last screen: %s", run.Line(file))
 	}
 }
