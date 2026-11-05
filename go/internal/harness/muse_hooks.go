@@ -15,10 +15,12 @@ import (
 var museQuestionRunning = regexp.MustCompile(`Request user input .* — running `)
 
 func museHookEvent(event *run.Object) *run.Object {
-	if _, err := config.SessionPath(os.Getenv("AGENTKIT_SESSION")); err != nil || os.Getenv("AK_RUN_ROLE") == "worker" {
+	// the session this launch opened goes into its receipt, and is no state of the seat's
+	if event.Str("hook_event_name") == "SessionStart" {
+		museStarted(os.Getenv(museReceiptEnv), event)
 		return nil
 	}
-	if event.Str("hook_event_name") == "SessionStart" {
+	if _, err := config.SessionPath(os.Getenv("AGENTKIT_SESSION")); err != nil || os.Getenv("AK_RUN_ROLE") == "worker" {
 		return nil
 	}
 	if tool := event.Get("tool_name"); tool == nil || tool == false {

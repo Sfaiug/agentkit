@@ -15,6 +15,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/lock"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -272,6 +273,8 @@ func generation(value any) any {
 // makes no hard link and only its owner writes.
 func forget(state, name string, log func(string)) error {
 	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	own := config.SeatHarness(name)
 	entries, err := os.ReadDir(state)
 	if err != nil {
 		return err
@@ -304,6 +307,11 @@ func forget(state, name string, log func(string)) error {
 		}
 	}
 	notify.ForgetCard(name, log)
+	if record != nil {
+		if drop, carried := harness.Forgetting(own, record); carried {
+			drop() // what its harness kept for it, as Python's plugin `forget`
+		}
+	}
 	return nil
 }
 
