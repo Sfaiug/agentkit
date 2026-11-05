@@ -87,7 +87,7 @@ var (
 	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
 	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
 		"account", "home_account", "launched", "asleep", "seen", "exited_since", "unnamed", "filed", "owner_words_cursor",
-		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded"}
+		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded", "title_conversation"}
 	seatFields = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
 	// what Python's look at a seat's screen keeps beside its word, which no seat nobody is in reads
 	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence",
@@ -121,8 +121,11 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	}
 	var names []string
 	for _, entry := range entries {
+		// a rename's pointer names no seat of its own (config.session_records)
 		if name, ok := sessionFile(entry.Name()); ok {
-			names = append(names, name)
+			if record, _ := run.ReadJSON(filepath.Join(state, entry.Name())); record == nil || !record.Has(config.Renamed) {
+				names = append(names, name)
+			}
 		}
 	}
 	held, live, bare, gone := onServer(state, names)
@@ -149,11 +152,12 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
 		name, suffix, _ := strings.Cut(rest, ".")
 		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
-		// no listing reads (forget); one tmux no longer holds leaves its announce lock, its word and
-		// its card, which the tick closes (notify.tick_cards), and what it asked the owner last, an
-		// orphan ending's question among them (handback.announce)
+		// no listing reads (forget), and one renamed its pointer; one tmux no longer holds leaves its
+		// announce lock, its word and its card, which the tick closes (notify.tick_cards), and what it
+		// asked the owner last, an orphan ending's question among them (handback.announce)
 		if !slices.Contains(names, name) && entry.Type().IsRegular() &&
-			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
+			(suffix == "lock" || (kind == "seat" || kind == "session") && suffix == "json" || kind == "seat" && suffix == "announce" ||
+				(kind == "card" || kind == "notify") && suffix == "json") {
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||

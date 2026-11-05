@@ -2,7 +2,6 @@ package seat
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"sync"
 
@@ -32,14 +31,9 @@ func menuProjects(runs, projects map[string][]ran) (wrote, known bool) {
 		if filed, _ := repo.(string); filed == "" && !record.Truthy("filed") {
 			var votes []ran
 			for _, each := range runs[name] {
-				project := each.record.Str("project")
-				if !each.record.Has("project") {
-					// Older runs with tasks need Python's task front-matter reader.
-					if _, err := os.Stat(filepath.Join(run.Runs(), each.name, "task.md")); !os.IsNotExist(err) ||
-						!each.record.Truthy("repo") && each.record.Truthy("task_file") {
-						return wrote, false
-					}
-					project = each.record.Str("repo")
+				project, known := runProject(each.record)
+				if !known {
+					return wrote, false
 				}
 				if checkout := checkoutOf(project, stands); checkout != "" {
 					votes = append(votes, ran{record: run.Fields("repo", checkout)})

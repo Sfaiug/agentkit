@@ -298,19 +298,27 @@ func looped(path string) bool {
 }
 
 // SmokeRun is a run of the smoke suite, whose task or repository lives in its sandbox.
-func SmokeRun(record *Object) bool {
-	sandbox := realpath(filepath.Join(config.Home(), "tmp")) + string(filepath.Separator)
-	for _, key := range []string{"task", "repo"} {
-		value := record.Str(key)
-		if value == "" {
-			continue
+func SmokeRun(record *Object) bool { return Smoke()(record) }
+
+// Smoke is SmokeRun for the runs of one read, the sandbox and each path they name resolved once,
+// as Python's smoke_run with its `resolved`.
+func Smoke() func(*Object) bool {
+	sandbox, resolved := realpath(filepath.Join(config.Home(), "tmp"))+string(filepath.Separator), map[string]bool{}
+	return func(record *Object) bool {
+		for _, key := range []string{"task", "repo"} {
+			value := record.Str(key)
+			smoke, seen := resolved[value]
+			if value != "" && !seen {
+				path := config.Expand(value)
+				real := realpath(path)
+				smoke = strings.HasPrefix(real, sandbox) && strings.HasPrefix(real[len(sandbox):], "smoke-") &&
+					!looped(path) && !looped(real)
+				resolved[value] = smoke
+			}
+			if smoke {
+				return true
+			}
 		}
-		path := config.Expand(value)
-		real := realpath(path)
-		if strings.HasPrefix(real, sandbox) && strings.HasPrefix(real[len(sandbox):], "smoke-") &&
-			!looped(path) && !looped(real) {
-			return true
-		}
+		return false
 	}
-	return false
 }
