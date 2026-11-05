@@ -309,10 +309,13 @@ none = ["(running stop"]
 # A composer holding bright, typed text is a draft never sent. A composer whose
 # only content is dim -- Claude's suggested next prompt, the Try placeholder -- is
 # empty. Both are read with `-e` attributes; see watch.has_dim. Draft before prompt.
+# A draft's prompt row is read up to twelve rows above the footer: 2.1.318 puts a draft
+# wrapped to seven rows ten up, and lost an owner's message read as an empty prompt
+# (5 Nov 2026); the composer 2.1.291 scrolled at ten rows, thirteen up, stays at rest.
 [[rule]]
 id = "prompt.draft"
 state = "draft"
-lines = 8
+lines = 12
 at_composer = true
 none = ["esc to interrupt"]
 
