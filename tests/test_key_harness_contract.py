@@ -1,4 +1,8 @@
-"""The same contract reaches every adapter, including one added after discovery."""
+"""The same contract reaches every adapter, including one added after discovery.
+
+Black-box: smoke.sh's step 3 and tests/check_harness_contract.py run from outside, on
+adapters of this test's own; only their exit codes and the verdict lines they print count.
+"""
 
 import os
 import json
