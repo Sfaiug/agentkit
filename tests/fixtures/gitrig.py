@@ -3,8 +3,8 @@
 The origin is a bare repository on disk, `<root>/remotes/<owner>/<name>.git`, so a run can
 branch, push, fetch and land with no network, and ak reads `<owner>/<name>` off the origin's
 path as it reads a GitHub slug off its URL.  `main` starts with one commit, `init`, holding an
-empty `.keep`, an AGENTS.md declaring a passing suite and no live product and the files given,
-pushed and tracked. Git runs in the Home's environment, so commits carry its placeholder name.
+empty `.keep`, an AGENTS.md declaring a passing suite, no live product and no real users, and
+the files given, pushed and tracked. Git runs in the Home's environment, so commits carry its placeholder name.
 
     from fixtures.akbin import Home
     from fixtures.gitrig import Rig
@@ -22,7 +22,7 @@ class Rig:
         self.path = home.path / "code" / name
         self._git(home.path, "init", "-q", "--bare", "-b", "main", str(self.bare))
         self._git(home.path, "clone", "-q", str(self.bare), str(self.path))
-        self.commit({".keep": "", "AGENTS.md": "---\ntests: true\nhealth: none\n---\n",
+        self.commit({".keep": "", "AGENTS.md": "---\ntests: true\nhealth: none\nusers: none\n---\n",
                      **(files or {})}, "init", push=False)
         self.git("push", "-q", "-u", "origin", "main")
         self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
