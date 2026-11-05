@@ -9,11 +9,22 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/commandhelp"
 	"agentkit/internal/run"
 )
 
 func TestAnAuditKeepsItsWeeksReportWhenItsLaunchIsNotCarried(t *testing.T) {
 	ak, _ := idleHome(t, answers)
+	repo, err := filepath.Abs("../../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	git := filepath.Join(filepath.SplitList(os.Getenv("PATH"))[0], "git")
+	put(t, git, "#!/bin/sh\ncase \"$*\" in *'rev-parse --show-toplevel') "+
+		commandhelp.ShellJoin([]string{"printf", "%s\n", repo})+" ;; *) exit 1 ;; esac\n")
+	if err := os.Chmod(git, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=true\n")
 	adapters := t.TempDir()
 	put(t, filepath.Join(adapters, "claude.sh"), "#!/bin/sh\nexit 1\n")
