@@ -29,13 +29,14 @@ func (seat Seat) Checkout() string {
 // Unsent is what nobody sent, left in its composer.
 func (seat Seat) Unsent() string { return seat.unsent }
 
-// ModelName is the model it runs at the effort it orchestrates at (config.ModelAt), and alone.
+// ModelName is the model it runs at the effort it orchestrates at (config.ModelAt), and alone; `-`
+// where no record names one (menu.row).
 func (home Home) ModelName(seat Seat) (at, alone string) {
-	models := home.models
+	models, name := home.models, "-"
 	if record, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "session-"+seat.Name+".json")); record != nil {
-		models = atEfforts(models, record)
+		models, name = atEfforts(models, record), seat.Orchestrator
 	}
-	return config.ModelAt(seat.Orchestrator, "effort", models), config.ModelName(seat.Orchestrator, models)
+	return config.ModelAt(name, "effort", models), config.ModelName(name, models)
 }
 
 // Settled is whether the ak screen's first frame would leave this home as it is, the opening's

@@ -24,7 +24,7 @@ func Menu(now time.Time) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
 	for i := range home.Seats {
 		each := &home.Seats[i]
-		if !each.live {
+		if !each.looked() {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)

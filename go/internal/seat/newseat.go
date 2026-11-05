@@ -27,7 +27,7 @@ func (names Names) Reservations() (map[string]bool, bool) {
 
 // An ordinary tmux session reserves its name but contributes no seat to the screen.
 func unrecorded(session tmux.Session) bool {
-	return session.Mark == "" && agent.Agentless(tmux.Own(), []string{session.Name})
+	return session.Mark != "1" && agent.Agentless(tmux.Own(), []string{session.Name})
 }
 
 func opensAt(model config.Model) bool {

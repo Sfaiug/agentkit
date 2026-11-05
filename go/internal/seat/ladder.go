@@ -121,6 +121,9 @@ func (found sight) wordFrom() []any {
 	case found.login != nil:
 		said, _ = found.login.(string)
 	}
+	if found.state == "" { // a look that read nothing, which names no state and no rule
+		return []any{nil, nil, said}
+	}
 	return []any{found.state, found.rule, said}
 }
 
