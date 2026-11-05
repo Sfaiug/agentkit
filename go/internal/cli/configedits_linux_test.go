@@ -31,7 +31,10 @@ from fixtures.akterm import Terminal
 for edit in ("move", "effort"):
     with Home() as home:
         config = akconfig.write(home, {"fable": "claude", "astra": "codex"})
-        fakeadapter.install(home, claude="pass", codex="pass")
+        adapters = fakeadapter.install(home, claude="pass", codex="pass")
+        if edit == "move":
+            # Runnable moves now ask in Go; a login refusal still hands over.
+            adapters["codex"].answer("auth", "fixture login missing", 1)
         Seat(home, "acme", model="fable", record={"workers": ["astra"], "repo": None})
         record = home.path / ".agentkit/state/session-acme.json"
         # Deliberate whitespace catches even a rewrite of an otherwise equal record.
