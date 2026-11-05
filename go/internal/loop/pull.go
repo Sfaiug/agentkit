@@ -381,8 +381,9 @@ func (p *pullPlace) settleVerdict(l *loop, pull *gh.Pull) error {
 }
 
 // post is the findings as a GitHub review on the commit judged, Python's post_review: whether
-// GitHub took it, and why not.  A PR by the account ak posts with always comments: GitHub rejects a
-// changes-requested review from the PR's author, which would turn a FAIL into an error.
+// GitHub took it, and why not.  A seat's own PR, as its launch captured it, or one by the account
+// ak posts with always comments: GitHub rejects a changes-requested review from the PR's author,
+// which would turn a FAIL into an error.
 func (p *pullPlace) post(l *loop, pull *gh.Pull, record *run.Object) (bool, string, error) {
 	unposted := func(why string) (bool, string, error) {
 		return false, why, l.save(func(record *run.Object) { run.SetAll(record, "review_posted", false, "review_error", why) })
@@ -418,7 +419,7 @@ func (p *pullPlace) post(l *loop, pull *gh.Pull, record *run.Object) (bool, stri
 		return false, "", err
 	}
 	how := "REQUEST_CHANGES"
-	if record.Str("verdict") == "PASS" || gh.ByViewer(pull.Author) {
+	if record.Str("verdict") == "PASS" || record.Truthy("own_pr") || gh.ByViewer(pull.Author) {
 		how = "COMMENT"
 	}
 	code, said, err := gh.Call(l.dir, "api", pull.API()+"/pulls/"+pull.Number+"/reviews", "--method", "POST",
