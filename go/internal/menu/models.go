@@ -14,10 +14,9 @@ import (
 )
 
 const (
-	mark  = 7         // a row's mark's column, as wide as `r takes`
-	quiet = "#a6adc8" // what a row's line is drawn in while no company lights: Mocha's subtext0
-	named = 13        // the cells before a legend line's words: its name's column
-	gap   = " · "     // between two things said on one line
+	mark  = 7     // a row's mark's column, as wide as `r takes`
+	named = 13    // the cells before a legend line's words: its name's column
+	gap   = " · " // between two things said on one line
 )
 
 var (
@@ -27,9 +26,9 @@ var (
 
 // A Line is one row of a role's answer, or the words Said where it says something else.
 type Line struct {
-	Said, Mark, Name, Word, Quality, Cost string
-	Cells, Notes                          []string
-	Near                                  float64
+	Said, Mark, Name, Word, Quality, Cost, Maker string
+	Cells, Notes                                 []string
+	Near                                         float64
 }
 
 // A Role is what the screen says of one role's answer: its head and full frontier.
@@ -58,7 +57,7 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 				notes = append(notes, screen.Styled("no harness", "dim"))
 			}
 			taken := levels[row.Release]
-			line := Line{Name: row.Name, Word: row.Effort, Notes: notes,
+			line := Line{Name: row.Name, Word: row.Effort, Notes: notes, Maker: row.Maker,
 				Cells:   screen.EffortCells(len(taken), slices.Index(taken, row.Effort)+1),
 				Near:    max(0, 1-(*found.Best-row.Quality)/10),
 				Quality: strconv.FormatFloat(row.Quality, 'f', 1, 64),
@@ -99,8 +98,8 @@ func packed(parts []string, room int) []string {
 	return lines
 }
 
-// ModelsBody is the screen's lines.  Per role, a blank line between two, its head, beside the first
-// with rows the columns' heads, then its lines: a row's mark in `mark` cells, its name, its effort
+// modelsBody draws each role under its own heading, with one set of column heads above the first
+// frontier and a blank line between roles: a row's mark in `mark` cells, its name, its effort
 // -- its cells, then its word, in one column after the most cells any row has -- its line, taking
 // the room the other columns leave, then its quality, cost and notes, these one under another in a
 // column as wide as the widest. Every column fits the full frontier.
@@ -110,7 +109,7 @@ func packed(parts []string, room int) []string {
 // alone cut; the notes that do not fit beside the numbers then go under the row, broken only
 // between two. Then the legend, how many of the total models are compared and when the
 // boards were read, broken only at ` · `.
-func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64) []matrixRow {
+func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64, light ModelLight) []matrixRow {
 	room := screen.LayoutWidth()
 	var rows []Line
 	for _, role := range said {
@@ -168,15 +167,9 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		if number > 0 {
 			put("")
 		}
-		if number != first || !wide {
-			put("  " + role.Head)
-		}
+		put("  " + role.Head)
 		if number == first {
-			head := ""
-			if wide {
-				head = role.Head
-			}
-			put("  " + terminal.Pad(head, before+size-2) + "  " +
+			put(strings.Repeat(" ", before+size) + "  " +
 				fill("quality", qualityWide) + screen.Styled("quality", "dim") + "  " +
 				fill("a task", costWide) + screen.Styled("a task", "dim"))
 		}
@@ -193,7 +186,8 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 			if !wide {
 				nameRoom = min(label, room-6-levelled)
 			}
-			lead := terminal.Pad(line.Name, nameRoom) + "  " + text + fill(text, levelled) + "  "
+			name, ink := modelPaint(screen, line, terminal.Pad(line.Name, nameRoom), light)
+			lead := name + "  " + text + fill(text, levelled) + "  "
 			if wide {
 				lead = "  " + line.Mark + fill(line.Mark, mark) + "  " + lead
 			} else {
@@ -203,7 +197,7 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 				put("    " + lead)
 				lead = "    "
 			}
-			tail := lead + screen.ShareLine(line.Near, size, quiet) + "  " +
+			tail := lead + screen.ShareLine(line.Near, size, ink) + "  " +
 				fill(line.Quality, qualityWide) + line.Quality + "  " + fill(line.Cost, costWide) + line.Cost + "  "
 			fit := 0 // the notes that fit, the rest under
 			for n := range len(line.Notes) + 1 {

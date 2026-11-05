@@ -21,6 +21,7 @@ var styles = map[string]style{
 	"done":      {"✓", "v", "a6e3a1", "32", ""},
 	"idle":      {"○", "o", "6c7086", "37", "2"},
 	"dim":       {"·", ".", "6c7086", "37", "2"},
+	"quiet":     {"", "", "a6adc8", "37", ""},
 }
 
 // A Screen is one output's colour depth, background, glyphs and size, read once: a screen asks for
