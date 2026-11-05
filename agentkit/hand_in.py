@@ -424,6 +424,8 @@ def main(argv):
     path = os.environ.get(ENV)
     if not path or not Path(path).is_file():
         raise config.Error("hand-in needs an active worker turn; use it from the worker's shell")
+    # A worker's box lets it write in its turn's directory, never in ak's home.
+    config.TMP = Path(path).parent
     try:
         with Path(path).open("r+", encoding="utf-8") as fh:
             fcntl.flock(fh, fcntl.LOCK_EX)
