@@ -61,14 +61,15 @@ class MachinesMeasured(unittest.TestCase):
         for alias, power in (("mac", LAPTOP), ("mini", MINI), ("helper", MINI)):
             for name, body in {**MAC, "pmset": f"cat <<'EOF'\n{power}\nEOF"}.items():
                 home.write(f"fakes/machines/{alias}/{name}", f"#!/bin/sh\n{body}\n").chmod(0o755)
-        cls.ticks = [cls.tick(4 * DAY, away="helper", hang="stuck"),
-                     cls.tick(2 * DAY, garbled="stuck"), cls.tick(0, away="mini", garbled="stuck")]
+        cls.ticks = [cls.tick(3.5 * DAY, away="helper", hang="stuck"),
+                     cls.tick(1.5 * DAY, garbled="stuck"),
+                     cls.tick(0, away="mini", garbled="stuck")]
 
     @classmethod
     def tick(cls, ago, away="", hang="", garbled=""):
-        """One tick `ago` seconds, whole days, before the last, the checks before it set back as
-        far as it comes after them: the aliases ssh was given, the minutes it ran in as the last
-        tick's doctor writes them, and doctor's line of each machine by name."""
+        """One tick `ago` seconds before the last, the checks before it set back as far as it
+        comes after them: the aliases ssh was given, when it began and ended by the real clock,
+        and doctor's line of each machine by name."""
         record = cls.home.path / ".agentkit" / "state" / "machines.json"
         if record.exists():
             machines, back = json.loads(record.read_text()), cls.ago - ago
@@ -83,7 +84,7 @@ class MachinesMeasured(unittest.TestCase):
         start = time.time()
         done = cls.home.tick()
         assert done.code == 0, done.out + done.err
-        ran = {time.strftime("%-d %b %H:%M", time.gmtime(at - ago)) for at in (start, time.time())}
+        ran = (start, time.time())
         doctor = cls.home.ak("doctor")
         assert doctor.code == 0, doctor.out + doctor.err
         return (sorted((cls.home.path / "fakes" / "asked").read_text().split()), ran,
@@ -117,8 +118,11 @@ class MachinesMeasured(unittest.TestCase):
 
     def test_doctor_says_when_each_last_answered(self):
         (_, first, lines), (_, second, _), (_, _, last) = self.ticks
-        self.assertIn(lines["mac"].rsplit("last answered ", 1)[1], {at[-5:] for at in first})
-        self.assertIn(last["mini"].rsplit("last answered ", 1)[1], second)
+        self.assertIn(lines["mac"].rsplit("last answered ", 1)[1],
+                      {time.strftime("%H:%M", time.gmtime(at)) for at in first})
+        # the second tick's answer, set back the day and a half the last comes after it
+        self.assertIn(last["mini"].rsplit("last answered ", 1)[1],
+                      {time.strftime("%-d %b %H:%M", time.gmtime(at - 1.5 * DAY)) for at in second})
 
     def test_machines_are_the_owner_s_in_a_config_naming_no_models(self):
         with Home() as home:
