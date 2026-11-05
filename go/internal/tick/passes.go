@@ -56,6 +56,7 @@ func table(t *ticking) []pass {
 		{"lease restart", false, noLeaseRestart, nil},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
+		{"login reminder", false, nil, loginReminder},
 		{"token reminder", false, nil, nil},
 		{"exhausted resume", true, noExhaustedResume, nil},
 		{"error retry", true, noErrorRetry, nil},

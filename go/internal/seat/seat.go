@@ -130,7 +130,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
 		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup"}, entry.Name()) ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
