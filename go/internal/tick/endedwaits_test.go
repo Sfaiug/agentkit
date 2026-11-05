@@ -5,6 +5,7 @@ package tick
 import (
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -73,16 +74,50 @@ func TestTheEndedWaitsRowMarksAGoneSeatsWait(t *testing.T) {
 	}
 }
 
-// Its wait reopens it once that ends; a turn its end cut off is still the revival's.
+// Its wait reopens it once that ends, and one that could not be reopened then is the owner's it
+// was paged as; a turn its end cut off is still the revival's.
 func TestTheRevivalRowLeavesASeatGoneWhileItsWaitStands(t *testing.T) {
 	ak, _ := goneHome(t)
 	put(t, filepath.Join(ak, "runs", "r-build", "run.json"), `{"state":"running"}`)
-	for file, carried := range map[string]bool{"": true, `,"state":"working"`: false} {
-		put(t, filepath.Join(ak, "state", "seat-acme.json"), `{"wait":{"on":"r-build","kind":"run","at":1}`+file+"}")
-		tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
-		if tick.through(rows(tick, "seat revival")) != carried {
-			t.Fatalf("%s: carried=%v", file, !carried)
+	told := `,"over":"run r-build ended PASS","run":"r-build","told":2`
+	for _, each := range []struct {
+		wait, file, source string
+		carried            bool
+	}{
+		{"", "", "", true},
+		{"", `,"state":"working"`, "", false},
+		{told, "", "wait:acme:1", true},
+		{told, `,"state":"working"`, "wait:acme:1", false},
+		{told, "", "revive:acme:turn:1", false},
+	} {
+		put(t, filepath.Join(ak, "state", "seat-acme.json"), `{"wait":{"on":"r-build","kind":"run","at":1`+each.wait+"}"+each.file+"}")
+		notice := filepath.Join(ak, "state", "notify-acme.json")
+		os.Remove(notice)
+		if each.source != "" {
+			put(t, notice, run.Line(run.Fields("session", "acme", "kind", "needs", "text", "Its orchestrator session acme is gone", "source", each.source, "watcher", true, "time", 1.0)))
 		}
+		tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
+		if tick.through(rows(tick, "seat revival")) != each.carried {
+			t.Fatalf("%+v: carried=%v", each, !each.carried)
+		}
+	}
+}
+
+// A seat its wait's end could not reopen is the owner's, paged once: that tick's card follows the
+// word the page gave it, not the one published before it.
+func TestAFailedWaitReopenIsCardedThatTick(t *testing.T) {
+	ak := revivalHome(t)
+	put(t, filepath.Join(ak, "runs", "r-build", "run.json"), `{"state":"pass","verdict":"PASS"}`)
+	path := filepath.Join(ak, "state", "seat-acme.json")
+	put(t, path, `{"word":"working","reason":"waiting on r-build","word_since":1,"wait":{"on":"r-build","kind":"run","at":1}}`)
+	tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
+	if !tick.through(append(rows(tick, "ended waits"), rows(tick, "card transitions")...)) {
+		t.Fatal("the failed reopen was left to Python")
+	}
+	file, _ := run.ReadJSON(path)
+	notice, _ := run.ReadJSON(filepath.Join(ak, "state", "notify-acme.json"))
+	if !file.Dict("wait").Truthy("told") || file.Str("word") != "needs you" || notice.Str("source") != "wait:acme:1" {
+		t.Fatalf("seat=%s notice=%s", run.Line(file), run.Line(notice))
 	}
 }
 

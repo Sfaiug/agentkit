@@ -19,7 +19,8 @@ import (
 // owner's close cannot land between the decision and the reopen.  A wait on a pull request, a live
 // seat's line at its prompt and the ending a seat's own run hands back are Python's.
 func (t *ticking) endedWaits() error {
-	return locked(func() error {
+	var paged []string
+	err := locked(func() error {
 		home, known := seat.Looking(t.clock())
 		if !known {
 			return errLeft
@@ -29,18 +30,32 @@ func (t *ticking) endedWaits() error {
 			return errLeft
 		}
 		for _, each := range waits {
-			if err := t.endWait(each); err != nil {
+			alerted, err := t.endWait(each)
+			if err != nil {
 				return err
+			}
+			if alerted {
+				paged = append(paged, each.Name)
 			}
 		}
 		return nil
 	})
+	// the word the health row published before that alert is no longer the seat's: the card
+	// transition reads it anew (notify.transition), as each seat nobody is in is published
+	for _, name := range paged {
+		if err == nil {
+			_, err = seat.Health(name, func(seat.Live) bool { return false })
+		}
+	}
+	return err
 }
 
-func (t *ticking) endWait(each seat.Revival) error {
+// endWait carries one seat's wait, and says whether its owner was paged that it could not be
+// reopened.
+func (t *ticking) endWait(each seat.Revival) (bool, error) {
 	wait := each.File.Dict("wait")
 	if wait.Str("kind") != "run" {
-		return errLeft
+		return false, errLeft
 	}
 	if !wait.Truthy("over") {
 		over, line, ended, err := waitfact.Run(wait.Str("on"), t.clock())
@@ -50,43 +65,43 @@ func (t *ticking) endWait(each seat.Revival) error {
 			over = line != ""
 		}
 		if err != nil || !over && wait.Truthy("unread") {
-			return errLeft
+			return false, errLeft
 		}
 		if !over {
-			return nil
+			return false, nil
 		}
 		var reached any
 		if ended != "" {
 			reached = ended
 		}
 		if wait, err = seat.MarkWait(each.Name, wait, "over", line, "run", reached); err != nil || wait == nil || wait.Truthy("told") {
-			return err
+			return false, err
 		}
 	}
 	if ran := wait.Str("run"); ran != "" {
 		record, err := run.Read(filepath.Join(run.Runs(), ran))
 		if errors.Is(err, run.ErrLoneSurrogate) || record != nil && run.Seat(record) == each.Name {
-			return errLeft // its own run hands this ending back, and that is the one line it hears
+			return false, errLeft // its own run hands this ending back, and that is the one line it hears
 		}
 	}
 	file := each.File
 	if each.Live {
-		return errLeft
+		return false, errLeft
 	}
 	if file.Truthy("stopped_at") || file.Truthy("closed_by_owner") || file.Truthy("usage_wait") {
-		return nil
+		return false, nil
 	}
 	done, err := waitfact.WorkLive(each.Name)
 	if err != nil || done == "" && !each.CanOpen {
-		return errLeft
+		return false, errLeft
 	}
 	if told, err := seat.MarkWait(each.Name, wait, "told", run.Float(epoch(t.clock()))); err != nil || told == nil {
-		return err
+		return false, err
 	}
 	over := run.Text(wait.Get("over"))
 	if done != "" {
 		t.log.line(each.Name + ": told that " + over + ", left closed: its work is done")
-		return nil
+		return false, nil
 	}
 	// one line, whatever it said over several: a newline typed is a key of its own
 	why, err := t.reopen(each, config.Fold(over)+"; your wait is over. Decide the next step.")
@@ -94,8 +109,8 @@ func (t *ticking) endWait(each seat.Revival) error {
 		if err == nil {
 			t.log.line(each.Name + ": reopened and told that " + over + "; its wait is over")
 		}
-		return err
+		return false, err
 	}
 	text := fmt.Sprintf("Its orchestrator session %s is gone and its wait is over: %s. agentkit tried to reopen the seat and could not: %s. Press its number in the menu.", each.Name, over, why)
-	return notify.Alert(each.Name, text, "wait:"+each.Name+":"+run.Text(wait.Get("at")), t.log.out)
+	return true, notify.Alert(each.Name, text, seat.WaitAlert(each.Name, wait), t.log.out)
 }

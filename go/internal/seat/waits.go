@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 
+	"agentkit/internal/notify"
 	"agentkit/internal/run"
 )
 
@@ -51,9 +52,17 @@ func MarkWait(name string, wait *run.Object, marks ...any) (*run.Object, error) 
 	return marked, err
 }
 
-// waitsGone is a gone seat whose word is its standing wait's, and whose end cut nothing off
-// (watch.cut_off): revive_seats leaves it be, and the ended waits row reopens it once that wait
-// ends.
+// WaitAlert is the event the owner is paged as where a gone seat could not be reopened once its
+// wait ended (watch.wait_over's event_id).
+func WaitAlert(name string, wait *run.Object) string {
+	return "wait:" + name + ":" + run.Text(wait.Get("at"))
+}
+
+// waitsGone is a gone seat whose end cut nothing off (watch.cut_off), whose word is its standing
+// wait's, or the owner's since the ended waits row could not reopen it once that wait ended:
+// revive_seats leaves it be, for the ended waits row to reopen or for the owner.
 func (seat Seat) waitsGone() bool {
-	return seat.Word == "working" && Waiting(seat.Name) && seat.cutNothing()
+	alert := notify.Last(seat.Name)
+	paged := alert != nil && strings.HasPrefix(alert.Str("source"), "wait:"+seat.Name+":")
+	return (seat.Word == "working" && Waiting(seat.Name) || paged) && seat.cutNothing()
 }

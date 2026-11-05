@@ -34,7 +34,7 @@ const Warmup = 10 * time.Second
 type Revival struct {
 	Name                string
 	Live, Closed, Owing bool
-	CanOpen, Fresh      bool
+	CanOpen, Fresh      bool // reopened as its number opens it, on its own conversation or a fresh one
 	Supported           bool // Go opens this harness and owns this death's recovery
 	Failed              bool // a failed revival still needs the owner
 	File                *run.Object
@@ -53,7 +53,7 @@ func (home Home) Revivals() []Revival {
 		supported := each.supportsRunRevival(record)
 		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
 			Owing:   !each.restingGone(),
-			CanOpen: canOpen && supported, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
+			CanOpen: canOpen, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
 			Failed: revivalFailure(notify.Last(each.Name))})
 	}
 	return seats
