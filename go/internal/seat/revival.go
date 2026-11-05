@@ -119,7 +119,7 @@ func (seat Seat) revivalQuestion() bool {
 
 // Question revival leaves a project's refresh to Reopen.
 func (seat reopening) launchable(record map[string]any) bool {
-	_, opens := harness.Opens(seat.model.Harness)
+	opens := harness.Relaunches(seat.model.Harness)
 	_, checkout := os.Lstat(filepath.Join(seat.cwd, ".git"))
 	repo, _ := record["repo"].(string)
 	return opens && repo == "" && checkout != nil
