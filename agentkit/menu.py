@@ -222,11 +222,12 @@ class Live:
     `ak usage` -- `usage.PROBE_EVERY` -- so a second seat's screen costs no adapter request at
     all; Muse's adapter keeps its own ten-minute cache besides.  The same pipe is how a seat's
     word moving anywhere asks for a draw, and how a read landing does: see `watch`; and how
-    a line maintenance says does (`tidy`).
+    a line maintenance says does (`tidy`).  `cfg` is config.toml as it last loaded, read again
+    whenever the file changes, whoever wrote it (`configure`).
     """
 
     def __init__(self, cfg, every=None):
-        self.cfg = cfg
+        self.cfg, self.configured = cfg, self.config_mark()
         self.every = usage.PROBE_EVERY if every is None else every
         self.started = None          # when the probe now running was started, or None
         self.thread = None
@@ -456,6 +457,31 @@ class Live:
             found += [(key, entry["rows"], entry["error"]) for key, entry in _SWITCHES.items()]
         return found
 
+    @staticmethod
+    def config_mark():
+        """config.toml's inode and mtime, None while there is none: a save replaces the file,
+        a hand edit rewrites it."""
+        try:
+            stat = (config.HOME / config.CONFIG_NAME).stat()
+        except OSError:
+            return None
+        return stat.st_ino, stat.st_mtime_ns
+
+    def configure(self):
+        """config.toml read again if it changed since last read, whoever wrote it -- `c` in another
+        window above all -- so every read, probe, draw and key after it acts on the config as
+        saved; say whether it did.  One that does not load, a hand edit with an error, leaves
+        the last that did, until its next change."""
+        mark = self.config_mark()
+        if mark == self.configured:
+            return False
+        self.configured = mark
+        try:
+            self.cfg = config.load()
+        except (config.Error, OSError, ValueError, TypeError, KeyError):
+            return False
+        return True
+
     def _watch(self):
         while True:
             self.asked.wait(STIR)
@@ -465,7 +491,7 @@ class Live:
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
             now = self.recorded()
-            if now == self.seen and not self.asked.is_set():
+            if not self.configure() and now == self.seen and not self.asked.is_set():
                 continue
             self.asked.clear()
             look = self.looking
@@ -6029,9 +6055,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
     nothing typed draws again, so the clock, the seat rows, the counts on the top line and the
     usage stay true in front of whoever left it open -- and it ends within STIR of any seat's
-    record or the usage cache changing, so a row never says for longer what its bar no longer
-    does, a run at rest aside (`Live.watch`).  Nothing is read between a key and its frame: the
-    seats, their runs and their rows are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
+    record, the usage cache or config.toml changing, so a row never says for longer what its bar
+    or the config no longer does, a run at rest aside (`Live.watch`, `Live.configure`).  Nothing
+    is read between a key and its frame: the seats, their runs and their rows are read once
+    before the first draw, then in `Live`'s thread -- on the clock, after a key
     that did more than move the highlight, and within STIR of a record changing -- and every
     draw is what the last read left, drawn again when the next one lands.  While the owner is in
     a seat it opened, or on the screen that opens one, nothing is read but by the pass a seat
@@ -6091,6 +6118,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
         newborn = None                    # the seat `n` is typing the name of (`born`)
         framed = False                    # the last wait read no key: its frame is still up
         while True:
+            cfg = live.cfg                # as config.toml last loaded, whoever saved it
             if back:
                 live.back()               # drawn as the last read left it, read behind it
                 back = False
@@ -6307,7 +6335,7 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                 # the popup's own seat, whichever row is highlighted, and in a window of its own
                 # new seats (the owner, 24 Oct 2026); read with the keys, the looks and probes
                 # going on with what it saved
-                cfg = live.cfg = show_config(dry_run, keyboard, own) or cfg
+                live.cfg = show_config(dry_run, keyboard, own) or cfg
             elif key == "p" and past:
                 if show_past(cfg, found, dry_run, keyboard) and overlay:   # read with the keys
                     return 0              # a seat reopened: the popup's client is on it
