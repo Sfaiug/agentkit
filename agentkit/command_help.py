@@ -150,8 +150,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                      "Ask for a blocking decision: the question first, context after it.\n"
                      "--dry-run prints the payload without posting.",
                      'ak notify needs "Which branch?" --session parser-fix --dry-run'),
-    "wait": ("usage: ak wait PR_URL|RUN_ID|JOB_ID",
-             "End this turn waiting on that pull request, run or job; ak wakes you with one line\n"
+    "wait": ("usage: ak wait PR_URL|RUN_ID",
+             "End this turn waiting on that pull request or run; ak wakes you with one line\n"
              "when it merges, closes or ends. One already over is refused. Never a session.",
              "ak wait https://github.com/acme/api/pull/12"),
     "plan": ("usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | "
@@ -232,7 +232,7 @@ PURPOSES = {
     "watch": "check PRs and stalled sessions",
     "doctor": "show the slice, the tick, the machines, and any model set to an effort it does not take",
     "notify": "record a needs-you question",
-    "wait": "end this turn waiting on a pull request, run or job",
+    "wait": "end this turn waiting on a pull request or run",
     "fetch": "copy requested Mac files to this host",
     "macbridge": "macOS only: forward requested files to the server over SSH",
     "move": "copy this home to the same path on another machine",

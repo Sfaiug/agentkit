@@ -19,7 +19,7 @@ from fixtures.akbin import REAL_TMUX, REFUSE, REFUSED, Home
 MENU = ("ak attach: usage: ak [--client] [--overlay] [--dry-run]   "
         "(the menu; `ak attach` is the same)")
 FETCH = "ak fetch: usage: ak fetch PATH [PATH ...] | ak fetch --serve"
-WAIT = "ak wait: usage: ak wait PR_URL|RUN_ID|JOB_ID"
+WAIT = "ak wait: usage: ak wait PR_URL|RUN_ID"
 # git is no refused host tool, but an upgrade or a tick reaches for it first.
 TOOLS = (*REFUSED, "git")
 

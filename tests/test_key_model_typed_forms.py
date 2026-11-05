@@ -22,7 +22,7 @@ from fixtures.akbin import Home
 
 USAGE = {
     "orch project": "usage: ak orch project [SEAT] CHECKOUT",
-    "wait": "usage: ak wait PR_URL|RUN_ID|JOB_ID",
+    "wait": "usage: ak wait PR_URL|RUN_ID",
     "run stop": "usage: ak run stop ID [--keep]",
     "run resume": "usage: ak run resume ID [--rounds N] [--bg]",
     "plan": "usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | ak plan check N "

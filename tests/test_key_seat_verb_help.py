@@ -16,11 +16,11 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REFUSED, Home
 
-WAIT = ("end this turn waiting on a pull request, run or job\n"
+WAIT = ("end this turn waiting on a pull request or run\n"
         "\n"
-        "usage: ak wait PR_URL|RUN_ID|JOB_ID\n"
+        "usage: ak wait PR_URL|RUN_ID\n"
         "\n"
-        "End this turn waiting on that pull request, run or job; ak wakes you with one line\n"
+        "End this turn waiting on that pull request or run; ak wakes you with one line\n"
         "when it merges, closes or ends. One already over is refused. Never a session.\n"
         "\n"
         "Example: ak wait https://github.com/acme/api/pull/12\n")
@@ -30,7 +30,7 @@ USAGE = {
     "notify": 'usage: ak notify needs "QUESTION" [--session NAME] [--dry-run]\n'
               "       ak notify --check",
     "hand-in": "",  # Exact usage is in test_key_disputes_are_answered.py.
-    "wait": "usage: ak wait PR_URL|RUN_ID|JOB_ID",
+    "wait": "usage: ak wait PR_URL|RUN_ID",
 }
 # Inside a seat, as a model there types them: the seat's name in the environment, its record
 # in the state.
