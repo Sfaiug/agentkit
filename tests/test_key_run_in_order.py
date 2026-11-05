@@ -18,6 +18,8 @@ from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
+REFUSAL = ("an ordered job cuts each task from its repository's default branch, where the one "
+           "before it merged: drop base:, target: and from:")
 
 def wait_for(read, bound=180):
     deadline = time.monotonic() + bound
@@ -28,9 +30,11 @@ def wait_for(read, bound=180):
     return seen
 
 
-def launch(case, health, executor, reviewer, front=(), repo=None):
+def launch(case, health, executor, reviewer, front=(), repo=None, then=lambda tasks: None):
     """Tasks a, b and c launched in order from the seat, followed until the seat has the job's
-    line; `front` is each task's front matter, `repo` its `repo:` if not the rig's."""
+    line; `front` is each task's front matter, `repo` its `repo:` if not the rig's, `then` what
+    the test does to the task files once the job is under way.  `executor` may be a function of
+    the directory the fake adapters share with the test."""
     case.home = home = Home()
     case.addClassCleanup(home.close)
     akconfig.write(home, ["opus", "astra"])
@@ -39,13 +43,16 @@ def launch(case, health, executor, reviewer, front=(), repo=None):
     case.gh = GitHub(home)
     case.seat = Seat(home, "acme", cwd=rig.path, planned=True,
                      record={"workers": ["opus"], "reviewers": ["astra"]})
-    case.fakes = fakeadapter.install(home, claude=executor, codex=reviewer)
+    shared = home.root / "adapters"
+    case.fakes = fakeadapter.install(home, codex=reviewer, claude=executor(shared)
+                                     if callable(executor) else executor)
     tasks = [taskfile.write(home, repo or rig.path, f"Add {name}", name=name, front=dict(front),
                             done_when=(f"test -f {name}.txt",)) for name in "abc"]
     done = home.ak("run", *map(str, tasks), "--in-order", "--bg",
                    env={"AGENTKIT_SESSION": case.seat.name})
     assert done.code == 0, done.out + done.err
     case.directory, = (home.path / ".agentkit/jobs").iterdir()
+    then(tasks)
     wait_for(lambda: (case.job().get("card_sent") or {}).get("kind") == "handback")
 
 
@@ -128,18 +135,38 @@ class ATaskThatPassesUnmergedEndsTheJob(Case):
 
     def test_a_task_naming_its_own_branch_is_refused_and_nothing_starts(self):
         first = taskfile.write(self.home, self.rig.path, "Add d", name="d")
-        for key in ("base", "target"):
+        for key in ("base", "target", "from"):
             with self.subTest(key):
                 task = taskfile.write(self.home, self.rig.path, "Add e", name="e",
                                       front={key: "main"})
                 done = self.home.ak("run", str(first), str(task), "--in-order")
                 self.assertEqual(done.code, 2, done.out + done.err)
-                self.assertTrue(done.err.endswith(": an ordered job cuts each task from its "
-                                                  "repository's default branch, where the one "
-                                                  "before it merged: drop base: and target:\n"),
-                                done.err)
+                self.assertTrue(done.err.endswith(f": {REFUSAL}\n"), done.err)
                 self.assertEqual(list((self.home.path / ".agentkit/jobs").iterdir()),
                                  [self.directory])
+
+
+class ATaskGivenABranchOfItsOwnWhileQueuedNeverRuns(Case):
+    @classmethod
+    def setUpClass(cls):
+        def hold(shared):
+            return {**write("a"), "sh": f"for i in $(seq 1200); do [ -f {shared}/release ] && "
+                                        "break; sleep .1; done"}
+
+        def edit(tasks):
+            # b, still queued behind a, is told to continue a branch; a then goes on to merge
+            wait_for(lambda: cls.fakes["claude"].n)
+            tasks[1].write_text(tasks[1].read_text().replace("---\n# ", "from: main\n---\n# ", 1))
+            (cls.fakes["claude"].dir / "release").touch()
+        launch(cls, "none", hold, "pass", then=edit)
+
+    def test_it_is_refused_at_its_start_and_the_rest_never_start(self):
+        self.assertEqual([(task["state"], bool(task["run_id"])) for task in self.job()["tasks"]],
+                         [("merged", True), ("blocked", False), ("skipped", False)])
+        self.assertEqual(self.fakes["claude"].n, 1)
+        self.tick()
+        self.assertEqual(self.notices(), [f"job {self.directory.name}: b.md: BLOCKED: {REFUSAL}; "
+                                          "not started: c.md"])
 
 
 if __name__ == "__main__":

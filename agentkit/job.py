@@ -230,11 +230,7 @@ def job_create(cfg, task_paths, opts, parallel):
                                "and threads on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        refusal = taskfile.launch_refusal(info["meta"], info["cmds"],
-                                          run.launch_policy(info["path"])["review_rounds"])
-        if not refusal and opts.get("--in-order") and {"base", "target"} & info["meta"].keys():
-            refusal = ("an ordered job cuts each task from its repository's default branch, "
-                       "where the one before it merged: drop base: and target:")
+        refusal = job_refusal(info["meta"], info["cmds"], info["path"], opts)
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         gitcall.repo_line(info["meta"], info["path"])
@@ -650,6 +646,16 @@ class RefusedTask(config.Error):
     would lack what it waited for, or one whose file now asks for what a launch refuses."""
 
 
+def job_refusal(meta, cmds, path, opts):
+    """Why a job cannot start this task as written, or None: asked at launch and again at its
+    start, of the file as it reads then.  A task of an ordered job is cut from its repository's
+    default branch, where the one before it merged, so it names no branch of its own."""
+    if opts.get("--in-order") and {"base", "target", "from"} & meta.keys():
+        return ("an ordered job cuts each task from its repository's default branch, where the "
+                "one before it merged: drop base:, target: and from:")
+    return taskfile.launch_refusal(meta, cmds, run.launch_policy(path)["review_rounds"])
+
+
 def job_block_refused(task, exc):
     """Hand a task no fresh run may start back to its seat: blocked, why its findings."""
     task.update(state="blocked", finished_at=time.time(), findings=str(exc),
@@ -699,8 +705,7 @@ def job_start_task(cfg, job_dir, task, opts, log):
     task_path = Path(task["task_file"])
     meta, body, title = taskfile.parse_task(task_path)
     # the file as it reads now, which may have changed since the job began
-    refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path),
-                                      run.launch_policy(task_path)["review_rounds"])
+    refusal = job_refusal(meta, taskfile.done_when(body, task_path), task_path, opts)
     if refusal:
         raise RefusedTask(refusal)
     checkout = run.launch_checkout(task_path)
