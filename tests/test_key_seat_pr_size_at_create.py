@@ -90,17 +90,20 @@ class SeatPrSizeAtCreate(unittest.TestCase):
         self.assertEqual(ran, "")
 
     def test_the_branch_is_read_as_gh_reads_it(self):
-        # main, grouped behind a switch, adds nothing; a title that only reads like it is no head
-        done, ran = self.build(60, "-fHmain")
-        self.assertEqual((done.returncode, ran), (0, "pr create -fHmain\n"), done.stderr)
-        done, ran = self.build(60, "--title", "--head=main", "--fill")
-        self.assertNotEqual(done.returncode, 0)
-        self.assertEqual(ran, "")
+        # main adds nothing, grouped behind a switch or after an empty title; a title that only
+        # reads like a head is none, a switch may carry its value, and an empty base is the default
+        for argv, reaches in ((["-fHmain"], True), (["-t=", "--head", "main", "--fill"], True),
+                              (["--title", "--head=main", "--fill"], False),
+                              (["--fill=true"], False), (["-f=true", "-B="], False)):
+            with self.subTest(argv=argv):
+                done, ran = self.build(60, *argv)
+                self.assertEqual(done.returncode == 0, reaches, done.stderr)
+                self.assertEqual(ran, f"pr create {' '.join(argv)}\n" if reaches else "")
 
     def test_what_the_shim_cannot_measure_reaches_gh(self):
         # another repository's PR, and help: the review gate still holds what reaches GitHub
         for argv, env in ((["--fill", "--repo", "acme/elsewhere"], {}),
-                          (["--fill"], {"GH_REPO": "acme/elsewhere"}),
+                          (["--fill"], {"GH_REPO": "forge.example/acme/widgets"}),
                           (["--help"], {})):
             with self.subTest(argv=argv, env=env):
                 done, ran = self.build(60, *argv, **env)
