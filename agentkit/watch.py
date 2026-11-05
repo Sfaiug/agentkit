@@ -1907,7 +1907,8 @@ def screen_state(harness, tail):
     quoting a prompt cannot fake one.  A composer whose only content is dim -- a suggestion or
     placeholder -- is empty; one holding bright text is a draft.  The draft and suggestion
     rules are read out of the manifest like every other rule: their `lines` bound the window,
-    their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
+    which a ruled composer's own draft stretches up to its prompt row, their `none` marks skip
+    them (a turn in flight owns the composer), and `at_composer`
     keeps them at the composer -- only the bottom-most prompt-marked line counts where the
     line right under it and the pane's last line are chrome, one with its own rule right
     under it first, so a transcript echoing a past turn above newer output can never read as
@@ -1975,10 +1976,10 @@ def screen_state(harness, tail):
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
                 # row of it down to its closing rule, under the footer at the pane's bottom --
-                # or, with none drawn, a prompt row right on that bottom.  Rows that start
-                # indented are a draft's own, under its prompt row: a draft taller than the
-                # rule's rows is read up through them to that row (Claude Code 2.1.318), and
-                # one whose prompt row is above the tail is read as before.
+                # or, with none drawn, a prompt row right on that bottom.  A draft taller than
+                # the rule's rows goes on above them in rows indented under its prompt row, so
+                # the rule reads up through those to that row, within the tail: Claude Code
+                # 2.1.318 put a seven-row draft's prompt row above eight rows read.
                 top = len(lines) - len(region)
                 while top and strip_sgr(raw_lines[top])[:1].isspace():
                     top -= 1
