@@ -21,7 +21,8 @@ from fixtures.akterm import Terminal
 WEEK = 7 * 24 * 3600
 CLOCK = re.compile(r"^agentkit +\d\d:\d\d$")
 RULE = "^─{%d}$"           # the rule under the header
-FIX = "atoll-fix  Fable 5.1  ● working"
+FIX = "atoll-fix  Fable 5.1 xhigh  ● working"
+NARROW_FIX = "atoll-fix  Fable 5.1  ● working"     # its effort gives way, whole
 
 
 def shown(screen):
@@ -51,7 +52,7 @@ def narrow(screen):
     lines = shown(screen)
     return (framed(40)(screen) and "  Claude   ▰▰▱▱▱▱▱▱▱▱  21% left" in lines
             and "  ChatGPT  ▰▰▰▰▰▰▰▱▱▱  69% left" in lines
-            and re.search(rf"^› 1  {re.escape(FIX)}\n    ━+╸?─* 3 of 7$", screen, re.M)
+            and re.search(rf"^› 1  {re.escape(NARROW_FIX)}\n    ━+╸?─* 3 of 7$", screen, re.M)
             and [line for line in lines if line.strip()][-2:]
             == ["  ↑↓←→ move   ⏎ open   n new   c config", "  esc leave"])
 

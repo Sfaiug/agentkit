@@ -1167,6 +1167,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "crew": seat_crew(cfg, selection),
             "tasks": own_tasks(own, now),
             "count": word, "orchestrator": shown, "worker": shown,
+            "model": config.model_name(cfg, orchestrator),
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
@@ -1623,6 +1624,9 @@ def v5o_column_widths(infos, term_width):
     state_w = 2 + count_w
     if 2 + num_w + 2 + min(name_w, 8) + 2 + min(orch_w, 8) + state_w > room:
         count_w = state_w = 0
+    # an effort gives way, whole, before any name is cut (`_orchestrator`)
+    fits = room - (2 + num_w + 2 + name_w + 2 + state_w)
+    orch_w = max([terminal.cells(_orchestrator(info, fits)) for info in infos] + [0])
     while 2 + num_w + 2 + name_w + 2 + orch_w + state_w > room and max(name_w, orch_w) > 1:
         if name_w >= orch_w:
             name_w -= 1
@@ -1639,12 +1643,19 @@ def v5o_column_widths(infos, term_width):
             "sent": max(10, room - fixed), "free": room - fixed}
 
 
+def _orchestrator(info, room):
+    """What a row's orchestrator column says in `room` cells: its model at its effort
+    (`config.model_at`) where that fits, else the model alone, which the column may cut."""
+    said = info.get("orchestrator") or info.get("worker") or ""
+    return said if terminal.cells(said) <= room else info.get("model", said)
+
+
 def _head(info, widths, tone="dim"):
     """A seat row's fixed columns -- number, name, orchestrator in `tone`, state -- in `widths`.
     Where even their narrowest do not fit, the number keeps its place behind the indent the
     highlight's `›` takes. A zero state width puts that column below the row instead."""
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
-    orchestrator = info.get("orchestrator") or info.get("worker") or ""
+    orchestrator = _orchestrator(info, widths["orch"])
     rest = [born_name(info["born"], widths["name"]) if "born" in info else
             terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
             _styled_cell(orchestrator, widths["orch"], tone)]
@@ -1957,8 +1968,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                   if each == provider and own in (None, account)]
             line = coloured + line[len(head):] if pointed in on else line
             if coloured != head:     # its model is drawn in its column, where a colour shows
-                models.append((len(out) + 1, terminal.cut(seat["orchestrator"], widths["orch"]),
-                               lit, on))
+                said = _orchestrator(seat, widths["orch"])
+                models.append((len(out) + 1, terminal.cut(said, widths["orch"]), lit, on))
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
@@ -2299,6 +2310,7 @@ def born_groups(groups, born):
     cfg = born["cfg"]
     shown = config.model_at(cfg, selected, selected["orchestrator"], "orchestrator")
     row = {"number": "", "name": BORN, "born": born, "orchestrator": shown, "worker": shown,
+           "model": config.model_name(cfg, selected["orchestrator"]),
            "count": "new", "word": "new", "crew": seat_crew(cfg, selected), "tasks": [],
            "sentence": "", "repo": None}
     ordered = [{**project, "seats": list(project["seats"])} for project in ordered]

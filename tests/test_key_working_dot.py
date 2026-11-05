@@ -80,9 +80,9 @@ class WorkingDot(unittest.TestCase):
         """The menu once each seat's row says what its pane shows."""
         term = Terminal(self.home, size=(100, 30))
         self.addCleanup(self.home.tmux, "kill-session", "-t", term.pane, server=SERVER)
-        term.wait(lambda screen: f"› 1  {WORKING[0]}  Opus 5.5  ● working" in screen
-                  and f"2  {WORKING[1]}  Opus 5.5  ● working" in screen
-                  and f"3  {IDLE}  Opus 5.5  ○ idle" in screen)
+        term.wait(lambda screen: f"› 1  {WORKING[0]}  Opus 5.5 xhigh  ● working" in screen
+                  and f"2  {WORKING[1]}  Opus 5.5 xhigh  ● working" in screen
+                  and f"3  {IDLE}  Opus 5.5 xhigh  ○ idle" in screen)
         return term
 
     def watch(self, term, bound=15):
@@ -131,7 +131,7 @@ class WorkingDot(unittest.TestCase):
         for highlighted in (False, True):
             if highlighted:
                 term.keys("Down", "Down")
-                term.wait(f"› 3  {IDLE}  Opus 5.5  ○ idle")
+                term.wait(f"› 3  {IDLE}  Opus 5.5 xhigh  ○ idle")
             frames = self.watch(term)
             self.assertEqual(frames[0][IDLE][0][0] == "›", highlighted)
             for frame in frames:
