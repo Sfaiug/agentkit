@@ -60,7 +60,7 @@ class SeatPrSizeAtCreate(unittest.TestCase):
         else:
             (self.seat / "AGENTS.md").unlink()
         self.git(self.seat, "add", "-A")
-        self.git(self.seat, "commit", "-qm", "grow")
+        self.git(self.seat, "commit", "-qm", "grow", "--allow-empty")
         self.ran.write_text("")
         done = subprocess.run(["gh", "pr", "create", *(argv or ["--fill"])], cwd=self.seat,
                               env={**self.env, **env}, capture_output=True, text=True, timeout=60)
