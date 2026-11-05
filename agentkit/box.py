@@ -449,6 +449,9 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
+            if not home_overlay:
+                # Go caches builds under HOME, read-only here: a turn's build failed (5 Nov 2026).
+                clean["GOCACHE"] = "/var/tmp/go-build"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop, "began": report.exists,
                 "declared": declared}
