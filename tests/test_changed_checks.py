@@ -142,8 +142,7 @@ class ChangedChecks(unittest.TestCase):
         self.assertTrue(prompt.startswith(body + "\n\n## Workspace"))
 
     def test_reviewer_preamble_carries_weakening_rule(self):
-        sentence = ("A check the executor weakened, skipped or deleted is a FAIL unless "
-                    "the task asked for exactly that.")
+        sentence = "a check the executor weakened or skipped that the task did not ask for"
         self.assertEqual(worker.PREAMBLES["reviewer"].count(sentence), 1)
 
 

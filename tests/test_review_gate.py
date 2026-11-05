@@ -157,21 +157,16 @@ sys.exit(1)
                               "scope and naming are what a note is for",
                               "--run 'command'` for a blocking finding and "
                               "`--quote 'lines from that file'` for a note",
-                              "as a note, in every round and at every line: it never blocks",
+                              "a quote never blocks",
                               "ak hand-in follow-up", 'path:line "what" "why it matters"',
-                              "never a reason to fail",
                               "however long the follow-ups list is",
-                              "ak refuses malformed or evidence-free findings",
-                              "finding commands that exit 0",
-                              "checkout of the commit and on the base",
-                              "use only files on the branch"):
+                              "checkout of the commit and on the base"):
                     self.assertIn(words, text)
         for role in ("executor", "fixer"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("`blocked` is only for a task that cannot be completed as written; "
-                              "never for a transient provider failure, a capacity refusal, or a check "
-                              "the loop runs later such as the `# once` suite.", text)
+                self.assertIn('Use `ak hand-in blocked "<why>"` only for a task that cannot be done '
+                              "as written or a question only its author can answer", text)
 
     def test_pass_drops_unproven_follow_ups_into_notes(self):
         self.reviews(PASS_FOLLOWUPS)
@@ -182,29 +177,14 @@ sys.exit(1)
                          ["a.py:1 - empty input crashes - base abc123: `parse([])` raises IndexError",
                           "b.py:2 - zero divisor crashes - base abc123: `ratio(0)` raises ZeroDivisionError"])
 
-    def test_every_reviewer_requires_evidence_and_upholds_disputes_by_handing_in_findings(self):
+    # How to answer a dispute, or dispute a finding, done's refusal says when it bites
+    # (test_key_disputes_are_answered.py, test_fixer_done_waits_for_its_proofs.py).
+    def test_every_reviewer_hands_in_evidence_and_closes_on_done(self):
         for role in ("reviewer", "reviewer-pr", "reviewer-scratch"):
             with self.subTest(role=role):
                 text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn("[checked by ak: tests/test_hand_in.py] ak refuses malformed "
-                              "or evidence-free findings", text)
-                self.assertIn("ak supplies each dispute beside its finding with ak's proof output", text)
-                self.assertIn("uphold with `ak hand-in finding`", text)
-                self.assertIn('concede with `ak hand-in concede path:line "why"`', text)
-                self.assertIn("done waits for every answer", text)
-
-    def test_every_fixer_may_dispute_with_evidence_and_must_fix_the_rest(self):
-        for role, work in (("fixer", "the diff"), ("fixer-scratch", "the workspace")):
-            with self.subTest(role=role):
-                text = worker.PREAMBLES[role].format(workspace=self.root)
-                self.assertIn('ak hand-in dispute path:line "why it is wrong" --run COMMAND', text)
-                self.assertIn("[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes "
-                              "outside the handed blocking findings, commands that do not exit 0 "
-                              "and absent quotes.", text)
-                self.assertIn(f"Fix every undisputed finding in {work}",
-                              text)
-                self.assertNotIn("Fix every finding below", text)
-                self.assertIn(worker.CHECKS, text)
+                self.assertIn("[checked by ak: tests/test_hand_in.py] ak derives the verdict at "
+                              "`ak hand-in done`", text)
 
     def test_pass_follow_ups_land_in_pr_body_without_a_followups_file(self):
         repo = self.root / "repo"

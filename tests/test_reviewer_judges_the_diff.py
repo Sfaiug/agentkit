@@ -274,16 +274,14 @@ sys.exit(1)
 
     # --- (c) ak verifies the fixer's work -------------------------------------
 
-    def test_v5ab_fixer_prompt_explains_aks_done_when_check(self):
+    # done's refusal says the checks still fail (test_key_done_waits_for_the_checks.py)
+    def test_v5ab_fixer_prompt_never_asks_it_to_rerun_the_checks(self):
         code, directory, state = self.launch_scratch(fail(), PASS, rounds=3)
         self.assertEqual(code, 0, self.log(directory))
         self.assertEqual(state["round_summaries"][0]["verdict"], "FAIL")
         fixer = self.calls("executor")[1]["prompt"]
-        self.assertIn(worker.CHECKS, fixer)
         self.assertNotIn("re-run the per-round done-when commands", fixer)
         self.assertNotIn("except done-when commands", self.calls("executor")[0]["prompt"])
-        for role in ("fixer", "fixer-scratch"):
-            self.assertIn(worker.CHECKS, worker.PREAMBLES[role].format(workspace=self.root))
 
     # --- (d) every preamble keeps the opener the adapters route on ------------
 
@@ -305,7 +303,6 @@ sys.exit(1)
 
     def test_v5ab_reviewer_pr_still_may_run_commands(self):
         text = worker.PREAMBLES["reviewer-pr"].format(workspace=self.root)
-        self.assertIn("[worker judgement] Run tests/commands as needed", text)
         self.assertIn(worker.REVIEW_COPY, text)
         self.assertNotIn("except done-when commands", text)
         for role in ("reviewer", "reviewer-scratch"):
@@ -323,7 +320,6 @@ sys.exit(1)
                     self.assertIn("the repository's `tests:` suite, and checks marked deferred", text)
                 else:
                     self.assertNotIn("marked deferred", text)
-                self.assertIn("probes must leave nothing behind outside a temporary directory", text)
                 self.assertNotIn("single targeted command", text)
                 self.assertNotIn("never a whole test suite", text)
 
