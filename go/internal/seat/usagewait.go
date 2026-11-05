@@ -32,10 +32,11 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 }
 
 // waitOnUsage is what watch.seat_account does with a seat whose conversation's record ends on its
-// window refusing the turn, where Go reads all of it: its provider lists no accounts, the refusal
-// spends the window, not only limits it for now, the seat is neither asking nor done, nor moving
-// accounts, and no account can take it now -- it has room only where no wait began and the
-// refusal's own time to try again is still to come, and it is spent while one stands.  Then
+// window refusing the turn, where Go reads all of it: its last answer ran on the model its record
+// names (else watch.follow_model moves it first, Python's here), its provider lists no accounts,
+// the refusal spends the window, not only limits it for now, the seat is neither asking nor done,
+// nor moving accounts, and no account can take it now -- it has room only where no wait began and
+// the refusal's own time to try again is still to come, and it is spent while one stands.  Then
 // nothing is typed: the returned write marks the provider out until that time where the account
 // had room, keeps the refusal as handled, and puts the seat out of usage until its windows come
 // back.  The caller holds the locks the look and the write take, so nothing moves the seat between
@@ -51,7 +52,8 @@ func (seat Seat) waitOnUsage(state string, live Live, readings *usages.Readings,
 	finished, unplanned := plan.Finished(seat.Name)
 	_, limited := harness.Refusal(seat.own, live.Refused)
 	waiting, observed, moving := live.File.Dict("usage_wait"), live.File.Dict("usage_refusal"), live.File.Dict("midturn")
-	if !configured || err != nil || len(accounts) > 0 || unplanned != nil || finished || limited ||
+	if !configured || seat.follow.chosen != "" && seat.follow.chosen != model || err != nil || len(accounts) > 0 ||
+		unplanned != nil || finished || limited ||
 		live.State == "asking" || live.File.Truthy("closed_by_owner") || moving != nil && moving.Truthy("account") ||
 		live.File.Get("usage_wait") != nil && (waiting == nil || len(waiting.Keys()) == 0) {
 		return nil, false
