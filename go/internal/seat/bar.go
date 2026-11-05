@@ -170,33 +170,33 @@ func barCrew(screen terminal.Screen, builds, reviews []string) string {
 	return barPaint(screen.Crew(builds, reviews), "dim")
 }
 
-// barSelection is the seat's model and crew by their full names, none where its record does not
-// read as a seat's (config.load_session).
+// barSelection is the seat's model and crew, each named at the effort it runs that role at
+// (config.ModelAt), none where its record does not read as a seat's (config.load_session).
 func barSelection(state, name string, models map[string]config.Model) (model string, builds, reviews []string) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		return "", nil, nil
 	}
+	at := atEfforts(models, record)
 	if selected, err := configSelection(record, models); err == nil {
 		record = selected
 	}
 	if _, complaint, crewed := recordCrew(record, models); !crewed || complaint != "" {
 		return "", nil, nil
 	}
-	named := func(key string) (found []string) {
+	named := func(key, effort string) (found []string) {
 		for _, each := range record.List(key) {
 			if each, ok := each.(string); ok {
-				found = append(found, config.ModelName(each, models))
+				found = append(found, config.ModelAt(each, effort, at))
 			}
 		}
 		return found
 	}
-	builds = named("workers")
-	reviews = builds
+	builds, reviews = named("workers", "exec_effort"), named("workers", "review_effort")
 	if record.Has("reviewers") {
-		reviews = named("reviewers")
+		reviews = named("reviewers", "review_effort")
 	}
-	return config.ModelName(record.Str("orchestrator"), models), builds, reviews
+	return config.ModelAt(record.Str("orchestrator"), "effort", at), builds, reviews
 }
 
 // publish writes the seat's bar and window title from its row's own values, and with a changed word

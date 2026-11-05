@@ -24,6 +24,7 @@ const (
 type Seat struct {
 	Number                                    int
 	Name, Checkout, Model, Word, Unsent, Said string // Checkout "" is filed under none
+	Alone                                     string // its model without the effort Model names
 	Done, Total                               int    // its plan's lines done, of how many; none without one
 	Builds, Reviews                           []string
 	Tasks                                     []Task
@@ -412,6 +413,12 @@ func columns(s terminal.Screen, seats []Seat, width int) widths {
 	if 2+num+2+min(name, 8)+2+min(orch, 8)+state > room {
 		count, state = 0, 0
 	}
+	// an effort gives way, whole, before any name is cut (orchestrator)
+	fits := room - (2 + num + 2 + name + 2 + state)
+	orch = 0
+	for _, seat := range seats {
+		orch = max(orch, terminal.Cells(seat.orchestrator(fits)))
+	}
 	for 2+num+2+name+2+orch+state > room && max(name, orch) > 1 {
 		if name >= orch {
 			name--
@@ -428,12 +435,21 @@ func columns(s terminal.Screen, seats []Seat, width int) widths {
 		under: width < 60 || room-fixed < smallest}
 }
 
+// orchestrator is what its model column says in `room` cells: its model at its effort where that
+// fits, else the model alone, which the column may cut.
+func (seat Seat) orchestrator(room int) string {
+	if terminal.Cells(seat.Model) <= room || seat.Alone == "" {
+		return seat.Model
+	}
+	return seat.Alone
+}
+
 // head is a row's fixed columns, its number kept behind the indent the highlight takes where even
 // their narrowest do not fit.
 func head(s terminal.Screen, seat Seat, w widths) string {
 	number := terminal.Cut(strconv.Itoa(seat.Number), w.num)
 	number = "  " + strings.Repeat(" ", max(0, w.num-terminal.Cells(number))) + s.Styled(number, "dim")
-	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.Model, w.orch, "dim")}
+	rest := []string{terminal.Pad(seat.Name, w.name), cell(s, seat.orchestrator(w.orch), w.orch, "dim")}
 	if w.count > 0 {
 		text := terminal.Cut(s.StateText(seat.Word), w.count)
 		rest = append(rest, state(s, seat, text)+strings.Repeat(" ", w.count-terminal.Cells(text)))

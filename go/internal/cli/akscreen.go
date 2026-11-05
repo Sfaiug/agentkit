@@ -46,7 +46,8 @@ func readFrame(now time.Time) (reading, bool) {
 		}
 		done, total := plan.Progress(each.Name)
 		builds, reviews := home.Crew(each)
-		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: home.ModelName(each),
+		model, alone := home.ModelName(each)
+		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
 			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	sortPast(found.past)
