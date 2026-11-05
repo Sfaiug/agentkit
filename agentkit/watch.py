@@ -5067,10 +5067,10 @@ def field_empty(harness, pane):
 def between_turns(name, harness, record, opened_at, pane=None):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
     closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
-    respawn would take) at its prompt with its input field empty (`field_empty`), in no turn, asking nothing,
-    showing no background work running, and its terminal given no keys for DRAFT_STILL, none
-    unread?  A capture that failed shows none of that, nor does a terminal that cannot be
-    asked."""
+    respawn would take) at its prompt with its input field empty (`field_empty`), in no turn,
+    asking nothing, showing no background work running, and its terminal given no keys for
+    DRAFT_STILL, none unread?  A capture that failed shows none of that, nor does a terminal
+    that cannot be asked."""
     seat, now = orch.find(name), config.session_records().get(name) or {}
     if (not seat or any(seat.get(key) for key in orch.CLOSED) or seat_closed_by_owner(name)
             or any(now.get(key) != record.get(key)
