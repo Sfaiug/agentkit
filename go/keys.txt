@@ -110,6 +110,7 @@ test_key_models_colour
 test_key_models_command
 test_key_models_layout
 test_key_models_rows_drawn_as_c
+test_key_models_why
 test_key_move_copies
 test_key_muse_words
 test_key_notice_hook
