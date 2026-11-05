@@ -55,3 +55,17 @@ func TestABlankHealthFrameChangesOnlyWhatAHookDecides(t *testing.T) {
 		t.Fatal(file, err)
 	}
 }
+
+func TestABlankHealthFrameStillPublishesItsGoingRun(t *testing.T) {
+	home := sandbox(t)
+	record(t, home, "acme", nil)
+	write(t, stateFile(home, "plan-acme.md"), doneLine)
+	runRecord(t, home, "r-build", map[string]any{"state": "running"})
+	drawn(t, home, "acme", "")
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	if word, _ := Published("acme"); word != "working" {
+		t.Fatal("a starting harness hid its going run:", word)
+	}
+}

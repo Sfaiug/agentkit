@@ -109,6 +109,10 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	stale := func(current string) bool {
 		pane := at.capture()
 		latest := climbingOf(state, seat, at.sight(pane), 0)
+		// Confirmed send also rechecks with our line already in the composer.
+		if latest.found.state == "draft" && latest.found.typedByAk {
+			latest.found.state = "at_prompt"
+		}
 		back, err := latest.goesBack()
 		now, unread := stopEpisode(seat.own, latest.file)
 		owed, failed := plan.Owes(current)
@@ -116,7 +120,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 			latest.found.interrupted || latest.notice != nil || newsOwed(latest) || failed != nil || !owed ||
 			stopWords(eyeOf(seat.own).rules, screen.Tail(pane)) != facts.file.Str("stop_said")
 	}
-	if typeAtPrompt(seat.Name, "continue", func(*run.Object) error { return nil }, log, stale) {
+	if typeAtPrompt(seat.Name, "continue", nil, func(*run.Object) error { return nil }, log, stale) {
 		if err := Write(seat.Name, "stop_nudged", episode); err != nil {
 			return found, err
 		}

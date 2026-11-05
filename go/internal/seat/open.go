@@ -31,7 +31,11 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 // the adapter's command, and its record uses Python's locks and format. False leaves
 // unsupported harness launches, provider accounts and leftover seat files to Python.
 func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
-	return open(name, orchestrator, model, workers, cwd, unnamed, "", true, reviews...)
+	repo := Project(cwd)
+	if repo != "" {
+		cwd = repo
+	}
+	return open(name, orchestrator, model, workers, cwd, unnamed, repo, true, reviews...)
 }
 
 func open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, repo string, remember bool, reviews ...[]string) (bool, error) {
@@ -41,10 +45,6 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	models, err := config.Models()
 	if !known || !opensAt(model) || !unclaimed(state, name) || unbound != nil || err != nil {
 		return false, nil
-	}
-	repo := Project(cwd)
-	if repo != "" {
-		cwd = repo
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
