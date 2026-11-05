@@ -6,7 +6,11 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+	"time"
+
+	"agentkit/internal/run"
 )
 
 // A home holding nothing is answered; anything a pass would act on, or a gh logged in, leaves
@@ -56,4 +60,34 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 	t.Setenv("AGENTKIT_SESSION", "")
 	gh(`echo '{"login": "acme"}'`)
 	dry(false)
+}
+
+// The retry row runs its own step dry: it says what it would retry and sends nothing. What the
+// rows say waits until every row and gh are Go's, so a later event Go cannot read, or a gh
+// logged in, prints none of it.
+func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
+	ak, gh := idleHome(t, "echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
+	put(t, filepath.Join(ak, "state", "notification-outbox", "card.json"), run.Line(run.Fields("id", "card", "source", "card:done-1",
+		"episode", "done-1", "session", "acme", "kind", "done", "created_at", epoch(time.Now()), "status", "pending")))
+	before := files(t, filepath.Dir(ak))
+	var out bytes.Buffer
+	if !Dry(&out) || out.String() != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n"+
+		"would retry notification card (pending)\ngh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
+		t.Fatalf("printed %q", &out)
+	}
+	if after := files(t, filepath.Dir(ak)); !reflect.DeepEqual(after, before) {
+		t.Fatal("the dry tick changed HOME")
+	}
+	unread := filepath.Join(ak, "state", "notification-outbox", "zz.json")
+	put(t, unread, "")
+	if out.Reset(); Dry(&out) || out.Len() > 0 {
+		t.Fatalf("a later unreadable event printed %q", &out)
+	}
+	if err := os.Remove(unread); err != nil {
+		t.Fatal(err)
+	}
+	gh(user)
+	if Dry(&out) || out.Len() > 0 {
+		t.Fatalf("a gh logged in printed %q", &out)
+	}
 }

@@ -52,8 +52,8 @@ func TestRetryWorkIsReadAtItsOwnRow(t *testing.T) {
 			retry = row
 		}
 	}
-	if retry.idle == nil || !retry.idle() || retry.step == nil {
-		t.Fatal("the empty outbox did not reach the retry row")
+	if retry.step == nil {
+		t.Fatal("the retry row carries out nothing")
 	}
 	path := filepath.Join(ak, "state", "notification-outbox", "done.json")
 	text := `{"kind":"done","status":"pending"}`
@@ -63,10 +63,5 @@ func TestRetryWorkIsReadAtItsOwnRow(t *testing.T) {
 		{"after", false, nil, func() error { after = true; return nil }},
 	}) || after || read(t, path) != text {
 		t.Fatal("the retry row did not hand over the newly queued done unchanged")
-	}
-	for _, row := range table(&ticking{dry: true}) {
-		if row.name == retry.name && row.idle() {
-			t.Fatal("a dry tick claimed an unsettled outbox")
-		}
 	}
 }
