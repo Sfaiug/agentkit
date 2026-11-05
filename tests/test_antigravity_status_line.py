@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config
+from agentkit import config, gc
 from agentkit.harness import antigravity
 from test_key_model_followed_antigravity import TABLES, nested, stamp
 
@@ -108,6 +108,31 @@ class AntigravityStatusLine(Sandbox):
             self.payload["model"] = {"id": label, "display_name": label, "effort": effort}
             self.render(status)
             self.assertEqual(antigravity.running({}, None, "conv-acme")[:2], (model, effort))
+
+    def test_gc_keeps_a_learned_conversations_report_until_the_next_launch(self):
+        config.save_session(self.cfg, "acme", "gemini", ["gemini"])
+        token = antigravity.launched("acme", self.root, None)[antigravity.LAUNCH_ENV]
+        proc = self.root / "proc"
+        fd = proc / "123/fd"
+        fd.mkdir(parents=True)
+        (fd.parent / "environ").write_bytes(f"{antigravity.LAUNCH_ENV}={token}\0".encode())
+        (fd / "0").symlink_to(antigravity.store("conv-acme"))
+        with patch.object(antigravity, "PROC", proc):
+            self.assertEqual(antigravity.conversation(config.session_record("acme")), "conv-acme")
+            self.assertIsNone(config.session_record("acme").get("conversation"))
+            self.render(self.launch())
+            before = antigravity.running({}, None, "conv-acme")
+            self.assertEqual(list(gc.stale_model_reports()), [])
+            # A collection plan made before the claim must recheck ownership too.
+            candidate = {"action": "remove", "kind": "model-report", "path": str(self.report)}
+            with patch.object(gc, "gc_candidates", return_value=[candidate]), \
+                    patch.object(gc.jobs, "forget_owner_words"):
+                self.assertEqual(gc.gc(lambda _: None), [])
+                self.assertEqual(antigravity.running({}, None, "conv-acme"), before)
+                antigravity.launched("acme", self.root, None)
+                self.assertEqual([item["path"] for item in gc.stale_model_reports()], [str(self.report)])
+                self.assertEqual(gc.gc(lambda _: None), [str(self.report)])
+            self.assertFalse(self.report.exists())
 
 
 if __name__ == "__main__":

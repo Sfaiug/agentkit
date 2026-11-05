@@ -114,7 +114,7 @@ def stale_seat_files(now):
 def model_report_stale(path):
     return (retention.safe(path) and path.is_file()
             and path.stem.removeprefix("model-") not in {
-                (retention.read_json(seat) or {}).get("conversation")
+                orch.seat_conversation(retention.read_json(seat) or {})
                 for _, seat in config.seat_files("session", retention.children(config.STATE))})
 
 
