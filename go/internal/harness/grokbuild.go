@@ -12,7 +12,10 @@ import (
 	"agentkit/internal/run"
 )
 
-func init() { plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true} }
+func init() {
+	plugins["grokbuild"] = plugin{auth: grokAuth, lend: grokLend, opens: true, titled: true,
+		seats: true, looks: true, record: grokRecord}
+}
 
 // grokAuth reads Grok Build's one login as grokbuild.sh's `auth` does, the seat's as a turn's:
 // the usual login's key in the environment, else an entry of its file with an unexpired key, or

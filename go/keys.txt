@@ -59,6 +59,7 @@ test_key_gh_merge_refused
 test_key_git_worktree_refused
 test_key_gc_runs_past_unreadable_processes
 test_key_grok_hooks
+test_key_grok_words
 test_key_hand_in_executor
 test_key_hand_in_finding_rows FindingRows
 test_key_hand_in_outside_turn
