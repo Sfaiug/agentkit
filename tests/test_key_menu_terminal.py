@@ -144,8 +144,14 @@ class MenuTerminal(unittest.TestCase):
         pid = self.program(term)
         os.kill(pid, signal.SIGTSTP)
         self.written(term, LEFT, since)
-        # A shell with job control would hold the menu stopped until `fg`; this terminal's has
-        # none, and the system lets a stop nobody could undo pass, so only going on is seen.
+        # Giving back the screen precedes the stop: SIGCONT sent before it is lost. Python's
+        # orphaned SIGTSTP instead returns at once, already taking the screen back.
+        deadline = time.monotonic() + 30
+        while Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "T":
+            if re.search(BACK, (self.raw / term.pane).read_bytes()[since:]):
+                break
+            self.assertLess(time.monotonic(), deadline, "the menu never stopped or returned")
+            time.sleep(0.05)
         os.kill(pid, signal.SIGCONT)
         self.written(term, LEFT + rb".*" + BACK + rb".*esc leave", since)
         self.assertModes(term, TAKEN)
