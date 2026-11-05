@@ -159,6 +159,19 @@ def timestamp(stamp):
 
 
 def running(record, cwd, conversation):
+    """The newer of that conversation's last answer and its status-line report."""
+    from . import model_report
+    latest, report = answered_model(conversation), model_report(conversation)
+    if report and (not latest or report[2] > latest[2]):
+        # agy 1.5 reports catalog labels with a bracketed effort, even as `model.id`.
+        label = re.sub(r" \([^()]*\)$", "", report[0])
+        model = next((row["id"] for row in config.catalog_table("antigravity")
+                      if row["label"] == label), label)
+        return model, report[1], report[2]
+    return latest
+
+
+def answered_model(conversation):
     """The model and effort of the generation that made that conversation's latest answer,
     with that answer's time.  agy keeps one `gen_metadata` row per generation, its execution
     beside it (4), and only the newest names the model (3 -> 28), by the id it was launched
