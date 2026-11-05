@@ -41,7 +41,8 @@ def reaching(fakes):
         ak.write_text(f"#!/bin/sh\n[ -e {shlex.quote(AK)} ] || exec {copy} \"$@\"\n"
                       f"exec {shlex.quote(AK)} \"$@\"\n")
         ak.chmod(0o755)
-        fake.script.write_text(fake.script.read_text().replace(AK, str(ak)))
+        fake.script.write_text(fake.script.read_text().replace(shlex.quote(AK),
+                                                               shlex.quote(str(ak))))
     return fakes
 
 
@@ -110,7 +111,7 @@ class NightReview(unittest.TestCase):
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
         warned = [line.split(":")[0] for line in done.out.splitlines()
-                  if ": no night review " in line]
+                  if ": no night review" in line]
         self.assertEqual(warned, ["WARN api"] if failing else [], done.out)
         return taskfile.runs(self.home)
 
