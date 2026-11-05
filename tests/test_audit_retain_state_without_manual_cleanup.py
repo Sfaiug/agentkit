@@ -381,6 +381,8 @@ if not review:
         ephemeral = self.ephemeral("smoke-part-link")
         marker = retention.marker(ephemeral)
         marker.with_name(marker.name + ".part").symlink_to(directory / "run.json")
+        (config.STATE / "model-held.json").write_text("{}")
+        (config.STATE / "session-acme.json").write_text('{"conversation":"held"}')
         before = self.snapshot(self.root)
         plan = gc.gc_plan()
         after = self.snapshot(self.root)

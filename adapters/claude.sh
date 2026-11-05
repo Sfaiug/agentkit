@@ -175,6 +175,17 @@ interactive)
   # in its own process (the plugin's `checked`) and says so; run on its own, this reads them.
   [ -n "${AGENTKIT_CLAUDE_CHECKED:-}" ] ||
     python3 "$REPO/agentkit/harness/claude.py" --check || exit 2
+  # Claude's shell runs the owner's command verbatim, including a trailing comment or heredoc.
+  status=
+  for file in "$PWD/.claude/settings.local.json" "$PWD/.claude/settings.json" \
+              "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json"; do
+    status=$(jq -c '.statusLine | objects | select(.command | strings | length > 0)' \
+                "$file" 2>/dev/null) && [ -n "$status" ] && break
+  done
+  script=$(printf '%q' "$REPO/hooks/claude-status.sh")
+  PINS=$(jq -cn --argjson pins "$PINS" --argjson status "${status:-null}" --arg script "$script" '
+    $pins + {statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
+                         else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
   # the conversation this seat owns: --resume <id> opens the one it was given where it stopped,
   # and --session-id <uuid> opens a new one under an id the launcher made before the seat did,
   # which is what lets `ak orch` write down whose conversation it is before it exists

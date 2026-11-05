@@ -219,17 +219,28 @@ def unanswered(record, cwd, conversation):
 
 
 def running(record, cwd, conversation):
-    """The model and effort of that conversation's last answer: each answer records its own
-    (`message.model`, `effort`), so `/model` typed in the seat shows at its next answer.  An
-    answer Claude Code made up itself (`<synthetic>`) or a subagent's ran on neither."""
+    """The newer of that conversation's last answer and its status-line report."""
+    from .. import config
     from . import last_entry, moment
     path = transcript(record, cwd, conversation)
     entry = path and last_entry(path, lambda entry: entry.get("type") == "assistant"
                                 and not entry.get("isSidechain")
                                 and isinstance(entry.get("message"), dict)
                                 and entry["message"].get("model") not in (None, "<synthetic>"))
-    return ((entry["message"]["model"], entry.get("effort"), moment(entry.get("timestamp")))
-            if entry else None)
+    latest = ((entry["message"]["model"], entry.get("effort"), moment(entry.get("timestamp")))
+              if entry else None)
+    if not conversation:
+        return latest
+    try:
+        with (config.STATE / f"model-{conversation}.json").open() as stream:
+            report = json.load(stream)
+            # Read the timestamp from the same inode: another render may have replaced it.
+            at = os.fstat(stream.fileno()).st_mtime
+        if isinstance(report, dict) and report.get("model") and (not latest or at > (latest[2] or 0)):
+            return report["model"], report.get("effort"), at
+    except (OSError, ValueError):
+        pass
+    return latest
 
 
 def resumable(record, cwd, conversation):

@@ -1,11 +1,11 @@
-"""A Claude seat's claude gets ak's pinned settings and no other, and a dry run prints that launch.
+"""A Claude seat gets ak's pinned settings, and a dry run prints that launch.
 
 Every session ak starts runs with three settings whatever the login's own file says: permissions
 bypassed, Claude Code's messages from other sessions refused, and a message its safeguards flag
 switching the conversation to another model instead of stopping the seat on a dialog.  They come
 on the command line, which outranks the login's settings file, so an accepted auto-mode offer or
 a hand edit there cannot undo them, and no launch writes them there: a harness's settings are its
-own.  ak adds no setting beyond them, and the seat runs the model and effort the config names.
+own.  The seat runs the model and effort the config names.
 A dry run, which a person or a model may ask for without a terminal, prints that same launch
 with the switches that keep Claude's background daemon, its own instruction files and its
 memory off.
@@ -75,17 +75,22 @@ class AClaudeSeat(unittest.TestCase):
         command line, or a file's."""
         given = [words[at + 1] for at, word in enumerate(words[:-1]) if word == "--settings"]
         given += [word.split("=", 1)[1] for word in words if word.startswith("--settings=")]
-        return [json.loads(value if value.lstrip().startswith("{") else Path(value).read_text())
-                for value in given]
+        settings = [json.loads(value if value.lstrip().startswith("{") else Path(value).read_text())
+                    for value in given]
+        for value in settings:
+            # Status-line reporting has its own answer key.
+            if "statusLine" in value:
+                self.assertEqual(value.pop("statusLine")["type"], "command")
+        return settings
 
     def after(self, words, flag):
         self.assertIn(flag, words[:-1])
         return words[words.index(flag) + 1]
 
     # A harness's settings are its own: ak has no settings screen for them and no setting
-    # shared across harnesses. ak adds no setting beyond its pins. Reason: rebuilding each
+    # shared across harnesses. Reason: rebuilding each
     # harness's options in ak is work the harness already did. [15 Oct 2026]
-    def test_its_settings_are_ak_s_pins_given_once_and_nothing_more(self):
+    def test_its_pins_are_given_once(self):
         self.assertEqual(self.settings(self.argv), [PINS])
 
     def test_the_login_s_own_settings_file_is_left_as_it_was(self):

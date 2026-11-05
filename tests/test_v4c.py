@@ -785,13 +785,14 @@ esac
         self.adapters()
         config.ensure_dirs()
         cfg = config.load()
+        cwd = str(self.root)
         config.save_session(cfg, "atoll", "fable", ["opus"],
-                            {"cwd": "/w", "created": 1, "conversation": "conv-atoll"})
+                            {"cwd": cwd, "created": 1, "conversation": "conv-atoll"})
         config.rename_session("atoll", "parser")
         with patch.object(orch, "sessions", return_value=[]):
             self.assertIn("atoll", orch.taken_names())
             with self.assertRaises(config.Error):
-                orch.create(cfg, "atoll", "/w", prompting=False, dry_run=True)
+                orch.create(cfg, "atoll", cwd, prompting=False, dry_run=True)
             # the second stop of the seat the pointer leads to takes the pointer with the record
             for _ in ("stopped", "removed"):
                 with contextlib.redirect_stdout(io.StringIO()):
@@ -799,10 +800,10 @@ esac
             self.assertFalse(config.session_path("atoll").exists())
             self.assertNotIn("atoll", orch.taken_names())
             with contextlib.redirect_stdout(io.StringIO()):
-                orch.create(cfg, "atoll", "/w", forced="fable", forced_workers="opus",
+                orch.create(cfg, "atoll", cwd, forced="fable", forced_workers="opus",
                             dry_run=True)
         # and a pointer left leading nowhere by anything else is nobody's name to keep either
-        config.save_session(cfg, "atoll", "fable", ["opus"], {"cwd": "/w", "created": 1})
+        config.save_session(cfg, "atoll", "fable", ["opus"], {"cwd": cwd, "created": 1})
         config.rename_session("atoll", "parser")
         config.session_path("parser").unlink()
         with patch.object(orch, "sessions", return_value=[]):

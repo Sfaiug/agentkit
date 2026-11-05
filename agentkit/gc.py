@@ -111,6 +111,20 @@ def stale_seat_files(now):
     return found
 
 
+def model_report_stale(path):
+    return (retention.safe(path) and path.is_file()
+            and path.stem.removeprefix("model-") not in {
+                (retention.read_json(seat) or {}).get("conversation")
+                for _, seat in config.seat_files("session", retention.children(config.STATE))})
+
+
+def stale_model_reports():
+    for path in retention.children(config.STATE):
+        if path.match("model-*.json") and model_report_stale(path):
+            yield {"action": "remove", "kind": "model-report", "path": str(path),
+                   "why": "no seat names this conversation"}
+
+
 def tmp_protected(name):
     """Dot entries, tmux sockets and systemd-private directories: never the collector's."""
     return (name.startswith(".") or name.startswith("tmux-")
@@ -791,6 +805,7 @@ def gc_candidates(now=None):
     yield from retention.ephemeral_plan(now, pressure, paths)
     yield from stale_worktrees(now, paths)
     yield from stale_seat_files(now)
+    yield from stale_model_reports()
     yield from retention.harness_plan()
     yield from stale_tmp_entries(now)
     yield from stale_repo_tmp_entries(now)
@@ -1094,8 +1109,9 @@ def gc(report, automatic=False):
                 try:
                     # the planner's own proof once more, now: a seat launched under the name,
                     # a wrapper or a run back in the checkout since, and it all stays
-                    if item["kind"] == "seat-file":
-                        if not seat_file_stale(path, time.time()):
+                    if item["kind"] in ("seat-file", "model-report"):
+                        if not (model_report_stale(path) if item["kind"] == "model-report"
+                                else seat_file_stale(path, time.time())):
                             continue
                         retention.remove(path)
                         done = True
