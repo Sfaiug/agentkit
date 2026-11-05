@@ -453,6 +453,9 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			}); err != nil {
 				return err
 			}
+			if err := retireSwitchLines(state, current); err != nil {
+				return err
+			}
 			var fields []field
 			for _, key := range cleared {
 				fields = append(fields, field{key, nil})
