@@ -24,6 +24,7 @@ import functools
 import importlib
 import json
 import math
+import os
 from datetime import datetime
 from pathlib import Path
 import re
@@ -126,6 +127,22 @@ def says(text, word):
 def limited(text):
     """Does `text` say a rate limit (`LIMITS`), whole?"""
     return any(says(text, word) for word in LIMITS)
+
+
+def model_report(conversation):
+    """The model, effort and time of that conversation's last changed status render."""
+    if not conversation:
+        return None
+    try:
+        with (config.STATE / f"model-{conversation}.json").open() as stream:
+            report = json.load(stream)
+            # Read the timestamp from the same inode: another render may have replaced it.
+            at = os.fstat(stream.fileno()).st_mtime
+        if isinstance(report, dict) and isinstance(report.get("model"), str) and report["model"]:
+            return report["model"], report.get("effort"), at
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def last_entry(path, pick):
