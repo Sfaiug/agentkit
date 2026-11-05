@@ -170,7 +170,7 @@ func TestExactMathIsPythons(t *testing.T) {
 	if got := stdev([]float64{0.1, 0.25, 0.7}); got != 0.31224989991991986 {
 		t.Errorf("stdev %v", run.Float(got))
 	}
-	if got := median([]float64{3, 1, 2, 4}); got != 2.5 {
+	if got := Median([]float64{3, 1, 2, 4}); got != 2.5 {
 		t.Errorf("median %v", got)
 	}
 }

@@ -73,6 +73,9 @@ class Install:
         self._push("the program")
         self._git(home.root, "clone", "-q", str(self.bare), str(self.path))
         self.git("remote", "set-url", "origin", ORIGIN)
+        linked = home.path / ".local" / "bin" / "ak"
+        linked.parent.mkdir(parents=True, exist_ok=True)
+        linked.symlink_to(self.ak)
         home.fake("ssh", SSH.format(bare=shlex.quote(str(self.bare))))
 
     def advance(self):

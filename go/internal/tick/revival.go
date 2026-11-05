@@ -28,7 +28,7 @@ func (t *ticking) revive() error {
 	if !known {
 		return errLeft
 	}
-	home, known := seat.Looking(t.clock())
+	home, known := seat.TickHome(t.clock())
 	if !known {
 		return errLeft
 	}
@@ -46,7 +46,7 @@ func (t *ticking) revive() error {
 // and an owner's close cannot land between the decision and the reopen.
 func (t *ticking) reviveRuns(going map[string]string) error {
 	return locked(func() error {
-		home, known := seat.Looking(t.clock())
+		home, known := seat.TickHome(t.clock())
 		if !known {
 			return errLeft
 		}

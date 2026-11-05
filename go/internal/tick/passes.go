@@ -48,7 +48,7 @@ func table(t *ticking) []pass {
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
 		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.health},
-		{"switched turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, true) })), nil},
+		{"switched turns", false, configured, accountTurns},
 		{"dead loops", true, all(configured, noDeadLoops), nil},
 		{"dead jobs", true, jobless, nil},
 		{"stall recovery", true, all(configured, noStallRecovery), nil},
