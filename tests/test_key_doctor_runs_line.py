@@ -62,8 +62,8 @@ class DoctorRunsLine(unittest.TestCase):
         return proc
 
     def resume(self, name):
-        """A real `ak run resume <name>`, held still at its first bwrap, its box's check, which
-        comes before it writes anything, its pid included."""
+        """A real `ak run resume <name>`, held still at its first bwrap, the check of its box,
+        which comes before it records its pid."""
         called = self.home.root / "tmp" / "bwrap-called"
         self.home.fake("bwrap", f"#!/bin/sh\n: > {shlex.quote(str(called))}\nexec sleep 600\n")
         proc = self.home.spawn("run", "resume", name)
@@ -72,16 +72,18 @@ class DoctorRunsLine(unittest.TestCase):
             self.assertIsNone(proc.poll(), f"ak run resume {name} ended before calling bwrap")
             self.assertLess(time.monotonic(), deadline, f"ak run resume {name} never called bwrap")
             time.sleep(0.05)
-        os.killpg(proc.pid, signal.SIGSTOP)     # its own wait on bwrap times out; this does not
+        # stopped, not only waiting: ak gives its box's check seconds, then goes on without it
+        os.killpg(proc.pid, signal.SIGSTOP)
 
     def doctor(self, code, line, under=None):
         """`ak doctor` exits `code`, with `line` as its runs line, after the full report, and
         writes nothing; `under` is the run marker of a shell that calls it, as a worker's does."""
+        tick = self.home.path / ".agentkit/state/watch.json"
+
         def kept():
             return {path: (path.read_bytes(), path.stat().st_mtime_ns)
                     for path in [*self.runs.rglob("*"), tick] if path.is_file()}
 
-        tick = self.home.path / ".agentkit/state/watch.json"
         before = kept()
         # the shell waits for doctor rather than exec it, so it stays doctor's parent
         argv = ("sh", "-c", '"$@"; exit $?', "sh") if under else ()
