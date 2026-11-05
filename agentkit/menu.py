@@ -228,6 +228,7 @@ class Live:
 
     def __init__(self, cfg, every=None):
         self.cfg, self.configured = cfg, self.config_mark()
+        self.configuring = threading.Lock()   # one reload at a time (`configure`)
         self.every = usage.PROBE_EVERY if every is None else every
         self.started = None          # when the probe now running was started, or None
         self.thread = None
@@ -468,19 +469,21 @@ class Live:
         return stat.st_ino, stat.st_mtime_ns
 
     def configure(self):
-        """config.toml read again if it changed since last read, whoever wrote it -- `c` in another
-        window above all -- so every read, probe, draw and key after it acts on the config as
-        saved; say whether it did.  One that does not load, a hand edit with an error, leaves
-        the last that did, until its next change."""
-        mark = self.config_mark()
-        if mark == self.configured:
-            return False
-        self.configured = mark
-        try:
-            self.cfg = config.load()
-        except (config.Error, OSError, ValueError, TypeError, KeyError):
-            return False
-        return True
+        """config.toml read again if it changed since last read, whoever wrote it -- `c` in this
+        window or another -- and everything read again on it (`ask`), so every read, probe, draw
+        and key after it acts on the config as saved.  One that does not load, a hand edit with
+        an error, leaves the last that did, until its next change.  The watcher and the draw
+        both call it, one at a time, so a slow load never lands over a newer one."""
+        with self.configuring:
+            mark = self.config_mark()
+            if mark == self.configured:
+                return
+            self.configured = mark
+            try:
+                self.cfg = config.load()
+            except (config.Error, OSError, ValueError, TypeError, KeyError):
+                return
+        self.ask()
 
     def _watch(self):
         while True:
@@ -491,7 +494,8 @@ class Live:
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
             now = self.recorded()
-            if not self.configure() and now == self.seen and not self.asked.is_set():
+            self.configure()
+            if now == self.seen and not self.asked.is_set():
                 continue
             self.asked.clear()
             look = self.looking
@@ -5464,8 +5468,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
     models live in its record, the one place its row and its runs read them from too.  A dry
     run, and a menu with no keyboard to read -- a pipe -- draw it once and read nothing.
-    Returns the config as the screen left it, for the menu to go on with; None when there was
-    nothing to show.
+    Returns the config as the screen left it; None when there was nothing to show.
     """
     try:
         cfg = config.load()
@@ -6118,7 +6121,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
         newborn = None                    # the seat `n` is typing the name of (`born`)
         framed = False                    # the last wait read no key: its frame is still up
         while True:
-            cfg = live.cfg                # as config.toml last loaded, whoever saved it
+            live.configure()              # what `c` here saved, drawn at once
+            cfg = live.cfg
             if back:
                 live.back()               # drawn as the last read left it, read behind it
                 back = False
@@ -6333,9 +6337,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     return 0
             elif key == "c":
                 # the popup's own seat, whichever row is highlighted, and in a window of its own
-                # new seats (the owner, 24 Oct 2026); read with the keys, the looks and probes
-                # going on with what it saved
-                live.cfg = show_config(dry_run, keyboard, own) or cfg
+                # new seats (the owner, 24 Oct 2026); read with the keys
+                show_config(dry_run, keyboard, own)
             elif key == "p" and past:
                 if show_past(cfg, found, dry_run, keyboard) and overlay:   # read with the keys
                     return 0              # a seat reopened: the popup's client is on it
