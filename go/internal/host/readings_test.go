@@ -7,7 +7,7 @@ import (
 )
 
 func TestSliceLineReadsTheSliceElseTheDropInsCeiling(t *testing.T) {
-	t.Setenv("AGENTKIT_TMUX_SOCKET", "")
+	t.Setenv("AGENTKIT_TMUX_SOCKET", "agentkit")
 	for _, c := range []struct {
 		current, max string
 		dropIn       float64

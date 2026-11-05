@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"agentkit/internal/config"
 )
 
 // Default is the person's own tmux server, where only seats from before ak had one of its own live.
@@ -21,19 +23,8 @@ const Mark = "@ak_orch"
 // HarnessPane is the session option naming the pane a seat's launch created.
 const HarnessPane = "@ak_harness_pane"
 
-// Control is Go's own hidden session on ak's server: no caller is ever shown it.
-const Control = "_ak"
-
 // tmux answers in milliseconds, so one silent this long never will.
 const ceiling = 15 * time.Second
-
-// Own is ak's own tmux server, never the person's default one; a test names its own.
-func Own() string {
-	if name := os.Getenv("AGENTKIT_TMUX_SOCKET"); name != "" {
-		return name
-	}
-	return "agentkit"
-}
 
 // A Session is one tmux session's name and its Mark, empty where it has none.
 type Session struct{ Name, Mark string }
@@ -47,7 +38,7 @@ func Sessions(server string) []Session {
 	}
 	var found []Session
 	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-		if at := strings.LastIndexByte(line, '\t'); at >= 0 && (line[:at] != Control || server != Own()) {
+		if at := strings.LastIndexByte(line, '\t'); at >= 0 && (line[:at] != config.Control || server != Own()) {
 			found = append(found, Session{line[:at], line[at+1:]})
 		}
 	}
