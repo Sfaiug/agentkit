@@ -34,7 +34,9 @@ from pathlib import Path
 from .akbin import AK, REFUSE
 from .akseat import Seat
 
-PROGRAM = Path(AK).parents[1]
+# Go's bin/ak is nested under go/: keep the checkout's ignore rules at their own paths.
+PROGRAM = next((folder for folder in Path(AK).resolve().parents if (folder / ".git").exists()),
+               Path(AK).parents[1])
 INSTALL = '#!/bin/sh\necho installed >>"$HOME/installed"\n'
 ORIGIN = "git@github.com:acme/agentkit.git"
 # git fetches over ssh by running its last word on the far end; only ORIGIN's is served.
