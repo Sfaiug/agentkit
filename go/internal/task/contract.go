@@ -21,8 +21,8 @@ func FrontDeclared(text, key string) (string, bool) {
 		if value = strings.TrimSpace(value); !found || strings.TrimSpace(name) != key || value == "" {
 			continue
 		}
-		for _, line := range Contract {
-			if line.Key == key && value == "none" {
+		for _, term := range Contract {
+			if term.Key == key && value == "none" {
 				return "", true
 			}
 		}

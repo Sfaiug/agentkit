@@ -36,7 +36,7 @@ func ContractRefusal(repo string) string {
 	if repo == "" {
 		return ""
 	}
-	tip := cmp.Or(RulesTip(repo), rulesRef)
+	tip := cmp.Or(RulesTip(repo), rulesRef) // never "": `git show :AGENTS.md` reads the checkout's index
 	var missing []string
 	for _, line := range task.Contract {
 		if _, declared := declaredAt(repo, tip, line.Key, nil); !declared {
