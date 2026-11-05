@@ -45,7 +45,8 @@ from .transitions import (carried_lines, change_budget, change_on, replacement_r
     change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, settled, stands_on_dependency)
+    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
@@ -2298,16 +2299,16 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR a review already judged in this run
     or any, whose later rounds review whatever the fix left.  The
-    seat builds at most `config.policy`'s `orchestrator_lines` added lines, the ones moved unchanged aside
-    and the files the target's tip marks generated, as the change will land on it, and a PR
+    seat builds at most `config.policy`'s `orchestrator_lines` added lines, as `seat_lines`
+    counts them against the target's tip the change will land on, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
     if change_reviewed(pr=url):
         return None
-    lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
-    read, limit = lines - carried, numbers["orchestrator_lines"]
-    if limit != "no limit" and read > limit:
+    limit = numbers["orchestrator_lines"]
+    read, over = seat_lines(repo, target_sha, head, limit)
+    if over:
         action = ("Split it into smaller PRs." if numbers["executor_lines"] == 0 else
                   "Write it as a task and launch it; a worker builds it")
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
