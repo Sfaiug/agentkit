@@ -5,6 +5,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -62,6 +63,7 @@ func options(args []string) (role, alias, refused string) {
 				i++
 				alias = args[i]
 			}
+		case "--link-doctrine", "--vm": // accepted for old callers, as install.sh accepts them
 		case "--phone-key":
 			if i+1 == len(args) {
 				return "", "", "--phone-key needs a public key or a file"
@@ -106,17 +108,22 @@ func install(role, alias string, out, errOut io.Writer) error {
 	}
 	// A seat started before ak stopped compacting seats types `/compact` once a stamp here is
 	// old enough; nothing writes one any more, and every install takes away those left.
-	stamps, _ := filepath.Glob(filepath.Join(ak, "state", "idle-compact", "*.json"))
-	for _, stamp := range stamps {
+	for _, stamp := range config.Glob(filepath.Join(ak, "state", "idle-compact"), "*.json") {
 		os.Remove(stamp)
 	}
 	// The shipped default is copied only where there is no config: what the owner wrote stays.
 	owned := filepath.Join(ak, "config.toml")
 	if _, err := os.Stat(owned); err != nil {
-		if err := os.WriteFile(owned, []byte(config.Shipped()), 0o600); err != nil {
+		// O_EXCL: a dangling link here is refused, as cp refuses it, never written through
+		file, err := os.OpenFile(owned, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			return fmt.Errorf("not writing through %s, a link to nothing", owned)
+		}
+		if err != nil {
 			return err
 		}
-		if err := os.Chmod(owned, 0o600); err != nil {
+		_, err = file.WriteString(config.Shipped())
+		if err := errors.Join(err, file.Chmod(0o600), file.Close()); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "wrote %s from config.default.toml; it is yours to edit from here on\n", owned)
@@ -169,8 +176,16 @@ func onPath(role, home string, out io.Writer) error {
 		if err != nil {
 			continue
 		}
-		// ak's if it names this checkout's, or a bin/ that holds ak, or dangles at a */bin/<name>
-		_, beside := os.Stat(filepath.Join(filepath.Dir(target), "ak"))
+		// ak's if it names this checkout's, or a bin/ that holds ak, or dangles at a */bin/<name>;
+		// a bare name holds no folder, as install.sh's `${target%/*}/ak` reads it
+		holder := target + "/ak"
+		if slash := strings.LastIndex(target, "/"); slash >= 0 {
+			holder = target[:slash] + "/ak"
+		}
+		if !filepath.IsAbs(holder) { // where the link points, wherever install runs from
+			holder = filepath.Join(bin, holder)
+		}
+		_, beside := os.Stat(holder)
 		_, dangles := os.Stat(stale)
 		if target == filepath.Join(checkout, "bin", name) || beside == nil ||
 			dangles != nil && strings.HasSuffix(target, "/bin/"+name) {
@@ -219,7 +234,11 @@ func loopKept(ak string) string {
 	}
 	for _, entry := range entries {
 		dir := filepath.Join(runs, entry.Name())
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		info, err := os.Stat(dir)
+		if err != nil && !os.IsNotExist(err) {
+			return unfinished // could not be looked at: unverified work
+		}
+		if err != nil || !info.IsDir() {
 			continue
 		}
 		record, _ := run.Read(dir)
