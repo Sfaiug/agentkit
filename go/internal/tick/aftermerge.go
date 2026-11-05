@@ -131,9 +131,14 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			t.log.line(fmt.Sprintf("WARN %s: a newer merge's health is unreadable; the after-merge notice waits a tick", key))
 			return nil
 		}
-		broke := merges[at]
-		target, _ := cmp.Or(broke.record.Get("target"), broke.record.Get("base")).(string)
-		target = cmp.Or(strings.TrimPrefix(cmp.Or(target, "main"), "origin/"), "main")
+		broke, branch := merges[at], any("main")
+		for _, key := range []string{"base", "target"} {
+			if broke.record.Truthy(key) {
+				branch = broke.record.Get(key)
+			}
+		}
+		target, _ := branch.(string) // the branch merged into, short: `origin/main` is `main`
+		target = cmp.Or(strings.TrimPrefix(target, "origin/"), "main")
 		var session any
 		if name := run.Seat(broke.record); name != "" {
 			session = name
