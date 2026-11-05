@@ -65,14 +65,15 @@ class MuseModelFollowedAtOnce(unittest.TestCase):
         self.append(reconfigured(self.now - 60, WONDER))
         record = self.looked()
         self.assertEqual(record["orchestrator"], "wonder")
-        self.assertEqual(record["efforts"], self.efforts)
-        self.assertIn(f"{WONDER} medium", bar(self.home, self.seat))
+        self.assertEqual(record["efforts"], {
+            **self.efforts, "wonder": {**self.efforts["wonder"], "effort": "high"}})
+        self.assertIn(f"{WONDER} high", bar(self.home, self.seat))
         term = Terminal(self.home, "attach", "--overlay", size=(120, 30),
                         env={"NO_COLOR": "1", "AGENTKIT_SESSION": self.seat.name})
         term.wait("esc leave")
         term.keys("c")
         term.wait(lambda screen: "esc back" in screen and re.search(
-            rf"^[› ] {re.escape(WONDER)} +\[?●\]? +\S+ +medium\b", screen, re.M))
+            rf"^[› ] {re.escape(WONDER)} +\[?●\]? +\S+ +high\b", screen, re.M))
 
     def test_a_reconfigure_before_any_answer_also_moves_the_seat(self):
         self.log.write_text(reconfigured(self.now - 60, WONDER))
