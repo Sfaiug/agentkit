@@ -24,6 +24,7 @@ import functools
 import importlib
 import json
 import math
+import os
 from datetime import datetime
 from pathlib import Path
 import re
@@ -126,6 +127,22 @@ def says(text, word):
 def limited(text):
     """Does `text` say a rate limit (`LIMITS`), whole?"""
     return any(says(text, word) for word in LIMITS)
+
+
+def model_report(conversation):
+    """The model, effort and time of that conversation's last changed status render."""
+    if not conversation:
+        return None
+    try:
+        with (config.STATE / f"model-{conversation}.json").open() as stream:
+            report = json.load(stream)
+            # Read the timestamp from the same inode: another render may have replaced it.
+            at = os.fstat(stream.fileno()).st_mtime
+        if isinstance(report, dict) and isinstance(report.get("model"), str) and report["model"]:
+            return report["model"], report.get("effort"), at
+    except (OSError, ValueError):
+        pass
+    return None
 
 
 def last_entry(path, pick):
@@ -235,6 +252,11 @@ def issued(name, conversation, **fields):
     """Write down the launcher's own id as what that launch owns, beside `fields`."""
     config.update_session(name, conversation=conversation, resumable=bool(conversation),
                           id_source=LAUNCHER if conversation else None, before=None, **fields)
+
+
+def recorded_conversations(record):
+    """Ids already proven by a seat record; `owned` must neither discover nor claim one."""
+    return [record.get("conversation"), *(module.owned(record) for module in _plugins("owned"))]
 
 
 def user_message(at, text):

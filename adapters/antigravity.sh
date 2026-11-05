@@ -156,6 +156,13 @@ interactive)
     echo "antigravity.sh interactive: the TUI cannot be given a conversation id" >&2; exit 3; }
   resume=""; [ -n "${3:-}" ] && resume=$(printf -- '--conversation %q ' "$3")
   REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
+  # Read the status command from this login's data directory, as agy does.
+  status=$(jq -c '.statusLine | objects | select(.command | strings | length > 0)' \
+              "${TOKEN%/*}/settings.json" 2>/dev/null) || status=
+  script=$(printf '%q' "$REPO/hooks/claude-status.sh")
+  settings=$(jq -cn --argjson status "${status:-null}" --arg script "$script" '
+    {statusLine: (if $status then $status | .command = ($script + " | { " + .command + "\n}")
+                 else {type: "command", command: ($script + " >/dev/null")} end)}') || exit 2
   # The orchestrator rulebook this launch is handed.  agy 1.2.9 takes no system-prompt or
   # instructions flag; it takes `--agent <name>`, a custom agent whose agent.md is front
   # matter and then the system prompt, found under `.agents/agents/<name>/` of any directory
@@ -183,8 +190,9 @@ interactive)
   # PreInvocation at invocationNum 0 is the turn's prompt, which hooks/seat-state.sh writes
   # down as UserPromptSubmit (its stdout discarded, as agy parses a PreInvocation hook's
   # stdout as a PreInvocationHookResult), and Stop is the end-of-turn gate itself.
-  pre="jq -c 'select((.invocationNum // 0) == 0) | {prompt: (.lastUserInput // \"\"), session_id: (.conversationId // \"\"), hook_event_name: \"UserPromptSubmit\"}' | bash ${REPO@Q}/hooks/seat-state.sh >/dev/null; exit 0"
-  stop="bash ${REPO@Q}/hooks/orchestrator-stop.sh"
+  quoted=$(printf '%q' "$REPO")
+  pre="jq -c 'select((.invocationNum // 0) == 0) | {prompt: (.lastUserInput // \"\"), session_id: (.conversationId // \"\"), hook_event_name: \"UserPromptSubmit\"}' | bash $quoted/hooks/seat-state.sh >/dev/null; exit 0"
+  stop="bash $quoted/hooks/orchestrator-stop.sh"
   agents=$(mkdir -p -- "$state/antigravity" &&
     mktemp -d "$state/antigravity/$(basename -- "$rb" .md).XXXXXX") &&
     def="$agents/.agents/agents/agentkit" && mkdir -p -- "$def" &&
@@ -214,9 +222,9 @@ interactive)
   # %q: shlex.split, which `ak orch` parses this line with, reads no $'...'.
   first=""; [ -z "${AGENTKIT_FIRST_PROMPT:-}" ] ||
     { sq="'"; first=" --prompt-interactive='${AGENTKIT_FIRST_PROMPT//$sq/$sq\\$sq$sq}'"; }
-  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --dangerously-skip-permissions%s\n' \
+  printf 'python3 %q --harness antigravity -- env %sAGY_CLI_DISABLE_AUTO_UPDATE=1 agy %s%s--add-dir %q --agent agentkit --model %q --settings %q --dangerously-skip-permissions%s\n' \
       "$REPO/tools/idle-compact.py" "$acct" "${DATA:+$DATA }" "$resume" "$agents" "$model" \
-      "$first" ;;
+      "$settings" "$first" ;;
 usage)
   # agy's `/usage` panel draws what `retrieveUserQuotaSummary` answers for the project
   # `loadCodeAssist` names: groups of models, each with its windows, the share of one left and
