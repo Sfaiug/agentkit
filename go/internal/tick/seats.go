@@ -45,7 +45,7 @@ func midturn(live seat.Live, account bool) bool {
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.
 func healthy(live seat.Live) bool {
-	return live.Stall == nil && live.Login == nil && !live.Stuck && live.Bound && titleKept(live) &&
+	return live.Stall == nil && quietLogin(live) && live.Bound && titleKept(live) &&
 		(notify.Last(live.Name) == nil || unansweredQuestion(live)) && stays(live)
 }
 
