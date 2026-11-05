@@ -60,7 +60,7 @@ class NoLimit(unittest.TestCase):
 
     def test_other_text_is_refused_naming_the_accepted_values(self):
         for front in (False, True):
-            for key, floor in (("executor_lines", 1), ("orchestrator_lines", 0)):
+            for key, floor in (("executor_lines", 0), ("orchestrator_lines", 0)):
                 with self.subTest(front=front, key=key):
                     self.prepare(key, "lots", front=front)
                     task = taskfile.write(self.home, self.rig.path)
