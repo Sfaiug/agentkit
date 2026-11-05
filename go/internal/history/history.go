@@ -200,20 +200,29 @@ func Path() string {
 // Open is history.db brought up to today's tables, keeping its rows; nil where none stands,
 // since Go makes none.  An error where Go leaves it to Python ak, having written nothing: SQLite
 // cannot open it, it keeps seats' tokens, which Python alone reads on, or its tokens wait for
-// Python's one-time repair.
+// Python's one-time repair.  All of it under Python's writers' lock, so what Go decides on stays
+// as it read it until it is done.
 func Open() (*DB, error) {
 	path := Path()
 	if _, err := os.Stat(path); err != nil {
 		return nil, nil
 	}
 	runtimeOnce.Do(cacheCompiles)
-	conn, err := sqlite3.OpenFlags(path, sqlite3.OPEN_READWRITE)
+	held, err := lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
 	if err != nil {
 		return nil, err
 	}
-	db := &DB{conn}
-	if err := db.upgrade(path); err != nil {
-		conn.Close()
+	defer held.Close()
+	recounted, err := leftToPython(path)
+	if err != nil {
+		return nil, err
+	}
+	db, err := connect(path, sqlite3.OPEN_READWRITE)
+	if err == nil {
+		err = db.upgrade(recounted)
+	}
+	if err != nil {
+		db.Close()
 		return nil, err
 	}
 	return db, nil
@@ -236,46 +245,64 @@ func cacheCompiles() {
 		WithCoreFeatures(api.CoreFeaturesV2).WithCompilationCache(cache)
 }
 
-// upgrade is Python's history._connect on a database that stands, on a connection that never
-// moves the WAL into the database, which the tick alone does.  It writes nothing where the
-// database is Python's; else, under Python's writers' lock, it makes the connection a writer as
-// Python's waiter.connect does, and brings in today's tables and columns in one transaction.
-func (db *DB) upgrade(path string) error {
-	if _, err := db.conn.Config(sqlite3.DBCONFIG_NO_CKPT_ON_CLOSE, true); err != nil {
-		return err
-	}
-	if err := db.conn.BusyTimeout(2 * time.Second); err != nil {
-		return err
-	}
-	err := db.conn.CreateFunction("suite_run", 2, 0, func(ctx sqlite3.Context, arg ...sqlite3.Value) {
-		repo := ""
-		if arg[1].Type() == sqlite3.TEXT {
-			repo = arg[1].Text()
-		}
-		ctx.ResultBool(suiteRun(arg[0].Text(), repo))
-	})
+// connect opens a connection that never moves the WAL into the database, which the tick alone
+// does, waits on a writer as Python's does, and reads realWork's suite_run.
+func connect(path string, flags sqlite3.OpenFlag) (*DB, error) {
+	conn, err := sqlite3.OpenFlags(path, flags)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	if seats, _ := db.read("SELECT 1 FROM sqlite_master WHERE name = 'seat_sources'"); len(seats) > 0 {
-		return errors.New("it keeps seats' tokens, which Python ak alone reads on")
+	db := &DB{conn}
+	if _, err = conn.Config(sqlite3.DBCONFIG_NO_CKPT_ON_CLOSE, true); err == nil {
+		err = conn.BusyTimeout(2 * time.Second)
+	}
+	if err == nil {
+		err = conn.CreateFunction("suite_run", 2, 0, func(ctx sqlite3.Context, arg ...sqlite3.Value) {
+			repo := ""
+			if arg[1].Type() == sqlite3.TEXT {
+				repo = arg[1].Text()
+			}
+			ctx.ResultBool(suiteRun(arg[0].Text(), repo))
+		})
+	}
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// leftToPython is an error where the database is Python ak's alone, else whether Python's one-time
+// recount of its tokens is done.  It reads through a connection that cannot write, where SQLite
+// refuses a crashed writer's journal rather than rolls it back.
+func leftToPython(path string) (recounted bool, err error) {
+	db, err := connect(path, sqlite3.OPEN_READONLY)
+	if err != nil {
+		return false, err
+	}
+	defer db.Close()
+	seats, err := db.rows("SELECT 1 FROM sqlite_master WHERE name = 'seat_sources'")
+	if err != nil || len(seats) > 0 {
+		return false, cmp.Or(err, errors.New("it keeps seats' tokens, which Python ak alone reads on"))
 	}
 	version, err := db.rows("PRAGMA user_version")
 	if err != nil {
-		return err
+		return false, err
 	}
-	// from 2 on, Python's one-time recount of the tokens is done
-	recounted := version[0]["user_version"].(int64) >= 2
-	if !recounted {
-		if repair, err := db.repairs(); err != nil || repair {
-			return cmp.Or(err, errors.New("its tokens wait for Python ak's one-time repair"))
-		}
+	// from 2 on, the recount is done
+	if version[0]["user_version"].(int64) >= 2 {
+		return true, nil
 	}
-	held, err := lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
-	if err != nil {
-		return err
+	if repair, err := db.repairs(); err != nil || repair {
+		return false, cmp.Or(err, errors.New("its tokens wait for Python ak's one-time repair"))
 	}
-	defer held.Close()
+	return false, nil
+}
+
+// upgrade is Python's history._connect on a database that is not Python's alone: the connection
+// made a writer as Python's waiter.connect makes one, and today's tables and columns brought in
+// in one transaction.
+func (db *DB) upgrade(recounted bool) error {
 	for _, pragma := range []string{"journal_mode=WAL", "synchronous=NORMAL", "wal_autocheckpoint=0",
 		fmt.Sprintf("journal_size_limit=%d", walMax)} {
 		if err := db.exec("PRAGMA " + pragma); err != nil {

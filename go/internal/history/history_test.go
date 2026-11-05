@@ -2,13 +2,17 @@ package history
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ncruces/go-sqlite3"
+
+	"agentkit/internal/lock"
 )
 
 func home(t *testing.T) string {
@@ -27,18 +31,24 @@ func home(t *testing.T) string {
 // history made, and one an ak since made and dropped.
 func older(t *testing.T, statements ...string) {
 	t.Helper()
-	conn, err := sqlite3.Open(Path())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	for _, statement := range append([]string{"CREATE TABLE runs (run_id TEXT PRIMARY KEY, repo TEXT, executor TEXT, " +
+	write(t, append([]string{"CREATE TABLE runs (run_id TEXT PRIMARY KEY, repo TEXT, executor TEXT, " +
 		"reviewer TEXT, rounds_used INTEGER, final_state TEXT, verdict TEXT, started_at REAL, finished_at REAL, " +
 		"executor_seconds REAL, done_when_seconds REAL, reviewer_seconds REAL, merge_seconds REAL, " +
 		"total_seconds REAL, executor_tokens INTEGER, reviewer_tokens INTEGER, peak_rss_mb REAL, session TEXT, " +
 		"suite_repo TEXT)",
 		"INSERT INTO runs (run_id, repo, final_state, executor_tokens, reviewer_tokens, finished_at, suite_repo) " +
-			"VALUES ('20261001-1200-fix-api', 'acme', 'pass', 12000, 3000, 1.5, 'acme')"}, statements...) {
+			"VALUES ('20261001-1200-fix-api', 'acme', 'pass', 12000, 3000, 1.5, 'acme')"}, statements...)...)
+}
+
+// write runs statements on history.db as another program would.
+func write(t *testing.T, statements ...string) {
+	t.Helper()
+	conn, err := sqlite3.Open(Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for _, statement := range statements {
 		if err := conn.Exec(statement); err != nil {
 			t.Fatal(err)
 		}
@@ -119,12 +129,37 @@ func TestNoDatabaseIsMade(t *testing.T) {
 }
 
 // What Go leaves to Python ak, it leaves having written nothing: a file SQLite cannot open,
-// seats' tokens, which Python alone reads on, and the tokens Python recounts once.
+// a crashed writer's journal, which SQLite would roll back into it, seats' tokens, which Python
+// alone reads on, and the tokens Python recounts once.
 func TestOpenLeavesToPythonWhatItCannotKeep(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T){
 		"not a database": func(t *testing.T) {
 			if err := os.WriteFile(Path(), bytes.Repeat([]byte("acme "), 2000), 0o600); err != nil {
 				t.Fatal(err)
+			}
+		},
+		"a crashed writer's journal": func(t *testing.T) {
+			writer := filepath.Join(t.TempDir(), "history.db")
+			conn, err := sqlite3.Open(writer)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			if err := conn.Exec("CREATE TABLE runs (run_id TEXT PRIMARY KEY, executor_tokens INTEGER); " +
+				"WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000) " +
+				"INSERT INTO runs SELECT 'fix-api-' || i, 1 FROM n; PRAGMA cache_size=1; BEGIN IMMEDIATE; " +
+				"UPDATE runs SET executor_tokens=999999"); err != nil {
+				t.Fatal(err)
+			}
+			// mid-transaction, its files stand as a writer that died now leaves them
+			for _, suffix := range []string{"", "-journal"} {
+				data, err := os.ReadFile(writer + suffix)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(Path()+suffix, data, 0o600); err != nil {
+					t.Fatal(err)
+				}
 			}
 		},
 		"seats' tokens": func(t *testing.T) {
@@ -145,14 +180,43 @@ func TestOpenLeavesToPythonWhatItCannotKeep(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			home(t)
 			setup(t)
-			data, _ := os.ReadFile(Path())
+			data, journal := read(Path()), read(Path()+"-journal")
 			if db, err := Open(); db != nil || err == nil {
 				t.Fatalf("got (%v, %v)", db, err)
 			}
-			if now, _ := os.ReadFile(Path()); !bytes.Equal(now, data) {
+			if !bytes.Equal(read(Path()), data) || !bytes.Equal(read(Path()+"-journal"), journal) {
 				t.Fatal("history.db changed")
 			}
 		})
+	}
+}
+
+func read(path string) []byte {
+	data, _ := os.ReadFile(path)
+	return data
+}
+
+// Seats' tokens Python's writers keep while Go waits for their lock leave the database Python's:
+// Go decides on what it reads once the lock is its own.
+func TestWhatPythonWritesWhileGoWaitsDecides(t *testing.T) {
+	home(t)
+	older(t, "PRAGMA user_version=2")
+	held, err := lock.Wait(context.Background(), strings.TrimSuffix(Path(), ".db")+".lock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	opened := make(chan error)
+	go func() {
+		db, err := Open()
+		db.Close()
+		opened <- err
+	}()
+	// time for Open to reach the lock; it waits there however long this takes
+	time.Sleep(200 * time.Millisecond)
+	write(t, "CREATE TABLE seat_sources (path TEXT PRIMARY KEY, harness TEXT, repo TEXT, cursor TEXT)")
+	held.Close()
+	if err := <-opened; err == nil {
+		t.Fatal("Go opened a database keeping seats' tokens")
 	}
 }
 
