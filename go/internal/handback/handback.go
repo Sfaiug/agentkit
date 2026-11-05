@@ -141,27 +141,29 @@ func history(record *run.Object) bool {
 // mark writes delivery marks onto the record as it stands, nil removing one, only while it is
 // still the attempt `snapshot` is of, as Python's mark_delivery; the snapshot takes them too.
 func mark(dir string, snapshot *run.Object, pairs ...any) bool {
-	set := func(record *run.Object) {
-		for at := 0; at < len(pairs); at += 2 {
-			if key := pairs[at].(string); pairs[at+1] == nil {
-				record.Delete(key)
-			} else {
-				record.Set(key, pairs[at+1])
-			}
-		}
-	}
 	err := run.Deliver(dir, func(current *run.Object) error {
 		if !sameAttempt(snapshot, current) {
 			return errMoved
 		}
-		set(current)
+		marked(current, pairs)
 		return nil
 	})
 	if err != nil {
 		return false
 	}
-	set(snapshot)
+	marked(snapshot, pairs)
 	return true
+}
+
+// marked puts the marks on a record, nil removing one.
+func marked(record *run.Object, pairs []any) {
+	for at := 0; at < len(pairs); at += 2 {
+		if key := pairs[at].(string); pairs[at+1] == nil {
+			record.Delete(key)
+		} else {
+			record.Set(key, pairs[at+1])
+		}
+	}
 }
 
 var errMoved = fmt.Errorf("the run moved on")

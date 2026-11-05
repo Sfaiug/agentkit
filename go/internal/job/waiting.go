@@ -9,8 +9,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// terminal are the task states a job is done with (job.JOB_TERMINAL).
-var terminal = []string{"merged", "passed", "failed", "blocked", "skipped", "stopped"}
+// Terminal are the task states a job is done with (job.JOB_TERMINAL).
+var Terminal = []string{"merged", "passed", "failed", "blocked", "skipped", "stopped"}
 
 // Waiting is whether a live job of the seat's is one it can wait on, before any task of it has a
 // run (job.job_waiting): finished, or its launcher still running, with a task not done.
@@ -29,7 +29,7 @@ func Waiting(seat string) bool {
 		}
 		if slices.ContainsFunc(job.List("tasks"), func(task any) bool {
 			listed, _ := task.(*run.Object)
-			return listed != nil && !slices.Contains(terminal, listed.Str("state"))
+			return listed != nil && !slices.Contains(Terminal, listed.Str("state"))
 		}) {
 			return true
 		}

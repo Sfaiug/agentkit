@@ -100,7 +100,7 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 					case "review-pr", "repair", "review-pr-moved", "repair-moved":
 						record.Set(strings.ReplaceAll(strings.TrimSuffix(kind, "-moved"), "-", "_"), true)
 					case "active":
-						run.SetAll(record, "pid", os.Getpid(), "process_identity", identity(os.Getpid()))
+						run.SetAll(record, "pid", os.Getpid(), "process_identity", Identity(os.Getpid()))
 					case "missing-review":
 						record.Set("review", nil)
 					case "changed":

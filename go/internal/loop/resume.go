@@ -190,7 +190,7 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 			record.Delete(key)
 		}
 		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", clock(),
-			"pid", os.Getpid(), "process_identity", identity(os.Getpid()), "recovery_pending", true,
+			"pid", os.Getpid(), "process_identity", Identity(os.Getpid()), "recovery_pending", true,
 			"recovery_acknowledged_at", nil, "error", nil, "finished_at", nil, "reported", false)
 		return nil
 	})

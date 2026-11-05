@@ -179,7 +179,7 @@ func TestAStopRefusesAnEndingAndLeavesToPythonWhatIsNotGos(t *testing.T) {
 		"a review's":       {[]any{"state", "running", "review_pr", "https://github.com/acme/api/pull/1"}, "", "python"},
 		"under a unit":     {[]any{"state", "running", "scope", "agentkit-run-x.scope"}, "", "python"},
 		"history to close": {[]any{"state", "running"}, "history.db", "python"},
-		"a live program":   {[]any{"state", "running", "pid", os.Getpid(), "process_identity", identity(os.Getpid())}, "", "python"},
+		"a live program":   {[]any{"state", "running", "pid", os.Getpid(), "process_identity", Identity(os.Getpid())}, "", "python"},
 		"parked":           {[]any{"state", "stopped", "lease_wait", run.Fields("on", "x")}, "", "python"},
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -10,7 +10,6 @@ import (
 	"agentkit/internal/gc"
 	"agentkit/internal/handback"
 	"agentkit/internal/host"
-	"agentkit/internal/job"
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
 	"agentkit/internal/run"
@@ -52,7 +51,7 @@ func table(t *ticking) []pass {
 		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
 		{"switched turns", false, configured, accountTurns},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
-		{"dead jobs", true, jobless, nil},
+		{"dead jobs", true, noDeadJobs, nil},
 		{"stall recovery", true, all(configured, noStallRecovery), nil},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
@@ -68,7 +67,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"endings", false, t.endingsIdle, t.endings},
-		{"job handbacks", false, jobless, nil},
+		{"job handbacks", false, nil, t.jobHandbacks},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
@@ -135,8 +134,6 @@ func all(reads ...func() bool) func() bool {
 
 // configured is whether the config loads; Python's passes that load it warn where it does not.
 func configured() bool { return config.Check() == nil }
-
-func jobless() bool { return empty(job.Jobs()) }
 
 func secretless() bool { return empty(filepath.Join(config.Home(), "secrets")) }
 

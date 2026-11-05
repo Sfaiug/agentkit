@@ -97,7 +97,7 @@ func Merge(dir string, out, errOut io.Writer) (int, string, error) {
 			current.Delete(key)
 		}
 		run.SetAll(current, "state", "running", "merge_failed", false, "merge_note", nil, "on_target", false,
-			"reported", false, "finished_at", nil, "pid", os.Getpid(), "process_identity", identity(os.Getpid()))
+			"reported", false, "finished_at", nil, "pid", os.Getpid(), "process_identity", Identity(os.Getpid()))
 		return nil
 	}); errors.Is(err, ErrChanged) {
 		return 2, err.Error(), nil
