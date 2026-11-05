@@ -7,15 +7,20 @@ import (
 
 // CatalogWaiting keeps the frame, usage and back key up while a plugin's models are read.
 func CatalogWaiting(s terminal.Screen, title, clock string, cells []Cell, moves *motion.Clock) []string {
-	body := usageLines(s, cells, s.LayoutWidth())
-	if len(body) == 0 {
-		body = usageSummary(cells, s.LayoutWidth(), -1)
-	}
-	body = append(body, "")
+	body := []string{""}
 	for _, line := range terminal.Wrap("Reading models", max(1, s.LayoutWidth()-2)) {
 		body = append(body, "  "+line)
 	}
-	lines := Panel(s, title, clock, body, "esc back")
+	// Leave Painter room for its final newline.
+	room := s.Height() - len(Panel(s, title, clock, body, "esc back")) - 1
+	usage := usageLines(s, cells, s.LayoutWidth())
+	if len(usage) == 0 || len(usage) > room {
+		usage = nil
+		if room > 0 {
+			usage = usageSummary(cells, s.LayoutWidth(), room)
+		}
+	}
+	lines := Panel(s, title, clock, append(usage, body...), "esc back")
 	lines[1] = moves.WaitingRule(s, s.LayoutWidth())
 	return lines
 }
