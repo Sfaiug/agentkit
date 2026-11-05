@@ -109,12 +109,12 @@ func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
 		record.Set("id_source", each.source)
 		record.Set("resumable", each.resumable)
 		before := run.Encode(record)
-		if _, ready := For("codex").Reconciled(record); ready != each.ready || run.Encode(record) != before {
+		if _, ready := For("codex").Reconciled("acme", record); ready != each.ready || run.Encode(record) != before {
 			t.Errorf("record changed or readiness differs: %+v", each)
 		}
 	}
 	record.Set("codex_launch", strings.Repeat("b", 32))
-	if _, ready := For("codex").Reconciled(record); !ready || !RecordReadOnly("codex") {
+	if _, ready := For("codex").Reconciled("acme", record); !ready || !RecordReadOnly("codex") {
 		t.Error("a record with no proven thread cannot be read without reconciling it")
 	}
 	for entry, kept := range map[string]bool{"codex-launch-" + token + ".json": true, "codex-remote-" + token: true,
@@ -133,7 +133,7 @@ func TestCodexListingKeepsItsReceiptButReadsTheRolloutOn(t *testing.T) {
 		"id_source": "codex-session-start", "resumable": true} {
 		record.Set(key, value)
 	}
-	reader, ready := For("codex").Reconciled(record)
+	reader, ready := For("codex").Reconciled("acme", record)
 	if !ready {
 		t.Fatal("the bound receipt needs no reconciliation")
 	}

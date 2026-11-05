@@ -17,12 +17,15 @@ func For(name string) Reader { return Reader{name, plugins[name]} }
 
 // Reconciled reads the evidence once, where Python's orch.records calls plugin.reconcile.
 // False leaves a record owed reconciliation to Python, before the listing writes anything.
-func (reader Reader) Reconciled(record *run.Object) (Reader, bool) {
+func (reader Reader) Reconciled(name string, record *run.Object) (Reader, bool) {
 	if hook := reader.own.record; hook != nil {
 		own, ready := hook(record)
-		return Reader{reader.Name, own}, ready
+		if !ready {
+			return Reader{reader.Name, own}, false
+		}
+		reader.own = own
 	}
-	return reader, true
+	return reader.hearing(name), true
 }
 
 // RecordReadOnly keeps a harness's own reconciliation entirely in Python, including when the

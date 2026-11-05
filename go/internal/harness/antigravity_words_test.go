@@ -40,7 +40,7 @@ func TestAntigravityScreenLeavesConversationEvidenceToPython(t *testing.T) {
 			}
 			record := value.(*run.Object)
 			before := run.Encode(record)
-			if _, known := For("antigravity").Reconciled(record); known != each.ready || run.Encode(record) != before {
+			if _, known := For("antigravity").Reconciled("acme", record); known != each.ready || run.Encode(record) != before {
 				t.Fatalf("readiness differs or record changed: %s, ready=%v", run.Encode(record), known)
 			}
 		})

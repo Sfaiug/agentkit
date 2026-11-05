@@ -22,7 +22,7 @@ func TestMuseScreenLeavesReportedSessionsToPython(t *testing.T) {
 	check := func(ready bool) {
 		t.Helper()
 		before := run.Encode(record)
-		if _, known := For("muse").Reconciled(record); known != ready || run.Encode(record) != before {
+		if _, known := For("muse").Reconciled("acme", record); known != ready || run.Encode(record) != before {
 			t.Fatalf("readiness differs or record changed: %s, ready=%v", run.Encode(record), known)
 		}
 	}
