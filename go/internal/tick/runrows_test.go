@@ -45,7 +45,7 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 		"error retry":      `{"state":"error","error_retry_at":1}`,
 		"waiting resume":   `{"state":"waiting","waiting_on":{"line":"older"}}`,
 		"old endings":      `{"state":"pass","finished_at":1}`,
-		"endings":          `{"state":"pass"}`,
+		"endings":          `{"state":"pass","launched_session":"acme"}`,
 		"seat sweep":       `{"state":"running"}`,
 	} {
 		t.Run(row, func(t *testing.T) {

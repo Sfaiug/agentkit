@@ -174,6 +174,7 @@ test_key_red_stack_narrows_by_what_failed
 test_key_reopen_dead_pane
 test_key_reopen_gone_seat
 test_key_resume_interrupted
+test_key_review_others_prs
 test_key_review_pr
 test_key_reviewer_fail_rounds
 test_key_revive_seat

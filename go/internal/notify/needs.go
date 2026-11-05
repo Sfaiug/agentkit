@@ -5,9 +5,10 @@ import (
 	"io"
 )
 
-// RevivalFailed records the recovery event as shaped does, beside the standing question,
-// then evaluates its existing card with shaped's zero wait on the word and last input.
-func RevivalFailed(name, text, source string, published func(string) (string, any), errOut io.Writer) (bool, error) {
+// Needs is ak's own question about a seat, Python's shaped with an event id: recorded beside the
+// standing question, once for its event, then its existing card evaluated with shaped's zero
+// wait on the word and last input.  False, recorded or not, where that card is Python's to evaluate.
+func Needs(name, text, source string, published func(string) (string, any), errOut io.Writer) (bool, error) {
 	if Suppressed(false, errOut) {
 		return true, nil
 	}
