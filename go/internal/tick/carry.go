@@ -28,6 +28,7 @@ type ticking struct {
 	slowest     time.Duration
 	slowestName string
 	dry         bool // a dry tick, which reads the dry rows and carries out none
+	report      AuditReport
 }
 
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding
@@ -36,7 +37,7 @@ type ticking struct {
 // Go does not carry, what the rows before did standing; after what Python's next tick reads as its
 // own where gh names a pull request to act on; with nothing written where gh cannot be read,
 // or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.
-func Carry(out, errOut io.Writer) bool {
+func Carry(out, errOut io.Writer, report ...AuditReport) bool {
 	if Overlap(out, errOut) {
 		return true
 	}
@@ -72,6 +73,9 @@ func Carry(out, errOut io.Writer) bool {
 		return false
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
+	if len(report) > 0 {
+		t.report = report[0]
+	}
 	if !t.through(table(t)) {
 		return false
 	}

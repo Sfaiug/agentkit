@@ -165,6 +165,7 @@ test_key_plan_list_format
 test_key_plan_list_ticks
 test_key_plan_needs_seat
 test_key_plan_rename PlanUnderTheOldName
+test_key_plan_words
 test_key_plugin_model_seat
 test_key_project_rules_fetched
 test_key_prompt_hook_fact

@@ -21,6 +21,9 @@ func cards(errOut io.Writer) error {
 	for _, name := range names {
 		carried, err := notify.TurnedQuestion(name, seat.Published, errOut)
 		if !carried && err == nil {
+			carried, err = notify.TurnedNeed(name, seat.Published, errOut)
+		}
+		if !carried && err == nil {
 			carried, err = notify.TurnedPlan(name, seat.Published, plan.Outcomes)
 		}
 		if !carried && err == nil {

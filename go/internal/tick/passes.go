@@ -47,7 +47,7 @@ func table(t *ticking) []pass {
 		// worker tokens are in secrets, and a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
-		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), health},
+		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.health},
 		{"switched turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, true) })), nil},
 		{"dead loops", true, all(configured, noDeadLoops), nil},
 		{"dead jobs", true, jobless, nil},
@@ -69,7 +69,7 @@ func table(t *ticking) []pass {
 		{"seat tokens", false, run.Historyless, nil},
 		{"history sync", false, run.Historyless, nil},
 		{"history checkpoint", false, run.Historyless, nil},
-		{"weekly audit", false, all(configured, config.AuditOff), nil},
+		{"weekly audit", false, configured, t.audit},
 		{"typed answers", false, every(unasked), nil},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
 		{"notification retry", true, t.dryly(notify.QuietOutbox), t.retryNotifications},
