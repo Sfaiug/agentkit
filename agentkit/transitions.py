@@ -265,10 +265,11 @@ def seat_lines(repo, target, head, limit):
     """(the added lines a seat's change has its first review read, whether they are more than
     `limit`, `config.policy`'s `orchestrator_lines`: at most that many, or "no limit"), counted
     from where `head` left `target`, the tip it lands on: `diff_lines`' added lines less
-    `carried_lines`.  The review gate (`run.own_pr_first_review`) and the gh shim's word at
+    `carried_lines`.  0 is a seat that builds nothing, so a change adding no line is too much
+    there as well.  The review gate (`run.own_pr_first_review`) and the gh shim's word at
     `gh pr create` (`guard.pr_create_refusal`) both ask here, so the two never disagree."""
     read = diff_lines(repo, target, head, added_only=True) - carried_lines(repo, target, head)
-    return read, limit != "no limit" and read > limit
+    return read, limit == 0 or (limit != "no limit" and read > limit)
 
 
 def reviewed_lines(repo, base, head="HEAD"):

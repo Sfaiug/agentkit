@@ -51,14 +51,19 @@ class SeatPrSizeAtCreate(unittest.TestCase):
     def git(self, where, *args):
         subprocess.run(["git", "-C", str(where), *args], check=True, env=self.env, capture_output=True)
 
-    def build(self, lines, limit=50):
+    def build(self, lines, *argv, limit=50, **env):
+        """The seat's branch adding `lines` lines (none: deleting AGENTS.md), then its
+        `gh pr create` with `argv` (`--fill` when none)."""
         (self.home / ".agentkit/config.toml").write_text(f"orchestrator_lines = {json.dumps(limit)}\n")
-        (self.seat / "grow.py").write_text("".join(f"row_{n} = {n}\n" for n in range(lines)))
+        if lines:
+            (self.seat / "grow.py").write_text("".join(f"row_{n} = {n}\n" for n in range(lines)))
+        else:
+            (self.seat / "AGENTS.md").unlink()
         self.git(self.seat, "add", "-A")
         self.git(self.seat, "commit", "-qm", "grow")
         self.ran.write_text("")
-        done = subprocess.run(["gh", "pr", "create", "--fill"], cwd=self.seat, env=self.env,
-                              capture_output=True, text=True, timeout=60)
+        done = subprocess.run(["gh", "pr", "create", *(argv or ["--fill"])], cwd=self.seat,
+                              env={**self.env, **env}, capture_output=True, text=True, timeout=60)
         return done, self.ran.read_text()
 
     def test_a_branch_past_the_limit_is_refused_before_the_pr_exists(self):
@@ -77,6 +82,30 @@ class SeatPrSizeAtCreate(unittest.TestCase):
         done, ran = self.build(60, limit="no limit")
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(ran, "pr create --fill\n")
+
+    def test_none_lets_no_create_through(self):
+        # 0: the seat builds nothing, so even a change that only deletes is too much
+        done, ran = self.build(0, limit=0)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(ran, "")
+
+    def test_the_branch_is_read_as_gh_reads_it(self):
+        # the head grouped behind a switch, and a title that only reads like a head
+        for argv in (["-fHgrow"], ["--title", "--head=main", "--fill"]):
+            with self.subTest(argv=argv):
+                done, ran = self.build(60, *argv)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertEqual(ran, "")
+
+    def test_what_the_shim_cannot_measure_reaches_gh(self):
+        # another repository's PR, and help: the review gate still holds what reaches GitHub
+        for argv, env in ((["--fill", "--repo", "acme/elsewhere"], {}),
+                          (["--fill"], {"GH_REPO": "acme/elsewhere"}),
+                          (["--help"], {})):
+            with self.subTest(argv=argv, env=env):
+                done, ran = self.build(60, *argv, **env)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(ran, f"pr create {' '.join(argv)}\n")
 
 
 if __name__ == "__main__":

@@ -327,21 +327,47 @@ def gh_command(args):
     return words
 
 
-def gh_value(args, short, long):
-    """The value gh reads for that string option, the last given: `-B x`, `-Bx`, `--base x` or
-    `--base=x`; None when none is.  No other option is parsed, so a word that only looks like one
-    names a ref no checkout has, and the call runs."""
-    value = None
-    for at, arg in enumerate(args):
-        if arg == "--":
-            break
-        if arg in (short, long):
-            value = args[at + 1] if at + 1 < len(args) else None
-        elif arg.startswith(f"{long}="):
-            value = arg[len(long) + 1:]
-        elif arg.startswith(short):
-            value = arg[len(short):]
-    return value
+# `gh pr create`'s options, as gh reads them: its switches, and those that take a value (-R/--repo
+# among them), each short name by its long one.  A call holding any other -- help, or one a later
+# gh adds -- runs unmeasured: what that option makes of the next word cannot be told.
+PR_CREATE_SWITCHES = {"-d", "-e", "-f", "-w", "--draft", "--dry-run", "--editor", "--fill",
+                      "--fill-first", "--fill-verbose", "--no-maintainer-edit", "--web"}
+PR_CREATE_VALUED = {"-a": "--assignee", "-B": "--base", "-b": "--body", "-F": "--body-file",
+                    "-H": "--head", "-l": "--label", "-m": "--milestone", "-p": "--project",
+                    "-R": "--repo", "-r": "--reviewer", "-T": "--template", "-t": "--title",
+                    "--recover": "--recover"}
+
+
+def pr_create_options(args):
+    """{the long name of each valued option a `gh pr create` call gives: the value gh reads, the
+    last one}, or None when it holds an option not known here.  A value rides in its option's
+    word (`--base=x`, `-Bx`, `-fBx` after switches) or is the next word, whatever that reads
+    like (`--title --base=x` is a title)."""
+    letters = "".join(name[1] for name in PR_CREATE_SWITCHES if len(name) == 2)
+    found, at = {}, 0
+    while at < len(args) and args[at] != "--":
+        word, at = args[at], at + 1
+        if word.startswith("--"):
+            name, attached, value = word.partition("=")
+            if name in PR_CREATE_SWITCHES and not attached:
+                continue
+        elif word.startswith("-") and word != "-":
+            rest = word[1:].lstrip(letters)
+            if not rest:
+                continue
+            name, value = f"-{rest[0]}", rest[1:].removeprefix("=")
+            attached = value
+        else:
+            continue                                    # `pr`, `create`
+        name = PR_CREATE_VALUED.get(name, name)
+        if name not in PR_CREATE_VALUED.values():
+            return None
+        if not attached:
+            if at == len(args):
+                return None
+            value, at = args[at], at + 1
+        found[name] = value
+    return found
 
 
 def gh_refusal(args, gh="gh"):
@@ -368,18 +394,27 @@ def pr_create_refusal(args):
     """Why a seat may not open this pull request, or None: its branch adds more lines than the
     seat builds, as the review gate counts and limits them (`transitions.seat_lines`, with the
     project's `config.policy`), against the PR's base, so no PR is left open to close.  It reads
-    only `--base`/`-B` (else the default branch, origin/HEAD) and `--head`/`-H` (else the
-    branch checked out).  What it cannot measure runs and meets the gate: a checkout of no
-    project ak knows, a base with no `origin/` ref here, and a head that is no local branch --
-    a fork's `owner:branch` on another repository, or a detached HEAD."""
+    `--base`/`-B` (else the default branch, origin/HEAD), `--head`/`-H` (else the branch checked
+    out) and the repository, `--repo`/`-R` else GH_REPO, as the review gate finds its checkout:
+    by origin's `owner/name`.  What it cannot measure runs and meets the gate: an option it does
+    not know (`pr_create_options`), a checkout of no project ak knows, another repository, a
+    base with no `origin/` ref here, and a head that is no local branch -- a fork's
+    `owner:branch`, or a detached HEAD."""
+    options = pr_create_options(args)
+    if options is None:
+        return None
     from . import gitcall, orch, transitions     # only now: every seat's gh call starts this guard
     top = gitcall.git(os.getcwd(), "rev-parse", "--show-toplevel", check=False)
     project = top and orch.checkout_of(top)
     if not project:
         return None
-    base = gh_value(args, "-B", "--base")
-    branch = gh_value(args, "-H", "--head") or gitcall.git(top, "symbolic-ref", "--short", "-q",
-                                                           "HEAD", check=False)
+    named = options.get("--repo") or os.environ.get("GH_REPO")
+    if named and gitcall.owner_name(named) != gitcall.owner_name(
+            gitcall.git(top, "remote", "get-url", "origin", check=False)):
+        return None
+    base = options.get("--base")
+    branch = options.get("--head") or gitcall.git(top, "symbolic-ref", "--short", "-q", "HEAD",
+                                                  check=False)
     target = f"refs/remotes/origin/{base}" if base else config.RULES_REF
     head = f"refs/heads/{branch}"
     if not (branch and all(gitcall.git(top, "rev-parse", "--verify", "--quiet", ref, check=False)
