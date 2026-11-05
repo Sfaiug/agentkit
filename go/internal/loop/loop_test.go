@@ -286,7 +286,7 @@ mode = "subscription"
 	if executor, reviewer, _ := rules.Pair(room{}); executor != "opus" || reviewer != "opus" {
 		t.Fatalf("picked %q and %q", executor, reviewer)
 	}
-	if writers := []string{"opus"}; !rules.Wrote(rules.Beside(room{}, writers)[0], writers) {
+	if writers := []string{"opus"}; !rules.Wrote(rules.Beside(room{}, writers, nil)[0], writers) {
 		t.Fatal("no other reviewer to take the review over, yet one is offered")
 	}
 }

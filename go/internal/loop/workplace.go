@@ -53,6 +53,9 @@ type workplace interface {
 
 // placeOf is the workplace a record describes, for what reads a run from outside its driver.
 func placeOf(record *run.Object) workplace {
+	if record.Truthy("own_pr") {
+		return &ownPull{pullFrom(record)}
+	}
 	if record.Truthy("review_pr") {
 		return pullFrom(record)
 	}

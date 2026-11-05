@@ -19,9 +19,10 @@ import (
 	"agentkit/internal/task"
 )
 
-// Review launches a review of somebody else's pull request at url, Python's review_pr_main, from no
-// seat: `ak run`'s exit status, and why the launch is refused.  Whose PR a seat is reviewing stays
-// with Python, decided before anything is written, once its numbers are read as every launch's.
+// Review launches a review of the pull request at url, Python's review_pr_main: `ak run`'s exit
+// status, and why the launch is refused.  Its numbers are read first, as every launch's.  From no
+// session it is a review of somebody else's pull request; one with a session name is a seat's, with
+// or without its record (ownReview).
 func Review(url string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	parts := gh.PullURL.FindStringSubmatch(url)
 	numbersIn, err := reviewNumbers(parts[1] + "/" + parts[2])
@@ -29,6 +30,9 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 		return 0, "", err
 	} else if err != nil {
 		return 2, err.Error(), nil
+	}
+	if session, _, unnamed := config.CurrentSession(); session != "" || unnamed != nil {
+		return ownReview(url, numbersIn, values, flags, out, errOut)
 	}
 	bound, unbound := config.Bind()
 	_, rules := pick.Load()
