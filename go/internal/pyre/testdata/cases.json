@@ -54,6 +54,8 @@
   "claude-stall-pane.txt",
   "claude-stop-hooks-running-pane.txt",
   "claude-suggestion-pane.txt",
+  "claude-tall-draft-lines-pane.txt",
+  "claude-tall-draft-rows-pane.txt",
   "claude-tray-idle-pane.txt",
   "claude-tray-working-pane.txt",
   "claude-working-after-question-pane.txt",
@@ -2436,6 +2438,24 @@
      "span": [
       18,
       94
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 44,
+     "span": [
+      13,
+      69
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 44,
+     "span": [
+      13,
+      69
      ],
      "groups": {}
     },
@@ -4986,6 +5006,123 @@
     {
      "fixture": "claude-stop-hooks-running-pane.txt",
      "row": 5,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 37,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 38,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 39,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 40,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 41,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 44,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 36,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 37,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 38,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 39,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 40,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 41,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 44,
      "span": [
       0,
       3
@@ -15160,6 +15297,42 @@
      "span": [
       58,
       84
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      81
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-lines-pane.txt",
+     "row": 2,
+     "span": [
+      73,
+      94
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      81
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 2,
+     "span": [
+      73,
+      94
      ],
      "groups": {}
     },

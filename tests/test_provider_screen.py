@@ -14,7 +14,6 @@ reads or writes the owner's ~/.agentkit or a harness's home, and the only proces
 the test's own child.
 """
 
-import copy
 import io
 import os
 import re
@@ -332,8 +331,6 @@ class ProviderScreen(unittest.TestCase):
         screen.leave()
 
     def test_the_menu_s_probe_goes_on_with_the_providers_the_screen_left(self):
-        before = SHIPPED
-        left = config.remove_provider(copy.deepcopy(before), "meta")
         made = []
 
         class Kept(menu.Live):      # the probe it would start, never started: stdin is no tty
@@ -351,10 +348,13 @@ class ProviderScreen(unittest.TestCase):
                 mock.patch.object(menu.orch, "listing", return_value=[]), \
                 mock.patch.object(menu.orch, "job_notices", return_value=[]), \
                 menu_input(side_effect=["c", ""]), \
-                mock.patch.object(menu, "show_config", return_value=left):
-            self.assertEqual(menu.loop(before, dry_run=True), 0)
+                mock.patch.object(menu, "show_config", side_effect=lambda *_: config.save(
+                    config.remove_provider(config.load(), "meta"))):    # `c`, saving as it does
+            self.assertEqual(menu.loop(config.load(), dry_run=True), 0)
             made[0].watcher.join()          # its last look at state is this HOME's too
-        self.assertIs(made[0].cfg, left)
+            left = config.load()
+        self.assertNotIn("meta", left["providers"])
+        self.assertEqual(made[0].cfg, left)
 
     def test_a_removed_provider_takes_its_models_and_its_usage_row(self):
         screen = Screen(self, child=CHILD)
