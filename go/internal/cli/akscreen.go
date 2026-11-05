@@ -76,25 +76,27 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	if !contains(args, "--dry-run") && tick.ResumeAfterBoot() != nil {
 		return notImplemented(errOut, "attach")
 	}
-	left := crossed(menuFrame)    // the frame the program before this exec left up
-	first, handed := handedRead() // a restart's first frame waits on no read
-	known := handed
-	if !handed {
-		first, known = readFrame(time.Now())
-	}
-	if !known || first.handoff {
-		return notImplemented(errOut, "attach")
-	}
-	keyboard := terminal.NewKeyboard()
-	keyboard.Take()
-	painter := terminal.NewPainter(os.Stdout)
-	painter.Restore(left, keyboard.Screen())
+	keyboard, painter := terminal.NewKeyboard(), terminal.NewPainter(os.Stdout)
 	defer func() { // nothing that breaks here leaves the terminal taken
 		if broke := recover(); broke != nil {
 			keyboard.Give()
 			panic(broke)
 		}
 	}()
+	if left := crossed(menuFrame); left != nil { // the frame the program before this exec left up
+		keyboard.Take() // stays up however long a read takes
+		painter.Restore(left, keyboard.Screen())
+	}
+	first, handed := handedRead() // a restart's first frame waits on no read
+	known := handed
+	if !handed {
+		first, known = readFrame(time.Now())
+	}
+	if !known || first.handoff {
+		keyboard.Give()
+		return notImplemented(errOut, "attach")
+	}
+	keyboard.Take()
 	keyboard.Sense()
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)

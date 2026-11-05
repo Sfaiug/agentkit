@@ -48,13 +48,13 @@ type Keyboard struct {
 	heard   chan os.Signal
 }
 
-// NewKeyboard starts hearing what ends or stops the program, and takes nothing yet.
+// NewKeyboard takes nothing yet, and leaves what ends or stops the program to its defaults till
+// Take: a read before that can still be cut short.
 func NewKeyboard() *Keyboard {
 	k := &Keyboard{cont: make(chan os.Signal, 1)}
 	k.woken[0], k.woken[1], _ = os.Pipe()
 	signal.Notify(k.cont, syscall.SIGCONT)
 	k.heard = make(chan os.Signal, 8)
-	k.listen()
 	go func() {
 		for each := range k.heard {
 			k.mu.Lock()
