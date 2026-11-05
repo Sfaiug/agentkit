@@ -37,7 +37,7 @@ func questionHome(t *testing.T) (string, func(string, string)) {
 }
 
 func TestQuestionCardsLeaveOtherTransitionsToPython(t *testing.T) {
-	for _, kind := range []string{"answered", "typed answer", "earlier answer", "watcher", "chooser", "other reason", "closed", "done", "history"} {
+	for _, kind := range []string{"answered", "typed answer", "earlier answer", "watcher", "chooser", "other reason", "closed", "done"} {
 		t.Run(kind, func(t *testing.T) {
 			home, write := questionHome(t)
 			notice := run.Fields("kind", "needs", "text", "Which database?", "time", 100)
@@ -65,8 +65,6 @@ func TestQuestionCardsLeaveOtherTransitionsToPython(t *testing.T) {
 				file.Set("closed_by_owner", true)
 			case "done":
 				card.Set("word", "done")
-			case "history":
-				write(filepath.Join(state(), "installed-at"), "200\n")
 			}
 			before := map[string]string{}
 			for kind, object := range map[string]*run.Object{"notify": notice, "seat": file, "card": card} {

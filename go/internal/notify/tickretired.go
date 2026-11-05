@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -22,7 +21,7 @@ func retiredQuestion(name string, card *run.Object) bool {
 		began = card.Get("since")
 	}
 	at, dated := finite(began)
-	return dated && at >= installedAt() && config.Listable(outbox()) && len(config.Glob(outbox(), "*.clear")) == 0
+	return dated && at >= installedAt() && retirementsDrained()
 }
 
 // TurnedRetiredQuestion closes a question's card once its notice is gone or answered and its

@@ -86,7 +86,8 @@ func Identity(name, text string, argv []string) (string, bool) {
 // plugin `restart_word` says it: "" where it resumes the conversation its record names; false
 // where Go does not follow that harness's seats yet.
 func Reopens(name string) (string, bool) {
-	return plugins[name].fresh, plugins[name].seats
+	own := seatDefaults(name)
+	return own.fresh, own.seats
 }
 
 // Receipt is the key of a seat's record that names that harness's evidence of the conversation it
