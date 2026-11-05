@@ -406,26 +406,29 @@ class Harness:
         word says the harness could not run it, and that outranks the rest, unless an outage
         word says the provider was down beside it.  (None, None) where it said none of them.
         """
-        block = config.manifest(self.name).get("stall")
-        block = block if isinstance(block, dict) else {}
-
-        def heard(key):
-            listed = block.get(key)
-            words = (listed if isinstance(listed, list) else []) + list(STALL.get(key, ()))
-            return (word for word in words if isinstance(word, str) and says(said, word))
-
         def first(key):
-            return next(heard(key), None)
+            return next(self._heard(key, said), None)
 
-        outage = first("outages")
+        outage = self.outage(said)
         fault = None if ran or outage else first("faults")
-        quotas = list(heard("quotas"))
+        quotas = list(self._heard("quotas", said))
         spent = LIMITED if all(limited(word) for word in quotas) else SPENT
         for outcome, word in ((FAULT, fault), (spent, quotas[0] if quotas else None),
                               (REFUSAL, first("refusals")), (OUTAGE, outage)):
             if word:
                 return outcome, word
         return None, None
+
+    def outage(self, said):
+        """The `[stall] outages` word that output says, or None: the provider was down, whatever
+        else it says beside that."""
+        return next(self._heard("outages", said), None)
+
+    def _heard(self, key, said):
+        block = config.manifest(self.name).get("stall")
+        listed = block.get(key) if isinstance(block, dict) else None
+        words = (listed if isinstance(listed, list) else []) + list(STALL.get(key, ()))
+        return (word for word in words if isinstance(word, str) and says(said, word))
 
     @property
     def conversation_facts(self):

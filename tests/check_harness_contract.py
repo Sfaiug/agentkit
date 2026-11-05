@@ -90,7 +90,11 @@ def refused(cfg, model, code, out, snapshot):
             said += "\n" + turns.harness_said(out, text, entry["harness"])
     word = turns.ran_dry(code, said, entry["harness"])
     if not word:
-        return ""
+        # The provider down, in the harness's own words: this turn proves nothing about ak, and
+        # no window is spent, so the snapshot keeps nothing.  xAI's 500s for six minutes held
+        # the install on 5 Nov 2026.
+        down = turns.harness_plugin(entry["harness"]).outage(said)
+        return f"the provider was down ({down})" if down else ""
     read = providers(cfg, snapshot)
     record = read.get(entry["provider"], {})
     now, until = time.time(), turns.try_again_at(said)
