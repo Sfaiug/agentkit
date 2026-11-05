@@ -28,9 +28,9 @@ def wait_for(read, bound=180):
     return seen
 
 
-def launch(case, health, executor, reviewer, front=()):
+def launch(case, health, executor, reviewer, front=(), repo=None):
     """Tasks a, b and c launched in order from the seat, followed until the seat has the job's
-    line; `front` is each task's front matter."""
+    line; `front` is each task's front matter, `repo` its `repo:` if not the rig's."""
     case.home = home = Home()
     case.addClassCleanup(home.close)
     akconfig.write(home, ["opus", "astra"])
@@ -40,7 +40,7 @@ def launch(case, health, executor, reviewer, front=()):
     case.seat = Seat(home, "acme", cwd=rig.path, planned=True,
                      record={"workers": ["opus"], "reviewers": ["astra"]})
     case.fakes = fakeadapter.install(home, claude=executor, codex=reviewer)
-    tasks = [taskfile.write(home, rig.path, f"Add {name}", name=name, front=dict(front),
+    tasks = [taskfile.write(home, repo or rig.path, f"Add {name}", name=name, front=dict(front),
                             done_when=(f"test -f {name}.txt",)) for name in "abc"]
     done = home.ak("run", *map(str, tasks), "--in-order", "--bg",
                    env={"AGENTKIT_SESSION": case.seat.name})
@@ -116,15 +116,15 @@ class ATaskThatFailsEndsTheJob(Case):
 class ATaskThatPassesUnmergedEndsTheJob(Case):
     @classmethod
     def setUpClass(cls):
-        # a finds nothing to do: it passes, merging nothing, so neither b nor c starts
-        launch(cls, "none", "not-needed", "pass")
+        # a scratch task passes and merges nothing, so neither b nor c starts
+        launch(cls, "none", write("a"), "pass", repo="none")
 
     def test_the_rest_never_start(self):
         self.assertEqual([task["state"] for task in self.job()["tasks"]],
                          ["passed", "skipped", "skipped"])
         self.tick()
-        self.assertEqual(self.notices(), [f"job {self.directory.name}: a.md: PASS, passed; "
-                                          "not started: b.md, c.md"])
+        self.assertEqual(self.notices(), [f"job {self.directory.name}: a.md: PASS, passed after "
+                                          "1 rounds; not started: b.md, c.md"])
 
     def test_a_task_naming_its_own_branch_is_refused_and_nothing_starts(self):
         first = taskfile.write(self.home, self.rig.path, "Add d", name="d")
