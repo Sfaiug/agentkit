@@ -23,10 +23,10 @@ import (
 
 // serverWide is what Python's tmux.conf sets on ak's server, but its pane-died hook and Ctrl-b
 // m, which run Python's ak: a touch scrolls a seat's output, 50000 lines of it; a harness that
-// ends keeps its pane; a link it prints reaches the owner's terminal whole.
+// ends keeps its pane; a link it prints, and each repaint, reaches the owner's terminal whole.
 var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", "-g", "history-limit", "50000", ";",
 	"set-option", "-g", "remain-on-exit", "on", ";", "set-option", "-g", "allow-passthrough", "on", ";",
-	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks", ";"}
+	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks:sync", ";"}
 
 // Open is the shared new-seat launch used by the menu and ak orch. Its rulebook precedes
 // the adapter's command, and its record uses Python's locks and format. False leaves
