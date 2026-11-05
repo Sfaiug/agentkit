@@ -113,6 +113,7 @@ test_key_models_pick
 test_key_models_rows_drawn_as_c
 test_key_models_why
 test_key_move_copies
+test_key_muse_hooks
 test_key_muse_words
 test_key_notice_hook
 test_key_notify_dry_run
