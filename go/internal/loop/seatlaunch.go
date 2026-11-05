@@ -52,15 +52,18 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	run.SetAll(record, "title", task.Title(string(text), "task"), "state", "queued", "slot_waiting", true,
 		"run_depth", 0, "parent_run", nil, "unattended", false, "slot_started_at", nil,
 		"project", seat.CheckoutOf(record.Str("repo")), "notify_sink", state.Get("notify_sink"),
-		"policy", run.Fields("rounds", policy.Rounds, "review_lines", policy.ReviewLines, "seat_lines", policy.SeatLines))
+		"policy", run.Fields("rounds", policy.Rounds, "review_lines", policy.ReviewLines.Said(), "seat_lines", policy.SeatLines.Said()))
 	if err := run.Create(dir, record); err != nil {
 		return nil, err
 	}
 	return func() error {
-		// General host admission is still Python's. Keep its queued receipt, not an
-		// error ending, if the gates changed since this run's own launch.
+		// General host admission is still Python's, as is a run Go does not carry. Keep its
+		// queued receipt, not an error ending, if the gates changed since this run's own launch.
 		if os.Getenv("AK_MAX_RUNS") != "0" {
 			return fmt.Errorf("queued for Python's host admission")
+		}
+		if !run.Carried(policy) {
+			return fmt.Errorf("queued for Python, which carries review off and no limit")
 		}
 		held, err := HoldSlots(context.Background())
 		if err != nil {

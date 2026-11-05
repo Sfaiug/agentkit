@@ -212,11 +212,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	if err != nil {
 		return nil, false
 	}
-	rounds := "rounds"
-	if numbers.Rounds == 1 {
-		rounds = "round"
-	}
-	limits := fmt.Sprintf("review %d %s · executor %d lines · orchestrator %d lines", numbers.Rounds, rounds, numbers.ReviewLines, numbers.SeatLines)
+	limits := limitsSaid(numbers)
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
 		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Lines()), cloud)},
 		{Name: "Limits", Value: limits}}, true

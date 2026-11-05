@@ -226,7 +226,7 @@ func load() (*table, error) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	renamePolicy(root)
-	if err := checkPolicy(root); err != nil {
+	if _, err := hostPolicy(root); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if !hasTables(root) {

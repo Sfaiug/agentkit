@@ -115,7 +115,7 @@ func validateRun(args []string) string {
 				}
 				budget, err := launch.Budget(config.Absolute(word))
 				if errors.Is(err, launch.ErrPython) {
-					continue // Python finds its checkout, and judges it at the launch
+					continue // Python finds its checkout or carries its numbers, and judges it at the launch
 				} else if err != nil {
 					return err.Error()
 				}

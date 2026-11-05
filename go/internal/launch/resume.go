@@ -36,6 +36,9 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil || box.Check() != nil {
 		return 0, "", ErrPython
 	}
+	if numbers, err := run.Policy(record); err != nil || !run.Carried(numbers) {
+		return 0, "", ErrPython // what the run holds to is Python's to judge, or a run Go does not carry
+	}
 	if !driverHere() || record.Truthy("repo") && helped() || !loop.Pickup(dir, record) && !loop.Woken(record) {
 		return 0, "", ErrPython
 	}

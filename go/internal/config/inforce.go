@@ -1,6 +1,8 @@
 package config
 
 import (
+	"fmt"
+	"maps"
 	"regexp"
 	"strconv"
 )
@@ -18,19 +20,17 @@ var roundsSaid = map[int][2]string{1: {"One", "a second"}, 2: {"Two", "a third"}
 func InForce(text string) string {
 	numbers, err := HostNumbers()
 	if err != nil {
-		numbers = Numbers{defaultRounds, DefaultReviewLines, 50}
+		numbers = defaults
 	}
+	text, words := budget(text, numbers.Rounds)
 	said, known := roundsSaid[numbers.Rounds]
 	if !known {
 		said = [2]string{strconv.Itoa(numbers.Rounds), "round " + strconv.Itoa(numbers.Rounds+1)}
 	}
-	plural := "s"
-	if numbers.Rounds == 1 {
-		plural = ""
-	}
-	values := map[string]string{"review_rounds": strconv.Itoa(numbers.Rounds), "executor_lines": strconv.Itoa(numbers.ReviewLines),
-		"orchestrator_lines": strconv.Itoa(numbers.SeatLines), "Review_rounds": said[0], "one_over": said[1], "s": plural,
+	values := map[string]string{"review_rounds": strconv.Itoa(numbers.Rounds), "executor_lines": fmt.Sprint(numbers.ReviewLines.Said()),
+		"orchestrator_lines": fmt.Sprint(numbers.SeatLines.Said()), "Review_rounds": said[0], "one_over": said[1],
 		"executor_size": executorSize(numbers.ReviewLines), "orchestrator_size": orchestratorSize(numbers.SeatLines)}
+	maps.Copy(values, words)
 	return templated.ReplaceAllStringFunc(text, func(found string) string {
 		parts := templated.FindStringSubmatch(found)
 		if parts[1] != "" {

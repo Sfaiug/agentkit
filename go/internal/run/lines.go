@@ -11,7 +11,6 @@ import (
 	"time"
 	"unicode"
 
-	"agentkit/internal/config"
 	"agentkit/internal/host"
 )
 
@@ -339,15 +338,10 @@ func spentElsewhere(record *Object, dir string, now time.Time) (spent, runs int)
 	return spent, runs
 }
 
-// PolicyRounds is the rounds a run holds to: those on its record, else the host's it was launched
-// under, as Python's policy_of.
+// PolicyRounds is the rounds a run holds to (Policy).
 func PolicyRounds(record *Object) (int, error) {
-	if policy := record.Dict("policy"); policy != nil {
-		if held, ok := policy.Int("rounds"); ok {
-			return held, nil
-		}
-	}
-	return config.Rounds()
+	numbers, err := Policy(record)
+	return numbers.Rounds, err
 }
 
 // ChangeLeft is the rounds the run may still have, asked less what its other runs and its own
