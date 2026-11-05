@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/lock"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
@@ -130,7 +131,8 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // on from where the last reading stopped, then under its announce lock one capture, read as Live
 // reads it. Both ok and the account decision run before that capture is kept and its word
 // published, so unsupported recovery leaves no publish behind. The account decision may reopen
-// the seat through its shared launch path. False where either decision leaves work to Python.
+// the seat through its shared launch path; a refusal its record ends on is instead waited on, the
+// wait written before the publish (waitOnUsage). False where either decision leaves work to Python.
 func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
@@ -153,6 +155,16 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		return false, err
 	}
 	carried := false
+	// that wait is written under every lifecycle change's lock, which watch.seat_account takes
+	// outside the announce lock, the meters read before either
+	readings, refusing := usageAhead(state, name, models)
+	if refusing {
+		held, err := lock.Wait(context.Background(), filepath.Join(state, "watch.lock"))
+		if err != nil {
+			return false, err
+		}
+		defer held.Close()
+	}
 	err = announcing(state, name, func() error {
 		now := time.Now()
 		home, seat, known := liveSeat(name, now, nil, true)
@@ -172,10 +184,11 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		}
 		var wait func() error
 		blank := strings.TrimFunc(pane, config.Space) == ""
-		if live.Refused != "" {
-			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's
-			if carried = !blank; carried {
-				wait, carried = seat.waitOnUsage(state, live, now, log)
+		if live.Refused != "" || refusing {
+			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's,
+			// as is one the look no longer reads, whose account move would take watch.lock again
+			if carried = readings != nil && live.Refused != "" && !blank; carried {
+				wait, carried = seat.waitOnUsage(state, live, readings, now, log)
 			}
 			if !carried {
 				return nil
