@@ -22,14 +22,20 @@ func InForce(text string) string {
 	if err != nil {
 		numbers = defaults
 	}
+	return InForceAt(text, numbers)
+}
+
+// InForceAt is ak's own words as those numbers make them, a project's where they are its own.
+func InForceAt(text string, numbers Numbers) string {
+	text, sized := sizes(text, numbers.ReviewLines, numbers.SeatLines)
 	text, words := budget(text, numbers.Rounds)
 	said, known := roundsSaid[numbers.Rounds]
 	if !known {
 		said = [2]string{strconv.Itoa(numbers.Rounds), "round " + strconv.Itoa(numbers.Rounds+1)}
 	}
 	values := map[string]string{"review_rounds": strconv.Itoa(numbers.Rounds), "executor_lines": fmt.Sprint(numbers.ReviewLines.Said()),
-		"orchestrator_lines": fmt.Sprint(numbers.SeatLines.Said()), "Review_rounds": said[0], "one_over": said[1],
-		"executor_size": executorSize(numbers.ReviewLines), "orchestrator_size": orchestratorSize(numbers.SeatLines)}
+		"orchestrator_lines": fmt.Sprint(numbers.SeatLines.Said()), "Review_rounds": said[0], "one_over": said[1]}
+	maps.Copy(values, sized)
 	maps.Copy(values, words)
 	return templated.ReplaceAllStringFunc(text, func(found string) string {
 		parts := templated.FindStringSubmatch(found)

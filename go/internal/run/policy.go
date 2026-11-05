@@ -26,13 +26,14 @@ func Policy(record *Object) (config.Numbers, error) {
 	})
 }
 
-// Carried is whether Go carries a run held to these numbers: review on, and each line limit a
-// number.  A run with review off or no limit is Python's whole, since Go cannot write history.db
-// yet; Go hands it over where Python reads the number.
+// Carried is whether Go carries a run held to these numbers: review on, executors on, and each
+// line limit a number.  A run with review off or no limit is Python's whole, since Go cannot write
+// history.db yet, and so is one with executors off, which Python refuses a task; Go hands it over
+// where Python reads the number.
 func Carried(numbers config.Numbers) bool {
-	_, executor := numbers.ReviewLines.Most()
+	executor, limited := numbers.ReviewLines.Most()
 	_, orchestrator := numbers.SeatLines.Most()
-	return numbers.Rounds > 0 && executor && orchestrator
+	return numbers.Rounds > 0 && limited && executor > 0 && orchestrator
 }
 
 // Carries is whether Go carries the run this record is: the numbers it holds to read, and carried.

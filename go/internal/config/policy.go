@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"math/big"
 	"os"
@@ -27,7 +28,7 @@ var policy = []struct {
 	meaning string
 }{
 	{"review_rounds", 0, roundsMeaning},
-	{"executor_lines", 1, reviewLines},
+	{"executor_lines", 0, reviewLines},
 	{"orchestrator_lines", 0, seatLines},
 }
 
@@ -60,6 +61,9 @@ func policyIn(given func(key string) (any, bool), over Numbers) (Numbers, error)
 		default:
 			return over, fmt.Errorf("%s must be a whole number of at least %d%s, %s (got %s)", number.key, number.floor, unlimited, number.meaning, valueRepr(value))
 		}
+	}
+	if read[1] == AtMost(0) && read[2] == AtMost(0) {
+		return over, errors.New("executor_lines and orchestrator_lines cannot both be 0: nobody could build a change")
 	}
 	rounds, _ := read[0].Most() // never "no limit": only a line limit takes that
 	return Numbers{rounds, read[1], read[2]}, nil

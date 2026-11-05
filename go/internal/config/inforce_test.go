@@ -30,3 +30,13 @@ func TestInForceSaysReviewOffAndNoLimit(t *testing.T) {
 		t.Errorf("%q, want %q", got, want)
 	}
 }
+
+// Executors off says each line sizing a task whole as off, and the seat splits its own work.
+func TestInForceSaysExecutorsOff(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const words = "- A task: $executor_size. Launch it.\nSeat's work: $orchestrator_size.\n"
+	want := "- Executors are off; the orchestrator builds every change itself.\nSeat's work: you build at most 20 added lines per PR; split larger changes.\n"
+	if got := InForceAt(words, Numbers{3, AtMost(0), AtMost(20)}); got != want {
+		t.Errorf("%q, want %q", got, want)
+	}
+}

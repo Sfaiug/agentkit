@@ -96,8 +96,9 @@ func TestSchemaRefusals(t *testing.T) {
 	for _, example := range []struct{ config, reason string }{
 		{"review_rounds=-1\n" + models, "review_rounds must be a whole number of at least 0, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got -1)"},
 		{"review_rounds='no limit'\n" + models, "review_rounds must be a whole number of at least 0, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 'no limit')"},
-		{"executor_lines='many'\n" + models, "executor_lines must be a whole number of at least 1 or \"no limit\", the most added lines a first review reads (got 'many')"},
-		{"executor_lines=0\n" + models, "executor_lines must be a whole number of at least 1, the most added lines a first review reads (got 0)"},
+		{"executor_lines='many'\n" + models, "executor_lines must be a whole number of at least 0 or \"no limit\", the most added lines a first review reads (got 'many')"},
+		{"executor_lines=-1\n" + models, "executor_lines must be a whole number of at least 0, the most added lines a first review reads (got -1)"},
+		{"executor_lines=0\norchestrator_lines=0\n" + models, "executor_lines and orchestrator_lines cannot both be 0: nobody could build a change"},
 		{"orchestrator_lines=true\n" + models, "orchestrator_lines must be a whole number of at least 0, the most added lines an orchestrator builds (got True)"},
 		{"review_rounds=2.5\n", "review_rounds must be a whole number of at least 0, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 2.5)"},
 		{"compare=5\n", "compare must list release slugs (compare = [\"acme-pro-5\"]) (got 5)"},
@@ -122,7 +123,7 @@ func TestSchemaRefusals(t *testing.T) {
 			t.Errorf("%q: got %v, want %s", example.config, err, example.reason)
 		}
 	}
-	for _, data := range []string{"", "max_runs=1\n", models, "review_rounds=0\n", "executor_lines=10\norchestrator_lines=20\n" + models,
+	for _, data := range []string{"", "max_runs=1\n", models, "review_rounds=0\n", "executor_lines=0\n", "executor_lines=10\norchestrator_lines=20\n" + models,
 		"executor_lines='no limit'\norchestrator_lines='no limit'\n" + models, "[defaults]\nworkers=[]\n" + models, "[defaults]\nworkers=[\"ac\\u006de\"]\n" + models} {
 		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
 			t.Fatal(err)

@@ -30,11 +30,11 @@ func TestAProjectsNumbersHoldOverTheHostsAndABadOneIsRefusedNamingItsFile(t *tes
 		t.Fatalf("%v %v", numbers, err)
 	}
 	for said, want := range map[string]string{
-		"abc":      "/acme/AGENTS.md: executor_lines must be a whole number of at least 1 or \"no limit\", " + reviewLines + " (got 'abc')",
-		"No limit": "/acme/AGENTS.md: executor_lines must be a whole number of at least 1 or \"no limit\", " + reviewLines + " (got 'No limit')",
-		"0":        "/acme/AGENTS.md: executor_lines must be a whole number of at least 1, " + reviewLines + " (got 0)",
+		"abc":      "/acme/AGENTS.md: executor_lines must be a whole number of at least 0 or \"no limit\", " + reviewLines + " (got 'abc')",
+		"No limit": "/acme/AGENTS.md: executor_lines must be a whole number of at least 0 or \"no limit\", " + reviewLines + " (got 'No limit')",
+		"0":        "/acme/AGENTS.md: executor_lines and orchestrator_lines cannot both be 0: nobody could build a change",
 	} {
-		_, err := ProjectNumbers("/acme", declaring(map[string]string{"executor_lines": said}))
+		_, err := ProjectNumbers("/acme", declaring(map[string]string{"executor_lines": said, "orchestrator_lines": "0"}))
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: %v", said, err)
 		}
