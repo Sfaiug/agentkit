@@ -21,8 +21,8 @@ TABLE = "table.txt"
 
 class DoneCountsTheLines(unittest.TestCase):
     def build(self, step, limit=40, files=None):
-        """The executor's turn record and the run's state after a run whose executor does `step`
-        and hands in done."""
+        """The executor's turn, once a run whose executor does `step` and hands in done has
+        reached review and passed it."""
         home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus", "astra"], settings={"executor_lines": limit})
@@ -35,12 +35,12 @@ class DoneCountsTheLines(unittest.TestCase):
         state = json.loads((taskfile.only_run(home) / "run.json").read_text())
         self.assertEqual([run["role"] for run in fakes["codex"].runs()], ["reviewer"])
         self.assertEqual(state["verdict"], "PASS")
-        return fakes["claude"].runs()[0], state
+        return fakes["claude"].runs()[0]
 
     def test_sixty_lines_are_refused_and_the_same_change_in_thirty_is_taken(self):
         out = '"$(dirname "$AK_HAND_IN")"'
-        turn, _ = self.build({"sh": f"seq 60 > {TABLE}; {shlex.quote(AK)} hand-in done > {out}/said 2>&1; "
-                                    f"echo $? > {out}/code; seq 30 > {TABLE}"})
+        turn = self.build({"sh": f"seq 60 > {TABLE}; {shlex.quote(AK)} hand-in done > {out}/said 2>&1; "
+                                f"echo $? > {out}/code; seq 30 > {TABLE}"})
         said = Path(turn["argv"][4], "said").read_text()
         self.assertNotEqual(Path(turn["argv"][4], "code").read_text().strip(), "0", said)
         for text in ("adds 60 lines", "at most 40", "same change in fewer lines",
@@ -52,12 +52,12 @@ class DoneCountsTheLines(unittest.TestCase):
 
     def test_lines_under_a_path_the_base_marks_generated_never_count(self):
         go = "".join(f"line {n}\n" for n in range(400))
-        turn, _ = self.build({"write": {"go/table.go": go, TABLE: "row\n" * 30}},
-                             files={".gitattributes": "go/** linguist-generated\n"})
+        turn = self.build({"write": {"go/table.go": go, TABLE: "row\n" * 30}},
+                          files={".gitattributes": "go/** linguist-generated\n"})
         self.assertEqual(turn["hand_ins"][0]["code"], 0, turn["hand_ins"])
 
     def test_no_limit_counts_nothing(self):
-        turn, _ = self.build({"write": {TABLE: "row\n" * 60}}, limit="no limit")
+        turn = self.build({"write": {TABLE: "row\n" * 60}}, limit="no limit")
         self.assertEqual(turn["hand_ins"][0]["code"], 0, turn["hand_ins"])
 
 
