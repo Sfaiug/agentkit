@@ -2,8 +2,6 @@ package seat
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
@@ -33,16 +31,20 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 // the adapter's command, and its record uses Python's locks and format. False leaves
 // unsupported harness launches, provider accounts and leftover seat files to Python.
 func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
+	repo := Project(cwd)
+	if repo != "" {
+		cwd = repo
+	}
+	return open(name, orchestrator, model, workers, cwd, unnamed, repo, true, reviews...)
+}
+
+func open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, repo string, remember bool, reviews ...[]string) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
 	models, err := config.Models()
 	if !known || !opensAt(model) || !unclaimed(state, name) || unbound != nil || err != nil {
 		return false, nil
-	}
-	repo := Project(cwd)
-	if repo != "" {
-		cwd = repo
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
@@ -94,13 +96,15 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if err != nil {
 		return true, err
 	}
-	config.RememberDefaults(orchestrator, workers, reviewers, func() error { // a seat is made all the same
-		offered, err := config.Offered()
-		if err != nil {
-			return err
-		}
-		return keepEfforts(state, bound.Models, models, offered)
-	})
+	if remember {
+		config.RememberDefaults(orchestrator, workers, reviewers, func() error { // a seat is made all the same
+			offered, err := config.Offered()
+			if err != nil {
+				return err
+			}
+			return keepEfforts(state, bound.Models, models, offered)
+		})
+	}
 	if err := forgetSeen(state, name, time.Now()); err != nil {
 		return true, err
 	}
@@ -118,6 +122,11 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 			data.Set("rulebook_sha", digest([]byte(text)))
 			return true
 		}); err != nil {
+			return err
+		}
+		// A fresh launch has begun no turn. Publish before starting it, so a hook can supersede
+		// this baseline even when the caller opens a seat after the tick's health row.
+		if err := writeSeat(state, current, []field{{"word", "idle"}}); err != nil {
 			return err
 		}
 		if err := start(state, current, cwd, cmd); err != nil {
@@ -190,25 +199,6 @@ func start(state, name, cwd string, cmd []string) error {
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
 	}
 	return nil
-}
-
-// launchFile is the file a seat's pane runs its harness by, which removes itself, and the pane's
-// command that runs it.
-func launchFile(state, name string, values []field, cmd []string) (string, string, error) {
-	token := make([]byte, 4)
-	rand.Read(token)
-	launch := filepath.Join(state, "launch-"+name+"."+hex.EncodeToString(token))
-	// a pane's -e can set a variable, but not remove one the server holds
-	script := "rm -f -- \"$0\"\n"
-	if unset := slices.DeleteFunc(slices.Clone(values), func(f field) bool { return f.value != nil }); len(unset) > 0 {
-		script += "unset"
-		for _, f := range unset {
-			script += " " + f.key
-		}
-		script += "\n"
-	}
-	err := os.WriteFile(launch, []byte(script+"exec "+commandhelp.ShellJoin(cmd)+"\n"), 0o666)
-	return commandhelp.ShellJoin([]string{"sh", launch}), launch, err
 }
 
 // paneEnvironment is those values as the words that start a pane in them.

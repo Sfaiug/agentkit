@@ -372,7 +372,7 @@ esac
 	carried, err := Health("acme", func(Live) bool {
 		t.Fatal("a dead harness reached the live-screen health predicate")
 		return false
-	})
+	}, func(string) {})
 	if !carried || err != nil {
 		t.Fatal(carried, err)
 	}

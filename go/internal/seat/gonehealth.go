@@ -12,7 +12,7 @@ import (
 // These remain after a harness dies; none is a screen to read for its word.
 func goneKind(kind, suffix string) bool {
 	return suffix == "json" && slices.Contains([]string{"hook", "title", "card"}, kind) ||
-		kind == ".hook" && suffix == "lock" || kind == "input" && suffix == "jsonl"
+		kind == ".hook" && suffix == "lock" || kind == "input" && suffix == "jsonl" || kind == "rulebook" && suffix == "md"
 }
 
 // RestingGone leaves revival and the line it owes to Python: a past screen or a newer hook may

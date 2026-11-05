@@ -266,10 +266,6 @@ func TestWhatItsConversationRecordedSpeaksForTheScreen(t *testing.T) {
 
 func TestWhatTheLookDoesNotReadYetWritesNothing(t *testing.T) {
 	for name, setup := range map[string]func(t *testing.T, home string){
-		"a plan line its stop said, which the tick may send it back to": func(t *testing.T, home string) {
-			write(t, stateFile(home, "plan-acme.md"), openLine)
-			write(t, stateFile(home, "seat-acme.json"), `{"stop_said": "Your plan owes a line"}`)
-		},
 		"a run parked on its login": func(t *testing.T, home string) {
 			runRecord(t, home, "going", map[string]any{"state": "waiting_login", "started_at": 1, "finished_at": nil})
 		},

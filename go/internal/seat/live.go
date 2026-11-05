@@ -129,7 +129,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // watch.live_state keeps it and the word published, as announce_state publishes it with no look of
 // its own, so what its last answer moved stays as it is.  False, with nothing published, where the
 // seat is not one Go reads or ok says otherwise.
-func Health(name string, ok func(Live) bool) (bool, error) {
+func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
 	if err != nil {
@@ -168,11 +168,18 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 		if carried = read && ok(live); !carried {
 			return nil
 		}
+		if strings.TrimFunc(pane, config.Space) == "" && found.authority != "hook" && !seat.hasActiveRun() {
+			return nil
+		}
 		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
 		if err != nil {
 			return err
 		}
 		if err := seat.askKeptBack(found); err != nil {
+			return err
+		}
+		found, err = seat.nudgeOpenWork(state, found, log)
+		if err != nil {
 			return err
 		}
 		if err := seat.decided(state, found, seconds(now), live.Attached); err != nil {
