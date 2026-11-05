@@ -1,12 +1,10 @@
 """A subscription move never restarts a seat over text in its input field.
 
 The tick moves a seat to another subscription by respawning its harness, between turns when its
-account runs low and at once when it is spent; the respawn ends whatever the input field holds.
-Claude Code 2.1.318 draws a draft of ten rows as an empty prompt, and one of seventeen scrolled
-past its rows, so the move waits until the field, read whole, is empty.  Black-box: the program
-`AK_BIN` names runs `ak watch` from outside through tests/fixtures/akbin.py, beside a seat of
-tests/fixtures/akseat.py showing captures of a real Claude Code, on a fake harness of
-fakeadapter.py and the usage readings the test writes.
+account runs low and at once when it is spent, and the respawn ends what its input field holds;
+Claude Code 2.1.318 draws a draft of ten rows and more as an empty prompt.  Black-box: `AK_BIN`
+runs `ak watch` (tests/fixtures/akbin.py) beside a seat (tests/fixtures/akseat.py) showing
+captures of a real Claude Code, on a fake harness (fakeadapter.py) and usage the test writes.
 """
 
 import json
@@ -24,7 +22,6 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import PANE, Seat
 
-PROXIES = ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
 CONVERSATION = "0b9c6f4e-1d2a-4c3b-8e5f-6a7b8c9d0e1f"
 DRAFTS = ("claude-ten-row-draft-pane.txt", "claude-scrolled-draft-pane.txt")
 
@@ -38,33 +35,28 @@ class AMoveWaitsForAnEmptyInputField(unittest.TestCase):
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: the tick reaches no board
             probe.bind(("127.0.0.1", 0))
-            home.env.update(dict.fromkeys(PROXIES, f"http://127.0.0.1:{probe.getsockname()[1]}"),
-                            GIT_ALLOW_PROTOCOL="file")
+            dead = f"http://127.0.0.1:{probe.getsockname()[1]}"
+        home.env.update(https_proxy=dead, HTTPS_PROXY=dead, GIT_ALLOW_PROTOCOL="file")
         akconfig.write(home, ["opus"], providers={"anthropic": {"accounts": ["default", "second"]}})
-        fake = fakeadapter.install(home, claude="pass")["claude"]
-        self.seat = Seat(self.home, "acme", screen=DRAFTS[0],
-                         record={"conversation": CONVERSATION, "account": "default"})
-        folder = re.sub(r"[^A-Za-z0-9]", "-", str(self.seat.cwd))
-        self.home.write(f".claude/projects/{folder}/{CONVERSATION}.jsonl",
-                        '{"type":"user","message":{"role":"user","content":"hello"}}\n')
-        fake.answer("interactive", shlex.join(
-            [sys.executable, str(PANE), str(self.seat.screen_file), str(self.seat.typed_file)]))
+        self.seat = seat = Seat(home, "acme", screen=DRAFTS[0],
+                                record={"conversation": CONVERSATION, "account": "default"})
+        home.write(f".claude/projects/{re.sub(r'[^A-Za-z0-9]', '-', str(seat.cwd))}/"
+                   f"{CONVERSATION}.jsonl", '{"type":"user","message":{"role":"user"}}\n')
+        fakeadapter.install(home, claude="pass")["claude"].answer("interactive", shlex.join(
+            [sys.executable, str(PANE), str(seat.screen_file), str(seat.typed_file)]))
         self.harness = self.pane("#{pane_pid}")
 
     def pane(self, field):
         return self.home.tmux("display-message", "-p", "-t", self.seat.pane, field).out.strip()
 
     def tick(self, used):
-        """One tick with the seat's account `used`% into its 5h window and the other at 10%, its
-        terminal untouched for ten minutes: the account it is on after, and whether its harness
-        is the one it had."""
+        """One tick, the seat's account `used`% into its 5h window and the other's at 10%, its
+        terminal untouched: the account it is on after, and whether it runs the harness it had."""
         now = time.time()
 
         def reading(used):
-            return {"provider": "anthropic", "resets": 0, "meters": [
-                {"name": "session", "used": used, "window_secs": 18000, "resets_at": now + 10800},
-                {"name": "weekly_all", "used": 30, "window_secs": 604800,
-                 "resets_at": now + 3 * 86400}]}
+            return {"provider": "anthropic", "resets": 0, "meters": [{
+                "name": "session", "used": used, "window_secs": 18000, "resets_at": now + 10800}]}
         self.home.write(".agentkit/state/usage.json", {
             "fetched_at": now, "reset_checked_at": now, "providers": {"anthropic": {
                 **reading(used), "accounts": {"default": reading(used), "second": reading(10)}}}})
