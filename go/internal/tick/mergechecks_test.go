@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -65,12 +66,29 @@ func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
 }
 
 // A break found past its window is kept until a seat takes it, its run no longer followed and its
-// result opening on the NOT LIVE decision; a later merge going green ends it.
+// result opening on the NOT LIVE decision; a later merge going green ends it.  One watch.json
+// cannot keep yet waits a tick, its run's failure in place.
 func TestABreakIsKeptUntilToldOrGreen(t *testing.T) {
 	ak, _ := idleHome(t, answers)
 	broke := filepath.Join(ak, "runs", "broke")
 	put(t, filepath.Join(broke, "run.json"), fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/2",
 		"merge_sha": "b2", "launched_session": "acme", "health": {"command": "false", "output": "down\n\nstill down"}}`, time.Now().Unix()-4*3600))
+	unsaved := filepath.Join(ak, "state", "watch.tmp")
+	if err := os.MkdirAll(unsaved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := checking(t, io.Discard).mergeChecks(); err != nil {
+		t.Fatal(err)
+	}
+	if record, _ := run.Read(broke); !record.Has("health") {
+		t.Fatal("a break nothing keeps lost its run's failure")
+	}
+	if _, err := os.Stat(filepath.Join(broke, "result.md")); err == nil {
+		t.Fatal("a break nothing keeps was told")
+	}
+	if err := os.Remove(unsaved); err != nil {
+		t.Fatal(err)
+	}
 	var said bytes.Buffer
 	if err := checking(t, &said).mergeChecks(); err != nil {
 		t.Fatal(err)

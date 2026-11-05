@@ -22,6 +22,7 @@ func TestOnlyAJobThatEndsAtOnceIsResumedHere(t *testing.T) {
 		"finished before":       `{"job_id": "j", "finished_at": 1, "tasks": [` + legacy + `}]}`,
 		"a seat nobody is in":   `{"job_id": "j", "seat": "acme", "tasks": [` + legacy + `}]}`,
 		"an after that is text": `{"job_id": "j", "tasks": [{"name": "fix-api.md", "state": "queued", "after": "fix-db.md"}]}`,
+		"a task that is null":   `{"job_id": "j", "tasks": [null]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()

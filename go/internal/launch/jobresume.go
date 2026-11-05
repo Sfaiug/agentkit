@@ -165,7 +165,10 @@ func endsAtOnce(receipt *run.Object) bool {
 	tasks, left := receipt.List("tasks"), false
 	for _, each := range tasks {
 		task, ok := each.(*run.Object)
-		if _, named := task.Get("name").(string); !ok || !named {
+		if !ok {
+			return false
+		}
+		if _, named := task.Get("name").(string); !named {
 			return false
 		}
 		state, stated := task.Get("state").(string)

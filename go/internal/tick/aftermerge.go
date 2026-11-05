@@ -147,9 +147,12 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			"typed", nil, "run", broke.name, "check", broke.check, "source", "health", "finished", run.Float(broke.finished),
 			"target", target, "session", session)
 		// kept until it is told or its repository goes green: a seat asleep or in a turn is
-		// told at its next prompt, past the window its merge leaves meanwhile
+		// told at its next prompt, past the window its merge leaves meanwhile.  Until watch.json
+		// keeps it, its run's health is its only record, so it waits a tick, that left in place.
 		episodes.Set(key, run.Fields("pending", pending))
-		t.keep()
+		if !t.keep() {
+			return nil
+		}
 	}
 	// the history row is told a break as it is told, and Go keeps no history
 	if !run.Historyless() {
@@ -257,9 +260,11 @@ func marked(up map[string]int, mark *run.Object) string {
 	return ""
 }
 
-// keep writes the after-merge marks down at once; one that fails is said and the pass goes on.
-func (t *ticking) keep() {
-	if err := t.save(); err != nil {
+// keep writes the after-merge marks down at once, whether it did; one that fails is said.
+func (t *ticking) keep() bool {
+	err := t.save()
+	if err != nil {
 		t.log.line("WARN could not record the after-merge mark: " + config.PyError(err))
 	}
+	return err == nil
 }
