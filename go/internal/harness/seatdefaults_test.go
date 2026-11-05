@@ -1,11 +1,20 @@
 package harness
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestAdapterOnlySeatsUseDefaultHooksWhileUnreadPluginsStayUnread(t *testing.T) {
+	adapters := t.TempDir()
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	if err := os.WriteFile(filepath.Join(adapters, "echo.toml"), []byte("version = 1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	plugins["unread"] = plugin{}
 	t.Cleanup(func() { delete(plugins, "unread") })
-	for _, name := range []string{"echo", "", "unread"} {
+	for _, name := range []string{"echo", "", "unread", "no-such-harness"} {
 		want := name == "echo"
 		if _, known := Reopens(name); known != want || Looks(name) != want {
 			t.Fatalf("%q: reopens=%v, looks=%v", name, known, Looks(name))
