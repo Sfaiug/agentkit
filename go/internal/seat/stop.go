@@ -85,12 +85,12 @@ func Stop(arg string, now time.Time) (string, bool, error) {
 	// outside the lock: nothing a run's stop touches is the seat's state
 	said := stopRuns(found.going, now)
 	if !removed && !found.recorded { // tmux alone held it: no record to keep, no number to reopen it
-		if err := forget(state, name); err != nil {
+		if err := forget(state, name, quietly); err != nil {
 			return "", true, err
 		}
 		removed = true
 	}
-	if err := forgetCard(state, name); err != nil {
+	if err := notify.ForgetCard(name, quietly); err != nil {
 		return "", true, err
 	}
 	if found.live && caller == name {
@@ -197,7 +197,7 @@ func (found seen) close(state, name string, now time.Time) (bool, error) {
 		return false, Refusal(fmt.Sprintf("no orchestrator session %s (running: %s)", commandhelp.Quote(name), running))
 	}
 	if !found.live && found.closed { // stopped already: off the list now rather than when the sweep comes
-		return true, forget(state, name)
+		return true, forget(state, name, quietly)
 	}
 	// Under the seat's typing lock, the one a rename takes: a line under way finishes into the
 	// seat before it closes, and one waiting finds it closed.  The mark goes in ahead of the
@@ -268,11 +268,11 @@ func generation(value any) any {
 
 // forget is Python's orch.forget_seat, the second half of ending a seat: every file of its own,
 // under its name or one a rename left leading to it, off the host, but its locks, which writers
-// hold or wait on, and its card, which forgetCard takes; then the stop mark back in its seat
-// file where there was one, for a hand-back of its runs to read.  Its own are its regular files,
-// never a link; the rest retention.safe asks holds for all of ~/.agentkit, where ak makes no hard
-// link and only its owner writes.
-func forget(state, name string) error {
+// hold or wait on, and its card, which notify takes, saying so to log; then the stop mark back in
+// its seat file where there was one, for a hand-back of its runs to read.  Its own are its
+// regular files, never a link; the rest retention.safe asks holds for all of ~/.agentkit, where ak
+// makes no hard link and only its owner writes.
+func forget(state, name string, log func(string)) error {
 	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	entries, err := os.ReadDir(state)
 	if err != nil {
@@ -305,27 +305,12 @@ func forget(state, name string) error {
 			return err
 		}
 	}
-	return forgetCard(state, name)
+	return notify.ForgetCard(name, log)
 }
 
-// forgetCard is Python's notify.forget_card of a card no outbox holds (plain): gone under the
-// seat's typing lock, which stays for whoever holds or waits on it.  A card under an old name
-// leading to a renamed seat is not this one's.
-func forgetCard(state, name string) error {
-	path := filepath.Join(state, "card-"+name+".json")
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
-		return nil
-	}
-	return notify.Held(context.Background(), name, func(current string) error {
-		if current != name {
-			return nil
-		}
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		return nil
-	})
-}
+// quietly is a stop's log of what forgetting a seat closes: `ak orch stop` says only what it
+// stopped.
+func quietly(string) {}
 
 // stopped is whether a seat file holds the owner's stop mark, as Read knows one: none, or the
 // mark whole, nothing it clears left; false where it holds anything else.

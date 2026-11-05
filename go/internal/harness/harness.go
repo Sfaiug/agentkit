@@ -83,6 +83,8 @@ type plugin struct {
 	title func(record *run.Object, cache string) (any, *run.Object)
 	// wrapped is WrappedUp's: nil where its conversation notes no turn wrapped up for its limit.
 	wrapped func(record map[string]any, prompted func(*run.Object) bool) any
+	// forget is Forgetting's: nil where it keeps nothing for a seat beyond the seat's own files.
+	forget func(record *run.Object) (func(), bool)
 }
 
 var plugins = map[string]plugin{}

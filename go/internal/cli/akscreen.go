@@ -32,7 +32,7 @@ type reading struct {
 // false where Go does not read that home, or where opening it would do more than draw.
 func readFrame(now time.Time) (reading, bool) {
 	home, known := seat.Menu(now)
-	if !known || !home.Settled(now) {
+	if !known || !home.Settled() {
 		return reading{}, false
 	}
 	var found reading
@@ -74,6 +74,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "attach")
 	}
 	if !contains(args, "--dry-run") && tick.ResumeAfterBoot() != nil {
+		return notImplemented(errOut, "attach")
+	}
+	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
+	said, carried := opening(dry || overlay)
+	if !carried {
 		return notImplemented(errOut, "attach")
 	}
 	keyboard, painter := terminal.NewKeyboard(), terminal.NewPainter(os.Stdout)
@@ -123,8 +128,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	if handed {
 		go reread()
 	}
+	if !menuNote(said, keyboard, painter) {
+		keyboard.Give()
+		return 0
+	}
 	clock, model := &motion.Clock{}, menu.Model{}
-	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
 	if overlay {
 		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
 	}

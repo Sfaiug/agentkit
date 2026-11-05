@@ -437,7 +437,7 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			// the moment from which an answer is this harness's, and the seat's title as Python's
 			// launch keeps it: both harnesses Go opens take a title line
 			if err := update(state, current, func(data *run.Object) bool {
-				fill(data, []field{{"launched", seconds(now)}, {"seen", int(now.Unix())}, {"title_sync", nil}})
+				fill(data, []field{{"launched", seconds(now)}, {"title_sync", nil}})
 				if seat.account != "" {
 					data.Set("account", seat.account)
 				}
