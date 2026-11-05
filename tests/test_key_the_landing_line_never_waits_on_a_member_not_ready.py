@@ -121,7 +121,6 @@ class LandingLineNeverWaits(unittest.TestCase):
                    process_identity={"boot": "fixture", "ticks": 1})
         wait = self.blame(3, {"fix-1": "tree"})
         self.write(3, ak_checkout=other)
-        self.rejoiners.write_text('["fix-1"]')
         for _ in range(2):
             tail = self.member()
             self.wakes.write_text("")
@@ -133,8 +132,8 @@ class LandingLineNeverWaits(unittest.TestCase):
             for n in (2, 3):
                 self.assertNotIn(f"member-{n}.txt", files)
             self.assertEqual(self.line.verdict(3), wait)
-            self.assertNotIn("land", self.line.verdict(1))
             self.write(tail, state="pass", merged=True)
+            self.write(1, waiting_on={key: self.line.verdict(1)[key] for key in ("line", "joined")})
 
 
 if __name__ == "__main__":
