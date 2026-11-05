@@ -50,7 +50,7 @@ func TestAReadCrossesAnExecOnlyToTheSameCodeAndOnlyOnce(t *testing.T) {
 	}
 }
 
-func TestARestartsRowsStayUpThroughAReadThatHasNoReadHandedOn(t *testing.T) {
+func TestARestartsRowsStayUpThroughAReadNoReadWasHandedForWhichCtrlCStillCuts(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	program := filepath.Join(t.TempDir(), "ak")
@@ -61,7 +61,7 @@ func TestARestartsRowsStayUpThroughAReadThatHasNoReadHandedOn(t *testing.T) {
 	}
 	// run.json, a pipe nobody writes, holds the read for good: what shows came before it
 	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
-import fcntl, os, select, struct, subprocess, sys, tempfile, termios, time
+import fcntl, os, select, signal, struct, subprocess, sys, tempfile, termios, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))
 from fixtures.akbin import Home
@@ -74,17 +74,20 @@ with Home() as home, tempfile.TemporaryFile() as frame:
     frame.seek(0)
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+    found = termios.tcgetattr(slave)
     env = home._env({"TERM": "xterm-256color", "AK_MENU_CURSOR": "acme",
                      "AK_MENU_FRAME": str(frame.fileno())})
     proc = subprocess.Popen([sys.argv[1]], cwd=home.path, env=env, stdin=slave, stdout=slave,
                             stderr=slave, pass_fds=[frame.fileno()], start_new_session=True)
-    os.close(slave)
     seen, deadline = b"", time.monotonic() + 30
     try:
         while b"acme old frame\x1b[K\x1b[?2026l" not in seen:
             assert time.monotonic() < deadline and proc.poll() is None, seen
             if select.select([master], [], [], 0.1)[0]:
                 seen += os.read(master, 65536)
+        os.kill(proc.pid, signal.SIGINT)
+        assert proc.wait(timeout=10) == 128 + signal.SIGINT
+        assert termios.tcgetattr(slave) == found, "Ctrl-C left the terminal taken"
     finally:
         proc.kill()
         proc.wait()

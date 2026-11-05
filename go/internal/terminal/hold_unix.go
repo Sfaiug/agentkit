@@ -16,3 +16,34 @@ func (k *Keyboard) GiveHeld(start func() error) error {
 	defer syscall.Write(outFD, []byte("\x1b[?2026l"))
 	return start()
 }
+
+// While runs work, a read the frame up waits on, answering meanwhile what ends or stops the
+// program as ReadKey does, and reading no key: what is typed is ReadKey's after it, and so is a
+// draw asked for.  Work that panics panics here, where the caller gives the terminal back.
+func (k *Keyboard) While(work func()) {
+	done, asked := make(chan any, 1), false
+	go func() {
+		defer func() {
+			done <- recover()
+			k.woken[1].Write([]byte{'.'})
+		}()
+		work()
+	}()
+	for {
+		for k.answer() {
+			asked = true
+		}
+		select {
+		case broke := <-done:
+			if asked {
+				k.heard <- syscall.SIGWINCH // ReadKey's to answer, as if it came now
+			}
+			if broke != nil {
+				panic(broke)
+			}
+			return
+		default:
+			k.woken[0].Read(make([]byte, 64))
+		}
+	}
+}

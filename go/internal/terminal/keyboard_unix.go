@@ -140,22 +140,8 @@ func (k *Keyboard) Wake() {
 // on going on takes it again; a resize or that return says `again`.
 func (k *Keyboard) ReadKey() Key {
 	for {
-		k.mu.Lock()
-		var heard os.Signal
-		if len(k.pending) > 0 {
-			heard, k.pending = k.pending[0], k.pending[1:]
-		}
-		k.mu.Unlock()
-		switch heard {
-		case nil:
-		case syscall.SIGWINCH:
+		if k.answer() {
 			return Key{Name: "again"}
-		case syscall.SIGTSTP:
-			k.stop()
-			return Key{Name: "again"}
-		default:
-			k.Give()
-			os.Exit(128 + int(heard.(syscall.Signal)))
 		}
 		if k.wake.Swap(false) {
 			return Key{Name: "wake"}
@@ -185,6 +171,28 @@ func (k *Keyboard) ReadKey() Key {
 			return key
 		}
 	}
+}
+
+// answer answers the signal heard first, and whether there was one: what is left is a resize or a
+// return from a stop, each asking for a draw.
+func (k *Keyboard) answer() bool {
+	k.mu.Lock()
+	var heard os.Signal
+	if len(k.pending) > 0 {
+		heard, k.pending = k.pending[0], k.pending[1:]
+	}
+	k.mu.Unlock()
+	switch heard {
+	case nil:
+		return false
+	case syscall.SIGTSTP:
+		k.stop()
+	case syscall.SIGWINCH:
+	default:
+		k.Give()
+		os.Exit(128 + int(heard.(syscall.Signal)))
+	}
+	return true
 }
 
 // stop hands the terminal over and stops, which only a person's `fg` or a SIGCONT undoes.

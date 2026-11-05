@@ -90,7 +90,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	first, handed := handedRead() // a restart's first frame waits on no read
 	known := handed
 	if !handed {
-		first, known = readFrame(time.Now())
+		keyboard.While(func() { first, known = readFrame(time.Now()) })
 	}
 	if !known || first.handoff {
 		keyboard.Give()
