@@ -40,7 +40,7 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 		}
 		if pending != nil && pending.Get("record") == false {
 			// the repair that brought it here is nobody's fix round: the whole change is judged again
-			j.uncounted, j.from, j.passed = true, "", passedReviewHead(record)
+			j.uncounted, j.passed = true, passedReviewHead(record)
 		}
 	}); err != nil {
 		return false, err
