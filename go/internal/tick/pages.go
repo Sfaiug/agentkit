@@ -26,6 +26,9 @@ func cards(errOut io.Writer, log func(string)) error {
 			carried, err = notify.TurnedNeed(name, seat.CardWord, errOut)
 		}
 		if !carried && err == nil {
+			carried, err = notify.TurnedGoneNeed(name, seat.CardWord, errOut)
+		}
+		if !carried && err == nil {
 			carried, err = notify.TurnedPlan(name, seat.CardWord, plan.Outcomes)
 		}
 		if !carried && err == nil {

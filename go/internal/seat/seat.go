@@ -77,9 +77,10 @@ type recordReaders map[string]harness.Reader
 func (home Home) Seatless() bool { return len(home.records) == 0 }
 
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
-// file's, its typing lock, and the plan of a seat the owner stopped, whose word no plan decides.
+// file's, its typing lock, the plan of a seat the owner stopped, whose word no plan decides, and
+// the latch its stop hook keeps a turn's start in, which no word reads.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "stop": {"json"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose

@@ -15,17 +15,6 @@ func goneKind(kind, suffix string) bool {
 		kind == ".hook" && suffix == "lock" || kind == "input" && suffix == "jsonl" || kind == "rulebook" && suffix == "md"
 }
 
-// RestingGone leaves revival and the line it owes to Python: a past screen or a newer hook may
-// hold a turn or background work even where the gone seat's plan owes nothing.
-func (home Home) RestingGone() bool {
-	for _, seat := range home.Seats {
-		if !seat.restingGone() {
-			return false
-		}
-	}
-	return true
-}
-
 // Repositories includes absent records: their projects still take part in the tick's reads.
 func (home Home) Repositories() []string {
 	var repos []string
