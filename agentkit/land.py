@@ -35,7 +35,7 @@ FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees thi
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
-WAKE = 10           # seconds between a pass's looks for blamed runs it may wake (`_waking`)
+WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
 
 
 def _trees(turn, kind="trees"):
@@ -210,6 +210,8 @@ def _waking(turn, log):
     their own time, and one check holds a pass for hours (a run blamed behind runs that all
     merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026)."""
     from . import watch
+    # a resume takes its record a moment after its start, and one refused leaves it parked:
+    # that one the next pass wakes again
     woken, done = set(), threading.Event()
 
     def wake():
