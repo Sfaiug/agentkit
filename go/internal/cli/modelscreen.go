@@ -1,11 +1,8 @@
 package cli
 
 import (
-	"fmt"
-	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/matrix"
@@ -133,29 +130,7 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 			}
 		}
 		if key.Name == "enter" && at >= 0 && at < len(rows) {
-			modelWhy(rows[at], roles[at], keyboard, painter)
-		}
-	}
-}
-
-// The row's explanation opens without changing the answer or its pointer.
-func modelWhy(row *quality.Rating, role string, keyboard *terminal.Keyboard, painter *terminal.Painter) {
-	does := map[string]string{"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
-	parts := []string{"why", row.Name, row.Effort, does[role]}
-	parts = slices.DeleteFunc(parts, func(part string) bool { return part == "" })
-	defer painter.Forget()
-	for {
-		s := keyboard.Screen()
-		var body []string
-		for _, text := range []string{strings.Join(parts, " "), fmt.Sprintf("quality %.1f ± %.1f   $%.2f a task", row.Quality, row.SE, *row.Cost)} {
-			for _, line := range terminal.Wrap(text, s.LayoutWidth()-2) {
-				body = append(body, "  "+line)
-			}
-		}
-		painter.Write(menu.Panel(s, "config · recommended", time.Now().Format("15:04"), body, "esc back"), s)
-		key := keyboard.ReadKey()
-		if key.Name == "esc" || key.Name == "eof" {
-			return
+			modelWhy(answer[roles[at]], rows[at], roles[at], keyboard, painter)
 		}
 	}
 }
