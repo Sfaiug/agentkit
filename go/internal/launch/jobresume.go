@@ -36,7 +36,7 @@ func ResumeJob(id string, out io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	receipt, _ := run.ReadJSON(filepath.Join(dir, "job.json"))
+	receipt, _ := job.Read(dir)
 	release()
 	if !endsAtOnce(receipt) || config.Check() != nil || box.Check() != nil {
 		return 0, ErrPython

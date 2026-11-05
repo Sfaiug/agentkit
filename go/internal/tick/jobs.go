@@ -29,7 +29,7 @@ func jobs() ([]string, []*run.Object, bool) {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			continue
 		}
-		receipt, err := run.ReadJSON(filepath.Join(dir, "job.json"))
+		receipt, err := job.Read(dir)
 		if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
 			return nil, nil, false
 		}
@@ -75,7 +75,7 @@ func (t *ticking) jobHandback(dir string) error {
 		return err
 	}
 	defer held.Close()
-	receipt, err := run.ReadJSON(filepath.Join(dir, "job.json"))
+	receipt, err := job.Read(dir)
 	if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
 		return errLeft
 	}

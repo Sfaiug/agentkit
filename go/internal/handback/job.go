@@ -1,8 +1,6 @@
 package handback
 
 import (
-	"path/filepath"
-
 	"agentkit/internal/job"
 	"agentkit/internal/run"
 )
@@ -27,7 +25,7 @@ func TellJob(dir string, receipt *run.Object, line string, say func(string)) str
 // nothing else, only while it is still the attempt `snapshot` is of; the snapshot takes them too.
 // Its caller holds the job's delivery lock.
 func MarkJob(dir string, snapshot *run.Object, pairs ...any) bool {
-	current, _ := run.ReadJSON(filepath.Join(dir, "job.json"))
+	current, _ := job.Read(dir)
 	if current == nil {
 		current = snapshot.Copy()
 	} else if !sameAttempt(snapshot, current) {
