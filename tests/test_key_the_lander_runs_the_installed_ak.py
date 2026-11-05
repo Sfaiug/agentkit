@@ -79,16 +79,18 @@ class TheLanderRunsTheInstalledAk(unittest.TestCase):
             line = Line({"t/ok.sh": "true\n"}, home=home)
             line.member({"api.txt": "api\n"})
             self.version(line.members[0], old)
-            done = home.run(install.ak, "watch", timeout=300,
-                            env={"AK_HOST_READINGS": READINGS, "AK_RUN_CODE": str(old)})
-            self.assertEqual(done.code, 0, done.out + done.err)
             observed = home.path / "lander.code"
-            deadline = time.monotonic() + 120
-            while not observed.exists() and time.monotonic() < deadline:
-                time.sleep(0.1)
-            self.assertTrue(observed.exists(), done.out + done.err)
-            self.assertEqual(observed.read_text(), second)
-            self.assertIn("land", line.verdict(1))
+            for entry in (("watch",), ("run", "--lander", line.line)):
+                done = home.run(install.ak, *entry, timeout=300,
+                                env={"AK_HOST_READINGS": READINGS, "AK_RUN_CODE": str(old)})
+                self.assertEqual(done.code, 0, done.out + done.err)
+                deadline = time.monotonic() + 120
+                while not observed.exists() and time.monotonic() < deadline:
+                    time.sleep(0.1)
+                self.assertTrue(observed.exists(), done.out + done.err)
+                self.assertEqual(observed.read_text(), second, entry)
+                self.assertIn("land", line.verdict(1))
+                observed.unlink()
 
 
 if __name__ == "__main__":
