@@ -108,7 +108,7 @@ func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
 func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
-func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders, pending ...bool) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -159,13 +159,18 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		isLive := slices.Contains(live, name)
-		seat, ok := read(state, name, models, offered, runs[name], now, isLive, readers)
+		deferred := isLive && len(pending) > 0 && pending[0]
+		seat, ok := read(state, name, models, offered, runs[name], now, isLive, readers, deferred)
 		if !ok {
 			return Home{}, false
 		}
 		seat.held, seat.live = slices.Contains(held, name), isLive
 		if seat.live {
-			if !seat.looksOn(seat.own) || !climbingOf(state, seat, sight{}, seconds(now)).readable() {
+			facts := climbingOf(state, seat, sight{}, seconds(now))
+			if deferred {
+				facts = accountClimbing(facts)
+			}
+			if !seat.looksOn(seat.own) || !facts.readable() {
 				return Home{}, false
 			}
 		}
@@ -233,7 +238,7 @@ func onServer(names []string) (held, live []string, known bool) {
 
 // read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its
 // panes run on, whose look reads more of its seat file.
-func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool, readers recordReaders) (Seat, bool) {
+func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool, readers recordReaders, deferred bool) (Seat, bool) {
 	record, err := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if err != nil || record == nil {
 		return Seat{}, false
@@ -253,7 +258,11 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 			return Seat{}, false
 		}
 	}
-	if seat.closed, known = revivalStopped(previous); !known {
+	stopped := revivalStopped
+	if deferred {
+		stopped = liveStopped
+	}
+	if seat.closed, known = stopped(previous); !known {
 		return Seat{}, false
 	}
 	if seat.closed && seat.unowned {

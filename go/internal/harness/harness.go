@@ -58,6 +58,7 @@ type plugin struct {
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
+	launch        func() (*run.Object, []string)
 	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool
