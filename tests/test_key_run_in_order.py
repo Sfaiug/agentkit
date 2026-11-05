@@ -34,7 +34,8 @@ def launch(case, health, executor, reviewer, front=()):
     case.home = home = Home()
     case.addClassCleanup(home.close)
     akconfig.write(home, ["opus", "astra"])
-    rig = Rig(home, "widget", files={"AGENTS.md": f"---\ntests: true\nhealth: {health}\n---\n"})
+    case.rig = rig = Rig(home, "widget",
+                         files={"AGENTS.md": f"---\ntests: true\nhealth: {health}\n---\n"})
     case.gh = GitHub(home)
     case.seat = Seat(home, "acme", cwd=rig.path, planned=True,
                      record={"workers": ["opus"], "reviewers": ["astra"]})
@@ -110,6 +111,35 @@ class ATaskThatFailsEndsTheJob(Case):
         self.assertEqual(self.notices(),
                          [f"job {self.directory.name}: b.md: FAIL after 1 rounds: needs you; "
                           "not started: c.md"])
+
+
+class ATaskThatPassesUnmergedEndsTheJob(Case):
+    @classmethod
+    def setUpClass(cls):
+        # a finds nothing to do: it passes, merging nothing, so neither b nor c starts
+        launch(cls, "none", "not-needed", "pass")
+
+    def test_the_rest_never_start(self):
+        self.assertEqual([task["state"] for task in self.job()["tasks"]],
+                         ["passed", "skipped", "skipped"])
+        self.tick()
+        self.assertEqual(self.notices(), [f"job {self.directory.name}: a.md: PASS, passed; "
+                                          "not started: b.md, c.md"])
+
+    def test_a_task_naming_its_own_branch_is_refused_and_nothing_starts(self):
+        first = taskfile.write(self.home, self.rig.path, "Add d", name="d")
+        for key in ("base", "target"):
+            with self.subTest(key):
+                task = taskfile.write(self.home, self.rig.path, "Add e", name="e",
+                                      front={key: "main"})
+                done = self.home.ak("run", str(first), str(task), "--in-order")
+                self.assertEqual(done.code, 2, done.out + done.err)
+                self.assertTrue(done.err.endswith(": an ordered job cuts each task from its "
+                                                  "repository's default branch, where the one "
+                                                  "before it merged: drop base: and target:\n"),
+                                done.err)
+                self.assertEqual(list((self.home.path / ".agentkit/jobs").iterdir()),
+                                 [self.directory])
 
 
 if __name__ == "__main__":
