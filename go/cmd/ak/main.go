@@ -5,9 +5,11 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/cli"
+	"agentkit/internal/localtime"
 )
 
 func main() {
+	localtime.Read()
 	if code, first := box.First(); first {
 		os.Exit(code)
 	}
