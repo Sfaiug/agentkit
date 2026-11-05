@@ -222,11 +222,14 @@ func validateRunSubcommand(verb string, args []string) string {
 		if held == nil { // missing, unreadable or no object
 			held = run.Fields()
 		}
-		budget, err := run.PolicyRounds(held)
+		numbers, err := run.Policy(held)
 		if err != nil {
 			return err.Error()
 		}
-		if problem := task.RoundsOver(asked, "--rounds", budget); problem != "" {
+		if !run.Carried(numbers) {
+			return "" // Python judges a run Go does not carry, which its resume hands over
+		}
+		if problem := task.RoundsOver(asked, "--rounds", numbers.Rounds); problem != "" {
 			return problem
 		}
 	}

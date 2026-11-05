@@ -24,7 +24,7 @@ func Merge(id string, out, errOut io.Writer) (int, string, error) {
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || !driverHere() {
 		return 0, "", ErrPython
 	}
-	if numbers, err := run.Policy(record); err != nil || !run.Carried(numbers) {
+	if !run.Carries(record) {
 		return 0, "", ErrPython // review off lands on its checks, and only Python delivers that yet
 	}
 	if !run.ReviewPass(record, run.Models()) {

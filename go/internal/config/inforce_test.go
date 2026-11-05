@@ -15,13 +15,14 @@ func TestInForce(t *testing.T) {
 	}
 }
 
-// Review off says each budget line whole as no review, and no limit says none, as Python does.
+// Review off says each budget line whole as no review, and no limit says none, as Python does,
+// whatever the file's other tables hold.
 func TestInForceSaysReviewOffAndNoLimit(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	os.MkdirAll(Home(), 0o700)
-	os.WriteFile(filepath.Join(Home(), "config.toml"), []byte("review_rounds = 0\nexecutor_lines = 'no limit'\n"), 0o600)
+	os.WriteFile(filepath.Join(Home(), "config.toml"), []byte("review_rounds = 0\nexecutor_lines = 'no limit'\n[models]\n[providers]\n"), 0o600)
 	const words = "- $Review_rounds review round$s is the budget; ak refuses $one_over.\n$run_budget\nSize: $executor_size; $executor_lines.\n"
 	want := "- No review: a change lands on its checks; no reviewer.\nNo review: a change lands on its checks; no reviewer.\n" +
 		"Size: no limit on added lines, tests included; no limit.\n"

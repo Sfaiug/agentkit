@@ -18,14 +18,11 @@ type Numbers struct {
 	ReviewLines, SeatLines Lines
 }
 
-// HostNumbers is config.toml's numbers, ak's default for one it does not name; load has refused
-// what is out of range.
+// HostNumbers is config.toml's numbers, ak's default for one it does not name, Python's
+// host_policy: the home file's own, whatever its other tables hold.
 func HostNumbers() (Numbers, error) {
-	root, err := load()
-	if err != nil {
-		return Numbers{}, err
-	}
-	return hostPolicy(root)
+	_, numbers, err := homeFile()
+	return numbers, err
 }
 
 // ProjectNumbers is the numbers in force for the checkout whose default branch declares what

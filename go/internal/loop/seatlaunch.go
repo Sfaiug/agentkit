@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,10 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	if err != nil {
 		return nil, err
 	}
+	if !run.Carried(policy) {
+		// no receipt: the line stays the seat's own to build, as where a launch fails
+		return nil, errors.New("review off or no limit is Python's to carry")
+	}
 	held, err := HoldSlots(context.Background())
 	if err != nil {
 		return nil, err
@@ -57,13 +62,10 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 		return nil, err
 	}
 	return func() error {
-		// General host admission is still Python's, as is a run Go does not carry. Keep its
-		// queued receipt, not an error ending, if the gates changed since this run's own launch.
+		// General host admission is still Python's. Keep its queued receipt, not an
+		// error ending, if the gates changed since this run's own launch.
 		if os.Getenv("AK_MAX_RUNS") != "0" {
 			return fmt.Errorf("queued for Python's host admission")
-		}
-		if !run.Carried(policy) {
-			return fmt.Errorf("queued for Python, which carries review off and no limit")
 		}
 		held, err := HoldSlots(context.Background())
 		if err != nil {

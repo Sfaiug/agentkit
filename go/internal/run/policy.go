@@ -35,12 +35,8 @@ func Carried(numbers config.Numbers) bool {
 	return numbers.Rounds > 0 && executor && orchestrator
 }
 
-// ReviewOff is whether the run's record holds review off, Python's review_off: only what the run
-// read as it launched says so, never the host.
-func ReviewOff(record *Object) bool {
-	if held := record.Dict("policy"); held == nil || len(held.Keys()) == 0 {
-		return false
-	}
+// Carries is whether Go carries the run this record is: the numbers it holds to read, and carried.
+func Carries(record *Object) bool {
 	numbers, err := Policy(record)
-	return err == nil && numbers.Rounds == 0
+	return err == nil && Carried(numbers)
 }

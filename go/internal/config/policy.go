@@ -3,6 +3,8 @@ package config
 import (
 	"fmt"
 	"math/big"
+	"os"
+	"path/filepath"
 	"strings"
 )
 
@@ -66,12 +68,28 @@ func policyIn(given func(key string) (any, bool), over Numbers) (Numbers, error)
 // limits is the numbers in policy's order, the rounds as the limit they are.
 func (n Numbers) limits() [3]Lines { return [3]Lines{AtMost(n.Rounds), n.ReviewLines, n.SeatLines} }
 
-// hostPolicy is the numbers config.toml's own root names, over ak's defaults.
-func hostPolicy(root *table) (Numbers, error) {
-	return policyIn(func(key string) (any, bool) {
+// homeFile is config.toml as the home holds it, empty where there is none, and the numbers it
+// names over ak's defaults (Python's host_policy), refused naming it where it does not read or a
+// number is out of range: what its other tables hold is load's to judge.
+func homeFile() (*table, Numbers, error) {
+	path := filepath.Join(Home(), "config.toml")
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, Numbers{}, fmt.Errorf("cannot read %s: %w", path, err)
+	}
+	root, err := parseDocument(string(data))
+	if err != nil {
+		return nil, Numbers{}, fmt.Errorf("%s: %w", path, err)
+	}
+	renamePolicy(root)
+	numbers, err := policyIn(func(key string) (any, bool) {
 		value, set := root.values[key]
 		return value, set
 	}, defaults)
+	if err != nil {
+		return nil, Numbers{}, fmt.Errorf("%s: %w", path, err)
+	}
+	return root, numbers, nil
 }
 
 // Recorded is the numbers a run's record holds, as given names them, ak's default for one it

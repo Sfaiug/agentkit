@@ -22,7 +22,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if expected != nil && !run.Equal(record, expected) {
 		return 2, loop.ErrChanged.Error(), nil
 	}
-	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) {
+	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) || !run.Carries(record) {
 		return 0, "", ErrPython
 	}
 	switch state := record.Str("state"); {
@@ -35,9 +35,6 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	}
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil || box.Check() != nil {
 		return 0, "", ErrPython
-	}
-	if numbers, err := run.Policy(record); err != nil || !run.Carried(numbers) {
-		return 0, "", ErrPython // what the run holds to is Python's to judge, or a run Go does not carry
 	}
 	if !driverHere() || record.Truthy("repo") && helped() || !loop.Pickup(dir, record) && !loop.Woken(record) {
 		return 0, "", ErrPython
