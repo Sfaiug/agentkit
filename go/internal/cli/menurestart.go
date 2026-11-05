@@ -45,7 +45,7 @@ func restartMenu(cursor string, last reading, keyboard *terminal.Keyboard, paint
 		env = append(append(env, cross(menuRead, handOn(last))...), cross(menuFrame, painter.Up())...)
 		err = keyboard.GiveHeld(func() error { return execMenu(menuProgram, os.Args, env) })
 	}
-	keyboard.Give()
+	keyboard.Give() // where the program was never found, so nothing gave it
 	fmt.Fprintf(errOut, "ak attach: cannot restart: %s\n", err)
 	return 2
 }
