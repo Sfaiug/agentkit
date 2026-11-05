@@ -26,9 +26,10 @@ var errUnstamped = errors.New("the sweep's stamp was not written")
 // Reap is Python's reap of the Reapable runs at dirs, each record as it leaves it: what each dead
 // loop left behind ended, once per loop, and its record stamped with the loop it swept for
 // (`tree_stopped`), onto the record as it stands.  Every run is held under its recovery lock and
-// read again before any is swept, so where one has moved on (errMoved) nothing is written; a
-// stamp that cannot be written is an error too, which Python raises.
-func Reap(dirs []string) ([]*run.Object, error) {
+// read again, and then the caller's last decision made, which may write once it has decided,
+// before any is swept: where one has moved on (errMoved) or decide refuses, nothing is written.
+// A stamp that cannot be written is an error too, which Python raises.
+func Reap(dirs []string, decide func() error) ([]*run.Object, error) {
 	records := make([]*run.Object, len(dirs))
 	for i, dir := range dirs {
 		release, err := run.Hold(dir)
@@ -39,6 +40,9 @@ func Reap(dirs []string) ([]*run.Object, error) {
 		if records[i], _ = run.Read(dir); records[i] == nil || !Reapable(records[i]) {
 			return nil, errMoved
 		}
+	}
+	if err := decide(); err != nil {
+		return nil, err
 	}
 	for i, dir := range dirs {
 		if err := sweep(dir, records[i]); err != nil {

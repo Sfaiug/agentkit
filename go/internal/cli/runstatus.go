@@ -82,19 +82,16 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
-	if no {
-		return notImplemented(errOut, "run status")
-	}
 	var db *history.DB
-	if showHistory && wanted == "" && !machine {
-		// opened before a line is printed: a database Go leaves to Python ak leaves it the command
-		if db, err = history.Open(); err != nil {
-			return notImplemented(errOut, "run status")
+	defer func() { db.Close() }()
+	// opened before a line is printed: a database Go leaves to Python ak leaves it the command;
+	// decided on while the reap holds its runs, so neither is written where the other refuses
+	if no || !reaped(entries, func() (err error) {
+		if showHistory && wanted == "" && !machine {
+			db, err = history.Open()
 		}
-		defer db.Close()
-	}
-	// the reap writes, so it follows every other refusal
-	if !reaped(entries) {
+		return err
+	}) {
 		return notImplemented(errOut, "run status")
 	}
 	for i := range entries {
@@ -194,9 +191,9 @@ func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*
 }
 
 // reaped is whether each run listed is now as Python's reap leaves it: an ended one as run.Reap
-// leaves it, the ones handback reaps reaped together.  False where one moved on to a reap Go
-// leaves to Python, or a stamp could not be written.
-func reaped(entries []listed) bool {
+// leaves it, the ones handback reaps reaped together, decide made before they are swept.  False
+// where one moved on to a reap Go leaves to Python, decide refused, or a stamp went unwritten.
+func reaped(entries []listed, decide func() error) bool {
 	var swept []*listed
 	var dirs []string
 	for i := range entries {
@@ -208,7 +205,7 @@ func reaped(entries []listed) bool {
 			entry.record, _ = run.Reap(entry.record)
 		}
 	}
-	records, err := handback.Reap(dirs)
+	records, err := handback.Reap(dirs, decide)
 	for i, record := range records {
 		swept[i].record = record
 	}
