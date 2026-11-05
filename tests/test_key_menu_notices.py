@@ -7,9 +7,11 @@ wait for.  An install newer than the open menu (`~/.agentkit/state/installed-at`
 install.sh stamps where there is none) makes the menu start again, reading everything afresh, on
 the seat it had highlighted, so a menu left open never runs old code.  Black-box: the program
 `AK_BIN` names runs in a person's terminal (tests/fixtures/akterm.py) or from a pipe, beside
-tests/fixtures/akseat.py's seats, and this test fails against `/bin/false`.
+tests/fixtures/akseat.py's seats, its start again read from the bytes it writes (`pipe-pane`),
+and this test fails against `/bin/false`.
 """
 
+import shlex
 import sys
 from pathlib import Path
 import time
@@ -19,10 +21,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
 from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import Seat
-from fixtures.akterm import Terminal
+from fixtures.akterm import SERVER, Terminal
 
 NOTICE = ".agentkit/state/update-result"
 ROWS = "  2  beta"
+TAKEN, UPDATED = b"\x1b[?1049h", b"\x1b[?2026l"    # the screen taken; an update written whole
 OPENS = 60      # the first draw looks at every seat, which a loaded host makes slow
 
 
@@ -101,20 +104,23 @@ class NewCode(unittest.TestCase):
             drawn = time.time()             # the menu started before it drew
             menu.keys("j")
             menu.wait("› 2  beta")
-            akconfig.write(home, ["opus", "astra"])
-            # a frame drawn after the change: the menu reads its config as it starts
-            menu.keys("k")
-            self.assertNotIn("ChatGPT", menu.wait("› 1  acme"))
-            menu.keys("j")
-            menu.wait("› 2  beta")
+            # what it writes from here, which tmux shows none of: only a start takes the screen
+            said = home.root / "program-bytes"
+            done = home.tmux("pipe-pane", "-t", menu.pane, f"cat >{shlex.quote(str(said))}",
+                             server=SERVER)
+            self.assertEqual(done.code, 0, done.err)
             # install.sh stamps whole seconds: one past the second the menu started in
             while time.time() < int(drawn) + 1:
                 time.sleep(0.05)
             home.write(".agentkit/state/installed-at", f"{int(time.time())}\n")
             menu.keys("i")          # a key that does nothing: the menu reads news before a draw
-            screen = menu.wait(lambda text: "ChatGPT" in text and "esc leave" in text,
-                               bound=OPENS)
-            self.assertIn("› 2  beta", screen)
+            # started again: the screen taken, the old frame's rows let go, then its first frame
+            deadline = time.monotonic() + OPENS
+            while (said.read_bytes() if said.exists() else b"").partition(
+                    TAKEN)[2].count(UPDATED) < 2:
+                self.assertLess(time.monotonic(), deadline, "the menu never started again")
+                time.sleep(0.05)
+            self.assertIn("› 2  beta", menu.wait("esc leave"))
             menu.keys("Escape")
             self.assertEqual(menu.exit_code(), 0)
 

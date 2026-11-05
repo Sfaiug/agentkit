@@ -211,6 +211,12 @@ def stopped(code, text):
     return code is None or (code != 0 and bool(PROMPTED.search(text)))
 
 
+# ak's own temporary commits: identical trees and parents give every attempt the same commit.
+STAMP = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
+         "GIT_COMMITTER_NAME": "ak", "GIT_COMMITTER_EMAIL": "ak@localhost",
+         "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
+
+
 def git(repo, *args, check=True, env=None):
     """The command's stdout, raising on failure unless `check` is off.
 

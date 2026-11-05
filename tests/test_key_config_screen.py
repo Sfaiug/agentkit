@@ -121,7 +121,7 @@ class ConfigScreen(unittest.TestCase):
         defaults = akconfig.read(self.home)["defaults"]
         self.term.keys("Right", "Right")
         self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [□]                  □")
-        self.assertNotIn("Fable 5.1 ⚒", bar(self.home, self.seat))
+        self.assertNotIn("Fable 5.1 xhigh ⚒", bar(self.home, self.seat))
         self.term.keys("Space")
         self.term.wait("› Fable 5.1     ●  ▰▰▰▰▱   xhigh   [■] ▰▰▰▰▱   xhigh    □")
         deadline = time.monotonic() + 30
@@ -132,7 +132,7 @@ class ConfigScreen(unittest.TestCase):
                          ("fable", ["astra", "fable"], ["astra"]))
         self.assertEqual(akconfig.read(self.home)["defaults"], defaults)
         deadline = time.monotonic() + 10    # no look runs on `c`: only the mark redraws the bar
-        while "Fable 5.1 ⚒" not in bar(self.home, self.seat):
+        while "Fable 5.1 xhigh ⚒" not in bar(self.home, self.seat):
             self.assertLess(time.monotonic(), deadline, "the bar kept the builders it had")
         self.leave()
         self.assertEqual(self.record()["workers"], ["astra", "fable"])

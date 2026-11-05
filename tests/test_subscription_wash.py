@@ -54,8 +54,12 @@ class Wash(Sandbox):
         return next(line for line in lines if f" {name} " in line)
 
     def full(self, name):
-        """The name a seat's row and `c` show the model by (config.model_name)."""
+        """The name `c` shows the model by (config.model_name)."""
         return config.model_name(self.cfg, name)
+
+    def shown(self, name):
+        """The name a seat's row shows the model by, at its effort (config.model_at)."""
+        return config.model_at(self.cfg, None, name, "orchestrator")
 
     # Colour says where a thing stands; a company's shows only while the pointer is on its
     # subscription's meter, filling it and lighting every model on screen running on it.
@@ -64,11 +68,11 @@ class Wash(Sandbox):
         rest = self.screen()
         for name, model in (("acme-plan", "opus"), ("acme-docs", "astra")):
             # its reset brightens the highlighted row again, so the end of it is the row's
-            self.assertIn(terminal.styled(self.full(model), "dim")[:-1], self.row(rest, name))
+            self.assertIn(terminal.styled(self.shown(model), "dim")[:-1], self.row(rest, name))
         lit = self.screen((5, 3))                   # Claude, first on the grid
         self.assertIn(terminal.styled("Claude", CLAUDE), lit[2])
-        self.assertIn(terminal.styled(self.full("opus"), CLAUDE)[:-1], self.row(lit, "acme-plan"))
-        self.assertIn(terminal.styled(self.full("astra"), "dim")[:-1], self.row(lit, "acme-docs"))
+        self.assertIn(terminal.styled(self.shown("opus"), CLAUDE)[:-1], self.row(lit, "acme-plan"))
+        self.assertIn(terminal.styled(self.shown("astra"), "dim")[:-1], self.row(lit, "acme-docs"))
 
     def test_coming_onto_it_starts_the_wash_on_its_name_meter_and_models(self):
         clock = motion.Clock()
@@ -123,11 +127,11 @@ class Wash(Sandbox):
                             {"repo": seat["repo"], "cwd": seat["path"]})
         number, model = self.row(self.screen((5, 3)), seat["name"]).split(seat["name"])
         self.assertIn(terminal.styled("1", "dim")[:-1], number)
-        self.assertIn(terminal.styled("1", CLAUDE)[:-1], model)
+        self.assertIn(terminal.styled(self.shown("1"), CLAUDE)[:-1], model)
 
     def test_a_row_shorter_than_a_wider_word_beside_it_lights_its_model(self):
         watch.seat_write("acme-docs", word="working", reason="", word_since=9100)
-        self.assertIn(terminal.styled(self.full("opus"), CLAUDE)[:-1],
+        self.assertIn(terminal.styled(self.shown("opus"), CLAUDE)[:-1],
                       self.row(self.screen((5, 3)), "acme-plan"))
 
     def c_keys(self, names):
@@ -171,7 +175,7 @@ class Wash(Sandbox):
         line, free = divmod(len(menu.usage_rows(self.cfg)), 3)     # three to a line at 120
         self.assertTrue(free, "the grid's last line has no free slot")
         lines = self.screen((3 + free * (menu.COLUMN + 2) + 1, 3 + line))
-        self.assertIn(terminal.styled(self.full("opus"), "dim")[:-1], self.row(lines, "acme-plan"))
+        self.assertIn(terminal.styled(self.shown("opus"), "dim")[:-1], self.row(lines, "acme-plan"))
 
 
 if __name__ == "__main__":

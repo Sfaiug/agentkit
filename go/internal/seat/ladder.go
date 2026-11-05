@@ -245,8 +245,6 @@ func telling(facts climbing) (*answer, error) {
 
 // stillOwed: nothing running, asked or owed it news, it is the owner's while its plan owes a line,
 // unless the owner stopped its turn and so knows; and while a question it kept back is unasked.
-// Whether the tick has yet to send it back to that line (watch.goes_back) Go does not read: a seat
-// whose stop hook said a line may wait on it.
 func stillOwed(facts climbing) (*answer, error) {
 	line, owes := "", false
 	if !facts.found.interrupted {
@@ -255,8 +253,8 @@ func stillOwed(facts climbing) (*answer, error) {
 			return nil, ErrUnread
 		}
 	}
-	if line != "" && facts.file.Truthy("stop_said") {
-		return nil, ErrUnread
+	if back, err := openWork(facts, line); err != nil || back != nil {
+		return back, err
 	}
 	if !owes && !facts.file.Truthy("unasked") {
 		return nil, nil

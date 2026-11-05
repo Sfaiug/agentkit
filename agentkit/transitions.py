@@ -223,8 +223,9 @@ def _generated(repo, source, names):
     """Which of `names` Git marks linguist-generated in `source`'s tree."""
     if not names:
         return set()
-    # Older Git has no check-attr --source; a private index reads the same tree.
-    with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
+    # Older Git has no check-attr --source; a private index reads the same tree, in the process's
+    # own temporary directory: a worker's box, where `ak hand-in` counts too, writes nowhere else.
+    with tempfile.TemporaryDirectory() as tmp:
         index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         gitcall.git(repo, "read-tree", source, env=index)
         attrs = gitcall.git(repo, "check-attr", "--cached", "-z", "linguist-generated",

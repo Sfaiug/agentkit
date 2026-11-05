@@ -1907,6 +1907,7 @@ def screen_state(harness, tail):
     quoting a prompt cannot fake one.  A composer whose only content is dim -- a suggestion or
     placeholder -- is empty; one holding bright text is a draft.  The draft and suggestion
     rules are read out of the manifest like every other rule: their `lines` bound the window,
+    and how tall a ruled composer's own draft reaching up past it to its prompt row may be,
     their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
     keeps them at the composer -- only the bottom-most prompt-marked line counts where the
     line right under it and the pane's last line are chrome, one with its own rule right
@@ -1975,9 +1976,18 @@ def screen_state(harness, tail):
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
                 # row of it down to its closing rule, under the footer at the pane's bottom --
-                # or, with none drawn, a prompt row right on that bottom.
+                # or, with none drawn, a prompt row right on that bottom.  A draft taller than
+                # the rule's rows goes on above them in rows indented under its prompt row, so
+                # it is read up through those to that row (Claude Code 2.1.318 put a seven-row
+                # draft's ten up), while it is no taller than the rule's rows: a taller one may
+                # be one the harness scrolled, whose top row opens none of it (2.1.291, ten).
+                top = len(lines) - len(region)
+                while top and strip_sgr(raw_lines[top])[:1].isspace():
+                    top -= 1
+                raws, region = raw_lines[top:], lines[top:]
                 at, end = ruled_composer(chrome, raws)
-                if at is not None and not chrome_line(chrome, region[-1]):
+                if at is not None and (end - at > rule["lines"]
+                                       or not chrome_line(chrome, region[-1])):
                     at = None
                 elif at is None and re.match(prompt, region[-1]):
                     at, end = len(region) - 1, len(region)
