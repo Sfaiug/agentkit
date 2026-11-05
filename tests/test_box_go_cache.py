@@ -1,4 +1,5 @@
-"""A worker turn builds Go in its box's own cache, its home read-only; a check keeps the home's."""
+"""A check's box keeps Go's build cache in its home, where a turn's box has one of its own
+(tests/test_key_a_turn_builds_go.py)."""
 
 import os
 from pathlib import Path
@@ -15,27 +16,19 @@ from agentkit import box  # noqa: E402
 
 
 class GoCache(unittest.TestCase):
-    def boxed(self, argv, **kwargs):
+    def test_a_check_keeps_the_homes_cache(self):
         with tempfile.TemporaryDirectory(prefix=".ak-test-box-go-cache-", dir=REPO) as tmp:
             home = Path(tmp)
             (home / "out").mkdir()
-            (home / "workspace/p").mkdir(parents=True)
-            (home / "workspace/go.mod").write_text("module acme\n\ngo 1.21\n")
-            (home / "workspace/p/p.go").write_text("package p\n\nfunc F() int { return 1 }\n")
+            (home / "workspace").mkdir()
             env = {key: value for key, value in os.environ.items()
                    if key not in ("GOCACHE", "XDG_CACHE_HOME")}
-            env.update(HOME=tmp, GOTOOLCHAIN="local", GOPROXY="off")
+            env.update(HOME=tmp, GOTOOLCHAIN="local")
             with patch.dict(os.environ, {"HOME": tmp}), account_home(home), box.command(
-                    argv, env, home / "out", cwd=home / "workspace", **kwargs) as (cmd, env, spawn):
-                return subprocess.run(cmd, env=env, cwd=home / "workspace", capture_output=True,
-                                      text=True, timeout=120, pass_fds=spawn["pass_fds"]), home
-
-    def test_a_turn_builds_go(self):
-        result, _ = self.boxed(["go", "build", "./p"])
-        self.assertEqual(result.returncode, 0, result.stderr)
-
-    def test_a_check_keeps_the_homes_cache(self):
-        result, home = self.boxed(["go", "env", "GOCACHE"], home_overlay=True)
+                    ["go", "env", "GOCACHE"], env, home / "out", cwd=home / "workspace",
+                    home_overlay=True) as (cmd, env, spawn):
+                result = subprocess.run(cmd, env=env, cwd=home / "workspace", capture_output=True,
+                                        text=True, timeout=120, pass_fds=spawn["pass_fds"])
         self.assertEqual((result.returncode, result.stdout.strip()),
                          (0, str(home / ".cache/go-build")), result.stderr)
 
