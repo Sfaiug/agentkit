@@ -518,10 +518,11 @@ def install_shim():
     """Ensure every `tools/<name>-shim` is linked as `<HOME>/bin/<name>` (so `<name>` on a seat's
     PATH is its shim), and return their directory.  A new shim is picked up by its name alone, with
     no change here.  Idempotent: a stale or wrong link is replaced, so an upgrade that moves or adds
-    a shim repoints it."""
+    a shim repoints it.  The live checkout's (`versions.live`), as a seat outlives any run."""
+    from . import versions     # here, not at the top: each command a seat guards imports this
     link_dir = shim_dir()
     link_dir.mkdir(parents=True, exist_ok=True)
-    for target in sorted((config.REPO / "tools").glob("*-shim")):
+    for target in sorted((versions.live() / "tools").glob("*-shim")):
         name = target.name[: -len("-shim")]       # tmux-shim -> tmux, gh-shim -> gh
         link = link_dir / name
         try:

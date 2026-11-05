@@ -96,6 +96,24 @@ def enter(path):
         os.execv(sys.executable, [sys.executable, str(path / "bin" / "ak"), *sys.argv[1:]])
 
 
+def live():
+    """The checkout a seat runs, and what its server runs for it: ~/agentkit where this process
+    runs a version under `VERSIONS`, else this one.  A seat outlives any run, so the version a
+    run is pinned to never becomes the seat's, whichever process starts it."""
+    from . import update     # here, not at the top: it imports this module
+    return update.agentkit_dir() if config.REPO.parent == config.HOME / VERSIONS else config.REPO
+
+
+def unpinned(env):
+    """`env` without what `enter` put in it, for what outlives this process: no version's `bin`
+    on its PATH, so the `ak` found there is the live one, and no AK_RUN_CODE."""
+    kept = {key: value for key, value in env.items() if key != "AK_RUN_CODE"}
+    if "PATH" in kept:
+        kept["PATH"] = os.pathsep.join(entry for entry in kept["PATH"].split(os.pathsep)
+                                       if Path(entry).parent.parent != config.HOME / VERSIONS)
+    return kept
+
+
 def dispatch(argv):
     from . import record, worker
     if argv[:2] == ["run", "--lander"]:
