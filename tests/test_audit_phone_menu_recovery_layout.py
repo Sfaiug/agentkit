@@ -494,7 +494,7 @@ class Terminal:
                     continue
                 try:
                     cmdline = (proc / "cmdline").read_bytes()
-                    if (b"attach\0--overlay" in cmdline or b"display-popup" in cmdline) \
+                    if (b"attach\0--overlay" in cmdline or b"display-popup" in cmdline.split(b"\0")) \
                             and home in (proc / "environ").read_bytes().split(b"\0"):
                         open_.append(proc.name)
                 except OSError:
@@ -506,6 +506,18 @@ class Terminal:
 
 
 class Synchronization(Sandbox):
+    def test_a_checkout_path_does_not_make_an_attached_client_a_popup(self):
+        entry = self.root / "display-popup-checkout" / "bin" / "ak"
+        entry.parent.mkdir(parents=True)
+        self.script(entry, "import sys; sys.stdin.read()\n")
+        client = subprocess.Popen([sys.executable, str(entry), "attach", "--client"],
+                                  env=self.env, stdin=subprocess.PIPE)
+        self.addCleanup(client.communicate)
+        phone = Terminal.__new__(Terminal)
+        phone.case = self
+        phone.settled(timeout=0)
+        self.assertIsNone(client.poll())
+
     def test_the_tmux_popup_command_must_finish_after_the_menu_exits(self):
         # display-popup outlives its menu: no overlay process is left, but keys still go to
         # the closing popup. End that command only once settled has waited for it.
