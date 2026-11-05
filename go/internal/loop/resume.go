@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 	"agentkit/internal/usage"
@@ -209,7 +210,7 @@ func (l *loop) sayResuming(branch string) {
 
 func (r *repoPlace) reopen(l *loop, _ *run.Object) error {
 	r.noWorktree = filepath.Clean(r.wt) == filepath.Clean(r.repo)
-	if err := noAutoGC(r.wt); err != nil {
+	if err := gitcall.NoAutoGC(r.wt); err != nil {
 		return err
 	}
 	l.workspace, l.usersAt = r.wt, r.upstream()

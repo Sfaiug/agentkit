@@ -24,7 +24,7 @@ import (
 // (`--dry-run`) prints what the seat would take and the command it would run, its rulebook written
 // into a scratch folder gone once that is printed, and saves and starts nothing; an open, from a
 // person's terminal, opens the seat and hands it that terminal.  The rest is Python's: a seat
-// tmux or a record holds under the name, a seat filed under a project,
+// tmux or a record holds under the name,
 // one on a provider's accounts, which opens on the one its login and usage pick, and an open with
 // no tmux, whose harness runs in the terminal itself.
 func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
@@ -40,7 +40,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	}
 	cwd, err := os.Getwd()
 	cwd = config.Resolve(cwd)
-	if err != nil || seat.Project(cwd) != "" {
+	if err != nil || dryRun && seat.Project(cwd) != "" {
 		return notImplemented(errOut, "orch")
 	}
 	if _, err := exec.LookPath("tmux"); err != nil && !dryRun {

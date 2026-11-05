@@ -22,7 +22,7 @@ func checkTurn(turn, code string, said io.Writer) error {
 	}
 	saved := members[index].record
 	repo := cmp.Or(saved.Str("worktree"), saved.Str("repo"))
-	if err := noAutoGC(repo); err != nil {
+	if err := gitcall.NoAutoGC(repo); err != nil {
 		return err
 	}
 	// the repository's machine-side settings, as a run's own checks get them
