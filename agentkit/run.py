@@ -3083,7 +3083,7 @@ def main(argv):
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
             "--parallel": None}
     flags = {"--no-worktree": False, "--no-merge": False, "--bg": False, "--anyway": False,
-             "--first": False}
+             "--first": False, "--in-order": False}
     positional, i = [], 0
     while i < len(argv):
         arg = argv[i]
@@ -3096,8 +3096,8 @@ def main(argv):
         elif arg.startswith("-"):
             raise config.Error(f"unknown flag {arg!r}; ak run <task.md> [--rounds N] [--exec MODEL] "
                                "[--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] "
-                               "[--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] "
-                               "[--first] [--bg]")
+                               "[--bg] [--parallel N] [--in-order] | ak run --review-pr <url> "
+                               "[--review MODEL] [--first] [--bg]")
         else:
             positional.append(arg)
             i += 1
@@ -3106,7 +3106,7 @@ def main(argv):
         raise config.Error(refused)
     if opts["--review-pr"]:
         if positional or opts["--rounds"] or opts["--exec"] or flags["--no-worktree"] \
-                or opts["--parallel"] is not None:
+                or opts["--parallel"] is not None or flags["--in-order"]:
             raise config.Error("usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: "
                                "no task file, no executor, no rounds")
         if not PR_PARTS.match(opts["--review-pr"]):
@@ -3114,7 +3114,7 @@ def main(argv):
     elif len(positional) < 1:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
                            "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg] "
-                           "[--parallel N] | ak run --review-pr <url> | "
+                           "[--parallel N] [--in-order] | ak run --review-pr <url> | "
                            "ak run status [<runid>] | ak run resume <runid> | "
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
@@ -3148,9 +3148,10 @@ def main(argv):
         if not selection and (cfg.get("defaults") or {}).get("workers") == []:
             raise config.Error("defaults have no executor: start a session with an executor.")
     config.ensure_dirs()
-    if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
+    alone = "--parallel" if parallel is not None else "--in-order" if flags["--in-order"] else None
+    if not opts["--review-pr"] and len(positional) == 1 and alone:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
-                           "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel "
+                           f"[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: {alone} "
                            "needs more than one task file")
     if not opts["--review-pr"] and len(positional) > 1:
         job_dir, job = jobs.job_create(cfg, positional, opts, parallel)

@@ -97,6 +97,13 @@ def job_logger(job_dir):
     return log
 
 
+def speaks_for(state):
+    """Whether that run's job says its endings and its going live for it: an ordered job's one
+    line counts for every task it holds, so none of them wakes its seat on its own."""
+    job = state.get("job_id") and read_job(config.JOBS / state["job_id"])
+    return bool(job and (job.get("opts") or {}).get("--in-order"))
+
+
 def job_task_by_name(job, name):
     for task in job["tasks"]:
         if task["name"] == name:
@@ -199,6 +206,9 @@ def job_create(cfg, task_paths, opts, parallel):
         raise config.Error("--no-worktree runs in the repo's current branch: one checkout cannot "
                            "hold a job of concurrent tasks; drop the flag so each task gets its "
                            "own worktree")
+    if opts.get("--in-order") and opts.get("--no-merge"):
+        raise config.Error("--in-order starts each task once the one before it merged, and "
+                           "--no-merge merges none; drop one of them")
     infos = []
     for raw in task_paths:
         path = Path(raw).expanduser().resolve()
@@ -244,7 +254,8 @@ def job_create(cfg, task_paths, opts, parallel):
                     f"{info['path']}: this looks already under way: {first['id']} ({seat}, "
                     f"started {started}, \"{first['title']}\") shares {detail}; "
                     f"{run.rival_advice()}")
-    run.check_seat_queue(len(infos))
+    # an ordered job holds one run at a time
+    run.check_seat_queue(1 if opts.get("--in-order") else len(infos))
     seat = config.current_session()
     seat = config.resolve_session(seat) if seat else seat
     job_dir = job_make_id(infos[0]["title"])
@@ -254,7 +265,7 @@ def job_create(cfg, task_paths, opts, parallel):
            "parallel": parallel, "executor_history": [], **record.process_owner(), "cwd": os.getcwd(),
            "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
                                                    "--no-merge", "--no-worktree", "--anyway",
-                                                   "--first")},
+                                                   "--first", "--in-order")},
            "tasks": [{"name": info["name"], "title": info["title"], "state": "queued",
                       "run_id": None, "executor": None, "reviewer": None,
                       "started_at": None, "finished_at": None, "task_file": str(info["path"])}
@@ -310,8 +321,8 @@ def job_verdict_line(task, run_state=None):
     """The one per-task line for the job log and `ak run status`."""
     name = task["name"]
     if task["state"] == "skipped":
-        # only receipts from before `after:` went have skipped tasks
-        return task.get("verdict_line") or f"{name}: skipped"
+        # a task an ordered job never started; a receipt from before `after:` went says its own
+        return task.get("verdict_line") or f"{name}: not started"
     if task["state"] == "stopped":
         return f"{name}: stopped"
     if task["state"] == "blocked":
@@ -1283,9 +1294,18 @@ def run_job_loop(cfg, job_dir, job):
             save()
             log(task["verdict_line"])
         running = sum(1 for task in job["tasks"] if task["state"] == "running")
-        # queued tasks with no brake start at once; provider budgets only
-        for task in job["tasks"]:
+        # queued tasks with no brake start at once; provider budgets only.  An ordered job's
+        # task waits until the one before it merged, and never starts once that one did not.
+        for index, task in enumerate(job["tasks"]):
             if task["state"] != "queued" or task["name"] in threads:
+                continue
+            before = job["tasks"][index - 1]["state"] if index else "merged"
+            if opts.get("--in-order") and before not in ("merged", "passed"):
+                if before in JOB_TERMINAL:
+                    task.update(state="skipped", finished_at=time.time())
+                    task["verdict_line"] = job_verdict_line(task)
+                    save()
+                    log(task["verdict_line"])
                 continue
             if parallel is not None and running >= parallel:
                 break
@@ -1409,6 +1429,11 @@ def run_job_loop(cfg, job_dir, job):
         text = (f"job {job['job_id']}: {stopped} task(s) stopped, nobody is needed" if stopped
                 else f"job {job['job_id']}: all {len(job['tasks'])} tasks finished")
         log(f"job {job['job_id']}: Done")
+    if opts.get("--in-order") and undelivered:
+        # an ordered job ends at its first task that did not merge: that task's line is the job's
+        unstarted = ", ".join(task["name"] for task in job["tasks"] if task["state"] == "skipped")
+        text = (f"job {job['job_id']}: {undelivered[0]['verdict_line']}"
+                + (f"; not started: {unstarted}" if unstarted else ""))
     line = (f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
     # the seat that launched the job is there, so its end is the seat's to act on -- its
     # failures, and the done it says itself once the whole of its work is -- and the owner is
