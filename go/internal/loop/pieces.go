@@ -50,14 +50,14 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 	if err != nil {
 		return ran{}, "", err
 	}
-	count, places := host.Pieces(cpus, memory), 0
+	count := host.Pieces(cpus, memory)
+	places := count
 	if away != nil {
 		defer away.Finish()
 		// cut for the whole machine, not the room it has now, so the suite grows into what frees
-		count, places = 2*away.Most, away.Count
+		count, places = cmp.Or(2*away.Most, count), away.Count
 	} else {
 		l.say("suite runs here: " + here)
-		places = count
 	}
 	ctx, cancel := context.WithCancelCause(l.ctx)
 	defer cancel(nil)

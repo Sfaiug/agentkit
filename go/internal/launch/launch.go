@@ -384,7 +384,7 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 		if err := drivable(path, values, bound); err != nil {
 			return refuse("", "", err)
 		}
-		// a helper takes a repository run's round checks and turns in Python, and Go's none
+		// a repository run on a host with a helper is Python's: its rounds' checks and turns go there
 		if at.repo != "" && helper.May() {
 			return refuse("", "", ErrPython)
 		}

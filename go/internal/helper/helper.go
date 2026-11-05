@@ -82,18 +82,16 @@ type Away struct {
 // Start sends the suite to the machine with the most room that takes it, and on to the next where
 // one turns it away, Python's start for a suite: the Away there, or nil and why its pieces run
 // here.  command is what each piece runs there, cpus and memoryMB one piece's cost; what it has to
-// say goes to say.  A machine ak may rent is ErrPython's, before anything is sent.
+// say goes to say.  A suite a machine ak may rent could take is ErrPython's, before anything is
+// sent.
 func Start(cwd string, cpus, memoryMB float64, command string, say func(string)) (*Away, string, error) {
-	if config.MayRent() {
-		return nil, "", fmt.Errorf("%w: ak may rent a machine for the suite", ErrPython)
-	}
 	var aliases []string
 	for _, name := range config.MachineNames() {
 		if config.TakesTests(name) && !slices.Contains(aliases, name) {
 			aliases = append(aliases, name)
 		}
 	}
-	if len(aliases) == 0 {
+	if len(aliases) == 0 && !config.MayRent() {
 		return nil, "no suite helper set up", nil
 	}
 	away := &Away{key: token(), repo: repository(cwd), command: pinned(command), programs: programs()}
@@ -115,6 +113,9 @@ func Start(cwd string, cpus, memoryMB float64, command string, say func(string))
 	}
 	if size := len(line("run", away.args(wide+"/"+wide, wide, wide)...)); size >= maxArg {
 		return nil, fmt.Sprintf("a piece's line to the suite helper would take %d bytes, more than one argument holds (%d, Linux's MAX_ARG_STRLEN)", size, maxArg), nil
+	}
+	if config.MayRent() {
+		return nil, "", fmt.Errorf("%w: ak may rent a machine for the suite", ErrPython)
 	}
 	least := least(away.repo)
 	fits, why := make([]fit, len(aliases)), make([]string, len(aliases))
@@ -149,7 +150,8 @@ func Start(cwd string, cpus, memoryMB float64, command string, say func(string))
 func (a *Away) Piece(ctx context.Context, shard string, out io.Writer) int {
 	cmd := remote(ctx, a.Alias, "run", a.args(shard, strconv.Itoa(a.CPUs), strconv.Itoa(a.MemoryMB))...)
 	cmd.Stdout, cmd.Stderr = out, out
-	if cmd.Run(); cmd.ProcessState == nil {
+	cmd.Run()
+	if cmd.ProcessState == nil {
 		return lost
 	}
 	return cmd.ProcessState.ExitCode()
