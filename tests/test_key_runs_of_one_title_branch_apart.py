@@ -1,14 +1,13 @@
 """Runs of one title started together in one project each get a branch of their own.
 
-Both find `ak/<slug>` free; git makes it for one of them, and the other takes the next name
-instead of failing.  Black-box through AK_BIN: a job of two tasks titled alike, with git's
-`worktree add -b` held until both runs are at it, so their names always collide.
+Both look for a free `ak/<slug>`; the second takes the next name instead of failing to make the
+first's.  Black-box through AK_BIN: a job of two tasks titled alike, with the project's git
+holding the first `ak/` branch it makes for a moment, its name looked at and not yet made.
 """
 
 import json
 from pathlib import Path
 import shlex
-import shutil
 import sys
 import unittest
 
@@ -17,14 +16,9 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
-# Each `worktree add -b` waits for a second one, 30 s at most: a build that never makes two
-# branches at once is not held for good.
+# git runs it on each ref change; only the first in `ak/` waits, which `mkdir` claims once
 HELD = """#!/bin/sh
-case " $* " in *" worktree add "*" -b "*)
-  touch {held}/$$; n=0
-  while [ "$(ls {held} | wc -l)" -lt 2 ] && [ $n -lt 300 ]; do sleep 0.1; n=$((n + 1)); done ;;
-esac
-exec {git} "$@"
+if [ "$1" = prepared ] && grep -q ' refs/heads/ak/' && mkdir {held} 2>/dev/null; then sleep 2; fi
 """
 
 
@@ -35,13 +29,13 @@ class OneTitleTogether(unittest.TestCase):
         akconfig.write(home, ["opus", "astra"])
         fakeadapter.install(home, claude="work", codex="pass")
         rig = Rig(home, "widgets")
-        held = home.root / "held"
-        held.mkdir()
-        home.fake("git", HELD.format(held=shlex.quote(str(held)),
-                                     git=shlex.quote(shutil.which("git"))))
+        hook = rig.path / ".git/hooks/reference-transaction"
+        hook.write_text(HELD.format(held=shlex.quote(str(home.root / "held"))))
+        hook.chmod(0o755)
         tasks = [taskfile.write(home, rig.path, name=f"task-{n}") for n in range(2)]
         done = home.ak("run", *map(str, tasks), "--no-merge", timeout=300)
         self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertTrue((home.root / "held").is_dir())
         states = [json.loads((run / "run.json").read_text()) for run in taskfile.runs(home)]
         self.assertEqual([state["verdict"] for state in states], ["PASS", "PASS"])
         self.assertEqual(sorted(state["branch"] for state in states),
