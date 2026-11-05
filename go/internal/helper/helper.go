@@ -54,10 +54,11 @@ const (
 	asleep = "did not answer (asleep or away)"
 )
 
-// carried is the remote script: every kind of machine is sent every kind's functions, and picks
-// its own by `uname`.  Carried, so the verbs of one suite all send the same script.
+// carried is the remote script, every kind of machine sent every kind's functions to pick its own
+// by `uname`, and the piece's script the parcel holds.  Carried, so the verbs of one suite all send
+// the same script, and a copied program needs no checkout beside it.
 //
-//go:embed linux.sh mac.sh
+//go:embed linux.sh mac.sh piece.sh
 var carried embed.FS
 
 // ErrPython is helper work Go leaves to Python: a machine ak may rent, or a piece that did not

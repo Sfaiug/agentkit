@@ -120,18 +120,13 @@ func (a *Away) pack(cwd string, known []string, files map[string]file, parcel io
 			have = append(have, sha)
 		}
 	}
-	// the piece's script is the checkout's, as tools/helper's piece.sh has one home
-	script := filepath.Join(config.Repo(), "tools", "helper", "piece.sh")
-	info, err := os.Stat(script)
-	if err != nil {
-		return err
-	}
-	piece, err := os.ReadFile(script)
+	piece, err := carried.ReadFile("piece.sh")
 	if err != nil {
 		return err
 	}
 	files = maps.Clone(files)
-	files["piece.sh"] = file{int64(info.Mode().Perm()), piece}
+	// executable, as tools/helper has it and Python's parcel sends it
+	files["piece.sh"] = file{0o755, piece}
 	files["heads"] = file{0o644, []byte(strings.Join(strings.Fields(heads), " ") + "\n")}
 	out := tar.NewWriter(parcel)
 	for _, name := range slices.Sorted(maps.Keys(files)) {

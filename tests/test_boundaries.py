@@ -66,11 +66,13 @@ RULES = [
      "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh"),
      "max": 0},
     # A suite piece in the helper's VM or container has no host.py either: it counts its own
-    # cgroup's kills for memory, and reads nothing else of the host.
+    # cgroup's kills for memory, and reads nothing else of the host.  Go carries a copy in the
+    # program, so a copied binary needs no checkout; TestTheCarriedScriptsAreToolsHelpers refuses
+    # any difference from tools/helper/piece.sh.
     {"name": "a suite piece's kills for memory",
      "flags": (),
      "pattern": r"/sys/fs/cgroup/memory\.events",
-     "home": ("tools/helper/piece.sh",),
+     "home": ("tools/helper/piece.sh", "go/internal/helper/piece.sh"),
      "max": 0},
     # A process's stat and statm fields have one reader: host.proc_stat names them, and
     # host.resident_bytes counts pages. box.py runs as its own script inside the worker's
