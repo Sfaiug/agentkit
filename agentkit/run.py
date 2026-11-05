@@ -129,6 +129,11 @@ def require_project_contract(repo):
                            + "; ".join(missing) + ".")
 
 
+def fetch_branches(repo):
+    """Every branch origin has, as it has it now: (code, out) as `fetch` answers."""
+    return fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
+
+
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
     receipt = run_record.read_state(run_dir) or {}
     fetched = False
@@ -210,7 +215,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             # refspec follows (--single-branch follows one): the base, the target whose suite
             # the run reads and origin's default can each be any of them.
             try:
-                code, out = fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
+                code, out = fetch_branches(repo)
             except Stopped as stop:
                 code, out = None, str(stop)
             spelled = meta.get("base") or default_base(repo, log)
