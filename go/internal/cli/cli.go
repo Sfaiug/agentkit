@@ -13,6 +13,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
 	"agentkit/internal/host"
+	"agentkit/internal/install"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tick"
 )
@@ -28,6 +29,9 @@ func Main(args []string, out, errOut io.Writer) int {
 	}
 	if command == "hook" { // unlisted too
 		return hook(rest, out)
+	}
+	if command == "install" { // unlisted too: go/install.sh is what a person types
+		return install.Main(rest, out, errOut)
 	}
 	if command == "seat-look" { // unlisted too
 		return seatLook(rest)
