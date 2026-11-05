@@ -116,7 +116,14 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 				pointing = false
 			}
 		case key.Name == "char" && key.Char == "p":
-			return false // choosing the compared releases follows in models_pick
+			if !modelsPick("config · recommended · "+scope, found.Rows, keyboard, painter) {
+				return false
+			}
+			if compared, err = matrix.Compared(found.Rows); err != nil {
+				return false
+			}
+			answer = quality.Answer(found.Rows, compared)
+			lineup()
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {
