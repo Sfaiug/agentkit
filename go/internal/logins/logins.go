@@ -73,7 +73,7 @@ func Renewed(provider, account, harness string) {
 		return
 	}
 	defer held.Close()
-	answer := ask(harness, account)
+	answer := Ask(harness, account)
 	if answer == nil {
 		return
 	}
@@ -102,11 +102,12 @@ func Renewed(provider, account, harness string) {
 	}
 }
 
-// ask is the adapter's {email, ends, plan} for that account's login, or nil where it said nothing
-// usable: no such verb, a failure, a timeout, or anything but that object (logins._ask).
-func ask(harness, account string) *run.Object {
+// Ask is the adapter's {email, ends, plan} for that account's login, or nil where it said nothing
+// usable: no harness, no such verb, a failure, a timeout, or anything but that object
+// (logins._ask).
+func Ask(harness, account string) *run.Object {
 	adapter, err := config.LoginAdapter(harness)
-	if err != nil {
+	if err != nil || harness == "" {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), askTimeout)
