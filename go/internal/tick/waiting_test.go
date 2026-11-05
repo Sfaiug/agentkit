@@ -20,12 +20,13 @@ func waiter(t *testing.T) (string, *run.Object, *ticking) {
 	dir := filepath.Join(ak, "runs", "fix-api")
 	put(t, filepath.Join(dir, "log.txt"), "WARN not merged: the rebase of origin/main conflicted\n")
 	git := filepath.Join(t.TempDir(), "git")
-	put(t, git, "#!/bin/sh\ncase \" $* \" in *' fetch '*) exit \"${FETCH_CODE:-0}\";; *' rev-parse '*) printf '%s\\n' \"$REF_ANSWER\"; exit \"${REF_CODE:-0}\";; esac\n")
+	put(t, git, "#!/bin/sh\ncase \" $* \" in *' --git-common-dir '*) printf '%s\\n' \"$REF_DIRECTORY\";; *' fetch '*) exit \"${FETCH_CODE:-0}\";; *' rev-parse '*) printf '%s\\n' \"$REF_ANSWER\"; exit \"${REF_CODE:-0}\";; esac\n")
 	if err := os.Chmod(git, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", filepath.Dir(git)+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("REF_ANSWER", strings.Repeat("a", 40))
+	t.Setenv("REF_DIRECTORY", t.TempDir())
 	record := run.Fields("state", "fail", "run_id", "fix-api", "repo", t.TempDir(), "worktree", t.TempDir(),
 		"branch", "ak/fix-api", "base", "main", "base_sha", "base", "rounds", 3, "round_summaries", []any{run.Fields("round", 1)},
 		"merge_note", "the rebase of origin/main conflicted", "launched_session", "acme", "finished_at", epoch(time.Now()),
@@ -101,7 +102,7 @@ func TestWaitingDoesNotOverwriteAStopDuringItsFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	git := filepath.Join(strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0], "git")
-	put(t, git, "#!/bin/sh\ncase \" $* \" in *' fetch '*) printf '%s' '{\"state\":\"stopped\"}' >\"$STOP_RECORD\";; *) printf '%s\\n' \"$REF_ANSWER\";; esac\n")
+	put(t, git, "#!/bin/sh\ncase \" $* \" in *' --git-common-dir '*) printf '%s\\n' \"$REF_DIRECTORY\";; *' fetch '*) printf '%s' '{\"state\":\"stopped\"}' >\"$STOP_RECORD\";; *) printf '%s\\n' \"$REF_ANSWER\";; esac\n")
 	os.Chmod(git, 0o700)
 	t.Setenv("STOP_RECORD", filepath.Join(dir, "run.json"))
 	if err := tick.waiting(); err != nil || read(t, filepath.Join(dir, "run.json")) != `{"state":"stopped"}` {
