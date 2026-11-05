@@ -23,12 +23,13 @@ var exitedPane = regexp.MustCompile(`^\$[0-9]+ %[0-9]+ [0-9]+$`)
 // Sweep is Python's orch.sweep, which the tick's seat sweep row and the ak screen's opening both
 // run, each line it says to log: the side sessions seats started closed (closeSideSessions), then
 // every seat a week past its going forgotten, as `ak orch stop` forgets one it stopped already.
-// One a run still owns, one whose question is unread and one asleep stay.  False where Go does
-// not read the home, or at the first seat whose harness keeps what Go does not forget, before
+// One a run still owns, one whose question is unread and one asleep stay.  The home is read as the
+// tick reads it (TickHome): a live seat, which the sweep never touches, decides nothing here.
+// False where Go does not read the home, or at the first seat whose harness keeps what Go does not forget, before
 // anything of that seat is written or closed: what came before stands, and Python's next sweep
 // finds it done.
 func Sweep(now time.Time, log func(string)) (bool, error) {
-	home, known := Looking(now)
+	home, known := TickHome(now)
 	owned, read := unfinished()
 	if !known || !read {
 		return false, nil
