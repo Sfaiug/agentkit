@@ -203,9 +203,9 @@ class AdmissionSeatsInTurn(unittest.TestCase):
                 self.queued(f"{seat}-{len(admitted)}", 4 + len(admitted), seat)
         self.assertEqual(admitted, ["acme-1", "fix-api-1", "docs-1", "acme-2"])
 
-    def test_each_rank_is_fifo_and_restarts_keep_their_first_queue_time(self):
+    def test_each_rank_is_fifo_by_queue_time(self):
         self.queued("acme-2", 5, "acme")
-        self.queued("acme-1", 100, "acme", first_queued_at=2)
+        self.queued("acme-1", 2, "acme", started_at=100)
         self.queued("fix-api-2", 6, "fix-api")
         self.queued("fix-api-1", 1, "fix-api")
         self.queued("docs-2", 7, "docs")

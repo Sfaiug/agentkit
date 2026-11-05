@@ -694,24 +694,15 @@ def run_for_pr(url):
     return None, None
 
 
-def first_started(state):
-    """When this run's work was first started: its own start, or, for a run started again after
-    a park (`leases.restart`), its first attempt's, which every restart carries on."""
-    return state.get("first_started_at") or state.get("started_at") or 0
-
-
 def first_queued(state):
-    """Where this run stands in the slot queue: when it queued, or, for a run started again after
-    a park (`leases.restart`), when its first attempt queued, which every restart carries on.  Not
-    that attempt's start: its admission may have waited behind runs queued after it."""
-    return state.get("first_queued_at") or state.get("queued_at") or state.get("started_at") or 0
+    """When this run entered the slot queue; older records kept only their start."""
+    return state.get("queued_at") or state.get("started_at") or 0
 
 
 def seat_runs(name):
     """Every run that seat launched which stopping it stops (`stop.stop_owned_runs`), each one
     `ak run stop` takes: one not ended, an `error` still waiting on its owner or on the tick's
-    retry, and one stopped to wait on an older run's change (`leases.parked`)."""
-    from . import leases
+    retry."""
     try:
         dirs = run_record.run_dirs()
     except OSError:
@@ -722,7 +713,7 @@ def seat_runs(name):
             state = run_record.read_state(run_dir)
             word = state and state.get("state")
             if (state and launched_session(state) == name
-                    and (word not in run_record.ENDED or leases.parked(state)
+                    and (word not in run_record.ENDED
                          or word == "error" and (unfinished(state) or going(state)))):
                 found.append(run_dir)
         except (OSError, ValueError, config.Error):
@@ -1084,14 +1075,10 @@ def going(state, now=None):
     an old stamp cannot keep a seat working after its retry stopped being allowed,
     and an exhausted run keeps one working only while the tick can resume it
     (`exhausted_wait`): one that waits on nobody is his, not going. Line members
-    stay going until the lander ends them, and a run stopped to wait on an older run's
-    change (`leases.parked`) until the tick has started its task again.
+    stay going until the lander ends them.
     """
     if state.get("state") == "waiting" and (state.get("waiting_on") or {}).get("line"):
         return True  # the line is unfinished work, not an ending with timed recovery
-    from . import leases
-    if leases.parked(state):
-        return True
     if state.get("state") in ("error", "waiting") and not tick_admission(state, now=now):
         return False
     if state.get("state") == "exhausted":

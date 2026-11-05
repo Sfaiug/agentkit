@@ -1,9 +1,9 @@
-"""The stage the lease tests play on: a repository with one checkout per live run.
+"""A repository with one checkout per live run.
 
 A throwaway HOME, a real repository, runs cut from its base with a worktree and a record
 each (`run_on`, with a session record where it names a seat), a colliding pair of them
-(`collide`), edits to a checkout, committed or not (`edit`), and a legacy parked record
-(`parked`). A run is past its executor turn unless told otherwise. Offline.
+(`collide`), and edits to a checkout, committed or not (`edit`).
+A run is past its executor turn unless told otherwise. Offline.
 """
 
 from contextlib import ExitStack
@@ -16,14 +16,13 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[2]
 OLDER, YOUNGER = "20260101-0900-older", "20260101-1000-younger"
-TASK = "---\nrepo: acme\n---\n# Change line 5\n\nChange it.\n\n## Done when\n```bash\ntrue\n```\n"
 from agentkit import config, orch  # noqa: E402  - the suite puts the checkout on the path
 from agentkit import record  # noqa: E402
 
 
 class LiveRuns(unittest.TestCase):
     def setUp(self):
-        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-leases-", dir=REPO)
+        tmp = tempfile.TemporaryDirectory(prefix=".ak-test-live-runs-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
         self.stack = ExitStack()
@@ -82,14 +81,6 @@ class LiveRuns(unittest.TestCase):
 
     def state(self, name):
         return record.read_state(config.RUNS / name)
-
-    def parked(self, name=YOUNGER, holder=OLDER):
-        """A record written before parking was retired, awaiting the restart pass."""
-        record.save_state(config.RUNS / name, {
-            **self.state(name), "state": "stopped", "verdict": "STOPPED", "finished_at": 2000,
-            "stop_kept": True, "reported": True,
-            "error": f"waits on {holder}: both change api.py",
-            "lease_wait": {"on": holder, "files": ["api.py"], "since": 2000}})
 
     def edit(self, worktree, path, line, text, commit=False):
         lines = (worktree / path).read_text().splitlines()

@@ -15,7 +15,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import browser, config, gc, job as jobs, notify, orch, run, staffing, update  # noqa: E402
-from agentkit import leases, logins, seat_tokens, usage, watch  # noqa: E402
+from agentkit import logins, seat_tokens, usage, watch  # noqa: E402
 from fixtures.tick import only_passes  # noqa: E402
 
 # The passes of the tick this test runs, in its order: the name a raise of each is told by
@@ -31,7 +31,6 @@ PASSES = (
     (watch, "resume_dead_loops", "dead loops", True),
     (watch, "resume_dead_jobs", "dead jobs", True),
     (watch, "recover_runs", "stall recovery", True),
-    (leases, "restart", "lease restart", False),
     (watch, "save_state", "state save", False),
     (usage, "collect", "usage refresh", False),
     (logins, "remind", "login reminder", False),
