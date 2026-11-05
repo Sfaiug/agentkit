@@ -7,6 +7,7 @@ them and dated by the real clock, so a test the UTC day turns under runs again.
 from contextlib import closing
 import json
 from pathlib import Path
+import shlex
 import shutil
 import sqlite3
 import sys
@@ -22,8 +23,6 @@ from test_key_history_db import DATABASE, ORIGINAL
 
 DAY = 86400
 MODELS = ["opus", "astra"]
-# what a worker's box empties, but for the turn's own places
-TEMPORARY = (Path("/tmp"), Path("/var/tmp"))
 
 
 class Held(list):
@@ -34,11 +33,15 @@ class Held(list):
 
 
 def reaching(fakes):
-    """The fakes, whose turns hand in to the program from a worker's box: to one kept in a
-    temporary directory, as a test's copy of a checkout may be, through its copy beside them."""
-    if any(Path(AK).resolve().is_relative_to(place) for place in TEMPORARY):
-        for fake in fakes.values():
-            fake.script.write_text(fake.script.read_text().replace(AK, shutil.copy(AK, fake.dir)))
+    """The fakes, whose turns hand in to the program from a worker's box.  The box empties the
+    temporary directories but for what it shows, so a turn that cannot see the program there,
+    such as a wrapper beside a test's copy of a checkout, runs a copy of it."""
+    for fake in fakes.values():
+        ak, copy = fake.dir / "ak", shlex.quote(shutil.copy(AK, fake.dir / "ak-copy").as_posix())
+        ak.write_text(f"#!/bin/sh\n[ -e {shlex.quote(AK)} ] || exec {copy} \"$@\"\n"
+                      f"exec {shlex.quote(AK)} \"$@\"\n")
+        ak.chmod(0o755)
+        fake.script.write_text(fake.script.read_text().replace(AK, str(ak)))
     return fakes
 
 
@@ -106,7 +109,9 @@ class NightReview(unittest.TestCase):
         """One tick, whose night review says it failed only when `failing`; the runs after it."""
         done = self.home.tick()
         self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertEqual("WARN api: no night review" in done.out, failing, done.out)
+        warned = [line.split(":")[0] for line in done.out.splitlines()
+                  if ": no night review " in line]
+        self.assertEqual(warned, ["WARN api"] if failing else [], done.out)
         return taskfile.runs(self.home)
 
     def doctor(self):
