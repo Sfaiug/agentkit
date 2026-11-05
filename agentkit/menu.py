@@ -1001,10 +1001,10 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
 def seat_crew(cfg, selection):
     """(who builds, who reviews) a seat's work, from its saved selection: its workers; its
     reviewers, else its workers, each named at the effort it runs that role at
-    (`config.model_at`).  A seat whose
-    orchestrator builds alone names no builder, and nothing beside its orchestrator says so:
-    no ⚒ is the seat itself building (the owner's word of 21 Oct 2026).  No selection: nobody.
-    The menu row and the seat's own bar both read this, as they read `seat_tasks`."""
+    (`config.model_at`).  A seat whose orchestrator builds alone names no builder, and nothing
+    beside its orchestrator says so: no ⚒ is the seat itself building (the owner's word of 21
+    Oct 2026).  No selection: nobody.  The menu row and the seat's own bar both read this, as
+    they read `seat_tasks`."""
     if not selection:
         return [], []
     workers = list(selection.get("workers") or [])
@@ -1016,9 +1016,9 @@ def seat_crew(cfg, selection):
 def crew(info, tmux=False, room=None):
     """`astra high ⚒   opus xhigh ⚒◎   spark ◎`: each model that builds or reviews a seat's work
     named once at each effort it runs at (`seat_crew`), in the order it first comes, ⚒ after it
-    where it builds and ◎ where it reviews, all dim, as
-    the row's orchestrator is (the owner's pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux` draws
-    it as tmux text."""
+    where it builds and ◎ where it reviews, all dim, as the row's orchestrator is (the owner's
+    pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux`
+    draws it as tmux text."""
     builds, reviews = info.get("crew") or ((), ())
     build, review = ("⚒", "◎") if terminal.utf8() else ("B", "R")
     roles = {model: (build if model in builds else "") + (review if model in reviews else "")
