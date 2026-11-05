@@ -56,6 +56,7 @@ test_key_gc_plan_runs
 test_key_gc_scheduled
 test_key_gone_seat_words
 test_key_gh_merge_refused
+test_key_github_rate_limit_waited
 test_key_git_worktree_refused
 test_key_gc_runs_past_unreadable_processes
 test_key_grok_hooks

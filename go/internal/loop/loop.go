@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gh"
 	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
@@ -275,6 +276,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 	ctx, release := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
+	defer gh.Serve(l.say, l.wait)()
 	err := l.admitQueued()
 	if err == nil {
 		err = l.adopt()
