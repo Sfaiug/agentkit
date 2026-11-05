@@ -95,12 +95,15 @@ class LanderLifecycle(unittest.TestCase):
         self.assertEqual(self.starts, [])
 
     def test_a_live_first_member_does_not_prevent_starting_a_pass_for_later_members(self):
-        first = self.member()
-        self.member("fix-docs", pid=None)
+        code = self.root / "ready-code"
+        first = self.member(ak_checkout=str(self.root / "active-code"))
+        self.member("fix-docs", pid=None, ak_checkout=str(code))
         self.starts.clear()
         with patch.object(record, "process_active", side_effect=lambda state: bool(state.get("pid"))):
             self.assertTrue(land.start_line(self.turn))
         self.assertEqual(len(self.starts), 1)
+        self.assertEqual(self.starts[0][0][1], str(code / "bin" / "ak"))
+        self.assertEqual(self.starts[0][2]["AK_RUN_CODE"], str(code))
         self.assertEqual([member.name for member, _ in land.line(self.turn)],
                          [first.name, "fix-docs"])
 

@@ -214,8 +214,9 @@ def start_line(turn, log=lambda _: None):
             except BlockingIOError:
                 return False
             members = line(turn)
-            if not any(state.get("state") == "waiting" and not record.process_active(state)
-                       for _, state in members):
+            waiting = next((state for _, state in members
+                            if state.get("state") == "waiting" and not record.process_active(state)), None)
+            if waiting is None:
                 return False
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
