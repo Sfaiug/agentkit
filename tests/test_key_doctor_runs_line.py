@@ -52,18 +52,28 @@ class DoctorRunsLine(unittest.TestCase):
         return self.home.write(f".agentkit/runs/{name}/run.json", record, ago=ago).parent
 
     def start(self, *argv, run=None, executable=None):
-        """A process in this Home, carrying `run` as its run marker; it ends with the test."""
+        """A process in this Home, carrying `run` as its run marker, its input a pipe the test
+        holds open; it ends with the test."""
         proc = subprocess.Popen(argv, executable=executable, cwd=self.home.path,
                                 env={**self.home.env, **({MARKER: str(run)} if run else {})},
-                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL)
-        self.addCleanup(proc.wait)
-        self.addCleanup(proc.kill)
+        self.addCleanup(lambda: (proc.kill(), proc.communicate()))
         return proc
+
+    def ended(self, reap=True):
+        """The pid and identity a loop recorded for itself, that loop since ended: reaped, or
+        else left unreaped, a zombie."""
+        proc = self.start("true")
+        os.waitid(os.P_PID, proc.pid, os.WEXITED | os.WNOWAIT)
+        recorded = owner(proc.pid)
+        if reap:
+            proc.wait()
+        return recorded
 
     def resume(self, name):
         """A real `ak run resume <name>`, held still at its first bwrap, the check of its box,
-        which comes before it records its pid."""
+        which comes before it records its pid; its command line, as `ps` shows it."""
         called = self.home.root / "tmp" / "bwrap-called"
         self.home.fake("bwrap", f"#!/bin/sh\n: > {shlex.quote(str(called))}\nexec sleep 600\n")
         proc = self.home.spawn("run", "resume", name)
@@ -74,6 +84,7 @@ class DoctorRunsLine(unittest.TestCase):
             time.sleep(0.05)
         # stopped, not only waiting: ak gives its box's check seconds, then goes on without it
         os.killpg(proc.pid, signal.SIGSTOP)
+        return Path(f"/proc/{proc.pid}/cmdline").read_text().split("\0")[:-1]
 
     def doctor(self, code, line, under=None):
         """`ak doctor` exits `code`, with `line` as its runs line, after the full report, and
@@ -122,24 +133,22 @@ class DoctorRunsLine(unittest.TestCase):
 
     def test_a_marked_parent_keeps_its_run_alive_when_it_calls_doctor(self):
         self.doctor(0, "1 going · 0 ended today · 0 endings owed",
-                    under=self.run_record("moving") / "turn-acme")
+                    under=self.run_record("moving", **self.ended()) / "turn-acme")
 
     def test_a_resume_keeps_its_run_alive_before_it_records_itself(self):
-        self.run_record("moving")
+        self.run_record("moving", **self.ended())
         self.resume("moving")
         self.doctor(0, "1 going · 0 ended today · 0 endings owed")
 
     def test_unrelated_commands_zombies_and_other_runs_do_not_hide_a_dead_run(self):
-        directory = self.runs / "lost"
-        # a resume of it that ended and was never reaped: a zombie, its recorded pid
-        zombie = self.start("ak", "run", "resume", "lost", run=directory, executable="true")
-        os.waitid(os.P_PID, zombie.pid, os.WEXITED | os.WNOWAIT)
-        self.run_record("lost", **owner(zombie.pid))
+        directory = self.run_record("lost", **self.ended(reap=False))
         self.run_record("lost-other")
-        self.resume("lost-other")
+        resume = [*self.resume("lost-other")[:-1], "lost"]     # how lost's own would read
         self.start("sleep", "600", run=f"{directory}-other")
         self.start("tail", "-F", str(directory / "log.txt"))
-        self.start("tail", "-F", AK, "run", "resume", "lost")
+        self.start("tail", "-F", *resume)
+        # one reading as its resume with a word more: xargs, waiting on its input to run it
+        self.start(*resume, "--extra", executable="xargs")
         self.doctor(1, "2 going · 0 ended today · 0 endings owed · "
                        "dead: lost (4m since last write)")
 
