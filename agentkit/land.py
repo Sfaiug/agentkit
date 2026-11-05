@@ -241,10 +241,12 @@ def start_line(turn, log=lambda _: None):
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
-        with versions.checkout(waiting["ak_checkout"]) if waiting.get("ak_checkout") else nullcontext(config.REPO) as code:
-            installed = Path.home() / ".local" / "bin" / "ak"
-            if not installed.is_file():
-                installed = code / "bin" / "ak"
+        # Owner, 5 Nov 2026: a lander fix takes effect when installed, and changes
+        # launched on different versions stack, so the lander runs the installed ak.
+        installed = Path.home() / ".local" / "bin" / "ak"
+        if not installed.is_file():
+            installed = config.REPO / "bin" / "ak"
+        with versions.checkout(installed.resolve().parent.parent) as code:
             env["AK_RUN_CODE"] = str(code)
             return orch.start_in_slice(
                 [sys.executable, str(installed), "run", "--lander", turn.name],
@@ -532,8 +534,6 @@ def check_line(turn, log=lambda _: None):
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
-            if state.get("ak_checkout") not in (None, str(config.REPO)):
-                return
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
                 gitcall.no_auto_gc(repo)
