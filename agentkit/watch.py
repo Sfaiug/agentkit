@@ -1975,7 +1975,14 @@ def screen_state(harness, tail):
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
                 # row of it down to its closing rule, under the footer at the pane's bottom --
-                # or, with none drawn, a prompt row right on that bottom.
+                # or, with none drawn, a prompt row right on that bottom.  Rows that start
+                # indented are a draft's own, under its prompt row: a draft taller than the
+                # rule's rows is read up through them to that row (Claude Code 2.1.318), and
+                # one whose prompt row is above the tail is read as before.
+                top = len(lines) - len(region)
+                while top and strip_sgr(raw_lines[top])[:1].isspace():
+                    top -= 1
+                raws, region = raw_lines[top:], lines[top:]
                 at, end = ruled_composer(chrome, raws)
                 if at is not None and not chrome_line(chrome, region[-1]):
                     at = None
