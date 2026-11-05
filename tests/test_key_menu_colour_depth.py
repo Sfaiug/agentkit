@@ -69,7 +69,7 @@ class ColourDepth(unittest.TestCase):
         self.assertEqual(colours(screen), set())
         rows = [plain(line).rstrip() for line in screen]
         self.assertEqual(rows[1], "─" * 100)
-        self.assertIn("› 1  acme  Opus 5.5  ! needs you", rows)
+        self.assertIn("› 1  acme  Opus 5.5 xhigh  ! needs you", rows)
         self.assertIn(KEYS, rows)
 
     def test_no_color_leaves_the_help_without_a_mark_of_style(self):

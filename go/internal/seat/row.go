@@ -31,9 +31,13 @@ func (seat Seat) Checkout() string {
 // Unsent is what nobody sent, left in its composer.
 func (seat Seat) Unsent() string { return seat.unsent }
 
-// ModelName is the full name of the model it runs.
-func (home Home) ModelName(seat Seat) string {
-	return config.ModelName(seat.Orchestrator, home.models)
+// ModelName is the model it runs at the effort it orchestrates at (config.ModelAt), and alone.
+func (home Home) ModelName(seat Seat) (at, alone string) {
+	models := home.models
+	if record, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "session-"+seat.Name+".json")); record != nil {
+		models = atEfforts(models, record)
+	}
+	return config.ModelAt(seat.Orchestrator, "effort", models), config.ModelName(seat.Orchestrator, models)
 }
 
 // Settled is whether the ak screen's first frame would leave this home as it is: what menu.main does
