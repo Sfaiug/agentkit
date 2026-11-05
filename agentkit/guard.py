@@ -380,7 +380,8 @@ def pr_create_refusal(args):
     base = gh_value(args, "-B", "--base")
     branch = gh_value(args, "-H", "--head") or gitcall.git(top, "symbolic-ref", "--short", "-q",
                                                            "HEAD", check=False)
-    target, head = f"refs/remotes/origin/{base}" if base else config.RULES_REF, f"refs/heads/{branch}"
+    target = f"refs/remotes/origin/{base}" if base else config.RULES_REF
+    head = f"refs/heads/{branch}"
     if not (branch and all(gitcall.git(top, "rev-parse", "--verify", "--quiet", ref, check=False)
                            for ref in (target, head))):
         return None
