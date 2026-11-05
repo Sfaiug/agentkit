@@ -166,7 +166,7 @@ func refused(adapter string, env []string) string {
 
 // Login is what the adapter's `auth` verb says of the login env names, as Python's
 // worker.auth_ok reads it: answered where it said one line exiting 0 or 1, yes for 0, and that
-// line.
+// line. The seat's probe adds "seat" to ask about its interactive login.
 func Login(adapter string, env []string, args ...string) (answered, yes bool, line string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authCap)
 	defer cancel()

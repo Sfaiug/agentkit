@@ -76,14 +76,14 @@ func (home Home) Seatless() bool { return len(home.records) == 0 }
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
 // file's, its typing lock, and the plan of a seat the owner stopped, whose word no plan decides.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "verify": {"lock"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
 	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
-	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
+	recordFields = slices.Concat([]string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
 		"account", "home_account", "launched", "asleep", "seen", "exited_since", "unnamed", "filed", "owner_words_cursor",
-		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded"}
+		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded"}, launchKeys)
 	seatFields = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
 	// what Python's look at a seat's screen keeps beside its word, which no seat nobody is in reads
 	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence",

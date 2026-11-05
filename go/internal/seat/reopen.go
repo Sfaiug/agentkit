@@ -53,6 +53,7 @@ type reopening struct {
 	opened, held                          bool
 	account, line                         string
 	still                                 func(string) bool
+	moving                                *seatMove
 }
 
 // Reopen is what `ak orch`, a tick's revival and the menu do to a seat that exists, as Python's
@@ -206,7 +207,7 @@ func handOver(name string, how How, out, errOut io.Writer) error {
 
 // comingBack is what the seat comes back as, or false where Go does not carry that out: a record it
 // would refuse or reconcile; a conversation only its harness's own evidence or store can name; a
-// login the provider does not list; a folder gone; an unnamed seat or a move from another conversation.
+// login the provider does not list; a folder gone; an unnamed seat.
 // A launch also leaves Python a harness whose launch Go does not carry, a checkout's git,
 // a seat cut off that its relaunch tells so, and queued account moves or editor sends.
 func comingBack(state, name string, record map[string]any, held, dryRun bool) (reopening, bool) {
@@ -230,8 +231,7 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 			return reopening{}, false
 		}
 	}
-	_, handover := os.Stat(filepath.Join(state, "handover-"+name+".md"))
-	if record["unnamed"] != nil || handover == nil {
+	if record["unnamed"] != nil {
 		return reopening{}, false
 	}
 	seat := reopening{name: name, orchestrator: orchestrator, cwd: cwd, conversation: conversation, model: model, opened: opened, held: held, account: account}
@@ -321,6 +321,9 @@ func cutOff(name, own string, file *run.Object) bool {
 // is told: the rulebook written for it.
 func (seat reopening) command(told []string) ([]string, string, bool) {
 	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
+	if seat.moving != nil {
+		env = append(env, "AGENTKIT_FIRST_PROMPT="+seat.moving.line)
+	}
 	if seat.conversation == "" {
 		return adapters.Fresh(seat.model, env)
 	}
@@ -362,88 +365,107 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 				return errAccountChanged
 			}
 		}
-		var before *run.Object
-		facts := filepath.Join(state, "hook-"+current+".json")
-		last := facts + ".last"
-		defer os.Remove(last)
-		handed := any(nil)
-		if read, err := os.ReadFile(rulebook); err == nil {
-			handed = digest(read)
-		}
-		// before the harness is up: its first prompt may be offered a newer rulebook already
-		started, err := false, update(state, current, func(data *run.Object) bool {
-			before = data.Copy()
-			issued := []field{{"conversation", nil}, {"id_source", nil}}
-			if conversation != "" {
-				issued = []field{{"conversation", conversation}, {"id_source", "launcher"}}
+		perform := func() error {
+			var before *run.Object
+			var issued *run.Object
+			var extra []string
+			var preparing error
+			facts := filepath.Join(state, "hook-"+current+".json")
+			last := facts + ".last"
+			defer os.Remove(last)
+			handed := any(nil)
+			if read, err := os.ReadFile(rulebook); err == nil {
+				handed = digest(read)
 			}
-			fill(data, append(issued, field{"resumable", conversation != ""}, field{"before", nil},
-				field{"rulebook_sha", handed}, field{"rulebook_told", nil}, field{"rulebook_read", nil}))
-			extra, env := harness.LaunchExtras(seat.model.Harness)
-			for _, key := range extra.Keys() {
-				fill(data, []field{{key, extra.Get(key)}})
+			// before the harness is up: its first prompt may be offered a newer rulebook already
+			started, err := false, update(state, current, func(data *run.Object) bool {
+				before = data.Copy()
+				issued, extra, preparing = harness.Launched(seat.model.Harness, seat.cwd, conversation, before)
+				if preparing != nil {
+					return false
+				}
+				for _, key := range issued.Keys() {
+					fill(data, []field{{key, issued.Get(key)}})
+				}
+				fill(data, []field{{"rulebook_sha", handed}, {"rulebook_told", nil}, {"rulebook_read", nil}})
+				return true
+			})
+			if err == nil {
+				err = preparing
 			}
-			if len(env) > 0 {
-				cmd = slices.Concat([]string{"env"}, env, cmd)
-			}
-			return true
-		})
-		if err == nil {
-			if err = os.Rename(facts, last); errors.Is(err, fs.ErrNotExist) {
-				err = os.Remove(last) // a launch killed past its move left one
-				if errors.Is(err, fs.ErrNotExist) {
-					err = nil
+			if err == nil {
+				if err = os.Rename(facts, last); errors.Is(err, fs.ErrNotExist) {
+					err = os.Remove(last) // a launch killed past its move left one
+					if errors.Is(err, fs.ErrNotExist) {
+						err = nil
+					}
 				}
 			}
-		}
-		if err == nil {
-			err = retypeOwed(current)
-		}
-		if err == nil {
-			started, err = seat.start(state, current, cmd, frozen)
-		}
-		if err != nil {
-			if !started {
-				if before != nil { // nil where the record took nothing
-					update(state, current, func(data *run.Object) bool {
-						for _, key := range launchKeys {
-							fill(data, []field{{key, before.Get(key)}})
-						}
-						return true
-					})
+			if err == nil {
+				err = retypeOwed(current)
+			}
+			if err == nil {
+				if len(extra) > 0 {
+					cmd = slices.Concat([]string{"env"}, extra, cmd)
 				}
-				os.Link(last, facts) // refused where that harness wrote one since
+				started, err = seat.start(state, current, cmd, frozen)
 			}
-			return err
-		}
-		if before == nil { // no record left to write it down in, as config.update_session leaves it
-			before = run.NewObject()
-		}
-		now := time.Now()
-		// the moment from which an answer is this harness's, and the seat's title as Python's
-		// launch keeps it: both harnesses Go opens take a title line
-		if err := update(state, current, func(data *run.Object) bool {
-			fill(data, []field{{"launched", seconds(now)}, {"seen", int(now.Unix())}, {"title_sync", nil}})
-			if seat.account != "" {
-				data.Set("account", seat.account)
-			}
-			echo := before.Str("session_title")
-			if conversation == "" || before.Str("conversation") != conversation || echo == "" || echo == current {
-				title := any(nil)
-				if titled {
-					title = current
+			if err != nil {
+				if !started {
+					harness.Retire(seat.model.Harness, issued)
+					if before != nil { // nil where the record took nothing
+						update(state, current, func(data *run.Object) bool {
+							for _, key := range launchKeys {
+								fill(data, []field{{key, before.Get(key)}})
+							}
+							return true
+						})
+					}
+					os.Link(last, facts) // refused where that harness wrote one since
+				} else {
+					harness.Retire(seat.model.Harness, before)
 				}
-				fill(data, []field{{"session_title", title}})
+				return err
 			}
-			return true
-		}); err != nil {
-			return err
+			if before == nil { // no record left to write it down in, as config.update_session leaves it
+				before = run.NewObject()
+			}
+			if err := harness.Retire(seat.model.Harness, before); err != nil {
+				return err
+			}
+			now := time.Now()
+			// the moment from which an answer is this harness's, and the seat's title as Python's
+			// launch keeps it: both harnesses Go opens take a title line
+			if err := update(state, current, func(data *run.Object) bool {
+				fill(data, []field{{"launched", seconds(now)}, {"seen", int(now.Unix())}, {"title_sync", nil}})
+				if seat.account != "" {
+					data.Set("account", seat.account)
+				}
+				echo := before.Str("session_title")
+				if conversation == "" || before.Str("conversation") != conversation || echo == "" || echo == current {
+					title := any(nil)
+					if titled {
+						title = current
+					}
+					fill(data, []field{{"session_title", title}})
+				}
+				return true
+			}); err != nil {
+				return err
+			}
+			var fields []field
+			for _, key := range cleared {
+				fields = append(fields, field{key, nil})
+			}
+			return writeSeat(state, current, fields)
 		}
-		var fields []field
-		for _, key := range cleared {
-			fields = append(fields, field{key, nil})
+		if seat.moving != nil {
+			if err := seat.moving.launch(state, current, perform); err != nil {
+				return err
+			}
+			return seat.moving.relaunched(current, seat.model.Harness)
 		}
-		return writeSeat(state, current, fields)
+		return perform()
 	})
 	return settled, err
 }
