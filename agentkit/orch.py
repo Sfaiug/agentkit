@@ -1126,9 +1126,9 @@ def tmux_env(client=False):
     Inside somebody else's tmux, $TMUX is what a bare tmux command would follow -- so it goes,
     and the server named on the command line is the only one that can be reached.  Only
     `switch-client` keeps it, because without it there is no client to switch.  The mark goes
-    from every one (`owner`), and so does a run's version (`versions.unpinned`): any may start a
-    server, whose global environment is the starting client's, and the server outlives it, as
-    a pane it spawns, on the asking client's PATH, does.
+    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`):
+    any may start a server, whose global environment is the starting client's, a pane takes the
+    PATH of the client that spawns it, and both outlive the caller.
     """
     return {k: v for k, v in versions.unpinned(owner.unmarked()).items() if client or k != "TMUX"}
 
@@ -1997,9 +1997,9 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
-    installed against, from the warm server (`warm`), started bare: the client imports only
-    what the interpreter is built with."""
+    """What `Ctrl-b m` runs: the live checkout's `ak attach --overlay` (`versions.live`), on the
+    interpreter it is installed against, from the warm server (`warm`), started bare: the client
+    imports only what the interpreter is built with."""
     return shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" / "warm.py"),
                        "attach", "--overlay"])
 

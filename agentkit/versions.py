@@ -106,7 +106,7 @@ def live():
 
 def unpinned(env):
     """`env` without what `enter` put in it, for what outlives this process: no version's `bin`
-    on its PATH, so the `ak` found there is the live one, and no AK_RUN_CODE."""
+    on its PATH, whose `ak` would run that version, and no AK_RUN_CODE."""
     kept = {key: value for key, value in env.items() if key != "AK_RUN_CODE"}
     if "PATH" in kept:
         kept["PATH"] = os.pathsep.join(entry for entry in kept["PATH"].split(os.pathsep)
