@@ -36,7 +36,7 @@ func HomeServer() string {
 // accountHome is the passwd entry's home, resolved, and "" for a uid with none, as in a container.
 // Read once: an open screen asks for its server many times a second.
 var accountHome = sync.OnceValue(func() string {
-	if home, found := passwdHome(strconv.Itoa(os.Getuid())); found {
+	if home, found := passwdHome(os.Getuid()); found {
 		return config.Resolve(home)
 	}
 	return ""
@@ -44,10 +44,11 @@ var accountHome = sync.OnceValue(func() string {
 
 // passwdHome is the home in that uid's passwd entry.  Linux's is read from /etc/passwd, as os/user
 // without cgo reads it, since that os/user makes up an entry from $USER and $HOME where none
-// is.  macOS keeps its accounts elsewhere, and os/user asks its libc for them.
-func passwdHome(uid string) (string, bool) {
+// is; a row as glibc takes one: blank space and `#` comments skipped, its ids numbers.  macOS
+// keeps its accounts elsewhere, and os/user asks its libc for them.
+func passwdHome(uid int) (string, bool) {
 	if runtime.GOOS == "darwin" {
-		account, err := user.LookupId(uid)
+		account, err := user.LookupId(strconv.Itoa(uid))
 		if err != nil {
 			return "", false
 		}
@@ -55,7 +56,13 @@ func passwdHome(uid string) (string, bool) {
 	}
 	passwd, _ := os.ReadFile("/etc/passwd")
 	for _, line := range strings.Split(string(passwd), "\n") {
-		if fields := strings.Split(line, ":"); len(fields) > 5 && fields[2] == uid {
+		line = strings.TrimSpace(line)
+		fields := strings.Split(line, ":")
+		if strings.HasPrefix(line, "#") || len(fields) < 6 {
+			continue
+		}
+		id, err := strconv.ParseUint(fields[2], 10, 32)
+		if _, bad := strconv.ParseUint(fields[3], 10, 32); err == nil && bad == nil && id == uint64(uid) {
 			return fields[5], true
 		}
 	}
