@@ -171,13 +171,7 @@ func turnMarks(rules *screen.Rules, tail string, found sight, previous *run.Obje
 	default:
 		return nil
 	}
-	var output []string
-	for _, line := range rules.Said(tail) {
-		if !promptOpened.MatchString(line) {
-			output = append(output, line)
-		}
-	}
-	said := config.Fold(strings.Join(output, " "))
+	said := stopWords(rules, tail)
 	spoke := !run.Equal(previous.Get("stop_said"), said)
 	if !spoke && previous.Str("state") == "at_prompt" {
 		return nil

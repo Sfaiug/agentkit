@@ -151,6 +151,7 @@ test_key_page_card_wait
 test_key_page_chooser
 test_key_page_done_once
 test_key_page_install_history
+test_key_page_done_once
 test_key_page_no_sink
 test_key_page_owner_in_seat
 test_key_page_question_once
@@ -165,6 +166,7 @@ test_key_plan_list_format
 test_key_plan_list_ticks
 test_key_plan_needs_seat
 test_key_plan_rename PlanUnderTheOldName
+test_key_plan_words
 test_key_plugin_model_seat
 test_key_project_rules_fetched
 test_key_prompt_hook_fact

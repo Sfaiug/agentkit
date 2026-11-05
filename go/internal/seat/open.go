@@ -33,6 +33,10 @@ var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", 
 // the adapter's command, and its record uses Python's locks and format. False leaves
 // unsupported harness launches, provider accounts and leftover seat files to Python.
 func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
+	return open(name, orchestrator, model, workers, cwd, unnamed, "", true, reviews...)
+}
+
+func open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, repo string, remember bool, reviews ...[]string) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
@@ -94,13 +98,15 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if err != nil {
 		return true, err
 	}
-	config.RememberDefaults(orchestrator, workers, reviewers, func() error { // a seat is made all the same
-		offered, err := config.Offered()
-		if err != nil {
-			return err
-		}
-		return keepEfforts(state, bound.Models, models, offered)
-	})
+	if remember {
+		config.RememberDefaults(orchestrator, workers, reviewers, func() error { // a seat is made all the same
+			offered, err := config.Offered()
+			if err != nil {
+				return err
+			}
+			return keepEfforts(state, bound.Models, models, offered)
+		})
+	}
 	if err := forgetSeen(state, name, time.Now()); err != nil {
 		return true, err
 	}
@@ -118,6 +124,11 @@ func Open(name, orchestrator string, model config.Model, workers []string, cwd s
 			data.Set("rulebook_sha", digest([]byte(text)))
 			return true
 		}); err != nil {
+			return err
+		}
+		// A fresh launch has begun no turn. Publish before starting it, so a hook can supersede
+		// this baseline even when the caller opens a seat after the tick's health row.
+		if err := writeSeat(state, current, []field{{"word", "idle"}}); err != nil {
 			return err
 		}
 		if err := start(state, current, cwd, cmd); err != nil {

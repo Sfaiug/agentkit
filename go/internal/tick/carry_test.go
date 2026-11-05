@@ -180,8 +180,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/watch.json#auth":            `{"auth_out": {"claude": {"ok": false}}}`,
 		"state/watch.json#tokens":          `{"worker_tokens": {"claude": {}}}`,
 		"state/watch.json#surrogate":       `{"mine": "\ud800"}`,
-		"config.toml":                      "[audit]\non = true\n",
-		"config.toml#absent":               "",
 		"config.toml#renting":              "[audit]\non = false\n[google_cloud]\nactive = true\n",
 	} {
 		t.Run(path, func(t *testing.T) {

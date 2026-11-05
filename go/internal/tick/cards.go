@@ -15,7 +15,7 @@ import (
 // with no newer message from the owner (notify.answer_typed).
 func unasked(live seat.Live) bool {
 	_, asked := notify.AskedAt(live.Name)
-	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && (!asked || notify.RetiredQuestion(live.Name)) || unansweredQuestion(live) || notify.UnansweredDialog(live.Name)
+	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && (!asked || notify.RetiredQuestion(live.Name)) || unansweredQuestion(live) || notify.UnansweredDialog(live.Name) || notify.UnansweredNeed(live.Name)
 }
 
 // cardsHeld is whether every card is a seat's, none left of a seat gone (notify.tick_cards).

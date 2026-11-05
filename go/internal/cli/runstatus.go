@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/run"
+	"agentkit/internal/scoreboard"
 	"agentkit/internal/terminal"
 )
 
@@ -164,7 +165,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
-		fmt.Fprintln(out, strings.Join(scoreboard(screen, now), "\n"))
+		fmt.Fprintln(out, strings.Join(scoreboard.Render(screen, now), "\n"))
 	}
 	return 0
 }
