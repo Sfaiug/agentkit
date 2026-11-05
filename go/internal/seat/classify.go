@@ -89,7 +89,7 @@ func endedAt(name, own string, record *run.Object, rules *screen.Rules, pane str
 		}
 		ended = max(now, when)
 	}
-	if again := hookfact.Standing(name); again.At != fact.At || again.Event != fact.Event || again.Kind != fact.Kind {
+	if again := harness.For(own).HookFact(name); again.At != fact.At || again.Event != fact.Event || again.Kind != fact.Kind {
 		return nil
 	}
 	return &ended

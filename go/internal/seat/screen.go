@@ -13,7 +13,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/hookfact"
 	"agentkit/internal/pyre"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
@@ -94,7 +93,7 @@ func observed(state, name string, reader harness.Reader, pane string, now float6
 	own := reader.Name
 	seen := eyeOf(own)
 	tail := screen.Tail(pane)
-	fact := hookfact.Standing(name)
+	fact := reader.HookFact(name)
 	found = classify(own, seen.rules.Read(tail), fact, previous, now, endedAt(name, own, record, seen.rules, pane, fact, now))
 	found.typedByAk = found.state == "draft" && typedByAk(name, seen.rules, pane)
 	switch {
