@@ -123,7 +123,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 			names = append(names, name)
 		}
 	}
-	held, live, bare, gone := onServer(names)
+	held, live, bare, gone := onServer(state, names)
 	if len(names) == 0 && len(bare) == 0 {
 		return Home{}, gone
 	}
@@ -236,25 +236,32 @@ func order(seats []Seat) {
 
 // onServer is the seats of those names tmux holds, the ones whose panes have all died and the rest,
 // the bare seats it holds under names no record keeps, each by its server, and whether Go knows
-// them all: ordinary sessions on ak's server run no harness.
-func onServer(names []string) (held, live []string, bare map[string]string, known bool) {
+// them all: a record's seat on the default server, whose screen Go does not read there, and a
+// bare one whose panes have all died or under a name no seat can have are Python's.
+func onServer(state string, names []string) (held, live []string, bare map[string]string, known bool) {
+	_, seats := holdings(state)
 	bare = map[string]string{}
-	own := tmux.Sessions(tmux.Own())
-	dead := tmux.Dead(tmux.Own())
-	for _, session := range own {
+	dead := map[string][]string{}
+	for name, server := range seats {
+		if _, asked := dead[server]; !asked {
+			dead[server] = tmux.Dead(server)
+		}
+		exited := slices.Contains(dead[server], name)
 		switch {
-		case !slices.Contains(names, session.Name):
-			if !unrecorded(session) {
-				bare[session.Name] = tmux.Own()
+		case !slices.Contains(names, name):
+			if exited || config.SessionName(name) != name {
+				return nil, nil, nil, false
 			}
-		case slices.Contains(dead, session.Name):
-			held = append(held, session.Name)
+			bare[name] = server
+		case server == tmux.Default:
+			return nil, nil, nil, false
+		case exited:
+			held = append(held, name)
 		default:
-			live = append(live, session.Name)
+			live = append(live, name)
 		}
 	}
-	known = legacySeats(names, slices.Concat(held, live), bare) && unbared(bare)
-	return held, live, bare, known
+	return held, live, bare, true
 }
 
 // read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its

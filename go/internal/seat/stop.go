@@ -112,13 +112,12 @@ func Stop(arg string, now time.Time) (string, bool, error) {
 // counts it.
 func look(state, name string, now time.Time) (seen, bool) {
 	own := tmux.Sessions(tmux.Own())
-	found := seen{live: slices.Contains(own, tmux.Session{Name: name, Mark: "1"}), server: tmux.Own()}
+	_, seats := holdings(state)
+	server, held := seats[name]
+	found := seen{live: slices.Contains(own, tmux.Session{Name: name, Mark: "1"}) || held && server == tmux.Default, server: server}
 	foreign := !found.live && slices.ContainsFunc(own, func(session tmux.Session) bool { return session.Name == name })
 	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	counted := found.live && len(own) > 1 && mark != nil && mark.Get("word") == "needs you"
-	if !found.live && !foreign && slices.Contains(tmux.Sessions(tmux.Default), tmux.Session{Name: name, Mark: "1"}) {
-		found.live, found.server = true, tmux.Default
-	}
+	counted := found.live && found.server == tmux.Own() && len(own) > 1 && mark != nil && mark.Get("word") == "needs you"
 	models, err := config.Models()
 	entries, unread := os.ReadDir(state)
 	ids, going, known := ownRuns(name)

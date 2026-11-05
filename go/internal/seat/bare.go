@@ -19,44 +19,14 @@ import (
 // screen and no pass types into it: its row names no models and no project, tmux's start dates it,
 // and its word is what its files and runs say.
 
-// legacySeats adds to bare the seats of old on the default server, the person's own: what carries
-// ak's mark there under a name ak's own server holds no seat by (orch.sessions).  False where one is
-// a record's, whose screen would be read on the default server, which Go does not.
-func legacySeats(names, ours []string, bare map[string]string) bool {
-	for _, session := range tmux.Sessions(tmux.Default) {
-		if _, own := bare[session.Name]; session.Mark != "1" || own || slices.Contains(ours, session.Name) {
-			continue
-		}
-		if slices.Contains(names, session.Name) {
-			return false
-		}
-		bare[session.Name] = tmux.Default
-	}
-	return true
-}
-
-// unbared is whether Go reads every bare seat by its name: each a seat's name, and a pane of each
-// still running, as one whose panes have all died is read by what its record says.
-func unbared(bare map[string]string) bool {
-	dead := map[string][]string{}
-	for name, server := range bare {
-		if _, asked := dead[server]; !asked {
-			dead[server] = tmux.Dead(server)
-		}
-		if config.SessionName(name) != name || slices.Contains(dead[server], name) {
-			return false
-		}
-	}
-	return true
-}
-
 // bareSeat is the row of a bare seat on that server, its word decided from its files and runs as
-// a look at a screen nobody reads would decide it; false where Go does not read its seat file.
+// a look at a screen nobody reads would decide it; false where its seat file holds what Go does not
+// read there: the owner's stop, or a question kept back, which no look at it ever asks.
 func bareSeat(state, name, server string, mine []ran, now time.Time) (Seat, bool) {
 	started, err := tmux.Ask(server, "display-message", "-p", "-t", "="+name+":", "#{session_created}")
 	file, unread := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	if err != nil || unread != nil && !errors.Is(unread, fs.ErrNotExist) ||
-		unread == nil && (file == nil || !only(file, slices.Concat(seatFields, lookFields)) || file.Truthy("stopped_at") || file.Truthy("closed_by_owner")) {
+	if err != nil || unread != nil && !errors.Is(unread, fs.ErrNotExist) || unread == nil && (file == nil ||
+		!only(file, slices.Concat(seatFields, lookFields)) || file.Truthy("stopped_at") || file.Truthy("closed_by_owner") || file.Get("unasked") != nil) {
 		return Seat{}, false
 	}
 	created, err := strconv.Atoi(started)
@@ -88,5 +58,8 @@ func (seat Seat) Legacy() bool { return seat.legacy }
 func (seat Seat) looked() bool { return seat.live && seat.own != "" }
 
 // strangers is whether ak's server holds a session that is no seat, which Python's maintenance may
-// save and close where no record keeps any seat (orch.sweep_finished).
-func strangers() bool { return slices.ContainsFunc(tmux.Sessions(tmux.Own()), unrecorded) }
+// save and close (orch.sweep_finished).
+func strangers() bool {
+	held, seats := holdings(filepath.Join(config.Home(), "state"))
+	return slices.ContainsFunc(held, func(name string) bool { return seats[name] != tmux.Own() })
+}
