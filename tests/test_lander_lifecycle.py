@@ -116,6 +116,29 @@ class LanderLifecycle(unittest.TestCase):
         self.assertEqual(len(self.starts), 1)
         self.assertEqual([member for member, _ in land.line(self.turn)], [first, later])
 
+    def test_a_blamed_first_member_does_not_choose_the_pass_checkout(self):
+        first = self.member(ak_checkout=str(self.root / "blamed-code"), waiting_on={
+            "line": self.turn.name, "joined": 1, "fix": {"line": "failed"},
+            "after": {"departed": "tree"}})
+        code = self.root / "ready-code"
+        self.member("fix-docs", ak_checkout=str(code), waiting_on={
+            "line": self.turn.name, "joined": 2})
+        self.starts.clear()
+        self.assertTrue(land.start_line(self.turn))
+        self.assertEqual(len(self.starts), 1)
+        self.assertEqual(self.starts[0][2]["AK_RUN_CODE"], str(code))
+        self.assertEqual([member.name for member, _ in land.line(self.turn)],
+                         [first.name, "fix-docs"])
+
+    def test_a_line_with_only_blame_still_starts_a_pass_to_wake_its_fixer(self):
+        first = self.member(ak_checkout=str(self.root / "blamed-code"), waiting_on={
+            "line": self.turn.name, "joined": 1, "fix": {"line": "failed"},
+            "after": {"departed": "tree"}})
+        self.assertEqual(len(self.starts), 1)
+        with patch.object(watch, "launch_resume", return_value=999) as wake:
+            land.check_line(self.turn)
+        wake.assert_called_once_with(first.name, unittest.mock.ANY)
+
     def test_a_live_rejoiner_behind_a_green_member_finishes_cleanup_before_a_pass(self):
         self.member(state="running", worktree=str(self.root), pid=5678, waiting_on={
             "line": self.turn.name, "joined": 1, "land": "tree"})

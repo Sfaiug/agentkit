@@ -113,6 +113,29 @@ class LandingLineNeverWaits(unittest.TestCase):
         self.assertEqual(self.line.verdict(2), wait)
         self.assertIn("land", self.line.verdict(3))
 
+    def test_other_checkouts_on_unready_members_do_not_split_ready_stacks(self):
+        for _ in range(3):
+            self.member()
+        other = str(self.home.path / "other-ak")
+        self.write(2, ak_checkout=other, pid=4242,
+                   process_identity={"boot": "fixture", "ticks": 1})
+        wait = self.blame(3, {"fix-1": "tree"})
+        self.write(3, ak_checkout=other)
+        self.rejoiners.write_text('["fix-1"]')
+        for _ in range(2):
+            tail = self.member()
+            self.wakes.write_text("")
+            self.assertEqual(self.land(), ["fix-1", f"fix-{tail}"])
+            files = self.line.rig.git("ls-tree", "--name-only",
+                                      self.line.verdict(tail)["land"]).splitlines()
+            self.assertIn("member-1.txt", files)
+            self.assertIn(f"member-{tail}.txt", files)
+            for n in (2, 3):
+                self.assertNotIn(f"member-{n}.txt", files)
+            self.assertEqual(self.line.verdict(3), wait)
+            self.assertNotIn("land", self.line.verdict(1))
+            self.write(tail, state="pass", merged=True)
+
 
 if __name__ == "__main__":
     unittest.main()

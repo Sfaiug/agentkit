@@ -214,10 +214,12 @@ def start_line(turn, log=lambda _: None):
             except BlockingIOError:
                 return False
             members = line(turn)
-            waiting = next((state for _, state in members
-                            if state.get("state") == "waiting" and not record.process_active(state)), None)
-            if waiting is None:
+            parked = [state for _, state in members
+                      if state.get("state") == "waiting" and not record.process_active(state)]
+            if not parked:
                 return False
+            # A red-only line still needs a pass to wake its fixers, using this checkout.
+            waiting = next((state for state in parked if "fix" not in state["waiting_on"]), {})
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
@@ -580,14 +582,14 @@ def check_line(turn, log=lambda _: None):
                     continue
                 candidates = [(directory, state)]
                 for later, saved in members[index + 1:] if not name else ():
-                    if saved.get("ak_checkout") != state.get("ak_checkout"):
-                        break
                     with record.recovery_lock(later):
                         if (record.read_state(later) != saved or record.process_active(saved)
-                                or saved.get("state") != "waiting"):
+                                or saved.get("state") != "waiting" or "fix" in saved["waiting_on"]):
                             continue
+                        if saved.get("ak_checkout") != state.get("ak_checkout"):
+                            break
                         if ((saved.get("review") or {}).get("verdict") == "PASS"
-                                and not any(k in saved["waiting_on"] for k in ("land", "fix"))):
+                                and "land" not in saved["waiting_on"]):
                             candidates.append((later, saved))
             else:
                 candidates = [(directory, state)]
