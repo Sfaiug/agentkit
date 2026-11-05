@@ -11,6 +11,7 @@ import (
 	"agentkit/internal/adapters"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/hookfact"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
@@ -142,5 +143,27 @@ func TestFreshReopenKeepsItsAccountWhileNewSeatsUseTheUsualLogin(t *testing.T) {
 	account, _ = os.ReadFile(filepath.Join(home, "adapter-account"))
 	if !known || len(account) != 0 || cmd[1] != "AGENTKIT_ACCOUNT=" {
 		t.Fatal("a new seat inherited its caller's login", cmd, string(account))
+	}
+}
+
+func TestAnAccountMoveDoesNotNudgeTheNewHarnessFromTheOldStop(t *testing.T) {
+	home := accountHome(t)
+	accountMeters(t, home, 100, 10)
+	write(t, stateFile(home, "plan-acme.md"), openLine)
+	drawn(t, home, "acme", "Work remains.\n"+prompting)
+	_, record, _ := config.ResolveSession("acme")
+	chat, _ := harness.Conversation("claude", record)
+	write(t, chat, `{"type":"user","message":{"role":"user","content":"hello"}}`+"\n")
+	line := commandhelp.ShellJoin([]string{"sh", "-c", "cat " + commandhelp.ShellJoin([]string{filepath.Join(home, "screen-acme")}) + "; sleep 600"})
+	accountAdapter(t, home, "case \"$1\" in auth) exit 0 ;; interactive) "+commandhelp.ShellJoin([]string{"printf", "%s\n", line})+" ;; esac\n")
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	after, _ := run.ReadJSON(stateFile(home, "session-acme.json"))
+	if after.Str("account") != "second" {
+		t.Fatal("seat did not move", after)
+	}
+	if input, err := os.ReadFile(stateFile(home, "input-acme.jsonl")); err == nil {
+		t.Fatalf("the old Stop prompted the new harness: %s", input)
 	}
 }

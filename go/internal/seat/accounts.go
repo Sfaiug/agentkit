@@ -166,9 +166,8 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 // accountStill is the last look under the launch's typing lock. A between-turns move also
 // requires a terminal untouched for DRAFT_STILL and no newly held background work.
 func (live Live) accountStill(name string, between bool) bool {
-	record, err := run.ReadJSON(ownFile("session", name))
 	file := revivalFile(name)
-	if err != nil || name != live.Name || !run.Equal(record, live.Record) ||
+	if name != live.Name || !live.sameRecord() ||
 		!run.Equal(file.Get("opened_at"), live.File.Get("opened_at")) || file.Truthy("stopped_at") ||
 		file.Truthy("closed_by_owner") || file.Truthy("midturn") || file.Truthy("usage_wait") ||
 		file.Truthy("usage_refusal") || notify.UnansweredQuestion(name) || !Watching(name) {
@@ -188,6 +187,11 @@ func (live Live) accountStill(name string, between bool) bool {
 	info, statErr := os.Stat(tty)
 	return err == nil && statErr == nil && terminalQuiet(info) &&
 		len(hookfact.Standing(name).Holds) == 0
+}
+
+func (live Live) sameRecord() bool {
+	record, err := run.ReadJSON(ownFile("session", live.Name))
+	return err == nil && record != nil && run.Equal(record, live.Record)
 }
 
 // Live recovery marks belong to their own tick passes, not the listing's closed-seat check.

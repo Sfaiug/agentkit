@@ -180,9 +180,12 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if err := seat.askKeptBack(found); err != nil {
 			return err
 		}
-		found, err = seat.nudgeOpenWork(state, found, log)
-		if err != nil {
-			return err
+		// A relaunch consumed the old Stop; it cannot nudge the replacement harness.
+		if live.sameRecord() {
+			found, err = seat.nudgeOpenWork(state, found, log)
+			if err != nil {
+				return err
+			}
 		}
 		if err := seat.decided(state, found, seconds(now), live.Attached); err != nil {
 			return err
