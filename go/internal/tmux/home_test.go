@@ -2,7 +2,6 @@ package tmux
 
 import (
 	"os"
-	"os/user"
 	"path/filepath"
 	"strconv"
 	"testing"
@@ -11,16 +10,16 @@ import (
 // Only the account's own home, however its HOME spells it, names the seats' server: the case
 // every person's ak is in, which the keys' scratch HOMEs never are.
 func TestOnlyTheAccountsOwnHomeNamesAgentkit(t *testing.T) {
-	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
-	if err != nil {
+	account, found := passwdHome(strconv.Itoa(os.Getuid()))
+	if !found {
 		t.Skip("this uid has no passwd entry, so no home of its own")
 	}
 	link := filepath.Join(t.TempDir(), "home")
-	if err := os.Symlink(account.HomeDir, link); err != nil {
+	if err := os.Symlink(account, link); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("AGENTKIT_TMUX_SOCKET", "")
-	for _, home := range []string{account.HomeDir, link} {
+	for _, home := range []string{account, link} {
 		t.Setenv("HOME", home)
 		if got := Own(); got != "agentkit" {
 			t.Errorf("HOME=%s names %q, not the seats' server", home, got)

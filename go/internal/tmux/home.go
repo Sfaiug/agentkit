@@ -5,7 +5,9 @@ import (
 	"encoding/hex"
 	"os"
 	"os/user"
+	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 
 	"agentkit/internal/config"
@@ -34,9 +36,28 @@ func HomeServer() string {
 // accountHome is the passwd entry's home, resolved, and "" for a uid with none, as in a container.
 // Read once: an open screen asks for its server many times a second.
 var accountHome = sync.OnceValue(func() string {
-	account, err := user.LookupId(strconv.Itoa(os.Getuid()))
-	if err != nil {
-		return ""
+	if home, found := passwdHome(strconv.Itoa(os.Getuid())); found {
+		return config.Resolve(home)
 	}
-	return config.Resolve(account.HomeDir)
+	return ""
 })
+
+// passwdHome is the home in that uid's passwd entry.  Linux's is read from /etc/passwd, as os/user
+// without cgo reads it, since that os/user makes up an entry from $USER and $HOME where none
+// is.  macOS keeps its accounts elsewhere, and os/user asks its libc for them.
+func passwdHome(uid string) (string, bool) {
+	if runtime.GOOS == "darwin" {
+		account, err := user.LookupId(uid)
+		if err != nil {
+			return "", false
+		}
+		return account.HomeDir, true
+	}
+	passwd, _ := os.ReadFile("/etc/passwd")
+	for _, line := range strings.Split(string(passwd), "\n") {
+		if fields := strings.Split(line, ":"); len(fields) > 5 && fields[2] == uid {
+			return fields[5], true
+		}
+	}
+	return "", false
+}
