@@ -90,9 +90,7 @@ func Stop(arg string, now time.Time) (string, bool, error) {
 		}
 		removed = true
 	}
-	if err := notify.ForgetCard(name, quietly); err != nil {
-		return "", true, err
-	}
+	notify.ForgetCard(name, quietly)
 	if found.live && caller == name {
 		return "", true, nil
 	}
@@ -305,11 +303,12 @@ func forget(state, name string, log func(string)) error {
 			return err
 		}
 	}
-	return notify.ForgetCard(name, log)
+	notify.ForgetCard(name, log)
+	return nil
 }
 
-// quietly is a stop's log of the card forgetting a seat closes, which Go's stop leaves unsaid
-// where Python's cmd_stop prints it to stderr.
+// quietly is a stop's log of the card forgetting a seat closes or leaves for a retry, which Go's
+// stop leaves unsaid where Python's cmd_stop prints it to stderr.
 func quietly(string) {}
 
 // stopped is whether a seat file holds the owner's stop mark, as Read knows one: none, or the

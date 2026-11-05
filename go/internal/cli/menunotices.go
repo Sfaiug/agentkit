@@ -19,7 +19,7 @@ func menuNotices() []string {
 	var messages []string
 	for _, line := range strings.Split(string(data), "\n") {
 		if line = strings.TrimSpace(line); line != "" {
-			messages = append(messages, strings.ReplaceAll(line, config.UserHome()+string(os.PathSeparator), "~/"))
+			messages = append(messages, line)
 		}
 	}
 	return messages
@@ -28,7 +28,7 @@ func menuNotices() []string {
 func noticeLines(messages []string, width int) []string {
 	var lines []string
 	for _, message := range messages {
-		for _, part := range terminal.Wrap(message, width-1) {
+		for _, part := range terminal.Wrap(strings.ReplaceAll(message, config.UserHome()+string(os.PathSeparator), "~/"), width-1) {
 			lines = append(lines, " "+part)
 		}
 	}

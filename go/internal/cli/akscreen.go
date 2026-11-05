@@ -65,20 +65,16 @@ func readFrame(now time.Time) (reading, bool) {
 // akScreen is bare `ak` on a server: it takes the terminal, draws the frame and gives the terminal
 // back. A refused read keeps that frame; an unsupported past seat hands it over to Python.
 func akScreen(args []string, out, errOut io.Writer) int {
+	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
 	if !terminal.Attachable() && !onLiveCheckout() {
-		return pipeMenu(out, errOut)
+		return pipeMenu(dry || overlay, out, errOut)
 	}
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
 	if !drawable {
 		return notImplemented(errOut, "attach")
 	}
-	if !contains(args, "--dry-run") && tick.ResumeAfterBoot() != nil {
-		return notImplemented(errOut, "attach")
-	}
-	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
-	said, carried := opening(dry || overlay)
-	if !carried {
+	if !dry && tick.ResumeAfterBoot() != nil {
 		return notImplemented(errOut, "attach")
 	}
 	keyboard, painter := terminal.NewKeyboard(), terminal.NewPainter(os.Stdout)
@@ -92,10 +88,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		keyboard.Take() // stays up however long a read takes
 		painter.Restore(left, keyboard.Screen())
 	}
-	first, handed := handedRead() // a restart's first frame waits on no read
-	known := handed
+	// a restart's first frame waits on no read, nor on a sweep: the tick's next one runs it
+	first, handed := handedRead()
+	known, said := handed, []string(nil)
 	if !handed {
-		keyboard.While(func() { first, known = readFrame(time.Now()) })
+		keyboard.While(func() { first, said, known = openedFrame(dry || overlay) })
 	}
 	if !known || first.handoff {
 		keyboard.Give()
@@ -128,8 +125,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	if handed {
 		go reread()
 	}
-	if !menuNote(said, keyboard, painter) {
-		keyboard.Give()
+	if len(said) > 0 && !showMenuNotices(said, keyboard, painter) {
 		return 0
 	}
 	clock, model := &motion.Clock{}, menu.Model{}

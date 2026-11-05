@@ -47,3 +47,33 @@ func TestAHarnessWhoseForgetGoDoesNotCarryLeavesTheSweepToPythonBeforeAnythingGo
 		t.Error("the record went before Python's sweep")
 	}
 }
+
+func TestACardThatDoesNotCloseLeavesTheRestOfTheSeatForgotten(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("no tmux installed")
+	}
+	now := time.Now()
+	home := sandbox(t)
+	token := "0123456789abcdef0123456789abcdef"
+	record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"}, "codex_launch": token,
+		"seen": seconds(now.AddDate(0, 0, -8))})
+	state := filepath.Join(home, ".agentkit", "state")
+	write(t, filepath.Join(state, "codex-launch-"+token+".json"), "{}")
+	write(t, filepath.Join(state, "card-acme.json"), "{")
+	var said []string
+	if carried, err := Sweep(now, func(line string) { said = append(said, line) }); !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	for _, gone := range []string{"session-acme.json", "codex-launch-" + token + ".json"} {
+		if _, err := os.Lstat(filepath.Join(state, gone)); err == nil {
+			t.Error(gone, "outlived the seat's forgetting")
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(state, "card-acme.json")); err != nil {
+		t.Error("the card that did not read went without its retry")
+	}
+	if !slices.Equal(said, []string{"forgot the session acme, gone for 8d",
+		"WARN the card of acme was not closed (JSONDecodeError); retry required"}) {
+		t.Error(said)
+	}
+}

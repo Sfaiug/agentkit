@@ -134,11 +134,11 @@ func saveScreens(name, owner string, panes [][]string) (string, error) {
 	defer file.Close()
 	text := name + " (started by " + owner + ")\n"
 	for _, pane := range panes {
-		shown, err := tmux.AskWithin(5*time.Second, tmux.Own(), "capture-pane", "-p", "-t", pane[2])
+		shown, err := tmux.Capture(5*time.Second, tmux.Own(), pane[2])
 		if err != nil {
 			return "", fmt.Errorf("could not capture %s", pane[2])
 		}
-		text += pane[2] + "\n" + shown + "\n"
+		text += pane[2] + "\n" + shown
 	}
 	_, err = file.WriteString(text)
 	return path, err
