@@ -64,7 +64,7 @@ func table(t *ticking) []pass {
 		{"old endings", false, noOldEndings, nil},
 		{"endings", false, t.endingsIdle, t.endings},
 		{"job handbacks", false, jobless, nil},
-		{"ended waits", false, all(configured, seated, waitsOnNothing), nil},
+		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, run.Historyless, nil},

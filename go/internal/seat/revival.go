@@ -84,6 +84,12 @@ func (seat Seat) restingGone() bool {
 	if seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
 		return false
 	}
+	return seat.cutNothing()
+}
+
+// cutNothing is whether the seat's end cut off no turn, question or background work its last look
+// or newer hook says it had (watch.cut_off).
+func (seat Seat) cutNothing() bool {
 	file := revivalFile(seat.Name)
 	fact := hookfact.Standing(seat.Name)
 	hooked, event, err := lifecycle.State(seat.own, fact)
@@ -139,7 +145,7 @@ func (home Home) ReviveQuestions(now time.Time, reviving map[string]string, log 
 			}
 			continue
 		}
-		if seat.closed || seat.asleep || seat.restingGone() || reviving[seat.Name] != "" {
+		if seat.closed || seat.asleep || seat.restingGone() || seat.waitsGone() || reviving[seat.Name] != "" {
 			continue
 		}
 		if !seat.revivalQuestion() {

@@ -40,11 +40,6 @@ func noSeatAlive() bool {
 	return true
 }
 
-func waitsOnNothing() bool {
-	home, known := seat.TickHome(time.Now())
-	return known && home.WaitsOnNothing()
-}
-
 func (t *ticking) retainedSeats() bool {
 	now := t.clock()
 	home, known := seat.TickHome(now)
