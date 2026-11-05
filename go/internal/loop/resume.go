@@ -155,7 +155,10 @@ func Reopen(dir string, read *run.Object) error {
 			}
 		}
 		host.EndMarked(dir, io.Discard)
-		if record.Str("state") == "running" {
+		// what the resume takes the run up from, Python's resume_from: a dead driver's is an interruption
+		from := record.Str("state")
+		if from == "running" {
+			from = "interrupted"
 			reason := "Run process exited or its identity changed."
 			run.SetAll(record, "interrupted_at", clock(), "interruption_reason", reason)
 			deaths := record.List("deaths")
@@ -171,10 +174,8 @@ func Reopen(dir string, read *run.Object) error {
 		for _, key := range delivery {
 			record.Delete(key)
 		}
-		from := "interrupted"
-		if record.Str("state") == "waiting" {
+		if from == "waiting" {
 			// what the last attempt said did not deliver is what this one does again
-			from = "waiting"
 			if pending := record.Dict("review_pending"); pending == nil || pending.Get("record") != false {
 				record.Delete("review_pending")
 			}
