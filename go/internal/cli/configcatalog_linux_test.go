@@ -1,0 +1,93 @@
+package cli
+
+import (
+	"context"
+	"os/exec"
+	"path/filepath"
+	"testing"
+	"time"
+)
+
+func TestConfigCatalogWaitDrawsFirstAndEscReapsTheBlockedAdapter(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	binary := filepath.Join(t.TempDir(), "ak")
+	build := exec.CommandContext(ctx, "go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
+	build.Dir = filepath.Join("..", "..")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+import errno, os, shlex, sys
+from pathlib import Path
+os.environ["AK_BIN"] = sys.argv[1]
+sys.path.insert(0, str(Path("tests").resolve()))
+from fixtures.akbin import Home
+from fixtures import akconfig, fakeadapter
+from fixtures.akseat import Seat
+from fixtures.akterm import Terminal
+
+for page, colour in (("config", False), ("models", False), ("config", True)):
+    with Home() as home:
+        cfg = akconfig.write(home, {"fable": "claude", "astra": "codex"})
+        adapters = fakeadapter.install(home, claude="pass", codex="pass")
+        Seat(home, "acme", model="fable", record={"workers": ["astra"], "repo": None})
+        record = home.path / ".agentkit/state/session-acme.json"
+        before = (cfg.read_bytes(), record.read_bytes())
+        marker, release, seen = (home.root/name for name in ("started", "release", "seen"))
+        os.mkfifo(release)
+        script = adapters["claude"].script
+        real = script.with_name("claude-real.sh")
+        script.rename(real)
+        gate = ': > ' + shlex.quote(str(marker)) + '\nread token < ' + shlex.quote(str(release)) + '\n'
+        if page == "models":
+            gate = 'if [ -f ' + shlex.quote(str(seen)) + ' ]; then\n' + gate + 'else\n: > ' + shlex.quote(str(seen)) + '\nfi\n'
+        script.write_text('#!/bin/sh\nif [ "$1" = models ]; then\n' + gate +
+                          "printf 'm1\\tModel One\\tlow high\\n'\nelse\nexec " +
+                          shlex.quote(str(real)) + ' "$@"\nfi\n')
+        script.chmod(0o755)
+        env = {"AGENTKIT_SESSION": "acme", **({"COLORTERM": "truecolor"} if colour else {"NO_COLOR": "1"})}
+        term = Terminal(home, "attach", "--overlay", size=(100, 30), env=env)
+        term.wait("esc leave", bound=10)
+        try:
+            term.keys("c")
+            if page == "models":
+                term.wait("For  acme", bound=10)
+                term.keys("j", "j", "Enter")
+                term.wait("config · models", bound=10)
+                term.keys("Enter")
+            shown = term.wait(lambda s: marker.exists(), bound=10)
+            assert "agentkit · config" in shown and "esc back" in shown and "Reading models" in shown, shown
+            if colour:
+                rule = shown.splitlines()[1]
+                term.wait(lambda s: s.splitlines()[1] != rule, bound=3)
+            term.keys("Escape")
+            if page == "models":
+                term.wait(lambda s: "config · models" in s and "Reading models" not in s, bound=3)
+                term.keys("Escape")
+                term.wait("For  acme", bound=3)
+            else:
+                term.wait("esc leave", bound=3)
+            # No FIFO reader remains after Esc: cancellation reaped the adapter before returning.
+            try:
+                fd = os.open(release, os.O_WRONLY | os.O_NONBLOCK)
+            except OSError as exc:
+                assert exc.errno == errno.ENXIO, exc
+            else:
+                os.close(fd)
+                raise AssertionError("the adapter is still waiting on its FIFO")
+            assert (cfg.read_bytes(), record.read_bytes()) == before, page
+        finally:
+            try:
+                fd = os.open(release, os.O_WRONLY | os.O_NONBLOCK)
+                os.write(fd, b"go\n")
+                os.close(fd)
+            except OSError:
+                pass
+`, binary)
+	call.Dir = filepath.Join("..", "..", "..")
+	if out, err := call.CombinedOutput(); err != nil {
+		t.Fatalf("catalog wait: %v\n%s", err, out)
+	}
+}

@@ -142,12 +142,13 @@ func dump(root *table) (string, error) {
 		}
 		chunks = append(chunks, lines)
 	}
-	defaults := root.values["defaults"].(*table)
-	lines, err := pairs(defaults, ordered(present(defaults), saveOrder["defaults"]))
-	if err != nil {
-		return "", err
+	if defaults, ok := root.values["defaults"].(*table); ok {
+		lines, err := pairs(defaults, ordered(present(defaults), saveOrder["defaults"]))
+		if err != nil {
+			return "", err
+		}
+		chunks = append(chunks, append([]string{"[defaults]"}, lines...))
 	}
-	chunks = append(chunks, append([]string{"[defaults]"}, lines...))
 	for _, group := range []string{"models", "providers"} {
 		entries := root.values[group].(*table)
 		for _, name := range present(entries) {
