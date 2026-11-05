@@ -3846,17 +3846,16 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     from the bottom region and the whole composer. A working seat can still hold unsent
     text. A dialog counts as landed, never as a reason for another Enter.  Still held:
     one more Enter and one more wait.  Still held after that, log and return False,
-    leaving the composer alone.  Where the seat paints no composer at all, a delivered
-    send counts as sent.
+    leaving the composer alone.
     `guard` covers text, gap and first Enter, with `veto` read once before typing, so
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means the owner's input deferred the line before its text went in:
-    keys its terminal has not read yet, or text in its composer, which a line typed after it
-    would join and send. Those checks gate new text, never the Enter completing it:
+    never sent. None means the line was deferred before its text went in: keys its terminal
+    has not read yet, or, in a seat of a known harness, a composer `composer_draft` does not
+    read empty. Those checks gate new text, never the Enter completing it:
     withholding that Enter would leave a draft the caller cannot recover, or let a retry
     append the same text to itself.
     """
@@ -3871,24 +3870,12 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
-    # a line left pending was read in its composer, whatever chrome is drawn around it
-    confirm = pending
-    if harness is not None and not confirm:
-        pane = pane_text(seat)
-        if composer_draft(harness, pane):
-            return None     # the owner's text: a line typed after it joins it, and sends both
-        try:
-            pattern = screen(harness).get("composer")
-        except config.Error:
-            pattern = None
-        if pattern is not None:
-            # Stripped first: a real capture ends in blank rows, unlike a byte stream,
-            # and a `-e` capture carries attributes a plain composer pattern never
-            # names.  A seat painting no composer at all is not a TUI waiting on one:
-            # the smoke suite's inbox seat holds a `sleep`, and a delivered send is
-            # all there is.
-            confirm = any(pattern.search(strip_sgr(line))
-                          for line in pane_tail(pane).splitlines())
+    # New text goes only into a composer read empty: one holding text, under a dialog or read
+    # in part would join the line and send both, and a pane showing none would run it.  A line
+    # left pending was read in its composer, whatever chrome is drawn around it.
+    if harness is not None and not pending and composer_draft(harness, pane_text(seat)) != "":
+        return None
+    confirm = pending or harness is not None
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
