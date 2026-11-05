@@ -23,6 +23,7 @@ import re
 import shlex
 import sys
 import time
+from types import SimpleNamespace
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -39,9 +40,17 @@ def week():
     return f"{year}-W{number:02d}"
 
 
+def receipt(home, line):
+    """A typed line's receipt as ak keeps it: the line, and when tmux made the seat it went
+    into, so a seat made again since, its composer empty, matches none."""
+    made = home.tmux("display-message", "-p", "-t", "=audit:", "#{session_created}")
+    return {"line": line, "seat": int(made.out)}
+
+
 class Ticks:
     """A Home with the audit on and no history, the `audit` seat each case's `seated` makes,
-    and two ticks over it: each one's run, the audit's state after it and what the pane took."""
+    and two ticks over it, each seen as it ends: its run, the audit's state, what the pane took
+    and the conversations `claude` was resumed on."""
 
     @classmethod
     def setUpClass(cls):
@@ -55,7 +64,10 @@ class Ticks:
         cls.ticks = []
         for _ in range(2):
             done = home.tick()
-            cls.ticks.append((done, cls.audit(), cls.seat.typed()))
+            cls.ticks.append(SimpleNamespace(
+                done=done, state=cls.audit(), typed=cls.seat.typed(),
+                resumed=[argv[argv.index("--resume") + 1] for argv in home.calls("claude")
+                         if "--resume" in argv]))
         cls.weeks.add(week())
 
     @classmethod
@@ -65,14 +77,16 @@ class Ticks:
         except FileNotFoundError:
             return {}
 
-    def told(self, done, state):
-        return TOLD.format(state.get("week")) in done.out.splitlines()
+    def told(self, tick):
+        return TOLD.format(tick.state.get("week")) in tick.done.out.splitlines()
 
-    def assertDelivered(self, state):
-        self.assertIn(state.get("week"), self.weeks)
-        self.assertTrue(state.get("typed"), state)
-        self.assertTrue(state.get("delivered"), state)
-        self.assertEqual(self.seat.lines(), [state["line"]])
+    def assertDelivered(self, tick, line):
+        """By `tick`'s end `line` is entered once, its receipt kept and it is delivered."""
+        self.assertEqual(tick.done.code, 0, tick.done.out + tick.done.err)
+        self.assertIn(tick.state.get("week"), self.weeks)
+        self.assertEqual(tick.state.get("typed"), receipt(self.home, line))
+        self.assertTrue(tick.state.get("delivered"), tick.state)
+        self.assertEqual(self.seat.lines(), [line])
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
@@ -82,16 +96,15 @@ class AtItsPrompt(Ticks, unittest.TestCase):
         return Seat(home, "audit")
 
     def test_a_tick_types_the_week_s_line_and_says_it_is_delivered(self):
-        done, state, _typed = self.ticks[0]
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertDelivered(state)
-        self.assertTrue(self.told(done, state), done.out)
+        first = self.ticks[0]
+        self.assertDelivered(first, first.state.get("line"))
+        self.assertTrue(self.told(first), first.done.out)
 
     def test_a_later_tick_that_week_types_nothing_and_says_nothing(self):
-        done, state, typed = self.ticks[1]
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertEqual((state, typed), self.ticks[0][1:])
-        self.assertFalse(self.told(done, state), done.out)
+        first, later = self.ticks
+        self.assertEqual(later.done.code, 0, later.done.out + later.done.err)
+        self.assertEqual((later.state, later.typed), (first.state, first.typed))
+        self.assertFalse(self.told(later), later.done.out)
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
@@ -99,30 +112,27 @@ class TypedBefore(Ticks, unittest.TestCase):
     @classmethod
     def seated(cls, home):
         """A seat busy while an earlier tick writes the week's line, which that tick then typed
-        once the seat came to its prompt, and died before its Enter: the line in the composer,
-        its receipt kept as ak keeps it -- the line, and when tmux made the seat it went into."""
+        once the seat came to its prompt, and died before its Enter: the line in the composer
+        and its receipt kept."""
         seat = Seat(home, "audit", screen="claude-working-pane.txt")
         done = home.tick()
         state = cls.audit()
-        assert done.code == 0 and state.get("line") and not seat.typed(), done.out + done.err
-        assert home.tmux("send-keys", "-t", seat.pane, "-l", state["line"]).code == 0
+        cls.line = state.get("line")
+        assert done.code == 0 and cls.line and not seat.typed(), done.out + done.err
+        assert home.tmux("send-keys", "-t", seat.pane, "-l", cls.line).code == 0
         deadline = time.monotonic() + 30
-        while seat.typed() != state["line"]:
+        while seat.typed() != cls.line:
             assert time.monotonic() < deadline, seat.typed()
             time.sleep(0.05)
         seat.show("claude-prompt-pane.txt")
-        made = home.tmux("display-message", "-p", "-t", "=audit:", "#{session_created}")
-        home.write(".agentkit/state/audit.json",
-                   {**state, "typed": {"line": state["line"], "seat": int(made.out)}})
+        home.write(".agentkit/state/audit.json", {**state, "typed": receipt(home, cls.line)})
         return seat
 
     def test_it_is_finished_from_its_receipt_and_never_typed_again(self):
-        for done, _state, _typed in self.ticks:
-            self.assertEqual(done.code, 0, done.out + done.err)
-        state = self.ticks[-1][1]
-        self.assertDelivered(state)
-        self.assertEqual(self.seat.typed().count(state["line"]), 1, self.seat.typed())
-        self.assertEqual([self.told(done, state) for done, _, _ in self.ticks].count(True), 1)
+        self.assertEqual([tick.done.code for tick in self.ticks], [0, 0])
+        self.assertDelivered(self.ticks[-1], self.line)
+        self.assertEqual(self.seat.typed().count(self.line), 1, self.seat.typed())
+        self.assertEqual([self.told(tick) for tick in self.ticks].count(True), 1)
 
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
@@ -148,20 +158,18 @@ class Resumed(Ticks, unittest.TestCase):
         return seat
 
     def test_a_tick_resumes_it_on_its_conversation_and_types_nothing_yet(self):
-        done, state, typed = self.ticks[0]
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertEqual(self.home.tmux("has-session", "-t", "=audit").code, 0)
-        resumed = [argv for argv in self.home.calls("claude") if "--resume" in argv]
-        self.assertEqual([argv[argv.index("--resume") + 1] for argv in resumed], [CONVERSATION])
-        self.assertEqual(typed, "")
-        self.assertFalse(state.get("delivered"), state)
-        self.assertFalse(self.told(done, state), done.out)
+        first = self.ticks[0]
+        self.assertEqual(first.done.code, 0, first.done.out + first.done.err)
+        self.assertEqual(first.resumed, [CONVERSATION])
+        self.assertEqual(first.typed, "")
+        self.assertFalse(first.state.get("delivered"), first.state)
+        self.assertFalse(self.told(first), first.done.out)
 
     def test_the_line_goes_in_on_a_later_tick_once_the_harness_sits_at_its_prompt(self):
-        done, state, _typed = self.ticks[1]
-        self.assertEqual(done.code, 0, done.out + done.err)
-        self.assertDelivered(state)
-        self.assertTrue(self.told(done, state), done.out)
+        later = self.ticks[1]
+        self.assertEqual(later.resumed, [CONVERSATION])
+        self.assertDelivered(later, later.state.get("line"))
+        self.assertTrue(self.told(later), later.done.out)
 
 
 if __name__ == "__main__":
