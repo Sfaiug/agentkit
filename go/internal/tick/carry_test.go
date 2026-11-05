@@ -170,7 +170,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"history.db":                       "",
 		"state/session-acme.json":          "{}",
 		"state/card-acme.json":             "{}",
-		"state/alive.json":                 "{}",
 		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
 		"state/watch.json":                 `{"own": {"https://github.com/acme/api/pull/1": {}}}`,

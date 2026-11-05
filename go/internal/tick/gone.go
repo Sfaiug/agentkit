@@ -27,19 +27,6 @@ func seatProjects() ([]string, error) {
 	return home.Repositories(), nil
 }
 
-func noSeatAlive() bool {
-	repos, err := seatProjects()
-	if err != nil {
-		return false
-	}
-	for _, repo := range repos {
-		if declares(repo, "alive") {
-			return false
-		}
-	}
-	return true
-}
-
 // sweep is the seat sweep row, the one sweep the ak screen's opening runs too.
 func (t *ticking) sweep() error {
 	carried, err := seat.Sweep(t.clock(), t.log.line)
