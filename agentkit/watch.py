@@ -873,6 +873,9 @@ def screen(harness):
              else None,
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
+             # it scrolls a draft taller than its composer's box inside it: the box is whole
+             # on the screen, however tall the draft (`screen_state`)
+             "scrolls": block.get("scrolls") is True,
              "away": _pattern(block.get("away"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "faint": tuple(colour for colour in block.get("faint") or ()
@@ -1891,8 +1894,9 @@ def _screen_rows(tail):
     return raw_lines, [strip_sgr(line).strip() for line in raw_lines]
 
 
-def screen_state(harness, tail):
-    """(state, rule id, evidence line) of the first adapter rule that matches, else (None, "", "").
+def screen_state(harness, pane):
+    """(state, rule id, evidence line) of the first adapter rule that matches the bottom of that
+    pane, else (None, "", "").
 
     A fix here adds no fallback for a shape it did not set out to read and reads only the rows
     the code it replaces read: every such fallback, and every reach further up the pane, misread
@@ -1902,12 +1906,12 @@ def screen_state(harness, tail):
     Rules are read in file order and the first match wins, which is why every manifest puts its
     dialog rules before its working rules, its draft rule before its prompt rule, and its
     at-the-prompt rule last: a TUI still draws the composer it drew when the turn ended while
-    the next turn is running.  Only the bottom of the pane is read, never the scrolled viewport,
+    the next turn is running.  Only the bottom of the pane is read, its last PANE_LINES rows and
+    above them only a composer the harness always draws whole, never the scrolled viewport,
     and a dialog rule has to name the pair of controls a real dialog shows, so transcript text
     quoting a prompt cannot fake one.  A composer whose only content is dim -- a suggestion or
     placeholder -- is empty; one holding bright text is a draft.  The draft and suggestion
     rules are read out of the manifest like every other rule: their `lines` bound the window,
-    and how tall a ruled composer's own draft reaching up past it to its prompt row may be,
     their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
     keeps them at the composer -- only the bottom-most prompt-marked line counts where the
     line right under it and the pane's last line are chrome, one with its own rule right
@@ -1915,6 +1919,7 @@ def screen_state(harness, tail):
     one, while whatever the harness draws between its composer and its footer, a user's
     status line, never hides it or reads as it, even where it starts with a prompt mark.
     """
+    tail = pane_tail(pane)
     raw_lines, lines = _screen_rows(tail)
     if not lines:
         return None, "", ""
@@ -1978,16 +1983,16 @@ def screen_state(harness, tail):
                 # row of it down to its closing rule, under the footer at the pane's bottom --
                 # or, with none drawn, a prompt row right on that bottom.  A draft taller than
                 # the rule's rows goes on above them in rows indented under its prompt row, so
-                # it is read up through those to that row (Claude Code 2.1.318 put a seven-row
-                # draft's ten up), while it is no taller than the rule's rows: a taller one may
-                # be one the harness scrolled, whose top row opens none of it (2.1.291, ten).
-                top = len(lines) - len(region)
-                while top and strip_sgr(raw_lines[top])[:1].isspace():
+                # it is read up through those to that row, however tall: in the rows read, or
+                # above them where the harness always draws its box whole (`[screen] scrolls`).
+                rows = (_content_rows(pane)[:-PANE_LINES] if chrome["scrolls"] else []) + raw_lines
+                top = len(rows) - len(region)
+                while top and strip_sgr(rows[top])[:1].isspace():
                     top -= 1
-                raws, region = raw_lines[top:], lines[top:]
+                raws = rows[top:]
+                region = [strip_sgr(row).strip() for row in raws]
                 at, end = ruled_composer(chrome, raws)
-                if at is not None and (end - at > rule["lines"]
-                                       or not chrome_line(chrome, region[-1])):
+                if at is not None and not chrome_line(chrome, region[-1]):
                     at = None
                 elif at is None and re.match(prompt, region[-1]):
                     at, end = len(region) - 1, len(region)
@@ -2055,7 +2060,7 @@ def screen_state(harness, tail):
     return None, "", ""
 
 
-def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
+def classify(harness, pane, fact, opened_at, previous, now, interrupted=None):
     """What that live seat is doing, since when, and what decided it.  A pure function.
 
     The hook decides the states its manifest reserves for it, except where a rule positively
@@ -2074,7 +2079,7 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     opened = (opened_at if isinstance(opened_at, (int, float))
               and not isinstance(opened_at, bool) else None)
     hooked, event, spoken, when = hook_state(harness, fact)
-    seen, rule, line = screen_state(harness, tail)
+    seen, rule, line = screen_state(harness, pane)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
     # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
@@ -2252,7 +2257,7 @@ def observed(name, harness, pane, previous, at):
             ended = max(at, _stamp(fact.get("at")) or at)
     if ended is not None and seat_fact(name, harness) != fact:
         ended = None
-    found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+    found = classify(harness, pane, fact, previous.get("opened_at"), previous, at,
                      interrupted=ended)
     # read off this same capture, so a turn since answers it as soon as the screen does; a
     # capture that failed says nothing of it.  So are its harness's login words (`login`),
@@ -3656,7 +3661,7 @@ def _decided_state(name, harness, pane):
         return None
     try:
         previous = seat_read(name)
-        found = classify(harness, pane_tail(pane), seat_fact(name, harness),
+        found = classify(harness, pane, seat_fact(name, harness),
                          previous.get("opened_at"), previous, time.time())
     except (config.Error, OSError):
         return None
@@ -5246,7 +5251,7 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def said(text):
         # The words and whose they are: a harness may keep redrawing a box's shading, while a
         # dim suggestion the owner accepts says the same words as their draft.
-        return strip_sgr(text), screen_state(harness, pane_tail(text))
+        return strip_sgr(text), screen_state(harness, text)
 
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
