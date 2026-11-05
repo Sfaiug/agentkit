@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/menu"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
@@ -25,19 +24,19 @@ func opening(none bool) ([]string, bool) {
 	return said, carried
 }
 
-// menuNote shows what the opening said, as Python's menu.show_notices and pause do: a note in the
-// menu's frame until Esc or Enter.  False where the keyboard ends, which leaves the screen.
+// menuNote shows what the opening said as Python's menu.show_notices does with the keyboard given
+// back: each line under the last, then `esc back`, until Esc or Enter.  False where the keyboard
+// ends, which leaves the screen.
 func menuNote(said []string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	for len(said) > 0 {
 		screen := keyboard.Screen()
-		var body []string
+		var lines []string
 		for _, line := range said {
-			line = strings.ReplaceAll(line, config.UserHome()+"/", "~/")
-			for _, part := range terminal.Wrap(line, max(1, screen.LayoutWidth()-2)) {
-				body = append(body, "  "+part)
+			for _, part := range terminal.Wrap(strings.ReplaceAll(line, config.UserHome()+"/", "~/"), max(1, screen.Width()-1)) {
+				lines = append(lines, " "+part)
 			}
 		}
-		painter.Write(menu.Panel(screen, "note", time.Now().Format("15:04"), body, "esc back"), screen)
+		painter.Write(append(lines, "esc back"), screen)
 		switch key := keyboard.ReadKey(); key.Name {
 		case "esc", "enter":
 			return true

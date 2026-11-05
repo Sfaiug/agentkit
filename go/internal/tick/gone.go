@@ -1,7 +1,6 @@
 package tick
 
 import (
-	"cmp"
 	"time"
 
 	"agentkit/internal/seat"
@@ -43,8 +42,9 @@ func noSeatAlive() bool {
 
 // sweep is the seat sweep row, the one sweep the ak screen's opening runs too.
 func (t *ticking) sweep() error {
-	if carried, err := seat.Sweep(t.clock(), t.log.line); !carried || err != nil {
-		return cmp.Or(err, errLeft)
+	carried, err := seat.Sweep(t.clock(), t.log.line)
+	if !carried {
+		return errLeft
 	}
-	return nil
+	return err
 }

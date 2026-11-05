@@ -39,7 +39,7 @@ func Sweep(now time.Time, log func(string)) (bool, error) {
 		went := seat.wentAt(state)
 		path := filepath.Join(state, "session-"+seat.Name+".json")
 		info, err := os.Lstat(path)
-		if slices.Contains(owned, seat.Name) || unread(state, seat.Name) || seat.asleep || went <= 0 || went > seconds(now)-stale ||
+		if seat.live || seat.asleep || went <= 0 || went > seconds(now)-stale || slices.Contains(owned, seat.Name) || unread(state, seat.Name) ||
 			err != nil || !info.Mode().IsRegular() {
 			continue
 		}
@@ -51,11 +51,11 @@ func Sweep(now time.Time, log func(string)) (bool, error) {
 		if !carried {
 			return false, nil
 		}
-		held, word := seat.live || seat.held, "gone"
-		if held {
+		word := "gone"
+		if seat.held {
 			word = "exited"
 		}
-		if !held && !tmux.Absent(tmux.Own(), "="+seat.Name) || held && (seat.live || !retireExited(seat.Name, now)) {
+		if !seat.held && !tmux.Absent(tmux.Own(), "="+seat.Name) || seat.held && !retireExited(seat.Name, now) {
 			continue
 		}
 		log("forgot the session " + seat.Name + ", " + word + " for " + span(seconds(now)-went))

@@ -308,8 +308,8 @@ func forget(state, name string, log func(string)) error {
 	return notify.ForgetCard(name, log)
 }
 
-// quietly is a stop's log of what forgetting a seat closes: `ak orch stop` says only what it
-// stopped.
+// quietly is a stop's log of the card forgetting a seat closes, which Go's stop leaves unsaid
+// where Python's cmd_stop prints it to stderr.
 func quietly(string) {}
 
 // stopped is whether a seat file holds the owner's stop mark, as Read knows one: none, or the
