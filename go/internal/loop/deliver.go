@@ -385,6 +385,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 	if len(once) == 0 {
 		return true, nil
 	}
+	l.once = once // what takes a heavy-suite turn, here and in its probes: a rebase may change the suite
 	head, tree, err := r.identity()
 	if err != nil {
 		return false, err

@@ -244,6 +244,7 @@ type loop struct {
 	pull          string    // the pull request this run reviews alone, "" for a run of a task
 	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
 	marker        string    // what marks the processes it starts, the process's own where none: a check beside the review has its own
+	line          string    // the landing line whose checker this is: its checks wait for a turn as the line's own
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so

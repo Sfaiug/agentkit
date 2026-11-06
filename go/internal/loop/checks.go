@@ -87,8 +87,15 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 	var left []string
 	var marks []*int
 	unstarted := false
-	asked := clock() // a later go is asked for as the one before it ends
+	asked := clock()  // a later go is asked for as the one before it ends
+	var at *placement // the command's heavy-suite turn, held through its re-run
+	defer func() { at.close() }()
 	for _, cmd := range cmds {
+		began := time.Now()
+		if at, err = l.placed(cwd, cmd, selection, path); err != nil {
+			return false, "", nil, err
+		}
+		deadline = deadline.Add(time.Since(began)) // the ceiling counts from the turn
 		var first *[2]int64
 		var outcome ran
 		var offset int64
@@ -109,7 +116,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			if namesShard.MatchString(cmd) && !selection.pinned() {
 				// its pieces each went once more alone where red: the command is not run again
 				text := ""
-				if outcome, text, err = l.pieces(cwd, cmd, deadline, progress, path, rows); err != nil {
+				if outcome, text, err = l.pieces(cwd, cmd, &deadline, progress, path, rows, at); err != nil {
 					return false, "", nil, err
 				}
 				pieced, asked = &text, clock()
@@ -118,12 +125,17 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 			shard, only := selection.request()
 			row := history.Check(rows, cmd, asked, "", l.say)
-			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, only)
+			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, at.holds(), only)
 			row.End(exitOf(outcome, err))
-			asked = clock()
 			if err != nil {
 				return false, "", nil, err
 			}
+			if busy, err := l.again(at, cmd, outcome, &deadline); err != nil {
+				return false, "", nil, err
+			} else if busy {
+				continue // no failure and no re-run: it never ran, and its next go is asked for as this one was
+			}
+			asked = clock()
 			flaky = append(flaky, outcome.flaky...)
 			if outcome.code == 0 || first != nil || outcome.stopped != "" {
 				break
@@ -140,6 +152,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 				outcome.reds = outcome.failed
 			}
 		}
+		at.close()
 		if !out && first == nil {
 			// out of time: starting this one would give it a limit of its own
 			spent, unstarted = cmd, true
@@ -210,8 +223,9 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 // boxed runs one command in cwd in a box, its output into progress and activity being where that
 // lands, until it ends, says nothing for the run's silence or spends limit; with a shard, as that
 // piece of its suite.  A proof keeps its bytecode apart: same-size revisions can share a
-// timestamp, making ignored bytecode look valid.
-func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.File, activity string, proof bool, only ...[]string) (ran, error) {
+// timestamp, making ignored bytecode look valid.  One holding a heavy-suite turn is told so, as
+// Python's suite_env tells it.
+func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.File, activity string, proof, held bool, only ...[]string) (ran, error) {
 	out, err := os.MkdirTemp(filepath.Dir(activity), "")
 	if err != nil {
 		return ran{}, err
@@ -234,6 +248,9 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	}
 	if l.marker != "" {
 		env[host.Marker] = l.marker
+	}
+	if held {
+		env[host.HeavyTurn] = "1"
 	}
 	var left []string
 	watch := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Before: func() { left = stillRunning(cmp.Or(l.marker, l.dir)) }}

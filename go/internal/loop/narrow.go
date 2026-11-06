@@ -149,7 +149,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 		}
 	}
 	for _, m := range pending {
-		l := &loop{ctx: context.Background(), dir: m.dir, id: filepath.Base(m.dir), voice: said,
+		l := &loop{ctx: context.Background(), dir: m.dir, id: filepath.Base(m.dir), voice: said, line: landingLine(m.record),
 			silence: minutes(m.record, "silence_minutes", run.SilenceMinutes), ceiling: time.Duration(number(m.record, "ceiling_hours", run.CeilingHours) * float64(time.Hour))}
 		checkout, failure, err := l.stackMember(m.record, repo, tip, top, upstream)
 		if err != nil || failure != nil {
@@ -200,7 +200,7 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 		name = logs[0]
 	}
 	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, suite, selection)
-	if errors.Is(err, helper.ErrPython) || err == nil && !ok && !selection.pinned() && helper.May() {
+	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) || err == nil && !ok && !selection.pinned() && helper.May() {
 		// a whole check's red with suite helpers is Python's, as stack.go says
 		selection.handoff, err = true, nil
 	}
