@@ -83,6 +83,7 @@ def mark_return(module, name):
 for module, name in ((menu, "config_matrix"), (menu, "models_page"),
                      (menu, "config_subscriptions"), (menu, "config_add_provider"),
                      (menu, "config_discord"), (menu, "config_audit"),
+                     (menu, "config_done_check"),
                      (menu, "config_machines"), (menu, "config_limits"),
                      (menu, "show_features"),
                      (menu, "new_session"),
@@ -304,6 +305,9 @@ class EscBack(unittest.TestCase):
         menu_.press(DOWN + ENTER, title("config · weekly audit"))
         menu_.back("config_audit", title("config · weekly audit"))
         self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor is an [audit] written
+        menu_.press(DOWN + ENTER, title("config · done check"))
+        menu_.back("config_done_check", title("config · done check"))
+        self.assertEqual(list(menu_.home.rglob("config.toml")), [])   # nor a [done_check]
         menu_.press(DOWN + ENTER, title("config · machines"))
         menu_.back("config_machines", title("config · machines"))
         menu_.press(DOWN + ENTER, title("config · limits"))

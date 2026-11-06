@@ -138,7 +138,7 @@ from contextlib import closing
 from pathlib import Path
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
-from . import google_cloud, look, machines, open_runs, parsed, record
+from . import done_check, google_cloud, look, machines, open_runs, parsed, record
 from . import warm
 
 KEYS = "n new   c config   esc leave"
@@ -3022,8 +3022,10 @@ def show_notices(messages):
 
 
 # The rows under the models, each running its own step.
-CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", "Machines", "Limits")
+CONFIG_ROWS = ("Models", "Subscriptions", "Discord", "Weekly audit", "Done check", "Machines",
+               "Limits")
 AUDIT = ("row", "Weekly audit")  # on or off, and the models its seat takes (config.audit)
+DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (done_check.setting)
 MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
@@ -3666,7 +3668,7 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     A model `providers` read as spent is dim.  A model whose provider runs the subscription
     `lit`, from 1, of `subs` (`usage_rows`) has its label in that company's colour, which the
     clock washes in and out as `lit` comes and goes (motion.washing).  Then `Models`,
-    `Subscriptions`, `Discord`, `Weekly audit`, `Machines` and `Limits` with
+    `Subscriptions`, `Discord`, `Weekly audit`, `Done check`, `Machines` and `Limits` with
     their values, unless `rows` is empty (a new session's screen).  A row is `("model", name)`
     or `("row", one of CONFIG_ROWS)`, so a model that
     happens to be called `Discord` is still a model; `at` is the highlighted one and `column`
@@ -3783,7 +3785,8 @@ def config_body(cfg, at=None, column=0, selected=None, providers=None, moves=Non
     if not rows:
         return lines, places
     lines.append("")
-    values = ("", "", discord_value(), audit_value(cfg), machines_value(), limits_value(cfg))
+    values = ("", "", discord_value(), audit_value(cfg), done_check_value(cfg), machines_value(),
+              limits_value(cfg))
     # the values line up past the widest row that has one
     wide = max(terminal.cells(row) for row in CONFIG_ROWS[2:])
     for row, value in zip(CONFIG_ROWS, values):
@@ -4200,6 +4203,8 @@ def config_matrix(cfg, keyboard, version, session=None, selected=None, providers
             if act == "enter":
                 if here == AUDIT:
                     config_audit(cfg)
+                elif here == DONE_CHECK:
+                    config_done_check(cfg)
                 elif here == MACHINES:
                     config_machines(cfg)
                 elif here == LIMITS:
@@ -5053,10 +5058,11 @@ def config_page(name, page):
             said = field(draw) or ""
 
 
-# What `Models`, `Discord` and `Weekly audit` say under their rows.
+# What `Models`, `Discord`, `Weekly audit` and `Done check` say under their rows.
 TICKS_NOTE = "Space on a model under its harness takes it in or out of the config."
 DISCORD_NOTE = "A card reads only Needs you · <seat> or Done · <seat>, and mentions you."
 AUDIT_NOTE = "Once a week ak opens a seat named audit with the week's largest loss."
+DONE_CHECK_NOTE = "A model reads what you asked a seat and names what its work does not hold."
 
 
 def models_page(cfg, keyboard):
@@ -5210,62 +5216,66 @@ def audit_names(cfg, names):
     return ", ".join(config.model_name(cfg, name) for name in names)
 
 
-def audit_table(cfg):
-    """`[audit]` as a change on `Weekly audit` keeps it: each key the tick reads on its own
-    (config.audit), so the first change mends a table it cannot read; one that is not a table
-    keeps nothing."""
-    table = cfg.get("audit")
-    kept = {}
-    for key, value in table.items() if isinstance(table, dict) else ():
+def setting(cfg, page, table, read):
+    """What `c`'s page `page` shows of `[table]` in config.toml and how it writes it, as `read`
+    (config.audit, done_check.setting) takes the table: the setting, else the one left once each
+    key `read` cannot take on its own is dropped, so the first change mends a table nothing
+    reads, and one that is not a table keeps nothing; why `read` takes none, or ""; and
+    `write(key, value)`, which sets `key` to `value`, or takes it out for None, beside the keys
+    kept and saves it, `cfg` with it, once `read` takes it, else writes nothing and returns
+    why, else ""."""
+    held, kept = cfg.get(table), {}
+    for key, value in held.items() if isinstance(held, dict) else ():
         try:
-            config.audit({**cfg, "audit": {key: value}})
+            read({**cfg, table: {key: value}})
         except config.Error:
             continue
         kept[key] = value
-    return kept
 
-
-def audit_shown(cfg):
-    """`Weekly audit`'s setting as its rows say it, and why the tick reads none, or "": what the
-    tick reads (config.audit), else what it will once a change leaves out each key it cannot
-    read (audit_table)."""
+    def write(key, value):
+        changed = {**kept, key: value}
+        if value is None:
+            del changed[key]
+        try:
+            read({**cfg, table: changed})
+            config.save({**cfg, table: changed})
+        except (config.Error, OSError) as exc:
+            return f"{page}: {exc}"
+        cfg[table] = changed
+        return ""
     try:
-        return config.audit(cfg), ""
+        return read(cfg), "", write
     except config.Error as exc:
-        return config.audit({**cfg, "audit": audit_table(cfg)}), str(exc)
+        return read({**cfg, table: kept}), str(exc), write
 
 
-def audit_write(cfg, key, value):
-    """`[audit]`'s `key` set to `value` beside the keys a change keeps (audit_table) and saved,
-    `cfg` with it, once the tick reads it (config.audit); else nothing is written, and why is
-    what it returns, else ""."""
-    table = {**audit_table(cfg), key: value}
-    try:
-        config.audit({**cfg, "audit": table})
-        config.save({**cfg, "audit": table})
-    except (config.Error, OSError) as exc:
-        return f"weekly audit: {exc}"
-    cfg["audit"] = table
-    return ""
+def on_row(held, write):
+    """A page's `On` row, its setting's `on`, Space turning it the other way at once (write)."""
+    on, off = ("●", "○") if terminal.utf8() else ("*", ".")
+    return ("On", [(on, "accent"), ("on", None)] if held["on"] else [(off, "dim"), ("off", None)],
+            ("mark", lambda: write("on", not held["on"])))
 
 
 def config_audit(cfg):
     """`Weekly audit`: whether it runs and the models its seat takes, a row each (config_page),
-    each change written to `[audit]` in config.toml at once (audit_write).  Space on `On`
-    turns it the other way; Enter on `Orchestrator` opens every model under it, `●` the one it
+    each change written to `[audit]` in config.toml at once (setting).  Space on `On` turns it
+    the other way (on_row); Enter on `Orchestrator` opens every model under it, `●` the one it
     is, Space moving the ● and Enter taking the highlighted one; on `Builds` and `Reviews` every
     model `■` in that role or `□` not, Space taking one in or out."""
     on, off, full, empty = ("●", "○", "■", "□") if terminal.utf8() else ("*", ".", "#", "-")
+
+    def shown():
+        return setting(cfg, "weekly audit", "audit", config.audit)
 
     def models(key):          # the list a role's row opens
         one = key == "orchestrator"
 
         def choices():
-            held = audit_shown(cfg)[0][key]
-            held = [held] if one else held
+            held, _, write = shown()
+            held = [held[key]] if one else held[key]
             return [([(on if one else full, "accent") if name in held
                       else (off if one else empty, "dim"), (config.model_name(cfg, name), None)],
-                     lambda name=name: audit_write(cfg, key, name if one else [
+                     lambda name=name: write(key, name if one else [
                          other for other in held if other != name] if name in held
                          else [*held, name]),
                      name in held)
@@ -5273,16 +5283,55 @@ def config_audit(cfg):
         return choices, not one
 
     def page():
-        setting, why = audit_shown(cfg)
-        return [("On", [(on, "accent"), ("on", None)] if setting["on"]
-                 else [(off, "dim"), ("off", None)],
-                 ("mark", lambda: audit_write(cfg, "on", not setting["on"]))),
-                ("Orchestrator", config.model_name(cfg, setting["orchestrator"]),
+        held, why, write = shown()
+        return [on_row(held, write),
+                ("Orchestrator", config.model_name(cfg, held["orchestrator"]),
                  models("orchestrator")),
-                ("Builds", audit_names(cfg, setting["workers"]) or "nobody", models("workers")),
-                ("Reviews", audit_names(cfg, setting["reviewers"]), models("reviewers"))], \
+                ("Builds", audit_names(cfg, held["workers"]) or "nobody", models("workers")),
+                ("Reviews", audit_names(cfg, held["reviewers"]), models("reviewers"))], \
             "\n".join(filter(None, (why, AUDIT_NOTE)))
     config_page("weekly audit", page)
+
+
+def checker_name(cfg, name):
+    """The model that makes the done check, `name`, by its full name, else the seat's reviewer."""
+    return config.model_name(cfg, name) if name else "the seat's reviewer"
+
+
+def done_check_value(cfg):
+    """`Done check`'s value: on or off and the model that makes it, `on · the seat's reviewer`;
+    a setting the config cannot read is shown as the error that says why."""
+    try:
+        held = done_check.setting(cfg)
+    except config.Error as exc:
+        return str(exc)
+    return f"{'on' if held['on'] else 'off'} · {checker_name(cfg, held['model'])}"
+
+
+def config_done_check(cfg):
+    """`Done check`: whether it is on and the model that makes it, a row each (config_page),
+    each change written to `[done_check]` in config.toml at once (setting).  Space on `On`
+    turns it the other way (on_row); Enter on `Model` opens the seat's reviewer and every
+    model, `●` the one in use, Space moving the ● and Enter taking the highlighted one, the
+    seat's reviewer by taking `model` out."""
+    on, off = ("●", "○") if terminal.utf8() else ("*", ".")
+
+    def shown():
+        return setting(cfg, "done check", "done_check", done_check.setting)
+
+    def choices():
+        held, _, write = shown()
+        return [([(on, "accent") if name == held["model"] else (off, "dim"),
+                  (checker_name(cfg, name), None)],
+                 lambda name=name: write("model", name), name == held["model"])
+                for name in (None, *config.offered(cfg))]
+
+    def page():
+        held, why, write = shown()
+        return [on_row(held, write),
+                ("Model", checker_name(cfg, held["model"]), (choices, False))], \
+            "\n".join(filter(None, (why, DONE_CHECK_NOTE)))
+    config_page("done check", page)
 
 
 def machines_value():
