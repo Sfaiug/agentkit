@@ -20,7 +20,8 @@ func guards() error {
 	}
 	// go/tools holds Go's guards, each a link to the shim body the seat package embeds, beside
 	// `ak`, a link to this checkout's program: the body asks the `ak` beside the link it is run
-	// through, so each is linked as it lies there.
+	// through, so each is linked as it lies there.  Beside them are links to the Python tools Go
+	// runs from config.Repo(), which is go/ in a copied tree with no git.
 	tools := filepath.Join(filepath.Dir(filepath.Dir(config.Resolve(executable))), "tools")
 	bin := filepath.Join(config.Home(), "bin")
 	if err := os.MkdirAll(bin, 0o777); err != nil {

@@ -1,0 +1,1 @@
+../../tools/desktop-mcp.py
