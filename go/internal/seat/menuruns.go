@@ -126,10 +126,14 @@ func runsAwaitingLive(facts climbing) (*answer, error) {
 			return nil, nil
 		}
 	}
+	var pending []ran
 	for _, each := range facts.mine {
 		if each.view != nil && each.view.live {
-			return &answer{word: "working", reason: "waiting on the live check", since: each.record.Get("finished_at")}, nil
+			pending = append(pending, each)
 		}
 	}
-	return nil, nil
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	return waitingOnLive(pending), nil
 }

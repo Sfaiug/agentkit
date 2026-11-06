@@ -463,9 +463,9 @@ func (home Home) Announce(now time.Time) error {
 	if err := reconcile(state, home.records, true); err != nil {
 		return err
 	}
-	for _, seat := range home.Seats {
-		if !seat.live {
-			if err := seat.announce(state, now, home.models); err != nil {
+	for at := range home.Seats {
+		if !home.Seats[at].live {
+			if err := home.Seats[at].announce(state, at+1, now, home.models); err != nil {
 				return err
 			}
 		}
@@ -511,11 +511,12 @@ func announcing(state, name string, tell func() error) error {
 	return tell()
 }
 
-// announce publishes what a reading found under the seat's announce lock. One tmux holds is looked
-// at again there, as a look's other announcers may have moved it since the reading.
-func (seat Seat) announce(state string, now time.Time, models map[string]config.Model) error {
+// announce publishes what a reading found under the seat's announce lock, the seat at that place on
+// the menu. One tmux holds is decided again there, as its other announcers may have moved it since
+// the reading.
+func (seat *Seat) announce(state string, place int, now time.Time, models map[string]config.Model) error {
 	if seat.held {
-		return lookAgain(state, seat.Name)
+		return seat.heldAgain(state, place, models)
 	}
 	return announcing(state, seat.Name, func() error { return seat.announced(state, now, models) })
 }

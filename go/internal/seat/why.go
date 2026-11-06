@@ -29,7 +29,7 @@ func (home Home) Explain(name string, now time.Time) ([]string, bool, error) {
 		return nil, false, nil
 	}
 	seat := home.Seats[at]
-	if err := seat.announce(state, now, home.models); err != nil {
+	if err := seat.announce(state, at+1, now, home.models); err != nil {
 		return nil, false, err
 	}
 	return seat.Explanation(now), true, nil
