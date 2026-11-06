@@ -607,6 +607,9 @@ def load():
                                   or any(not isinstance(one, str) for one in named)):
             raise Error(f"{held(key)}: {key} must list {what} ({key} = [{example}]) "
                         f"(got {named!r})")
+        # a maker written twice would be two rows of the company list the keys cannot tell apart
+        if named is not None:
+            cfg[key] = list(dict.fromkeys(named))
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
