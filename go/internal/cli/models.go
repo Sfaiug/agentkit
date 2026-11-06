@@ -15,13 +15,15 @@ import (
 	"agentkit/internal/quality"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
+	"agentkit/internal/usage"
 )
 
 func init() { commands["models"] = modelsAnswer }
 
 // modelsAnswer answers `ak models` as Python's matrix.main does: the boards, the lineup, each role's
-// answer and ak's own run numbers, as JSON with --json, else drawn.  Its own numbers are the one
-// part that reads SQLite: a home with a history.db is left to Python before anything is asked.
+// answer and ak's own run numbers, as JSON with --json beside what a million tokens of each model
+// cost of its week, else drawn.  Its own numbers are the one part that reads SQLite: a home with
+// a history.db is left to Python before anything is asked.
 func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if _, err := os.Stat(filepath.Join(config.Home(), "history.db")); !errors.Is(err, fs.ErrNotExist) {
 		return notImplemented(errOut, "models")
@@ -44,7 +46,17 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	}
 	answer := quality.Answer(found.Rows, marked)
 	if contains(args, "--json") {
-		fmt.Fprintln(out, run.Encode(modelsJSON(answer, names)))
+		readings, err := usage.Cached()
+		if err != nil {
+			return fail(err)
+		}
+		rates, err := readings.Rates()
+		if err != nil {
+			return fail(err)
+		}
+		whole := modelsJSON(answer, names)
+		whole.Set("usage", rates)
+		fmt.Fprintln(out, run.Encode(whole))
 		return 0
 	}
 	screen := terminal.For(out)

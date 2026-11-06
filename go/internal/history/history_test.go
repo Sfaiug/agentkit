@@ -80,7 +80,7 @@ func TestAnOlderDatabaseIsBroughtUpToTodaysTables(t *testing.T) {
 		tables = append(tables, row.Text("name"))
 	}
 	if want := []string{"checks", "conflicts", "done_runs", "dones", "findings", "kept", "meter_readings",
-		"owner", "phases", "reviews", "runs", "test_reds"}; !slices.Equal(tables, want) {
+		"owner", "phases", "reviews", "runs", "test_reds", "turn_usage"}; !slices.Equal(tables, want) {
 		t.Fatalf("tables %v, want %v", tables, want)
 	}
 	columns, _ := db.columns("runs")
@@ -117,7 +117,7 @@ func TestAnOlderDatabaseIsBroughtUpToTodaysTables(t *testing.T) {
 	}
 }
 
-// Where no history.db stands, Go makes none.
+// Where no history.db stands, opening it makes none: only a run's row does.
 func TestNoDatabaseIsMade(t *testing.T) {
 	home(t)
 	if db, err := Open(); db != nil || err != nil {

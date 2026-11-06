@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handin"
+	"agentkit/internal/history"
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -375,6 +376,7 @@ func (l *loop) ownRound() error {
 	if err != nil {
 		return err
 	}
+	history.Start(record, l.say)
 	place := placeOf(record).(*ownPull)
 	l.place, l.workspace, l.title, l.budget, l.rnd, l.executor = place, wt, title, budget, rnd, record.Str("executor")
 	l.usersAt, l.reviewLines = place.upstream(), numbersOf(record)

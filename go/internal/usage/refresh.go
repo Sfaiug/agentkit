@@ -19,7 +19,7 @@ func Refresh() error {
 	if err != nil {
 		return err
 	}
-	models, err := config.Models()
+	models, err := config.Entries()
 	if err != nil {
 		return err
 	}

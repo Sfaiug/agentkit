@@ -18,7 +18,7 @@ var unreadWords = []struct {
 
 // Cached is state/usage.json as it stands: nobody is asked and nothing is written.
 func Cached() (*Readings, error) {
-	models, err := config.Models()
+	models, err := config.Entries()
 	if err != nil {
 		return nil, err
 	}

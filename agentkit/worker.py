@@ -792,6 +792,8 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     # Authentication can refuse before launch; only a started call needs a pending record.
     (out_dir / "pending").touch()
     (out_dir / "harness").write_text(entry["harness"])
+    # the login history keeps its tokens under, read by nothing that reads the turn's words
+    (out_dir / "account").write_text(turn_env.get(config.ACCOUNT_ENV) or config.DEFAULT_ACCOUNT)
     turn_env[hand_in.ENV] = hand_in.start(out_dir, workspace, turn_env.pop(hand_in.CONTINUE, None),
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None),
                                        checks=json.loads(turn_env.pop(hand_in.CHECKS_ENV, "null")))

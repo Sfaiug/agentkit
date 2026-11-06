@@ -23,7 +23,7 @@ from fixtures.akbin import Home
 
 DATABASE = ".agentkit/history.db"
 TABLES = {"runs", "phases", "checks", "test_reds", "conflicts", "reviews", "findings", "owner", "dones", "kept",
-          "done_runs", "meter_readings"}
+          "done_runs", "meter_readings", "turn_usage"}
 # The `runs` table as the first ak to keep a history made it, and nothing else.
 ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT"),
             ("reviewer", "TEXT"), ("rounds_used", "INTEGER"), ("final_state", "TEXT"),

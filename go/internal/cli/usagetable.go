@@ -21,7 +21,7 @@ var (
 // table still does not, its notes, the pick order and the review pair, each line wrapped to the
 // terminal.
 func usageText(screen terminal.Screen, readings *usage.Readings, rules *pick.Rules, order []string) string {
-	width, rows := screen.Width(), readings.Rows()
+	width, rows := screen.Width(), readings.Rows(screen)
 	table := append([][]string{usageHeadings}, rows...)
 	widths := usageWidths(table)
 	if width >= 60 && !usageFits(widths, width) {

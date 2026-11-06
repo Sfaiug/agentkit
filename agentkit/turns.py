@@ -506,9 +506,11 @@ TRY_AGAIN_NAMED = re.compile(r"try again (?:at|on)\s+([A-Za-z]{3,9})\.?\s+(\d{1,
 MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec")
 
 
-# The files in a worker's out dir that are the harness talking.  prompt.md is what it was told,
-# and session_id is bookkeeping; neither is ever evidence of anything the harness said.
-NOT_HARNESS = ("prompt.md", "session_id", hand_in.FILE, hand_in.REPORT, hand_in.FINDINGS_FILE)
+# The files in a worker's out dir that are not the harness talking.  prompt.md is what it was
+# told, and session_id and the receipts of its harness and login are bookkeeping; none is ever
+# evidence of anything the harness said, even a login named `402`.
+NOT_HARNESS = ("prompt.md", "session_id", "harness", "account", hand_in.FILE, hand_in.REPORT,
+               hand_in.FINDINGS_FILE)
 
 
 ANSWER = "final.md"             # and this one arrives as `text`, already read by worker.call

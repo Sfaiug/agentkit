@@ -101,6 +101,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
 		func() error { return os.WriteFile(logged, nil, 0o666) },
 		func() error { return receive(dir, path, values, flags, bound, seated) },
+		func() error { recorded(dir); return nil },
 		func() error { seat.Redress(seated); return nil }, // the seat's bar says it from the start
 		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
 	} {
@@ -179,6 +180,13 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 				return nil
 			})
 		},
+		func() error {
+			// a stop that landed ends the row itself, as Python's stop does
+			if ended.Str("state") != "stopped" {
+				history.Finish(ended, func(line string) { log(line) })
+			}
+			return nil
+		},
 	} {
 		if err := step(); err != nil {
 			return 0, "", err
@@ -197,32 +205,33 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 // write with a lone surrogate.  A count that is none the gate never reads: Task refuses it.
 func python(path string, values map[string]string, bound config.Binding) bool {
 	name, _, unnamed := Seat()
-	return unnamed != nil || unread() || len(bound.Workers) == 0 || !readable(path) ||
+	return unnamed != nil || unread("") || len(bound.Workers) == 0 || !readable(path) ||
 		!readable(slices.Collect(maps.Values(values))...) || name != "" && !seat.Votes(name)
 }
 
-// elsewhere is whether this process's surroundings leave any launch or resume to Python: a seat's,
-// or surroundings that do.
-func elsewhere() bool {
-	return surroundings() || seated()
+// elsewhere is whether this process's surroundings leave a launch, or the run id names going on,
+// to Python: a seat's, or surroundings that do.
+func elsewhere(id string) bool {
+	return surroundings(id) || seated()
 }
 
-// surroundings is whether this process's surroundings leave a launch to Python: those unread, or a
-// config Python refuses before its run.
-func surroundings() bool {
+// surroundings is whether this process's surroundings leave a launch, or the run id names going
+// on, to Python: those unread, or a config Python refuses before its run.
+func surroundings(id string) bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	return capped != nil || memory != nil || unread()
+	return capped != nil || memory != nil || unread(id)
 }
 
-// unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
-// start, one a history of runs that stands would record (no suite's sink marks it), one the
-// gate does not admit outright, a home HOME does not name, or text Python would write with a lone
-// surrogate.
-func unread() bool {
+// unread is whether Go reads this process's surroundings otherwise than Python for a launch, or
+// the run id names going on: a queued run's start; one a history of runs that stands would record
+// (no suite's sink marks it) past the row Go writes alone, any launch and a run Python carried,
+// while one Go carried from its launch goes on as it began; one the gate does not admit outright, a
+// home HOME does not name, or text Python would write with a lone surrogate.
+func unread(id string) bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !history.Runless() ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !history.Runless() && (id == "" || history.Carried(id)) ||
 		os.Getenv("HOME") == "" || !known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }

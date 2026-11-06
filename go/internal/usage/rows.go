@@ -22,8 +22,8 @@ var signs = map[string]string{"USD": "$", "EUR": "€", "GBP": "£"}
 // several its own, Python's usage.rows: its label and models, what its tightest week has left,
 // the tokens that week holds, its price a month, when the shared week resets, how far the
 // tightest week has run, what its session has left, the resets it holds, its headroom, budget and
-// outlook, `-` for what it reports none of.  No reading Read takes measures what a week holds.
-func (r *Readings) Rows() [][]string {
+// outlook, `-` for what it reports none of.
+func (r *Readings) Rows(screen terminal.Screen) [][]string {
 	var rows [][]string
 	for _, each := range r.logins() {
 		name, prov := each.provider, each.prov
@@ -34,14 +34,13 @@ func (r *Readings) Rows() [][]string {
 				sess = meter
 			}
 		}
-		models, price := cmp.Or(strings.Join(src.Models, ", "), "-"), "-"
-		if src.Price != nil {
-			price = grouped(strconv.FormatFloat(*src.Price, 'f', -1, 64))
-		}
+		shared := r.sharedWeek(name, prov)
+		held, _ := holds(name, each.account, shared)
 		resets, counted := reading(prov, "resets")
 		room, known := headroom(week)
-		rows = append(rows, []string{each.label, models, percent(left(week)), "-", price,
-			cmp.Or(resetWhen(r.sharedWeek(name, prov), r.now), "-"), percent(reading(week, "elapsed")),
+		rows = append(rows, []string{each.label, cmp.Or(strings.Join(src.Models, ", "), "-"), percent(left(week)),
+			heldText(screen, held, shared), buysText(screen, src.Price, held, shared),
+			cmp.Or(resetWhen(shared, r.now), "-"), percent(reading(week, "elapsed")),
 			percent(left(sess)), fixed(resets, counted, 0), fixed(room, known, 1),
 			budgetLabel(providerBudget(prov, r.now)), outlook(prov)})
 	}

@@ -611,6 +611,11 @@ class QuotaDry(unittest.TestCase):
             '{"type":"user","text":"You are the executor. Fix the handling of \\"You\'ve hit '
             'your usage limit\\" and of 429 Too Many Requests."}')
         self.assertIsNone(turns.ran_dry(1, turns.harness_said(quoting, "", "codex"), "codex"))
+        # nor one whose login is named like a refusal: its receipt is ak's, not the harness's
+        named = self.out_dir("named", "")
+        (named / "harness").write_text("claude")
+        (named / "account").write_text("402")
+        self.assertEqual(turns.harness_said(named, "", "claude"), "")
 
     def test_v5i_muse_run_terminal_refusal_with_an_empty_final_is_quota(self):
         """The round-3 repro: Muse's terminal diagnostic alone, final.md empty, exit 1."""

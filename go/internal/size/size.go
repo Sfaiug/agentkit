@@ -1,7 +1,6 @@
-// Package size counts a change as its first review reads it, Python's diff_lines with added_only
-// and reviewed_lines, and refuses one past the first review's ceiling, Python's
-// first_review_refusal: one count for the gate before a first review, `ak hand-in done` and a
-// seat's own pull request.
+// Package size counts a change's lines, Python's diff_lines and reviewed_lines, and refuses one
+// past the first review's ceiling, Python's first_review_refusal: one count for the gate before a
+// first review, `ak hand-in done`, a seat's own pull request and a merged run's history row.
 package size
 
 import (
@@ -86,36 +85,58 @@ func generated(g gitcall.Git, base string, names []string) (map[string]bool, err
 // Added is the text lines the diff from where head left base adds, generated files aside:
 // nothing deleted counts, Python's diff_lines with added_only.
 func Added(g gitcall.Git, base, head string) (int, error) {
-	said, err := g.Must("diff", "--numstat", "-z", "--find-renames", "--diff-filter=d", base+"..."+head)
-	if err != nil {
-		return 0, err
+	return diffLines(g, base, head, true)
+}
+
+// Lines is the text lines that diff adds and deletes, generated files aside, Python's diff_lines:
+// what a merged change landed.
+func Lines(g gitcall.Git, base, head string) (int, error) {
+	return diffLines(g, base, head, false)
+}
+
+// diffLines is Python's diff_lines: a deleted file's lines count only with deletions.
+func diffLines(g gitcall.Git, base, head string, addedOnly bool) (int, error) {
+	total := 0
+	selectors := []string{"d", "D"}
+	if addedOnly {
+		selectors = selectors[:1]
 	}
-	fields := strings.Split(said, "\x00")
-	added := map[string]int{}
-	var names []string
-	for i := 0; i < len(fields); i++ {
-		parts := strings.SplitN(fields[i], "\t", 3)
-		if len(parts) < 3 {
-			continue
+	for _, selector := range selectors {
+		said, err := g.Must("diff", "--numstat", "-z", "--find-renames", "--diff-filter="+selector, base+"..."+head)
+		if err != nil {
+			return 0, err
 		}
-		name := parts[2]
-		if name == "" && i+2 < len(fields) {
-			name = fields[i+2] // the old name; a renamed file counts under its new one
-			i += 2
-		}
-		if count, err := strconv.Atoi(parts[0]); err == nil {
-			added[name] = count
+		fields := strings.Split(said, "\x00")
+		changed := map[string]int{}
+		var names []string
+		for i := 0; i < len(fields); i++ {
+			parts := strings.SplitN(fields[i], "\t", 3)
+			if len(parts) < 3 {
+				continue
+			}
+			name := parts[2]
+			if name == "" && i+2 < len(fields) {
+				name = fields[i+2] // the old name; a renamed file counts under its new one
+				i += 2
+			}
+			count, err := strconv.Atoi(parts[0])
+			if err != nil {
+				continue // a binary file has no lines
+			}
+			if deleted, _ := strconv.Atoi(parts[1]); !addedOnly {
+				count += deleted
+			}
+			changed[name] = count
 			names = append(names, name)
 		}
-	}
-	skip, err := generated(g, base, names)
-	if err != nil {
-		return 0, err
-	}
-	total := 0
-	for name, count := range added {
-		if !skip[name] {
-			total += count
+		skip, err := generated(g, base, names)
+		if err != nil {
+			return 0, err
+		}
+		for name, count := range changed {
+			if !skip[name] {
+				total += count
+			}
 		}
 	}
 	return total, nil

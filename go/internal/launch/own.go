@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/loop"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
@@ -28,7 +29,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 	_, pointer := record[config.Renamed]
 	bound, unbound := bind()
 	_, rules := pick.Within(names(bound.Workers), names(bound.Reviewers))
-	if unnamed != nil || pointer || unbound != nil || surroundings() || !flags["--no-merge"] || len(bound.Workers) == 0 ||
+	if unnamed != nil || pointer || unbound != nil || surroundings("") || !flags["--no-merge"] || len(bound.Workers) == 0 ||
 		!readable(slices.Collect(maps.Values(values))...) || values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}
@@ -63,6 +64,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 			// a seat launched it, never the tick: its first record says no launch it descends from
 			return run.Create(dir, run.Capture(dir, "", values, flags, bound, session))
 		},
+		func() error { recorded(dir); return nil },
 		func() error { seat.Redress(session); return nil }, // the seat's bar says it from the start
 	} {
 		if err := step(); err != nil {
@@ -88,6 +90,9 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 			"own_orchestrator_effort", effort, "policy", run.Fields(numbersIn.Said()...))
 	}); err != nil {
 		return 0, "", err
+	}
+	if record, _ := run.Read(dir); record != nil {
+		history.Classified(record, func(line string) { log(line) })
 	}
 	// as Python's preflight refuses one: any read that fails refuses it too
 	if why, err := loop.OwnRefusal(dir, pull); err != nil || why != "" {

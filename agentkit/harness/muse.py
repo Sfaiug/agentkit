@@ -540,7 +540,7 @@ def seat_token_sources(record):
 def seat_token_usage(entry, cursor):
     tokens = provider_tokens(run_event(entry, "goal_usage_attribution").get("record") or {})
     if tokens is not None:
-        return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens
+        return entry["recorded_at"] / 1_000_000, entry.get("id"), tokens, None, None
 
 
 def provider_tokens(record):

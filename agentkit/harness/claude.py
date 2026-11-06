@@ -73,15 +73,49 @@ def seat_token_sources(record):
     return [path, *path.with_suffix("").glob("subagents/**/*.jsonl")]
 
 
+# A message's counts in the order its usage row keeps them: input, cache write, cache read, output.
+TOKEN_TYPES = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+               "output_tokens")
+
+
 def seat_token_usage(entry, cursor):
     if entry.get("type") != "assistant":
         return None
     message = entry.get("message") or {}
     usage = message.get("usage") or {}
-    counts = [usage[key] for key in ("input_tokens", "output_tokens",
-              "cache_creation_input_tokens", "cache_read_input_tokens") if key in usage]
-    if counts and all(type(value) is int and value >= 0 for value in counts):
-        return entry.get("timestamp"), message.get("id") or entry.get("uuid"), sum(counts)
+    counts = [usage.get(key, 0) for key in TOKEN_TYPES]
+    if set(TOKEN_TYPES) & set(usage) and all(type(value) is int and value >= 0 for value in counts):
+        model = message.get("model")
+        return (entry.get("timestamp"), message.get("id") or entry.get("uuid"), sum(counts),
+                model if isinstance(model, str) else None, counts)
+
+
+def turn_usage(out):
+    """The turn's last result's counts, as `Harness.turn_usage` gives them.
+
+    `modelUsage` counts its subagents too, and totals every turn of its session; a result
+    without it counts this turn's own `usage`, under no model.
+    """
+    from . import last_entry
+    try:
+        result = last_entry(Path(out) / "events.jsonl", lambda entry: entry.get("type") == "result")
+    except OSError:
+        return None
+    if result is None:
+        return None
+
+    def counts(usage, keys):
+        usage = usage if isinstance(usage, dict) else {}
+        return tuple(value if type(value := usage.get(key)) is int and value >= 0 else 0
+                     for key in keys)
+
+    models = result.get("modelUsage")
+    if isinstance(models, dict) and models:
+        return result.get("session_id"), {model: counts(usage, (
+            "inputTokens", "cacheCreationInputTokens", "cacheReadInputTokens", "outputTokens"))
+            for model, usage in models.items()}
+    return None, {None: counts(result.get("usage"), (
+        "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))}
 
 
 # Lines no one said here: bookkeeping, a compaction's summary, a subagent's, view-only ones.
