@@ -8,9 +8,13 @@ import (
 	"agentkit/internal/run"
 )
 
-// ConfigSelection reads a seat's roles with the same pruning as config.load_session.
-// A seat made by hand has no saved models and takes the new seats' marks on c.
+// ConfigSelection reads a seat's roles, following renames, with the same pruning as
+// config.load_session. A seat made by hand has no saved models and takes the new seats' marks on c.
 func ConfigSelection(name string) (*run.Object, error) {
+	name, _, err := config.ResolveSession(name)
+	if err != nil {
+		return nil, err
+	}
 	path, err := config.SessionPath(name)
 	if err != nil {
 		return nil, err
