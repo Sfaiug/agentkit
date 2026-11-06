@@ -138,9 +138,10 @@ func probe(src source, now float64) *run.Object {
 	return out
 }
 
-// resets is what the usual login of that provider still holds of the resets the owner spends,
-// Python's usage._resets: 0 unasked where its manifest says the harness counts none, nil where its
-// adapter cannot say.  It is read beside the meters and kept with them; it ranks nothing.
+// resets is what the source's login still holds of the resets the owner spends, Python's
+// usage._resets: 0 unasked where its manifest says the harness counts none, nil where its adapter
+// cannot say.  It is read beside the meters and kept with them, and nothing ak does spends one; it
+// ranks nothing.
 func (src source) resets() any {
 	if !src.facts.Reset {
 		return 0.0

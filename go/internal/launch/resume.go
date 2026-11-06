@@ -89,9 +89,10 @@ func goesOn(dir string, record *run.Object) bool {
 	return driverHere() && !(record.Truthy("repo") && helper.May()) && (loop.Pickup(dir, record) || loop.Woken(record))
 }
 
-// driverHere is whether a driver can run on this host: placed, with meters it can read.
+// driverHere is whether a driver can run on this host: placed, with meters it can read, its turns
+// on no provider's accounts.
 func driverHere() bool {
-	return placed() && usage.Check() == nil
+	return placed() && usage.Check() == nil && !accountTurns()
 }
 
 // placed is whether this host can hold a driver: a box, and no user manager to place the run under.
