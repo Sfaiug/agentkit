@@ -6,9 +6,11 @@ import (
 )
 
 // Mouse is an SGR report: one-based terminal coordinates, its button and whether it was released.
+// Notches, on the wheel, is its travel, a row a notch and down above 0: of its report and every one
+// sent with it (Keyboard.ReadKey), never none.
 type Mouse struct {
-	Column, Row, Button int
-	Released            bool
+	Column, Row, Button, Notches int
+	Released                     bool
 }
 
 func mouseKey(body string) Key {

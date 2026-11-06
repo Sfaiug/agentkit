@@ -53,11 +53,7 @@ func configPage(name string, page func() ([]menu.PageRow, bool), keyboard *termi
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				step := -1
-				if mouse.Button&1 != 0 {
-					step = 1
-				}
-				view.At, view.Top = frame.Step(step)
+				view.At, view.Top = frame.Step(mouse.Notches)
 			} else if row, hit := frame.Hit(mouse); hit {
 				view.At = row
 				if mouse.Released && mouse.Button&3 == 0 {

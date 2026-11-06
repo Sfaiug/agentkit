@@ -105,11 +105,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
 				pointing = true
-				step := -1
-				if mouse.Button&1 != 0 {
-					step = 1
-				}
-				at = max(0, min(len(rows)-1, at+step))
+				at = max(0, min(len(rows)-1, at+mouse.Notches))
 			} else if row, _, hit := frame.Hit(mouse); hit {
 				pointing = true
 				at = row

@@ -45,13 +45,7 @@ func (h *Highlight) Move(key terminal.Key, frame Frame) bool {
 		case mouse.Released:
 			return true
 		case mouse.Button&64 != 0:
-			if mouse.Button&3 > 1 {
-				return true
-			}
-			step = -1
-			if mouse.Button&1 != 0 {
-				step = 1
-			}
+			step = mouse.Notches
 		default:
 			name := ""
 			if mouse.Column <= frame.width && mouse.Row > 0 && mouse.Row <= len(frame.spots) {

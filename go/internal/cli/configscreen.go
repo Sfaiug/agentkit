@@ -89,11 +89,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				step := -1
-				if mouse.Button&1 != 0 {
-					step = 1
-				}
-				view.Row = max(0, min(len(c.Names)+len(view.Options)-1, view.Row+step))
+				view.Row = max(0, min(len(c.Names)+len(view.Options)-1, view.Row+mouse.Notches))
 			} else if row, column, hit := frame.Hit(mouse); hit {
 				view.Row, view.Column = row, max(0, column)
 				if mouse.Released && mouse.Button&3 == 0 {

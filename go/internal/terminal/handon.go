@@ -25,14 +25,7 @@ func (p *Painter) Restore(frame []byte, screen Screen) {
 	if rows[0] != screen.size() {
 		return
 	}
-	var out strings.Builder
-	for at, row := range rows[1:] {
-		fmt.Fprintf(&out, "\x1b[%d;1H%s", at+1, row)
-		if Cells(row) < screen.Width() {
-			out.WriteString("\x1b[K")
-		}
-	}
-	io.WriteString(p.out, out.String()+"\x1b[?2026l")
+	io.WriteString(p.out, differing(rows[1:], nil, screen)+"\x1b[?2026l")
 }
 
 func (s Screen) size() string { return fmt.Sprintf("%d %d", s.width, s.height) }

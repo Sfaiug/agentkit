@@ -17,7 +17,7 @@ import (
 )
 
 // rereadEvery is the longest the frame goes unread (menu.TICK).
-const rereadEvery = 10 * time.Second
+const rereadEvery = terminal.Tick
 
 // A reading is what a frame is drawn from, apart from the terminal and the clock.
 type reading struct {

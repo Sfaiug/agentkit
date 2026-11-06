@@ -31,7 +31,7 @@ func modelWhy(title string, found *quality.Said, row *quality.Rating, role strin
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
 			top += room
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
-			if key.Mouse.Button&1 == 0 {
+			if key.Mouse.Notches < 0 {
 				top -= room
 			} else {
 				top += room
