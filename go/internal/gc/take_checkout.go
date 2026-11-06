@@ -54,7 +54,7 @@ func (c *collection) dropTree(state *run.Object, tree string, dropBranch, withRu
 	if state.Truthy("scratch") {
 		allowed = allowed && filepath.Dir(tree) == workDir() && withRun
 	} else {
-		allowed = allowed && state.Truthy("repo") && state.Truthy("worktree") && pure(state.Str("worktree")) != pure(state.Str("repo"))
+		allowed = allowed && state.Truthy("repo") && state.Truthy("worktree") && config.Pure(state.Str("worktree")) != config.Pure(state.Str("repo"))
 	}
 	if err := c.dropCheckout(state, dropBranch, withRun, released); err != nil {
 		if !allowed || c.leftBehind(tree) && !(&reads{}).leftovers()[tree] {
@@ -77,7 +77,7 @@ func (c *collection) dropCheckout(state *run.Object, dropBranch, withRun, releas
 	}
 	id, _ := state.Get("run_id").(string)
 	if state.Truthy("scratch") {
-		if id != "" && pure(wt) == filepath.Join(workDir(), id) && isDir(wt) && !isLink(wt) && safe(wt) && withRun {
+		if id != "" && config.Pure(wt) == filepath.Join(workDir(), id) && isDir(wt) && !isLink(wt) && safe(wt) && withRun {
 			return os.RemoveAll(wt)
 		}
 		return nil
@@ -94,7 +94,7 @@ func ownTree(state *run.Object) string {
 	if id == "" || wt == "" {
 		return ""
 	}
-	if tree := pure(wt); tree == filepath.Join(wtDir(), id) || tree == filepath.Join(workDir(), id) {
+	if tree := config.Pure(wt); tree == filepath.Join(wtDir(), id) || tree == filepath.Join(workDir(), id) {
 		return tree
 	}
 	return ""

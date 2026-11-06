@@ -130,6 +130,26 @@ func OtherHome(path string) bool {
 	return strings.HasPrefix(path, "~") && tilde(path) == path
 }
 
+// Pure is a path as Python's PurePosixPath spells it: no empty or `.` parts, `..` kept.
+func Pure(path string) string {
+	var parts []string
+	for _, part := range strings.Split(path, "/") {
+		if part != "" && part != "." {
+			parts = append(parts, part)
+		}
+	}
+	joined := strings.Join(parts, "/")
+	switch {
+	case strings.HasPrefix(path, "//") && !strings.HasPrefix(path, "///"):
+		return "//" + joined
+	case strings.HasPrefix(path, "/"):
+		return "/" + joined
+	case joined == "":
+		return "."
+	}
+	return joined
+}
+
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
 // `~` kept literal, as Python's Path.resolve() reads it: name by name, so a `..` after a link
 // leaves the link's target, and a link that loops is kept as it is.  On Windows, Python takes

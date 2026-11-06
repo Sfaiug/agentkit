@@ -16,6 +16,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -41,29 +42,9 @@ func lstat(path string) (fs.FileInfo, stat, bool) {
 	return info, st, ok
 }
 
-// pure is a path as Python's PurePosixPath spells it: no empty or `.` parts, `..` kept.
-func pure(path string) string {
-	var parts []string
-	for _, part := range strings.Split(path, "/") {
-		if part != "" && part != "." {
-			parts = append(parts, part)
-		}
-	}
-	joined := strings.Join(parts, "/")
-	switch {
-	case strings.HasPrefix(path, "//") && !strings.HasPrefix(path, "///"):
-		return "//" + joined
-	case strings.HasPrefix(path, "/"):
-		return "/" + joined
-	case joined == "":
-		return "."
-	}
-	return joined
-}
-
 // below is whether root is among the path's parents.
 func below(path, root string) bool {
-	return strings.HasPrefix(pure(path), strings.TrimSuffix(pure(root), "/")+"/")
+	return strings.HasPrefix(config.Pure(path), strings.TrimSuffix(config.Pure(root), "/")+"/")
 }
 
 func climbs(path string) bool {
@@ -94,7 +75,7 @@ func isLink(path string) bool {
 // safe is no link on the way, and the path a folder or a file with one name, this user's
 // (retention.safe).
 func safe(path string) bool {
-	path = pure(path)
+	path = config.Pure(path)
 	if !strings.HasPrefix(path, "/") || climbs(path) {
 		return false
 	}
