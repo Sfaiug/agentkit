@@ -12,9 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/browser"
 	"agentkit/internal/run"
 	"agentkit/internal/tick"
 )
+
+// the tick's browser tidy reads none: the host's shared browser is no test's
+func init() { browser.CDP = "http://127.0.0.1:0" }
 
 // TestATickBindsTheThreadACodexReceiptProves: Go's tick writes codex.py `reconcile` into each Codex
 // seat's record, as Python's tick does, and goes on to its end.
