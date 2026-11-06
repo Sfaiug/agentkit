@@ -312,18 +312,22 @@ func (p *pullPlace) view(l *loop, j *judging, passed, total int) (string, string
 	return p.viewOf(l, j, passed, total)
 }
 
-// restore puts the checkout back on the PR's head, keeping what that stage changed, Python's
-// restore_review_checkout.
+// restore puts the checkout back on the commit the review judges (pinnedHead), keeping what that
+// stage changed, Python's restore_review_checkout.
 func (p *pullPlace) restore(l *loop, stage string) error {
-	g := p.git()
+	record, err := read(l)
+	if err != nil {
+		return err
+	}
+	pinned, g := pinnedHead(record), p.git()
 	at, err := g.Must("rev-parse", "HEAD")
 	if err != nil {
 		return err
 	}
-	if at != p.sha {
+	if at != pinned {
 		return fmt.Errorf("review checkout HEAD changed during %s; cannot review the pinned PR head", stage)
 	}
-	code, why, err := g.Out("diff", "--quiet", p.sha)
+	code, why, err := g.Out("diff", "--quiet", pinned)
 	if err != nil {
 		return err
 	}
@@ -334,7 +338,7 @@ func (p *pullPlace) restore(l *loop, stage string) error {
 	default:
 		return fmt.Errorf("cannot inspect the review checkout after %s: %s", stage, why)
 	}
-	patch, err := p.raw("diff", "--binary", p.sha)
+	patch, err := p.raw("diff", "--binary", pinned)
 	if err != nil {
 		return err
 	}
@@ -342,7 +346,7 @@ func (p *pullPlace) restore(l *loop, stage string) error {
 	if err := os.WriteFile(saved, []byte(patch), 0o666); err != nil {
 		return err
 	}
-	if _, err := g.Must("restore", "--source="+p.sha, "--staged", "--worktree", "--", "."); err != nil {
+	if _, err := g.Must("restore", "--source="+pinned, "--staged", "--worktree", "--", "."); err != nil {
 		return err
 	}
 	l.say(fmt.Sprintf("WARN %s changed tracked files; saved %s and restored the PR head", stage, saved))

@@ -16,8 +16,8 @@ import (
 // A seat's own pull request lands as a task's work does, Python's merge_own_pr: once its review
 // passed it joins the landing line, the line's lander checks the reviewed head on the target's tip,
 // and the run, woken on green, puts the very commit checked on the PR branch and merges the PR at
-// it.  A red, and a PR moved or closed since its review, go back to its writer, which is Python's
-// (fail_pr_landing).
+// it.  A red, and a PR moved or closed since its review, go back to its writer, Python's
+// fail_pr_landing, where Go's woken run ends: that road is not Go's yet.
 
 // land joins the line or lands from it, Python's merge_own_pr as settle_pr_round and review_pr
 // leave it: a run no longer waiting is out of the line and owes no round.
@@ -99,6 +99,47 @@ func (p *ownPull) pushPull(l *loop, remote *run.Object, lease string) error {
 		return errors.New("pushing to the PR branch failed: " + tail(out, 400))
 	}
 	return nil
+}
+
+// handToWriter makes a seat's own PR's writer the executor of a landing fixer's turn, Python's
+// hand_to_writer: a PR that passed its first review had no fixer yet, and what landing finds is its
+// writer's to fix, as a finding is, its re-review picked against them.
+func (l *loop) handToWriter() error {
+	record, err := read(l)
+	if err != nil || l.executor != "" || !record.Truthy("own_pr") {
+		return err
+	}
+	l.executor = record.Str("own_orchestrator")
+	return l.save(func(record *run.Object) { record.Set("executor", l.executor) })
+}
+
+// pin makes what the checkout holds the commit a review run judges, Python's pin_checkout: what its
+// own rebase, merge or fixer left, until the PR head moves (pinnedHead).  A git still stopped has
+// made nothing yet, and a task run judges its HEAD.
+func (r *repoPlace) pin(l *loop) error {
+	record, err := read(l)
+	if err != nil || !record.Truthy("review_pr") {
+		return err
+	}
+	if stopped, err := inProgress(r.git()); err != nil || stopped {
+		return err
+	}
+	head, err := r.git().Must("rev-parse", "HEAD")
+	if err != nil {
+		return err
+	}
+	return l.save(func(record *run.Object) {
+		record.Set("integrated", run.Fields("from", record.Str("head_sha"), "to", head))
+	})
+}
+
+// pinnedHead is the commit a review run judges, Python's pinned_head: the PR head, or what the run's
+// own landing or fixer made of it.
+func pinnedHead(record *run.Object) string {
+	if integrated := record.Dict("integrated"); integrated != nil && integrated.Str("from") == record.Str("head_sha") {
+		return integrated.Str("to")
+	}
+	return record.Str("head_sha")
 }
 
 // unmoved is the lander's pending members less each whose PR's head moved past its review, Python's

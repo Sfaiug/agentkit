@@ -401,6 +401,7 @@ func (l *loop) ownRound() error {
 	l.cmds = cmds
 	l.every, l.once = task.Group(cmds)
 	l.body = body + place.rules()
+	l.prompt = place.context(pull.Number, l.body) // what landing's fixers are told first
 	if err := l.pickReviewer(fmt.Sprintf("own PR of the %s seat; picked against orchestrator %s", owner, writer)); err != nil {
 		return err
 	}
@@ -515,9 +516,9 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if said == "" {
 		said = "(no description)"
 	}
-	fix := fmt.Sprintf("Repo checkout: %s\nBranch: %s (PR #%s head, based on origin/%s)\n\n# Fix PR #%s: %s\n\n## Goal\nThe pull request passes its review: "+
+	fix := place.context(number, fmt.Sprintf("# Fix PR #%s: %s\n\n## Goal\nThe pull request passes its review: "+
 		"fix each finding below with the least change, on this branch, and keep its checks passing.\n\n## The PR says\n%s\n\n%s%s\n\n## Reviewer findings to fix\n%s",
-		place.wt, place.branch, number, place.target, number, named, strings.TrimFunc(said, config.Space), doneWhenBlock(l.cmds), place.rules(), withoutAsides(l.findings))
+		number, named, strings.TrimFunc(said, config.Space), doneWhenBlock(l.cmds), place.rules(), withoutAsides(l.findings)))
 	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return err
 	}
@@ -527,12 +528,11 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if err := place.commitLeftovers(l); err != nil {
 		return err
 	}
-	head, err := place.git().Must("rev-parse", "HEAD")
-	if err != nil {
+	if err := place.pin(l); err != nil { // what the next round judges
 		return err
 	}
-	// what the next round judges, Python's pin_checkout
-	if err := l.save(func(record *run.Object) { record.Set("integrated", run.Fields("from", reviewed, "to", head)) }); err != nil {
+	head, err := place.git().Must("rev-parse", "HEAD")
+	if err != nil {
 		return err
 	}
 	// the PR as it stands after the fix: a closed PR or a head pushed meanwhile ends the run, never
@@ -557,6 +557,12 @@ func (l *loop) fixOwn(record *run.Object) error {
 	}
 	l.say(fmt.Sprintf("--- pushed the fix %s to %s", head[:12], remote.Str("ref")))
 	return nil
+}
+
+// context is what a worker on the review's checkout is told first, Python's pr_context: where it
+// is and on what branch.
+func (p *ownPull) context(number, body string) string {
+	return fmt.Sprintf("Repo checkout: %s\nBranch: %s (PR #%s head, based on origin/%s)\n\n%s", p.wt, p.branch, number, p.target, body)
 }
 
 // openPull is the pull request as GitHub has it now, its head as git has it, while it is open.

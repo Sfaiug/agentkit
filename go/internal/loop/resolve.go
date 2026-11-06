@@ -187,6 +187,9 @@ func (r *repoPlace) fixReview(l *loop, what string) (bool, error) {
 		l.rnd++
 		l.say(fmt.Sprintf("--- round %d/%d: fixer %s (findings after %s)", l.rnd, l.budget, l.executor, what))
 		summary, err := l.execute("fixer", "executor", fix, filepath.Join(filepath.Dir(l.findingsFile), "findings.json"))
+		if err == nil {
+			err = r.pin(l)
+		}
 		if err != nil {
 			return false, err
 		}
@@ -224,6 +227,9 @@ func (r *repoPlace) fixConflicts(l *loop, what, how, upstream, tip, out string) 
 			l.say("WARN history: " + err.Error())
 		}
 	}()
+	if err := l.handToWriter(); err != nil {
+		return "", false, err
+	}
 	listed, err := g.Try("diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return "", false, err

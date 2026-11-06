@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"agentkit/internal/helper"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -29,7 +30,7 @@ func redGiven() {
 
 // waking starts the pass's wake, Python's _waking, and returns its end: each run parked in the
 // line as it stands on a red Go's woken run carries, waiting on no run with a place in the line
-// (redBehind), is woken once a pass.  It wakes as the pass starts, after each red the pass gives,
+// (redBehind), is woken once a pass: on a host with suite helpers, none is.  It wakes as the pass starts, after each red the pass gives,
 // every wakeEvery while it runs, and as it ends.
 func waking(line string, said io.Writer) (end func()) {
 	done, ended := make(chan struct{}), make(chan struct{})
@@ -54,7 +55,7 @@ func wakeReds(line string, woken map[string]bool, said io.Writer) {
 	members := lineMembers(line)
 	for _, m := range members {
 		wait, id := m.record.Dict("waiting_on"), filepath.Base(m.dir)
-		if woken[id] || m.record.Str("state") != "waiting" || !wait.Has("fix") || landingFixHandoff(m.record) != "" ||
+		if woken[id] || m.record.Str("state") != "waiting" || !wait.Has("fix") || helper.May() ||
 			pythons(m.record) || redBehind(wait, members) || run.ProcessActive(m.record) {
 			continue
 		}
