@@ -12,10 +12,13 @@ import (
 // Reminder is questions.reminder: what the seat's closing message must still say before it stops,
 // each question recorded for the owner whose words it does not hold, "" for none.  The owner must
 // see a question in the chat before `needs you` begins.
-func Reminder(name, said string) string {
+func Reminder(name, said string) string { return reminder(said, pending(name, notify.Last(name))) }
+
+// reminder is what a closing message that said this must still say of those questions.
+func reminder(said string, asked []string) string {
 	shown := []string{shownWords(said), shownWords(inline(said))}
 	var missing []string
-	for _, question := range pending(name) {
+	for _, question := range asked {
 		if !slices.ContainsFunc(shown, func(each string) bool { return strings.Contains(each, shownWords(question)) }) {
 			missing = append(missing, question)
 		}
@@ -28,11 +31,11 @@ func Reminder(name, said string) string {
 		strings.Join(missing, "\n\n")
 }
 
-// pending is questions.pending: the questions a standing notice of the seat's asks, then those it
-// kept back, each once.
-func pending(name string) (once []string) {
+// pending is questions.pending: the questions its standing notice asks, then those the seat kept
+// back, each once.
+func pending(name string, notice *run.Object) (once []string) {
 	var asked []string
-	if notice := notify.Last(name); notify.OwnerQuestion(notice) {
+	if notify.OwnerQuestion(notice) {
 		asked = notify.Questions(notice)
 	}
 	if file, _ := run.ReadJSON(seatFile(name)); file != nil {

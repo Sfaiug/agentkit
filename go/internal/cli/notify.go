@@ -75,7 +75,7 @@ func notifyNeeds(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 	if !asked.dryRun {
-		code, decided := notify.Ask(name, record, strings.TrimFunc(asked.question, config.Space), out, errOut)
+		code, decided := notify.Ask(name, record, strings.TrimFunc(asked.question, config.Space), seat.AskedWord, out, errOut)
 		if !decided {
 			return notImplemented(errOut, "notify needs")
 		}
