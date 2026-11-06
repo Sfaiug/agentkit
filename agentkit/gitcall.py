@@ -1123,6 +1123,11 @@ def make_worktree(repo, run_id, slug, base):
     refs = os.open(Path(common, "refs"), os.O_RDONLY | os.O_DIRECTORY)
     try:
         fcntl.flock(refs, fcntl.LOCK_EX)
+        # A name a run's record holds stays that run's once its branch is gone: an ending takes
+        # its branch by name more than once (`worktrees.settle_run`), and a run of the same title
+        # given the name in between lost its branch before its checkout held it.
+        taken |= {state.get("branch") for _, state in run_record.runs()
+                  if state.get("repo") == str(repo)}
         branch, suffix = f"ak/{slug}", 1
         while branch in taken or git(repo, "rev-parse", "--verify", "--quiet",
                                      f"refs/heads/{branch}", check=False):
