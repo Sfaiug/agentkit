@@ -3553,73 +3553,57 @@ def models_screen(cfg, session, selected, providers):
 
 
 ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
-COMPANIES_SAID = ("ak uses only the models that are on. Space turns one on or off, or, on a "
-                  "company's name, all of them. A company with none on leaves the list.")
 
 
-def company_models():
-    """The lineup last stored and each company with a listed model (matrix.listed), strongest
-    first as the lineup orders them, its listed models in that order: {maker: {slug: name}}."""
+def companies_listed(cfg):
+    """Each company with a listed model (matrix.listed), strongest first as the lineup orders
+    them, its listed models in that order, {maker: {slug: name}}; and your companies
+    (matrix.companies) as `companies` lists them, else as the lineup does."""
     lineup, found = matrix.listed()
-    makers = {}
+    makers, had = {}, matrix.companies(cfg, lineup)
     for row in lineup:
         if row["release"] in found:
             makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
-    return lineup, makers
-
-
-def your_companies(cfg, lineup):
-    """Your companies (matrix.companies) as `companies` lists them, else as the lineup does."""
-    if cfg.get("companies") is not None:
-        return list(cfg["companies"])
-    had = matrix.companies(cfg, lineup)
-    return [maker for maker in dict.fromkeys(row["maker"] for row in lineup) if maker in had]
+    return makers, cfg["companies"] if "companies" in cfg else [
+        maker for maker in dict.fromkeys(row["maker"] for row in lineup) if maker in had]
 
 
 def models_listed(cfg, yours, off):
-    """`yours` saved as `companies` and the slugs `off` as `models_off`, at once (_saved), so
-    a first change while the config names no companies writes the ones it had.  What to say
-    under the list, or ""."""
+    """`yours` saved as `companies` and the slugs `off` as `models_off` at once (_saved), so a
+    first change writes the companies the config had.  What to say, or ""."""
     before = copy.deepcopy(cfg)
-    cfg["companies"] = yours
-    if off:
-        cfg["models_off"] = sorted(off)
-    else:
-        cfg.pop("models_off", None)
+    cfg.update(companies=yours, models_off=sorted(off))
+    if not off:
+        del cfg["models_off"]
     return _saved(cfg, cfg, before)
 
 
 def companies_body(makers, yours, off, at=None, column=0):
-    """The company list's lines, and where its rows sit on them: {line: (row, cells)}.
-
-    Each of `yours` with a listed model (`makers`) a line: its name, then each of those models,
-    `●` on, or `○` and dim where `off` holds it, two cells between; where the width runs out
-    they go on under the column where they began, a name wider than that whole room cut.  The
-    cell the keys are on, `column` of the row `at` -- its name 0, its models from 1 -- is
-    reversed, bracketed with no colour (terminal.toggle).  Last, `+ add a company`."""
-    room = terminal.layout_width()
-    on, out = ("●", "○") if terminal.utf8() else ("*", ".")
+    """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
+    line, its name, then each of those models (`makers`), `●` on, or `○` and dim where `off`
+    holds it; where the width runs out they go on under the column where they began.  The keys'
+    cell, `column` of the row `at` (its name 0), is reversed (terminal.toggle).  Last,
+    `+ add a company`."""
+    room, (on, out) = terminal.layout_width(), "●○" if terminal.utf8() else "*."
     shown = [maker for maker in yours if maker in makers]
     label = max((terminal.cells(maker) for maker in shown), default=0)
     start = label + 4         # the models' first column: after a space, the name's cell and one
     lines, places = [], {}
     for maker in shown:
-        row, parts = ("company", maker), [(" ", [])]
+        row, parts = ("company", maker), [[" ", []]]
         texts = [(maker, None), *((f"{out if slug in off else on} "
                                    f"{terminal.cut(name, room - start - 2)}",
                                    "dim" if slug in off else None)
                                   for slug, name in makers[maker].items())]
         for number, (text, kind) in enumerate(texts):
-            line, cells = parts[-1]
-            first, width = terminal.cells(line) + 1, terminal.cells(text) + 2
+            first, width = terminal.cells(parts[-1][0]) + 1, terminal.cells(text) + 2
             if number > 1 and first + width - 2 > room:      # its space after may go
-                parts.append((" " * (start - 1), []))
-                line, cells = parts[-1]
+                parts.append([" " * (start - 1), []])
                 first = start
-            line += terminal.toggle(text, width, "reverse" if row == at and number == column
-                                    else kind)
-            cells.append((first, first + width - 1, number))
-            parts[-1] = (line + " " * (label - terminal.cells(text) if not number else 0), cells)
+            parts[-1][0] += terminal.toggle(text, width, "reverse" if row == at
+                                            and number == column else kind)
+            parts[-1][0] += " " * (0 if number else label - terminal.cells(text))
+            parts[-1][1].append((first, first + width - 1, number))
         for number, (line, cells) in enumerate(parts):
             places[len(lines)] = (row, cells)
             lines.append(terminal.highlight(line.rstrip(), not number) if row == at
@@ -3632,23 +3616,20 @@ def companies_body(makers, yours, off, at=None, column=0):
 
 @terminal.clicks_its_own
 def company_list(cfg, title):
-    """`p` on the models screen: `<title> · models`, your companies on companies_body, under
-    COMPANIES_SAID and over how many models are on (matrix.compared), from how many companies,
-    and how many more companies have benchmark scores, until Esc.  ↑/↓ move between companies
-    and `+ add a company`, ←/→ between a company's name and its models.  Space, or a click,
-    turns the model pointed at on or off, and on a company's name all of its models on, or off
-    where all are on already, each change saved at once (models_listed).  `a`, or Space or ⏎
-    on `+ add a company`, adds one (company_add) with all its models on, the pointer then on
-    it.  On Esc each company left with no model on is dropped from `companies`, and its models
-    from `models_off`.  What to say under the answer, or ""."""
+    """`p` on the models screen, `<title> · models`: your companies (companies_body) over how
+    many models are on (matrix.compared), from how many companies, and how many more have
+    benchmark scores, until Esc.  ↑/↓ move between companies, ←/→ between a company's name and
+    its models; Space or a click turns the model pointed at on or off, and on a name all its
+    models on, or off where all are on, each change saved at once (models_listed).  `a`, or
+    Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
+    left with none on from `companies`, and its models from `models_off`.  What to say, or ""."""
     title, here, column, top, note = f"{title} · models", None, 0, 0, ""
     while True:
-        lineup, makers = company_models()
-        yours, off = your_companies(cfg, lineup), set(cfg.get("models_off") or ())
+        (makers, yours), room = companies_listed(cfg), terminal.layout_width()
+        off, now = set(cfg.get("models_off") or ()), matrix.compared(cfg)
         rows = [*(("company", maker) for maker in yours if maker in makers), ADD_COMPANY]
         here = here if here in rows else rows[0]
-        column = min(column, len(makers.get(here[1], ())) if here[0] == "company" else 0)
-        room, now = terminal.layout_width(), matrix.compared(cfg)
+        column = min(column, 0 if here == ADD_COMPANY else len(makers[here[1]]))
         giving = sum(bool(now & models.keys()) for models in makers.values())
         more = len(makers.keys() - set(yours))
         said = [f"{len(now)} model{'s' * (len(now) != 1)} on, from {giving} "
@@ -3660,13 +3641,16 @@ def company_list(cfg, title):
         act, here, clicked, top = matrix_key(
             title, body, places, rows, here, top, note, MODELS_KEYS["list"][not terminal.utf8()],
             marks=1 + max(map(len, makers.values()), default=0), keyed=column,
-            over=[*("  " + part for part in terminal.wrap(COMPANIES_SAID, room - 2)), ""],
+            over=[*("  " + part for part in terminal.wrap(
+                "ak uses only the models that are on. Space turns one on or off, or, on a "
+                "company's name, all of them. A company with none on leaves the list.",
+                room - 2)), ""],
             under=["", *("  " + terminal.styled(part, "dim")
                          for part in packed(said, " · ", room - 2))])
         column = column if clicked is None else clicked
         if act is None:
             continue                  # a resize or the pointer: drawn again
-        note, models = "", list(makers[here[1]]) if here[0] == "company" else []
+        note, models = "", [] if here == ADD_COMPANY else list(makers[here[1]])
         if act == "back":
             gone = [maker for maker in yours if makers.get(maker) and off >= makers[maker].keys()]
             return models_listed(cfg, [maker for maker in yours if maker not in gone],
@@ -3686,29 +3670,25 @@ def company_list(cfg, title):
 
 @terminal.clicks_its_own
 def company_add(title, makers, yours):
-    """`a` on the company list: `<title> · add a company`, each company with a listed model
-    (`makers`) not among `yours`, strongest first, with how many listed models it has and its
-    strongest, until ⏎ or a click picks one, or Esc goes back: that company, or None."""
+    """`a` on the company list, `<title> · add a company`: each company of `makers` not among
+    `yours`, strongest first, with how many listed models it has and its strongest, until ⏎ or
+    a click picks one, or Esc goes back: that company, or None."""
     rows, here, top = [("row", maker) for maker in makers if maker not in yours], None, 0
     counts = {maker: f"{len(makers[maker])} model{'s' * (len(makers[maker]) != 1)}"
               for _, maker in rows}
     while True:
         here = here if here in rows else rows[0] if rows else None
-        widths = [max((terminal.cells(text) for text in texts), default=0)
-                  for texts in (counts, counts.values())]
+        widths = [max(map(terminal.cells, texts), default=0) for texts in (counts, counts.values())]
         widths.append(max(1, terminal.layout_width() - 6 - sum(widths)))
-        body, places = [], {}
-        for row in rows:
-            line = terminal.table_row([row[1], counts[row[1]], next(iter(makers[row[1]].values()))],
-                                      widths, indent="  ")
-            places[len(body)] = (row, [])
-            body.append(terminal.highlight(line) if row == here and not terminal.away() else line)
-        act, here, _, top = matrix_key(f"{title} · add a company", body, places, rows, here, top,
-                                       "", MODELS_KEYS["add"][not terminal.utf8()], marks=0)
-        if act == "back":
-            return None
-        if act == "enter" and here:
-            return here[1]
+        body = [terminal.table_row([maker, counts[maker], next(iter(makers[maker].values()))],
+                                   widths, indent="  ") for _, maker in rows]
+        body = [terminal.highlight(line) if row == here and not terminal.away() else line
+                for row, line in zip(rows, body)]
+        act, here, _, top = matrix_key(f"{title} · add a company", body, {
+            line: (row, []) for line, row in enumerate(rows)}, rows, here, top, "",
+            MODELS_KEYS["add"][not terminal.utf8()], marks=0)
+        if act == "back" or act == "enter" and here:
+            return None if act == "back" else here[1]
 
 
 def config_columns(selected, name):
