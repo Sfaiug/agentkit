@@ -48,9 +48,11 @@ func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun 
 		if err != nil {
 			return err
 		}
-		if !decided {
+		// one killed for memory is the host's red, which says nothing of its tests: the whole piece
+		// decides, as Python's run_suite runs again a piece out of memory
+		if !decided || at.ended.starved {
 			whole = append(whole, at)
-		} else if len(at.ended.confirmed) > 0 && !at.ended.starved {
+		} else if len(at.ended.confirmed) > 0 {
 			break
 		}
 	}
