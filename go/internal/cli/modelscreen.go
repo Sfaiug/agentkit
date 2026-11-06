@@ -40,17 +40,37 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	var colours map[string]string
 	pointing := false
 	at, top, note := -1, 0, ""
+	// A new answer -- the boards landing, a pick -- leaves the pointer on the row it was on, as
+	// Python's does; where that row is gone, on its role's pick, the first role's before any.
 	lineup := func() {
 		colours = modelColours(found.Rows)
-		rows, roles = nil, nil
-		at = -1
-		for _, role := range quality.Roles {
-			for _, row := range answer[role].Front {
-				if at < 0 && row == answer[role].Pick {
-					at = len(rows)
+		role, was := quality.Roles[0], quality.Row{}
+		if at >= 0 && at < len(rows) {
+			role, was = roles[at], rows[at].Row
+		}
+		rows, roles, at = nil, nil, -1
+		pick, first := -1, -1
+		for _, each := range quality.Roles {
+			for _, row := range answer[each].Front {
+				if each == role {
+					if at < 0 && row.Release == was.Release && row.Effort == was.Effort {
+						at = len(rows)
+					}
+					if pick < 0 && row == answer[each].Pick {
+						pick = len(rows)
+					}
+					if first < 0 {
+						first = len(rows)
+					}
 				}
-				rows, roles = append(rows, row), append(roles, role)
+				rows, roles = append(rows, row), append(roles, each)
 			}
+		}
+		if at < 0 {
+			at = pick
+		}
+		if at < 0 {
+			at = first
 		}
 		if at < 0 && len(rows) > 0 {
 			at = 0
