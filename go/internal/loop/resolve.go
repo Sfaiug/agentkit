@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"cmp"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/history"
@@ -63,8 +65,11 @@ func (r *repoPlace) resolve(l *loop, upstream, how, tip, out string, recheck boo
 	} else {
 		l.say("done-when after the " + how + ": FAILED")
 		said, err := r.targetFails(l, upstream, tip, text)
-		if err != nil || said != "" {
-			return false, cmp.Or(err, r.park(l, upstream+" itself fails: "+said, upstream, tip))
+		if err != nil {
+			return false, err
+		}
+		if said != "" {
+			return false, r.park(l, upstream+" itself fails: "+said, upstream, tip)
 		}
 	}
 	passed, err := l.review(summary, ok, text, again)
@@ -81,8 +86,9 @@ func (r *repoPlace) resolve(l *loop, upstream, how, tip, out string, recheck boo
 // the last reviewed head was checked on, Python's target_fails: the target's own red, which no fixer
 // of this branch mends.  "" where the check needs the branch: it fails on that base too, passes on
 // the tip, or there is nothing to probe.  That base is never the tip after a conflict, so a check
-// naming a file only the branch has fails there and needs no reading of its own.  A seated run's red
-// is Python's, which starts a repair of the target for it.
+// naming a file only the branch has fails there and needs no reading of its own.  Each probe runs
+// the check as the re-test did, in pieces where it names AK_SHARD.  A seated run's red is Python's,
+// which starts a repair of the target for it.
 func (r *repoPlace) targetFails(l *loop, upstream, tip, text string) (string, error) {
 	record, err := read(l)
 	failed := failingChecks(text)
@@ -96,19 +102,20 @@ func (r *repoPlace) targetFails(l *loop, upstream, tip, text string) (string, er
 	if code, _, err := r.git().Out("diff", "--quiet", "HEAD"); err != nil || code != 0 {
 		return "", err
 	}
-	if run.Seat(record) != "" {
-		return "", notYet(fmt.Sprintf("`%s` failed on %s at %s", cmd, upstream, tip[:12]), "probing the target for its seat's repair")
-	}
-	probe := func(sha, where string) (*run.Object, error) {
-		l.say(fmt.Sprintf("--- merge: `%s` failed; probing it once on %s (%s)", cmd, where, sha[:12]))
-		return r.proofOn(l, cmd, filepath.Join(l.dir, "target-probe.log"), sha, "")
-	}
-	red := func(proof *run.Object) bool {
+	path := filepath.Join(l.dir, "target-probe.log")
+	probe := func(sha, where string) (bool, *run.Object, error) {
+		proof, err := r.onRevision(l, fmt.Sprintf("`%s` on %s", cmd, where), sha, "", func() (int, string, bool, error) {
+			l.say(fmt.Sprintf("--- merge: `%s` failed; probing it once on %s (%s)", cmd, where, sha[:12]))
+			return l.suite(r.wt, cmd, path, where+" "+sha)
+		})
+		if err != nil {
+			return false, nil, err
+		}
 		code, _ := proof.Int("returncode")
-		return code != 0 || proof.Truthy("killed")
+		return code != 0 || proof.Truthy("killed"), proof, nil
 	}
-	onTip, err := probe(tip, upstream)
-	if err != nil || !red(onTip) {
+	red, onTip, err := probe(tip, upstream)
+	if err != nil || !red {
 		return "", err
 	}
 	passed := passedReviewHead(record)
@@ -120,16 +127,44 @@ func (r *repoPlace) targetFails(l *loop, upstream, tip, text string) (string, er
 		return "", err
 	}
 	if base != tip {
-		onBase, err := probe(base, "old base")
-		if err != nil || red(onBase) {
+		if red, _, err := probe(base, "old base"); err != nil || red {
 			if err == nil {
 				l.say(fmt.Sprintf("--- merge: `%s` fails on %s too: needs this branch", cmd, base[:12]))
 			}
 			return "", err
 		}
 	}
+	if run.Seat(record) != "" {
+		return "", notYet(fmt.Sprintf("`%s` fails on %s at %s", cmd, upstream, tip[:12]), "starting its seat's repair of the target")
+	}
 	code, _ := onTip.Int("returncode")
 	return firstFailure(fmt.Sprintf("$ %s\n[exit %d]\n%s", cmd, code, onTip.Str("output"))), nil
+}
+
+// suite is cmd's run in cwd as Python's gate.run_suite runs a check with no turn held: in pieces
+// where it names AK_SHARD, else whole and once.  Its output is added to the log at path, under
+// label, and handed on whole.
+func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
+	progress, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
+	if err != nil {
+		return 0, "", false, err
+	}
+	defer progress.Close()
+	fmt.Fprintf(progress, "$ %s (on %s)\n", cmd, label)
+	start, _ := progress.Seek(0, io.SeekEnd)
+	var outcome ran
+	if namesShard.MatchString(cmd) {
+		outcome, _, err = l.pieces(cwd, cmd, time.Now().Add(l.ceiling), progress, path)
+	} else {
+		l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
+		outcome, err = l.boxed(cwd, cmd, "", l.ceiling, progress, path, false)
+	}
+	if err != nil {
+		return 0, "", false, err
+	}
+	end, _ := progress.Seek(0, io.SeekEnd)
+	said, err := io.ReadAll(io.NewSectionReader(progress, start, end-start))
+	return outcome.code, decoded(said), outcome.stopped != "", err
 }
 
 // fixReview is the rounds a failed review after a conflict gets, Python's fix_after_failed_review:
