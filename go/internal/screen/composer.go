@@ -11,8 +11,9 @@ import (
 
 // atComposer is what a draft or suggestion rule reads: only the composer, so a transcript echoing
 // a past turn can never read as one, and what a harness draws between composer and footer, a
-// user's status line, never hides it or reads as it; false where it does not match.
-func (r *Rules) atComposer(each rule, raws, region []string) (Reading, bool) {
+// user's status line, never hides it or reads as it; false where it does not match.  `reach` is
+// every row up the pane a ruled composer's draft may go on in.
+func (r *Rules) atComposer(each rule, raws, region, reach []string) (Reading, bool) {
 	low := strings.ToLower(strings.Join(mapped(raws, func(raw string) string {
 		return strings.TrimRightFunc(strip(raw), config.Space)
 	}), "\n"))
@@ -23,8 +24,9 @@ func (r *Rules) atComposer(each rule, raws, region []string) (Reading, bool) {
 	end := -1
 	switch {
 	case each.atComposer && r.ruled:
-		// its box in the rule's own rows, under the footer at the pane's bottom, or with none
-		// drawn a prompt row right on that bottom
+		// its box from its prompt row, in the rule's own rows or up from them, under the footer at
+		// the pane's bottom, or with none drawn a prompt row right on that bottom
+		raws, region = upToPrompt(reach, len(region))
 		var at int
 		at, end = r.ruledComposer(raws)
 		if at >= 0 && !r.chromeLine(region[len(region)-1]) {

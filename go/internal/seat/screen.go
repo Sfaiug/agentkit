@@ -94,7 +94,7 @@ func observed(state, name string, reader harness.Reader, pane string, now float6
 	seen := eyeOf(own)
 	tail := screen.Tail(pane)
 	fact := reader.HookFact(name)
-	found = classify(own, seen.rules.Read(tail), fact, previous, now, endedAt(name, own, record, seen.rules, pane, fact, now))
+	found = classify(own, seen.rules.Read(pane), fact, previous, now, endedAt(name, own, record, seen.rules, pane, fact, now))
 	found.typedByAk = found.state == "draft" && typedByAk(name, seen.rules, pane)
 	switch {
 	case pane == "":
