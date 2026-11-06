@@ -46,7 +46,7 @@ func hookOptions() error {
 	log := commandhelp.ShellJoin([]string{logPath()})
 	job := func(program []string, verb string) string {
 		ak := commandhelp.ShellJoin(append(program, "orch"))
-		return "run-shell -b " + tmuxWord(tmuxText(ak)+" "+verb+" >>"+tmuxText(log)+" 2>&1; true")
+		return "run-shell -b " + tmux.Word(tmuxText(ak)+" "+verb+" >>"+tmuxText(log)+" 2>&1; true")
 	}
 	front := job([]string{self}, "front")
 	options := [][2]string{{"pane-died", job([]string{python, bin}, "ended #{q:session_name} #{pane_dead_time}")},
@@ -58,17 +58,6 @@ func hookOptions() error {
 	}
 	tmux.Lists(tmux.Own(), lists)
 	return nil
-}
-
-// tmuxWord is one word of a tmux command line, quoted as a shell would read it (orch.tmux_word).
-func tmuxWord(text string) string {
-	if !strings.Contains(text, "'") {
-		return "'" + text + "'"
-	}
-	for _, char := range []string{`\`, `"`, "$", "#"} {
-		text = strings.ReplaceAll(text, char, `\`+char)
-	}
-	return `"` + text + `"`
 }
 
 // tmuxText is literal text for a tmux option, its `#`, which starts a format, doubled.
