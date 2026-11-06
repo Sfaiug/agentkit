@@ -32,7 +32,7 @@ class LiveWithoutATick(unittest.TestCase):
         self.sink = Sink(self.home)
         self.addCleanup(self.sink.close)
         self.rig = Rig(self.home, "app", files={
-            "AGENTS.md": f"---\ntests: none\nhealth: {HEALTH}\ndeployed: {DEPLOYED}\n---\n"})
+            "AGENTS.md": f"---\ntests: none\nhealth: {HEALTH}\ndeployed: {DEPLOYED}\nusers: none\n---\n"})
         GitHub(self.home).grant(self.rig.slug, "WRITE")
         akconfig.write(self.home, ["opus", "astra"])
         fakeadapter.install(self.home, claude="work", codex="pass")
