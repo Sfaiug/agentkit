@@ -87,7 +87,7 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		return false, nil
 	}
 	current, home := accountName(live.Record, "account"), accountName(live.Record, "home_account")
-	accounts, err := usages.SeatAccounts(live.Record.Str("orchestrator"), home)
+	accounts, err := usages.SeatAccounts(live.Record.Str("orchestrator"), home, drying == nil)
 	if err != nil {
 		return false, nil
 	}

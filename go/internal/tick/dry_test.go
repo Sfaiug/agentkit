@@ -177,17 +177,30 @@ func TestDryDiscoveryLeavesAMuseReceiptAsItWas(t *testing.T) {
 func TestDryScreenHoldsAreNeverSaved(t *testing.T) {
 	for _, each := range []struct {
 		name, seatFile string
-		used           int // of the seat's own account
+		used           int    // of the seat's own account
+		snapshot       string // of usage: fresh, stale or missing
 		carried        bool
 	}{
-		{"carried", "", 97, true},
-		{"carried, saved", `{"state": "at_prompt", "holds": []}`, 97, true},
-		{"handed over", "", 100, false},
-		{"handed over, saved", `{"state": "at_prompt", "holds": []}`, 100, false},
+		{"carried", "", 97, "fresh", true},
+		{"carried, saved", `{"state": "at_prompt", "holds": []}`, 97, "fresh", true},
+		{"handed over", "", 100, "fresh", false},
+		{"handed over, saved", `{"state": "at_prompt", "holds": []}`, 100, "fresh", false},
+		// a snapshot no longer fresh is read as it stands, nothing asked again: one missing decides
+		// nothing, and the adapter's answer, every account at 10, would carry a spent one
+		{"stale, carried", "", 97, "stale", true},
+		{"stale, handed over", "", 100, "stale", false},
+		{"missing, handed over", "", 10, "missing", false},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			ak, _ := idleHome(t, loggedOut)
 			home := filepath.Dir(ak)
+			adapters := t.TempDir()
+			put(t, filepath.Join(adapters, "antigravity.sh"), "#!/bin/sh\n[ \"$1\" = usage ] || exit 1\n"+
+				`echo '{"meters": [{"name": "session", "used": 10, "window_secs": 18000, "resets_at": 2000000000}]}'`+"\n")
+			if err := os.Chmod(filepath.Join(adapters, "antigravity.sh"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
 			put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.gemini]\nharness='antigravity'\nmodel='gemini'\neffort='high'\nprovider='test'\n"+
 				"[providers.test]\nmode='subscription'\naccounts=['default','second']\n")
 			put(t, filepath.Join(ak, "state", "session-acme.json"), run.Line(run.Fields("orchestrator", "gemini", "workers", []any{"gemini"},
@@ -198,8 +211,10 @@ func TestDryScreenHoldsAreNeverSaved(t *testing.T) {
 			meter := func(used int) *run.Object {
 				return run.Fields("meters", []any{run.Fields("name", "session", "used", used, "window_secs", 18000, "resets_at", epoch(time.Now())+3600)})
 			}
-			put(t, filepath.Join(ak, "state", "usage.json"), run.Line(run.Fields("fetched_at", epoch(time.Now()),
-				"providers", run.Fields("test", run.Fields("accounts", run.Fields("default", meter(each.used), "second", meter(10)))))))
+			if fetched := map[string]float64{"fresh": epoch(time.Now()), "stale": epoch(time.Now()) - 600}; each.snapshot != "missing" {
+				put(t, filepath.Join(ak, "state", "usage.json"), run.Line(run.Fields("fetched_at", fetched[each.snapshot],
+					"providers", run.Fields("test", run.Fields("accounts", run.Fields("default", meter(each.used), "second", meter(10)))))))
+			}
 			rule := strings.Repeat("─", 40)
 			drawn(t, home, "The patch is ready.\n"+rule+"\n>\n"+rule+"\n● [12:08:46] sleep 45 running\n"+rule+
 				"\n? for shortcuts              agentkit (GPT-OSS 120B (Medium))  /agents · 1 task(s) · /tasks\n")
