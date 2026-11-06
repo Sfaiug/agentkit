@@ -25,8 +25,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 		return 0, false
 	}
 	harnesses, refused := config.OfferedHarnesses()
-	rented, read := config.NotRenting()
-	if refused == nil && !(read && askable(harnesses)) {
+	if refused == nil && (config.MayRent() || !askable(harnesses)) {
 		return 0, false
 	}
 	fmt.Fprintln(out, host.SliceLine())
@@ -46,7 +45,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 		wrong = []string{"effort  every model takes the effort it is set to"}
 	}
 	fmt.Fprintln(out, strings.Join(wrong, "\n"))
-	fmt.Fprintln(out, "rented machines: "+rented)
+	fmt.Fprintln(out, "rented machines: "+rented())
 	if stuck {
 		return 1, true
 	}

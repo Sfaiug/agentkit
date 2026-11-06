@@ -3,6 +3,8 @@ package tmux
 import (
 	"slices"
 	"strings"
+
+	"agentkit/internal/config"
 )
 
 // Dead are the sessions on one server whose panes have all exited but which tmux still holds
@@ -21,5 +23,5 @@ func Dead(server string) []string {
 			alive = append(alive, name)
 		}
 	}
-	return slices.DeleteFunc(gone, func(name string) bool { return name == Control || slices.Contains(alive, name) })
+	return slices.DeleteFunc(gone, func(name string) bool { return name == config.Control || slices.Contains(alive, name) })
 }

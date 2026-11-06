@@ -11,6 +11,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/helper"
 	"agentkit/internal/run"
 )
 
@@ -61,7 +62,7 @@ func landingFixHandoff(wait *run.Object) string {
 	if fix.Truthy("moved") {
 		return "a moved PR head"
 	}
-	if len(config.MachineNames()) > 0 {
+	if helper.May() {
 		return "a landing red with suite helpers"
 	}
 	if after := wait.Dict("after"); after != nil && len(after.Keys()) > 0 {

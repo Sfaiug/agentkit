@@ -252,13 +252,7 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	} else {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
-	if code, out, err := g.Out(integration(how, tip)...); err != nil || code != 0 {
-		r.abort(l, how, err != nil)
-		return false, cmp.Or(err, notYet(fmt.Sprintf("its %s onto %s at %s stopped on a conflict: %s", how, upstream, tip[:12], tail(out, 400)), "resolving it"))
-	}
-	// the tip the work is checked and delivered on, whatever a later fetch moves the ref to
-	r.baseSHA = tip
-	if err := l.save(func(record *run.Object) { run.SetAll(record, "base_sha", tip, "target_sha", tip) }); err != nil {
+	if err := r.integrateTip(l, upstream, how, tip); err != nil {
 		return false, err
 	}
 	if held {

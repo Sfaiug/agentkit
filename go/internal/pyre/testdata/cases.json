@@ -48,6 +48,7 @@
   "claude-question-ruled-footer-pane.txt",
   "claude-question-scrolled-back-pane.txt",
   "claude-question-scrolled-pane.txt",
+  "claude-scrolled-draft-pane.txt",
   "claude-scrolled-line-and-owner-words-pane.txt",
   "claude-scrolled-line-pane.txt",
   "claude-session-limit-pane.txt",
@@ -56,6 +57,7 @@
   "claude-suggestion-pane.txt",
   "claude-tall-draft-lines-pane.txt",
   "claude-tall-draft-rows-pane.txt",
+  "claude-ten-row-draft-pane.txt",
   "claude-tray-idle-pane.txt",
   "claude-tray-working-pane.txt",
   "claude-working-after-question-pane.txt",
@@ -2388,6 +2390,15 @@
      "groups": {}
     },
     {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 44,
+     "span": [
+      17,
+      73
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
      "row": 29,
      "span": [
@@ -2456,6 +2467,15 @@
      "span": [
       13,
       69
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 44,
+     "span": [
+      17,
+      73
      ],
      "groups": {}
     },
@@ -4662,6 +4682,150 @@
      "groups": {}
     },
     {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 26,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 27,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 28,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 29,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 30,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 31,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 32,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 33,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 34,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 35,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 36,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 37,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 38,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 39,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 40,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 41,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
      "row": 18,
      "span": [
@@ -5123,6 +5287,87 @@
     {
      "fixture": "claude-tall-draft-rows-pane.txt",
      "row": 44,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 33,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 34,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 35,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 36,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 37,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 38,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 39,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 40,
+     "span": [
+      0,
+      3
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 41,
      "span": [
       0,
       3
@@ -15058,6 +15303,24 @@
      "groups": {}
     },
     {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      81
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-scrolled-draft-pane.txt",
+     "row": 2,
+     "span": [
+      73,
+      94
+     ],
+     "groups": {}
+    },
+    {
      "fixture": "claude-scrolled-line-and-owner-words-pane.txt",
      "row": 1,
      "span": [
@@ -15329,6 +15592,24 @@
     },
     {
      "fixture": "claude-tall-draft-rows-pane.txt",
+     "row": 2,
+     "span": [
+      73,
+      94
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
+     "row": 1,
+     "span": [
+      0,
+      81
+     ],
+     "groups": {}
+    },
+    {
+     "fixture": "claude-ten-row-draft-pane.txt",
      "row": 2,
      "span": [
       73,

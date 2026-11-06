@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"agentkit/internal/run"
 )
 
 func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
@@ -18,6 +16,9 @@ func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
 		put(t, filepath.Join(ak, "runs", state, "run.json"), `{"state":"`+state+`", "handed_back":true, "reported":true, "tree_stopped":[null,null]}`)
 		put(t, filepath.Join(ak, "runs", state, "result.md"), "the result\n")
 	}
+	// a park an older ak left reads as a stopped run that is over, its holder ended or not (#2480)
+	put(t, filepath.Join(ak, "runs", "parked", "run.json"), `{"state":"stopped","lease_wait":{"on":"pass"}, "handed_back":true, "reported":true, "tree_stopped":[null,null]}`)
+	put(t, filepath.Join(ak, "runs", "parked", "result.md"), "the result\n")
 	before := files(t, filepath.Join(ak, "runs"))
 	for range 2 {
 		var out bytes.Buffer
@@ -40,10 +41,9 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 		"seat health":      `{"state":"waiting_login"}`,
 		"dead loops":       `{"state":"running"}`,
 		"stall recovery":   `{"state":"stalled"}`,
-		"lease restart":    `{"state":"stopped","lease_wait":{"on":"older"}}`,
 		"exhausted resume": `{"state":"exhausted","quota_dry":true}`,
 		"error retry":      `{"state":"error","error_retry_at":1}`,
-		"waiting resume":   `{"state":"waiting","waiting_on":{"line":"older"}}`,
+		"waiting resume":   `{"state":"fail","waiting_on":{"line":"older"}}`,
 		"old endings":      `{"state":"pass","finished_at":1}`,
 		"endings":          `{"state":"pass","launched_session":"acme"}`,
 		"seat sweep":       `{"state":"running"}`,
@@ -81,30 +81,8 @@ func TestHousekeepingReadsRunWritersAndRepositories(t *testing.T) {
 	if !runRepositories(&repos) || !runBusyPaths(&busy) || len(repos) != 1 || len(busy) != 2 {
 		t.Fatalf("repos=%v, busy=%v", repos, busy)
 	}
-	put(t, filepath.Join(ak, "state", "leases", "api.json"), "{}")
-	if !noLeaseScan() {
-		t.Fatal("an empty collision record was not idle")
-	}
 	put(t, path, `{"waiting_on":{"line":"older"}}`)
 	if runBusyPaths(&busy) {
 		t.Fatal("a lander's separate writer was not left to Python")
-	}
-	put(t, path, run.Line(run.Fields("state", "running", "repo", t.TempDir(), "worktree", t.TempDir(), "base_sha", "abc")))
-	if noLeaseScan() {
-		t.Fatal("a going diff was not left to lease scan")
-	}
-}
-
-func TestLeaseRestartWaitsOnAHolderThatStillGoes(t *testing.T) {
-	ak, _ := idleHome(t, answers)
-	put(t, filepath.Join(ak, "runs", "younger", "run.json"), `{"state":"stopped","lease_wait":{"on":"older"}}`)
-	holder := filepath.Join(ak, "runs", "older", "run.json")
-	put(t, holder, `{"state":"running"}`)
-	if !noLeaseRestart() {
-		t.Fatal("the holder is still going")
-	}
-	put(t, holder, `{"state":"pass","merged":true}`)
-	if noLeaseRestart() {
-		t.Fatal("a released lease was not handed over")
 	}
 }

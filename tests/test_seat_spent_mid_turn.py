@@ -61,7 +61,9 @@ class SpentMidTurn(SpentSeat):
         self.pane = REFUSED.replace("❯\u00a0\n", "❯\u00a0half a thought about the parser\n")
         self.assertIn("parser", self.pane)
         with patch.object(watch, "seat_editor", return_value=EDITOR), \
-                patch.object(watch, "_edit", return_value="line") as lifted:
+                patch.object(watch, "_edit",    # the text lifted out of the composer
+                             side_effect=lambda *_a: setattr(self, "pane", REFUSED) or "line") \
+                as lifted:
             self.tick()
         self.assertEqual(watch.seat_read(NAME)["state"], "draft")
         self.assertEqual([call.args[1:] for call in lifted.call_args_list], [(EDITOR, "line")])

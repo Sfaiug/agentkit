@@ -1604,8 +1604,9 @@ def owner_said(name, seat=None):
     return [message["at"] for message in owner_messages(name, seat)]
 
 
-def owner_messages(name, seat=None):
-    """The owner's messages, including which questions a native reply answers."""
+def owner_messages(name, seat=None, strict=False):
+    """The owner's messages, including which questions a native reply answers: none where the
+    record cannot be read, unless `strict` lets its OSError or ValueError through."""
     seat = seat or conversation_of(name)
     if seat is None or not seat[3]:
         return []
@@ -1613,6 +1614,8 @@ def owner_messages(name, seat=None):
     try:
         return plugin.user_messages(record, cwd, conversation, seat=name)
     except (OSError, ValueError):
+        if strict:
+            raise
         return []
 
 

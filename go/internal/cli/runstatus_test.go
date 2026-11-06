@@ -95,6 +95,21 @@ func TestRunStatusPassesOverAnUnreadableJob(t *testing.T) {
 	}
 }
 
+// A history.db Go leaves to Python ak leaves it the whole command: nothing printed, and the file
+// as it was.  Opening it may have cached SQLite's compiled code, which is no state of ak's.
+func TestRunStatusHistoryLeavesPythonsDatabaseToIt(t *testing.T) {
+	path := filepath.Join(sandbox(t), ".agentkit", "history.db")
+	write(t, path, "acme's notes, no database")
+	var out, errOut bytes.Buffer
+	if code := Main([]string{"run", "status", "--history"}, &out, &errOut); code != 3 || out.Len() > 0 ||
+		errOut.String() != "ak run status: not implemented in Go yet\n" {
+		t.Fatalf("got (%d, %q, %q)", code, out.String(), errOut.String())
+	}
+	if data, _ := os.ReadFile(path); string(data) != "acme's notes, no database" {
+		t.Fatalf("history.db now holds %q", data)
+	}
+}
+
 // A seat file nobody can read as a record, or one only pointing at a rename, adds nothing to
 // the scoreboard, so --history lists as it would without it.
 func TestRunStatusHistoryPassesOverWhatNoSeatRecords(t *testing.T) {

@@ -23,8 +23,9 @@ import (
 // or else starting one of its own.  The prompt is the file its words name, or else goes down its
 // stdin: never one argument, which Linux caps at 128 KiB.  Its stdout goes to events.jsonl and its
 // stderr to stderr.log in the out-dir, then the last result's text to final.md and the last
-// session id the events name to session_id.  It answers the harness's exit code, or 2 where it
-// starts none.
+// session id the events name to session_id, and where it failed what its harness says only in
+// that result after its stderr (harness.TurnFailed).  It answers the harness's exit code, or 2
+// where it starts none.
 func Turn(name string, args []string, errOut io.Writer) int {
 	if len(args) < 5 {
 		fmt.Fprintf(errOut, "%s run needs <model> <effort> <workspace> <prompt-file> <out-dir> [session-id]\n", name)
@@ -74,7 +75,9 @@ func Turn(name string, args []string, errOut io.Writer) int {
 		stdin = os.Stdin // it reads the prompt from the file itself
 	}
 	code := start(words, workspace, env, stdin, out, errOut)
-	summarize(out)
+	if result := summarize(out); code != 0 {
+		harness.TurnFailed(name, out, result)
+	}
 	return code
 }
 
@@ -128,12 +131,14 @@ func start(words []string, workspace string, env []string, stdin io.Reader, out 
 // summarize writes final.md and session_id from the turn's events as the Python adapters' jq
 // reads them: the last result event's `result`, and the last session id an event names, each
 // "" where it is null or false.  Events jq cannot read, not JSON or a value neither an object
-// nor null, leave both empty.
-func summarize(out string) {
+// nor null, leave both empty.  It answers that result event, nil for none or for events jq
+// cannot read.
+func summarize(out string) map[string]any {
 	data, err := os.ReadFile(filepath.Join(out, "events.jsonl"))
 	events := json.NewDecoder(bytes.NewReader(data))
 	events.UseNumber()
-	var result, session any
+	var result map[string]any
+	var session any
 	for err == nil {
 		var event any
 		if err = events.Decode(&event); errors.Is(err, io.EOF) {
@@ -144,7 +149,7 @@ func summarize(out string) {
 			err = errors.New("not an object")
 		}
 		if object["type"] == "result" {
-			result = object["result"]
+			result = object
 		}
 		if object["session_id"] != nil {
 			session = object["session_id"]
@@ -152,10 +157,13 @@ func summarize(out string) {
 	}
 	final, id := "", ""
 	if err == nil || errors.Is(err, io.EOF) {
-		final, id = line(result), line(session)
+		final, id = line(result["result"]), line(session)
+	} else {
+		result = nil
 	}
 	os.WriteFile(filepath.Join(out, "final.md"), []byte(final), 0o666)
 	os.WriteFile(filepath.Join(out, "session_id"), []byte(id), 0o666)
+	return result
 }
 
 // line is a value as `jq -r '. // ""'` prints it.

@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/lock"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
@@ -29,6 +30,7 @@ type Live struct {
 	Began        any
 	Stall, Login any      // the error the tick would type it back past, and its harness's words for a login out
 	Stuck        bool     // what it stopped on is login trouble or a blocked operation (watch.stuck_on)
+	Refused      string   // the refusal by its window its conversation's record ends on, which watch.seat_account takes
 	Bound        bool     // its session names the pane its launch created (orch.bind_pane has done its work)
 	Attached     bool     // a client is in it
 	Path         string   // where tmux says its session works
@@ -81,7 +83,7 @@ func seated(now time.Time) (Home, bool) {
 	if len(config.SeatFiles()) == 0 {
 		return Home{}, OnNoServer()
 	}
-	return Looking(now)
+	return TickHome(now)
 }
 
 // lived is the seat as Live reads it off that capture, false where its panes no longer run its
@@ -99,15 +101,17 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	if !seat.live || record == nil || err != nil || len(session) != 3 || exited {
 		return Live{}, false
 	}
-	if _, err := climbingOf(state, seat, found, seconds(now)).climb(); err != nil {
+	if !liveClimbs(state, seat, found, seconds(now)) {
 		return Live{}, false
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
 	conversation, cwd := record.Str("conversation"), record.Str("cwd")
 	recorded, kept := seat.reader.RecordedError(record)
-	line := recorded
+	line, refused := recorded, ""
 	if !kept {
 		line = outputLine(seen.rules.Said(tail))
+	} else if window, _ := harness.Refusal(seat.own, recorded); window {
+		refused = recorded
 	}
 	draft, drawn := seen.rules.ComposerDraft(pane)
 	if !drawn {
@@ -118,17 +122,17 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 		func(entry *run.Object) bool { return script.Prompted(seat.own, entry).Text != "" })
 	return Live{Name: seat.Name, Own: seat.own, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
-		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line),
+		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line), Refused: refused,
 		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2],
 		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: script.Moment(wrapped) != 0, Record: record, File: file}, true
 }
 
 // Health is the tick's look at a seat its panes run on (watch.health): its conversation's title read
 // on from where the last reading stopped, then under its announce lock one capture, read as Live
-// reads it.  Where ok says the look is all the tick does there, that capture is kept as
-// watch.live_state keeps it and the word published, as announce_state publishes it with no look of
-// its own, so what its last answer moved stays as it is.  False, with nothing published, where the
-// seat is not one Go reads or ok says otherwise.
+// reads it. Both ok and the account decision run before that capture is kept and its word
+// published, so unsupported recovery leaves no publish behind. The account decision may reopen
+// the seat through its shared launch path; a refusal its record ends on is instead waited on, the
+// wait written before the publish (waitOnUsage). False where either decision leaves work to Python.
 func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
@@ -151,9 +155,19 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		return false, err
 	}
 	carried := false
+	// that wait is written under every lifecycle change's lock, which watch.seat_account takes
+	// outside the announce lock, the meters read before either
+	readings, refusing := usageAhead(state, name, models)
+	if refusing {
+		held, err := lock.Wait(context.Background(), filepath.Join(state, "watch.lock"))
+		if err != nil {
+			return false, err
+		}
+		defer held.Close()
+	}
 	err = announcing(state, name, func() error {
 		now := time.Now()
-		home, seat, known := liveSeat(name, now, nil)
+		home, seat, known := liveSeat(name, now, nil, true)
 		if !known {
 			carried, err = home.healthGone(state, name, now)
 			return err
@@ -168,8 +182,25 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if carried = read && ok(live); !carried {
 			return nil
 		}
-		if strings.TrimFunc(pane, config.Space) == "" && found.authority != "hook" && !seat.hasActiveRun() {
+		var wait func() error
+		blank := strings.TrimFunc(pane, config.Space) == ""
+		if live.Refused != "" || refusing {
+			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's,
+			// as is one the look no longer reads, whose account move would take watch.lock again
+			if carried = readings != nil && live.Refused != "" && !blank; carried {
+				wait, carried = seat.waitOnUsage(state, live, readings, now, log)
+			}
+			if !carried {
+				return nil
+			}
+		}
+		if blank && found.authority != "hook" && !seat.hasActiveRun() {
 			return nil
+		}
+		if wait == nil { // a refusal is waited on, never moved from at its prompt
+			if carried, err = MoveAccount(live, log); !carried || err != nil {
+				return err
+			}
 		}
 		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
 		if err != nil {
@@ -178,9 +209,15 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if err := seat.askKeptBack(found); err != nil {
 			return err
 		}
-		found, err = seat.nudgeOpenWork(state, found, log)
-		if err != nil {
-			return err
+		if wait != nil {
+			if err := wait(); err != nil {
+				return err
+			}
+		} else if live.sameRecord() { // A relaunch consumed the old Stop; it cannot nudge the replacement harness.
+			found, err = seat.nudgeOpenWork(state, found, log)
+			if err != nil {
+				return err
+			}
 		}
 		if err := seat.decided(state, found, seconds(now), live.Attached); err != nil {
 			return err

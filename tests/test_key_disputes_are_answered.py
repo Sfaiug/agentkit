@@ -50,7 +50,8 @@ class Conceded(unittest.TestCase):
         heads = [summary["head_sha"] for summary in self.state["round_summaries"]]
         self.assertEqual(heads[0], heads[1])
         prompt = Path(self.fakes["codex"].runs()[1]["argv"][3]).read_text()
-        for text in ("ak hand-in finding", "ak hand-in concede", "done waits"):
+        # the dispute is shown; how to answer it, done's refusal names (above)
+        for text in ("Dispute: it is right", "hand it in again to uphold it", "ak hand-in finding"):
             self.assertIn(text, prompt)
 
     def test_concede_has_help_outside_a_worker_turn(self):

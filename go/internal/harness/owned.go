@@ -16,7 +16,7 @@ func Owned(name string, record map[string]any) (string, bool) {
 	if own.receipt != "" {
 		return "", record[own.receipt] == nil
 	}
-	if plugged && !own.opens {
+	if plugged && !own.opens && (own.launch == nil || record["conversation"] == nil || record["conversation"] == "") {
 		return "", false
 	}
 	conversation, isText := record["conversation"].(string)
@@ -44,7 +44,8 @@ func Opened(name string, record map[string]any) (opened, known bool) {
 	hook := plugins[name].conversation
 	if hook == nil {
 		_, plugged := plugins[name]
-		return !plugged, !plugged
+		known := !plugged || plugins[name].launch != nil
+		return known, known
 	}
 	_, err := os.Stat(hook(record))
 	return err == nil, true

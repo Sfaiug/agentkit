@@ -1011,7 +1011,12 @@ def routine_ending(state, records=None):
     """A delivery recorded, never typed: a repair, a seat owing nothing, or no move waiting
     on it and no prompt context to ride.  Repairs' parked runs retry by themselves; their
     going live may still end a seat's wait.  Delivery already settled its plan checks
-    (`settle_delivered_line`), so a check still failing is work the seat owes.  Read only."""
+    (`settle_delivered_line`), so a check still failing is work the seat owes.  Any ending of
+    an ordered job's task is recorded too: the job's one line says it (`job.in_order`).
+    Read only."""
+    from . import job as jobs  # here, not at the top: it reaches run
+    if jobs.in_order(state):
+        return True
     if not transitions.delivered(state):
         return False
     return (bool(state.get("repair")) or seat_owes_nothing(state)
@@ -1089,9 +1094,11 @@ def ending_rides(state, records=None):
 
 def live_owed(state, records=None):
     """Whether its seat still has to hear that this merged change is live, by waking for its
-    next move (`ends_wait`) or in its next prompt's context (`rides`); otherwise recorded."""
+    next move (`ends_wait`) or in its next prompt's context (`rides`); otherwise recorded, as
+    is that of an ordered job's task (`job.in_order`)."""
+    from . import job as jobs  # here, not at the top: it reaches run
     return bool(state.get("merged") and state.get("live_at") and not state.get("live_notified")
-                and not seat_owes_nothing(state)
+                and not seat_owes_nothing(state) and not jobs.in_order(state)
                 and (ends_wait(state, records) or rides(state, records)))
 
 
@@ -1806,8 +1813,8 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
                               handback_note=ROUTINE_NOTE, handback_pending=None,
                               handback_typed=None, handback_wait_reason=None,
                               notification_pending=None)
-        log(f"run {run_dir.name} ended {'merged' if state.get('merged') else 'not needed'}: "
-            "recorded, not typed")
+        word = "merged" if state.get("merged") else str(state.get("state")).replace("_", " ")
+        log(f"run {run_dir.name} ended {word}: recorded, not typed")
         # The seat reads result.md and its plan, never the checkout: the ending is history.
         worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
         return

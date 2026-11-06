@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestMenuStopHandoffAndDetachedCleanup(t *testing.T) {
@@ -13,15 +11,13 @@ func TestMenuStopHandoffAndDetachedCleanup(t *testing.T) {
 		t.Skip("no tmux installed")
 	}
 	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 	program := filepath.Join(t.TempDir(), "ak")
-	build := exec.CommandContext(ctx, "go", "build", "-o", program, "./cmd/ak")
+	build := exec.Command("go", "build", "-o", program, "./cmd/ak")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import fcntl, json, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))

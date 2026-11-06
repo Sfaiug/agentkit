@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -158,15 +157,4 @@ func MachineNames() []string {
 		names = append(names, helper)
 	}
 	return names
-}
-
-// NotRenting is `ak doctor`'s line on the machines ak rents, as Python's google_cloud.said words
-// it with no key to sign in with. False where it must read more: ak may rent, whose ledger is the
-// answer, or a key is there, with which Python asks Google.
-func NotRenting() (string, bool) {
-	_, err := os.Stat(filepath.Join(Home(), "secrets", "google-cloud.json"))
-	if MayRent() || !errors.Is(err, fs.ErrNotExist) {
-		return "", false
-	}
-	return "not set up: no Google service-account key at ~/.agentkit/secrets/google-cloud.json", true
 }

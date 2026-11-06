@@ -18,8 +18,8 @@ func TestAnEmptyHistoryNamesTheFirstGrowingSizeOtherwiseTheFirstKnown(t *testing
 			"the largest loss is ak's README words, 20 against 10 the week before"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			board := scoreBoard{[2][]measure{each.current, each.before}}
-			if got := board.loss(); got != each.want {
+			b := board{sizes: [2][]measure{each.current, each.before}}
+			if got := b.loss(); got != each.want {
 				t.Fatal(got)
 			}
 		})

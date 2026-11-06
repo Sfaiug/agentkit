@@ -99,7 +99,6 @@ class FollowupRule(unittest.TestCase):
                               "existed before this task",
                               "prove that with `--before 'base or ancestor commit, or verbatim lines from the named file at base'`",
                               "Hand them in with `ak hand-in follow-up",
-                              "Omit everything else everywhere",
                               "however long the follow-ups list is"):
                     self.assertIn(words, preamble)
 

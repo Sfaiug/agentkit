@@ -1788,9 +1788,11 @@ def workers(cfg):
     return session["workers"] if session else list(cfg["defaults"]["workers"])
 
 
-def reviewers(cfg):
-    """An omitted reviewer selection uses that same record's workers, never another seat's."""
-    selection = active_session(cfg) or cfg["defaults"]
+def reviewers(cfg, seat=None):
+    """The reviewers `seat` marks, else the seat this runs in, else [defaults]'s.  An omitted
+    reviewer selection uses that same record's workers, never another seat's."""
+    selection = ((load_session(cfg, seat, required=False) if seat else active_session(cfg))
+                 or cfg["defaults"])
     return list(selection.get("reviewers", selection["workers"]))
 
 
@@ -1837,7 +1839,7 @@ def role_groups(cfg, workers=None, reviewers=None):
     return workers, reviewers
 
 
-def adapter(harness):
+def adapter(harness, code=None):
     """adapters/<harness>.sh, the script that runs one harness: the adapter contract.
 
     A harness is that script, adapters/<harness>.toml beside it (`manifest`), a `[models.<name>]`
@@ -1897,7 +1899,7 @@ def adapter(harness):
     $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each
     manifest table is explained at the code that reads it.
     """
-    path = adapter_path(harness)
+    path = adapter_path(harness, code)
     if not path.exists():
         raise Error(f"no adapter for harness {harness!r}: {path} does not exist")
     if not os.access(path, os.X_OK):
@@ -1905,9 +1907,11 @@ def adapter(harness):
     return path
 
 
-def adapter_path(harness):
-    """Where `adapter` looks for that harness's script, there or not."""
-    return Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser() / f"{harness}.sh"
+def adapter_path(harness, code=None):
+    """Where `adapter` looks for that harness's script, there or not: in the checkout `code`, this
+    one unless given, where no adapter directory is named."""
+    folder = os.environ.get(ADAPTER_DIR_ENV) or (code or REPO) / "adapters"
+    return Path(folder).expanduser() / f"{harness}.sh"
 
 
 def run_adapter(argv, timeout, env=None):

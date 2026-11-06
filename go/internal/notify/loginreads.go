@@ -4,13 +4,11 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 	"agentkit/internal/lock"
+	"agentkit/internal/logins"
 	"agentkit/internal/run"
 )
 
@@ -59,7 +57,7 @@ func QuietLogins() (bool, error) {
 			ends, ending := finite(last.Get("ends"))
 			if !dated || now-checked < 0 || now-checked >= 3600 || ending && ends-now <= 7*86400 {
 				last = last.Copy()
-				if answer := loginEnd(sub.Harness, account); answer != nil {
+				if answer := logins.Ask(sub.Harness, account); answer != nil {
 					run.SetAll(last, "email", answer.Get("email"), "ends", answer.Get("ends"), "plan", answer.Get("plan"))
 				}
 				last.Set("checked_at", run.Float(now))
@@ -80,45 +78,4 @@ func QuietLogins() (bool, error) {
 		}
 	}
 	return quiet, nil
-}
-
-func loginEnd(harness, account string) *run.Object {
-	adapter, err := config.Adapter(harness)
-	if errors.Is(err, config.ErrNoAdapterDir) {
-		adapter, err = config.ShippedAdapter(harness)
-	}
-	if err != nil || harness == "" {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, adapter, "login-end")
-	if account == "default" {
-		account = ""
-	}
-	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT="+account)
-	cmd.WaitDelay = time.Second
-	host.AdapterCall(cmd)
-	out, err := cmd.Output()
-	if err != nil {
-		return nil
-	}
-	value, err := run.Decode(out)
-	answer, ok := value.(*run.Object)
-	if err != nil || !ok {
-		return nil
-	}
-	for _, key := range []string{"email", "plan"} {
-		if value := answer.Get(key); value != nil {
-			if text, ok := value.(string); !ok || text == "" {
-				return nil
-			}
-		}
-	}
-	if answer.Get("ends") != nil {
-		if _, ok := finite(answer.Get("ends")); !ok {
-			return nil
-		}
-	}
-	return answer
 }

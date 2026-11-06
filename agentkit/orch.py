@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, look, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage
+from . import aside_editor, command_help, config, gitcall, guard, host, look, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage, versions
 from . import record as run_record
 from .harness import LAUNCHER, load as harness_plugin
 
@@ -279,7 +279,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     its manifest says it takes one (`takes_line`); none is passed on from this process.
     """
     entry = config.model(cfg, name)
-    adapter = config.adapter(entry["harness"])
+    adapter = config.adapter(entry["harness"], versions.live())
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
     told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook),
             config.FIRST_PROMPT_ENV: line or ""}
@@ -306,7 +306,7 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     # ak's editor is the seat's own, so the owner's unsent text can be set aside for a line of
     # ak's (agentkit/aside_editor.py)
     cmd = ["env", *(f"{key}={value}" for key, value in config.account_env(account).items()),
-           *aside_editor.launch_env(os.environ), *cmd]
+           *aside_editor.launch_env(os.environ, versions.live()), *cmd]
     # a seat's only instructions are its rulebook: a file its harness reads on its own, and
     # cannot be told not to, is refused rather than read beside it -- looked for in the home
     # the seat's own line runs the harness from, an account's where the adapter keeps one
@@ -1126,10 +1126,11 @@ def tmux_env(client=False):
     Inside somebody else's tmux, $TMUX is what a bare tmux command would follow -- so it goes,
     and the server named on the command line is the only one that can be reached.  Only
     `switch-client` keeps it, because without it there is no client to switch.  The mark goes
-    from every one (`owner`): any may start a server, whose global environment is the starting
-    client's, and the server outlives it.
+    from every one (`owner`), and so does the version a run is pinned to (`versions.unpinned`):
+    any may start a server, whose global environment is the starting client's, a pane takes the
+    PATH of the client that spawns it, and both outlive the caller.
     """
-    return {k: v for k, v in owner.unmarked().items() if client or k != "TMUX"}
+    return {k: v for k, v in versions.unpinned(owner.unmarked()).items() if client or k != "TMUX"}
 
 
 def tmux_out(*args, socket=None, client=False, unit=None, timeout=None, path_shim=False,
@@ -1996,10 +1997,10 @@ def tmux_text(text):
 
 
 def popup_command():
-    """What `Ctrl-b m` runs: this checkout's `ak attach --overlay`, on the interpreter it is
-    installed against, from the warm server (`warm`), started bare: the client imports only
-    what the interpreter is built with."""
-    return shlex.join([sys.executable, "-S", "-I", str(config.REPO / "agentkit" / "warm.py"),
+    """What `Ctrl-b m` runs: the live checkout's `ak attach --overlay` (`versions.live`), on the
+    interpreter it is installed against, from the warm server (`warm`), started bare: the client
+    imports only what the interpreter is built with."""
+    return shlex.join([sys.executable, "-S", "-I", str(versions.live() / "agentkit" / "warm.py"),
                        "attach", "--overlay"])
 
 
@@ -2100,7 +2101,7 @@ def hook_options():
     `Pane is dead`; a tmux before 3.3 has no option for that, and `-q` keeps it quiet.
     """
     from . import watch   # here, not at the top: watch imports this module
-    ak = shlex.join([sys.executable, str(config.REPO / "bin" / "ak"), "orch"])
+    ak = shlex.join([sys.executable, str(versions.live() / "bin" / "ak"), "orch"])
     log = shlex.quote(str(watch.log_path()))
 
     def job(verb):
@@ -2184,15 +2185,15 @@ def seat_command(name, cmd, socket=None):
 
 def seat_env(name, server):
     """A seat gets the caller's state and delivery boundary, not its server's old one, and no
-    `ak`'s mark (`owner`) or seat's tag, whatever its server holds: it outlives the `ak` that
-    opens it, and is no seat's side session.
+    `ak`'s mark (`owner`), seat's tag or run's checkout (`versions.CODE_ENV`), whatever its server
+    holds: it outlives the `ak` that opens it, and is no seat's side session.
 
     It names its server only where its HOME would not: a seat carrying `agentkit` took an `ak`
     opened inside it under a scratch HOME to the seats' server, past that HOME's own."""
     from . import notify
     values = {"HOME": str(Path.home()), config.SESSION_ENV: name,
               SOCKET_ENV: None if server == home_socket() else server,
-              owner.MARK: None, guard.TMUX_OWNER: None}
+              owner.MARK: None, guard.TMUX_OWNER: None, versions.CODE_ENV: None}
     for key in sorted(config.state_env_names() | set(notify.ENV_NAMES)):
         if key not in values:
             values[key] = os.environ.get(key)
@@ -4857,6 +4858,9 @@ def main(argv):
         return cmd_project(argv[1:])
     if argv[:1] == ["rules"]:
         return cmd_rules(argv[1:])
+    if argv[:1] == ["check"]:
+        from . import done_check   # here, not at the top: it reaches this module through notify
+        return done_check.main(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
     if not dry_run:
         maintenance()

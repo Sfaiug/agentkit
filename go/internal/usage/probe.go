@@ -31,29 +31,29 @@ const (
 // host, Python's usage._probe_gently: the moment is written in its probe lock, under that lock,
 // as the ask goes out, so a caller waiting on the lock reads the answer instead of asking again.
 func gently(src source) *run.Object {
-	path := filepath.Join(state(), src.Name+"-probe.lock")
+	path := filepath.Join(state(), src.key()+"-probe.lock")
 	held, err := lockFile(path)
 	if err != nil { // no lock to take: still one probe
 		now := clock()
 		fresh := probe(src, now)
-		noteRetry(src.Name, fresh, clock())
-		cached := cachedProvider(src.Name)
+		noteRetry(src.key(), fresh, clock())
+		cached := src.cached()
 		return onto(cached, kept(cached, fresh, now), now)
 	}
 	defer held.Close()
-	cached := cachedProvider(src.Name)
+	cached := src.cached()
 	every := src.facts.ProbeEvery
 	if every <= 0 {
 		every = probeEvery
 	}
-	if cooling(src.Name, every) {
+	if cooling(src.key(), every) {
 		return cached
 	}
 	now := clock()
 	os.WriteFile(path, []byte(run.Float(now)), 0o666)
 	fresh := probe(src, now)
-	noteRetry(src.Name, fresh, clock())
-	return patch(src.Name, kept(cached, fresh, now))
+	noteRetry(src.key(), fresh, clock())
+	return patch(src, kept(cached, fresh, now))
 }
 
 // probe is that provider's reading as its adapter's `usage` verb answers it now, Python's
@@ -72,7 +72,7 @@ func probe(src source, now float64) *run.Object {
 	if src.facts.Capture {
 		limit = captureCap
 	}
-	data, said := answer(adapter, name, src.Name, limit)
+	data, said := answer(adapter, name, src, limit)
 	out := fields("provider", src.Name, "harness", src.Harness, "via", src.Via, "meters", []any{}, "error", data.Get("error"),
 		"pace", nil, "resets", src.resets(), "exhausted", false, "probed_at", now)
 	var credits any = "unlimited"
@@ -130,7 +130,7 @@ func probe(src source, now float64) *run.Object {
 			}
 		}
 		var loggedIn any
-		if answered, yes, _ := worker.Login(adapter, append(told, "AGENTKIT_PROVIDER="+src.Name)); answered {
+		if answered, yes, _ := worker.Login(adapter, append(told, config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)); answered {
 			loggedIn = yes
 		}
 		out.Set("logged_in", loggedIn)
@@ -151,7 +151,7 @@ func (src source) resets() any {
 	ctx, cancel := context.WithTimeout(context.Background(), probeCap)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, src.adapter, "reset-status")
-	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+src.Name)
+	cmd.Env = append(os.Environ(), config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)
 	cmd.WaitDelay = time.Second
 	host.AdapterCall(cmd)
 	said, err := cmd.Output()
@@ -170,17 +170,17 @@ func (src source) resets() any {
 	return max(0, available)
 }
 
-// answer is the JSON object the adapter's `usage` printed for the usual login of that provider,
-// or one saying why there is none, and whether it is the adapter's own answer, whose error the
-// `auth` question may be asked about.
-func answer(adapter, name, provider string, limit time.Duration) (*run.Object, bool) {
+// answer is the JSON object the adapter's `usage` printed for the source's login, or one saying why
+// there is none, and whether it is the adapter's own answer, whose error the `auth` question may be
+// asked about.
+func answer(adapter, name string, src source, limit time.Duration) (*run.Object, bool) {
 	failed := func(why string) (*run.Object, bool) {
 		return fields("meters", []any{}, "error", "unknown: "+name+" usage "+why), false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), limit)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, adapter, "usage")
-	cmd.Env = append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+provider)
+	cmd.Env = append(os.Environ(), config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)
 	cmd.WaitDelay = time.Second
 	host.AdapterCall(cmd)
 	out, err := cmd.Output()
@@ -232,22 +232,22 @@ func refused(error string) bool {
 	return false
 }
 
-// cooling is whether that provider's adapter was asked inside every seconds, by the moment its
-// lock holds, or its last refusal named a not-before still ahead.
-func cooling(provider string, every float64) bool {
+// cooling is whether the adapter was asked inside every seconds for the login key names
+// (source.key), by the moment its lock holds, or its last refusal named a not-before still ahead.
+func cooling(key string, every float64) bool {
 	now := clock()
-	if asked, ok := readNumber(filepath.Join(state(), provider+"-probe.lock")); ok && now-asked >= 0 && now-asked < every {
+	if asked, ok := readNumber(filepath.Join(state(), key+"-probe.lock")); ok && now-asked >= 0 && now-asked < every {
 		return true
 	}
-	until, ok := readNumber(filepath.Join(state(), provider+"-probe.retry"))
+	until, ok := readNumber(filepath.Join(state(), key+"-probe.retry"))
 	return ok && now < until
 }
 
 // noteRetry writes down the Retry-After the ask came back with, as a not-before beside the lock,
 // so deleting the snapshot buys no earlier ask.
-func noteRetry(provider string, fresh *run.Object, now float64) {
+func noteRetry(key string, fresh *run.Object, now float64) {
 	if secs, ok := number(fresh.Get("retry_after")); ok && secs > 0 && config.EnsureDirs() == nil {
-		os.WriteFile(filepath.Join(state(), provider+"-probe.retry"), []byte(run.Float(now+secs)), 0o666)
+		os.WriteFile(filepath.Join(state(), key+"-probe.retry"), []byte(run.Float(now+secs)), 0o666)
 	}
 }
 

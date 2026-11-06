@@ -38,7 +38,7 @@ func (t *ticking) endings() error {
 		if _, sweep := run.Reap(record); sweep {
 			return false
 		}
-		// a run from no seat has nobody to tell of its ending (handback.announce)
+		// launched from no seat, a run has nobody to hand its ending back to (handback.announce)
 		told := handback.Awaiting(record, t.clock()) && (run.Seat(record) != "" || !run.Ended(record))
 		if told && !seat.Watching(run.Seat(record)) {
 			return false

@@ -45,18 +45,23 @@ func waitConfigCatalog(harness, title string, cells []menu.Cell, keyboard *termi
 		keyboard.Wake()
 	}()
 	defer func() { cancel(); <-ended }()
+	var typed []terminal.Key // for the screen the catalog opens
 	for {
 		select {
 		case got := <-result:
+			keyboard.Unread(typed...)
 			return got.choices, got.err
 		default:
 		}
 		key := keyboard.ReadKey()
-		if key.Name == "esc" || key.Name == "eof" {
+		switch key.Name {
+		case "esc", "eof":
 			return nil, context.Canceled
-		}
-		if key.Name == "again" {
+		case "again":
 			painter.Forget()
+		case "wake":
+		default:
+			typed = append(typed, key)
 		}
 		draw()
 	}

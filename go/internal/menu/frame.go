@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"cmp"
 	"math"
 	"slices"
 	"strconv"
@@ -39,11 +40,15 @@ type Seat struct {
 }
 
 // A Cell is a subscription on the grid: Left is 1 to 100 with a meter, 0 for credits, -1 for none;
-// Ending is a login about to end, its meter amber.
+// Ends is what is said of a login about to end, its meter amber meanwhile.  The rest is what
+// Subscriptions says of it: its provider and account ("" for a provider's one login), the company
+// it sits under and that company's colour, the harness that signs it in, the resets it holds and
+// whose login it is.
 type Cell struct {
-	Label, Said string
-	Left        int
-	Ending      bool
+	Label, Said, Ends                           string
+	Left                                        int
+	Provider, Account, Company, Colour, Harness string
+	Held, Email, Plan                           string
 }
 
 // A View is everything the frame is drawn from.
@@ -593,10 +598,21 @@ func projectPages(projects []pageProject, room int, opens map[string]int) [][]ro
 // label, a meter (`▰` left, `▱` spent) and what it says.  What a cell says is whole: the labels give
 // way to the longest, and a width with no room for a label beside it has no grid.
 func usageLines(s terminal.Screen, cells []Cell, width int) []string {
+	return meterLines(s, cells, width, max(1, min(3, width/(cellSize+2))), -1, nil)
+}
+
+// meterLines is usageLines per cell to a line, cell lit (from 0; -1 for none) with its label and its
+// meter's filled cells in its company's colour and its login's amber left to the line under it, and
+// took, where given, handed each cell's text that takes that colour: its cell, its column from 1,
+// the text and what it is drawn in at rest, "" for plain.
+func meterLines(s terminal.Screen, cells []Cell, width, per, lit int, took func(cell, column int, text, rest string)) []string {
 	if len(cells) == 0 {
 		return nil
 	}
-	per, room := max(1, min(3, width/(cellSize+2))), min(cellSize, width-2)
+	if took == nil {
+		took = func(int, int, string, string) {}
+	}
+	room := min(cellSize, width-2)
 	saidRoom, labelWide := 0, 0
 	cells = slices.Clone(cells)
 	for i, each := range cells {
@@ -621,12 +637,23 @@ func usageLines(s terminal.Screen, cells []Cell, width int) []string {
 	var lines []string
 	for start := 0; start < len(cells); start += per {
 		var parts []string
-		for _, each := range cells[start:min(start+per, len(cells))] {
+		for n, each := range cells[start:min(start+per, len(cells))] {
+			ink, rest, column := "", "", 3+n*(cellSize+2)
+			if start+n == lit {
+				ink = each.Colour
+			}
+			if each.Ends != "" {
+				rest = "amber"
+			}
 			shown := terminal.Cut(each.Label, labelRoom)
+			took(start+n, column, shown, "")
 			text := shown + strings.Repeat(" ", labelRoom-terminal.Cells(shown)+2)
+			if ink != "" {
+				text = s.Styled(shown, ink) + text[len(shown):]
+			}
 			if each.Left <= 0 {
 				switch {
-				case each.Ending:
+				case each.Ends != "" && ink == "":
 					text += s.Styled(each.Said, "amber")
 				case each.Left < 0:
 					text += s.Styled(each.Said, "dim")
@@ -636,8 +663,9 @@ func usageLines(s terminal.Screen, cells []Cell, width int) []string {
 			} else {
 				filled := max(1, roundHalfEven(meter*each.Left, 100))
 				bar := strings.Repeat(full, filled)
-				if each.Ending {
-					bar = s.Styled(bar, "amber")
+				took(start+n, column+labelRoom+2, bar, rest)
+				if fill := cmp.Or(ink, rest); fill != "" {
+					bar = s.Styled(bar, fill)
 				}
 				text += bar + s.Styled(strings.Repeat(empty, meter-filled), "dim") + "  " + each.Said
 			}

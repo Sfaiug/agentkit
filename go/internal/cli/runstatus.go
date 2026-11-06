@@ -13,6 +13,8 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/run"
@@ -80,7 +82,16 @@ func runStatus(args []string, out, errOut io.Writer) int {
 		}
 	}
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
-	if no {
+	var db *history.DB
+	defer func() { db.Close() }()
+	// opened before a line is printed: a database Go leaves to Python ak leaves it the command;
+	// decided on while the reap holds its runs, so neither is written where the other refuses
+	if no || !reaped(entries, func() (err error) {
+		if showHistory && wanted == "" && !machine {
+			db, err = history.Open()
+		}
+		return err
+	}) {
 		return notImplemented(errOut, "run status")
 	}
 	for i := range entries {
@@ -164,24 +175,41 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
-		fmt.Fprintln(out, strings.Join(scoreboard(screen, now), "\n"))
+		fmt.Fprintln(out, strings.Join(append(scoreboard(screen, db, now), sizeLines(db)...), "\n"))
 	}
 	return 0
 }
 
-// listing is every readable record and the runs a listing shows, each as Python's reap leaves
-// it, or none, and true, where Go leaves the listing to Python (`refused`).
+// listing is every readable record and the runs a listing shows, or none, and true, where Go
+// leaves the listing to Python (`refused`).
 func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, bool) {
 	every, entries := records(seat, wanted)
 	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
 		return nil, nil, true
 	}
-	for i, entry := range entries {
-		if !entry.unreadable {
-			entries[i].record, _ = run.Reap(entry.record)
+	return every, entries, false
+}
+
+// reaped is whether each run listed is now as Python's reap leaves it: an ended one as run.Reap
+// leaves it, the ones handback reaps reaped together, decide made before they are swept.  False
+// where one moved on to a reap Go leaves to Python, decide refused, or a stamp went unwritten.
+func reaped(entries []listed, decide func() error) bool {
+	var swept []*listed
+	var dirs []string
+	for i := range entries {
+		switch entry := &entries[i]; {
+		case entry.unreadable:
+		case handback.Reapable(entry.record):
+			swept, dirs = append(swept, entry), append(dirs, entry.dir)
+		default:
+			entry.record, _ = run.Reap(entry.record)
 		}
 	}
-	return every, entries, false
+	records, err := handback.Reap(dirs, decide)
+	for i, record := range records {
+		swept[i].record = record
+	}
+	return err == nil
 }
 
 // records are every readable record, and the runs a listing reads: the one wanted, smoke run
@@ -229,22 +257,22 @@ func look(record *run.Object) (bool, error) {
 	return marked, nil
 }
 
-// actedOn is whether Python's reap would act on the run: end processes it left behind, or
-// reap one neither running, stalled nor ended, a running one whose loop is gone, or a place in
-// a landing line, which Go leaves to Python.
+// actedOn is whether Python's reap would act on the run as Go does not: end processes it left
+// behind, or reap one neither running, stalled nor ended, past what handback.Reap does, a running
+// one whose loop is gone, or a place in a landing line, which Go leaves to Python.
 func actedOn(record *run.Object) bool {
 	_, owed := run.Reap(record)
 	state := record.Str("state")
-	return owed || state != "running" && state != "stalled" && !run.Ended(record) ||
+	return owed || state != "running" && state != "stalled" && !run.Ended(record) && !handback.Reapable(record) ||
 		state == "running" && !run.ProcessActive(record) || run.InLine(record)
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a job it shows,
-// a run its reap or a look at it acts on, and with --json or --history what history.db and
-// the seats would add; one run named shows no job and no scoreboard.
+// a run its reap or a look at it acts on, with --json what history.db would add, and with
+// --history the seats' tokens; one run named shows no job and no scoreboard.
 func refused(entries []listed, seat, wanted string, showHistory, machine bool, now time.Time) bool {
 	listing := showHistory && wanted == ""
-	if exists(filepath.Join(config.Home(), "history.db")) && (machine || listing) {
+	if exists(history.Path()) && machine {
 		return true
 	}
 	if listing && seatRecorded() {
@@ -258,6 +286,10 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 			continue
 		}
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
+			return true
+		}
+		// a run with review off or no limit is Python's whole, its status too
+		if !run.Carries(entry.record) {
 			return true
 		}
 	}
