@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"slices"
 	"strings"
 
 	"agentkit/internal/config"
@@ -38,10 +39,20 @@ var errCards = errors.New("question cards in a conversation only Python reads")
 // says yet.
 var errParked = errors.New("a parked run's block, which Python words")
 
+// A verdict is how a Stop goes, judged before anything of it is written: the reason it goes back
+// with, "" where it stands, under the latch's mark; and the question the owner is asked anew, ""
+// for none.
+type verdict struct {
+	reason, mark string
+	value        any
+	owner        string
+}
+
 // stopHeld is Python's `held` in hooks/orchestrator-stop.sh: the reason this Stop goes back with, ""
 // where it stands, each step in Python's order.  The latch the prompt hook writes holds the turn
-// and what went back in it.  The error is a read Go cannot make as Python does, found before
-// anything is written.
+// and what went back in it.  ak's own question how the seat goes on is no fact of the seat's: it
+// goes, alone, once the seat's own facts may end the turn, and nothing changes while it is still
+// stuck.  The error is a read Go cannot make as Python does, found before anything is written.
 func stopHeld(launched, name string, record map[string]any, harness string, event *run.Object) (string, error) {
 	if reason := event.Get("terminationReason"); reason != nil && reason != "" && reason != "NO_TOOL_CALL" {
 		return "", nil // a cancelled or failed termination is no turn ending on its words
@@ -56,79 +67,110 @@ func stopHeld(launched, name string, record map[string]any, harness string, even
 	}
 	end := transcript.Read(harness, event.Str("transcript_path"))
 	said, read := lastSaid(event, end.Said)
-	delivery := seat.Reminder(name, said)
-	if delivery == "" && (lifecycle.WaitsOn(event) || !read) {
-		return "", nil
-	}
-	asked := end.Asking || notify.NeededSince(name, turn) || seat.Kept(name) || notify.OwnerQuestion(notify.Last(name))
+	pending := seat.Pending(name)
+	own := slices.DeleteFunc(slices.Clone(pending), akAsked)
+	asked := end.Asking || slices.ContainsFunc(notify.NeededSince(name, turn), seatAsked) || len(own) > 0
 	ends, parked, err := recordedEnding(name, record, asked, turn)
 	if err != nil {
 		return "", err
 	}
 	unsure := end.Unread && !asked // a card Go cannot see would have asked
-	if ends && delivery == "" {
-		return ended(launched, name, turned, asked, unsure, said)
+	unasks := len(own) < len(pending)
+	if unasks && !ends && !lifecycle.WaitsOn(event) {
+		if unsure {
+			return "", errCards // a question asked would have ended it
+		}
+		return "", nil // still stuck: the owner was asked once, and nothing has changed
 	}
-	return counted(launched, name, turned, ends, parked, unsure, delivery, said, record["unnamed"] == true)
+	delivery := seat.Reminder(said, own)
+	var judged verdict
+	switch {
+	case delivery == "" && (lifecycle.WaitsOn(event) || !read):
+	case ends && delivery == "":
+		judged, err = ended(name, turned, asked, unsure, said)
+	default:
+		judged, err = counted(launched, turned, ends, parked, unsure, delivery, said, record["unnamed"] == true)
+	}
+	if err != nil {
+		return "", err
+	}
+	if unasks {
+		if err := seat.Unask(name, stuck); err != nil {
+			return "", err
+		}
+	}
+	if judged.owner != "" {
+		seat.Keep(name, judged.owner)
+	}
+	if judged.mark == "" {
+		return "", nil
+	}
+	return latched(launched, turned, judged.mark, judged.value, judged.reason), nil
 }
+
+// akAsked is whether the question is ak's own, how the seat goes on; seatAsked whether it is not.
+func akAsked(question string) bool   { return strings.HasPrefix(question, stuck) }
+func seatAsked(question string) bool { return !akAsked(question) }
 
 // ended is a turn that may end: one that reached the live host and wrote nothing of it goes back
 // once to write it down, and one ending on a question in prose alone once to ask it.
-func ended(launched, name string, turned *run.Object, asked, unsure bool, said string) (string, error) {
+func ended(name string, turned *run.Object, asked, unsure bool, said string) (verdict, error) {
 	live := !asked && !turned.Truthy("live_back") && plan.LiveUnrecorded(name)
 	if !live && (asked || turned.Truthy("asked_back") || !trailsQuestion(said)) {
-		return "", nil
+		return verdict{}, nil
 	}
 	if unsure {
-		return "", errCards
+		return verdict{}, errCards
 	}
 	if live {
-		return latched(launched, turned, "live_back", true, liveLine), nil
+		return verdict{reason: liveLine, mark: "live_back", value: true}, nil
 	}
 	if refused, err := seat.QuestionRefused(name); refused != "" || err != nil {
-		return "", err
+		return verdict{}, err
 	}
-	return latched(launched, turned, "asked_back", true, ask), nil
+	return verdict{reason: ask, mark: "asked_back", value: true}, nil
 }
 
 // counted is a turn that may not end, or must still say what it asked: it goes back limit times,
 // and the next stop stands, the owner asked how the seat goes on where it holds work open.
-func counted(launched, name string, turned *run.Object, ends, parked, unsure bool, delivery, said string, unnamed bool) (string, error) {
+func counted(launched string, turned *run.Object, ends, parked, unsure bool, delivery, said string, unnamed bool) (verdict, error) {
 	blocks, _ := turned.Int("blocks")
 	over := blocks+1 > limit
 	if unsure && (over && !ends && !parked || !over && delivery == "") {
-		return "", errCards
+		return verdict{}, errCards
 	}
 	if blocks++; over {
 		if !ends && !parked {
-			askOwner(name, said)
+			return verdict{owner: stuckQuestion(said)}, nil
 		}
-		return "", nil
+		return verdict{}, nil
 	}
 	reason := delivery
 	switch {
 	case reason != "":
 	case parked:
-		return "", errParked
+		return verdict{}, errParked
 	case unnamed:
 		reason = seat.NameLine
 	default:
 		reason = reasonLine
 	}
 	turned.Set("session", launched)
-	return latched(launched, turned, "blocks", blocks, reason), nil
+	return verdict{reason: reason, mark: "blocks", value: blocks}, nil
 }
 
-// askOwner keeps back for this turn's end the owner's question, the seat's last words after it,
-// the end of them where they run long, as Python's `asked_owner` does.
-func askOwner(name, said string) {
+// stuckQuestion is the owner's question how the seat goes on, kept back for this turn's end: the
+// seat's last words after it, the end of them where they run long, as Python's `asked_owner` words
+// it; "" where it cannot be asked.
+func stuckQuestion(said string) string {
 	words := []rune(strings.Join(strings.FieldsFunc(said, config.Space), " "))
 	if len(words) > 200 {
 		words = append([]rune("…"), words[len(words)-199:]...)
 	}
 	if question := stuck + " " + string(words); notify.AsksFirst(question) == nil {
-		seat.Keep(name, question)
+		return question
 	}
+	return ""
 }
 
 // latched is the reason, once the latch holds key's value; "" where it could not be written.
