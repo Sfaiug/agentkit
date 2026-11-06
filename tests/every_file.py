@@ -26,8 +26,7 @@ file lists run, whatever the share, smoke.sh's among them, each named in the fil
 A file may name its failing parts, one per line, in the file FAILED_PARTS names (no AK_ name,
 as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
 gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
-lists.  It may give the seconds of those that passed, as the record holds them, in the file
-PART_TIMES names: each is printed as `<file>::<part>`'s whatever the rest did, the run's no part's.
+lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds.
 The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
 whole run too; AK_ONLY set, they are checked only where it lists them.
 
@@ -60,8 +59,7 @@ POLL = 0.1          # ceiling on polling waits: contention stops growth at the n
                     # while an idle host keeps admitting files even beyond its core count
 TAIL = 30           # a failing file's last lines: unittest ends on the traceback and tally
 IMPORTS = "tests/every_file.py"   # the import check's test ID
-# A run prints nothing until it ends, and that silence stops a landing: a quarter of it leaves a
-# busy host room to run a file's parts four times slower than they were measured.
+# A run is silent until it ends, and silence stops a landing: a quarter leaves a slow host room.
 PIECE = 60 * record.SILENCE_MINUTES / 4
 
 
@@ -145,8 +143,7 @@ def smoke_runs(smoke, offline):
 
 def run_file(root, path, env, parts=(), failed=None, timed=None):
     """Run the file for `parts`, its arguments, all of it where there are none; `failed`, a
-    list, gets the parts it names as failing, and `timed`, a dict, the seconds it gives those
-    that passed."""
+    list, gets the parts it names as failing, and `timed`, a dict, the passing ones' seconds."""
     began = time.monotonic()
     # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
     # not reach another file's sandbox; their bytecode is the piece's own (`env`).
@@ -227,10 +224,9 @@ def pool_limit(readings):
 
 
 def costs(root, paths, only=None):
-    """Each test's seconds by its ID: of each file in `paths` the parts of it AK_ONLY's `only`
-    lists, else those it is cut into (parts_of), else the file whole.  By the record AK_TIMES holds,
-    else a file's size at the measured files' seconds per byte, and a part at its file's measured
-    parts' mean, or where none is at PIECE: alone in its run until one is measured."""
+    """Each test's seconds by ID, of each file in `paths` the parts `only` (AK_ONLY) lists, else
+    those it is cut into (parts_of), else it whole: as AK_TIMES holds them, else a file's size at
+    the measured files' seconds a byte, a part at its file's measured parts' mean, else alone."""
     times = suite_times.read(os.environ.get("AK_TIMES", ""))
     sizes, cost = {}, {}
     for path in paths:
@@ -259,8 +255,7 @@ def runs(root, cost):
         else:
             found.append((root / name, [], seconds))
     for name, parts in parted.items():
-        # Cut as shares are, so its runs come out even, one more until each fits; a share of
-        # none is no run: a file given no part runs all of them.
+        # Even runs, as shares cut them, one more until each fits; an empty one would run all.
         least = min(len(parts), int(sum(parts.values()) // PIECE)) or 1
         for count in range(least, len(parts) + 1):
             owners = shares(parts, count)
@@ -313,39 +308,42 @@ def main(root, others=None):
     installed = str(guard.shim_dir())
     env["PATH"] = os.pathsep.join(part for part in env.get("PATH", "").split(os.pathsep)
                                   if part != installed)
+    # Go caches builds under HOME, each file's fresh: cold, a Go keys piece's build is 2 CPU-min.
+    env["GOCACHE"] = subprocess.run("go env GOCACHE", shell=True, env=env, text=True,
+                                    capture_output=True).stdout.strip()
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
-    run = next(pending, None)
+    path, parts, _ = next(pending, (None,) * 3)
     began, again, failed, flaky, jobs = time.monotonic(), [], [], [], 0
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
-        while run is not None or running:
+        while path is not None or running:
             for done in list(running):
                 if not done.done():
                     continue
-                (file, parts, _), named, timed = running.pop(done)
+                (file, asked), named, timed = running.pop(done)
                 name = file.relative_to(root)
                 code, out, took = done.result()
-                print(timed_lines(name, parts, timed), end="", flush=True)
+                print(timed_lines(name, asked, timed), end="", flush=True)
                 if code == 0 and cases_run(out) > 0:
-                    print(pass_line(name, parts, took), flush=True)
+                    print(pass_line(name, asked, took), flush=True)
                 else:
-                    again.append((name, named or parts, out))
-            if run is not None:
+                    again.append((name, named or asked, out))
+            if path is not None:
                 readings = host.host_readings(slice_dir=orch.slice_cgroup,
                                               pressure_window=POLL, all_limits=True)
                 # One start per sample lets its startup show in the next CPU reading;
                 # submitting every file at once would bypass later pressure and memory changes.
                 if len(running) < pool_limit(readings):
                     named, timed = [], {}
-                    running[pool.submit(run_file, root, run[0], env, parts=run[1], failed=named,
-                                        timed=timed)] = run, named, timed
+                    running[pool.submit(run_file, root, path, env, parts=parts, failed=named,
+                                        timed=timed)] = (path, parts), named, timed
                     jobs = max(jobs, len(running))
-                    run = next(pending, None)
+                    path, parts, _ = next(pending, (None,) * 3)
             if running:
-                wait(running, timeout=POLL if run is not None else None,
+                wait(running, timeout=POLL if path is not None else None,
                      return_when=FIRST_COMPLETED)
-            elif run is not None:
+            elif path is not None:
                 time.sleep(POLL)
         # Under load a timing test fails by chance: the gate would run the whole piece again
         # for it, so each failed file first runs once more with no other file beside it.
@@ -373,7 +371,7 @@ def main(root, others=None):
     name_failed(test for tests in failed for test in tests)
     name_failed((test for tests in flaky for test in tests), "AK_FLAKY")
     if only is not None:
-        ran = {str(file.relative_to(root)) for file, _, _ in todo}
+        ran = {str(path.relative_to(root)) for path, _, _ in todo}
         name_failed((test for test in only if test.partition("::")[0] in ran), "AK_RAN")
     return 1 if failed else 0
 

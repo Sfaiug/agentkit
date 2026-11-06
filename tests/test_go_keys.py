@@ -52,9 +52,11 @@ class Claims(unittest.TestCase):
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
             program = REPO / named if named else Path(tree, "go/bin/ak")
             if not named:
-                # Never a skip: the landing suite counts a skipped case as passed.
-                built = subprocess.run(["go", "build", "-o", program, "./cmd/ak"], env=ENV,
-                                       cwd=Path(tree, "go"), capture_output=True, text=True)
+                # Never a skip: the landing suite counts a skipped case as passed.  Trimmed, a
+                # build in this piece's own tree finds what the others cached (every_file.py).
+                built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"],
+                                       env=ENV, cwd=Path(tree, "go"), capture_output=True,
+                                       text=True)
                 self.assertEqual(built.returncode, 0, built.stderr)
             # a checkout, as Go finds the one it runs from (config.Repo), without the history
             subprocess.run(["git", "init", "-q", tree], check=True)
