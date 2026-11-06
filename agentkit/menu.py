@@ -4072,7 +4072,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
-    and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark.
+    and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark, or on
+    a cell that is `left` or `right`.
     `began` says since when what `body` was read from was being fetched, or None, looked at
     before reading it, so one landing since is never missed; while `going()`, the rule under the
     header glides (`motion.fetching`) and the read ends, None, once it lands.
@@ -4116,7 +4117,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
                     or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
         act = "enter" if here[0] in ("row", "usage") else ""      # a row runs its step
-        if column is not None:
+        if column in ("left", "right"):
+            act = column          # an arrow drawn on a row (config_page's step)
+        elif column is not None:
             act = "space" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
         return "back", here, column, top
@@ -4964,11 +4967,12 @@ def opened_line(told, kind, texts, on, room):
 
 
 def page_body(rows, at=None, moves=None):
-    """The lines of a page `c` opens and the row each is, {line: (row, [])}: of `rows`,
+    """The lines of a page `c` opens and the row each is, {line: (row, cells)}: of `rows`,
     (row, label, value) each, its label and then its
     value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
     list opened under the row above it, indented as `add a subscription`'s are.  A value is
-    text, or parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s
+    text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
+    cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
     indented as a choice; `at` is the row lit, and `moves` is handed each mark leading a value
     (`■`, `□`, `●`, `○`) as config_body hands its own."""
@@ -4981,7 +4985,7 @@ def page_body(rows, at=None, moves=None):
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
         if label is not None and any(terminal.cells(word) > left
-                                     for text, _ in parts for word in text.split()):
+                                     for text, *_ in parts for word in text.split()):
             # a word too wide beside the label: the value folds under it, never cut in a word
             line = "  " + terminal.cut(label, room - 2)
             places[len(lines)] = (row, [])
@@ -4990,15 +4994,19 @@ def page_body(rows, at=None, moves=None):
         if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
                 value[0][0], 3, value[0][1], row == at, terminal.cells(lead))))
-        for text, kind in parts:
+        indent = terminal.cells(lead)
+        for text, kind, *cell in parts:
             for piece in terminal.wrap(text, left):
                 if used and used + 1 + terminal.cells(piece) > left:
                     wrapped, used = [*wrapped, []], 0
-                wrapped[-1].append(terminal.styled(piece, kind) if kind else piece)
                 used += bool(used) + terminal.cells(piece)
+                first = indent + used - terminal.cells(piece) + 1
+                wrapped[-1].append((terminal.styled(piece, kind) if kind else piece,
+                                    [(first, indent + used, *cell)] if cell else []))
         for number, parts in enumerate(wrapped):
-            line = ((lead if number == 0 else " " * terminal.cells(lead)) + " ".join(parts)).rstrip()
-            places[len(lines)] = (row, [])
+            line = ((lead if number == 0 else " " * indent)
+                    + " ".join(piece for piece, _ in parts)).rstrip()
+            places[len(lines)] = (row, [spot for _, cells in parts for spot in cells])
             lines.append(terminal.highlight(line, number == 0 and not folded) if row == at
                          else line)
     return lines, places
@@ -5051,8 +5059,8 @@ def config_page(name, page, move=True):
     def stepping(value, near):        # a lit step's value, an arrow each side it moves to
         left, right = ("◂", "▸") if terminal.utf8() else ("<", ">")
         first, *rest = [(value, None)] if isinstance(value, str) else value
-        return [*([(left, "dim")] if near(-1) is not None else []), first,
-                *([(right, "dim")] if near(1) is not None else []), *rest]
+        return [*([(left, "dim", "left")] if near(-1) is not None else []), first,
+                *([(right, "dim", "right")] if near(1) is not None else []), *rest]
     while True:
         label = rows[here[1]][0] if rows else None
         rows, note = page()
@@ -5077,8 +5085,8 @@ def config_page(name, page, move=True):
         moves += [(line, ("opened",), opened[0], motion.fading(body[line], motion.OPEN))
                   for line, (row, _) in places.items() if len(row) == 3]
         # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
-        places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else [])
-                  for line, (row, _) in places.items()}
+        places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else cells)
+                  for line, (row, cells) in places.items()}
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter, move=move)
         below = note_lines("\n".join(filter(None, (said, note))))
@@ -5098,7 +5106,8 @@ def config_page(name, page, move=True):
             if not opened:
                 return
             here, opened = ("row", opened[0]), None
-        elif act in ("left", "right") and len(here) == 2 and kind(rows[here[1]][2]) == "step":
+        elif (act in ("left", "right") and len(here) == 2 and kind(rows[here[1]][2]) == "step"
+              and not terminal.unseen()):      # unseen, it only brings the highlight back
             _, near, take = rows[here[1]][2]
             value = near(1 if act == "right" else -1)
             said = "" if value is None else take(value) or ""

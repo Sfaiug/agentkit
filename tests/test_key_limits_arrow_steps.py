@@ -3,7 +3,9 @@ config.toml at once: `Review rounds` 0 to 5, `Max lines per executor task` 0 to 
 hundreds then `no limit`, `Max lines per orchestrator task` 0 to 200 in 25s then `no limit`.  A
 value between steps, as written by hand, moves to the next step in the arrow's direction, and
 neither arrow moves past an end.  The pointed row shows its value as `◂ value ▸`, a side's arrow
-left out at that end, and the key line reads `↑↓ limit   ←→ value   esc back`.
+left out at that end, a click on one moving it as its key does, and the key line reads
+`↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the first ← or → only
+brings the highlight back, as Enter and Space do.
 
 The owner's design of 5 Nov 2026.  Black-box: the program `AK_BIN` names, in a person's
 terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
@@ -123,6 +125,32 @@ class ArrowSteps(unittest.TestCase):
                 # → past the top moves nothing: ← takes the one under it
                 term.keys(*["Right"] * len(steps), "Left")
                 self.pointed(term, name, steps[-2])
+
+    def test_a_click_on_an_arrow_moves_the_value_as_its_key_does(self):
+        term = self.limits()
+        for name, (_, steps, default) in LIMITS.items():
+            with self.subTest(name=name):
+                at = steps.index(default)
+                for arrow, value in (("▸", steps[at + 1]), ("◂", default), ("◂", steps[at - 1])):
+                    shown = lines(term.wait(f"› {name}"))
+                    row_at = next(number for number, line in enumerate(shown, 1)
+                                  if line.startswith(f"› {name}"))
+                    column = shown[row_at - 1].index(arrow) + 1
+                    term.type(f"\x1b[<0;{column};{row_at}M\x1b[<0;{column};{row_at}m")
+                    self.pointed(term, name, value)
+                term.keys("j")
+
+    def test_with_the_highlight_hidden_the_first_arrow_only_brings_it_back(self):
+        for arrow, value in (("Left", 2), ("Right", 4)):
+            with self.subTest(arrow=arrow):
+                term = self.limits()
+                self.pointed(term, NAMES[0], 3)
+                term.type("\x1b[<35;8;1M")      # the pointer onto the header: no row lit
+                term.wait(lambda screen: not any(line.startswith("›") for line in lines(screen)))
+                term.keys(arrow)
+                self.pointed(term, NAMES[0], 3)
+                term.keys(arrow)                # the keys go on from there
+                self.pointed(term, NAMES[0], value)
 
 
 if __name__ == "__main__":
