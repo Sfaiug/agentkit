@@ -32,8 +32,8 @@ func Report(out, errOut io.Writer) (int, bool) {
 	fmt.Fprintln(out, "tick  "+health)
 	var wrong []string
 	if refused == nil {
-		for _, line := range machines.Lines() {
-			fmt.Fprintln(out, "machine  "+line)
+		for _, machine := range machines.Known() {
+			fmt.Fprintln(out, "machine  "+machine.String())
 		}
 		wrong, refused = config.WrongEfforts(listings{}.efforts)
 	}
