@@ -1227,6 +1227,31 @@ def rules_size(repo):
     return row[0] if row else None
 
 
+def round_endings():
+    """How runs ended, for `Limits` (menu.rounds_chart): of those REAL_WORK counts that finished,
+    from the first carrying changed_lines on -- before it no row tells a merge -- each merged in
+    a round or failed, as it started: (started_at, finished_at, round), `round` the one its
+    rounds_used names for a merge, None for a fail.  None where none carries changed_lines or
+    the database cannot answer."""
+    # REAL_WORK last: it reads a run's record, which the columns spare most rows
+    counted = f"finished_at IS NOT NULL AND {REAL_WORK}"
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return connection.execute(
+                    "SELECT started_at, finished_at, "
+                    "CASE WHEN changed_lines IS NOT NULL THEN rounds_used END FROM runs "
+                    "WHERE (changed_lines IS NOT NULL AND rounds_used >= 1 "
+                    "OR changed_lines IS NULL AND final_state = 'fail') AND started_at >= "
+                    "(SELECT MIN(started_at) FROM runs WHERE changed_lines IS NOT NULL "
+                    f"AND {counted}) AND {counted} ORDER BY started_at").fetchall()
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return []
+
+
 def ended_runs(since, until):
     """Real runs with a finish date in the inclusive range, read as plain mappings."""
     _ensure_tokens_recounted()

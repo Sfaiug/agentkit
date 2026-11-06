@@ -136,6 +136,7 @@ import threading
 import time
 from contextlib import closing
 from pathlib import Path
+from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import done_check, google_cloud, look, machines, open_runs, parsed, record
@@ -4994,11 +4995,12 @@ def page_body(rows, at=None, moves=None):
 @terminal.clicks_its_own
 def config_page(name, page):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
-    or with a note of the row's own after, said instead of the page's while the row is pointed
-    -- and the note under them, asked again for every draw, drawn as page_body draws them and
-    read with `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing
-    itself out in the header (motion.Clock), and a mark leading a value fills or empties as it
-    flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
+    or with a note of the row's own after, said instead of the page's while the row is pointed,
+    and lines drawn as they are under it after that -- and the note under them, asked again for
+    every draw, drawn as page_body draws them and read with `c`'s keys until Esc.  It comes up
+    as `c` does as it opens, its name writing itself out in the header (motion.Clock), and a
+    mark leading a value fills or empties as it flips (motion.toggled); one gone back to from a
+    list or a field is drawn as it is.
 
     A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
     flipping it, optionally a third item, a field Enter opens; a list, (choices, several),
@@ -5033,8 +5035,9 @@ def config_page(name, page):
             here = ("row", next((number for number, row in enumerate(rows) if row[0] == label),
                                  min(here[1], len(rows) - 1)))
         drawn = [(("row", number), label, value) for number, (label, value, *_) in enumerate(rows)]
-        # the pointed row's own note, none while the pointer is off every row
-        note = rows[here[1]][3] if len(rows[here[1]]) == 4 and not terminal.away() else note
+        # the pointed row's own note and lines, none while the pointer is off every row
+        note, under = ((*rows[here[1]][3:], ())[:2] if len(rows[here[1]]) > 3
+                       and not terminal.away() else (note, ()))
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
                                                   for number, (value, _, _) in enumerate(listed)]
@@ -5050,9 +5053,10 @@ def config_page(name, page):
                   for line, (row, _) in places.items()}
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter)
-        act, moved, _, top = matrix_key(title, body, places, ids, here, top,
-                                        "\n".join(filter(None, (said, note))), keys, marks=1,
-                                        clock=clock, moves=moves)
+        act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
+                                        clock=clock, moves=moves, under=[
+                                            *note_lines("\n".join(filter(None, (said, note)))),
+                                            *under])
         # the pointer on a row off-list, unless it clicked it, which closes an open list
         here = moved if moved in ids or act in ("enter", "space") else here
         opened = opened if len(here) == 3 else None
@@ -5497,12 +5501,43 @@ def limits_value(cfg):
         for key, (_, short, unit, _) in LIMIT_NAMES.items())
 
 
+def rounds_chart(runs):
+    """How `runs` (history.round_endings) ended, drawn under `Review rounds`' note: the evidence
+    its number is set from (the owner's design of 5 Nov 2026).  Under a heading, a bar of each
+    ending -- each round up to the last a run merged in, then `failed` -- its share of the runs
+    (terminal.share_line) taking the room the columns after it leave: its count, that share as a
+    whole percent and its median hours from start to finish.  Below 60 columns each bar folds
+    under its ending."""
+    if not runs:
+        return ["", "  no finished runs yet"]
+    room, last = terminal.layout_width(), max(ending or 0 for *_, ending in runs)
+    endings = [*((f"merged in round {n}", n, "done") for n in range(1, last + 1)),
+               ("failed", None, "FAIL")]
+    hours = [[(end - start) / 3600 for start, end, ending in runs if ending == at]
+             for _, at, _ in endings]
+    numbers = [(str(len(each)), f"{round(100 * len(each) / len(runs))}%",
+                f"median {median(each):.1f} h" if each else "") for each in hours]
+    widths = [max(len(row[n]) for row in numbers) for n in range(3)]
+    wide, folded = max(len(name) for name, _, _ in endings), room < 60
+    size = max(1, room - (4 if folded else 4 + wide) - 6 - sum(widths))
+    lines = ["", *("  " + part for part in terminal.wrap(
+        f"how your {len(runs)} run{'s' * (len(runs) != 1)} ended, since "
+        + time.strftime("%-d %b", time.localtime(runs[0][0])), room - 2))]
+    for (name, _, word), each, (count, share, held) in zip(endings, hours, numbers):
+        tail = (f"{terminal.share_line(len(each) / len(runs), size, word)}  "
+                f"{count:>{widths[0]}}  {share:>{widths[1]}}  {held}").rstrip()
+        lines += [f"  {name}", f"    {tail}"] if folded else [f"  {name:<{wide}}  {tail}"]
+    return lines
+
+
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
     (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves.  Enter opens its choices and the value in force, `●`,
+    it means and the board rows it moves, and under `Review rounds`' how the runs ended
+    (rounds_chart), read as the page opens.  Enter opens its choices and the value in force, `●`,
     each config.host_policy takes; Space or Enter on one saves it to config.toml at once."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
+    ended = history.round_endings()
 
     def take(key, value):
         try:
@@ -5530,7 +5565,8 @@ def config_limits(cfg):
                   else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
                   else "The orchestrator builds nothing; executors build every change."
                   if key == "orchestrator_lines" and numbers[key] == 0
-                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."))
+                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."),
+                 *([rounds_chart(ended)] if key == "review_rounds" else []))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
     config_page("limits", page)
 
