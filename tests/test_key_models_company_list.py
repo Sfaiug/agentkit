@@ -1,14 +1,15 @@
 """`p` on the models screen lists your companies, a line each of its listed models, `●` on and `○`
 off: at first the `[defaults]` models' companies, all on.  Space turns a model, or on a name its
-company's, on or off, saved at once; Esc drops a company left with none on, and the answer
-compares only what is on.  `a` lists the other companies with scores, strongest first, and ⏎
-adds one all on.  On 40 cells a company's models go on under the column where they began, and
-a count too long for its line goes on at its words.
+company's, on or off, saved at once; Esc drops a company left with none on, its releases without
+a score too, and those releases from `models_off`, and the answer compares only what is on.  `a`
+lists the other companies with scores, strongest first, and ⏎ adds one all on.  On 40 cells a
+company's models go on under the column where they began, and a count too long for its line goes
+on at its words.
 
 Black-box: the program `AK_BIN` names in a terminal (tests/fixtures/akterm.py), over the
-invented boards and harnesses of tests/test_key_models_on.py and Dyne's two releases, the
-stronger above Bolt 3; judged by the screen, config.toml and `ak models --json`.  Fails against
-/bin/false.
+invented boards and harnesses of tests/test_key_models_on.py, Dyne's two releases, the stronger
+above Bolt 3, and Fenix's one, without a score; judged by the screen, config.toml and `ak models
+--json`.  Fails against /bin/false.
 """
 
 import json
@@ -36,6 +37,7 @@ def boards():
                               ("dyne-lite-4-mini", "Dyne Lite 4 Mini", 55)):
         rows.append({**aa(slug, name, "high", {**mid["values"], "aa.intelligenceIndex": index}),
                      "maker": "Dyne"})
+    rows.append({**aa("fenix-1", "Fenix 1", "high", {}), "maker": "Fenix"})
     return held
 
 
@@ -100,10 +102,11 @@ class CompanyList(unittest.TestCase):
         self.assertEqual(self.saved(), (["Acme", "Crux"], None))
 
     def test_esc_drops_a_company_with_none_on_and_the_answer_compares_what_is_on(self):
-        term, _ = self.open()
+        term, _ = self.open(companies=["Acme", "Crux", "Fenix"], models_off=["crux-flash-1"])
         term.keys("Right", "Space", "Down", "Left", "Space")
         self.whole(term, "esc done", "›[Crux] ○ Crux 2")
-        self.assertEqual(self.saved(), (["Acme", "Crux"], ["acme-max-5", "crux-2"]))
+        self.assertEqual(self.saved(), (["Acme", "Crux", "Fenix"],
+                                        ["acme-max-5", "crux-2", "crux-flash-1"]))
         term.keys("Escape")
         term.wait("comparing 1 of 2 models")
         self.assertEqual(self.saved(), (["Acme"], ["acme-max-5"]))

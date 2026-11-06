@@ -3625,7 +3625,8 @@ def company_list(cfg, title):
     its models; Space or a click turns the model pointed at on or off, and on a name all its
     models on, or off where all are on, each change saved at once (models_listed).  `a`, or
     Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
-    left with none on from `companies`, and its models from `models_off`.  What to say, or ""."""
+    left with none on from `companies`, and all its releases from `models_off`.  What to say,
+    or ""."""
     title, here, column, top, note = f"{title} · models", None, 0, 0, ""
     while True:
         (makers, yours), room = companies_listed(cfg), terminal.layout_width()
@@ -3655,9 +3656,13 @@ def company_list(cfg, title):
             continue                  # a resize or the pointer: drawn again
         note, models = "", [] if here == ADD_COMPANY else list(makers[here[1]])
         if act == "back":
-            gone = [maker for maker in yours if makers.get(maker) and off >= makers[maker].keys()]
+            # by the lineup's rows, so releases without a score go too, and a company it lacks stays
+            lineup = matrix.listed()[0]
+            gone = {row["maker"] for row in lineup
+                    if row["maker"] in yours and not makers.get(row["maker"], {}).keys() - off}
             return models_listed(cfg, [maker for maker in yours if maker not in gone],
-                                 off.difference(*(makers[maker] for maker in gone))) if gone else ""
+                                 off - {row["release"] for row in lineup if row["maker"] in gone}
+                                 ) if gone else ""
         if act == "a" or act in ("space", "enter") and here == ADD_COMPANY:
             added = company_add(title, makers, yours)
             if added:
