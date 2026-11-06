@@ -118,6 +118,10 @@ test_key_macbridge_off_macos
 test_key_manifest_errors
 test_key_menu_ascii
 test_key_menu_colour_depth
+test_key_manifest_errors BrokenManifest
+test_key_memory_killed_piece_never_blamed
+test_key_menu_ascii MenuAscii
+test_key_menu_colour_depth ColourDepth
 test_key_menu_frame
 test_key_menu_highlight
 test_key_menu_new_row
