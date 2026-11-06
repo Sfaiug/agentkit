@@ -13,14 +13,17 @@ import (
 	"agentkit/internal/run"
 )
 
-// A seat with a seat file asked for from outside: its card follows the word its ladder gives with
-// the question standing, decided before anything is written.
+// A seat asked for from outside: its card follows the word its ladder gives with the question
+// standing, decided before anything is written, and the question is written where no `ak wait`
+// stands, which Python's writer ends with it.
 func TestAnAskFollowsTheWordItsSeatSaysWithIt(t *testing.T) {
+	const wait = `{"word":"working","wait":{"kind":"pr","on":"#4"}}`
 	for _, each := range []struct {
-		name, file, card, word string
-		question, known        bool
-		want                   string // the card's word after, "" for none
-		sent                   bool   // an event went to the outbox
+		name, file, notice, card, word string
+		landing                        string // the seat file as a wait lands while the word is read
+		question, known                bool
+		want                           string // the card's word after, "" for none
+		sent                           bool   // an event went to the outbox
 	}{
 		{name: "repeating it in the chat", file: `{"word":"idle"}`, word: "working", known: true, want: "working"},
 		{name: "its question", file: `{"word":"idle"}`, word: "needs you", question: true, known: true, want: "needs you", sent: true},
@@ -28,13 +31,20 @@ func TestAnAskFollowsTheWordItsSeatSaysWithIt(t *testing.T) {
 		{name: "a question card at rest", file: `{"word":"needs you"}`, card: `{"word":"needs you","since":50,"began":50,"episode":"e1","sent":false}`, word: "idle", known: true, want: "idle"},
 		{name: "a word Go does not read", file: `{"word":"idle"}`},
 		{name: "a done", file: `{"word":"idle"}`, word: "done"},
-		{name: "an ak wait the question ends", file: `{"word":"working","wait":{"kind":"pr","on":"#4"}}`, word: "needs you", question: true},
+		{name: "an ak wait the question ends", file: wait, word: "working"},
+		{name: "an ak wait landing as the word is read", file: `{"word":"idle"}`, landing: wait, word: "working"},
 		{name: "a seat its owner closed", file: `{"word":"idle","closed_by_owner":true}`, word: "needs you", question: true},
+		{name: "a standing question Go cannot join", notice: `{"kind":"needs","text":"Which branch?","time":1,"asked_at":{"which branch?":1},"question_times":[1]}`},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			_, write := questionHome(t)
 			write(filepath.Join(os.Getenv("PATH"), "tmux"), "#!/bin/sh\nexit 1\n")
-			write(seatFile("seat", "acme", "json"), each.file)
+			if each.file != "" {
+				write(seatFile("seat", "acme", "json"), each.file)
+			}
+			if each.notice != "" {
+				write(seatFile("notify", "acme", "json"), each.notice)
+			}
 			if each.card != "" {
 				write(seatFile("card", "acme", "json"), each.card)
 				os.MkdirAll(outbox(), 0o700)
@@ -46,8 +56,11 @@ func TestAnAskFollowsTheWordItsSeatSaysWithIt(t *testing.T) {
 			}
 			var climbed *run.Object
 			asked := func(name string, notice *run.Object, now time.Time) (string, any, bool) {
-				if _, err := os.Stat(seatFile("notify", name, "json")); err == nil {
+				if data, _ := os.ReadFile(seatFile("notify", name, "json")); string(data) != each.notice {
 					t.Fatal("the word was read after the question was written")
+				}
+				if each.landing != "" {
+					write(seatFile("seat", name, "json"), each.landing)
 				}
 				climbed = notice
 				return each.word, run.Float(40), each.question
@@ -57,16 +70,15 @@ func TestAnAskFollowsTheWordItsSeatSaysWithIt(t *testing.T) {
 			if code != 0 || known != each.known {
 				t.Fatal(code, known)
 			}
-			notice := Last("acme")
-			if each.known != (notice != nil) || each.known && run.Line(notice) != run.Line(climbed) {
-				t.Fatalf("the notice written is not the one the word was read with: %v, %v", notice, climbed)
-			}
 			card, _ := readObject(seatFile("card", "acme", "json"))
 			if !each.known {
-				if each.card == "" && card != nil {
-					t.Fatal("a card was written for an ask left to Python", card)
+				if data, _ := os.ReadFile(seatFile("notify", "acme", "json")); string(data) != each.notice || each.card == "" && card != nil {
+					t.Fatalf("an ask left to Python wrote %s, %v", data, card)
 				}
 				return
+			}
+			if notice := Last("acme"); notice == nil || run.Line(notice) != run.Line(climbed) {
+				t.Fatalf("the notice written is not the one the word was read with: %v, %v", notice, climbed)
 			}
 			began, _ := card.Num("began")
 			if card.Str("word") != each.want || began < before {

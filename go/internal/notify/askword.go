@@ -1,9 +1,11 @@
 package notify
 
 import (
+	"context"
 	"io"
 	"time"
 
+	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
 
@@ -13,8 +15,8 @@ type Asked func(name string, notice *run.Object, now time.Time) (word string, si
 
 // once is what Python's shaped reads of the seat just after recording notice (watch.session_state):
 // `needs you` from the question for a seat with no seat file, and the ladder's word for one with.
-// "" where that is Python's: a file Go cannot read, one whose `ak wait` the question ends, as only
-// Python writes it, a seat its owner closed, and a done, whose card covers the seat's work.
+// "" where that is Python's: a file Go cannot read, a seat its owner closed, and a done, whose card
+// covers the seat's work.
 func once(name string, notice *run.Object, asked Asked, now time.Time) (word string, since any, question bool) {
 	file, err := readObject(seatFile("seat", name, "json"))
 	switch {
@@ -22,13 +24,28 @@ func once(name string, notice *run.Object, asked Asked, now time.Time) (word str
 		return "", nil, false
 	case file == nil:
 		return "needs you", notice.Get("time"), true
-	case file.Get("wait") != nil || file.Truthy("closed_by_owner"):
+	case file.Truthy("closed_by_owner"):
 		return "", nil, false
 	}
 	if word, since, question = asked(name, notice, now); word == "done" {
 		return "", nil, false
 	}
 	return word, since, question
+}
+
+// writeAsked writes the question under the seat's lock, where Python's shaped ends the seat's `ak
+// wait` (seat_write): a wait its seat file holds by then, which only Python clears, leaves the ask to
+// Python with nothing written, as does a lock or a file Go cannot take or read.
+func writeAsked(name string, notice *run.Object) (known bool, err error) {
+	held, err := lock.Wait(context.Background(), seatFile("seat", name, "lock"))
+	if err != nil {
+		return false, nil
+	}
+	defer held.Close()
+	if file, err := readObject(seatFile("seat", name, "json")); err != nil || file != nil && file.Get("wait") != nil {
+		return false, nil
+	}
+	return true, writeNotice(name, notice)
 }
 
 // worded is Python's transition (notify.transition) of the seat's card, under its lock, for the

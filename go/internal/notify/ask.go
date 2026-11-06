@@ -87,18 +87,19 @@ func Ask(name string, record map[string]any, question string, asked Asked, out, 
 		card = run.NewObject()
 	}
 	_, eventErr := readEvent(cardKey(card.Get("episode")))
-	now := time.Now() // the command's moment, which its word and its episode begin at
-	word, since, asking := once(name, notice, asked, now)
-	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil || word == "" {
+	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil {
 		return 0, false
 	}
-	if err := writeNotice(name, notice); err != nil {
+	now := time.Now() // the command's moment, which its word and its episode begin at
+	word, since, asking := once(name, notice, asked, now)
+	if word == "" {
+		return 0, false
+	}
+	if known, err := writeAsked(name, notice); !known {
+		return 0, false
+	} else if err != nil {
 		fmt.Fprintf(errOut, "notify: record could not be persisted (%s); retry required\n", failed(err))
 		return 1, true
-	}
-	// Python ends the seat's `ak wait` under this lock: a seat Go asks for waits on nothing
-	if wait, err := lock.Wait(context.Background(), seatFile("seat", name, "lock")); err == nil {
-		wait.Close()
 	}
 	code, err := worded(name, card, notice, word, since, asking && attached, float64(now.UnixNano())/1e9, errOut)
 	if err != nil {
