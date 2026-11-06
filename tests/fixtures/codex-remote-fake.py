@@ -4,10 +4,10 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import runpy
 import select
 import shlex
 import signal
+import socket
 import socketserver
 import sqlite3
 import struct
@@ -20,7 +20,6 @@ import uuid
 
 args = sys.argv[1:]
 home = Path.home()
-repo = Path(os.environ['FAKE_CODEX_REPO'])
 
 ch = Path(os.environ.get('CODEX_HOME', home / '.codex'))
 
@@ -30,6 +29,27 @@ def publish(name, data):
     part = ch / (name + '.tmp')
     part.write_text(json.dumps(data))
     part.replace(ch / (name + '.json'))
+
+
+def frame(message, mask=b''):
+    # A client masks each frame it sends and a server never does (RFC 6455, 5.1).
+    data = json.dumps(message).encode()
+    size = bytes([len(data)]) if len(data) < 126 else bytes([126]) + struct.pack('!H', len(data))
+    if mask:
+        size = bytes([128 | size[0]]) + size[1:]
+        data = bytes(v ^ mask[i % 4] for i, v in enumerate(data))
+    return bytes([129]) + size + mask + data
+
+
+def receive(stream):
+    # None once the other end has closed
+    if not (first := stream.read(2)):
+        return None
+    size = first[1] & 127
+    if size == 126:
+        size = struct.unpack('!H', stream.read(2))[0]
+    mask = stream.read(4) if first[1] & 128 else bytes(4)
+    return json.loads(bytes(v ^ mask[i % 4] for i, v in enumerate(stream.read(size))))
 
 
 if args == ['--help']:
@@ -77,10 +97,7 @@ if args[:1] == ['app-server']:
 
     class Handler(socketserver.StreamRequestHandler):
         def send(self, message):
-            wire = json.dumps(message).encode()
-            header = bytes([129, len(wire)]) if len(wire) < 126 else (
-                bytes([129, 126]) + struct.pack('!H', len(wire)))
-            self.wfile.write(header + wire)
+            self.wfile.write(frame(message))
 
         def handle(self):
             self.rfile.readline()
@@ -93,13 +110,7 @@ if args[:1] == ['app-server']:
             self.wfile.write(b'HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n'
                              b'Connection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + b'\r\n\r\n')
             monitor = False
-            while first := self.rfile.read(2):
-                size = first[1] & 127
-                if size == 126:
-                    size = struct.unpack('!H', self.rfile.read(2))[0]
-                mask = self.rfile.read(4)
-                msg = json.loads(bytes(v ^ mask[i % 4] for i, v in
-                                       enumerate(self.rfile.read(size))))
+            while msg := receive(self.rfile):
                 if 'id' not in msg:
                     continue
                 method, params = msg['method'], msg.get('params') or {}
@@ -188,16 +199,29 @@ else:
         print('Error: Permission overrides are not supported when resuming a remote task.',
               file=sys.stderr)
         sys.exit(1)
-    Client = runpy.run_path(str(repo / 'tools/codex-seat.py'))['Client']
-    client = Client(args[args.index('--remote') + 1].removeprefix('unix://'))
-    try:
+    # Its own client, not ak's: tests/test_go_keys.py runs this where agentkit/ is left out.
+    # No timeout: the server answers once the thread's first turn has run its hooks, however
+    # long a loaded host takes them.
+    with socket.socket(socket.AF_UNIX) as client, client.makefile('rb') as wire:
+        def send(message):
+            client.sendall(frame(message, os.urandom(4)))
+        client.connect(args[args.index('--remote') + 1].removeprefix('unix://'))
+        key = base64.b64encode(os.urandom(16))
+        client.sendall(b'GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: '
+                       b'Upgrade\r\nSec-WebSocket-Key: ' + key + b'\r\nSec-WebSocket-Version: 13'
+                       b'\r\n\r\n')
+        assert wire.readline().startswith(b'HTTP/1.1 101 ')
+        while wire.readline().strip():
+            pass
+        send({'id': 1, 'method': 'initialize', 'params': {
+            'clientInfo': {'name': 'agentkit', 'version': '1'},
+            'capabilities': {'experimentalApi': True}}})
+        assert 'result' in receive(wire)
+        send({'method': 'initialized'})
         method, params = (('thread/resume', {'threadId': args[args.index('resume') + 1]})
                           if 'resume' in args else ('thread/start', {}))
-        # The server answers once the thread's first turn has run its hooks, however long a
-        # loaded host takes them; Client.call would give up after 15 seconds.
-        client.socket.settimeout(None)
-        client.send({'id': 0, 'method': method, 'params': params})
-        sid = client.receive()['result']['thread']['id']
+        send({'id': 0, 'method': method, 'params': params})
+        sid = receive(wire)['result']['thread']['id']
         if os.environ.get('FAKE_SCREEN'):       # the screen a TUI at its prompt draws
             print(Path(os.environ['FAKE_SCREEN']).read_text(), end='', flush=True)
         publish('fake-tui', {'argv': args, 'pid': os.getpid()})
@@ -211,5 +235,3 @@ else:
                         with (ch / 'session_index.jsonl').open('a') as index:
                             index.write(json.dumps({'id': sid, 'thread_name': line[8:].strip(),
                                                     'updated_at': '2026-09-11T08:00:00Z'}) + '\n')
-    finally:
-        client.close()

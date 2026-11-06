@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, REPO, Home, boxable
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akseat import FIXTURES
 from fixtures.akterm import Terminal
 
@@ -54,7 +54,7 @@ class CodexEndedWorkIsNotHeld(unittest.TestCase):
         with socket.socket() as probe:     # a port nobody listens on: no provider is reached
             probe.bind(("127.0.0.1", 0))
             dead = f"http://127.0.0.1:{probe.getsockname()[1]}"
-        home.env.update({"FAKE_CODEX_REPO": str(REPO), "FAKE_THREAD": THREAD, "FAKE_HOLD": "1",
+        home.env.update({"FAKE_THREAD": THREAD, "FAKE_HOLD": "1",
                          "FAKE_SCREEN": str(FIXTURES / "codex-prompt-pane.txt"),
                          "https_proxy": dead, "HTTPS_PROXY": dead, "GIT_ALLOW_PROTOCOL": "file"})
         home.fake("codex", "#!/bin/sh\nexec " + shlex.join(

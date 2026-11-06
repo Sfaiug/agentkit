@@ -43,7 +43,7 @@ if 'kill-session' in sys.argv:
         self.stack.enter_context(patch.dict(os.environ, {
             'HOME': str(self.root), 'CODEX_HOME': str(self.root / '.codex'),
             'TMPDIR': str(self.root), 'PATH': f'{self.bin}:{os.environ["PATH"]}',
-            'FAKE_CODEX_REPO': str(REPO), 'FAKE_THREAD': 'acme-thread', 'FAKE_HOLD': '1',
+            'FAKE_THREAD': 'acme-thread', 'FAKE_HOLD': '1',
             'AGENTKIT_SESSION': 'acme-seat', 'AGENTKIT_TMUX_SOCKET': 'agentkit-test',
             'AK_NOTIFY_SINK': str(self.root / 'notices'), 'AGENTKIT_DISCORD_WEBHOOK': 'off',
             'AGENTKIT_RUN': '', 'AK_PARENT_RUN': '', 'AK_RUN_LOG': '', 'AK_RUN_ROLE': '',

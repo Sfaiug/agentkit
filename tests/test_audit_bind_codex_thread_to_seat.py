@@ -54,8 +54,7 @@ class Ownership(unittest.TestCase):
         self.fake("tmux", '''import sys
 assert sys.argv[1:3] == ["-L", "agentkit-test"], sys.argv
 ''')
-        self.stack.enter_context(patch.dict(os.environ, {
-            "FAKE_CODEX_REPO": str(REPO), "TMPDIR": str(self.root)}))
+        self.stack.enter_context(patch.dict(os.environ, {"TMPDIR": str(self.root)}))
         self.fake("codex", (REPO / "tests/fixtures/codex-remote-fake.py").read_text())
         adapters = self.root / "adapters"
         adapters.mkdir()
