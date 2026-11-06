@@ -28,14 +28,16 @@ type Prompt struct {
 }
 
 // Typed is what the user side typed in the conversation that seat's record owns, oldest first, and
-// that conversation, as Python's plugin `conversation` and `user_messages` read them; false where
-// that harness has no reader of its own.
+// that conversation, as Python's plugin `conversation` and `user_messages` read them: nothing for
+// a seat owning none (notify.owner_messages); false where that harness has no reader of its own.
 func Typed(name string, record map[string]any) (conversation string, typed []Prompt, known bool) {
 	own := plugins[name]
-	if own.typed == nil {
+	if own.owned == nil {
 		return "", nil, false
 	}
-	conversation = own.owned(record)
+	if conversation = own.owned(record); conversation == "" || own.typed == nil {
+		return "", nil, conversation == ""
+	}
 	typed = own.typed(conversation)
 	sort.SliceStable(typed, func(i, j int) bool { return typed[i].At < typed[j].At })
 	return conversation, typed, true

@@ -70,7 +70,10 @@ func TestOpenCodeReceiptIsReadAtTheListingBoundary(t *testing.T) {
 func TestOpenCodePendingQuestionProofStaysWithPython(t *testing.T) {
 	home := sandbox(t)
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), opencodeConfig)
-	record(t, home, "acme", map[string]any{"orchestrator": "vela", "workers": []string{"vela"}})
+	// the session its launch reported, whose closing message Go does not read
+	token := strings.Repeat("a", 32)
+	record(t, home, "acme", map[string]any{"orchestrator": "vela", "workers": []string{"vela"}, "opencode_launch": token})
+	write(t, filepath.Join(stateFile(home, "opencode-launch-"+token), "session"), "ses_A012z\n")
 	drawn(t, home, "acme", "Permission required\nAllow once\nEnter confirm\n")
 	for file, data := range map[string]string{
 		"seat-acme.json":   `{"unasked":{"text":"Which colour?","at":1}}`,
