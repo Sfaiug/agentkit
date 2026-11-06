@@ -165,6 +165,7 @@ test_key_install_home
 test_key_install_keys
 test_key_install_links_shims
 test_key_killed_turn_tokens_count
+test_key_install_mac_linux_machine
 test_key_landing_offline
 test_key_landing_suite_red
 test_key_landing_train
