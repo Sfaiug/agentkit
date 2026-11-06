@@ -2346,9 +2346,10 @@ def unanswered_head(repo, head):
 
 
 def pr_review_blocked(lp, exc):
-    """A PR review's blocked ending, from a round, its fixer turn or the size gate before any
-    reviewer is picked: no reviewer's harness can run, the task cannot be done as written, or
-    the PR is more than a first review takes.  Recorded as a task run's is, its result
+    """A PR review's blocked ending, from a round, its fixer turn or a gate on its head before
+    any reviewer is picked: no reviewer's harness can run, the task cannot be done as written,
+    the PR is more than a first review takes, or its head has no `users:` answer
+    (`unanswered_head`).  Recorded as a task run's is, its result
     written, its wait for a push and its pending round over; never an `error` the tick would
     retry into the same harness."""
     lp.log(f"BLOCKED {exc}")

@@ -48,6 +48,7 @@ class OwnPrReview(unittest.TestCase):
         self.git("config", "user.name", "Fixture")
         self.git("config", "user.email", "fixture@example.invalid")
         (self.repo / "old.txt").write_text("old\n")
+        (self.repo / "AGENTS.md").write_text("---\nusers: none\n---\n")
         (self.repo / ".gitattributes").write_text("*.generated linguist-generated=true\n")
         self.base = self.commit()
         self.git("update-ref", "refs/remotes/origin/main", self.base)
