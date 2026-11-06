@@ -69,7 +69,8 @@ type Home struct {
 	records []Seat
 	models  map[string]config.Model
 	readers recordReaders
-	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
+	runs    readsRuns        // what it read its seats' runs by, which a look at one of them reads them by again
+	found   map[string][]ran // the runs it found, which a seat decided again under its announce lock is decided with
 }
 
 type recordReaders map[string]harness.Reader
@@ -182,7 +183,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
-	home := Home{models: models, readers: recordReaders{}, runs: readRuns}
+	home := Home{models: models, readers: recordReaders{}, runs: readRuns, found: runs}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
@@ -465,7 +466,7 @@ func (home Home) Announce(now time.Time) error {
 	}
 	for at := range home.Seats {
 		if !home.Seats[at].live {
-			if err := home.Seats[at].announce(state, at+1, now, home.models); err != nil {
+			if err := home.Seats[at].announce(state, now, home); err != nil {
 				return err
 			}
 		}
@@ -511,14 +512,13 @@ func announcing(state, name string, tell func() error) error {
 	return tell()
 }
 
-// announce publishes what a reading found under the seat's announce lock, the seat at that place on
-// the menu. One tmux holds is decided again there, as its other announcers may have moved it since
-// the reading.
-func (seat *Seat) announce(state string, place int, now time.Time, models map[string]config.Model) error {
+// announce publishes what that reading of the home found under the seat's announce lock. One tmux
+// holds is decided again there, as its other announcers may have moved it since the reading.
+func (seat *Seat) announce(state string, now time.Time, home Home) error {
 	if seat.held {
-		return seat.heldAgain(state, place, models)
+		return seat.heldAgain(state, home)
 	}
-	return announcing(state, seat.Name, func() error { return seat.announced(state, now, models) })
+	return announcing(state, seat.Name, func() error { return seat.announced(state, now, home.models) })
 }
 
 // announced is watch.announce_state for a seat nobody is in, under its announce lock: what its
