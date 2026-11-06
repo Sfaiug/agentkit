@@ -24,15 +24,15 @@ func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sig
 	if back, err := facts.goesBack(); err != nil || !back {
 		return found, err
 	}
-	if seat.dry != nil { // the owner's answer and the reminder are Python's dry tick's to say
-		return found, errDry
-	}
-	if _, _, err := answerWritten(state, seat.Name, seconds(time.Now()), 0); err != nil {
+	if _, _, err := answerWritten(state, seat.Name, seconds(time.Now()), 0, seat.dry != nil); err != nil {
 		return found, err
 	}
 	reminder, err := questionUnseen(seat.Name, seat.own, found, notify.Last(seat.Name))
 	if err != nil || reminder == "" {
 		return found, err
+	}
+	if seat.dry != nil { // the reminder is Python's dry tick's to say
+		return found, errDry
 	}
 	episode, err := stopEpisode(seat.own, facts.file)
 	if err != nil {

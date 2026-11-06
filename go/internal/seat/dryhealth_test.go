@@ -12,31 +12,38 @@ import (
 )
 
 // A dry look at a seat just reopened, which no look has saved yet, stopped with its plan open, says
-// the `continue` the real look would type, and keeps, locks and types nothing; stopped on words
-// it was sent back on already, it says nothing, as the real look types nothing.
+// the `continue` the real look would type, and keeps, locks and types nothing; with its plan done
+// it says nothing and carries the seat, as the real look types nothing. A harness whose stops the
+// tick nudges, with no question to answer or repeat, decides the same.
 func TestDryHealthSaysItWouldContinueAnOpenPlan(t *testing.T) {
-	home := sandbox(t)
-	record(t, home, "acme", nil)
-	write(t, stateFile(home, "plan-acme.md"), openLine)
-	drawn(t, home, "acme", "The patch is ready.\n"+prompting)
-	dry := func() []string {
-		t.Helper()
-		var said []string
-		before := tree(t, home)
-		if carried, err := Health("acme", func(Live) bool { return true }, func(line string) { said = append(said, line) }, true); !carried || err != nil {
-			t.Fatal(carried, err)
-		}
-		if after := tree(t, home); !maps.Equal(after, before) {
-			t.Fatalf("the dry look changed HOME: %v", after)
-		}
-		return said
-	}
-	if said := dry(); !slices.Equal(said, []string{"would resume acme, stopped with work open, no question and no run, with 'continue'"}) {
-		t.Fatalf("said %q", said)
-	}
-	write(t, stateFile(home, "seat-acme.json"), `{"state":"at_prompt","stop_said":"The patch is ready.","stop_nudged":"The patch is ready."}`)
-	if said := dry(); len(said) > 0 {
-		t.Fatalf("a stop sent back already said %q", said)
+	for own, screen := range map[string]string{"claude": prompting, "muse": "────────\n❯\n────────\nspark · high · acme · YOLO\n",
+		"opencode": "┃\n┃\n┃  Build · vela\n╹\nctrl+p commands\n"} {
+		t.Run(own, func(t *testing.T) {
+			home := sandbox(t)
+			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+"[models.test]\nharness='"+own+"'\nmodel='test'\neffort='high'\nprovider='test'\n")
+			record(t, home, "acme", map[string]any{"orchestrator": "test", "workers": []string{"test"}})
+			write(t, stateFile(home, "plan-acme.md"), openLine)
+			drawn(t, home, "acme", "The patch is ready.\n"+screen)
+			dry := func() []string {
+				t.Helper()
+				var said []string
+				before := tree(t, home)
+				if carried, err := Health("acme", func(Live) bool { return true }, func(line string) { said = append(said, line) }, true); !carried || err != nil {
+					t.Fatal(carried, err)
+				}
+				if after := tree(t, home); !maps.Equal(after, before) {
+					t.Fatalf("the dry look changed HOME: %v", after)
+				}
+				return said
+			}
+			if said := dry(); !slices.Equal(said, []string{"would resume acme, stopped with work open, no question and no run, with 'continue'"}) {
+				t.Fatalf("said %q", said)
+			}
+			write(t, stateFile(home, "plan-acme.md"), doneLine)
+			if said := dry(); len(said) > 0 {
+				t.Fatalf("a done plan said %q", said)
+			}
+		})
 	}
 }
 
