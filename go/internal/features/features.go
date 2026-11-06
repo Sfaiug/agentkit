@@ -22,10 +22,11 @@ import (
 	"agentkit/internal/host"
 )
 
-const (
-	Every = time.Minute      // how old a project's last `list` grows before the menu asks again
-	wait  = 20 * time.Second // the longest the project's command is waited for
-)
+// Every is how old a project's last `list` grows before the menu asks again.
+const Every = time.Minute
+
+// wait is the longest the project's command is waited for: a variable, so a test waits less.
+var wait = 20 * time.Second
 
 // A Switch is one feature as the project's `list` answers it.
 type Switch struct {
@@ -145,11 +146,13 @@ func run(checkout string, words ...string) (any, string) {
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command+" "+commandhelp.ShellJoin(words))
-	cmd.Dir, cmd.WaitDelay = checkout, wait // what it left holding its output is let go too
+	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then
 	cmd.Env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	var out, said bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &said
-	host.Group(cmd)
+	// past the wait its session goes, even once the shell is gone: what it started may still hold
+	// the output open, and exec stops watching the deadline when the shell exits
+	defer context.AfterFunc(ctx, host.Group(cmd))()
 	err = cmd.Run()
 	var exit *exec.ExitError
 	switch {
