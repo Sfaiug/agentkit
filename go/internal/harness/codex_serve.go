@@ -121,7 +121,7 @@ func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io
 	exited := make(chan struct{})
 	go func() { server.Wait(); close(exited) }()
 	defer func() {
-		server.Process.Signal(syscall.SIGTERM)
+		host.Term(server)
 		select {
 		case <-exited:
 		case <-time.After(5 * time.Second):
@@ -205,11 +205,16 @@ func codexSeatHome(home, remote string, env []string) error {
 		return err
 	}
 	source = codexResolved(source)
-	index, err := os.OpenFile(filepath.Join(source, "session_index.jsonl"), os.O_CREATE|os.O_WRONLY, 0o666)
+	index := filepath.Join(source, "session_index.jsonl")
+	file, err := os.OpenFile(index, os.O_CREATE|os.O_WRONLY, 0o666)
 	if err != nil {
 		return err
 	}
-	index.Close()
+	file.Close()
+	now := time.Now()
+	if err := os.Chtimes(index, now, now); err != nil {
+		return err
+	}
 	seats := filepath.Join(config.UserHome(), ".codex", "agentkit-seats")
 	conversations := []string{"sessions", "archived_sessions"}
 	for _, name := range conversations {

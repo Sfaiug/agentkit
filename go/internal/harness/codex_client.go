@@ -164,9 +164,10 @@ func (client *codexClient) call(method string, params any) (json.RawMessage, err
 // working.  0.163 wakes the seat for neither once it ends, so each is a `terminal` or an `agent`,
 // held and never waited on.  False where the server cannot say: unread work is no evidence of none.
 func codexInFlight(thread string) ([]any, bool) {
-	data, err := os.ReadFile(filepath.Join(codexHome(os.Environ()), "connection.json"))
+	home, set := os.LookupEnv("CODEX_HOME") // the seat's, as its server runs this hook
+	data, err := os.ReadFile(filepath.Join(home, "connection.json"))
 	var connection struct{ Socket string }
-	if err != nil || json.Unmarshal(data, &connection) != nil || thread == "" {
+	if !set || err != nil || json.Unmarshal(data, &connection) != nil || thread == "" {
 		return nil, false
 	}
 	client, err := codexDial(connection.Socket)
