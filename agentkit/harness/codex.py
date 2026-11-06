@@ -204,16 +204,34 @@ def seat_token_sources(record):
     return paths
 
 
+# The running counts a step's `total_token_usage` holds; its input counts the cached and the
+# cache-written input too.
+RUNNING = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens")
+
+
 def seat_token_usage(entry, cursor):
     from . import moment
     payload = entry.get("payload") or {}
+    if entry.get("type") == "turn_context":
+        model = payload.get("model")
+        cursor["model"] = model if isinstance(model, str) else None
+        return None
     if entry.get("type") != "event_msg" or payload.get("type") != "token_count":
         return None
-    total = ((payload.get("info") or {}).get("total_token_usage") or {}).get("total_tokens")
+    usage = (payload.get("info") or {}).get("total_token_usage") or {}
+    total = usage.get("total_tokens")
+    # A count the rollout leaves out, or writes as no count, is 0.
+    running = [count if type(count) is int and count >= 0 else 0
+               for count in map(usage.get, RUNNING)]
     if type(total) is int and total >= 0 and moment(entry.get("timestamp")) is not None:
-        previous = cursor.get("total", 0)
-        cursor["total"] = max(previous, total)
-        return entry["timestamp"], f"{Path(cursor['source']).name}:{total}", max(0, total - previous)
+        # A cursor saved before the counts were carried read steps whose counts it lacks.
+        known = "running" in cursor or "total" not in cursor
+        previous, before = cursor.get("total", 0), cursor.get("running", [0] * len(RUNNING))
+        fresh, cached, written, output = (max(0, now - was) for was, now in zip(before, running))
+        cursor["total"], cursor["running"] = max(previous, total), running
+        return (entry["timestamp"], f"{Path(cursor['source']).name}:{total}",
+                max(0, total - previous), cursor.get("model"),
+                [max(0, fresh - cached - written), written, cached, output] if known else None)
 
 
 def prompt(entry):
