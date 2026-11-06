@@ -49,7 +49,11 @@ func TestOpenCodeReadsAReportedSessionWhereItCanReadItsDatabase(t *testing.T) {
 	}
 	record.Set("conversation", "ses_A012z")
 	database := filepath.Join(home, "share", "opencode", "opencode.db")
-	if err := os.MkdirAll(filepath.Dir(database), 0o700); err != nil {
+	if err := os.MkdirAll(database, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	check(false) // nor is a directory in its place
+	if err := os.Remove(database); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(database, []byte("pages"), 0o600); err != nil {
