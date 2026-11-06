@@ -137,16 +137,6 @@ func TestAntigravityHandsOverAStoreItCannotRead(t *testing.T) {
 				t.Fatal(err)
 			}
 		},
-		"no generations table": func(t *testing.T, path string) {
-			conn, err := sqlite.Open(path, sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer conn.Close()
-			if err := conn.Exec("CREATE TABLE steps (idx integer, step_type integer, metadata blob)"); err != nil {
-				t.Fatal(err)
-			}
-		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()

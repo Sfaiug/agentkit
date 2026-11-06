@@ -57,6 +57,9 @@ func antigravityAnswered(path string) (*agyAnswered, bool) {
 	defer conn.Close()
 	stmt, _, err := conn.Prepare("SELECT (SELECT metadata FROM steps WHERE step_type = ? ORDER BY idx DESC LIMIT 1)," +
 		" (SELECT data FROM gen_metadata ORDER BY idx DESC LIMIT 1)")
+	if errors.Is(err, sqlite3.ERROR) { // tables not the query's, as agy 1.2.13 keeps no generations: none in any SQLite
+		return nil, true
+	}
 	if err != nil {
 		return nil, false
 	}
