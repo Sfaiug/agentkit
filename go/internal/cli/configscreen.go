@@ -69,7 +69,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		if key.Name == "wake" { // the seat's record changed: drawn again, what was said kept
 			continue
 		}
-		view.Note = ""
+		view.Note, view.Away = "", false
 		level := -1
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
@@ -106,6 +106,8 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 						level = frame.Level(mouse, c.Effort(c.Names[row], column-3))
 					}
 				}
+			} else {
+				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
 			if !menuModels(session, "config · recommended · "+view.Scope, c, keyboard, painter) {
