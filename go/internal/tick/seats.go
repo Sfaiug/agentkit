@@ -10,7 +10,6 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/notify"
-	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -105,11 +104,10 @@ func (t *ticking) health() error {
 
 // stalling is whether the health row's look at the seat finds a stall it keeps without typing
 // (watch.health): one on a screen it reads, its own login fine and no notice standing, on the
-// account it stays on, its plan not done, where the row's catch-all takes it.
+// account it stays on, where the row's catch-all takes it.
 func stalling(live seat.Live) bool {
-	finished, err := plan.Finished(live.Name)
 	return live.Stall != nil && live.Login == nil && looked(live) && notify.Last(live.Name) == nil && live.Refused == "" &&
-		stays(live) && strings.TrimFunc(live.Pane, config.Space) != "" && err == nil && !finished
+		stays(live) && strings.TrimFunc(live.Pane, config.Space) != ""
 }
 
 // stamp is the exit clocks row where every seat is up (orch.stamp): a record not seen within
