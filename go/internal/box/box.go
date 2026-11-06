@@ -77,6 +77,9 @@ func Run(ctx context.Context, argv []string, env map[string]string, workspace, o
 		return 0, nil, err
 	}
 	defer done()
+	// Go caches builds under HOME, read-only in a turn, so a turn's is the box's own; the last
+	// GOCACHE in cmd.Env is the one the command gets.
+	cmd.Env = append(cmd.Env, "GOCACHE=/var/tmp/go-build")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, stderr
 	return supervised(ctx, cmd, &look{report: file})
 }
