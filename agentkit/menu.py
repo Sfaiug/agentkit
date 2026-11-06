@@ -4015,15 +4015,19 @@ def meters_led(meters, body, places, under, keys, moves=()):
         (line + len(over), *rest) for line, *rest in moves]
 
 
+def page_room(under, keys, over=(), lead=None):
+    """The lines a matrix screen has for its rows between `over` and `under`, lines of its own
+    above and below them, and its key line: under 1 where those leave none."""
+    return terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under) - len(over)
+
+
 def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=None):
-    """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
-    own above and below the rows, and its key line: (top, room), the first line of `body` shown
-    and how many are.  `top` stays where it was while the page holds every line of `here`, or
-    for a row taller than the page the line of its cell in column `keyed`, or with none any of
-    its lines, else moves the least that makes it so, and never past the last page; a cell that
-    is a row of its own (terminal.under) is on its line."""
-    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under)
-               - len(over))
+    """The page of a matrix screen's rows that fits between `over` and `under` (page_room): (top,
+    room), the first line of `body` shown and how many are.  `top` stays where it was while the
+    page holds every line of `here`, or for a row taller than the page the line of its cell in
+    column `keyed`, or with none any of its lines, else moves the least that makes it so, and
+    never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
+    room = max(1, page_room(under, keys, over, lead))
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
@@ -4996,11 +5000,11 @@ def page_body(rows, at=None, moves=None):
 def config_page(name, page):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
     or with a note of the row's own after, said instead of the page's while the row is pointed,
-    and lines drawn as they are under it, where the page fits whole with them, after that -- and
-    the note under them, asked again for every draw, drawn as page_body draws them and read with
-    `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing itself out in
-    the header (motion.Clock), and a mark leading a value fills or empties as it flips
-    (motion.toggled); one gone back to from a list or a field is drawn as it is.
+    and lines drawn as they are under it, where the highlighted row fits beside them, after that
+    -- and the note under them, asked again for every draw, drawn as page_body draws them and
+    read with `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing
+    itself out in the header (motion.Clock), and a mark leading a value fills or empties as it
+    flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
 
     A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
     flipping it, optionally a third item, a field Enter opens; a list, (choices, several),
@@ -5054,9 +5058,9 @@ def config_page(name, page):
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter)
         below = note_lines("\n".join(filter(None, (said, note))))
-        # a row's lines only where the page fits whole with them: they never page its rows, the
-        # highlight among them, off the screen
-        if matrix_page(body, places, here, 0, [*below, *under], keys)[1] >= len(body):
+        # a row's lines only where the page keeps room for the highlighted row beside them, the
+        # other rows paging: never pushed off the screen
+        if page_room([*below, *under], keys) >= sum(row == here for row, _ in places.values()):
             below += under
         act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
                                         clock=clock, moves=moves, under=below)

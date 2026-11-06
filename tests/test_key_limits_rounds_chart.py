@@ -1,8 +1,8 @@
 """While the pointer is on `Review rounds` on `config · limits`, how your runs ended shows under its
 note: `how your N runs ended, since D`, then a bar each ending -- `merged with no review` where
 one did, each round from 1 up to the last a run merged in, then `failed` -- its share of N, its
-count, that share as a whole percent and its median hours from start to finish.  It never pushes
-the page's rows off a short terminal.
+count, that share as a whole percent and its median hours from start to finish.  On a short
+terminal it shows beside the highlighted row, the other rows paged, and never pushes that row off.
 
 Counted are the finished runs that are not stopped, from the first that carries changed_lines on:
 merged in the round rounds_used names (0, review off) when changed_lines is set, failed when
@@ -131,7 +131,13 @@ class RoundsChart(unittest.TestCase):
             with self.subTest(ending=ending):
                 self.assertRegex(shown, SHOWN.format(ending, count, share), shown)
 
-    def test_on_a_short_terminal_an_open_list_keeps_its_highlight_on_screen(self):
+    def test_on_a_short_terminal_the_chart_shows_beside_the_pointed_row(self):
+        term = opened(self, (40, 24))       # the other rows paged off
+        self.assertIn("› Review rounds", term.wait(HEADING))
+        term.keys("Enter")
+        self.assertRegex(term.wait("⏎ pick"), r"(?m)^› +● 3$")
+
+    def test_on_a_shorter_terminal_an_open_list_keeps_its_highlight_on_screen(self):
         term = opened(self, (40, 20))
         term.keys("Enter")
         self.assertRegex(term.wait("⏎ pick"), r"(?m)^› +● 3$")
