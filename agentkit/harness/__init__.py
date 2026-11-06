@@ -850,9 +850,10 @@ class Harness:
         return history.event_tokens(Path(out) / "events.jsonl")
 
     def turn_usage(self, out):
-        """{model: (input, cache write, cache read, output)} the turn written to `out` reported
-        spending itself, the model None where it named none; None where it reported none, as by
-        default.
+        """(the session holding the turn's usage, None where none does; whether its counts
+        total that session rather than count this turn alone; {model: (input, cache write, cache
+        read, output)}) the turn written to `out` reported, the model None where it named none;
+        None where it reported none, as by default.
         """
         hook = self._hook("turn_usage")
         return hook(Path(out)) if hook else None

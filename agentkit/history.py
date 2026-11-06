@@ -254,10 +254,11 @@ METER_READING_MIGRATIONS = (("plan", "TEXT"),)
 READINGS_KEPT_FOR = 35 * 86400     # five weeks
 
 
-# One row per model a worker turn's harness reported its own tokens by (`Harness.turn_usage`),
+# One row per model a worker turn's harness reported its tokens by (`Harness.turn_usage`),
 # written with the turn's sum in `runs`: `turn` its directory as `counted_turns` names it,
 # `account` the login it ran on, `model` NULL where it named none, `began` and `at` when it
-# started and ended.
+# started and ended.  Where its harness totals a session, each count is what that total exceeds
+# the rows the run already keeps for the session's turns, never below 0.
 TURN_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_usage (
     turn TEXT,
@@ -737,7 +738,7 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
         return
     counted = set(json.loads(row[0] or "[]"))
     plugin = harness_plugin(harness)
-    values, rows = [], []
+    values = []
     for out in paths:
         out = Path(out)
         turn = str(out.resolve())
@@ -746,7 +747,12 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
             if value is not None:
                 values.append(value)
                 counted.add(turn)
-                rows += [(turn, run_id, role, *usage) for usage in _turn_usage(plugin, out)]
+                # kept at once, so a later turn of the same session among `paths` sees them
+                connection.executemany(
+                    "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, "
+                    "input, cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    [(turn, run_id, role, *usage)
+                     for usage in _turn_usage(connection, plugin, run_id, out)])
     if not values:
         return
     # The total, its rows by model and the turns they include survive or roll back together,
@@ -754,24 +760,36 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
     connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+?, counted_turns=? WHERE run_id=?",
         (int(sum(values)), json.dumps(sorted(counted)), run_id))
-    connection.executemany(
-        "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, input, "
-        "cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
 
 
-def _turn_usage(plugin, out):
+def _turn_usage(connection, plugin, run_id, out):
     """(account, model, began, at, input, cache write, cache read, output) for each model the
     turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them.
 
-    It began when its `harness` receipt was written and ended at its last event."""
-    counts = plugin.turn_usage(out)
-    if counts is None:
+    It began when its `harness` receipt was written and ended at its last event.  What a
+    session's total exceeds is measured against the rows kept, not against what its turns report
+    now: a transcript coming home later changes a killed turn's report, never its rows."""
+    reported = plugin.turn_usage(out)
+    if reported is None:
         return []
+    session, totals, counts = reported
+    began = _moment(out / "harness")
+    if totals and session is not None:
+        rows = connection.execute("SELECT turn, model, input, cache_write, cache_read, output "
+                                  "FROM turn_usage WHERE run_id=?", (run_id,)).fetchall()
+        held = {turn for turn in {row[0] for row in rows}
+                if (found := plugin.turn_usage(Path(turn))) and found[0] == session}
+        kept = {}
+        for turn, model, *numbers in rows:
+            if turn in held:
+                kept[model] = tuple(map(sum, zip(kept.get(model, (0,) * 4), numbers)))
+        counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, kept.get(
+            model, (0,) * len(numbers)))) for model, numbers in counts.items()}
     try:
         account = (out / "account").read_text()
     except OSError:
         account = None
-    began, at = _moment(out / "harness"), _moment(out / "events.jsonl")
+    at = _moment(out / "events.jsonl")
     return [(account, model, began, at, *numbers) for model, numbers in counts.items()]
 
 
