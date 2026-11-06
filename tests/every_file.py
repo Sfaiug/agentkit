@@ -309,8 +309,9 @@ def main(root, others=None):
     env["PATH"] = os.pathsep.join(part for part in env.get("PATH", "").split(os.pathsep)
                                   if part != installed)
     # Go caches builds under HOME, each file's fresh: cold, a Go keys piece's build is 2 CPU-min.
-    env["GOCACHE"] = subprocess.run("go env GOCACHE", shell=True, env=env, text=True,
-                                    capture_output=True).stdout.strip()
+    # Asking forks no telemetry sidecar ("2"): one outlives `go`, still writing in HOME as it goes.
+    env["GOCACHE"] = subprocess.run("go env GOCACHE", shell=True, text=True, capture_output=True,
+                                    env=dict(env, GO_TELEMETRY_CHILD="2")).stdout.strip()
     env["PYTHONPYCACHEPREFIX"] = pycache.name
     pending = iter(todo)
     path, parts, _ = next(pending, (None,) * 3)
