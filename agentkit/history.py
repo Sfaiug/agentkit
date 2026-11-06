@@ -1322,7 +1322,11 @@ def event_paths(run_dir):
 
 
 def event_tokens(path):
-    """Prefer the harness's final usage over the messages it already includes."""
+    """Prefer the harness's final usage over the messages it already includes.
+
+    Without it each message counts once, at its last usage: a stream may carry one message as
+    an event per content block, each repeating that message's id and usage.
+    """
     def count(value):
         if not isinstance(value, dict):
             return None
@@ -1376,7 +1380,7 @@ def event_tokens(path):
                     if cumulative:
                         final = value
                     else:
-                        messages[index] = value
+                        messages[message_id if isinstance(message_id, str) else index] = value
     except OSError:
         return None
     return int(final) if final is not None else int(sum(messages.values())) if messages else None

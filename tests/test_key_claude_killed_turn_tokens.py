@@ -3,8 +3,9 @@
 Such a turn's `turn_usage` rows in history.db hold, for each model, each type summed over the
 messages its session's transcripts hold from its start to its last event, its subagent's too,
 each message once however many lines repeat it.  Where no transcript came home, as from a turn
-killed on a rented machine, each message counts as its stream reported it.  A turn with its
-`result` keeps what the result gives.  Black-box: AK_BIN runs tasks through tests/fixtures/akbin.py on a fake Claude harness.
+killed on a rented machine, each message counts as its stream reported it, and the run's
+executor tokens count each message once too.  A turn with its `result` keeps what the result
+gives.  Black-box: AK_BIN runs tasks through tests/fixtures/akbin.py on a fake Claude harness.
 While the executor's turn waits, the test does what Claude Code would: it writes the turn's
 events, naming the session and the turn's working directory, and that session's transcripts in
 the Home's Claude projects folder.  history.db is read with sqlite3.
@@ -62,12 +63,14 @@ def transcript(path, messages, times, sidechain=False):
 
 
 def events(workspace, result):
-    """The turn's stream: its start, each message's first chunk, and the `result` if it has one."""
+    """The turn's stream: its start, each message's first chunk once per content block, as Claude
+    Code repeats a message's id and usage, and the `result` if it has one."""
     lines = [{"type": "system", "subtype": "init", "cwd": workspace, "session_id": SESSION,
               "model": OPUS}]
     lines += [{"type": "assistant", "session_id": SESSION, "message": {
         "id": message, "model": model, "usage": dict(zip(TYPES, repeats[0]))}}
-        for message, model, repeats, when in MAIN + SUBAGENT if when == "during"]
+        for message, model, repeats, when in MAIN + SUBAGENT if when == "during"
+        for _block in ("thinking", "text")]
     if result is not None:
         lines.append({"type": "result", "subtype": "success", "session_id": SESSION,
                       "usage": dict(zip(TYPES, result)), "modelUsage": {OPUS: dict(zip(
@@ -120,6 +123,8 @@ class Turn:
             cls.rows = connection.execute(
                 "SELECT turn, role, model, input, cache_write, cache_read, output "
                 "FROM turn_usage ORDER BY model").fetchall()
+            cls.executor_tokens = connection.execute(
+                "SELECT executor_tokens FROM runs").fetchone()[0]
         finally:
             connection.close()
 
@@ -154,6 +159,9 @@ class AKilledTurnWhoseTranscriptNeverCameHome(Turn, unittest.TestCase):
         # input and cache whole, output its first chunk's
         self.assertEqual(self.kept(), [(HAIKU, 5, 700, 0, 90), (OPUS, 10, 2300, 22000, 4)])
         self.assertEqual(len(self.rows), 2, self.rows)
+
+    def test_the_run_s_executor_tokens_count_each_message_once(self):
+        self.assertEqual(self.executor_tokens, sum(sum(counts) for _, *counts in self.kept()))
 
 
 class ATurnWithItsResult(Turn, unittest.TestCase):
