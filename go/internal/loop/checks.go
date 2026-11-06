@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -221,8 +222,11 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	if proof {
 		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
 	}
+	if l.marker != "" {
+		env[host.Marker] = l.marker
+	}
 	var left []string
-	watch := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Before: func() { left = stillRunning(l.dir) }}
+	watch := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Before: func() { left = stillRunning(cmp.Or(l.marker, l.dir)) }}
 	code, stopped, err := box.RunCheck(l.ctx, watch, []string{"bash", "-c", cmd}, env, cwd, out, progress)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return ran{}, notYet("the host has no box for a check", "a check here")

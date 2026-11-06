@@ -203,7 +203,7 @@ func (r *repoPlace) baseProof(l *loop, ok bool) (*besideReview, error) {
 	if err := l.save(func(record *run.Object) { owed = record.Str("base_proof") == baseOwed }); err != nil || !ok || !owed {
 		return nil, err
 	}
-	return l.besideReview(r.failsOnBase), nil
+	return l.besideReview("base-proof", r.failsOnBase), nil
 }
 
 // proven joins the base proof and records what it found, before any verdict is, so a death while

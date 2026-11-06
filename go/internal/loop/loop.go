@@ -243,6 +243,7 @@ type loop struct {
 	prior         bool      // the record already names its workplace: this driver carries the run on
 	pull          string    // the pull request this run reviews alone, "" for a run of a task
 	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
+	marker        string    // what marks the processes it starts, the process's own where none: a check beside the review has its own
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
