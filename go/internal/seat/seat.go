@@ -69,8 +69,7 @@ type Home struct {
 	records []Seat
 	models  map[string]config.Model
 	readers recordReaders
-	runs    readsRuns        // what it read its seats' runs by, which a look at one of them reads them by again
-	found   map[string][]ran // the runs it found, which a seat decided again under its announce lock is decided with
+	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
 }
 
 type recordReaders map[string]harness.Reader
@@ -183,7 +182,7 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
-	home := Home{models: models, readers: recordReaders{}, runs: readRuns, found: runs}
+	home := Home{models: models, readers: recordReaders{}, runs: readRuns}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
@@ -317,7 +316,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if seat.closed && seat.unowned {
 		seat.restart = "starts fresh"
 	}
-	seat.asleep, seat.mine = putToSleep(record, previous), mine
+	seat.asleep, seat.mine, seat.handBacks = putToSleep(record, previous), mine, handBacks(mine)
 	if seat.Created == 0 {
 		seat.Created = float64(now.Unix())
 	}

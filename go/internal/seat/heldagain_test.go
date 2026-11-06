@@ -27,6 +27,10 @@ func TestAQueuedAnnounceDecidesFromTheNewestFacts(t *testing.T) {
 		"the owner's stop": {func(t *testing.T, home, _ string) {
 			write(t, file(home, "seat-acme.json"), `{"stopped_at": 2, "closed_by_owner": true}`)
 		}, "idle", "session closed by the owner: reopen it from past sessions"},
+		"the owner's stop, a run of its own merged since waiting to hand back": {func(t *testing.T, home, _ string) {
+			write(t, file(home, "seat-acme.json"), `{"stopped_at": 2, "closed_by_owner": true}`)
+			runRecord(t, home, "merged", map[string]any{"state": "pass", "merged": true, "finished_at": seconds(time.Now()) - 20000, "handback_pending": true})
+		}, "idle", "session closed by the owner: reopen it from past sessions · 1 hand-backs waiting"},
 		"put to sleep": {func(t *testing.T, home, _ string) {
 			record(t, home, "acme", map[string]any{"asleep": 9, "launched": 3})
 		}, "idle", "asleep: press 1 to wake it"},
