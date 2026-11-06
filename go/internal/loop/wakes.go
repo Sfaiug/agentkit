@@ -1,7 +1,7 @@
 package loop
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -54,14 +54,17 @@ func wakeReds(line string, woken map[string]bool, said io.Writer) {
 	members := lineMembers(line)
 	for _, m := range members {
 		wait, id := m.record.Dict("waiting_on"), filepath.Base(m.dir)
-		// an active run's lock is its own: the wake never waits on it
 		if woken[id] || m.record.Str("state") != "waiting" || !wait.Has("fix") || landingFixHandoff(wait) != "" ||
 			pythons(m.record) || redBehind(wait, members) || run.ProcessActive(m.record) {
 			continue
 		}
-		// Its file lock, not run.Hold: the pass may hold this run's lock through Hold meanwhile,
-		// which a Hold or Change here would take as already its own.
-		held, err := lock.Wait(context.Background(), filepath.Join(m.dir, run.RecoveryLock))
+		// Tried, never waited on: a lock held may be a run's that started since the line was read,
+		// and the next wake asks again.  Its file lock, not run.Hold: the pass may hold this run's
+		// lock through Hold meanwhile, which a Hold or Change here would take as already its own.
+		held, err := lock.Try(filepath.Join(m.dir, run.RecoveryLock))
+		if errors.Is(err, lock.ErrHeld) {
+			continue
+		}
 		if err == nil {
 			if current, _ := run.Read(m.dir); run.Equal(current, m.record) && !run.ProcessActive(current) {
 				woken[id] = true // a resume takes its record a moment after it starts

@@ -96,15 +96,13 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 		for _, later := range members[index+1:] {
 			wait := later.record.Dict("waiting_on")
 			if later.record.Str("state") != "waiting" || wait.Has("fix") || wait.Has("land") || !reviewPassed(later.record) ||
-				run.ProcessActive(later.record) {
+				run.ProcessActive(later.record) || !unchanged(later.dir, later.record) {
 				continue
 			}
 			if pythons(later.record) {
 				break // the stack ends short of it
 			}
-			if unchanged(later.dir, later.record) {
-				pending = append(pending, later)
-			}
+			pending = append(pending, later)
 		}
 		break
 	}

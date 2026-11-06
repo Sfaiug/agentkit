@@ -60,8 +60,9 @@ func TestDeliveryRedRetainsItsFixReceipt(t *testing.T) {
 // A member not ready (land.check_line) keeps its place and holds nothing behind it; a handoff
 // leaves the rest to Python's lander.
 func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
-	passedOver := map[string]bool{"active": true, "missing-review": true, "delivery-red": true}
-	for _, kind := range []string{"conflict", "review-pr", "repair", "active", "missing-review", "rules", "changed", "delivery-red"} {
+	passedOver := map[string]bool{"active": true, "missing-review": true, "delivery-red": true, "review-pr-moved": true, "repair-moved": true}
+	for _, kind := range []string{"conflict", "review-pr", "repair", "active", "missing-review", "rules", "changed", "delivery-red",
+		"review-pr-moved", "repair-moved"} {
 		t.Run(kind, func(t *testing.T) {
 			_, repo := repoRig(t)
 			t.Setenv("AK_HOST_READINGS", `{"cpus":4,"load":0,"free_mb":16000}`)
@@ -96,8 +97,8 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 					"waiting_on", run.Fields("line", filepath.Base(turn), "joined", n))
 				if n == 2 {
 					switch kind {
-					case "review-pr", "repair":
-						record.Set(strings.ReplaceAll(kind, "-", "_"), true)
+					case "review-pr", "repair", "review-pr-moved", "repair-moved":
+						record.Set(strings.ReplaceAll(strings.TrimSuffix(kind, "-moved"), "-", "_"), true)
 					case "active":
 						run.SetAll(record, "pid", os.Getpid(), "process_identity", identity(os.Getpid()))
 					case "missing-review":
@@ -116,6 +117,15 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 				}
 				saved, _ := run.Read(dir)
 				members = append(members, member{dir, saved})
+			}
+			if strings.HasSuffix(kind, "-moved") {
+				// its record changed since the line was read: passed over before any handoff
+				if err := run.Change(members[1].dir, func(record *run.Object) error {
+					record.Set("error", "moved on")
+					return nil
+				}); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if err := narrowLine(turn, "", repo.repo, tip, "main", members, io.Discard); err != nil {
 				t.Fatal(err)
