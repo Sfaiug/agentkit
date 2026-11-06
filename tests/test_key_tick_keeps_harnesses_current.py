@@ -5,11 +5,11 @@ upgraded in the background, one at a time.  A red puts the harness back and says
 release starts again once a day has passed since its start, a newer one at once.  A tick from any
 other checkout, a test's above all, neither asks nor upgrades.  Black-box: every tick is
 `AK_BIN watch` itself, through tests/fixtures/akbin.py, in an offline box where HOME/agentkit is
-the checkout the program runs from, a copy mounted over it, or for another checkout's tick that
-copy beside it; claude and codex are fakes keeping their installed release and their channel's
-in files, npm answers for both, and tests/fixtures/akgates.py stands in for the gates; an hour or
-a day goes by as the record of each ask and start is set back.  This test fails against
-`/bin/false`.
+the checkout the program runs from, a copy of it as it stands mounted over it, or for another
+checkout's tick that copy beside it; claude and codex are fakes keeping their installed release
+and their channel's in files, npm answers for both, and tests/fixtures/akgates.py stands in for
+the gates; an hour or a day goes by as the record of each ask and start is set back.  This test
+fails against `/bin/false`.
 """
 
 from collections import Counter
@@ -90,23 +90,23 @@ class KeepsHarnessesCurrent(unittest.TestCase):
         self.addCleanup(home.close)
         akconfig.write(home, ["opus", "astra"])
         ran, self.checkout = program()
-        # The install: what the program's checkout tracks, tests aside, the program as built and
-        # `AK_BIN` itself where the checkout holds them, on main as its origin has it; the live
-        # gate an upgrade passes is there for the stand-in to answer.
+        # each tick's box puts a copy in the checkout's place, which would hide a Home inside it
+        self.assertFalse(home.root.is_relative_to(self.checkout),
+                         f"TMPDIR is inside the program's checkout, {self.checkout}")
+        # The install: the program's checkout as it stands -- what git tracks or would add, a
+        # launcher and its symlinks among them -- and the program and `AK_BIN` as built, resolved
+        # so no `..` names a place outside the copy; on main as its origin has it.
         self.root = root = home.root
         self.copy = copy = root / "install"
-        listed = home.run("git", "-C", str(self.checkout), "ls-files", "-z")
-        tracked = [name for name in (listed.out.split("\0") if listed.code == 0 else ())
-                   if name and not name.startswith("tests/")]
-        built = [path.relative_to(self.checkout) for path in (ran, Path(AK))
+        listed = home.run("git", "-C", str(self.checkout), "ls-files", "-z", "--cached",
+                          "--others", "--exclude-standard")
+        built = [str(path.relative_to(self.checkout)) for path in (ran, Path(AK).resolve())
                  if path.is_relative_to(self.checkout)]
-        for name in {*tracked, *map(str, built)}:
+        for name in {*(listed.out.split("\0") if listed.code == 0 else ()), *built} - {""}:
             source = self.checkout / name
             if source.is_file() or source.is_symlink():
                 (copy / name).parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source, copy / name, follow_symlinks=False)
-        (copy / "tests").mkdir(exist_ok=True)
-        (copy / "tests" / "live.sh").write_text("exit 0\n")
         origin = str(root / "origin.git")
         for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "ak"],
                      ["init", "-q", "--bare", origin], ["remote", "add", "origin", origin],
