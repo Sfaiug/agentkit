@@ -86,6 +86,6 @@ func news(launched, own, pane string) bool {
 	if run.Equal(previous.Get("word_from"), found.wordFrom()) {
 		return false
 	}
-	_, _, known := liveSeat(name, now, nil)
+	_, _, known := liveSeat(name, now, lookRuns, nil)
 	return known
 }

@@ -16,7 +16,7 @@ func (home Home) Explain(name string, now time.Time) ([]string, bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	at := slices.IndexFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
 	if at >= 0 && home.Seats[at].live {
-		lines, err := explainLive(state, name, home.readers)
+		lines, err := explainLive(state, name, home.runs, home.readers)
 		if err == nil {
 			err = reconcile(state, home.records, true)
 		}

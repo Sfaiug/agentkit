@@ -96,7 +96,7 @@ func Look(launched, pid string, heard *Prompt) {
 		return
 	}
 	state := filepath.Join(config.Home(), "state")
-	home, live, known := liveSeat(name, time.Now(), nil)
+	home, live, known := liveSeat(name, time.Now(), lookRuns, nil)
 	if !known {
 		lookAgain(state, name)
 		return
@@ -104,7 +104,7 @@ func Look(launched, pid string, heard *Prompt) {
 	if failed(name, live.own) || answering(state, name, heard) != nil {
 		return
 	}
-	if _, err := lookedLive(state, name, home.readers); errors.Is(err, ErrUnread) {
+	if _, err := lookedLive(state, name, home.runs, home.readers); errors.Is(err, ErrUnread) {
 		lookAgain(state, name)
 	}
 }

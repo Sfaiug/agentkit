@@ -5,24 +5,30 @@ import (
 	"time"
 )
 
-// Parked is whether any run of that seat sits parked undecided (stop._parked): ended unsettled or
-// stalled, unacknowledged, and with no later merged run to replace it.  An error where a record
-// Go cannot read as Python does, or an exhausted run whose wait it does not follow (`going`
-// reads `exhausted_wait`), could say so.
-func Parked(name string, now time.Time) (bool, error) {
+// Records is every run's readable record as it stands, the census what reads runs together reads
+// (record.runs); an error where a record holds what Go cannot read as Python does.
+func Records() ([]*Object, error) {
 	var records []*Object
 	for _, dir := range Dirs() {
 		record, err := Read(dir)
 		if errors.Is(err, ErrLoneSurrogate) {
-			return false, err
+			return nil, err
 		}
 		if record != nil {
 			records = append(records, record)
 		}
 	}
-	index := NewIndex(records)
+	return records, nil
+}
+
+// Parked is whether any run of that seat among every run's records sits parked undecided
+// (stop._parked): ended unsettled or stalled, unacknowledged, and with no later merged run to
+// replace it.  An error where an exhausted run, whose wait Go does not follow (`going` reads
+// `exhausted_wait`), could say so.
+func Parked(name string, records []*Object, now time.Time) (bool, error) {
+	index, seat := NewIndex(records), Seats()
 	for _, record := range records {
-		if !index.Unfinished(record) || Seat(record) != name {
+		if !index.Unfinished(record) || seat(record) != name {
 			continue
 		}
 		state := record.Str("state")

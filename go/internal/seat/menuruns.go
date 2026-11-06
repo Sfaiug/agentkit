@@ -1,9 +1,6 @@
 package seat
 
 import (
-	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -22,30 +19,29 @@ type runView struct {
 	task                                  *Task
 }
 
-func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
-	entries, err := os.ReadDir(run.Runs())
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+// screenRuns is what the open screen knows of the runs between its reads: a run at rest is as its
+// last full read found it, on the rows and in what a frame's looks decide from them (Home.runs).
+// Every other reader decides on what it reads, and looks at every run.
+var screenRuns run.Reader
+
+func menuRuns(now time.Time, reader *run.Reader) (map[string][]ran, map[string][]ran, bool) {
+	held, known := reader.Read()
+	if !known {
 		return nil, nil, false
 	}
 	mine := map[string][]ran{}
 	projects := map[string][]ran{}
 	var records []*run.Object
-	for _, entry := range entries {
-		dir := filepath.Join(run.Runs(), entry.Name())
-		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+	census := make([]*run.Object, len(held))
+	for i, each := range held {
+		census[i] = each.Record
+	}
+	seats := run.Seats()
+	for _, each := range held {
+		if each.Smoke {
 			continue
 		}
-		record, err := run.Read(dir)
-		if errors.Is(err, fs.ErrNotExist) {
-			continue
-		}
-		if err != nil || record == nil {
-			return nil, nil, false
-		}
-		if run.SmokeRun(record) {
-			continue
-		}
-		name := run.Seat(record)
+		record, name := each.Record, seats(each.Record)
 		projects[name] = append(projects[name], ran{record: record})
 		if record.Truthy("unattended") {
 			continue
@@ -55,7 +51,7 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 		if !known {
 			return nil, nil, false
 		}
-		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: silence(dir, record, now), view: &view})
+		mine[name] = append(mine[name], ran{name: each.Name, record: record, quiet: silence(filepath.Join(run.Runs(), each.Name), record, now), view: &view, census: census})
 	}
 	index := run.NewIndex(records)
 	for _, runs := range mine {

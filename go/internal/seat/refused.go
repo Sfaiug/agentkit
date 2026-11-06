@@ -30,7 +30,11 @@ func QuestionRefused(name string) (string, error) {
 	if slices.ContainsFunc(said, func(at float64) bool { return at > seconds(done) }) {
 		return "", nil
 	}
-	if parked, err := run.Parked(name, time.Now()); parked || err != nil {
+	records, err := run.Records()
+	if err != nil {
+		return "", err
+	}
+	if parked, err := run.Parked(name, records, time.Now()); parked || err != nil {
 		return "", err
 	}
 	return doneAsking, nil

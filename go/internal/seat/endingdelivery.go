@@ -8,8 +8,9 @@ import (
 )
 
 // EndingDelivery is whether an ending is recorded without typing, or rides on the seat's
-// next prompt. The hand-back and a look use the same read of its plan and wait.
-func EndingDelivery(record *run.Object, session string) (recordOnly, pending bool) {
+// next prompt. The hand-back and a look use the same read of its plan and wait, the look with the
+// census its runs were read in.
+func EndingDelivery(record *run.Object, census []*run.Object, session string) (recordOnly, pending bool) {
 	if !record.Truthy("merged") && record.Str("state") != "not_needed" {
 		return false, false
 	}
@@ -33,6 +34,6 @@ func EndingDelivery(record *run.Object, session string) (recordOnly, pending boo
 	if !harness.TakesContext(own) {
 		return false, false
 	}
-	ends, err := EndsWait(session, record)
+	ends, err := EndsWait(session, census, record)
 	return false, err != nil || !ends
 }

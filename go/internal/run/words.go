@@ -71,16 +71,20 @@ func Launched(record *Object) string {
 }
 
 // Seat is the seat the run was launched from, by its name now, or "".
-func Seat(record *Object) string {
-	name := Launched(record)
-	if name == "" {
-		return ""
+func Seat(record *Object) string { return Seats()(record) }
+
+// Seats is Seat for the runs of one read, each name they give followed through its renames once.
+func Seats() func(*Object) string {
+	resolved := map[string]string{}
+	return func(record *Object) string {
+		name := Launched(record)
+		seat, seen := resolved[name]
+		if name != "" && !seen {
+			seat, _, _ = config.ResolveSession(name) // "" where it cannot be followed
+			resolved[name] = seat
+		}
+		return seat
 	}
-	seat, _, err := config.ResolveSession(name)
-	if err != nil {
-		return ""
-	}
-	return seat
 }
 
 // tickAdmitted is whether the tick may take up this ending rather than a person: only an

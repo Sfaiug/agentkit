@@ -78,7 +78,7 @@ func Give(dir string, say func(string)) bool {
 		}
 		return false // the seat was told nothing
 	}
-	recordOnly, pending := seat.EndingDelivery(said, session)
+	recordOnly, pending := seat.EndingDelivery(said, nil, session)
 	if recordOnly {
 		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", routine,
 			"handback_pending", nil, "handback_typed", nil, "handback_wait_reason", nil, "notification_pending", nil) {

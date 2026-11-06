@@ -69,9 +69,13 @@ type Home struct {
 	records []Seat
 	models  map[string]config.Model
 	readers recordReaders
+	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
 }
 
 type recordReaders map[string]harness.Reader
+
+// readsRuns is each seat's runs as judged at that moment, or false where Go does not read them.
+type readsRuns func([]string, time.Time) (map[string][]ran, bool)
 
 // Seatless is whether the home holds no record at all.
 func (home Home) Seatless() bool { return len(home.records) == 0 }
@@ -87,7 +91,7 @@ var (
 	// login its conversation is under; `asleep` since `launched`), and those no reading of it hangs on
 	recordFields = []string{"orchestrator", "workers", "reviewers", "efforts", "cwd", "created", "conversation", "id_source", "resumable", "session_title", "repo",
 		"account", "home_account", "launched", "asleep", "seen", "exited_since", "unnamed", "filed", "owner_words_cursor",
-		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded"}
+		"rulebook_sha", "rulebook_read", "rulebook_told", "title_sync", "title_superseded", "title_conversation"}
 	seatFields = slices.Concat([]string{"word", "reason", "unsent", "word_since", "word_from", "session", "stopped_at", "closed_by_owner", "unasked"}, waits, screenFields)
 	// what Python's look at a seat's screen keeps beside its word, which no seat nobody is in reads
 	screenFields = []string{"state", "rule", "since", "began", "hooks", "hooked", "hooked_at", "hooked_event", "interrupted", "authority", "evidence",
@@ -102,6 +106,7 @@ type ran struct {
 	record *run.Object
 	quiet  float64
 	view   *runView
+	census []*run.Object // every run's record as the read that found this one found them
 }
 
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else
@@ -112,7 +117,7 @@ func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
 func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
-func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders, pending ...bool) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns readsRuns, readers recordReaders, pending ...bool) (Home, bool) {
 	began := time.Now()
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
@@ -120,9 +125,14 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		return Home{}, false
 	}
 	var names []string
+	renamed := map[string]bool{} // a rename's old names, which name no seat of their own (config.session_records)
 	for _, entry := range entries {
 		if name, ok := sessionFile(entry.Name()); ok {
-			names = append(names, name)
+			if record, _ := run.ReadJSON(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
+				renamed[name] = true
+			} else {
+				names = append(names, name)
+			}
 		}
 	}
 	held, live, bare, gone := onServer(state, names)
@@ -149,10 +159,11 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
 		name, suffix, _ := strings.Cut(rest, ".")
 		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
-		// no listing reads (forget); one tmux no longer holds leaves its announce lock, its word and
-		// its card, which the tick closes (notify.tick_cards), and what it asked the owner last, an
-		// orphan ending's question among them (handback.announce)
-		if !slices.Contains(names, name) && entry.Type().IsRegular() &&
+		// no listing reads (forget); one renamed leaves its pointer and what the rename keeps under its
+		// old name; one tmux no longer holds leaves its announce lock, its word and its card, which the
+		// tick closes (notify.tick_cards), and what it asked the owner last, an orphan ending's question
+		// among them (handback.announce)
+		if renamed[name] || !slices.Contains(names, name) && entry.Type().IsRegular() &&
 			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
 			continue
 		}
@@ -170,7 +181,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
-	home := Home{models: models, readers: recordReaders{}}
+	home := Home{models: models, readers: recordReaders{}, runs: readRuns}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
@@ -441,7 +452,7 @@ func (home Home) Announce(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
 	for at, seat := range home.Seats {
 		if seat.live { // its look decides its word, which every reader of this home reads
-			looked, err := lookedLive(state, seat.Name, home.readers)
+			looked, err := lookedLive(state, seat.Name, home.runs, home.readers)
 			if err != nil {
 				return err
 			}

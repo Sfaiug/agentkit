@@ -19,8 +19,9 @@ var errExhausted = errors.New("an exhausted run, which Python's exhausted_wait r
 // lets its turn end, and whether runs of its own sit parked undecided, which hold it.  A question
 // ends it past everything; an unnamed seat's name holds everything else, and a parked run a plan
 // owing nothing and every wait.  A run of its own going, merged and awaiting its live check, or
-// started since the turn began, a job it can wait on and its own `ak wait` let it end.
-func RecordedEnding(name string, record map[string]any, asked bool, since ...float64) (ends, parked bool, err error) {
+// started since the turn began, a job it can wait on and its own `ak wait` let it end.  From every
+// run's record as its caller read them, or with none as they stand (stop._ending_work).
+func RecordedEnding(name string, census []*run.Object, record map[string]any, asked bool, since ...float64) (ends, parked bool, err error) {
 	now := time.Now()
 	switch {
 	case asked:
@@ -28,15 +29,20 @@ func RecordedEnding(name string, record map[string]any, asked bool, since ...flo
 	case record["unnamed"] == true:
 		return false, false, nil
 	}
-	if parked, err := run.Parked(name, now); parked || err != nil {
+	if census == nil {
+		if census, err = run.Records(); err != nil {
+			return false, false, err
+		}
+	}
+	if parked, err := run.Parked(name, census, now); parked || err != nil {
 		return false, parked, err
 	}
 	if owes, err := plan.Owes(name); !owes || err != nil {
 		return !owes, false, err
 	}
-	for _, dir := range run.Dirs() {
-		mine, _ := run.Read(dir)
-		if mine == nil || run.Seat(mine) != name {
+	seat := run.Seats()
+	for _, mine := range census {
+		if seat(mine) != name {
 			continue
 		}
 		if mine.Str("state") == "exhausted" {
@@ -65,7 +71,7 @@ func startedSince(mine *run.Object, since float64) bool {
 
 // EndsWait is whether this ending ends the explicit wait its seat named, or leaves
 // nothing recorded to let the seat's turn end while its plan still owes work.
-func EndsWait(name string, ending *run.Object) (bool, error) {
+func EndsWait(name string, census []*run.Object, ending *run.Object) (bool, error) {
 	file, err := run.ReadJSON(seatFile(name))
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
@@ -82,6 +88,6 @@ func EndsWait(name string, ending *run.Object) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	ends, _, err := RecordedEnding(name, record, false)
+	ends, _, err := RecordedEnding(name, census, record, false)
 	return !ends, err
 }

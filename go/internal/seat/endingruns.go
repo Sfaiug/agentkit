@@ -25,7 +25,7 @@ func endingNews(facts climbing) (*answer, error) {
 		if !run.OwesEnding(each.record, time.Unix(0, int64(facts.now*1e9))) {
 			continue
 		}
-		recorded, pending := EndingDelivery(each.record, facts.name)
+		recorded, pending := EndingDelivery(each.record, each.census, facts.name)
 		if !recorded && (!pending || each.record.Truthy("handback_typed")) {
 			return &answer{word: "working", reason: fmt.Sprintf("telling it how run %s ended", each.name), since: facts.found.began}, nil
 		}

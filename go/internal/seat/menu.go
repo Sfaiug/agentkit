@@ -15,7 +15,7 @@ import (
 // filing wrote.  Looking and commands that publish a word use the same run interpretation without
 // filing.
 func Menu(now time.Time) (Home, bool) {
-	runs, projects, known := menuRuns(now)
+	runs, projects, known := menuRuns(now, &screenRuns)
 	if !known {
 		return Home{}, false
 	}
