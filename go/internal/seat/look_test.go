@@ -93,9 +93,15 @@ func TestALookReadsTheSeatGone(t *testing.T) {
 		"a question already answered stands no more": {func(t *testing.T, home string) {
 			write(t, state(home, "notify-acme.json"), `{"kind": "needs", "text": "which?", "time": 1, "answered_at": 2}`)
 		}, "idle", closedOne},
-		"another harness's login is not this seat's news": {func(t *testing.T, home string) {
-			write(t, state(home, "watch.json"), `{"auth_out": {"codex": {"ok": false, "at": 1}, "claude": {"ok": true}}}`)
+		"no login refused is a seat's news once nobody is in it": {func(t *testing.T, home string) {
+			write(t, state(home, "watch.json"), `{"auth_out": {"codex": {"ok": false, "at": 1}, "claude": {"ok": false, "at": 1}}}`)
 		}, "idle", closedOne},
+		"gh logged out is every seat's news": {func(t *testing.T, home string) {
+			write(t, state(home, "watch.json"), `{"gh_out": {"at": 1}}`)
+		}, "needs you", "GitHub is logged out: run `gh auth login -p https -w`"},
+		"a dead worker token is every seat's news": {func(t *testing.T, home string) {
+			write(t, state(home, "watch.json"), `{"worker_tokens": {"claude": {"harness": "claude", "remedy": "replace it", "expired": true, "at": 1}}}`)
+		}, "needs you", "claude worker token expired: replace it"},
 		"a harness that proves its conversation says what reopening does with no proof": {func(t *testing.T, home string) {
 			record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"}})
 		}, "idle", closedOne + " · starts a new Codex conversation"},
@@ -141,15 +147,6 @@ func TestALookThatWouldDoMoreWritesNothing(t *testing.T) {
 		"a merge awaiting its live check": func(t *testing.T, home string) {
 			runRecord(t, home, "merged", map[string]any{"state": "pass", "merged": true, "repo": "/r", "finished_at": float64(time.Now().Unix()),
 				"health": map[string]any{"command": "true"}})
-		},
-		"gh logged out": func(t *testing.T, home string) {
-			write(t, state(home, "watch.json"), `{"gh_out": {"at": 1}}`)
-		},
-		"a worker token dead": func(t *testing.T, home string) {
-			write(t, state(home, "watch.json"), `{"worker_tokens": {"claude": {"harness": "claude", "remedy": "replace it", "expired": true, "at": 1}}}`)
-		},
-		"its harness logged out": func(t *testing.T, home string) {
-			write(t, state(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`)
 		},
 		"a launch receipt, which may give it back its conversation": func(t *testing.T, home string) {
 			record(t, home, "acme", map[string]any{"orchestrator": "astra", "workers": []string{"astra"}, "codex_launch": "receipt"})
