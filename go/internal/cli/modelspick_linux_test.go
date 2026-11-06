@@ -22,8 +22,7 @@ sys.path.insert(0, str(Path("tests").resolve()))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from fixtures.akterm import Terminal
-from test_key_models_answer import ENV
-from test_key_models_pick import renamed
+from test_key_models_answer import ENV, boards
 
 for target, marked in (("all 4 models", None),
                        ("Acme Mid 5", ["acme-mid-5", "bolt-3"])):
@@ -35,7 +34,10 @@ for target, marked in (("all 4 models", None),
             "mid": {"harness": "claude", "model": "acme-mid-5", "effort": "low"},
             "bolt": {"harness": "codex", "model": "bolt-3", "effort": "low"}},
             settings={"compare": ["bolt-3"]})
-        home.write(".agentkit/state/boards.json", renamed())
+        held = boards()
+        for row in held["artificialanalysis.ai"]["rows"]:
+            row["maker"] = row["model"].split()[0]
+        home.write(".agentkit/state/boards.json", held)
         term = Terminal(home, size=(100, 40), env=ENV)
         term.wait("esc leave")
         term.keys("c")

@@ -29,6 +29,7 @@ import test_key_models_answer as answer
 COLOURS = {"Acme": (224, 64, 64), "Bolt": (64, 160, 224)}
 PROVIDERS = {"acme": {"mode": "subscription", "colour": "#E04040"},
              "bolt": {"mode": "subscription", "colour": "#40A0E0", "maker": "Bolt Labs"}}
+MAKERS = ["Acme", "Bolt Labs"]      # the companies you have: Bolt 3's too, which no model runs
 ROW = re.compile(r"[ ›] .{7}  (\S.*?) +([━╸─]{8,}) +\d+\.\d +\$\d+\.\d\d")
 
 
@@ -81,7 +82,7 @@ class ModelsColour(unittest.TestCase):
     def models(self, **settings):
         """`r` on `c` in a window of its own, once its answer rests: no maker's colour on it."""
         akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5"}},
-                       providers=PROVIDERS, settings=settings)
+                       providers=PROVIDERS, settings={"companies": MAKERS, **settings})
         env = {key: value for key, value in answer.ENV.items() if key != "NO_COLOR"}
         self.term = Terminal(self.home, size=(100, 60), env={**env, "COLORTERM": "truecolor"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", self.term.pane,

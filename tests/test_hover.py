@@ -453,7 +453,7 @@ class Screens(Sandbox):
         screens = run(choose, move(5, 5), b"\x1b[<0;1;1M\x1b[<0;1;1m", move(2, 1), ESC)[1]
         self.assertEqual(highlighted(screens[-1]), [])
 
-    def test_the_models_screens_draw_no_highlight_off_every_row(self):
+    def test_the_models_screen_draws_no_highlight_off_every_row(self):
         role = next(iter(menu.quality.ROLES))
         row = {"release": "alpha", "effort": "high", "maker": "Acme", "name": "Alpha"}
         said = [("orch", [(menu.pointed(role, row), "★ pick", "Alpha", [], "high", 1.0,
@@ -462,15 +462,14 @@ class Screens(Sandbox):
                             ("answer", {role: {"pick": row}})):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
         self.stack.enter_context(patch.object(menu, "models_said", return_value=said))
-        for screen in (lambda: menu.models_screen(self.cfg, None, {}, {}),
-                       lambda: menu.compare_screen(self.cfg, "models", [row])):
-            # the pointer on the header lights no row, and a key brings it back where it was,
-            # the row's line, growing in as the screen opens, at its length
-            screens = run(screen, move(1, 1), b"\x1b[A", ESC)[1]
-            named = lambda grid: [line.split()[1] for line in highlighted(grid)]
-            self.assertEqual(len(highlighted(screens[0])), 1)
-            self.assertEqual(highlighted(screens[1]), [])
-            self.assertEqual(named(screens[2]), named(screens[0]))
+        # the pointer on the header lights no row, and a key brings it back where it was, the
+        # row's line, growing in as the screen opens, at its length
+        screens = run(lambda: menu.models_screen(self.cfg, None, {}, {}), move(1, 1), b"\x1b[A",
+                      ESC)[1]
+        named = lambda grid: [line.split()[1] for line in highlighted(grid)]
+        self.assertEqual(len(highlighted(screens[0])), 1)
+        self.assertEqual(highlighted(screens[1]), [])
+        self.assertEqual(named(screens[2]), named(screens[0]))
 
     def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
         def screen():

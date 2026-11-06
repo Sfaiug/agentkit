@@ -20,6 +20,7 @@ from test_key_role_cost_from_runs import NOW, History
 ROWS = [("anvil", "low", "acme", .60, 1), ("anvil", "high", "acme", .80, 2),
         ("bloom", "high", "acme", .89, 50), ("crown", "high", "acme", .90, 100),
         ("dune", "high", "bolt", .65, 10), ("echo", "high", "crux", .70, 20)]
+RELEASES = list(dict.fromkeys(f"{row[0]}-1" for row in ROWS))
 # each provider's harness, running its models alone, so its seats' spend fits its week
 HARNESSES = {"acme": "claude", "bolt": "codex", "crux": "opencode"}
 
@@ -71,7 +72,10 @@ class PicksPricedInUsage(unittest.TestCase):
         history.save()
 
     def command(self, compare=None, prices=None, *args):
-        akconfig.write(self.home, self.models, settings={"compare": compare} if compare else {},
+        """`ak models`, comparing only the releases `compare` names where given: the rest off."""
+        off = [release for release in RELEASES if release not in compare] if compare else []
+        akconfig.write(self.home, self.models,
+                       settings={"models_off": off} if off else {},
                        providers={name: {**entry, **({"price": prices[name]} if prices
                                                     and name in prices else {})}
                                   for name, entry in self.providers.items()})

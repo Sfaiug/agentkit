@@ -12,7 +12,7 @@ import time
 import uuid
 from pathlib import Path
 
-from . import box, command_help, config, gitcall, hand_in, host, machine_turn, record
+from . import box, command_help, config, gitcall, hand_in, host, machine_turn, matrix, record
 from .harness import load as harness_plugin
 
 # Each role's rules hold only what a worker cannot learn as it acts: a rule ak enforces with a
@@ -775,8 +775,10 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
     a follow-up that starts a new conversation all hold it.  No other preamble has the gate.
 
     `places` are directories the turn may write beside its workspace, out dir and harness state.
+    A model off in the model list runs none (matrix.refuse_off).
     """
     entry = config.model(cfg, model_name)
+    matrix.refuse_off(cfg, model_name)
     adapter = config.adapter(entry["harness"])
     extra = {}
     if entry["harness"] == "claude":

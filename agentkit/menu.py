@@ -3221,14 +3221,10 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-# The models screen, `r recommended` on `c`: each role answered over every current model on the
-# boards (matrix.answer); `p` picks the models it compares (compare_screen), where Space marks
-# and every other key typed finds.
-MODELS_KEYS = {"answer": ("↑↓ move   ⏎ why   p pick   r take   esc back",
-                          "up/down move   enter why   p pick   r take   "
-                          "esc back"),
-               "pick": ("↑↓ move   ␣ mark   type to find   esc done",
-                        "up/down move   space mark   type to find   esc done")}
+# The models screen, `r recommended` on `c`: each role answered over the models on in your
+# companies (matrix.compared), its pointer moving only up and down.
+MODELS_KEYS = ("↑↓ move   ⏎ why   r take   esc back",
+               "up/down move   enter why   r take   esc back")
 MARK = 7                          # a row's mark's column, as wide as `r takes`
 LEGEND = (("left out", "a row no better than a cheaper one, yours compared with yours"),)
 # Under a role priced in week shares (matrix.answer's cost_unit "share"): only a row noted
@@ -3313,9 +3309,9 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     and its line, numbers and notes the next, the name alone cut; the notes that do not fit
     beside the numbers then go under the row, broken only between two.
     `moves`, a list, is handed each row's line, LINES and how it grows in as the screen opens,
-    row after row (motion.growing). Then the legend, how many of the `total` models are
-    `compared` (matrix.compared) and when
-    the boards were read, broken only at ` · `."""
+    row after row (motion.growing). Then the legend, how many of the `total` listed models of
+    your companies (matrix.ours) are `compared` (matrix.compared) and when the boards were
+    read, broken only at ` · `."""
     room = terminal.layout_width()
     rows = [line for _, lines, _ in said for line in lines if isinstance(line, tuple)]
     tall = max((len(cells) for _, _, _, cells, *_ in rows), default=0)
@@ -3403,7 +3399,8 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
             put(terminal.table_row(["" if number else name, part], [9, room - NAMED],
                                    indent="  ", kinds=(None, "dim")), LEGEND_ROW)
     read = time.localtime(fetched or 0)
-    parts = [f"comparing {'all' if compared is None else f'{len(compared)} of'} {total} models",
+    every = len(compared) == total
+    parts = [f"comparing {'all' if every else f'{len(compared)} of'} {total} models",
              *(["boards read " + time.strftime("%H:%M" if read[:3] == time.localtime()[:3]
                                                else "%d %b %H:%M", read)] if fetched else [])]
     for part in packed(parts, " · ", room - 2):
@@ -3472,17 +3469,16 @@ def models_why(found, role, row):
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, named as `c`'s other pages are: `config · recommended · <seat>`,
-    or `· new seats` without one.  Each role answered over the releases compared (models_body)
-    until Esc, the rows' lines growing in as they first show.  The boards are read as it opens
-    (matrix.refresh), the rule gliding until they land and what was stored standing meanwhile, a
-    failed reading said under the rows; the answer is computed once per landing. ↑/↓ move
-    the pointer over the rows shown, from the first role's pick.  From the first ↑/↓ or move of the
-    mouse's pointer or the keys', the row pointed at lights its maker: every row of it in its
-    company's colour (models_body); none while the pointer is on no row.  ⏎ or a click opens the
-    pointed row's why (models_why) until Esc, ↑/↓ turning its pages where it is taller than the
-    screen.  `p` picks the releases the answer compares (compare_screen), answered again once it
-    is left.  `r` takes each role's take (takes, take_advice): the seat's executors and
-    reviewers, the orchestrator only said; without a seat new seats' three roles.
+    or `· new seats` without one.  Each role answered over the releases on (matrix.compared,
+    models_body) until Esc, the rows' lines growing in as they first show.  The boards are read
+    as it opens (matrix.refresh), the rule gliding until they land and what was stored standing
+    meanwhile, a failed reading said under the rows; the answer is computed once per landing.
+    ↑/↓ move the pointer over the rows shown, from the first role's pick.  From the first ↑/↓
+    or move of the mouse's pointer or the keys', the row pointed at lights its maker: every row
+    of it in its company's colour (models_body); none while the pointer is on no row.  ⏎ or a
+    click opens the pointed row's why (models_why) until Esc, ↑/↓ turning its pages where it is
+    taller than the screen.  `r` takes each role's take (takes, take_advice): the seat's
+    executors and reviewers, the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"config · recommended · {session or NEW_SEATS}"
@@ -3500,8 +3496,7 @@ def models_screen(cfg, session, selected, providers):
             lineup, was = held.get("lineup") or [], lineup
             if lineup and not was:
                 clock.touch(LINES)    # news as they first show: the lines grow in
-            current = {row["release"] for row in lineup}
-            compared = matrix.compared(cfg, current)
+            compared, total = matrix.compared(cfg), len(matrix.ours(cfg))
             answer = matrix.answer(lineup, compared, cfg=cfg)
             said = models_said(answer, lineup)
             makers = {line[0]: line[-1] for _, lines, _ in said for line in lines
@@ -3513,14 +3508,14 @@ def models_screen(cfg, session, selected, providers):
                 here = pointed(role, pick) if pick else next(
                     (row for row in rows if row[1] == role), rows[0] if rows else None)
         moves, lit = [], pointing and not terminal.away() and makers.get(here)
-        body, places = models_body(said, compared, len(current),
+        body, places = models_body(said, compared, total,
                                    held.get("fetched_at"), None if terminal.away() else here,
                                    moves, lit and (lit, colour(cfg, config.company(cfg, lit))))
         # the legend stands under the rows whatever the height: the pointer never reaches it
         fold = next(line for line, (row, _) in places.items() if row == LEGEND_ROW)
         places = {line: place for line, place in places.items() if line < fold}
         act, moved, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
-                                        MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
+                                        MODELS_KEYS[not terminal.utf8()], marks=0,
                                         under=body[fold:],
                                         moves=moves,
                                         clock=clock, began=fetch and fetch.began,
@@ -3537,9 +3532,6 @@ def models_screen(cfg, session, selected, providers):
             return
         if act == "r":
             note = take_advice(cfg, session, selected, providers, takes(cfg, answer))
-        elif act == "p":
-            compare_screen(cfg, title, lineup)
-            answer = None
         elif act == "enter" and here:
             _, role, *at = here
             row = next(row for row in answer[role]["front"]
@@ -3550,98 +3542,6 @@ def models_screen(cfg, session, selected, providers):
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back")
-
-
-ALL = ("all",)                    # where the pointer is on `all N models`
-
-
-def compare_lines(lineup, marks, find):
-    """The list `p` picks from: `all N models`, then each maker of a release of `lineup` whose
-    name's letters and digits hold `find`'s, ignoring case, over those releases, each ■ marked
-    or □ not, `all` ■ with none marked; [(line, where the pointer is on it or None, its maker)].
-    The makers and their releases stand as `lineup` has them, strongest first (catalog.current)."""
-    room, (on, off) = terminal.layout_width(), "■□" if terminal.utf8() else "x."
-    plain = lambda text: "".join(char for char in text.casefold() if char.isalnum())
-    makers = {}
-    for row in lineup:
-        makers.setdefault(row["maker"], {}).setdefault(row["release"], row["name"])
-    lines = [(f"  {off if marks else on} all {sum(map(len, makers.values()))} models", ALL, None)]
-    for maker, releases in makers.items():
-        found = [(slug, name) for slug, name in releases.items()
-                 if plain(find) in plain(name)]
-        lines += [(f"  {terminal.cut(maker, room - 2)}", None, maker)] if found else []
-        lines += [(f"    {on if slug in marks else off} {terminal.cut(name, room - 6)}", slug,
-                   maker) for slug, name in found]
-    return lines
-
-
-def makers_cut(lines, seen, where):
-    """`N more makers above` or `below`: how many makers of `lines` cut off are not among those
-    `seen` on the screen, or None for none."""
-    count = len({maker for *_, maker in lines} - seen - {None})
-    return f"  {count} more maker{'s' * (count > 1)} {where}" if count else None
-
-
-@terminal.clicks_its_own
-def compare_screen(cfg, title, lineup):
-    """`p` on the models screen: the releases its answer compares, marked on `compare_lines`
-    until Esc.  Space, or a click, marks or unmarks the pointed release, and on `all` clears
-    every mark; each change is saved at once as `compare` (matrix.compared reads it).  What
-    else is typed goes into `find`, whose letters and digits alone a name must hold, so no find
-    needs a space, and backspace takes it out; the list scrolls with the pointer."""
-    current, find, here, top, note = {row["release"] for row in lineup}, "", ALL, 0, ""
-    while True:
-        marks = matrix.compared(cfg, current) or set()
-        lines = compare_lines(lineup, marks, find)
-        rows = [what for _, what, _ in lines if what]
-        here = here if here in rows else rows[min(1, len(rows) - 1)]
-        room, keys = terminal.layout_width(), MODELS_KEYS["pick"][not terminal.utf8()]
-        head = "  models to compare"
-        count = (f"{len(marks)} of {len(current)} marked" if marks
-                 else f"all {len(current)} compared")
-        # beside the heading where the gap between them is a column as wide, else on its own
-        gap = room - len(head) - len(count)
-        heads = [head + " " * gap + count] if gap >= len(count) else [head, "  " + count]
-        caret = terminal.styled("▏" if terminal.utf8() else "_", "accent")
-        heads.append(f"  find  {terminal.styled(find, 'bold')}{caret}")
-        said = note_lines(note)
-        tall = max(1, terminal.height() - 5 - len(terminal.key_line(keys)) - len(heads)
-                   - len(said))
-        at = next(number for number, (_, what, _) in enumerate(lines) if what == here)
-        fits = len(lines) <= tall
-        tall = len(lines) if fits else max(1, tall - 2)      # a line for each cut-off count
-        top = max(0, min(max(top, at - tall + 1), at, len(lines) - tall))
-        shown = lines[top:top + tall]
-        seen = {maker for *_, maker in shown}
-        above = makers_cut(lines[:top], seen, "above")
-        below = makers_cut(lines[top + tall:], seen, "below")
-        lit = not terminal.away()
-        body = [*filter(None, [above]), *(terminal.highlight(line) if lit and what == here
-                                          else line for line, what, _ in shown),
-                *filter(None, [below])]
-        start = len(heads) + bool(above)
-        spots = terminal.frame(title, [*heads, *body, *said], keys, places={
-            start + number: (what, []) for number, (_, what, _) in enumerate(shown) if what})
-        key = terminal.read_key()
-        if key is None:
-            continue                  # a resize: drawn again at the new size
-        spot, note = terminal.under(key, spots), ""
-        if key.name in ("point", "click") and spot.what is not None:
-            here = spot.what
-        if key.name in ("esc", "eof") or key.name == "click" and spot.cell == "esc":
-            return
-        if key.name == "space" or key.name == "click" and spot.what is not None:
-            before = copy.deepcopy(cfg)
-            marks = set() if here == ALL else marks ^ {here}
-            if marks:
-                cfg["compare"] = sorted(marks)
-            else:
-                cfg.pop("compare", None)
-            note = _saved(cfg, cfg, before)
-        elif key.name in ("backspace", "char"):     # the pointer on the first release found
-            find, here, top = find[:-1] if key.name == "backspace" else find + key.char, None, 0
-        elif key.name in ("up", "down", "wheel-up", "wheel-down"):
-            here = rows[min(max(rows.index(here) + terminal.step(key), 0), len(rows) - 1)]
 
 
 def config_columns(selected, name):
