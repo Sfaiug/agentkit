@@ -1107,8 +1107,7 @@ def carries_live(state, records=None):
     (`hand_back`): its ending is still to be said, and no live notice waits in a composer but
     in that line, whose mark is then both lines' (`live_typed`).  A prompt the line starts
     passes over this run, whose lock the typing holds (`riding`), so a live notice typed alone
-    there would reach the seat before its merge.  Read only, from `records` where the caller
-    has a census."""
+    there would reach the seat before its merge."""
     return (owes_ending(state) and live_owed(state, records)
             and state.get("live_typed") == state.get("handback_typed"))
 

@@ -5,7 +5,6 @@ Offline: temporary HOME and repositories, fake seats, and an injected timeout.
 
 from contextlib import ExitStack
 import base64
-import fcntl
 import json
 import os
 from pathlib import Path
@@ -20,8 +19,6 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, gitcall, handback, history, orch, record, run, watch
 from fixtures.clock import Clock
-
-START_LIVE_PROBE = watch.start_live_probe   # the real one: each setUp stands a Mock in for it
 
 NOW = 2000000
 PR = "https://github.com/acme/widget/pull/7"
@@ -510,7 +507,7 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.lines, [])
         self.assertIsNone(history.get("run-a")["live_at"])
 
-    def test_follower_waits_after_each_probe(self):
+    def test_follower_waits_after_each_probe_and_a_second_follower_exits(self):
         directory = self.merged(self.declare("exit 0"), age=0)
         with record.record(directory) as current:
             current.update(health={"command": "exit 0"}, finished_at=None)
@@ -527,15 +524,16 @@ class HealthAfterMerge(unittest.TestCase):
 
         def probe(*_args, **_kw):
             attempts.append(now[0])
+            self.assertEqual(watch.follow_live(directory), 0)  # its singleton lock is held
             now[0] += 10
             return len(attempts) == 3, "deploying"
 
         self.probes.side_effect = probe
         with patch.object(watch, "time", clock), patch.object(watch.update, "go_live") as move:
-            self.assertEqual(watch.follow_live(), 0)
-        self.assertEqual(attempts, [NOW + 1 + offset for offset in (0, 25, 50)])
+            self.assertEqual(watch.follow_live(directory), 0)
+        self.assertEqual(attempts, [NOW + 0.1 + offset for offset in (0, 25, 50)])
         self.assertEqual([call.args for call in clock.sleep.call_args_list],
-                         [(1,), (15,), (15,)])
+                         [(0.1,), (15,), (15,)])
         self.assertEqual(record.read_state(directory)["live_at"], attempts[-1])
         move.assert_not_called()
 
@@ -544,12 +542,11 @@ class HealthAfterMerge(unittest.TestCase):
         with record.record(directory) as current:
             current["health"] = {"command": "exit 1"}
         self.probes.return_value = False, "deployment missing"
-        now = [NOW]
         clock = Mock(wraps=watch.time)
-        clock.time.side_effect = lambda: now[0]
-        clock.sleep.side_effect = lambda _seconds: now.append(now.pop() + watch.AFTER_MERGE_WINDOW + 1)
+        clock.time.side_effect = [NOW, NOW, NOW + watch.AFTER_MERGE_WINDOW + 1]
+        clock.sleep.return_value = None
         with patch.object(watch, "time", clock):
-            self.assertEqual(watch.follow_live(), 0)
+            self.assertEqual(watch.follow_live(directory), 0)
         self.assertEqual(self.probes.call_count, 1)
         self.assertNotIn("live_at", record.read_state(directory))
         self.assertEqual(self.lines, [])
@@ -557,49 +554,6 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.probes.call_count, 1)
         self.assertEqual(len(self.lines), 1)
         self.assertIn("deployment missing", self.lines[0][1])
-
-    def test_a_follower_ends_on_a_look_under_the_lock_it_holds_to_its_end(self):
-        """A merge recorded as the follower's last pass found no run is in its last look, and
-        a merge after that waits on the lock until the follower is gone."""
-        directory = self.merged(self.declare("exit 0"), age=0)
-        with record.record(directory) as current:
-            current["health"] = {"command": "exit 0"}
-        census, held = record.runs, []
-
-        def runs():
-            held.append(self.live_lock_held())
-            return census() if len(held) > 1 else []    # the merge's record after the first
-
-        with patch.object(record, "runs", runs):
-            self.assertEqual(watch.follow_live(), 0)
-        self.assertEqual(held, [False, True, False, True])
-        self.assertEqual(self.probes.call_count, 1)
-        self.assertEqual(record.read_state(directory)["live_at"], NOW)
-        self.assertTrue(self.live_lock_held())
-
-    def test_a_merge_starts_a_follower_only_where_none_is_running_or_starting(self):
-        directory = self.merged(self.declare("exit 1"), age=0)
-        follower = subprocess.Popen(["sleep", "60"])     # one started, not yet following
-        self.addCleanup(follower.wait)
-        self.addCleanup(follower.kill)
-        with patch.object(orch, "start_in_slice", return_value=follower.pid) as start:
-            START_LIVE_PROBE(directory)
-            START_LIVE_PROBE(directory)
-            start.assert_called_once()
-            self.assertEqual(watch.follow_live(), 0)     # the home's follower is another
-            self.probes.assert_not_called()
-            follower.kill()
-            follower.wait()
-            START_LIVE_PROBE(directory)
-        self.assertEqual(start.call_count, 2)
-
-    def live_lock_held(self):
-        with (config.RUNS / ".live.lock").open() as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return True
-            return False
 
     def test_common_record_write_starts_on_the_merge_without_waiting_for_its_ending(self):
         directory = self.merged(self.declare("exit 0"), age=0)

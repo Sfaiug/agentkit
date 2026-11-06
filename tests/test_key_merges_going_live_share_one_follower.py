@@ -1,10 +1,9 @@
 """However many merges wait to go live, one follower process of their Home follows them all.
 
-Black-box: AK_BIN runs against Home, Rig, GitHub, Seat and Sink.  Three runs of the seat's
-passed review; their maintainer merges each PR and `ak run merge` records it, while health stays
-red until the test deploys.  No turn runs: a turn's box would hide an AK_BIN under /tmp or
-/var/tmp.  A follower is a process running `watch --live` with the Home as its HOME, read from
-/proc throughout.
+Black-box: AK_BIN runs against Home, Rig, GitHub, Seat and Sink.  Three passed runs, merged by
+their maintainer and recorded by `ak run merge` while health is red; no turn runs, as a turn's
+box would hide an AK_BIN under /tmp.  A follower is a process running `watch --live` with the
+Home as its HOME, read from /proc throughout.
 """
 
 import json
@@ -59,9 +58,7 @@ class MergesShareOneFollower(unittest.TestCase):
 
         def look():
             while not stop.is_set():
-                alive = followers(self.home)
-                if len(alive) > len(self.most):
-                    self.most = alive
+                self.most = max(self.most, followers(self.home), key=len)
                 stop.wait(0.02)
 
         census = threading.Thread(target=look, daemon=True)
@@ -71,7 +68,7 @@ class MergesShareOneFollower(unittest.TestCase):
 
     def merge(self, name):
         """A run of the seat's that passed review, whose PR its maintainer merged, recorded as
-        merged by `ak run merge`; its directory."""
+        merged by `ak run merge` and its ending read by the seat; its directory."""
         branch, run_id = f"add-{name}", f"20261106-1200-add-{name}"
         sha = self.rig.branch(branch, {f"{name}.txt": f"{name}\n"})
         pr = self.github.open_pr(self.rig, branch, title=f"Add {name}")
@@ -94,8 +91,10 @@ class MergesShareOneFollower(unittest.TestCase):
                        "executor_provider": "anthropic", "reviewer_provider": "openai",
                        "verdict": "PASS", "returncode": 0, "done_when": True, "head_sha": sha,
                        "tree_sha": self.rig.git("rev-parse", f"{sha}^{{tree}}")}})
-        done = self.home.ak("run", "merge", run_id, env=SEAT, timeout=300)
-        self.assertEqual(done.code, 0, done.out + done.err)
+        for command in (("merge", run_id), ("status", run_id)):
+            # Its seat reads the merge's ending, so only the deployment is left to hear.
+            done = self.home.ak("run", *command, env=SEAT, timeout=300)
+            self.assertEqual(done.code, 0, done.out + done.err)
         return self.home.path / ".agentkit" / "runs" / run_id
 
     def record(self, directory):
@@ -108,14 +107,7 @@ class MergesShareOneFollower(unittest.TestCase):
             time.sleep(0.05)
 
     def test_three_merges_waiting_to_go_live_share_one_follower_and_are_each_told_once(self):
-        directories = []
-        for name in ("api", "web", "docs"):
-            directory = self.merge(name)
-            directories.append(directory)
-            self.assertTrue(self.record(directory)["merged"])
-            # Its seat has read the merge's ending; only the deployment is left to hear.
-            done = self.home.ak("run", "status", directory.name, env=SEAT)
-            self.assertEqual(done.code, 0, done.out + done.err)
+        directories = [self.merge(name) for name in ("api", "web", "docs")]
         self.until(lambda: all(self.record(directory).get("health", {}).get("output") == "deploying"
                                for directory in directories), "probed each merge while red")
         self.assertEqual(len(self.most), 1, self.most)
