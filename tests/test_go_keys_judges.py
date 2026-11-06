@@ -50,16 +50,18 @@ class Judges(unittest.TestCase):
         (self.root / "agentkit/__init__.py").touch()
         shutil.copy(TESTS / "test_go_keys.py", self.root / "tests")
         shutil.copy(TESTS / "test_go.py", self.root / "tests")
+        shutil.copy(TESTS / "suite_shares.py", self.root / "tests")
         for name, body in KEYS.items():
             (self.root / "tests" / f"{name}.py").write_text(body)
 
     def judged(self, *asked, keys, **env):
         (self.root / "go/keys.txt").write_text("".join(f"{key}\n" for key in keys))
         base = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
-        # A PYTHONPATH of the caller's leading to agentkit must not reach a claim.
+        # A PYTHONPATH of the caller's leading to agentkit must not reach a claim, and the claims
+        # failing here are no failing parts of this file (every_file.py's FAILED_PARTS).
         return subprocess.run([sys.executable, self.root / "tests/test_go_keys.py", *asked],
                               env={**base, "AK_BIN": "/bin/true", "PYTHONPATH": str(self.root),
-                                   **env},
+                                   "FAILED_PARTS": "", **env},
                               text=True, capture_output=True, timeout=120)
 
     def test_what_the_claim_names_is_what_runs(self):

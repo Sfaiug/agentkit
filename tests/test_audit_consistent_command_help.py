@@ -57,6 +57,7 @@ MATRIX = [
      {"--model", "--workers", "--dry-run", "--why", "--auto"}),
     ("orch list", "usage: ak orch list [--why]", ["unexpected"], {"--why"}),
     ("orch why", "usage: ak orch why NAME", ["MISSING"], set()),
+    ("orch check", "usage: ak orch check SEAT", ["MISSING"], set()),
     ("orch stop", "usage: ak orch stop NAME", ["MISSING"], set()),
     ("orch rename", "usage: ak orch rename [--auto] [OLD] NEW", ["MISSING", "NEW"], {"--auto"}),
     ("orch project", "usage: ak orch project [SEAT] CHECKOUT", ["MISSING", "acme"], set()),

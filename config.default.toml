@@ -35,6 +35,8 @@ pace_margin = 10          # a subscription more than this far ahead of pace no l
 # [audit] is the weekly audit's setting, edited on the `c` screen's `Weekly audit` row:
 # on = false switches it off, and orchestrator, workers and reviewers name the models its
 # seat takes, [defaults]'s for whatever the table leaves out. Absent, it is on with [defaults].
+# [done_check] model = "<name>" is the model `ak orch check SEAT` asks whether a seat's work holds
+# everything its owner asked of it; absent, one of the seat's reviewers that can run now.
 [defaults]
 orchestrator = "opus"
 workers = ["opus", "astra"]

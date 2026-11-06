@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -39,21 +40,24 @@ func TestGoneSeatsHandUntoldWaitsBackAtTheEndedWaitsRow(t *testing.T) {
 	}
 }
 
-func TestGoneSeatsHandExpiredRecordsBackAtTheSweepRow(t *testing.T) {
+func TestTheSweepRowForgetsAGoneSeatAWeekAfterItWent(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	for _, each := range []struct {
-		name            string
-		seen, stopped   int
-		asleep, carried bool
+		name           string
+		seen, stopped  int
+		asleep, forgot bool
 	}{
-		{"expired crash", 8, 0, false, false},
-		{"expired close", 8, 8, false, false},
-		{"recent sighting", 6, 0, false, true},
-		{"recent close", 8, 1, false, true},
-		{"asleep", 8, 0, true, true},
+		{"expired crash", 8, 0, false, true},
+		{"expired close", 30, 8, false, true},
+		{"recent sighting", 6, 0, false, false},
+		{"recent close", 30, 1, false, false},
+		{"asleep", 8, 0, true, false},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			ak, path := goneHome(t)
+			// tmux's own word that no seat is there, as one with no server running says it
+			bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
+			put(t, filepath.Join(bin, "tmux"), "#!/bin/sh\necho 'no server running on /tmp/tmux-1/agentkit' >&2\nexit 1\n")
 			record, _ := run.ReadJSON(path)
 			seen := run.Float(float64(now.AddDate(0, 0, -each.seen).Unix()))
 			record.Set("seen", seen)
@@ -61,8 +65,9 @@ func TestGoneSeatsHandExpiredRecordsBackAtTheSweepRow(t *testing.T) {
 				record.Set("asleep", run.Float(2))
 			}
 			put(t, path, run.Line(record))
+			mark := filepath.Join(ak, "state", "seat-acme.json")
 			if each.stopped > 0 {
-				put(t, filepath.Join(ak, "state", "seat-acme.json"), fmt.Sprintf(`{"closed_by_owner":true,"stopped_at":%d}`, now.AddDate(0, 0, -each.stopped).Unix()))
+				put(t, mark, fmt.Sprintf(`{"closed_by_owner":true,"stopped_at":%d}`, now.AddDate(0, 0, -each.stopped).Unix()))
 			}
 			state, ok := loadState()
 			if !ok {
@@ -70,15 +75,18 @@ func TestGoneSeatsHandExpiredRecordsBackAtTheSweepRow(t *testing.T) {
 			}
 			var out, errOut bytes.Buffer
 			tick := &ticking{state: state, log: newLog(&out, &errOut), clock: func() time.Time { return now }}
-			if carried := tick.through(table(tick)); carried != each.carried {
-				t.Fatalf("carried=%v: %s %s", carried, &out, &errOut)
+			if !tick.through(table(tick)) {
+				t.Fatalf("left to Python: %s %s", &out, &errOut)
 			}
 			record, _ = run.ReadJSON(path)
-			if record == nil || !run.Equal(record.Get("seen"), seen) {
-				t.Fatalf("the retention clock changed: %s", run.Line(record))
+			if each.forgot != (record == nil) || !each.forgot && !run.Equal(record.Get("seen"), seen) {
+				t.Fatalf("the record: %s", run.Line(record))
 			}
-			if _, err := os.Stat(filepath.Join(ak, "state", "card-acme.json")); err != nil {
-				t.Fatalf("the tick stopped before the sweep row: %v", err)
+			if each.forgot != strings.Contains(out.String(), "forgot the session acme, gone for 8d\n") {
+				t.Fatal(out.String())
+			}
+			if file, _ := run.ReadJSON(mark); each.forgot && (each.stopped > 0) != (file != nil && file.Truthy("closed_by_owner")) {
+				t.Fatalf("the stop mark: %s", run.Line(file))
 			}
 		})
 	}

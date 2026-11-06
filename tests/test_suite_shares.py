@@ -202,8 +202,8 @@ print("TESTS_RUN=1")
 sys.path.insert(0, sys.argv[1])
 import every_file
 run = every_file.run_file
-def record(*args):
-    result = run(*args)
+def record(*args, **kw):
+    result = run(*args, **kw)
     print(result[1], end="", flush=True)
     return result
 every_file.run_file = record

@@ -88,7 +88,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
-		{"seat sweep", false, all(noRunSweep, seated, t.retainedSeats), nil},
+		{"seat sweep", false, noRunSweep, t.sweep},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},

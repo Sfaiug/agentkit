@@ -12,13 +12,13 @@ import (
 	"agentkit/internal/terminal"
 )
 
-func pipeMenu(out, errOut io.Writer) int {
-	found, known := readFrame(time.Now())
-	if !known || found.handoff {
+func pipeMenu(none bool, out, errOut io.Writer) int {
+	found, said, known := openedFrame(none)
+	if !known {
 		return notImplemented(errOut, "attach")
 	}
 	screen := terminal.For(out)
-	for _, line := range noticeLines(menuNotices(), screen.LayoutWidth()) {
+	for _, line := range noticeLines(append(said, menuNotices()...), screen.LayoutWidth()) {
 		fmt.Fprintln(out, line)
 	}
 	view := menu.View{Screen: screen, Seats: found.seats, Cells: found.cells, Standing: found.standing,
