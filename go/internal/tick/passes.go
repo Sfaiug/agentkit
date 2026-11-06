@@ -76,7 +76,7 @@ func table(t *ticking) []pass {
 		{"history sync", false, run.Historyless, nil},
 		{"history checkpoint", false, run.Historyless, nil},
 		{"weekly audit", false, configured, t.audit},
-		{"typed answers", false, every(unasked), nil},
+		{"typed answers", false, every(answerable), t.typedAnswers},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
 		{"notification retry", true, nil, t.retryNotifications},
 		{"server hooks", false, nil, hookOptions},

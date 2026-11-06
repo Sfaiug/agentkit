@@ -52,7 +52,6 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 	if !typable(own) {
 		return false
 	}
-	path, _ := harness.Conversation(own, record)
 	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{pane_id}\t#{session_created}")
 	pane, born, _ := strings.Cut(said, "\t")
 	if err != nil || !paneID.MatchString(pane) {
@@ -72,8 +71,9 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
 			return errUntyped
 		}
+		conversation, prompts, _ := script.Typed(own, record)
 		entry := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
-			"conversation", record["conversation"], "after", len(script.Prompts(own, path)))
+			"conversation", conversation, "after", len(prompts))
 		file, err := os.OpenFile(ownFile("input", current), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
 			return err
@@ -130,7 +130,7 @@ func typable(own string) bool {
 		return false
 	}
 	chrome, err := config.Section(own, "screen")
-	_, known := harness.Conversation(own, nil)
+	_, _, known := script.Typed(own, nil)
 	return err == nil && chrome["cursor"] != true && known
 }
 

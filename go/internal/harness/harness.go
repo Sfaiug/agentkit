@@ -60,6 +60,12 @@ type plugin struct {
 	// last is the last message of the conversation, its owner's or its model's, nil for none, and
 	// notices above say which of them only record the owner interrupting.
 	last func(conversation, cwd, account string) *run.Object
+	// card is the question card its harness keeps in the conversation the seat owns, said that
+	// conversation as its harness shows it, and typed what the user side typed in it (Python's
+	// plugin `card`, `said` and `user_messages`).
+	card  func(conversation string) (hookfact.Fact, bool)
+	said  func(conversation string) []Turn
+	typed func(conversation string) []Prompt
 	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).

@@ -13,7 +13,7 @@ func init() {
 	plugins["muse"] = plugin{identity: museIdentity, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn,
 		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept, forget: receiptGone("muse"),
 		opens: true, interactive: museInteractive, seatWords: museSeatWords, hookEvent: museHookEvent,
-		owned: museConversation, launched: museLaunched, retire: museRetire}
+		owned: museConversation, launched: museLaunched, retire: museRetire, card: museCard, said: museSaid, typed: museTyping, answer: museAnswer, resumable: museResumable}
 }
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher

@@ -16,13 +16,6 @@ func turnedNeed(name string, said func(string) (string, any), clock func() float
 	return questionTransition(name, said, clock, cardWait, errOut, false, quietNeed, func(string) error { return nil })
 }
 
-// UnansweredNeed leaves a standing non-question to its card row when no owner message answers it.
-func UnansweredNeed(name string) bool {
-	file, _ := readObject(seatFile("seat", name, "json"))
-	notice := quietNeed(name, file)
-	return notice != nil && unansweredSince(name, number(notice, "time"))
-}
-
 func quietNeed(name string, file *run.Object) *run.Object {
 	if file == nil || file.Str("word") != "needs you" || Last(name) != nil || file.Truthy("unasked") ||
 		file.Str("state") != "at_prompt" && file.Str("state") != "draft" {

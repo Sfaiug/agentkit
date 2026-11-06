@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 
 	"agentkit/internal/config"
-	"agentkit/internal/harness"
 	"agentkit/internal/transcript"
 )
 
@@ -22,12 +21,11 @@ func OwnerSaid(name string) ([]float64, error) {
 		return nil, nil
 	}
 	kind := config.SeatHarness(current)
-	path, known := harness.Conversation(kind, record)
+	owned, messages, known := transcript.Typed(kind, record)
 	if !known {
 		return nil, ErrUnread
 	}
-	messages := transcript.Prompts(kind, path)
-	conversation, _ := record["conversation"].(string)
+	conversation, _ := owned.(string)
 	matched, ours := make([]bool, len(messages)), make([]bool, len(messages))
 	for sent := range transcript.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"])) {
 		after, dated := sent.Num("after")

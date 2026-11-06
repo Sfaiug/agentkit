@@ -77,11 +77,16 @@ func revivalKind(kind, suffix string) bool {
 		suffix == "txt" && slices.Contains([]string{"live", "refused"}, kind) || kind == "notify" && suffix == "json"
 }
 
+// restingGone is whether the revival leaves a seat gone (watch.revive_seats): one its end cut off
+// nothing of, where its own question standing is a turn cut off that a conversation of its own
+// reopens on (watch.cut_off), as one its revival was paged as failing stays the revival's; any
+// other needs you is no turn of its.
 func (seat Seat) restingGone() bool {
 	if seat.live || seat.closed {
 		return true
 	}
-	if seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
+	notice := notify.Last(seat.Name)
+	if seat.Word == "working" || !seat.unowned && notify.OwnerQuestion(notice) || revivalFailure(notice) {
 		return false
 	}
 	return seat.cutNothing()
@@ -91,14 +96,14 @@ func (seat Seat) restingGone() bool {
 // or newer hook says it had (watch.cut_off).
 func (seat Seat) cutNothing() bool {
 	file := revivalFile(seat.Name)
-	fact := hookfact.Standing(seat.Name)
+	fact := seat.reader.HookFact(seat.Name)
 	hooked, event, err := lifecycle.State(seat.own, fact)
 	found := sight{state: file.Str("state"), rule: file.Str("rule"), hooked: file.Str("hooked"), hookedEvent: file.Str("hooked_event")}
 	if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
 		found = sight{state: hooked, hooked: hooked, hookedEvent: event}
 	}
 	flight, _ := found.turnInFlight(seat.own)
-	return err == nil && found.state != "asking" && !flight && len(fact.Holds) == 0 &&
+	return err == nil && found.state != "asking" && !flight && len(hookfact.Standing(seat.Name).Holds) == 0 &&
 		!file.Truthy("holds") && !file.Truthy("reopened_at")
 }
 
