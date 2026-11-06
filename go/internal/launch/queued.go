@@ -10,14 +10,17 @@ import (
 )
 
 // launchStands is whether the launch a queued receipt saved would start in Go as it stands: its
-// task and options, bound to its run's lists or else the config's, pass Go's launch preflight
-// outright, in the repository the launch settled.  Anything else is Python's, whose resume judges
-// a waiting launch again.
+// task refuses nothing (Refusal), and it and its options, bound to its run's lists or else the
+// config's, pass Go's launch preflight outright, in the repository the launch settled.  Anything
+// else is Python's, whose resume judges a waiting launch again.
 func launchStands(dir string, record *run.Object) bool {
 	path := filepath.Join(dir, "task.md")
 	meta, cmds, err := task.Read(path)
 	data, unread := os.ReadFile(path)
 	if err != nil || unread != nil {
+		return false
+	}
+	if why, err := Refusal(path, meta, cmds); why != "" || err != nil {
 		return false
 	}
 	opts := record.Dict("launch_opts")
