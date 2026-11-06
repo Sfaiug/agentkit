@@ -22,7 +22,7 @@ func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
 	before := files(t, filepath.Join(ak, "runs"))
 	for range 2 {
 		var out bytes.Buffer
-		if !Carry(&out, io.Discard) {
+		if !carries(&out, io.Discard) {
 			t.Fatalf("left settled runs to Python: %s", &out)
 		}
 		for path, want := range before {

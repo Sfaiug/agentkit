@@ -15,7 +15,7 @@ import (
 func TestAnOpenGenerationDoesNotStopTheTick(t *testing.T) {
 	ak, _ := idleHome(t, answers)
 	put(t, filepath.Join(ak, "state", "watch.json"), `{"seen_at":{"acme":100}}`)
-	if !Carry(io.Discard, io.Discard) {
+	if !carries(io.Discard, io.Discard) {
 		t.Fatal("an open's generation was treated as work for Python")
 	}
 	if state, err := run.ReadJSON(filepath.Join(ak, "state", "watch.json")); err != nil || !run.Equal(state.Dict("seen_at"), run.Fields("acme", 100)) {

@@ -1,7 +1,7 @@
 // Package tick is ak's three-minute cron tick, as Python's agentkit/watch.py runs it. It hides
 // the tick lock, which keeps one tick at a time, the tick's log and its roll, which keep cron's
-// `>>watch.log 2>&1` bounded, and watch.json. Go carries out a tick that finds another holding
-// the lock, and one on a home with nothing to act on.
+// `>>watch.log 2>&1` bounded, watch.json, and the page once ticks stop ending. Go carries out a
+// tick that finds another holding the lock, and one on a home with nothing to act on.
 package tick
 
 import (
@@ -19,6 +19,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
+	"agentkit/internal/run"
 )
 
 const (
@@ -29,7 +30,8 @@ const (
 )
 
 // Overlap is a tick that finds another holding the lock: it makes ak's folders, as every tick
-// does first, then says who holds the lock and for how long, and from 30 minutes calls it hung.
+// does first, then says who holds the lock and for how long, from 30 minutes calls it hung, and
+// from an hour pages the owner that ticks stopped ending.
 // False, with nothing written, while nobody holds the lock or ak's folders cannot be made, and
 // on Windows, where no Python tick runs to hold it.
 func Overlap(out, errOut io.Writer) bool {
@@ -37,13 +39,17 @@ func Overlap(out, errOut io.Writer) bool {
 	if runtime.GOOS == "windows" || !lock.Held(path) || config.EnsureDirs() != nil {
 		return false
 	}
-	pid, holding := holder(path)
+	pid, began := holder(path)
+	holding := max(0, time.Since(began))
 	log := newLog(out, errOut)
 	minutes := int(holding / time.Minute)
 	log.line(fmt.Sprintf("tick already running (pid %s, for %d min)", pid, minutes))
 	if holding >= hung {
 		log.line(fmt.Sprintf("WARN the tick holding the lock has been running for %d min; "+
 			"look at it, and kill it if it is hung", minutes))
+	}
+	if holding >= pageFloor {
+		stopped(run.Float(epoch(began)), fmt.Sprintf("🔴 ak ticks stopped ending · pid %s has held the lock for %d min", pid, minutes), log)
 	}
 	return true
 }
@@ -52,20 +58,20 @@ func lockPath() string { return filepath.Join(config.Home(), "state", "watch.tic
 
 func logPath() string { return filepath.Join(config.Home(), "tmp", logName) }
 
-// holder is who holds the lock and for how long, off the file it wrote: its pid, as Python's
-// int() reads the file's stripped text and 0 for what it cannot read, and its mtime, when that
-// tick began.
-func holder(path string) (*big.Int, time.Duration) {
+// holder is who holds the lock and since when, off the file it wrote: its pid, as Python's int()
+// reads the file's stripped text and 0 for what it cannot read, and its mtime, when that tick
+// began; now for no file, which is no evidence of a long-running holder.
+func holder(path string) (*big.Int, time.Time) {
 	pid := new(big.Int)
 	data, err := os.ReadFile(path)
 	if number := config.Int(strings.TrimFunc(string(data), config.Space)); number != nil && err == nil && utf8.Valid(data) {
 		pid = number
 	}
-	var holding time.Duration
+	began := time.Now()
 	if info, err := os.Stat(path); err == nil {
-		holding = max(0, time.Since(info.ModTime()))
+		began = info.ModTime()
 	}
-	return pid, holding
+	return pid, began
 }
 
 // log is the tick's printing, which keeps the log bounded where out or errOut is it.

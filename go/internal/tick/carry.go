@@ -37,13 +37,14 @@ type ticking struct {
 // and GitHub.  False leaves the tick to Python, the lock released: at the first row that finds what
 // Go does not carry, what the rows before did standing; after what Python's next tick reads as its
 // own where gh names a pull request to act on; with nothing written where gh cannot be read,
-// or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.
-func Carry(out, errOut io.Writer, report ...AuditReport) bool {
+// or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.  The
+// error is a tick that could not save watch.json at its end, which fails, as Python's does.
+func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
 	if Overlap(out, errOut) {
-		return true
+		return true, nil
 	}
 	if runtime.GOOS == "windows" {
-		return false
+		return false, nil
 	}
 	// asked before any pass, where Python asks after them: no row says whether Go carries the
 	// GitHub passes, and the tick begins with the asking
@@ -51,34 +52,40 @@ func Carry(out, errOut io.Writer, report ...AuditReport) bool {
 	user, why, failed := gh.JSON(run.Runs(), "api", "user")
 	asked := time.Since(began)
 	if failed != nil || config.EnsureDirs() != nil {
-		return false
+		return false, nil
+	}
+	// when the last tick began, until this one stamps the lock
+	var previous time.Time
+	if info, err := os.Stat(lockPath()); err == nil {
+		previous = info.ModTime()
 	}
 	held, err := lock.Try(lockPath())
 	if errors.Is(err, lock.ErrHeld) {
-		return Overlap(out, errOut)
+		return Overlap(out, errOut), nil
 	}
 	if err != nil {
-		return false
+		return false, nil
 	}
 	defer held.Close()
 	// the write is also the stamp: mtime is when this tick began
 	if held.Truncate(0) != nil {
-		return false
+		return false, nil
 	}
 	if _, err := fmt.Fprintf(held, "%d\n", os.Getpid()); err != nil {
-		return false
+		return false, nil
 	}
 	// the passes' seat records are listed from the state folder
 	state, ok := loadState()
 	if !ok || !quiet(state) || !config.Listable(statePath("")) {
-		return false
+		return false, nil
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
 	if len(report) > 0 {
 		t.report = report[0]
 	}
+	t.unended(began, previous)
 	if !t.through(table(t)) {
-		return false
+		return false, nil
 	}
 	carried := t.github(user, why, asked)
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
@@ -89,7 +96,16 @@ func Carry(out, errOut io.Writer, report ...AuditReport) bool {
 	slowest.Set("seconds", math.Round(t.slowest.Seconds()*10)/10)
 	record.Set("slowest", slowest)
 	state.Set("tick", record)
-	return t.save() == nil && carried
+	if carried {
+		state.Set("tick_completed_at", record.Get("ended_at"))
+	}
+	if err := t.save(); err != nil {
+		return false, err
+	}
+	if carried {
+		ended(record.Get("ended_at"), t.log)
+	}
+	return carried, nil
 }
 
 func epoch(at time.Time) float64 { return float64(at.UnixNano()) / 1e9 }

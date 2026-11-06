@@ -11,7 +11,7 @@ func quietWatch() bool {
 	}
 	for _, key := range watch.Keys() {
 		switch key {
-		case "seen_at", "tick", "boot_id", "boot_resume":
+		case "seen_at", "tick", "tick_completed_at", "boot_id", "boot_resume":
 			continue
 		}
 		if watch.Truthy(key) {

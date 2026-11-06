@@ -52,7 +52,7 @@ func TestTickReadsGoneSeatsAndLeavesRevivalAndCardsToPython(t *testing.T) {
 				put(t, filepath.Join(ak, "state", "hook-acme.json"), `{"event":"`+each.hook+`","at":2}`)
 			}
 			var out, errOut bytes.Buffer
-			if got := Carry(&out, &errOut); got != each.carried {
+			if got := carries(&out, &errOut); got != each.carried {
 				t.Fatalf("carried=%v: %s %s", got, &out, &errOut)
 			}
 			file, _ := run.ReadJSON(filepath.Join(ak, "state", "seat-acme.json"))
@@ -62,7 +62,7 @@ func TestTickReadsGoneSeatsAndLeavesRevivalAndCardsToPython(t *testing.T) {
 			if each.carried {
 				record, _ := run.ReadJSON(path)
 				seen := record.Get("seen")
-				if !record.Truthy("seen") || !Carry(&out, &errOut) {
+				if !record.Truthy("seen") || !carries(&out, &errOut) {
 					t.Fatalf("second tick: %s %s; record=%s", &out, &errOut, run.Line(record))
 				}
 				record, _ = run.ReadJSON(path)
@@ -80,7 +80,7 @@ func TestTickSkipsARecordItsHarnessDoesNotOwn(t *testing.T) {
 	record.Delete("id_source")
 	put(t, path, run.Line(record))
 	var out, errOut bytes.Buffer
-	if !Carry(&out, &errOut) {
+	if !carries(&out, &errOut) {
 		t.Fatalf("left to Python: %s %s", &out, &errOut)
 	}
 	if _, err := os.Stat(filepath.Join(ak, "state", "seat-acme.json")); !os.IsNotExist(err) {

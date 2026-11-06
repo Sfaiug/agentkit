@@ -23,7 +23,7 @@ func TestGoneSeatsHandUntoldWaitsBackAtTheEndedWaitsRow(t *testing.T) {
 				put(t, path, fmt.Sprintf(`{"wait":{"kind":%q,"on":%q,"at":1,"over":"the work finished","told":%v}}`, kind, on, told))
 				before, _ := run.ReadJSON(path)
 				var out, errOut bytes.Buffer
-				if carried := Carry(&out, &errOut); carried != told {
+				if carried := carries(&out, &errOut); carried != told {
 					t.Fatalf("carried=%v: %s %s", carried, &out, &errOut)
 				}
 				file, _ := run.ReadJSON(path)
