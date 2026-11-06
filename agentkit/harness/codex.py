@@ -330,6 +330,26 @@ def said(record, cwd, conversation):
 
 
 def user_messages(record, cwd, conversation):
+    for kept, replies in messages(record, cwd, conversation):
+        if replies is not None:
+            kept["replies"] = [question_id(call, index) for call, index, _, _ in replies]
+        yield kept
+
+
+def answers(record, cwd, conversation):
+    """Each card reply's answer, beside the title and options its call asked with."""
+    for kept, replies in messages(record, cwd, conversation):
+        for _, _, asked, answer in replies or ():
+            options = asked.get("options")
+            if (isinstance(asked.get("title"), str) and isinstance(options, list)
+                    and all(isinstance(option, str) for option in options)):
+                yield {"at": kept["at"], "question": asked["title"], "answer": answer,
+                       "choices": [{"label": option, "description": ""} for option in options]}
+
+
+def messages(record, cwd, conversation):
+    """Each owner message, with the (call, index, question asked, answer) of each card question
+    it answers, or None where it is no card reply."""
     from . import entries, user_message
     calls = {}
     for entry in entries(transcript(record, cwd, conversation)):
@@ -344,26 +364,29 @@ def user_messages(record, cwd, conversation):
             except (KeyError, TypeError, ValueError):
                 pass
         kept = user_message(entry.get("timestamp"), prompt(entry))
-        if kept:
-            if kept["text"].startswith("<send_user_message_question_reply>"):
-                # Codex 0.163's submitted card reply names its call and question index.
-                # A skipped/expired card emits no such owner message. Bad ids answer none.
-                kept["replies"] = []
-                try:
-                    body, closing, rest = kept["text"].rpartition("</send_user_message_question_reply>")
-                    replies = json.loads(body.split(">", 1)[1]) if closing and not rest.strip() else []
-                except (IndexError, ValueError):
-                    replies = []
-                for reply in replies if isinstance(replies, list) else ():
-                    try:
-                        tool, call, index = json.loads(reply["questionItemId"])
-                        if (tool == QUESTION_TOOL and type(index) is int and index >= 0
-                                and index < len(calls[call])
-                                and isinstance(reply.get("answer"), str) and reply["answer"].strip()):
-                            kept["replies"].append(question_id(call, index))
-                    except (KeyError, IndexError, TypeError, ValueError):
-                        continue
-            yield kept
+        if not kept:
+            continue
+        if not kept["text"].startswith("<send_user_message_question_reply>"):
+            yield kept, None
+            continue
+        # Codex 0.163's submitted card reply names its call and question index.
+        # A skipped/expired card emits no such owner message. Bad ids answer none.
+        answered = []
+        try:
+            body, closing, rest = kept["text"].rpartition("</send_user_message_question_reply>")
+            replies = json.loads(body.split(">", 1)[1]) if closing and not rest.strip() else []
+        except (IndexError, ValueError):
+            replies = []
+        for reply in replies if isinstance(replies, list) else ():
+            try:
+                tool, call, index = json.loads(reply["questionItemId"])
+                if (tool == QUESTION_TOOL and type(index) is int and index >= 0
+                        and index < len(calls[call])
+                        and isinstance(reply.get("answer"), str) and reply["answer"].strip()):
+                    answered.append((call, index, calls[call][index], reply["answer"]))
+            except (KeyError, IndexError, TypeError, ValueError):
+                continue
+        yield kept, answered
 
 
 def error(record, cwd, conversation):

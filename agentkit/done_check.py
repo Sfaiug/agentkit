@@ -110,9 +110,10 @@ def owed(name, text):
 def owner_words(seats, messages):
     """The owner's words to the seat in its conversations `seats`, oldest first, as (when, the
     words, the file showing them): each of their `messages`, a list for each, and each answer
-    they gave on its question cards."""
+    they gave on its question cards.  A message that replies to a card (`replies`) counts only
+    as those answers: its text repeats the seat's question as if the owner had said it."""
     return sorted([*((message["at"], message["text"], message["text"])
-                     for said in messages for message in said),
+                     for said in messages for message in said if "replies" not in message),
                    *((answer["at"], answer["answer"], card(answer))
                      for seat in seats for answer in seat[0].answers(*seat[1:]))],
                   key=lambda said: said[0])
@@ -157,7 +158,8 @@ def checker(cfg, name):
 def card(answer):
     """An answer's file: the question and choices the seat wrote, then the owner's answer."""
     return "".join([f"The seat asked on its question card: {answer['question']}\n",
-                    *(f"- {choice['label']}: {choice['description']}\n"
+                    *(f"- {choice['label']}"
+                      + (f": {choice['description']}" if choice["description"] else "") + "\n"
                       for choice in answer["choices"]),
                     f"\nThe owner answered:\n{answer['answer']}\n"])
 
