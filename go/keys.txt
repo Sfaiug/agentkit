@@ -84,7 +84,9 @@ test_key_conflict_wait
 test_key_credits_usage
 test_key_dash_led_attach
 test_key_dead_loop
+test_key_dead_seat_holding_work_comes_back
 test_key_dead_seat_retired
+test_key_dead_seat_with_work_comes_back
 test_key_decided_lines
 test_key_disputes_are_answered
 test_key_doctor_effort

@@ -3,11 +3,13 @@ package tick
 import (
 	"testing"
 
+	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
 func TestHeldLinesReadOnlyAkOwnLineInTheComposer(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	marked := run.Fields("midturn", run.Fields("line", "Resume the shell."))
 	for _, c := range []struct {
 		live seat.Live
 		idle bool
@@ -16,7 +18,12 @@ func TestHeldLinesReadOnlyAkOwnLineInTheComposer(t *testing.T) {
 		{seat.Live{Own: "claude", Draft: "continue"}, false},
 		{seat.Live{Own: "claude", Draft: "pleasecontinuewiththetests"}, true},
 		{seat.Live{Own: "claude", Draft: "fixittoocontinue", Typed: []string{"fixittoo", "continue"}}, false},
+		{seat.Live{Own: "claude", Draft: "Resumetheshell."}, true},
+		{seat.Live{Own: "claude", Draft: "Resumetheshell.", File: marked}, false},
 	} {
+		if c.live.File == nil {
+			c.live.File = run.NewObject()
+		}
 		if got := holdsNoLine(c.live); got != c.idle {
 			t.Fatalf("holdsNoLine(%q, %q) = %v", c.live.Draft, c.live.Typed, got)
 		}

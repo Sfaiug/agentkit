@@ -13,18 +13,14 @@ func looked(live seat.Live) bool {
 	return quietLogin(live) && live.Bound && titleKept(live) && (notify.Last(live.Name) == nil || questionRead(live))
 }
 
-func accountTurns() error {
-	carried, err := seat.AccountTurns()
-	if !carried {
-		return errLeft
+// continueTurns is the rebooted and switched turns rows (watch.continue_turns), the latter's for
+// moves to another account.
+func continueTurns(accounts bool) func() error {
+	return func() error {
+		carried, err := seat.ContinueTurns(accounts)
+		if !carried {
+			return errLeft
+		}
+		return err
 	}
-	return err
-}
-
-func rebootedTurns() error {
-	carried, err := seat.RebootedTurns()
-	if !carried {
-		return errLeft
-	}
-	return err
 }

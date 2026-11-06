@@ -77,12 +77,10 @@ func revivalKind(kind, suffix string) bool {
 		suffix == "txt" && slices.Contains([]string{"live", "refused"}, kind) || kind == "notify" && suffix == "json"
 }
 
-// cutNothing is whether the seat's end cut off no turn, question or background work its last look
-// or newer hook says it had (watch.cut_off).
+// cutNothing is whether the seat's end cut off nothing it owes (watch.cut_off).
 func (seat Seat) cutNothing() bool {
-	found, err := seat.lastSeen()
-	flight, _ := found.turnInFlight(seat.own)
-	return err == nil && found.state != "asking" && !flight && len(holding(seat.Name)) == 0 && !revivalFile(seat.Name).Truthy("reopened_at")
+	cut, known := seat.owing()
+	return known && cut.line == "" && !revivalFile(seat.Name).Truthy("reopened_at")
 }
 
 // lastSeen is what the seat was doing when its process went (watch._cut_line): its last look,
@@ -110,25 +108,23 @@ func (seat Seat) hasActiveRun() bool {
 	return slices.ContainsFunc(seat.mine, func(each ran) bool { return run.Active(each.record) || each.going() })
 }
 
-// revivalLine is the line a gone seat whose conversation is its own is reopened to go on with
-// (watch.revive_seats' cut): "" where it rests.  False where it is Python's: background work it
-// held, a question its owner has written since, a run of its own, and, where nothing cut it off,
-// a run working for it, its own question standing, a failed revival or a death on record; any other
-// needs you is no turn of its.
-func (seat Seat) revivalLine() (string, bool) {
+// revivalLine is what a gone seat whose conversation is its own owes once reopened (watch.revive_seats'
+// cut): no line where it rests.  False where it is Python's: a question its owner has written
+// since, a run of its own, and, where nothing cut it off, a run working for it, its own question
+// standing, a failed revival or a death on record; any other needs you is no turn of its.
+func (seat Seat) revivalLine() (owed, bool) {
 	record, _ := run.ReadJSON(ownFile("session", seat.Name))
-	line, known := "", true
+	cut, known := owed{}, true
 	if record != nil && conversationOwned(seat.reader, record) {
-		line, known = seat.cutLine()
-		known = known && len(holding(seat.Name)) == 0
+		cut, known = seat.owing()
 	}
-	if line == "" {
+	if cut.line == "" {
 		notice := notify.Last(seat.Name)
 		noticed := !seat.unowned && notify.OwnerQuestion(notice) || revivalFailure(notice)
-		return "", known && seat.Word != "working" && !noticed && !revivalFile(seat.Name).Truthy("reopened_at")
+		return cut, known && seat.Word != "working" && !noticed && !revivalFile(seat.Name).Truthy("reopened_at")
 	}
 	answered := notify.OwnerQuestion(notify.Last(seat.Name)) && !notify.UnansweredQuestion(seat.Name)
-	return line, known && !answered && !seat.hasActiveRun()
+	return cut, known && !answered && !seat.hasActiveRun()
 }
 
 // Question revival leaves a project's refresh to Reopen.
@@ -139,9 +135,9 @@ func (seat reopening) launchable(record map[string]any) bool {
 	return opens && repo == "" && checkout != nil
 }
 
-// ReviveTurns is watch.revive_seats at each seat's turn, for a seat cut off in a turn or while it
-// asked. Other interrupted work stays Python's; reviving names the seats the run revival takes. A
-// live seat clears its death history, and a stopped or sleeping seat stays down.
+// ReviveTurns is watch.revive_seats at each seat's turn, for a seat cut off owing (owing): in a
+// turn, while it asked or holding background work.  reviving names the seats the run revival
+// takes. A live seat clears its death history, and a stopped or sleeping seat stays down.
 func (home Home) ReviveTurns(now time.Time, reviving map[string]string, log func(string), errOut io.Writer) (bool, error) {
 	for _, seat := range home.Seats {
 		file := revivalFile(seat.Name)
@@ -156,17 +152,17 @@ func (home Home) ReviveTurns(now time.Time, reviving map[string]string, log func
 		if seat.closed || seat.asleep || seat.waitsGone() || reviving[seat.Name] != "" {
 			continue
 		}
-		line, known := seat.revivalLine()
+		cut, known := seat.revivalLine()
 		if !known {
 			return false, nil
 		}
-		if line == "" {
+		if cut.line == "" {
 			continue
 		}
 		carried := false
 		err := under(filepath.Join(config.Home(), "state", "watch.lock"), func() error {
 			var err error
-			carried, err = seat.reviveTurn(now, line, log, errOut)
+			carried, err = seat.reviveTurn(now, cut, log, errOut)
 			return err
 		})
 		if err != nil || !carried {
@@ -176,7 +172,7 @@ func (home Home) ReviveTurns(now time.Time, reviving map[string]string, log func
 	return true, nil
 }
 
-func (seat Seat) reviveTurn(now time.Time, line string, log func(string), errOut io.Writer) (bool, error) {
+func (seat Seat) reviveTurn(now time.Time, cut owed, log func(string), errOut io.Writer) (bool, error) {
 	file := revivalFile(seat.Name)
 	if file.Truthy("stopped_at") || file.Truthy("closed_by_owner") {
 		return true, nil
@@ -194,7 +190,7 @@ func (seat Seat) reviveTurn(now time.Time, line string, log func(string), errOut
 		if err := Write(seat.Name, "reopened_at", append(deaths, run.Float(died))); err != nil {
 			return true, err
 		}
-		return seat.revivalFailed(died, "it died again both times it was reopened within the hour", log, errOut)
+		return seat.revivalFailed(died, cut, "it died again both times it was reopened within the hour", log, errOut)
 	}
 	_, record, err := config.ResolveSession(seat.Name)
 	if err != nil || record == nil {
@@ -226,14 +222,14 @@ func (seat Seat) reviveTurn(now time.Time, line string, log func(string), errOut
 	if err := Write(seat.Name, "reopened_at", append(deaths, run.Float(died))); err != nil {
 		return true, err
 	}
-	name := seat.Name
+	name, line := seat.Name, cut.line
 	started := !held || exited
 	if started {
 		back.held = held
 		log(back.said())
 		name, err = back.launch(filepath.Join(config.Home(), "state"), rulebook, cmd, conversation)
 		if err != nil {
-			return seat.revivalFailed(died, err.Error(), log, errOut)
+			return seat.revivalFailed(died, cut, err.Error(), log, errOut)
 		}
 		if !back.opened {
 			line += freshContinue
@@ -246,16 +242,18 @@ func (seat Seat) reviveTurn(now time.Time, line string, log func(string), errOut
 		time.Sleep(revivalWarmup)
 	}
 	carried, err := tellRevivalLine(name, log)
-	log("reopened " + name + " and asked it to go on with its turn")
+	_, _, ask := cut.about()
+	log("reopened " + name + " and asked it to " + ask)
 	return carried, err
 }
 
-func (seat Seat) revivalFailed(died float64, why string, log func(string), errOut io.Writer) (bool, error) {
-	text := fmt.Sprintf("Its orchestrator session %s is gone in the middle of a turn or a question to you. agentkit tried to reopen the seat and could not: %s. Press its number in the menu, then say: continue.", seat.Name, why)
-	source := "revive:" + seat.Name + ":turn:" + strconv.FormatInt(int64(died), 10)
+func (seat Seat) revivalFailed(died float64, cut owed, why string, log func(string), errOut io.Writer) (bool, error) {
+	event, when, ask := cut.about()
+	text := fmt.Sprintf("Its orchestrator session %s is gone %s. agentkit tried to reopen the seat and could not: %s. Press its number in the menu, then say: continue.", seat.Name, when, why)
+	source := "revive:" + seat.Name + ":" + event + ":" + strconv.FormatInt(int64(died), 10)
 	carried, err := notify.Needs(seat.Name, text, source, true, Published, errOut)
 	if err == nil && carried {
-		log("could not reopen " + seat.Name + "; asked the user to go on with its turn")
+		log("could not reopen " + seat.Name + "; asked the user to " + ask)
 	}
 	return carried, err
 }
