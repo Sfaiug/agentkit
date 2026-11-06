@@ -56,12 +56,9 @@ func Load() (*Rules, bool) {
 // matrix lineup from state/matrix.json that ranks the models, are not yet Go's.
 func Within(executors, reviewers []string) (*Rules, bool) {
 	margin, ok := config.PaceMargin()
-	if !ok || ranked() {
-		return nil, false
-	}
 	models, err := config.Models()
 	subs, failed := config.Subscriptions()
-	if err != nil || failed != nil {
+	if !ok || err != nil || failed != nil || ranked(models) {
 		return nil, false
 	}
 	if reviewers == nil {
@@ -193,9 +190,11 @@ func compare(later bool) int {
 	return -1
 }
 
-// ranked is whether state/matrix.json may hold a lineup Python's matrix.rank places a model by:
-// anything but no file, or one whose matrix lists no lineup.
-func ranked() bool {
+// ranked is whether state/matrix.json may hold a lineup Python's matrix.rank places one of models
+// by: anything but no file, a matrix listing no lineup, or a lineup no row of which a model's
+// harness runs as that model (`yours`).  A model no row is ranks after every ranked one, so where
+// none is, budget alone orders them, as here.
+func ranked(models map[string]config.Model) bool {
 	data, err := os.ReadFile(filepath.Join(config.Home(), "state", "matrix.json"))
 	if os.IsNotExist(err) {
 		return false
@@ -206,5 +205,33 @@ func ranked() bool {
 		return true
 	}
 	matrix, isObject := held.Get("matrix").(*run.Object)
-	return held.Truthy("matrix") && (!isObject || matrix.Truthy("lineup"))
+	if !held.Truthy("matrix") || isObject && !matrix.Truthy("lineup") {
+		return false
+	}
+	lineup, listed := matrix.Get("lineup").([]any)
+	if !isObject || !listed {
+		return true
+	}
+	for _, row := range lineup {
+		entry, ok := row.(*run.Object)
+		if !ok {
+			return true
+		}
+		yours, listed := entry.Get("yours").([]any)
+		if !listed {
+			return true
+		}
+		for _, one := range yours {
+			own, ok := one.(*run.Object)
+			if !ok {
+				return true
+			}
+			for _, model := range models {
+				if own.Get("harness") == model.Harness && own.Get("model") == model.ID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

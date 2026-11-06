@@ -83,6 +83,10 @@ type plugin struct {
 	usageRecorded func(state string, now float64) []*run.Object
 	// recordTurn is RecordTurn's: nil where a turn reports no refusal of its own.
 	recordTurn func(out, state, account string)
+	// turnMeters and tokens are TurnMeters' and Tokens': nil where a turn's stream reports no
+	// limits, and where its event log says what it spent.
+	turnMeters func(out string) []any
+	tokens     func(out string) (float64, bool)
 	// failed is TurnFailed's: nil where a failed turn's stderr holds all it says of why.
 	failed func(out string, result map[string]any)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
