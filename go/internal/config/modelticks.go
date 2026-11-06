@@ -114,6 +114,11 @@ func (t *ModelTicks) Names(harness, id string) []string { return modelMatches(t.
 // model's provider, else the harness's, or under the provider a host lists it under, taken in as `add
 // a subscription` takes it (takeIn).
 func (t *ModelTicks) Tick(harness, id, label string, levels []string, under *Listed, keep func() error) error {
+	held, err := editing()
+	if err != nil {
+		return err
+	}
+	defer held.Close()
 	_, root, err := modelFile()
 	if err != nil {
 		return err
