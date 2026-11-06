@@ -1324,8 +1324,8 @@ def event_paths(run_dir):
 def event_tokens(path):
     """Prefer the harness's final usage over the messages it already includes.
 
-    Without it each message counts once, at its last usage: Claude Code streams a message's
-    content blocks as events of their own, each repeating that message's id and usage.
+    Without it each message counts once, at its last usage: a stream may carry one message as
+    an event per content block, each repeating that message's id and usage.
     """
     def count(value):
         if not isinstance(value, dict):
