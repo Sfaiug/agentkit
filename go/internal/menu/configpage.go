@@ -24,25 +24,60 @@ type Page struct {
 	Clock, Note string
 }
 
-// A PageFrame is a draw of a page, and where the pointer finds its rows.
+// A PageFrame is a draw of a page, and where the keys and the pointer go from it.
 type PageFrame struct {
-	Lines []string
-	Top   int
-	rows  []int // each screen row's row, -1 for none
+	Lines    []string
+	Top      int
+	at, page int   // the row the keys are on, and how many lines of rows are shown
+	rows     []int // each line's row
 }
 
 // Hit is the row under the pointer; false off every row.
 func (f PageFrame) Hit(mouse terminal.Mouse) (int, bool) {
-	if mouse.Row <= 0 || mouse.Row > len(f.rows) || f.rows[mouse.Row-1] < 0 {
+	line := f.Top + mouse.Row - 3 // the rows start on the screen's third row, under the header
+	if mouse.Row < 3 || line >= min(len(f.rows), f.Top+f.page) {
 		return 0, false
 	}
-	return f.rows[mouse.Row-1], true
+	return f.rows[line], true
+}
+
+// Step is the row the keys are on and the first line shown, `step` rows on as ↑/↓ and the wheel
+// move: a row going on past the page that way turns to its next page before they leave it.
+func (f PageFrame) Step(step int) (int, int) {
+	past := f.Top - 1
+	if step > 0 {
+		past = f.Top + f.page
+	}
+	if past >= 0 && past < len(f.rows) && f.rows[past] == f.at {
+		return f.at, pageTop(f.rows, f.at, f.Top+step*f.page, f.page)
+	}
+	if slices.Contains(f.rows, f.at+step) {
+		return f.at + step, f.Top
+	}
+	return f.at, f.Top
+}
+
+// pageTop is the first line shown of `rows`, a page `page` lines high, from `top`: moved the least
+// that shows every line of the row `at`, or one of a row taller than the page, never past the last
+// page (matrix_page's).
+func pageTop(rows []int, at, top, page int) int {
+	first, last := slices.Index(rows, at), -1
+	for i, row := range rows {
+		if row == at {
+			last = i
+		}
+	}
+	lo, hi := last-page+1, first
+	if lo > hi {
+		lo, hi = first-page+1, last
+	}
+	return max(0, min(max(top, lo), hi, len(rows)-page))
 }
 
 // ConfigPage draws a page `c` opens as page_body draws one: each row's label, then its value lined
 // up past the widest label and wrapped at a word under itself, never cut, or folded under its
-// label where a word is too wide beside it.  The highlighted row's lines stay on the page, the
-// note under the rows, and the key line names what Space and Enter do there.
+// label where a word is too wide beside it.  The highlighted row stays on the page, a page of it
+// where it is taller, the note under the rows, and the key line names what Space and Enter do there.
 func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	room, wide := s.LayoutWidth(), 0
 	for _, row := range view.Rows {
@@ -127,16 +162,10 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			under = append(under, "  "+s.Styled(line, "dim"))
 		}
 	}
-	// the key line and the note stay on the screen, and so do the highlighted row's lines
+	// the key line and the note stay on the screen, and so does the highlighted row
 	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under))
-	first, last := slices.Index(rows, view.At), -1
-	for i, row := range rows {
-		if row == view.At {
-			last = i
-		}
-	}
-	top := max(0, min(max(view.Top, last-page+1), max(0, first), max(0, len(body)-page)))
+	top := pageTop(rows, view.At, view.Top, page)
 	shown := min(len(body), top+page)
 	return PageFrame{Panel(s, "config · "+view.Name, view.Clock, append(slices.Clone(body[top:shown]), under...), keys),
-		top, append([]int{-1, -1}, rows[top:shown]...)}
+		top, view.At, page, rows}
 }

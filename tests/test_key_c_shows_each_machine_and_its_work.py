@@ -119,6 +119,16 @@ class MachinesOnC(unittest.TestCase):
             self.config, self.readings, self.ledger, self.route)])
         self.leave()
 
+    def test_the_keys_turn_the_pages_of_a_row_taller_than_the_page_before_leaving_it(self):
+        self.page()
+        self.term.resize(25, 9)
+        self.term.wait(lambda screen: "› this one" in screen and "─" * 25 in screen)
+        self.term.keys("Down")
+        self.term.wait("55% busy")
+        self.term.keys("Up")
+        self.term.wait("› this one")
+        self.leave()
+
     def test_turns_off_the_other_machines_take_tests_alone(self):
         self.write_config(turns=False)
         self.page("10 of 32 GB used · tests", "sessions, builds, reviews, tests")
