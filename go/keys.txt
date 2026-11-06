@@ -112,6 +112,7 @@ test_key_hook_fact_order
 test_key_hook_outside_seat
 test_key_hook_words
 test_key_install_home
+test_key_install_links_shims
 test_key_landing_offline
 test_key_landing_suite_red
 test_key_landing_train
