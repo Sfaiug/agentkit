@@ -69,12 +69,17 @@ def _contents(root):
     return found
 
 
-def _git(args, env, cwd, **kwargs):
-    """Ask ak's own Git: the first in a directory ak's own PATH names in full.
+def _own_program(name):
+    """ak's own `name`: the first in a directory ak's own PATH names in full.
 
     Its answers decide what a box hides and what it opens for writing. The command's PATH, a
-    relative entry and the current directory may each name the project's own `git`."""
-    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+    relative entry and the current directory may each name the project's own."""
+    return shutil.which(name, path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+
+
+def _git(args, env, cwd, **kwargs):
+    """Ask ak's own Git."""
+    git = _own_program("git")
     if git is None:
         from . import config
         raise config.Error("worker box needs git in a directory PATH names in full")
@@ -171,16 +176,20 @@ def _walls(cmd):
 
 
 def _go_cache(env):
-    """The account's Go build cache, made if missing, where `go env GOCACHE` finds it: GOCACHE, else
-    go-build in the user cache directory (XDG_CACHE_HOME, else HOME/.cache); None where Go would
-    refuse it, or it is off or cannot be made."""
-    base = env.get("XDG_CACHE_HOME") or (env.get("HOME") and os.path.join(env["HOME"], ".cache"))
-    path = env.get("GOCACHE") or (base and os.path.join(base, "go-build"))
-    if not path or path == "off" or not os.path.isabs(path):
+    """The build cache ak's own Go names for env, as `go env -w` may have saved it, made if
+    missing; None without Go or HOME, or where it names none it would use or it cannot be made."""
+    go = _own_program("go")
+    # Making one in a missing HOME would make the HOME a check refuses to start without.
+    if go is None or not os.path.isdir(env.get("HOME") or ""):
         return None
     try:
+        # The local Go, from the root: a go.mod or GOTOOLCHAIN would have it fetch another.
+        path = subprocess.run([go, "env", "GOCACHE"], cwd="/", env={**env, "GOTOOLCHAIN": "local"},
+                              capture_output=True, text=True, timeout=10, check=True).stdout.strip()
+        if not os.path.isabs(path):
+            return None     # off, or relative, which Go refuses
         os.makedirs(path, exist_ok=True)
-    except OSError:
+    except (OSError, subprocess.SubprocessError):
         return None
     return Path(path).resolve()
 
@@ -369,13 +378,6 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 from . import config
                 raise config.Error(f"worker box needs {path}: the host directory is missing")
     writable = _writable(clean, cwd, out_dir, state, places, logins)
-    # Go's build cache is content-addressed and safe for go commands running at once, so every
-    # box writes the account's own: a cache of the box's own compiled the standard library in
-    # each turn, check and proof, and review proofs ran out of time on it (6 Nov 2026).
-    cache = _go_cache(clean)
-    if cache is not None:
-        writable.add(cache)
-        clean["GOCACHE"] = str(cache)
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -466,14 +468,21 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except OSError:
             return False
 
+    cache = _go_cache(clean)
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
+            own = _own(scratch, clean, cwd, writable, targets)
+            # Go's build cache is content-addressed and safe for go commands running at once, so
+            # every box writes the account's, where it has one: a turn's read-only HOME failed its
+            # build (5 Nov 2026), and a cache of its own compiled the standard library in each
+            # turn, check and proof until review proofs ran out of time (6 Nov 2026). Mounted in
+            # the scratch, not under HOME, where overlayfs would refuse a nested check's HOME.
+            clean["GOCACHE"] = str(Path(scratch, "go-build"))
+            if cache is not None:
+                own[Path(clean["GOCACHE"])] = cache
+            cmd[at:at] = _bind(own, writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            if cache is None and not home_overlay:
-                # Go caches builds under HOME, read-only here: a turn's build failed (5 Nov 2026).
-                clean["GOCACHE"] = "/var/tmp/go-build"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop, "began": report.exists,
                 "declared": declared}
