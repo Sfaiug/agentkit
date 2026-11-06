@@ -30,6 +30,11 @@ func leftTyped(name string, state *run.Object) bool {
 // not type into is Python's.
 func (t *ticking) tellAudit(name string, state *run.Object, write func() error) error {
 	if !auditUp(name) {
+		// gone since leftTyped looked: a respawn keeps the seat's birth, and with it a receipt that
+		// would read the new harness's empty composer as the line sent
+		if state.Truthy("typed") {
+			return errLeft
+		}
 		opened, err := seat.Reopen(name, seat.How{}, io.Discard, io.Discard)
 		if err == nil && !opened {
 			return errLeft
