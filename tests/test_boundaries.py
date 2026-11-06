@@ -56,14 +56,16 @@ RULES = [
      "max": 0},
     # Host and cgroup readings have one reader: paths and counter names in code or
     # comments outside host.py count as another copy of how the host reports them.  A machine
-    # reached over ssh has no host.py to import: tools/machine.sh reads it there.  A suite piece's
-    # own cgroup is the next rule's.
+    # reached over ssh has no host.py to import: tools/machine.sh reads it there.  Go carries a
+    # copy in the program, so a copied binary needs no checkout; TestTheCarriedProbeIsToolsMachine
+    # refuses any difference from tools/machine.sh.  A suite piece's own cgroup is the next rule's.
     {"name": "host readings",
      "flags": (),
      "pattern": r"/proc/meminfo|/proc/loadavg|/sys/fs/cgroup|cgroup\.freeze|"
                 r"\b(cpu|memory|pids)\.(pressure|stat|max|high|current|events)\b|CGROUP_ROOT",
      "names": r"/sys/fs/cgroup/memory\.events",
-     "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh"),
+     "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh",
+              "go/internal/machines/machine.sh"),
      "max": 0},
     # A suite piece in the helper's VM or container has no host.py either: it counts its own
     # cgroup's kills for memory, and reads nothing else of the host.  Go carries a copy in the

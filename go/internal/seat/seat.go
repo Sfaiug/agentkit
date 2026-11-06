@@ -24,6 +24,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/lock"
+	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -128,12 +129,13 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
 		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
-		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
-		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
+		// lock, its log's and the hourly stamps of its reads, what the collection keeps and what
+		// each machine is say nothing a word hangs on: a seat's own wait on its usage is in its
+		// seat file
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || recommendationState(entry.Name()) ||
+			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
