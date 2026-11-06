@@ -133,6 +133,21 @@ func TestASpentWindowParksTheProviderAndGoesNoFurtherHere(t *testing.T) {
 	}
 }
 
+// A clean exit is heard only through the record kind `[stall] terminal` names, a string.
+func TestACleanExitsTerminalRefusalParksTheProvider(t *testing.T) {
+	_, c := adapterRig(t, time.Minute, `*) echo '{"type":"result","is_error":true,"result":"You hit your usage limit."}' > "$out/events.jsonl";;`)
+	manifest := filepath.Join(os.Getenv("AGENTKIT_ADAPTER_DIR"), "acme.toml")
+	data, _ := os.ReadFile(manifest)
+	if err := os.WriteFile(manifest, append(data, "terminal = \"result\"\n"...), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	_, err := c.run()
+	var refused *ranDry
+	if !errors.As(err, &refused) || refused.message != "You hit your usage limit." {
+		t.Fatalf("ended %v", err)
+	}
+}
+
 func TestARefusedReviewKeepsWhatItsVerdictAskHandedIn(t *testing.T) {
 	l, _ := adapterRig(t, time.Minute, `1) echo "## Partial" > "$out/final.md";;
 *) echo '{"kind":"finding","path":"a.txt","line":1,"what":"w","why":"y","evidence":{"run":"false","returncode":1,"output":""}}' >> "$AK_HAND_IN"
