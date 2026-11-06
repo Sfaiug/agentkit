@@ -405,7 +405,17 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             continue
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
+    cache = _go_cache(clean)
+    # A mask covers a hidden place where it is, not where the scratch mounts the cache again: a
+    # cache holding one, or inside one, stays unshared.
+    if cache is not None and any(path.is_relative_to(cache) or cache.is_relative_to(path)
+                                 for path in targets):
+        cache = None
     if out_dir is None:
+        if cache is not None:
+            # No scratch of its own to mount it in: the box writes it where it is.
+            writable.add(cache)
+            clean["GOCACHE"] = str(cache)
         cmd[at:at] = _bind({}, writable, homes)
         yield [*cmd, "--", *argv], clean, {}
         return
@@ -468,7 +478,6 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         except OSError:
             return False
 
-    cache = _go_cache(clean)
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
