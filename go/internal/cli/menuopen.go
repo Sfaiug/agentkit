@@ -22,9 +22,9 @@ func menuChoice(key terminal.Key, frame menu.Frame, seats []menu.Seat, keyboard 
 	return frame.Open(key)
 }
 
-func menuKeys(screen terminal.Screen, shown *reading, overlay bool) string {
+func menuKeys(screen terminal.Screen, shown *reading, own string) string {
 	keys := menu.Keys(screen, len(shown.past) > 0)
-	if found, done := ownSeat(shown.seats, os.Getenv("AGENTKIT_SESSION")); overlay && found {
+	if found, done := ownSeat(shown.seats, own); found {
 		x := "x stop   "
 		if done {
 			x = "x close   "

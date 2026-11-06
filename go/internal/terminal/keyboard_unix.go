@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"regexp"
-	"strconv"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -125,7 +124,7 @@ func (k *Keyboard) Sense() {
 // Screen is what Sense found, at the size the terminal is now.
 func (k *Keyboard) Screen() Screen {
 	screen := k.sensed
-	screen.width, screen.height = width(os.Stdout), height(os.Stdout)
+	screen.width, screen.height = width(os.Stdout), Lines(os.Stdout)
 	return screen
 }
 
@@ -288,16 +287,4 @@ func attrs(request uintptr, state *syscall.Termios) error {
 		return errno
 	}
 	return nil
-}
-
-// height is LINES where it is a positive number, else the terminal's, else 24.
-func height(file *os.File) int {
-	if lines, err := strconv.Atoi(os.Getenv("LINES")); err == nil && lines > 0 {
-		return lines
-	}
-	var size struct{ rows, columns, x, y uint16 }
-	if _, _, errno := syscall.Syscall(syscall.SYS_IOCTL, file.Fd(), syscall.TIOCGWINSZ, uintptr(unsafe.Pointer(&size))); errno == 0 && size.rows > 0 {
-		return int(size.rows)
-	}
-	return 24
 }

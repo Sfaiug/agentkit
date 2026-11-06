@@ -7,18 +7,16 @@ import (
 	"os/exec"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/menu"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
 
-func menuStop(shown *reading, dry bool, keyboard *terminal.Keyboard, painter *terminal.Painter, highlight *menu.Highlight, errOut io.Writer) (bool, int) {
-	name, _, err := config.CurrentSession()
+func menuStop(shown *reading, name string, dry bool, keyboard *terminal.Keyboard, painter *terminal.Painter, highlight *menu.Highlight, errOut io.Writer) (bool, int) {
 	count, known := seat.StopCount(name, time.Now())
 	found, done := ownSeat(shown.seats, name)
-	if err != nil || !known || !found {
+	if !known || !found {
 		keyboard.Give()
 		return true, notImplemented(errOut, "attach")
 	}
