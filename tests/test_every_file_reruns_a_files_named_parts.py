@@ -1,6 +1,6 @@
 """A test file that names its failing parts is named `<file>::<part>` by tests/every_file.py, its
-re-run runs just those parts, and AK_ONLY listing one runs the file for that part alone; a Go key
-part file given a claim's name runs that claim alone and names it when it fails.
+re-run runs just those parts, and AK_ONLY listing one runs the file for that part alone; the Go
+keys check given a claim's name runs that claim alone and names it when it fails.
 
 Offline: the real every_file.py runs on a temporary checkout of a stand-in noting each run's
 parts, with injected host readings; the real Go key files judge stand-in keys with AK_BIN set.
@@ -94,17 +94,16 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         self.assertEqual(self.read("ran.log"), ["fix_api", "fix_api"])
         self.assertEqual((self.read("ran"), self.read("failed")), ([PART], [PART]))
 
-    def test_a_go_key_part_file_given_a_claims_name_runs_that_claim_alone(self):
-        for name in ("test_go_keys.py", "test_go_keys_part_2.py", "test_go.py", "suite_shares.py"):
+    def test_the_go_keys_check_given_a_claims_name_runs_that_claim_alone(self):
+        for name in ("test_go_keys.py", "test_go.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, self.root / "tests")
         (self.root / "go").mkdir()
         keys = ("test_key_acme", "test_key_fix_api", "test_key_widget")
         (self.root / "go/keys.txt").write_text("".join(f"{key} Acme\n" for key in keys))
         for key in keys:
             (self.root / "tests" / f"{key}.py").write_text(KEY)
-        # test_key_widget lies outside this part file's slice of the three.
         done = subprocess.run(
-            [sys.executable, self.root / "tests/test_go_keys_part_2.py", "test_key_widget"],
+            [sys.executable, self.root / "tests/test_go_keys.py", "test_key_widget"],
             env=dict(self.base, AK_BIN="/bin/true", ACME_LOG=str(self.root / "ran.log"),
                      ACME_FAILS="test_key_widget", FAILED_PARTS=str(self.root / "parts")),
             capture_output=True, text=True, timeout=120)
