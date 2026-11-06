@@ -117,7 +117,7 @@ func (l *loop) reviewDisputes(j *judging) (*handin.Review, error) {
 }
 
 // replayWord is how a replayed proof went, for the reviewer and the record.
-func replayWord(now *run.Object, failing bool) string {
+func replayWord(row, now *run.Object, failing bool) string {
 	code, _ := now.Int("returncode")
 	switch {
 	case now.Truthy("killed") || code < 0:
@@ -126,6 +126,8 @@ func replayWord(now *run.Object, failing bool) string {
 		return fmt.Sprintf("could not run (exit %d); kept as a note", code)
 	case failing:
 		return fmt.Sprintf("still fails (exit %d)", code)
+	case code != 0:
+		return fmt.Sprintf("fails with exit %d, not the exit %d it was proven with; kept as a note", code, provenCode(row))
 	}
 	return "fixed (the proof passes now)"
 }
@@ -135,7 +137,7 @@ func replayWord(now *run.Object, failing bool) string {
 func replaySection(replayed []replay, left []*run.Object, since string) string {
 	var lines, yours []string
 	for _, each := range replayed {
-		lines = append(lines, fmt.Sprintf("- %s:%d - %s - %s", each.row.Str("path"), lineOf(each.row), each.row.Str("what"), replayWord(each.now, each.failing)))
+		lines = append(lines, fmt.Sprintf("- %s:%d - %s - %s", each.row.Str("path"), lineOf(each.row), each.row.Str("what"), replayWord(each.row, each.now, each.failing)))
 	}
 	for _, row := range left {
 		yours = append(yours, fmt.Sprintf("- %s:%d - %s - disputed by the fixer: hand it in again to uphold it", row.Str("path"), lineOf(row), row.Str("what")))
@@ -168,7 +170,7 @@ func (l *loop) withReplays(records []*run.Object, j *judging) []*run.Object {
 			row.Set("kind", "note")
 			row.Set("evidence", each.now)
 			code, _ := each.now.Int("returncode")
-			word := replayWord(each.now, false)
+			word := replayWord(each.row, each.now, false)
 			if code == 0 && !each.now.Truthy("killed") {
 				word = "fixed; its proof passes now"
 			}

@@ -6,7 +6,6 @@ import (
 	"strconv"
 
 	"agentkit/internal/config"
-	"agentkit/internal/handin"
 	"agentkit/internal/run"
 )
 
@@ -163,7 +162,7 @@ func (r *repoPlace) earlierWork(l *loop, j *judging, whole, head string) (string
 			if err != nil {
 				return "", err
 			}
-			j.replayed = append(j.replayed, replay{standing, now, handin.ProofFailed(now), touched, lines})
+			j.replayed = append(j.replayed, replay{standing, now, failsAsProven(row, now), touched, lines})
 		}
 	}
 	j.standing = listed
