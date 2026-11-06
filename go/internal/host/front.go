@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 	"agentkit/internal/tmux"
 )
 
@@ -26,8 +28,17 @@ var seatScope = regexp.MustCompile(`^agentkit-seat-(.+)-[0-9a-f]{8}\.scope$`)
 // it, not the file: a value written straight into the cgroup is dropped by a later reload. Each is
 // read just before it is decided, since the first set turns the controller on for the rest. No
 // tmux server, no slice or a systemctl that cannot be asked is nothing to do: a weight left wrong
-// is set by the next tick.
+// is set by the next tick. One attach starts two passes at once, from two of its hooks, so a pass
+// reads and sets under one lock: whoever sets last has read last (front.once).
 func Front() {
+	if config.EnsureDirs() != nil {
+		return
+	}
+	held, err := lock.Wait(context.Background(), filepath.Join(config.Home(), "state", "front.lock"))
+	if err != nil {
+		return
+	}
+	defer held.Close()
 	out, err := tmux.Ask(tmux.Own(), "list-sessions", "-F", "#{session_attached}\t#{pid}\t#{session_name}")
 	if err != nil {
 		return

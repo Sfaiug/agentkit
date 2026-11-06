@@ -8,6 +8,7 @@ wrong until the next tick.  A host with no cgroup v2 or systemd user manager get
 loses nothing.
 """
 
+import fcntl
 import re
 import subprocess
 
@@ -27,9 +28,19 @@ def seat_now(launched):
 
 
 def once():
-    """Set each weight under the seats' slice that does not read what it should.  systemd, not
-    the file: a value written straight into the cgroup is dropped by a later reload.  Each is
-    read just before it is decided, since the first call turns the controller on for the rest."""
+    """Set each weight under the seats' slice that does not read what it should.  One attach
+    starts two passes at once, from two of its hooks, so a pass reads and sets under one lock:
+    whoever sets last has read last."""
+    config.ensure_dirs()
+    with (config.STATE / "front.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        _weigh()
+
+
+def _weigh():
+    """systemd sets each weight, not the file: a value written straight into the cgroup is
+    dropped by a later reload.  Each is read just before it is decided, since the first call
+    turns the controller on for the rest."""
     code, out = orch.tmux_out("list-sessions", "-F",
                               "#{session_attached}\t#{pid}\t#{session_name}")
     rows = [row.split("\t", 2) for row in out.splitlines()] if code == 0 else []
