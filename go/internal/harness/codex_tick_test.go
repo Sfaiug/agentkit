@@ -54,8 +54,8 @@ case "$*" in "api user") echo '{"login": "acme"}' ;; *) echo '{"items": []}' ;; 
 		return path
 	}
 	bound, kept := seat("acme", proven), seat("beta", unproven)
-	if carried, err := tick.Carry(io.Discard, io.Discard); !carried || err != nil {
-		t.Fatalf("the tick handed over: %v", err)
+	if carried, failed := tick.Carry(io.Discard, io.Discard); !carried || failed {
+		t.Fatalf("the tick handed over (carried %v, failed %v)", carried, failed)
 	}
 	for path, want := range map[string][]any{bound: {"t1", "codex-session-start", true}, kept: {"old", "launcher", false}} {
 		record, _ := run.ReadJSON(path)

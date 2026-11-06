@@ -38,22 +38,23 @@ type ticking struct {
 // and GitHub.  False leaves the tick to Python, the lock released: at the first row that finds what
 // Go does not carry, what the rows before did standing; after what Python's next tick reads as its
 // own where gh names a pull request to act on; with nothing written where gh cannot be read,
-// or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.  The
-// error is a tick that could not save watch.json at its end, which fails, as Python's does.
-func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
+// or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.  Failed
+// is a tick that could not save watch.json at its end, which fails, as Python's does, saying why
+// on the tick's own stderr, dated in its log as Python's traceback is.
+func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) {
 	if Overlap(out, errOut) {
-		return true, nil
+		return true, false
 	}
 	if runtime.GOOS == "windows" {
-		return false, nil
+		return false, false
 	}
 	// asked before any pass, where Python asks after them: no row says whether Go carries the
 	// GitHub passes, and the tick begins with the asking
 	began := time.Now()
-	user, why, failed := gh.JSON(run.Runs(), "api", "user")
+	user, why, unasked := gh.JSON(run.Runs(), "api", "user")
 	asked := time.Since(began)
-	if failed != nil || config.EnsureDirs() != nil {
-		return false, nil
+	if unasked != nil || config.EnsureDirs() != nil {
+		return false, false
 	}
 	// when the last tick began, until this one stamps the lock
 	var previous time.Time
@@ -62,23 +63,23 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
 	}
 	held, err := lock.Try(lockPath())
 	if errors.Is(err, lock.ErrHeld) {
-		return Overlap(out, errOut), nil
+		return Overlap(out, errOut), false
 	}
 	if err != nil {
-		return false, nil
+		return false, false
 	}
 	defer held.Close()
 	// the write is also the stamp: mtime is when this tick began
 	if held.Truncate(0) != nil {
-		return false, nil
+		return false, false
 	}
 	if _, err := fmt.Fprintf(held, "%d\n", os.Getpid()); err != nil {
-		return false, nil
+		return false, false
 	}
 	// the passes' seat records are listed from the state folder
 	state, ok := loadState()
 	if !ok || !quiet(state) || !config.Listable(statePath("")) {
-		return false, nil
+		return false, false
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
 	seat.Stderr = t.log.errOut
@@ -90,9 +91,9 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
 	// orch.records puts it there before anything claims one resumable; a dry tick writes none
 	seat.Reconcile()
 	if !t.through(table(t)) {
-		return false, nil
+		return false, false
 	}
-	carried := t.github(user, why, asked)
+	carried = t.github(user, why, asked)
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
 	record, slowest := run.NewObject(), run.NewObject()
 	record.Set("started_at", epoch(began))
@@ -105,12 +106,13 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
 		state.Set("tick_completed_at", record.Get("ended_at"))
 	}
 	if err := t.save(); err != nil {
-		return false, err
+		fmt.Fprintf(t.log.errOut, "ak watch: %s\n", config.PyError(err))
+		return false, true
 	}
 	if carried {
 		ended(record.Get("ended_at"), t.log)
 	}
-	return carried, nil
+	return carried, false
 }
 
 func epoch(at time.Time) float64 { return float64(at.UnixNano()) / 1e9 }

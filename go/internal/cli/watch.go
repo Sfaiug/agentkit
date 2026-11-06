@@ -1,10 +1,8 @@
 package cli
 
 import (
-	"fmt"
 	"io"
 
-	"agentkit/internal/config"
 	"agentkit/internal/tick"
 )
 
@@ -20,9 +18,8 @@ func watch(args []string, out, errOut io.Writer) int {
 		}
 		return notImplemented(errOut, "watch")
 	}
-	carried, err := tick.Carry(out, errOut, auditScoreboard(out))
-	if err != nil {
-		fmt.Fprintf(errOut, "ak watch: %s\n", config.PyError(err))
+	carried, failed := tick.Carry(out, errOut, auditScoreboard(out))
+	if failed {
 		return 1
 	}
 	if carried {
