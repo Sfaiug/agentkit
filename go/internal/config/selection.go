@@ -29,37 +29,57 @@ func Audit() (Selection, bool, error) {
 	if err != nil {
 		return Selection{}, false, err
 	}
+	return audit(root)
+}
+
+// audit is Audit of a config read, refusing what config.audit refuses in its order and words, so
+// `c`, its page and the tick say the same thing.
+func audit(root *table) (Selection, bool, error) {
 	held := selection(root)
 	if held.Reviewers == nil {
 		held.Reviewers = held.Workers
 	}
 	on := true
-	if value := root.get("audit"); value != nil {
-		audit, ok := value.(*table)
+	value := root.get("audit")
+	if value == nil {
+		value = newTable()
+	}
+	audit, ok := value.(*table)
+	if !ok {
+		return held, on, fmt.Errorf("~/.agentkit/config.toml: [audit] must be a table")
+	}
+	if value := audit.get("on"); value != nil {
+		if on, ok = value.(bool); !ok {
+			return held, true, fmt.Errorf("~/.agentkit/config.toml: [audit].on must be true or false (got %s)", valueRepr(value))
+		}
+	}
+	for _, key := range []string{"workers", "reviewers"} {
+		value := audit.get(key)
+		if value == nil {
+			continue
+		}
+		list, ok := value.([]any)
+		names := []string{}
+		for _, item := range list {
+			name, named := item.(string)
+			ok, names = ok && named, append(names, name)
+		}
 		if !ok {
-			return held, on, fmt.Errorf("[audit] must be a table")
+			return held, on, fmt.Errorf("~/.agentkit/config.toml: [audit].%s must list model names (got %s)", key, valueRepr(value))
 		}
-		if value := audit.get("on"); value != nil {
-			if on, ok = value.(bool); !ok {
-				return held, on, fmt.Errorf("[audit].on must be true or false")
-			}
+		if key == "workers" {
+			held.Workers = names
+		} else {
+			held.Reviewers = names
 		}
-		if value := audit.get("orchestrator"); value != nil {
-			if held.Orchestrator, ok = value.(string); !ok {
-				return held, on, fmt.Errorf("[audit].orchestrator must be a model name")
-			}
+	}
+	if value := audit.get("orchestrator"); value != nil {
+		if held.Orchestrator, ok = value.(string); !ok {
+			return held, on, fmt.Errorf("~/.agentkit/config.toml: [audit].orchestrator must be a model name (got %s)", valueRepr(value))
 		}
-		for key, group := range map[string]*[]string{"workers": &held.Workers, "reviewers": &held.Reviewers} {
-			if value := audit.get(key); value != nil {
-				if !stringList(value, key == "reviewers") {
-					return held, on, fmt.Errorf("[audit].%s must list model names", key)
-				}
-				*group = []string{}
-				for _, name := range value.([]any) {
-					*group = append(*group, name.(string))
-				}
-			}
-		}
+	}
+	if len(held.Reviewers) == 0 {
+		return held, on, fmt.Errorf("~/.agentkit/config.toml: [audit].reviewers must name a model")
 	}
 	for _, name := range append(append([]string{held.Orchestrator}, held.Workers...), held.Reviewers...) {
 		if _, err := resolve(root, name); err != nil {

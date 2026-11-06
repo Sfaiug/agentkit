@@ -42,9 +42,17 @@ func listedAccount(model config.Model, account string) bool {
 	return err == nil && slices.Contains(accounts, account)
 }
 
+// accountKept is whether the seat's file keeps it where it is (watch.seat_account): a usage wait
+// or refusal to recover, or a move's line still owed, its resumed transcript perhaps still showing
+// the old account's refusal; a reboot's line keeps nothing.
+func accountKept(file *run.Object) bool {
+	moving := file.Dict("midturn")
+	return file.Truthy("usage_wait") || file.Truthy("usage_refusal") || file.Truthy("midturn") && (moving == nil || moving.Truthy("account"))
+}
+
 // AccountIdle is the account case that needs no recovery or account selection.
 func AccountIdle(live Live) bool {
-	if live.File.Truthy("usage_wait") || live.File.Truthy("usage_refusal") || live.File.Truthy("midturn") {
+	if accountKept(live.File) {
 		return false
 	}
 	models, err := config.Models()
@@ -62,10 +70,7 @@ func AccountIdle(live Live) bool {
 // and turns in flight are left at this point, before a relaunch writes anything; a move waits for
 // the input field to read empty (fieldWaits).
 func MoveAccount(live Live, log func(string)) (carried bool, err error) {
-	// the line a move to another account owes holds the seat where it is (seat_account); the one a
-	// reboot owes does not
-	file, mark := live.File, live.File.Dict("midturn")
-	if file.Truthy("usage_wait") || file.Truthy("usage_refusal") || file.Truthy("midturn") && (mark == nil || mark.Truthy("account")) {
+	if accountKept(live.File) {
 		return false, nil
 	}
 	if AccountIdle(live) {
@@ -97,7 +102,7 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 	}
 	spent := own.Spent != ""
 	if spent { // a done seat has nothing a spent account would continue: it stays put
-		if done, err := doneUnprompted(live.Name, live.Own, live.Record, file, found); done || err != nil {
+		if done, err := doneUnprompted(live.Name, live.Own, live.Record, live.File, found); done || err != nil {
 			return done, nil
 		}
 	}
@@ -122,7 +127,7 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		return false, nil
 	}
 	back, ready := comingBack(filepath.Join(config.Home(), "state"), live.Name, record, true, true)
-	if !ready || !back.launchable(record) || back.conversation == "" || file.Truthy("owed_lines") {
+	if !ready || !back.launchable(record) || back.conversation == "" || live.File.Truthy("owed_lines") {
 		return false, nil
 	}
 	back.account = ""

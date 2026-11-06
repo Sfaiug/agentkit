@@ -209,7 +209,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
     for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
-    no harness of yours runs is no reason to leave it out; and `take`: the same rule over yours.
+    no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
+    and `choices` and `others` over those with a cost, whoever runs them (`_choices`).
     Keep the pick and take visible even if rows outside their eligible pool beat them.
     Costs use the role's subscription unit when measured, retaining each row's board dollars."""
     shares = task_usage if task_usage is not None else _task_usage(cfg) if cfg else {}
@@ -227,9 +228,66 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
         front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
+        choices, others = _choices(priced)
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
-                     "front": front, "take": take}
+                     "front": front, "take": take, "choices": choices, "others": others}
     return out
+
+
+# The models screen's choices, the owner, 5 Nov 2026: none further below the best than WINDOW
+# points, each APART above the one before, PLACES of them at most.
+WINDOW, APART, PLACES = 10, 1, 5
+
+
+def _above(row, other):
+    """The quality points `row` is above `other`, to a millionth, for the `WINDOW` and `APART`
+    lines only: a rating's roundoff never moves a row across one, as 90 is 10 under 100, never
+    10.00000000000001, while a row a millionth better still ranks above."""
+    return round(row["quality"] - other["quality"], 6)
+
+
+def _choices(priced):
+    """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`).  Its
+    front holds each row better than every cheaper one, the best last.  `choices`: the front's
+    rows within `WINDOW` of the best, cheapest first, each kept when `APART` above the last kept,
+    the best taking the place of one less than that below it; the costliest `PLACES` of them.
+    `others`: of each release with no choice its best row, a cheaper one on a tie, best first,
+    each with its `why` and `by`: `beaten` by the cheapest choice, else row of the front, as
+    good and no dearer; on the front, `far below`, by None, more than `WINDOW` under the best;
+    else `close` to the nearest choice, less than `APART` from it; else `no room`, by None:
+    `APART` or more under every choice, as the costliest `PLACES` leave it."""
+    front = []
+    for row in priced:
+        if not front or row["quality"] > front[-1]["quality"]:
+            front.append(row)
+    kept = []
+    for row in front:
+        if _above(front[-1], row) > WINDOW:
+            continue
+        if kept and _above(row, kept[-1]) < APART:
+            if row is front[-1]:
+                kept[-1] = row
+        else:
+            kept.append(row)
+    choices = kept[-PLACES:]
+    chosen, tops = {row["release"] for row in choices}, {}
+    for row in priced:
+        top = tops.get(row["release"])
+        if row["release"] not in chosen and (top is None or row["quality"] > top["quality"]):
+            tops[row["release"]] = row
+    others = sorted(tops.values(), key=lambda row: (-row["quality"], row["cost"]))
+    for row in others:
+        if not any(one is row for one in front):
+            row["why"], row["by"] = "beaten", next(
+                one for one in (*choices, *front)
+                if one["quality"] >= row["quality"] and one["cost"] <= row["cost"])
+        elif _above(front[-1], row) > WINDOW:
+            row["why"], row["by"] = "far below", None
+        else:
+            near = min(choices, key=lambda one: abs(_above(one, row)))
+            close = abs(_above(near, row)) < APART
+            row["why"], row["by"] = ("close", near) if close else ("no room", None)
+    return choices, others
 
 
 def companies(cfg, lineup):
@@ -470,10 +528,15 @@ def main(argv):
     shares = _task_usage(cfg)
     found, own = answer(rows, marked, cfg=cfg, task_usage=shares), live(cfg)
     if "--json" in flags:
-        json.dump({**{role: {"best": said["best"], "cost_unit": said["cost_unit"], "front": [
-            {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost",
-                                         "board_cost", "cost_rule")},
-             "notes": notes(row, said)} for row in said["front"]]}
+        def drawn(row, said):
+            return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
+                                                 "cost", "board_cost", "cost_rule")},
+                    "notes": notes(row, said)}
+        json.dump({**{role: {
+            "best": said["best"], "cost_unit": said["cost_unit"],
+            **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
+            "others": [{**drawn(row, said), "why": row["why"], "by": row["by"] and {
+                key: row["by"][key] for key in ("name", "effort")}} for row in said["others"]]}
             for role, said in found.items()}, "live": own, "task_usage": shares},
             sys.stdout, indent=2)
         print()

@@ -113,8 +113,9 @@ func TickAdmission(record *Object, now time.Time) string {
 }
 
 // Going is whether the run keeps its seat working while it lasts: the states that resume
-// themselves, a member of a landing line till its lander ends it, a run stopped to wait on an
-// older run's change, and an error the tick will retry while it still admits it.
+// themselves, an exhausted run only while the tick can resume it, a member of a landing line
+// till its lander ends it, a run stopped to wait on an older run's change, and an error the tick
+// will retry while it still admits it.
 func Going(record *Object, now time.Time) bool {
 	state, line := record.Str("state"), record.Dict("waiting_on")
 	switch {
@@ -124,6 +125,8 @@ func Going(record *Object, now time.Time) bool {
 		return true
 	case (state == "error" || state == "waiting") && !tickAdmitted(record, now):
 		return false
+	case state == "exhausted":
+		return ExhaustedWait(record) != ""
 	case slices.Contains(goes, state):
 		return true
 	}
@@ -233,6 +236,10 @@ func (index Index) replaced(record *Object, relaunched string) bool {
 func Word(record *Object, index Index, now time.Time) string {
 	settled := record.Truthy("handed_back") || record.Truthy("handback_pending") ||
 		record.Truthy("recovery_acknowledged_at") || index.superseded(record)
+	if record.Str("state") == "exhausted" {
+		// no hand-back settles a wait, only a look or a later merged run taking the work up
+		settled = record.Truthy("recovery_acknowledged_at") || index.MergedOver(record)
+	}
 	switch {
 	case Going(record, now):
 		return "working"

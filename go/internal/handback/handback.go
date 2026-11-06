@@ -87,16 +87,26 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("run %s ended: recorded, not typed", id))
 		return true
 	}
+	holds, live, err := liveEnding(said)
+	if err != nil {
+		return false // Python's to read, as the tick leaves it (Reaches)
+	}
+	if holds {
+		if !said.Truthy("handback_pending") {
+			mark(dir, record, "handback_pending", true)
+		}
+		return false // told in one line with its change gone live, once it is
+	}
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
 	line := ""
 	if !pending {
-		line = handbackLine(record, dir, true)
+		line = handbackLine(record, dir, true, live)
 	}
 	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, nil, func(typed *run.Object) error {
-		mark(dir, record, "handback_typed", typed)
+		mark(dir, record, append([]any{"handback_typed", typed}, saidLive(live, "live_typed", typed)...)...)
 		return nil
 	}, say) {
-		Told(dir, record)
+		Told(dir, record, saidLive(live, "live_notified", now(), "live_typed", nil)...)
 		say(fmt.Sprintf("handed run %s back to the %s seat", id, session))
 		return true
 	}
@@ -112,10 +122,19 @@ func Give(dir string, say func(string)) bool {
 }
 
 // Told marks the run's ending told to the seat, as its hand-back and the NOT LIVE line of its
-// merge typed into the seat that launched it do; false where the record moved on.
-func Told(dir string, record *run.Object) bool {
-	return mark(dir, record, "handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
-		"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil)
+// merge typed into the seat that launched it do, with any more marks; false where the record moved
+// on.
+func Told(dir string, record *run.Object, more ...any) bool {
+	return mark(dir, record, append([]any{"handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
+		"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil}, more...)...)
+}
+
+// saidLive is the marks of a line that says its change went live too, none for one that does not.
+func saidLive(live bool, marks ...any) []any {
+	if live {
+		return marks
+	}
+	return nil
 }
 
 // sameAttempt is whether two records are one attempt of the run, not either side of a resume.

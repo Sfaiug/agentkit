@@ -82,7 +82,7 @@ func codexInteractive(root string, args []string, out, errOut io.Writer) int {
 // handed over as `developer_instructions`, and, where this launch has a receipt and its Codex
 // reports hook support, ak's hooks registered beside the receipt's capture and the TUI run on an
 // app server of the seat's own (`codexOnServer`); else the TUI alone, as it came.
-func codexServeSeat(words, env []string, errOut io.Writer, terminal func(words, env []string) int) int {
+func codexServeSeat(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int {
 	at := slices.Index(words, "--")
 	if at < 0 {
 		at = len(words)
@@ -116,7 +116,7 @@ func codexServeSeat(words, env []string, errOut io.Writer, terminal func(words, 
 	self, _ := os.Executable()
 	self, _ = filepath.EvalSymlinks(self)
 	cmd = append(cmd, codexHookFlags(self)...)
-	return codexOnServer(cmd, prompt, receipt, append(env, codexCaptureEnv+"="+receipt), errOut, terminal)
+	return codexOnServer(cmd, prompt, receipt, append(env, codexCaptureEnv+"="+receipt), errOut, terminal, changed)
 }
 
 // codexHooked is whether that Codex takes hooks on its command line: its help names the flag

@@ -81,7 +81,7 @@ func TestCodexAnswerIsTheTurnContextOfTheLatestAnswer(t *testing.T) {
 	}
 }
 
-func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
+func TestCodexReadsTheThreadOnlyOnceAReconcileBindsItsReceipt(t *testing.T) {
 	token, write := codexSeat(t)
 	write("")
 	record := run.NewObject()
@@ -96,14 +96,15 @@ func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
 		conversation, source string
 		resumable            any
 		ready                bool
+		bound                string // the conversation reconciling leaves, resumable where it is t1
 	}{
-		{"", "", false, false},
-		{"old", "launcher", true, false},
-		{"t1", "launcher", true, false},
-		{"t1", "codex-session-start", false, false},
-		{"t1", "codex-session-start", nil, false},
-		{"t1", "codex-session-start", true, true},
-		{"newer", "codex-session-start", true, true}, // Python never binds an older receipt over this
+		{"", "", false, false, "t1"},
+		{"old", "launcher", true, false, "t1"},
+		{"t1", "launcher", true, false, "t1"},
+		{"t1", "codex-session-start", false, false, "t1"},
+		{"t1", "codex-session-start", nil, false, "t1"},
+		{"t1", "codex-session-start", true, true, "t1"},
+		{"newer", "codex-session-start", true, true, "newer"}, // no reconcile binds an older receipt over this
 	} {
 		record.Set("conversation", each.conversation)
 		record.Set("id_source", each.source)
@@ -111,6 +112,15 @@ func TestCodexReadsTheThreadOnlyAfterPythonBindsItsReceipt(t *testing.T) {
 		before := run.Encode(record)
 		if _, ready := For("codex").Reconciled("acme", record); ready != each.ready || run.Encode(record) != before {
 			t.Errorf("record changed or readiness differs: %+v", each)
+		}
+		// as the tick's reconcile leaves it, and read then
+		fields := Reconcile("codex", record)
+		for _, key := range fields.Keys() {
+			record.Set(key, fields.Get(key))
+		}
+		if _, ready := For("codex").Reconciled("acme", record); !ready || record.Get("conversation") != each.bound ||
+			record.Get("id_source") != "codex-session-start" || record.Get("resumable") != (each.bound == "t1") {
+			t.Errorf("reconciled %+v into %s", each, run.Encode(record))
 		}
 	}
 	record.Set("codex_launch", strings.Repeat("b", 32))

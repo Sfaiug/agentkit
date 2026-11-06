@@ -305,7 +305,10 @@ func (m carry) pointers() error {
 
 // files moves the seat's files to the new name, but what stays.  Back to a name it had, what the
 // seat wrote under it since is kept rather than moved over: a seat renamed still writes its plan
-// under the name it was launched with, and a plan is read under every name the seat had.
+// under the name it was launched with, and a plan is read under every name the seat had.  The
+// verification lock always moves: the one held is the one the seat's name reaches, and one under
+// the old name is a contender's that resolved that name before the last move and opened it after,
+// which none keeps (config.rename_session).
 func (m carry) files() error {
 	was, now := config.SeatFileNames(m.old), config.SeatFileNames(m.new)
 	var failed []error
@@ -322,7 +325,7 @@ func (m carry) files() error {
 				copied := fmt.Sprintf("%s.%d.tmp", to, os.Getpid())
 				failed = append(failed, os.WriteFile(copied, data, 0o666), os.Rename(copied, to))
 			}
-		case !m.back || !exists(to):
+		case !m.back || !exists(to) || kind == "verify":
 			failed = append(failed, os.Rename(from, to))
 		}
 	}

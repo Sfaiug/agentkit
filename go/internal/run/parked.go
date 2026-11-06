@@ -23,23 +23,16 @@ func Records() ([]*Object, error) {
 
 // Parked is whether any run of that seat among every run's records sits parked undecided
 // (stop._parked): ended unsettled or stalled, unacknowledged, and with no later merged run to
-// replace it.  An error where an exhausted run, whose wait Go does not follow (`going` reads
-// `exhausted_wait`), could say so.
-func Parked(name string, records []*Object, now time.Time) (bool, error) {
+// replace it.
+func Parked(name string, records []*Object, now time.Time) bool {
 	index, seat := NewIndex(records), Seats()
 	for _, record := range records {
 		if !index.Unfinished(record) || seat(record) != name {
 			continue
 		}
-		state := record.Str("state")
-		if state == "exhausted" {
-			return false, errExhausted
-		}
-		if state == "stalled" || !Going(record, now) {
-			return true, nil
+		if record.Str("state") == "stalled" || !Going(record, now) {
+			return true
 		}
 	}
-	return false, nil
+	return false
 }
-
-var errExhausted = errors.New("an exhausted run, which Python's exhausted_wait reads")

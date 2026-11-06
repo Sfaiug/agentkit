@@ -2,15 +2,29 @@ package launch
 
 import (
 	"io"
+	"path/filepath"
 
 	"agentkit/internal/run"
 )
 
-// Resume is `ak run resume <id>`, Python's resume_run on a dead run Go can pick up from: its
-// refusals in its words, `ak run`'s exit status, and why it refused. Anything else it leaves to
-// Python (ErrPython) before it writes anything.
-func Resume(id string, bg bool, out, errOut io.Writer) (int, string, error) {
-	return resume(id, bg, nil, nil, nil, out, errOut)
+// Resume is `ak run resume <id> [--rounds N]`, Python's resume_run on a dead run Go can pick up
+// from, rounds, where not 0, raising the budget of a FAIL at it: its refusals in its words, `ak
+// run`'s exit status, and why it refused. Anything else it leaves to Python (ErrPython) before it
+// writes anything.
+func Resume(id string, rounds int, bg bool, out, errOut io.Writer) (int, string, error) {
+	if rounds == 0 {
+		return resume(id, bg, nil, nil, nil, out, errOut)
+	}
+	dir := filepath.Join(run.Runs(), id)
+	record, _ := run.Read(dir)
+	if !reached(dir, record) {
+		return 0, "", ErrPython
+	}
+	order, why, err := raise(dir, record, rounds)
+	if err != nil || why != "" {
+		return 2, why, err
+	}
+	return resume(id, bg, record, order, nil, out, errOut)
 }
 
 // ResumeExpected adopts only the wait the tick decided to resume, as spawn_bg(expected)

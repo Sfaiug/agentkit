@@ -70,8 +70,7 @@ func Decision(record *run.Object, dir, delivery string) (word, why, move, detail
 		return
 	}
 	move = "read the result"
-	provider := state == "exhausted" && !record.Truthy("replaced") &&
-		(record.Truthy("quota_dry") || strings.Contains(record.Str("error"), "API/transport errors"))
+	provider := run.ExhaustedWait(record) != ""
 	named := cmp.Or(strings.TrimPrefix(run.ContinueLine(record, dir, time.Now()), "continue: "), RetryCommand(record))
 	switch {
 	case provider:

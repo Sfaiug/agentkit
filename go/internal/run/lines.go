@@ -411,7 +411,7 @@ func ContinueLine(record *Object, dir string, now time.Time) string {
 	switch {
 	case record.Str("state") == "stalled":
 		return "continue: ak run resume " + id
-	case fail && budget > 0 && float64(len(summaries)) >= budget:
+	case AtBudget(record):
 		// up to the change's budget across its runs and no further: past it the task is
 		// split or redesigned instead
 		if capped := lineageCap(record, dir, now); budget < float64(capped) {

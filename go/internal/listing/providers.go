@@ -14,9 +14,8 @@ import (
 // providersCap is how long a host harness may take to list its providers.
 const providersCap = 75 * time.Second
 
-// A Provider is one a host harness can log in to: its id, its name, and how it is paid while
-// logged in, `subscription`, `free` or `payg`, else "".
-type Provider struct{ ID, Name, Mode string }
+// A Provider is one a host harness can log in to (config.Listed).
+type Provider = config.Listed
 
 // Providers is every provider that harness can log in to, as its adapter's `providers` verb lists
 // them, the logged-in ones first (config.listed_providers).  The one with the harness's own id is the
@@ -47,7 +46,7 @@ func Providers(ctx context.Context, harness string) ([]Provider, error) {
 			if fields[0] == harness && labels[harness] != "" {
 				fields[1] = labels[harness]
 			}
-			rows = append(rows, Provider{fields[0], fields[1], fields[2]})
+			rows = append(rows, Provider{ID: fields[0], Name: fields[1], Mode: fields[2]})
 		}
 	}
 	if err != nil || len(rows) == 0 {

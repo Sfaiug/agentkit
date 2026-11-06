@@ -46,7 +46,7 @@ func TestAdviceFailurePreservesEveryLegacyRecord(t *testing.T) {
 				models, _ := config.Models()
 				bound, _ := config.Bind()
 				offered, _ := config.Offered()
-				err = savingAdviceEfforts(bound.Models, models, offered, func(keep func() error) error {
+				err = savingEfforts(bound.Models, models, offered, tryLocks, func(keep func() error) error {
 					return config.RememberDefaults("astra", []string{"astra"}, []string{"astra"}, func() error {
 						if err := keep(); err != nil {
 							return err

@@ -607,6 +607,9 @@ def load():
                                   or any(not isinstance(one, str) for one in named)):
             raise Error(f"{held(key)}: {key} must list {what} ({key} = [{example}]) "
                         f"(got {named!r})")
+        # a maker written twice would be two rows of the company list the keys cannot tell apart
+        if named is not None:
+            cfg[key] = list(dict.fromkeys(named))
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
@@ -1734,7 +1737,9 @@ def rename_session(old, new):
     # and a pane still starting reads the launch file it was given.  Back to a name it had, what the
     # seat wrote under it since is kept rather than moved over: a seat renamed still writes its
     # plan under the name it was launched with, and `plan.path` reads the plan under every name
-    # the seat had, the newest one winning.
+    # the seat had, the newest one winning.  The verification lock always moves: the one held is
+    # the one the seat's name reaches (`plan.verifying`), and one under the old name is a
+    # contender's that resolved that name before the last move and opened it after: none keeps it.
     for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop", "live", "launch"}:
         was, now = seat_file(kind, old), seat_file(kind, new)
         if kind == "handover" and was.exists():
@@ -1743,7 +1748,7 @@ def rename_session(old, new):
             copied = now.with_name(f"{now.name}.{os.getpid()}.tmp")
             copied.write_bytes(was.read_bytes())
             copied.replace(now)
-        elif was.exists() and not (target == old and now.exists()):
+        elif was.exists() and (kind == "verify" or not (target == old and now.exists())):
             was.replace(now)
 
 

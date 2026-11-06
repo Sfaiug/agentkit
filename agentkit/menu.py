@@ -136,6 +136,7 @@ import threading
 import time
 from contextlib import closing
 from pathlib import Path
+from statistics import median
 
 from . import command_help, config, gitcall, handback, history, matrix, motion, notify, orch, owner, plan, quality, staffing, terminal, transitions, update, usage, worker
 from . import done_check, google_cloud, look, machines, open_runs, parsed, record
@@ -3222,9 +3223,14 @@ def marks_saved(name, selected, changed):
 
 
 # The models screen, `r recommended` on `c`: each role answered over the models on in your
-# companies (matrix.compared), its pointer moving only up and down.
-MODELS_KEYS = ("↑↓ move   ⏎ why   r take   esc back",
-               "up/down move   enter why   r take   esc back")
+# companies (matrix.compared), its pointer moving only up and down; `p` lists your companies,
+# their models turned on or off on it and others added (company_list, company_add).
+MODELS_KEYS = {"answer": ("↑↓ move   ⏎ why   p models   r take   esc back",
+                          "up/down move   enter why   p models   r take   esc back"),
+               "list": ("↑↓ company   ←→ model   ␣ on or off   a add a company   esc done",
+                        "up/down company   left/right model   space on or off   "
+                        "a add a company   esc done"),
+               "add": ("↑↓ company   ⏎ add   esc back", "up/down company   enter add   esc back")}
 MARK = 7                          # a row's mark's column, as wide as `r takes`
 LEGEND = (("left out", "a row no better than a cheaper one, yours compared with yours"),)
 # Under a role priced in week shares (matrix.answer's cost_unit "share"): only a row noted
@@ -3415,13 +3421,15 @@ def named(row, room):
 
 
 def packed(parts, gap, room):
-    """`parts` on as few lines of `room` cells as hold them, `gap` between two on one line."""
+    """`parts` on as few lines of `room` cells as hold them, `gap` between two on one line; a
+    part too long for a line of its own goes on at its words (terminal.wrap), never past `room`,
+    where the terminal would break it mid-word."""
     lines = []
     for part in parts:
         if lines and terminal.cells(lines[-1] + gap + part) <= room:
             lines[-1] += gap + part
         else:
-            lines.append(part)
+            lines += terminal.wrap(part, room) if terminal.cells(part) > room else [part]
     return lines
 
 
@@ -3477,8 +3485,9 @@ def models_screen(cfg, session, selected, providers):
     or move of the mouse's pointer or the keys', the row pointed at lights its maker: every row
     of it in its company's colour (models_body); none while the pointer is on no row.  ⏎ or a
     click opens the pointed row's why (models_why) until Esc, ↑/↓ turning its pages where it is
-    taller than the screen.  `r` takes each role's take (takes, take_advice): the seat's
-    executors and reviewers, the orchestrator only said; without a seat new seats' three roles.
+    taller than the screen.  `p` lists your companies (company_list), answered again once it is
+    left.  `r` takes each role's take (takes, take_advice): the seat's executors and reviewers,
+    the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"config · recommended · {session or NEW_SEATS}"
@@ -3515,7 +3524,7 @@ def models_screen(cfg, session, selected, providers):
         fold = next(line for line, (row, _) in places.items() if row == LEGEND_ROW)
         places = {line: place for line, place in places.items() if line < fold}
         act, moved, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
-                                        MODELS_KEYS[not terminal.utf8()], marks=0,
+                                        MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
                                         under=body[fold:],
                                         moves=moves,
                                         clock=clock, began=fetch and fetch.began,
@@ -3532,6 +3541,8 @@ def models_screen(cfg, session, selected, providers):
             return
         if act == "r":
             note = take_advice(cfg, session, selected, providers, takes(cfg, answer))
+        elif act == "p":
+            note, answer = company_list(cfg, title), None
         elif act == "enter" and here:
             _, role, *at = here
             row = next(row for row in answer[role]["front"]
@@ -3542,6 +3553,150 @@ def models_screen(cfg, session, selected, providers):
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back")
+
+
+ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
+
+
+def companies_listed(cfg):
+    """Each company with a listed model (matrix.listed), strongest first as the lineup orders
+    them, its listed models in that order, {maker: {slug: name}}; and your companies
+    (matrix.companies) as `companies` lists them, else as the lineup does."""
+    lineup, found = matrix.listed()
+    makers, had = {}, matrix.companies(cfg, lineup)
+    for row in lineup:
+        if row["release"] in found:
+            makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
+    return makers, cfg["companies"] if "companies" in cfg else [
+        maker for maker in dict.fromkeys(row["maker"] for row in lineup) if maker in had]
+
+
+def models_listed(cfg, yours, off):
+    """`yours` saved as `companies` and the slugs `off` as `models_off` at once (_saved), so a
+    first change writes the companies the config had.  What to say, or ""."""
+    before = copy.deepcopy(cfg)
+    cfg.update(companies=yours, models_off=sorted(off))
+    if not off:
+        del cfg["models_off"]
+    return _saved(cfg, cfg, before)
+
+
+def companies_body(makers, yours, off, at=None, column=0):
+    """The company list's lines and {line: (row, cells)}: each of `yours` with a listed model a
+    line, its name, then each of those models (`makers`), `●` on, or `○` and dim where `off`
+    holds it; where the width runs out they go on under the column where they began.  The keys'
+    cell, `column` of the row `at` (its name 0), is reversed (terminal.toggle).  Last,
+    `+ add a company`."""
+    room, (on, out) = terminal.layout_width(), "●○" if terminal.utf8() else "*."
+    shown = [maker for maker in yours if maker in makers]
+    label = max((terminal.cells(maker) for maker in shown), default=0)
+    start = label + 4         # the models' first column: after a space, the name's cell and one
+    lines, places = [], {}
+    for maker in shown:
+        row, parts = ("company", maker), [[" ", []]]
+        texts = [(maker, None), *((f"{out if slug in off else on} "
+                                   f"{terminal.cut(name, room - start - 2)}",
+                                   "dim" if slug in off else None)
+                                  for slug, name in makers[maker].items())]
+        for number, (text, kind) in enumerate(texts):
+            first, width = terminal.cells(parts[-1][0]) + 1, terminal.cells(text) + 2
+            if number > 1 and first + width - 2 > room:      # its space after may go
+                parts.append([" " * (start - 1), []])
+                first = start
+            parts[-1][0] += terminal.toggle(text, width, "reverse" if row == at
+                                            and number == column else kind)
+            parts[-1][0] += " " * (0 if number else label - terminal.cells(text))
+            parts[-1][1].append((first, first + width - 1, number))
+        for number, (line, cells) in enumerate(parts):
+            places[len(lines)] = (row, cells)
+            lines.append(terminal.highlight(line.rstrip(), not number) if row == at
+                         else line.rstrip())
+    places[len(lines)] = (ADD_COMPANY, [])
+    lines.append(terminal.highlight("  + add a company") if at == ADD_COMPANY
+                 else "  + add a company")
+    return lines, places
+
+
+@terminal.clicks_its_own
+def company_list(cfg, title):
+    """`p` on the models screen, `<title> · models`: your companies (companies_body) over how
+    many models are on (matrix.compared), from how many companies, and how many more have
+    benchmark scores, until Esc.  ↑/↓ move between companies, ←/→ between a company's name and
+    its models; Space or a click turns the model pointed at on or off, and on a name all its
+    models on, or off where all are on, each change saved at once (models_listed).  `a`, or
+    Space or ⏎ on `+ add a company`, adds one all on (company_add).  Esc drops each company
+    left with none on from `companies`, and all its releases from `models_off`.  What to say,
+    or ""."""
+    title, here, column, top, note = f"{title} · models", None, 0, 0, ""
+    while True:
+        (makers, yours), room = companies_listed(cfg), terminal.layout_width()
+        off, now = set(cfg.get("models_off") or ()), matrix.compared(cfg)
+        rows = [*(("company", maker) for maker in yours if maker in makers), ADD_COMPANY]
+        here = here if here in rows else rows[0]
+        column = min(column, 0 if here == ADD_COMPANY else len(makers[here[1]]))
+        giving = sum(bool(now & models.keys()) for models in makers.values())
+        more = len(makers.keys() - set(yours))
+        said = [f"{len(now)} model{'s' * (len(now) != 1)} on, from {giving} "
+                f"{'company' if giving == 1 else 'companies'}",
+                f"{more} more {'company has' if more == 1 else 'companies have'} "
+                "benchmark scores"]
+        body, places = companies_body(makers, yours, off, None if terminal.away() else here,
+                                      column)
+        act, here, clicked, top = matrix_key(
+            title, body, places, rows, here, top, note, MODELS_KEYS["list"][not terminal.utf8()],
+            marks=1 + max(map(len, makers.values()), default=0), keyed=column,
+            over=[*("  " + part for part in terminal.wrap(
+                "ak uses only the models that are on. Space turns one on or off, or, on a "
+                "company's name, all of them. A company with none on leaves the list.",
+                room - 2)), ""],
+            under=["", *("  " + terminal.styled(part, "dim")
+                         for part in packed(said, " · ", room - 2))])
+        column = column if clicked is None else clicked
+        if act is None:
+            continue                  # a resize or the pointer: drawn again
+        note, models = "", [] if here == ADD_COMPANY else list(makers[here[1]])
+        if act == "back":
+            # by the lineup's rows, so releases without a score go too, and a company it lacks stays
+            lineup = matrix.listed()[0]
+            gone = {row["maker"] for row in lineup
+                    if row["maker"] in yours and not makers.get(row["maker"], {}).keys() - off}
+            return models_listed(cfg, [maker for maker in yours if maker not in gone],
+                                 off - {row["release"] for row in lineup if row["maker"] in gone}
+                                 ) if gone else ""
+        if act == "a" or act in ("space", "enter") and here == ADD_COMPANY:
+            added = company_add(title, makers, yours)
+            if added:
+                note = models_listed(cfg, [*yours, added], off - makers[added].keys())
+                here, column = ("company", added), 0
+        elif act in ("left", "right"):
+            column = max(0, min(column + (1 if act == "right" else -1), len(models)))
+        elif act == "space" and models:
+            # a model alone, or on a name all of its company's: all on turn off, else all on
+            slugs = set(models if column == 0 else models[column - 1:column])
+            note = models_listed(cfg, yours, off - slugs if off & slugs else off | slugs)
+
+
+@terminal.clicks_its_own
+def company_add(title, makers, yours):
+    """`a` on the company list, `<title> · add a company`: each company of `makers` not among
+    `yours`, strongest first, with how many listed models it has and its strongest, until ⏎ or
+    a click picks one, or Esc goes back: that company, or None."""
+    rows, here, top = [("row", maker) for maker in makers if maker not in yours], None, 0
+    counts = {maker: f"{len(makers[maker])} model{'s' * (len(makers[maker]) != 1)}"
+              for _, maker in rows}
+    while True:
+        here = here if here in rows else rows[0] if rows else None
+        widths = [max(map(terminal.cells, texts), default=0) for texts in (counts, counts.values())]
+        widths.append(max(1, terminal.layout_width() - 6 - sum(widths)))
+        body = [terminal.table_row([maker, counts[maker], next(iter(makers[maker].values()))],
+                                   widths, indent="  ") for _, maker in rows]
+        body = [terminal.highlight(line) if row == here and not terminal.away() else line
+                for row, line in zip(rows, body)]
+        act, here, _, top = matrix_key(f"{title} · add a company", body, {
+            line: (row, []) for line, row in enumerate(rows)}, rows, here, top, "",
+            MODELS_KEYS["add"][not terminal.utf8()], marks=0)
+        if act == "back" or act == "enter" and here:
+            return None if act == "back" else here[1]
 
 
 def config_columns(selected, name):
@@ -3867,15 +4022,19 @@ def meters_led(meters, body, places, under, keys, moves=()):
         (line + len(over), *rest) for line, *rest in moves]
 
 
+def page_room(under, keys, over=(), lead=None):
+    """The lines a matrix screen has for its rows between `over` and `under`, lines of its own
+    above and below them, and its key line: under 1 where those leave none."""
+    return terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under) - len(over)
+
+
 def matrix_page(body, places, here, top, under, keys, over=(), lead=None, keyed=None):
-    """The page of a matrix screen's rows that fits between `over` and `under`, lines of its
-    own above and below the rows, and its key line: (top, room), the first line of `body` shown
-    and how many are.  `top` stays where it was while the page holds every line of `here`, or
-    for a row taller than the page the line of its cell in column `keyed`, or with none any of
-    its lines, else moves the least that makes it so, and never past the last page; a cell that
-    is a row of its own (terminal.under) is on its line."""
-    room = max(1, terminal.height() - 5 - len(terminal.key_line(keys, first=lead)) - len(under)
-               - len(over))
+    """The page of a matrix screen's rows that fits between `over` and `under` (page_room): (top,
+    room), the first line of `body` shown and how many are.  `top` stays where it was while the
+    page holds every line of `here`, or for a row taller than the page the line of its cell in
+    column `keyed`, or with none any of its lines, else moves the least that makes it so, and
+    never past the last page; a cell that is a row of its own (terminal.under) is on its line."""
+    room = max(1, page_room(under, keys, over, lead))
     drawn = [number for number, (row, cells) in places.items()
              if row == here or any(here in cell[3:] for cell in cells)] or [0]
     lo, hi = drawn[-1] - room + 1, drawn[0]       # the tops holding every line of the row
@@ -4847,7 +5006,8 @@ def page_body(rows, at=None, moves=None):
 @terminal.clicks_its_own
 def config_page(name, page):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
-    or with a note of the row's own after, said instead of the page's while the row is pointed
+    or with a note of the row's own after, said instead of the page's while the row is pointed,
+    and lines drawn as they are under it, where the highlighted row fits beside them, after that
     -- and the note under them, asked again for every draw, drawn as page_body draws them and
     read with `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing
     itself out in the header (motion.Clock), and a mark leading a value fills or empties as it
@@ -4886,8 +5046,9 @@ def config_page(name, page):
             here = ("row", next((number for number, row in enumerate(rows) if row[0] == label),
                                  min(here[1], len(rows) - 1)))
         drawn = [(("row", number), label, value) for number, (label, value, *_) in enumerate(rows)]
-        # the pointed row's own note, none while the pointer is off every row
-        note = rows[here[1]][3] if len(rows[here[1]]) == 4 and not terminal.away() else note
+        # the pointed row's own note and lines, none while the pointer is off every row
+        note, under = ((*rows[here[1]][3:], ())[:2] if len(rows[here[1]]) > 3
+                       and not terminal.away() else (note, ()))
         if opened:
             drawn[opened[0] + 1:opened[0] + 1] = [(("row", opened[0], number), None, value)
                                                   for number, (value, _, _) in enumerate(listed)]
@@ -4903,9 +5064,13 @@ def config_page(name, page):
                   for line, (row, _) in places.items()}
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter)
-        act, moved, _, top = matrix_key(title, body, places, ids, here, top,
-                                        "\n".join(filter(None, (said, note))), keys, marks=1,
-                                        clock=clock, moves=moves)
+        below = note_lines("\n".join(filter(None, (said, note))))
+        # a row's lines only where the page keeps room for the highlighted row beside them, the
+        # other rows paging: never pushed off the screen
+        if page_room([*below, *under], keys) >= sum(row == here for row, _ in places.values()):
+            below += under
+        act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
+                                        clock=clock, moves=moves, under=below)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
         here = moved if moved in ids or act in ("enter", "space") else here
         opened = opened if len(here) == 3 else None
@@ -5350,12 +5515,44 @@ def limits_value(cfg):
         for key, (_, short, unit, _) in LIMIT_NAMES.items())
 
 
+def rounds_chart(runs):
+    """How `runs` (history.round_endings) ended, drawn under `Review rounds`' note: the evidence
+    its number is set from (the owner's design of 5 Nov 2026).  Under a heading, a bar of each
+    ending -- each round from round 1, or a merge with review off, up to the last a run merged
+    in, then `failed` -- its share of the runs (terminal.share_line) taking the room the columns
+    after it leave: its count, that share as a whole percent and its median hours from start to
+    finish.  Below 60 columns each bar folds under its ending."""
+    if not runs:
+        return ["", "  no finished runs yet"]
+    room, merged = terminal.layout_width(), [ending for *_, ending in runs if ending is not None]
+    endings = [*((f"merged in round {n}" if n else "merged with no review", n, "done")
+                 for n in range(min([*merged, 1]), max([*merged, 0]) + 1)),
+               ("failed", None, "FAIL")]
+    hours = [[(end - start) / 3600 for start, end, ending in runs if ending == at]
+             for _, at, _ in endings]
+    numbers = [(str(len(each)), f"{round(100 * len(each) / len(runs))}%",
+                f"median {median(each):.1f} h" if each else "") for each in hours]
+    widths = [max(len(row[n]) for row in numbers) for n in range(3)]
+    wide, folded = max(len(name) for name, _, _ in endings), room < 60
+    size = max(1, room - (4 if folded else 4 + wide) - 6 - sum(widths))
+    lines = ["", *("  " + part for part in terminal.wrap(
+        f"how your {len(runs)} run{'s' * (len(runs) != 1)} ended, since "
+        + time.strftime("%-d %b", time.localtime(runs[0][0])), room - 2))]
+    for (name, _, word), each, (count, share, held) in zip(endings, hours, numbers):
+        tail = (f"{terminal.share_line(len(each) / len(runs), size, word)}  "
+                f"{count:>{widths[0]}}  {share:>{widths[1]}}  {held}").rstrip()
+        lines += [f"  {name}", f"    {tail}"] if folded else [f"  {name:<{wide}}  {tail}"]
+    return lines
+
+
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
     (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves.  Enter opens its choices and the value in force, `●`,
+    it means and the board rows it moves, and under `Review rounds`' how the runs ended
+    (rounds_chart), read as the page opens.  Enter opens its choices and the value in force, `●`,
     each config.host_policy takes; Space or Enter on one saves it to config.toml at once."""
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
+    ended = history.round_endings()
 
     def take(key, value):
         try:
@@ -5383,7 +5580,8 @@ def config_limits(cfg):
                   else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
                   else "The orchestrator builds nothing; executors build every change."
                   if key == "orchestrator_lines" and numbers[key] == 0
-                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."))
+                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."),
+                 *([rounds_chart(ended)] if key == "review_rounds" else []))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
     config_page("limits", page)
 

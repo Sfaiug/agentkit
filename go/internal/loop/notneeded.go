@@ -16,11 +16,16 @@ func (l *loop) notNeeded(submitted *handin.Review) error {
 		return nil
 	}
 	record, _ := run.Read(l.dir)
-	if record != nil && len(record.List("round_summaries")) == 0 &&
-		(record.Truthy("followup") || task.IsFix(l.body)) {
+	if record != nil && len(record.List("round_summaries")) == 0 && l.fixRun(record) {
 		return &notNeeded{submitted.Closing().Str("why")}
 	}
 	return nil
+}
+
+// fixRun is whether the run was launched to make a given failing command pass, Python's
+// Loop.fix_run: its record holds a follow-up, or its task the fix words.
+func (l *loop) fixRun(record *run.Object) bool {
+	return record.Truthy("followup") || task.IsFix(l.body)
 }
 
 func (l *loop) finishNotNeeded(ending *notNeeded) error {

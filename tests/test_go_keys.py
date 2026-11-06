@@ -70,7 +70,7 @@ class Claims(unittest.TestCase):
                 done = subprocess.run([sys.executable, f"tests/{name}.py", *parts], cwd=tree,
                                       env={**os.environ, "AK_BIN": str(program), "PYTHONPATH": ""},
                                       capture_output=True, text=True)
-                took[name] = took.get(name, 0) + time.monotonic() - began
+                took[name] = time.monotonic() - began
                 if done.returncode or not PASSED.search(done.stderr):
                     failed.append(" ".join((name, *parts)))
                     print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)

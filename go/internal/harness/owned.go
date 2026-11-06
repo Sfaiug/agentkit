@@ -9,15 +9,12 @@ import (
 
 // Owned is the conversation that harness says a seat's record owns once it has reconciled it
 // (its plugin's `conversation` and `reconcile`), "" for none; false where the answer hangs on
-// what Go does not do: a receipt to verify, a store of its own, or a record to reconcile.  A
-// harness with no plugin, only an adapter, takes the defaults.
+// what Go does not do: a store of its own, or a record to reconcile.  A harness with no plugin,
+// only an adapter, takes the defaults.
 func Owned(name string, record map[string]any) (string, bool) {
 	own, plugged := plugins[name]
 	if own.owned != nil {
 		return own.owned(record), true
-	}
-	if own.receipt != "" {
-		return "", record[own.receipt] == nil
 	}
 	if plugged && !own.opens && (own.launch == nil || record["conversation"] == nil || record["conversation"] == "") {
 		return "", false

@@ -24,10 +24,12 @@ import (
 // its own, in a Codex home of the seat's own (`codexSeatHome`), for as long as the TUI runs and the
 // seat is not forgotten.  The server takes the line's settings, ak's hooks among them, and the
 // seat's permissions; the TUI reaches it through a socket that connection.json names, for a Stop
-// to ask what work is in flight (`codexInFlight`).  What Python's guard does beside it, naming
-// the seat's remote-control environment and keeping its enrollments, and removing a home forgotten
-// while it ran, is Python's still: its next forget finds that home and does it.
-func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io.Writer, terminal func(words, env []string) int) int {
+// to ask what work is in flight (`codexInFlight`).  Beside the TUI the seat's remote-control
+// environment is named after it (`codexNamed`) and its thread's settings followed
+// (`codexSettingsFollowed`).  What Python's guard does beyond that, retiring an older seat's
+// pairing card and removing a home forgotten while it ran, is Python's still: its next forget finds
+// that home and does it.
+func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int {
 	failed := func(err error) int {
 		fmt.Fprintf(errOut, "codex seat: %v\n", err)
 		return 1
@@ -77,8 +79,9 @@ func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io
 	if err := codexSeatHome(home, remote, env); err != nil {
 		return failed(err)
 	}
-	// A home Go launches in is new (codexLaunched mints its remote), so no earlier server's
-	// backfill lease is left in its database to put back.
+	if err := codexBackfillFreed(home); err != nil {
+		return failed(err)
+	}
 	source := codexHome(env)
 	sqlite, sqliteSet := codexEnv(env, "CODEX_SQLITE_HOME")
 	env = append(slices.DeleteFunc(slices.Clone(env), func(pair string) bool {
@@ -111,6 +114,7 @@ func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io
 		return failed(err)
 	}
 	defer log.Close()
+	defer codexKeepEnrollments(home) // once its server has stopped
 	server := exec.CommandContext(context.Background(), Binary(cmd[0]), words[1:]...)
 	server.Args[0], server.Env, server.Stdout, server.Stderr = cmd[0], env, log, log
 	// npm's codex is a parent shim: its server goes with its session
@@ -152,6 +156,11 @@ func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io
 	// refused.  --remote is global, so it goes before a `resume`.
 	tui := []string{cmd[0], "--remote", "unix://" + socket}
 	tui = append(append(tui, slices.DeleteFunc(slices.Clone(cmd[1:]), func(word string) bool { return word == "--yolo" })...), prompt...)
+	beside, done := context.WithCancel(context.Background())
+	named := make(chan struct{})
+	go func() { defer close(named); codexNamed(beside, home, socket, log) }()
+	go codexSettingsFollowed(beside, socket, held.Str("launch"), changed)
+	defer func() { done(); <-named }()
 	// The TUI runs on the seat's terminal, which hands it this process's signals: a server that
 	// stops, or a seat forgotten, ends it with one.
 	running, ended := make(chan struct{}), make(chan error, 1)

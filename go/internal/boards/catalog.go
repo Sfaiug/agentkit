@@ -347,31 +347,3 @@ func Current(boards *run.Object) []*Release {
 	}
 	return out
 }
-
-// Successor is the current release the release slug went to: its deprecatedTo chain's end, then
-// on from each release its series gave up to where that went; nil where that is nowhere or loops
-// back.
-func Successor(boards *run.Object, slug string) *Release {
-	found := releases(boards)
-	all := map[string]*held{}
-	for _, each := range found {
-		all[each.slug] = each
-	}
-	given := gone(found)
-	slug = end(all, slug)
-	seen := map[string]bool{}
-	for {
-		next, left := given[slug]
-		if !left || seen[slug] {
-			break
-		}
-		seen[slug] = true
-		slug = next
-	}
-	for _, each := range Current(boards) {
-		if each.Slug == slug {
-			return each
-		}
-	}
-	return nil
-}

@@ -373,10 +373,11 @@ def owed(name, line):
     return is_open(line) and not taken(name, line)
 
 
-def taken(name, line, delivered=False):
+def taken(name, line, delivered=False, moving=False):
     """Whether a deferred line is a run's: one of the seat's with the line's check in the
-    line's project is on its way with it (`handback.open_followup`) or, with `delivered`, merged
-    or found it not needed since the line was written, for the done's work (`outcomes`).
+    line's project is on its way with it (`handback.open_followup`) -- with `moving`, running
+    or about to (`handback.followup_moving`) -- or, with `delivered`, merged or found it not
+    needed since the line was written, for the done's work (`outcomes`).
     Read with the line, never written at an ending: once the fix run ended, whichever way,
     the line is the seat's own until its check passes, which a delivery runs at once
     (`delivery`)."""
@@ -388,7 +389,9 @@ def taken(name, line, delivered=False):
     from . import handback  # here, not at the top: the loop is heavy for a seat's small verb
     return bool(repo and handback.open_followup({"repo": str(repo.resolve()), "launched_session": name},
                                            "", check=found["check"],
-                                           held=written if delivered else None))
+                                           held=written if delivered else None,
+                                           going=handback.followup_moving if moving
+                                           else handback.followup_open))
 
 
 def delivery(name, check):
@@ -499,12 +502,13 @@ def outcomes(name, runs=True):
 
 
 def verify(name):
-    """Run the open check lines on their project's default branch now: each that passes is
-    ticked, naming that commit, each check from a clean checkout of it.  The results are
-    written onto the plan as it reads after the checks, each onto its own line however another
-    listing ticked it meanwhile, so a line added meanwhile stays and these results are the ones
-    the open lines are counted from.  Then, where it checked every line, what deliveries left
-    owed meanwhile (`settle`).  Returns the plan's open lines its own verification left."""
+    """Run the open check lines on their project's default branch now, but a deferred one
+    whose fix run is running or about to (`taken`): each that passes is ticked, naming that
+    commit, each check from a clean checkout of it.  The results are written onto the plan as
+    it reads after the checks, each onto its own line however another listing ticked it
+    meanwhile, so a line added meanwhile stays and these results are the ones the open lines
+    are counted from.  Then, where it checked every line, what deliveries left owed meanwhile
+    (`settle`).  Returns the plan's open lines its own verification left."""
     with verifying(name):
         left, whole = _verify_held(name)
     if whole:
@@ -574,7 +578,13 @@ def _verify_held(name, check=None):
     for line in snapshot:
         found = LINE.match(line.strip())
         if (found and found["check"] and is_open(line)
-                and (check is None or found["check"].strip() == check.strip())):
+                # never a deferred line whose fix run is running or about to (`taken`): that
+                # run's delivery checks it, and these proofs, often rebuilding in fresh caches,
+                # made most of an hour-long verification of a seat's 80 lines (6 Nov 2026).  A
+                # paused one -- waiting for a login, a window or a retry -- may deliver hours
+                # later, so a fix landing meanwhile ticks its line here
+                and (not taken(name, line, moving=True) if check is None
+                     else found["check"].strip() == check.strip())):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
     results, passing, whole = {}, {}, True

@@ -54,12 +54,10 @@ func followupOpen(other *run.Object, now time.Time) (bool, error) {
 		return true, nil
 	case "queued":
 		return run.ProcessActive(other) || other.Truthy("slot_waiting"), nil
-	case "waiting", "waiting_login", "error", "stopped":
+	case "waiting", "waiting_login", "exhausted", "error", "stopped":
 		return run.Going(other, now), nil
 	case "interrupted":
 		return other.Truthy("deaths") && run.TickResumes(other), nil
-	case "exhausted":
-		return false, ErrUnread // its wait is transitions.exhausted_wait's
 	case "fail":
 		if other.Truthy("merge_note") && !other.Truthy("job_id") {
 			return false, ErrUnread // a conflict the tick parks is transitions.parkable_conflict's

@@ -3,7 +3,6 @@ package seat
 import (
 	"context"
 	"path/filepath"
-	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
@@ -11,29 +10,18 @@ import (
 	"agentkit/internal/run"
 )
 
-// AccountTurns is continue_turns(accounts=True) for lines the adapter took as a first prompt.
-// Other continuations remain Python's at their own seat, before changing its mark.
-func AccountTurns() (bool, error) {
-	return continueTurns(true, func(line string) bool { return strings.HasPrefix(line, strings.Split(heldContinue, "%s")[0]) })
-}
-
-// RebootedTurns is continue_turns() for the lines a seat reopened after its process died took as
-// its first prompt; one its harness is typed stays Python's.
-func RebootedTurns() (bool, error) {
-	return continueTurns(false, func(string) bool { return true })
-}
-
-// continueTurns waits, a pass at a time, for the prompt each launched line of a move to another
-// account, or of none, stamps, and takes the mark off once it has, the seat is gone or renamed, or
-// three passes went by; false at the first mark of a line it does not carry.
-func continueTurns(account bool, carried func(line string) bool) (bool, error) {
+// ContinueTurns is continue_turns, for the marks of moves to another account (accounts) or else of
+// reboots: a line its adapter took as a first prompt waits, three passes at most, for that prompt's
+// stamp, and the mark of a seat gone again, or of another boot, comes off.  A line still to type
+// into a seat up on this boot remains Python's, before its mark changes.
+func ContinueTurns(accounts bool) (bool, error) {
 	for _, path := range config.SeatFiles() {
 		name, _ := sessionFile(filepath.Base(path))
 		mark := revivalFile(name).Dict("midturn")
-		if mark == nil || mark.Truthy("account") != account {
+		if mark == nil || mark.Truthy("account") != accounts {
 			continue
 		}
-		if !mark.Truthy("launched") || !carried(mark.Str("line")) {
+		if !mark.Truthy("launched") && mark.Str("boot") == host.BootID() && Watching(name) {
 			return false, nil
 		}
 		err := notify.Held(context.Background(), name, func(current string) error {
@@ -48,7 +36,7 @@ func continueTurns(account bool, carried func(line string) bool) (bool, error) {
 			}
 			tries, _ := mark.Int("tries")
 			var next any
-			if mark.Str("boot") == host.BootID() && mark.Str("name") == current && Watching(current) && turn <= at && tries+1 < 3 {
+			if mark.Truthy("launched") && mark.Str("boot") == host.BootID() && mark.Str("name") == current && Watching(current) && turn <= at && tries+1 < 3 {
 				next = mark.Copy()
 				next.(*run.Object).Set("tries", tries+1)
 			}

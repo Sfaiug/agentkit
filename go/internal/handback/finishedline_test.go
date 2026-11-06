@@ -56,14 +56,14 @@ func TestEveryEndingUsesPythonsHandbackLine(t *testing.T) {
 				record.Set(key, each.fields.Get(key))
 			}
 			want := "run acme " + strings.ReplaceAll(each.want, "{result}", filepath.Join(dir, "result.md"))
-			if got := handbackLine(record, dir, true); got != want {
+			if got := handbackLine(record, dir, true, false); got != want {
 				t.Fatalf("got  %q\nwant %q", got, want)
 			}
 		})
 	}
 	// A delivered ending's compact form keeps its full notice and follow-ups on disk.
 	run.SetAll(base, "merged", true, "pr", strings.Repeat("界", 3000), "followups", []any{"Keep every row"})
-	got := handbackLine(base, dir, true)
+	got := handbackLine(base, dir, true, false)
 	if got != "run acme finished PASS merged. Result: ~/acme/result.md. 1 review follow-ups in full in result.md. Decide the next step." {
 		t.Fatal(got)
 	}
@@ -86,21 +86,21 @@ func TestDecisionsShortenBySentencesThenDropDetailThenNameTheResult(t *testing.T
 		record := blocked(each.why)
 		record.Set("branch", each.branch)
 		want := "run acme BLOCKED (0 of 3): " + each.said + " Next: rewrite the task and relaunch it" + each.move + ". Result: ~/acme/result.md"
-		if got := handbackLine(record, dir, true); got != want || utf8.RuneCountInString(got) > decisionMost {
+		if got := handbackLine(record, dir, true, false); got != want || utf8.RuneCountInString(got) > decisionMost {
 			t.Fatalf("got %q, want %q", got, want)
 		}
 		saved, _ := os.ReadFile(filepath.Join(dir, "result.md"))
 		if !strings.Contains(string(saved), strings.TrimSpace(each.why)) || !strings.Contains(string(saved), each.branch) {
 			t.Fatal("the shortened decision lost its full reason or next move")
 		}
-		if handbackLine(record, dir, true) != want {
+		if handbackLine(record, dir, true, false) != want {
 			t.Fatal("a saved notice changed the line")
 		}
 	}
 	// Never type a shortened reason if its full notice cannot be saved.
 	other := t.TempDir()
 	os.Mkdir(filepath.Join(other, "result.md"), 0o700)
-	if got := handbackLine(blocked(strings.Repeat("word ", 400)), other, true); got != "" {
+	if got := handbackLine(blocked(strings.Repeat("word ", 400)), other, true, false); got != "" {
 		t.Fatal("typed without saving the full reason", got)
 	}
 }

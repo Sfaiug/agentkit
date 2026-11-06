@@ -21,7 +21,8 @@ func TestAnOpenQuestionKeepsTheFrameAndItsPointerPlaces(t *testing.T) {
 				continue
 			}
 			var highlight Highlight
-			highlight.Move(terminal.Key{Name: "pointer", Mouse: terminal.Mouse{Column: 3, Row: at + 1, Button: 35}}, drawn)
+			first, _ := terminal.Drawn(drawn.Lines[at], 1, size[0])
+			highlight.Move(terminal.Key{Name: "pointer", Mouse: terminal.Mouse{Column: first, Row: at + 1, Button: 35}}, drawn)
 			if highlight.Cursor != name || !highlight.Open || highlight.Hidden {
 				t.Fatalf("%v row %d: %+v", size, at, highlight)
 			}

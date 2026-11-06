@@ -50,7 +50,7 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 		}
 		lines = append(lines, s.Styled(strings.TrimRight(head, " "), "dim"))
 	}
-	harness := ""
+	harness, named, focus := "", 0, 0
 	for at, name := range d.Names {
 		model := d.Models[name]
 		if model.Harness != harness {
@@ -103,6 +103,13 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 			part = strings.TrimRight(part, " ")
 			if at == d.At {
 				part = s.Highlight(part, n == 0)
+				if n == 0 {
+					named = len(lines)
+				}
+				// The line the keys act on: folded, the cursor's role has its own line under the label.
+				if !folded || n == 1+d.Column%3 {
+					focus = len(lines)
+				}
 			}
 			lines = append(lines, part)
 		}
@@ -116,13 +123,15 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 		keys = "arrows move   space " + act + "   enter start   esc back"
 	}
 	keysLines := keyLine(s, keys, s.Width(), "")
-	// Keep the highlighted model in view on a short terminal, retaining the frame and keys.
+	// Keep the line the keys act on in view on a short terminal, retaining the frame and keys, and
+	// its model's label over it, so a move to a model drawn alike never looks like no move.
 	if most := max(1, s.Height()-5-len(keysLines)); len(lines)-3 > most {
-		at := slices.IndexFunc(lines[3:], func(line string) bool {
-			return strings.HasPrefix(terminal.Plain(line), "›") || strings.HasPrefix(terminal.Plain(line), ">")
-		})
-		start := min(max(0, at-most+1), len(lines)-3-most)
-		lines = append(lines[:3:3], lines[3+start:3+start+most]...)
+		start := min(max(0, focus-3-most+1), len(lines)-3-most)
+		shown := append(lines[:3:3], lines[3+start:3+start+most]...)
+		if named < 3+start && most > 1 {
+			shown[3] = lines[named]
+		}
+		lines = shown
 	}
 	return append(append(lines, ""), keysLines...)
 }
