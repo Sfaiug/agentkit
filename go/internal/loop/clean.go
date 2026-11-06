@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/run"
+	"agentkit/internal/uncommitted"
 )
 
 // cleanupLimit is how long a repository's `cleanup:` line may take.
@@ -184,12 +185,12 @@ func saveWork(record *run.Object) error {
 	if on != "refs/heads/"+branch || stopped {
 		return fmt.Errorf("the checkout is off %s or a rebase or merge is unfinished", branch)
 	}
-	real, _, err := committablePaths(g, artifacts)
+	real, _, err := uncommitted.Committable(g, artifacts)
 	if err != nil {
 		return err
 	}
 	if len(real) > 0 {
-		if err := addPaths(g, worktree, real); err != nil {
+		if err := uncommitted.Add(g, real); err != nil {
 			return err
 		}
 		title := record.Str("title")
@@ -205,7 +206,7 @@ func saveWork(record *run.Object) error {
 			return err
 		}
 	}
-	remaining, left, err := committablePaths(g, artifacts)
+	remaining, left, err := uncommitted.Committable(g, artifacts)
 	if err != nil {
 		return err
 	}

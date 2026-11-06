@@ -81,6 +81,7 @@ type call struct {
 	findings, previous string // previous: the record file the turn goes on from
 	copied             bool   // a reviewer's: each attempt runs where its edits reach nothing
 	notice             *run.Object
+	checks             *run.Object                         // a builder's: what its done is held to
 	handover           func(detail string) (string, error) // the role's next worker, "" for none
 	attempts, calls    int                                 // the transient waits spent and the turns run
 	lastKill           time.Time
@@ -149,7 +150,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 			told, at = strings.ReplaceAll(told, config.Resolve(l.workspace), cwd), cwd
 		}
 		t.code, t.session, failed = worker.Turn(c.name, c.role, told, at, target, c.session, worker.Given{
-			Context: l.ctx, Efforts: c.model.Efforts, Silence: l.silence, UsersAt: l.usersAt, ReviewLines: l.reviewLines, Findings: c.findings, Previous: previous,
+			Context: l.ctx, Efforts: c.model.Efforts, Silence: l.silence, UsersAt: l.usersAt, Checks: c.checks, Findings: c.findings, Previous: previous,
 			Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
 		}, stampedLog{l.dir})
 		return failed

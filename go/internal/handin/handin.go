@@ -1,8 +1,8 @@
 // Package handin owns a worker turn's record file, the one $AK_HAND_IN names: the loop opens it
 // with the turn's row, and each `ak hand-in` appends one row.  It hides what each role may hand
-// in, the site and evidence checks, a proof's run and its excerpt, the lock held from the first
-// read to the append, and the row appended, as Python's json.dumps(row) writes it.  Hand decides
-// in Python's hand_in.main order; what Go cannot do as Python does is ErrPython.
+// in, the site and evidence checks, a first build's count, a proof's run and its excerpt, the lock
+// held from the first read to the append, and the row appended, as Python's json.dumps(row) writes
+// it.  Hand decides in Python's hand_in.main order; what Go cannot do as Python does is ErrPython.
 package handin
 
 import (
@@ -37,16 +37,18 @@ type turn struct {
 	role      string
 	findings  any // the blocking findings handed to the turn (handed)
 	records   []*run.Object
+	checks    *run.Object // what a builder's done is held to, nil for nothing
 }
 
 // variable names a turn's record file to the turn.
 const variable = "AK_HAND_IN"
 
 // Start opens a turn's record file in its out directory with the turn's row, the workspace and
-// role and the blocking findings handed to it, the list the file findings holds, none for "": the
-// variable naming that file to the turn.  A turn that resumes one cut off gets what that one's
-// record file, previous, holds: a session keeps its records, its completion being this turn's alone.
-func Start(out, workspace, role, findings, previous string) (string, error) {
+// role, the blocking findings handed to it, the list the file findings holds, none for "", and the
+// checks its done is held to, none for nil: the variable naming that file to the turn.  A turn that
+// resumes one cut off gets what that one's record file, previous, holds: a session keeps its
+// records, its completion being this turn's alone.
+func Start(out, workspace, role, findings, previous string, checks *run.Object) (string, error) {
 	path := filepath.Join(config.Resolve(out), File)
 	handed := any([]any{})
 	var before *Review
@@ -69,6 +71,9 @@ func Start(out, workspace, role, findings, previous string) (string, error) {
 	row.Set("workspace", config.Resolve(workspace))
 	row.Set("role", role)
 	row.Set("findings", handed)
+	if checks != nil {
+		row.Set("checks", checks)
+	}
 	text := run.Line(row) + "\n"
 	if before != nil {
 		for _, each := range before.Records {
@@ -105,6 +110,9 @@ func Hand(args []string) error {
 		}
 	}
 	row, err := t.checked(args)
+	if err == nil && row.Str("kind") == "done" && !strings.HasPrefix(t.role, "reviewer") {
+		err = t.oversize()
+	}
 	if err == nil && row.Str("kind") == "done" && strings.HasPrefix(t.role, "fixer") {
 		err = t.proofsPass(filepath.Dir(path))
 	}
@@ -165,6 +173,7 @@ func read(data []byte) (*turn, error) {
 	if first.Has("findings") {
 		t.findings = first.Get("findings")
 	}
+	t.checks = first.Dict("checks")
 	return t, nil
 }
 

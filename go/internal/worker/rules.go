@@ -2,7 +2,6 @@ package worker
 
 import (
 	"embed"
-	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -31,19 +30,14 @@ func rule(name string) string {
 	return strings.TrimSuffix(string(text), "\n")
 }
 
-// sizeRule is what a builder is told of the first review's ceiling, in the words of Python's
-// size_rule.
-const sizeRule = "its first review would read more than %d added lines"
-
 // comment is a YAML comment closing a front matter value.
 var comment = regexp.MustCompile(`(^|` + config.SpaceClass + `)#.*`)
 
 // opening is the opening of a turn of that role in workspace, before its task, as the turn was
 // given it: a review's rules carry the real-users rule where the workspace's AGENTS.md says
 // `users: real`, read as the YAML word it is, its comment and quotes aside, and read at the target
-// the work lands on, as a branch cannot switch off the rule its own review is held to; a builder's
-// say the first review's ceiling, lines.
-func opening(role, workspace string, given Given, lines int) string {
+// the work lands on, as a branch cannot switch off the rule its own review is held to.
+func opening(role, workspace string, given Given) string {
 	prompt := strings.ReplaceAll(rule(role), "{workspace}", workspace)
 	declared := ""
 	if given.UsersAt != "" {
@@ -59,22 +53,5 @@ func opening(role, workspace string, given Given, lines int) string {
 		gate := rule("gate")
 		prompt = strings.ReplaceAll(prompt, gate, gate+"\n"+rule("real-users"))
 	}
-	return strings.ReplaceAll(prompt, fmt.Sprintf(sizeRule, config.DefaultReviewLines), fmt.Sprintf(sizeRule, lines))
-}
-
-// ceiling is the first review's ceiling a turn is told: the run's, else the host's, as Python's
-// call reads it; ErrPython where there is none, which only Python tells a builder yet.
-func ceiling(given config.Lines) (int, error) {
-	if given == (config.Lines{}) {
-		numbers, err := config.HostNumbers()
-		if err != nil {
-			return 0, err
-		}
-		given = numbers.ReviewLines
-	}
-	lines, limited := given.Most()
-	if !limited {
-		return 0, ErrPython
-	}
-	return lines, nil
+	return prompt
 }
