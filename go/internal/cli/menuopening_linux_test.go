@@ -20,13 +20,14 @@ func TestTheMenuReopensNoSeatItsOpeningSweepIsForgetting(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	call := exec.Command("python3", "-B", "-c", `
-import sys, time
+import os, signal, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))
 from fixtures.akbin import Home
 from fixtures.akterm import Terminal
 
-with Home() as home:
+def held(home):
+    """The menu up on a past screen whose seat the opening sweep is held over, Enter pressed on it."""
     old = time.time() - 10 * 86400
     home.write(".agentkit/state/session-old-search.json", {
         "orchestrator": "fable", "workers": ["fable"], "cwd": str(home.path), "repo": None,
@@ -36,13 +37,13 @@ with Home() as home:
     home.write("adapters/claude.sh", "#!/bin/sh\nprintf '%s' \"sh -c 'echo reopened; exec sleep 300'\"\n").chmod(0o755)
     real = home.bin / "tmux-real"
     (home.bin / "tmux").rename(real)
-    held, release = home.root / "held", home.root / "release"
+    paused, release = home.root / "held", home.root / "release"
     home.fake("tmux", f"""#!{sys.executable}
 import subprocess, sys, time
 from pathlib import Path
 done = subprocess.run([{str(real)!r}, *sys.argv[1:]], capture_output=True)
 if "has-session" in sys.argv and "=old-search" in sys.argv and done.returncode == 1:
-    Path({str(held)!r}).touch()
+    Path({str(paused)!r}).touch()
     while not Path({str(release)!r}).exists():
         time.sleep(.01)
 sys.stdout.buffer.write(done.stdout)
@@ -51,16 +52,33 @@ sys.exit(done.returncode)
 """)
     menu = Terminal(home, size=(100, 30), env={"AGENTKIT_ADAPTER_DIR": home.path / "adapters"},
                     program=sys.argv[1])
-    menu.wait(lambda screen: held.exists() and "p past" in screen)
+    menu.wait(lambda screen: paused.exists() and "p past" in screen)
     menu.keys("p")
     menu.wait(lambda screen: screen.startswith("agentkit · past sessions") and "esc back" in screen)
     menu.keys("Enter")
     time.sleep(1)
     assert home.tmux("has-session", "-t", "=old-search").code != 0, menu.screen()
+    return menu, release
+
+with Home() as home:
+    menu, release = held(home)
     release.touch()
     assert menu.exit_code() == 3, menu.screen()      # the seat it chose is gone: Python's to say
     assert home.tmux("has-session", "-t", "=old-search").code != 0, menu.screen()
     assert not (home.path / ".agentkit/state/session-old-search.json").exists()
+
+with Home() as home:      # waiting, it still ends on a kill as a key's wait does
+    menu, release = held(home)
+    for proc in Path("/proc").iterdir():
+        try:
+            if proc.name.isdigit() and (proc / "cmdline").read_bytes().split(b"\0")[0] == os.fsencode(sys.argv[1]):
+                os.kill(int(proc.name), signal.SIGTERM)
+        except OSError:
+            pass      # a process gone meanwhile
+    try:
+        assert menu.exit_code(bound=5) == 143, menu.screen()
+    finally:
+        release.touch()
 `, program)
 	call.Dir = "../../.."
 	if out, err := call.CombinedOutput(); err != nil {

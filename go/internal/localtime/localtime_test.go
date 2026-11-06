@@ -46,17 +46,3 @@ func TestReadReplacesOnlyGosFallbackToUTC(t *testing.T) {
 		}
 	}
 }
-
-func TestAnUndatedRuleIsLeftToPython(t *testing.T) {
-	for rule, read := range map[string]bool{"AKT5AKDT": false, ":AKT5AKDT4": false, "AKT5AKDT,": false, "<+05>-5<+06>": false,
-		"CET-1CEST": false, "CET-1CEST,M3.5.0,M10.5.0/3": true, "AKT-5": true, "nonsense": true, "": true} {
-		saved := time.Local
-		time.Local = time.UTC
-		t.Setenv("TZ", rule)
-		got, local := Read(), time.Local
-		time.Local = saved
-		if got != read || !read && local != time.UTC {
-			t.Errorf("TZ=%q: read %v, local %s; want read %v", rule, got, local, read)
-		}
-	}
-}

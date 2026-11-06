@@ -101,7 +101,9 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	keyboard.Sense()
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)
-	swept, heard := sweepBehind(handed || dry || overlay, &latest, keyboard.Wake) // a restart leaves it to the tick
+	// a restart leaves its sweep to the tick; an act waiting for one answers a kill as a key's wait does
+	swept, heard := sweepBehind(handed || dry || overlay, &latest, keyboard.Wake)
+	settle := func() { keyboard.While(func() { <-swept }) }
 	reread := func() {
 		<-swept
 		if found, known := readFrame(time.Now()); known {
@@ -184,7 +186,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				keyboard.Give()
 				return 0
 			case "start":
-				<-swept
+				settle()
 				if leave, code := startMenuRow(&model, dry, overlay, keyboard, painter, errOut); leave {
 					return code
 				}
@@ -197,7 +199,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		choice := menuChoice(key, drawn, shown.seats, keyboard)
 		switch {
 		case choice != "":
-			<-swept
+			settle()
 			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
@@ -217,7 +219,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		case key.Name == "char" && (key.Char == "p" || key.Char == "P") && len(shown.past) > 0:
 			frame.Stop()
 			returned := *shown
-			if leave, code := menuPast(&returned.past, swept, dry, overlay, keyboard, painter, errOut); leave {
+			if leave, code := menuPast(&returned.past, settle, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
 			latest.Store(&returned)
