@@ -65,11 +65,6 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 			text += "\n\n" + failure
 		}
 	}
-	if ok {
-		if text, err = r.baseProof(l, text); err != nil {
-			return false, "", err
-		}
-	}
 	text = fmt.Sprintf("Commit: %s\nTree: %s\n\n%s", head, tree, text)
 	return ok, text, os.WriteFile(path, []byte(text), 0o666)
 }
@@ -200,21 +195,29 @@ func testShaped(path string) bool {
 	return false
 }
 
-// baseProof is Python's fails_on_base where the record owes a proof: a check that finishes failing
-// on base with the branch's tests laid over, and passes with every file it changed laid over,
-// proves the change.  It never fails a round, by the owner's rule (7 Oct): why none could be shown
-// is recorded instead.
-func (r *repoPlace) baseProof(l *loop, text string) (string, error) {
+// baseProof is Python's fails_on_base beside the review, where the checks passed and the record
+// owes a proof, nil otherwise: a check that finishes failing on base with the branch's tests laid
+// over, and passes with every file it changed laid over, proves the change.
+func (r *repoPlace) baseProof(l *loop, ok bool) (*besideReview, error) {
 	var owed bool
-	if err := l.save(func(record *run.Object) { owed = record.Str("base_proof") == baseOwed }); err != nil || !owed {
-		return text, err
+	if err := l.save(func(record *run.Object) { owed = record.Str("base_proof") == baseOwed }); err != nil || !ok || !owed {
+		return nil, err
 	}
-	why, err := r.failsOnBase(l)
+	return l.besideReview(r.failsOnBase), nil
+}
+
+// proven joins the base proof and records what it found, before any verdict is, so a death while
+// waiting resumes the proof too.  It never fails a round, by the owner's rule (7 Oct): why none
+// could be shown is recorded instead.
+func (l *loop) proven(proof *besideReview) error {
+	if proof == nil {
+		return nil
+	}
+	why, err := proof.join()
 	if err != nil {
-		return "", err
+		return err
 	}
-	var line string
-	err = l.save(func(record *run.Object) {
+	return l.save(func(record *run.Object) {
 		var note any
 		if why != "" {
 			note = why
@@ -222,9 +225,7 @@ func (r *repoPlace) baseProof(l *loop, text string) (string, error) {
 			record.Set("base_proof", "proven")
 		}
 		record.Set("base_proof_note", note)
-		line = baseProofLine(record)
 	})
-	return text + "\n\n" + line, err
 }
 
 // baseProofLine is what a run's result says of its proof, "" for a run that owes none.

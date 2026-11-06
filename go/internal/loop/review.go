@@ -112,6 +112,12 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 		done      *try
 		asking    string // the record file of the answer that gave no verdict, for the call asking once more
 	)
+	// the replays of earlier findings in view have left the checkout before the proof starts
+	proof, err := l.place.baseProof(l, ok)
+	if err != nil {
+		return false, err
+	}
+	defer proof.drop()
 	for {
 		asked := asking != ""
 		turn := ask{body: noVerdictAsk, out: freeDir(l.roundDir(), name), session: l.reviewSession, previous: asking}
@@ -204,6 +210,9 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 		}
 		l.say(fmt.Sprintf("reviewer %s gave no verdict; asking once more", l.reviewer))
 		asking = filepath.Join(done.out, handin.File)
+	}
+	if err := l.proven(proof); err != nil {
+		return false, err
 	}
 	weighed, err := l.weigh(submitted, j)
 	if err != nil {
