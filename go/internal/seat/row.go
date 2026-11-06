@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"agentkit/internal/config"
-	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -43,8 +42,7 @@ func (home Home) ModelName(seat Seat) (at, alone string) {
 // sweep aside: what menu.main does first would change nothing but the two things that decide
 // nothing.  With no boot_id, resume_after_boot only writes a baseline; and the tick stamps the
 // seats' retention clocks as the menu does. Runs are read without maintenance by Menu. Another
-// boot's mark it resumes after.  A project naming its feature switches has Python run its
-// command, and a job draws a line Go has no port of.
+// boot's mark it resumes after.  A job draws a line Go has no port of.
 func (home Home) Settled() bool {
 	entries, err := os.ReadDir(filepath.Join(config.Home(), "jobs"))
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || len(entries) > 0 {
@@ -58,9 +56,6 @@ func (home Home) Settled() bool {
 	}
 	for _, seat := range home.Seats {
 		if seat.Warning != "" {
-			return false
-		}
-		if seat.Checkout() != "" && gitcall.Declared(seat.Checkout(), "features") != "" {
 			return false
 		}
 	}
