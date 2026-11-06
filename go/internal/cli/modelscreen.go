@@ -56,7 +56,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	var colours map[string]string
 	pointing := false
 	at, top, note := -1, 0, ""
-	// The boards landing leave the pointer on the row it was on, as Python's do; where that row is
+	// The boards landing leaves the pointer on the row it was on, as Python's does; where that row is
 	// gone, on its role's pick, the first role's before any.
 	lineup := func() {
 		colours = modelColours(found.Rows)
