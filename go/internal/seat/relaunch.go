@@ -31,7 +31,11 @@ func (seat reopening) relaunch(dry bool, out io.Writer) (string, bool, error) {
 		defer os.RemoveAll(dir)
 		told = []string{"AGENTKIT_RULEBOOK_DIR=" + dir}
 	}
-	// The harness opens with its rules or not at all.
+	// The harness opens with its rules or not at all. They are written before the launch decides,
+	// as Python's resume_command writes them: a launch declined later, for a draft typed
+	// meanwhile, leaves them newer than what the harness still running read, which its next
+	// prompt is offered as a change, and `launch` puts the seat's record back, so nothing claims
+	// that harness read them. Taking the file back instead would race a reopen writing it.
 	rulebook := filepath.Join(dir, "rulebook-"+name+".md")
 	if err = os.MkdirAll(dir, 0o777); err == nil {
 		err = os.WriteFile(rulebook, []byte(text), 0o666)
