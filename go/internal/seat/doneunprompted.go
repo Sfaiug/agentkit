@@ -11,10 +11,10 @@ import (
 
 // doneUnprompted is watch.done_unprompted, off the seat's look: its plan is finished, and since
 // the plan's last write nothing has prompted it, the owner has written nothing in its conversation,
-// it owes no name and stands on no `ak wait`, and its look shows no turn in flight and nothing
-// asked.  ErrUnread where a run of its own, whose debts runs_owe reads, or a conversation Go does
-// not read could say otherwise.
-func doneUnprompted(name, own string, record, file *run.Object, found sight) (bool, error) {
+// it owes no name and stands on no `ak wait`, its look shows no turn in flight and nothing asked,
+// and no run of its own owes work (owes, watch.runs_owe).  ErrUnread where a conversation Go does
+// not read, or owes, could say otherwise.
+func doneUnprompted(name, own string, record, file *run.Object, found sight, owes func() (bool, error)) (bool, error) {
 	if !mayRestDone(name) {
 		return false, nil
 	}
@@ -38,10 +38,18 @@ func doneUnprompted(name, own string, record, file *run.Object, found sight) (bo
 	if slices.ContainsFunc(said, func(at float64) bool { return at > seconds(done) }) {
 		return false, nil
 	}
-	for _, dir := range run.Dirs() {
-		if mine, err := run.Read(dir); errors.Is(err, run.ErrLoneSurrogate) || mine != nil && run.Seat(mine) == name {
-			return false, ErrUnread
+	owed, err := owes()
+	return !owed && err == nil, err
+}
+
+// ownRunsUnread is owes where nothing reads the seat's runs: any run of its own might owe work.
+func ownRunsUnread(name string) func() (bool, error) {
+	return func() (bool, error) {
+		for _, dir := range run.Dirs() {
+			if mine, err := run.Read(dir); errors.Is(err, run.ErrLoneSurrogate) || mine != nil && run.Seat(mine) == name {
+				return false, ErrUnread
+			}
 		}
+		return false, nil
 	}
-	return true, nil
 }

@@ -384,7 +384,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 
 // working is the reason and the since of a seat its runs keep working, as watch.session_state
 // gives them: how many run, the first gone quiet for an hour by name, and the title of that one
-// or else of the last started.
+// or else of the last started, or where that one waits in its landing line.
 func working(going []ran) (string, any) {
 	var since any
 	newest := going[0]
@@ -404,6 +404,9 @@ func working(going []ran) (string, any) {
 			parts = append(parts, "silent "+terminal.FormatAge(each.quiet))
 			break
 		}
+	}
+	if place := run.LinePlace(newest.record, newest.name); place != "" {
+		return place, since
 	}
 	title := newest.record.Str("title")
 	if title == "" {

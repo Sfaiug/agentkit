@@ -34,9 +34,9 @@ func TestAWaitIsDecidedFromTheModelTheLookFollows(t *testing.T) {
 	}
 }
 
-// A seat its spent subscription refused nothing is waited on only where its ladder reads the wait:
-// beside its `ak wait` it is Python's, nothing written.
-func TestASpentSubscriptionIsWaitedOnOnlyWhereTheLadderReadsTheWait(t *testing.T) {
+// A seat its spent subscription refused nothing is waited on beside its `ak wait` too, which the
+// wait outranks.
+func TestASpentSubscriptionIsWaitedOnBesideItsAkWait(t *testing.T) {
 	home := sandbox(t)
 	write(t, stateFile(home, "usage.json"), run.Line(run.Fields("fetched_at", seconds(time.Now()),
 		"providers", run.Fields("test", run.Fields("meters", []any{}, "exhausted_until", seconds(time.Now())+3600)))))
@@ -44,15 +44,15 @@ func TestASpentSubscriptionIsWaitedOnOnlyWhereTheLadderReadsTheWait(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	for file, waits := range map[string]bool{`{}`: true, `{"wait": {"kind": "pr", "on": "https://github.com/acme/widget/pull/1", "at": 1}}`: false} {
+	for _, file := range []string{`{}`, `{"wait": {"kind": "pr", "on": "https://github.com/acme/widget/pull/1", "at": 1}}`} {
 		write(t, stateFile(home, "seat-acme.json"), file)
 		read, err := run.ReadJSON(stateFile(home, "seat-acme.json"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		live := Live{Name: "acme", Own: "claude", Record: run.Fields("orchestrator", "opus"), File: read, State: "at_prompt"}
-		if _, waited := (Seat{Name: "acme", own: "claude"}).waitOnUsage(stateFile(home, ""), live, "opus", sight{}, readings, time.Now(), func(string) {}); waited != waits {
-			t.Errorf("seat file %s: waits %v", file, waited)
+		if _, waited := (Seat{Name: "acme", own: "claude"}).waitOnUsage(stateFile(home, ""), live, "opus", sight{}, readings, time.Now(), func(string) {}); !waited {
+			t.Errorf("seat file %s: not waited on", file)
 		}
 	}
 }

@@ -75,44 +75,6 @@ func landingFixHandoff(record *run.Object) string {
 	return ""
 }
 
-// orderMembers is Python's line order: green deliveries in tested order, then join order.
-func orderMembers(members []member) []member {
-	deliveries := map[string]string{}
-	for _, m := range members {
-		if wait := m.record.Dict("waiting_on"); green(wait) {
-			deliveries[filepath.Base(m.dir)] = wait.Str("land")
-		}
-	}
-	depth := func(wait *run.Object) int {
-		n := 0
-		after := cmp.Or(wait.Dict("after"), run.NewObject())
-		for _, name := range after.Keys() {
-			if tree, ok := deliveries[name]; ok && tree == after.Str(name) {
-				n++
-			}
-		}
-		return n
-	}
-	slices.SortFunc(members, func(a, b member) int {
-		aw, bw := a.record.Dict("waiting_on"), b.record.Dict("waiting_on")
-		if green(aw) != green(bw) {
-			if green(aw) {
-				return -1
-			}
-			return 1
-		}
-		if green(aw) {
-			if order := cmp.Compare(depth(aw), depth(bw)); order != 0 {
-				return order
-			}
-		}
-		aj, _ := aw.Num("joined")
-		bj, _ := bw.Num("joined")
-		return cmp.Or(cmp.Compare(aj, bj), strings.Compare(a.dir, b.dir))
-	})
-	return members
-}
-
 // withPrefix validates and holds the prefix through publication. Delivery may rebase or finish
 // during a check, but may not substitute different reviewed work or a different tested tree.
 func withPrefix(prefix []member, publish func() bool) bool {

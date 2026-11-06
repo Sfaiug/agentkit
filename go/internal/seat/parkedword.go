@@ -10,11 +10,11 @@ import (
 	"agentkit/internal/run"
 )
 
-// parked is whether nothing but the owner moves the run (watch.parked_runs): an error still the
-// owner's, a stalled run undecided, or a merge wait only its age turned away.
+// parked is whether nothing but the owner moves the run (watch.parked_runs): an error or an
+// exhausted run still the owner's, a stalled run undecided, or a merge wait only its age turned away.
 func parked(record *run.Object, view runView, index run.Index, now time.Time) bool {
 	switch record.Str("state") {
-	case "error":
+	case "error", "exhausted":
 		return view.needs
 	case "stalled":
 		return view.undecided
@@ -59,7 +59,7 @@ func runParked(facts climbing) (*answer, error) {
 	case "waiting":
 		reason = "run " + first.name + " waits to merge: " + parkedReason(first.record)
 	default:
-		reason = run.ParkedLine(first.record, first.name, time.Unix(0, int64(facts.now*1e9)))
+		reason = cmp.Or(run.ParkedLine(first.record, first.name, time.Unix(0, int64(facts.now*1e9))), "run "+first.name+" parked: "+parkedReason(first.record))
 	}
 	return &answer{word: "needs you", reason: reason, since: first.record.Get("finished_at")}, nil
 }

@@ -7,6 +7,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/plan"
+	"agentkit/internal/run"
 )
 
 // Menu is MenuRead with each seat whose panes run on looked at once, writing nothing: the ak
@@ -33,6 +34,10 @@ func MenuRead(now time.Time) (Home, bool) {
 		return Home{}, false
 	}
 	runs, projects, known := menuRuns(held, now)
+	for _, mine := range runs {
+		// a run waiting for its window to refill is a task in out of usage's colour, Python's to draw
+		known = known && !slices.ContainsFunc(mine, func(each ran) bool { return run.ExhaustedWait(each.record) == "window" })
+	}
 	if !known {
 		return Home{}, false
 	}
