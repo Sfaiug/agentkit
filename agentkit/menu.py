@@ -3649,10 +3649,10 @@ def company_list(cfg, title):
         here = here if here in rows else rows[0]
         column = min(column, len(makers.get(here[1], ())) if here[0] == "company" else 0)
         room, now = terminal.layout_width(), matrix.compared(cfg)
-        lit = sum(bool(now & models.keys()) for models in makers.values())
+        giving = sum(bool(now & models.keys()) for models in makers.values())
         more = len(makers.keys() - set(yours))
-        said = [f"{len(now)} model{'s' * (len(now) != 1)} on, from {lit} "
-                f"{'company' if lit == 1 else 'companies'}",
+        said = [f"{len(now)} model{'s' * (len(now) != 1)} on, from {giving} "
+                f"{'company' if giving == 1 else 'companies'}",
                 f"{more} more {'company has' if more == 1 else 'companies have'} "
                 "benchmark scores"]
         body, places = companies_body(makers, yours, off, None if terminal.away() else here,
