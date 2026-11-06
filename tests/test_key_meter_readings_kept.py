@@ -65,7 +65,7 @@ def rows(meters, account="default", source="probe"):
             for name, (used, resets, window) in meters.items()]
 
 
-def timed(home, act, *args, **kwargs):
+def timed(act, *args, **kwargs):
     """`act(*args)`'s outcome, once it exited 0, and the moments it ran between."""
     before = time.time()
     done = act(*args, **kwargs)
@@ -95,11 +95,11 @@ class ProbedReadings(unittest.TestCase):
     def test_each_tick_past_the_probe_interval_keeps_what_it_read_and_none_within_it(self):
         home, fake = self.home()
         answer(fake, FIRST)
-        first = self.assertKept(home, rows(FIRST), *timed(home, home.tick))
+        first = self.assertKept(home, rows(FIRST), *timed(home.tick))
         self.assertEqual(len({row["at"] for row in first}), 1, "one reading, one moment")
 
         answer(fake, LATER)
-        timed(home, home.tick)
+        timed(home.tick)
         self.assertEqual(readings(home), first, "a tick within the probe interval kept more")
 
         connection = sqlite3.connect(home.path / DATABASE)
@@ -109,14 +109,14 @@ class ProbedReadings(unittest.TestCase):
         connection.close()
         every = tomllib.loads(fake.manifest.read_text())["usage"]["probe_every"]
         home.write(LOCK, repr(time.time() - every - 5))
-        later = self.assertKept(home, rows(LATER), *timed(home, home.tick))
+        later = self.assertKept(home, rows(LATER), *timed(home.tick))
         self.assertEqual(readings(home), [row for row in first if row["meter"] != "session"]
                          + later, "the earlier week kept, the session aged past five weeks gone")
 
     def test_each_account_s_readings_are_kept_under_its_own_name(self):
         home, fake = self.home(["default", "second"])
         answer(fake, FIRST)
-        self.assertKept(home, rows(FIRST) + rows(FIRST, "second"), *timed(home, home.tick))
+        self.assertKept(home, rows(FIRST) + rows(FIRST, "second"), *timed(home.tick))
 
 
 class TurnReadings(unittest.TestCase):
@@ -132,8 +132,8 @@ class TurnReadings(unittest.TestCase):
         events = json.dumps({"type": "rate_limit_event", "rate_limit_info": {
             "status": "allowed", "unifiedWindows": windows}}) + "\n"
         fake.behave({**fakeadapter.WORK, "events": events}, fakeadapter.PASS)
-        before, after = timed(home, home.ak, "run", str(taskfile.write(home, rig.path)),
-                              "--no-merge", env=OFFLINE, timeout=300)
+        before, after = timed(home.ak, "run", str(taskfile.write(home, rig.path)), "--no-merge",
+                              env=OFFLINE, timeout=300)
         kept = readings(home)
         # the fake's usage call is refused, so the turn's reading is the only one
         self.assertCountEqual([{key: value for key, value in row.items() if key != "at"}

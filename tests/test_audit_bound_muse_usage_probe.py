@@ -246,6 +246,7 @@ raise AssertionError("this regression needs no tmux server")
         for name in (usage_probe.DEADLINE_ENV, usage_probe.WORK_DEADLINE_ENV):
             os.environ.pop(name, None)
         (self.auth.parent / "settings.json").write_text('{"model":"ignored-settings-model"}')
+        self.stack.enter_context(patch.object(config, "HOME", self.state.parent))
         self.stack.enter_context(patch.object(config, "STATE", self.state))
         self.stack.enter_context(patch.object(config, "ensure_dirs", lambda: None))
         self.children = []
