@@ -7374,10 +7374,12 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
     the tick, leaving its row in history as `gate.run_done_when` does with `checked`: no exit
     where it timed out."""
     try:
+        # Its project's settings (`config.repo_env`), as its checks had them: one follower
+        # probes every project's runs, and its own environment is whichever merge started it.
+        env = {**os.environ, **config.repo_env(repo), "AK_MERGE_SHA": sha}
         with tempfile.TemporaryFile() as output, \
                 history.check(checked, command, time.time()) as ended:
-            proc = subprocess.Popen(["bash", "-c", command], cwd=repo,
-                                    env={**os.environ, "AK_MERGE_SHA": sha},
+            proc = subprocess.Popen(["bash", "-c", command], cwd=repo, env=env,
                                     stdin=subprocess.DEVNULL, stdout=output,
                                     stderr=subprocess.STDOUT, start_new_session=True)
             timed_out = False
@@ -7415,7 +7417,7 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
             if timed_out:
                 tail += f"\ntimed out after {timeout}s"
             return not timed_out and proc.returncode == 0, tail.strip()
-    except OSError as exc:
+    except (OSError, config.Error) as exc:
         return False, str(exc)
 
 
@@ -7447,8 +7449,11 @@ def live_handed(lock, held=None):
     follower (`record.process_owner`) and the runs handed to it that it has yet to take
     ("runs"); {} where it names no process alive."""
     if held is not None:
-        os.ftruncate(lock, 0)
-        os.pwrite(lock, json.dumps(held).encode(), 0)
+        # Written over what was there, then cut to it: a writer stopped at any point leaves
+        # the follower named, as handing a run over only lengthens what names it.
+        text = json.dumps(held).encode()
+        os.pwrite(lock, text, 0)
+        os.ftruncate(lock, len(text))
     try:
         named = json.loads(os.pread(lock, os.fstat(lock).st_size, 0) or b"{}")
     except ValueError:

@@ -14,6 +14,7 @@ from fixtures.sandbox import Sandbox
 from agentkit import config, orch, record, watch
 
 T0, SEAT, WINDOW = 2000000, "fix-api", watch.AFTER_MERGE_WINDOW
+PROBE = watch.health_command     # before any test fakes it
 
 
 class Clock:
@@ -93,6 +94,22 @@ class LiveFollower(Sandbox):
         self.assertEqual(self.began["red"], [("health", T0 + at) for at in (0, 15, 30, 45)])
         live = record.read_state(config.RUNS / "live")
         self.assertEqual((live["live_at"], live["deployed_at"]), (T0 + 40, T0 + 5))
+
+    def test_a_probe_has_its_own_projects_settings_whichever_merge_started_the_follower(self):
+        config.ENV.mkdir(parents=True, exist_ok=True)
+        (config.ENV / "web.env").write_text("PROBE_CREDENTIAL=web\n")
+        (self.root / "web").mkdir()
+        with patch.dict(os.environ, PROBE_CREDENTIAL="api"):    # as api's merge started it
+            self.assertEqual(PROBE(self.root / "web", "a" * 40, 'printf %s "$PROBE_CREDENTIAL"'),
+                             (True, "web"))
+
+    def test_a_run_handed_over_by_a_merge_stopped_at_its_write_leaves_the_follower_named(self):
+        watch.start_live_probe(config.RUNS / "api")     # names this process the follower
+        with patch.object(os, "pwrite", side_effect=OSError("stopped")):
+            watch.start_live_probe(config.RUNS / "web")
+        lock, held = watch.live_lock()
+        os.close(lock)
+        self.assertEqual(held["pid"], os.getpid())
 
 
 if __name__ == "__main__":
