@@ -111,7 +111,9 @@ func Hand(args []string) error {
 	}
 	row, err := t.checked(args)
 	if err == nil && row.Str("kind") == "done" && !strings.HasPrefix(t.role, "reviewer") {
-		err = t.oversize()
+		if err = t.oversize(); err == nil {
+			err = t.checksPass(filepath.Dir(path))
+		}
 	}
 	if err == nil && row.Str("kind") == "done" && strings.HasPrefix(t.role, "fixer") {
 		err = t.proofsPass(filepath.Dir(path))
