@@ -281,6 +281,7 @@ test_key_scratch_run
 test_key_seat_c_efforts
 test_key_screen_asks_opencode_usage_every_fifteen_minutes
 test_key_seat_line_words
+test_key_seat_look_file
 test_key_seat_name_normalised
 test_key_seat_reads_waiting_ending
 test_key_seat_relay

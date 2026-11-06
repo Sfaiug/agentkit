@@ -28,28 +28,24 @@ type reading struct {
 	handoff  bool
 }
 
-// readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it;
-// false where Go does not read that home, or where opening it would do more than draw.
+// readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it,
+// each seat's word written down as `ak orch list` writes it (menu.v5o_seat_info's look) once all
+// of the frame is Go's to draw; false where Go does not read that home, or where opening it would
+// do more than draw.
 func readFrame(now time.Time) (reading, bool) {
 	home, known := seat.Menu(now)
 	if !known || !home.Settled() {
 		return reading{}, false
 	}
 	var found reading
-	for i, each := range home.Seats {
+	for _, each := range home.Seats {
 		if each.Past() {
 			row, known := pastRow(each, now)
 			if !known {
 				return reading{handoff: true}, true
 			}
 			found.past = append(found.past, row)
-			continue
 		}
-		done, total := plan.Progress(each.Name)
-		builds, reviews := home.Crew(each)
-		model, alone := home.ModelName(each)
-		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
-			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	sortPast(found.past)
 	var err error
@@ -58,6 +54,19 @@ func readFrame(now time.Time) (reading, bool) {
 	}
 	if found.standing, err = menu.Standing(now); err != nil {
 		return reading{}, false
+	}
+	if home.Announce(now) != nil {
+		return reading{}, false
+	}
+	for i, each := range home.Seats {
+		if each.Past() {
+			continue
+		}
+		done, total := plan.Progress(each.Name)
+		builds, reviews := home.Crew(each)
+		model, alone := home.ModelName(each)
+		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
+			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	return found, true
 }
