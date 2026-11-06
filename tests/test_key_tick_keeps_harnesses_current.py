@@ -2,13 +2,14 @@
 
 A harness the host has is asked its `[update] latest` at most once an hour, and one behind it is
 upgraded in the background, one at a time.  A red puts the harness back and says so, and that
-release is not started again until a day has passed since its start, a newer one at once.  A tick
-from any other checkout, a test's above all, neither asks nor upgrades.  Black-box:
-tests/fixtures/akinstall.py copies the program `AK_BIN` runs, through any wrapper, to
-HOME/agentkit, and each tick runs in a box of tests/fixtures/akbin.py; claude and codex are fakes
-keeping their installed release and their channel's in files, npm answers for both, and
-tests/fixtures/akgates.py stands in for the gates; an hour or a day goes by as the record of each
-ask and start is set back.  This test fails against `/bin/false`.
+release starts again once a day has passed since its start, a newer one at once.  A tick from any
+other checkout, a test's above all, neither asks nor upgrades.  Black-box: every tick is
+`AK_BIN watch` itself, through tests/fixtures/akbin.py, in an offline box where HOME/agentkit is
+the checkout the program runs from, a copy mounted over it, or for another checkout's tick that
+copy beside it; claude and codex are fakes keeping their installed release and their channel's
+in files, npm answers for both, and tests/fixtures/akgates.py stands in for the gates; an hour or
+a day goes by as the record of each ask and start is set back.  This test fails against
+`/bin/false`.
 """
 
 from collections import Counter
@@ -17,17 +18,19 @@ import json
 import os
 from pathlib import Path
 import shlex
+import shutil
 import sys
 import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig, akinstall
+from fixtures import akconfig
 from fixtures.akbin import AK, LOG, Home, boxable
 from fixtures.akgates import Gates
 
 ASK_EVERY = 60 * 60
 RETRY_AFTER = 24 * 60 * 60
+SLACK = 5 * 60      # more than the ticks between an ask and the look at it ever take
 # `install latest` takes the channel's release, but not while `hold` is there.
 CLAUDE = """case "$1 $2" in
   "--version "*) cat {root}/claude ;;
@@ -57,18 +60,27 @@ def starts(name, old, new):
     return f"{name} {old} is behind {new}: upgrading it in the background"
 
 
+def box(home, *words):
+    """bwrap's words for `home.box()`'s box, offline, as nothing here may reach a network, and
+    with `words` last, so a mount they make lands over that box's own."""
+    return [*home.box()[:-1], "--unshare-net", *words, "--"]
+
+
 @functools.cache
 def program():
-    """The file `AK_BIN watch` runs as, whatever wrapper `AK_BIN` is: the word before `watch` on
-    the command line of the first process to call tmux."""
+    """The file `AK_BIN watch` runs, through any wrapper -- the word before `watch` on the command
+    line of the first process to call tmux -- and the checkout it runs from, as ak takes it: the
+    nearest folder above holding .git, else the one above its bin/."""
     with Home() as home:
         seen = home.root / "seen"
         home.fake("tmux", "#!/bin/sh\n[ -e {0} ] || cp /proc/$PPID/cmdline {0}\nexit 1\n".format(
             shlex.quote(str(seen))))
-        home.ak("watch", boxed=True)
+        home.run(*box(home), AK, "watch")
         assert seen.exists(), "the tick called no tmux"
         words = seen.read_bytes().split(b"\0")
-        return home.path / os.fsdecode(words[words.index(b"watch") - 1])
+        ran = (home.path / os.fsdecode(words[words.index(b"watch") - 1])).resolve()
+    return ran, next((folder for folder in ran.parents if (folder / ".git").exists()),
+                     ran.parents[1])
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -77,18 +89,33 @@ class KeepsHarnessesCurrent(unittest.TestCase):
         self.home = home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus", "astra"])
-        # Install copies the program `AK_BIN` names, and a wrapper names none it could copy.
-        ran = program()
-        akinstall.AK = str(ran)
-        akinstall.PROGRAM = next((folder for folder in ran.parents if (folder / ".git").exists()),
-                                 ran.parents[1])
-        self.install = akinstall.Install(home)
-        # the gate an upgrade passes, which the stand-in answers, on main as origin has it
-        (self.install.seed / "tests").mkdir()
-        (self.install.seed / "tests" / "live.sh").write_text("exit 0\n")
-        self.install.advance()
-        self.install.git("pull", "-q", "--ff-only")
+        ran, self.checkout = program()
+        # The install: what the program's checkout tracks, tests aside, the program as built and
+        # `AK_BIN` itself where the checkout holds them, on main as its origin has it; the live
+        # gate an upgrade passes is there for the stand-in to answer.
         self.root = root = home.root
+        self.copy = copy = root / "install"
+        listed = home.run("git", "-C", str(self.checkout), "ls-files", "-z")
+        tracked = [name for name in (listed.out.split("\0") if listed.code == 0 else ())
+                   if name and not name.startswith("tests/")]
+        built = [path.relative_to(self.checkout) for path in (ran, Path(AK))
+                 if path.is_relative_to(self.checkout)]
+        for name in {*tracked, *map(str, built)}:
+            source = self.checkout / name
+            if source.is_file() or source.is_symlink():
+                (copy / name).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, copy / name, follow_symlinks=False)
+        (copy / "tests").mkdir(exist_ok=True)
+        (copy / "tests" / "live.sh").write_text("exit 0\n")
+        origin = str(root / "origin.git")
+        for args in (["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "ak"],
+                     ["init", "-q", "--bare", origin], ["remote", "add", "origin", origin],
+                     ["push", "-q", "origin", "main"]):
+            done = home.run("git", "-C", str(copy), *args)
+            self.assertEqual(done.code, 0, done.err)
+        # HOME/agentkit names a path only a box's own /tmp holds: on the host it leads nowhere.
+        self.link = f"/tmp/{root.name}-agentkit"
+        (home.path / "agentkit").symlink_to(self.link)
         python = shlex.quote(sys.executable)
         for name, script in (("claude", CLAUDE), ("codex", CODEX), ("npm", NPM)):
             home.fake(name, LOG.format(python=python, log=shlex.quote(str(home.log(name))))
@@ -121,9 +148,13 @@ class KeepsHarnessesCurrent(unittest.TestCase):
                                            else value for key, value in entry.items()}
                                     for name, entry in json.loads(path.read_text()).items()}))
 
-    def tick(self, program=None):
-        """One `ak watch`, from the install unless another program is given: what it said."""
-        done = self.home.run(*self.home.box(), program or self.install.ak, "watch")
+    def tick(self, own=True):
+        """One `AK_BIN watch`: what it said.  In its box HOME/agentkit leads to the program's own
+        checkout, the copy mounted over it, or else to the copy beside the checkout it runs from.
+        What it leaves running stays in that box."""
+        words = (("--bind", self.copy, self.checkout, "--symlink", self.checkout, self.link)
+                 if own else ("--symlink", self.copy, self.link))
+        done = self.home.run(*box(self.home, *map(str, words)), AK, "watch")
         self.assertEqual(done.code, 0, done.out + done.err)
         return done.out.splitlines()
 
@@ -135,11 +166,23 @@ class KeepsHarnessesCurrent(unittest.TestCase):
             said += self.tick()
         return said
 
+    def red(self):
+        """claude 2.2.0 started, failed by its gate and put back: what the ticks said."""
+        self.write(**{"claude.latest": "2.2.0"})
+        self.gates.exit("live", 1)
+        said = self.tick()
+        self.assertIn(starts("claude", "2.1.0", "2.2.0"), said)
+        said += self.told("claude")
+        self.gates.reset()
+        return said
+
     def test_a_tick_asks_each_latest_once_an_hour(self):
         self.tick()
+        self.assertEqual(self.asks(), {"claude": 1, "codex": 1})
+        self.passes(ASK_EVERY - SLACK)
         self.tick()
         self.assertEqual(self.asks(), {"claude": 1, "codex": 1})
-        self.passes(ASK_EVERY)
+        self.passes(SLACK)
         self.tick()
         self.assertEqual(self.asks(), {"claude": 2, "codex": 2})
         self.assertEqual(self.installs(), [])
@@ -166,31 +209,35 @@ class KeepsHarnessesCurrent(unittest.TestCase):
                          ("2.2.0 (Claude Code)", "0.2.0"))
         self.assertEqual(self.asks(), {"claude": 1, "codex": 1})
 
-    def test_a_red_is_put_back_and_said_and_held_a_day_but_a_newer_release_is_not(self):
-        self.write(**{"claude.latest": "2.2.0"})
-        self.gates.exit("live", 1)
-        said = self.told("claude")
-        self.assertIn(starts("claude", "2.1.0", "2.2.0"), said)
+    def test_a_red_is_put_back_and_said(self):
+        said = self.red()
         self.assertIn("WARN the background upgrade of claude failed:", said)
         self.assertIn("  update: claude: reverted, back on 2.1.0 (Claude Code)", said)
         self.assertEqual(self.installed("claude"), "2.1.0 (Claude Code)")
         self.assertEqual(self.installs(), ["claude install latest", "claude install 2.1.0"])
-        self.gates.reset()
-        # two hours short of a day since its start, and asked again: not started
-        self.passes(RETRY_AFTER - 2 * ASK_EVERY)
+
+    def test_a_red_release_starts_again_once_a_day_has_passed_since_its_start(self):
+        self.red()
+        self.passes(RETRY_AFTER - ASK_EVERY)
         self.tick()
         self.assertEqual(self.asks()["claude"], 2)
-        self.assertEqual(self.installs(), ["claude install latest", "claude install 2.1.0"])
-        # an hour later a newer release is out: started, still within the day
+        self.assertEqual(len(self.installs()), 2)
+        self.passes(ASK_EVERY)
+        self.assertIn(starts("claude", "2.1.0", "2.2.0"), self.tick())
+        self.told("claude")
+        self.assertEqual(self.installed("claude"), "2.2.0 (Claude Code)")
+
+    def test_a_newer_release_starts_at_once_after_a_red(self):
+        self.red()
         self.write(**{"claude.latest": "2.3.0"})
         self.passes(ASK_EVERY)
-        said = self.told("claude")
-        self.assertIn(starts("claude", "2.1.0", "2.3.0"), said)
+        self.assertIn(starts("claude", "2.1.0", "2.3.0"), self.tick())
+        self.told("claude")
         self.assertEqual(self.installed("claude"), "2.3.0 (Claude Code)")
 
     def test_a_tick_from_any_other_checkout_neither_asks_nor_upgrades(self):
         self.write(**{"claude.latest": "2.2.0", "codex.latest": "0.2.0"})
-        self.tick(AK)
+        self.tick(own=False)
         self.assertEqual((self.asks(), self.installs()), (Counter(), []))
         # the install's own tick, on the same home, does both
         self.assertIn(starts("claude", "2.1.0", "2.2.0"), self.tick())
