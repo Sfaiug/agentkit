@@ -119,12 +119,20 @@ func awaitingLive(record *run.Object, now time.Time) bool {
 		age >= 0 && age <= 3*3600 && health != nil && health.Truthy("command")
 }
 
+// runsAwaitingLive is rung 3a: only where nothing below is the owner's either, so a run of its own
+// undecided (the stop hook's `unfinished`, which it puts first) or a watcher's alert keeps the word
+// a lower rung gives it.  A parked one rung 3 has already answered.
 func runsAwaitingLive(facts climbing) (*answer, error) {
 	if _, err := aRunOfItsOwn(facts); err != nil {
 		return nil, err
 	}
 	if facts.notice != nil {
 		return nil, nil
+	}
+	for _, each := range facts.mine {
+		if each.view != nil && each.view.undecided {
+			return nil, nil
+		}
 	}
 	for _, each := range facts.mine {
 		if each.view != nil && each.view.live {
