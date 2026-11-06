@@ -172,7 +172,7 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	}
 	err = announcing(state, name, func() error {
 		now := time.Now()
-		home, seat, known := liveSeat(name, now, nil, true)
+		home, seat, known := liveSeat(name, now, lookRuns, nil, true)
 		if !known {
 			carried, err = home.healthGone(state, name, now)
 			return err

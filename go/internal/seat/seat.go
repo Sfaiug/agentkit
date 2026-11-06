@@ -69,9 +69,13 @@ type Home struct {
 	records []Seat
 	models  map[string]config.Model
 	readers recordReaders
+	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
 }
 
 type recordReaders map[string]harness.Reader
+
+// readsRuns is each seat's runs as judged at that moment, or false where Go does not read them.
+type readsRuns func([]string, time.Time) (map[string][]ran, bool)
 
 // Seatless is whether the home holds no record at all.
 func (home Home) Seatless() bool { return len(home.records) == 0 }
@@ -112,7 +116,7 @@ func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
 func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
-func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders, pending ...bool) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns readsRuns, readers recordReaders, pending ...bool) (Home, bool) {
 	began := time.Now()
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
@@ -176,7 +180,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
-	home := Home{models: models, readers: recordReaders{}}
+	home := Home{models: models, readers: recordReaders{}, runs: readRuns}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
@@ -447,7 +451,7 @@ func (home Home) Announce(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
 	for at, seat := range home.Seats {
 		if seat.live { // its look decides its word, which every reader of this home reads
-			looked, err := lookedLive(state, seat.Name, home.readers)
+			looked, err := lookedLive(state, seat.Name, home.runs, home.readers)
 			if err != nil {
 				return err
 			}

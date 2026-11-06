@@ -19,8 +19,9 @@ type runView struct {
 	task                                  *Task
 }
 
-// screenRuns is what the open screen knows of the runs between its reads: a run at rest shows as
-// its last full read found it.  Every other reader decides on what it reads, and looks at every run.
+// screenRuns is what the open screen knows of the runs between its reads: a run at rest is as its
+// last full read found it, on the rows and in what a frame's looks decide from them (Home.runs).
+// Every other reader decides on what it reads, and looks at every run.
 var screenRuns run.Reader
 
 func menuRuns(now time.Time, reader *run.Reader) (map[string][]ran, map[string][]ran, bool) {

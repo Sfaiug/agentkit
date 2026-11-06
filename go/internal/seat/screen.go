@@ -195,8 +195,8 @@ func turnMarks(rules *screen.Rules, tail string, found sight, previous *run.Obje
 var ErrUnread = errors.New("Go does not read this seat yet")
 
 // liveSeat is the home and the seat by that name, where Go reads them and its panes still run on.
-func liveSeat(name string, now time.Time, readers recordReaders, pending ...bool) (Home, Seat, bool) {
-	home, known := reading(now, true, lookRuns, readers, pending...)
+func liveSeat(name string, now time.Time, runs readsRuns, readers recordReaders, pending ...bool) (Home, Seat, bool) {
+	home, known := reading(now, true, runs, readers, pending...)
 	at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
 	if !known || at < 0 || !home.Seats[at].live {
 		return home, Seat{}, false
@@ -208,14 +208,14 @@ func liveSeat(name string, now time.Time, readers recordReaders, pending ...bool
 // to the word, as the wait for that lock can outlast what the home held: watch.announce_state's
 // look, what its last answer moved, and the word published.
 func LookedLive(state, name string) (Seat, error) {
-	return lookedLive(state, name, nil)
+	return lookedLive(state, name, lookRuns, nil)
 }
 
-func lookedLive(state, name string, readers recordReaders) (Seat, error) {
+func lookedLive(state, name string, runs readsRuns, readers recordReaders) (Seat, error) {
 	var seat Seat
 	err := announcing(state, name, func() error {
 		now := time.Now()
-		home, live, known := liveSeat(name, now, readers)
+		home, live, known := liveSeat(name, now, runs, readers)
 		if !known {
 			return ErrUnread
 		}
@@ -237,8 +237,8 @@ func lookedLive(state, name string, readers recordReaders) (Seat, error) {
 }
 
 // explainLive is orch.explain of a seat its panes still run on, from the look it just published.
-func explainLive(state, name string, readers recordReaders) ([]string, error) {
-	seat, err := lookedLive(state, name, readers)
+func explainLive(state, name string, runs readsRuns, readers recordReaders) ([]string, error) {
+	seat, err := lookedLive(state, name, runs, readers)
 	if err != nil {
 		return nil, err
 	}
