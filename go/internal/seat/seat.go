@@ -112,6 +112,7 @@ func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil
 func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
 func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders, pending ...bool) (Home, bool) {
+	began := time.Now()
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -147,9 +148,10 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		name, suffix, _ := strings.Cut(rest, ".")
 		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
 		// no listing reads (forget); one tmux no longer holds leaves its announce lock, its word and
-		// its card, which the tick closes (notify.tick_cards)
+		// its card, which the tick closes (notify.tick_cards), and what it asked the owner last, an
+		// orphan ending's question among them (handback.announce)
 		if !slices.Contains(names, name) && entry.Type().IsRegular() &&
-			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || kind == "card" && suffix == "json") {
+			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
@@ -160,7 +162,9 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	}
 	models, err := config.Models()
 	offered, unread := config.Offered()
-	runs, known := readRuns(names, now)
+	// the runs are judged as they are read: one that ended while this reading asked tmux would
+	// otherwise have ended in its clock's future, which no admission takes
+	runs, known := readRuns(names, now.Add(time.Since(began)))
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
@@ -520,14 +524,7 @@ func (seat *Seat) published(state string, now time.Time, models map[string]confi
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	since := seat.since
-	if run.Equal(previous.Get("word"), seat.Word) {
-		if previous.Has("word_since") {
-			since = previous.Get("word_since")
-		}
-	} else if previous.Get("word") != nil {
-		since = run.Float(seconds(now))
-	}
+	since := begun(previous, seat.Word, seat.since, now)
 	seat.since = since
 	wordFrom := seat.wordFrom
 	if wordFrom == nil {

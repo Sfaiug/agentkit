@@ -169,7 +169,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"secrets/acme":                     "",
 		"history.db":                       "",
 		"state/session-acme.json":          "{}",
-		"state/card-acme.json":             "{}",
 		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
 		"state/watch.json":                 `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
@@ -203,7 +202,6 @@ func TestAFailedReadEndsTheTickThere(t *testing.T) {
 		mode    os.FileMode
 	}{
 		"seat records": {"state/session-acme.json", "state", 0o100},
-		"card records": {"state/card-acme.json", "state", 0o100},
 		"code":         {"../code/api/.git/HEAD", "../code", 0},
 		"a code entry": {"../code/api/.git/HEAD", "../code/api", 0},
 		"own checkout": {"../agentkit/.git/HEAD", "../agentkit", 0},

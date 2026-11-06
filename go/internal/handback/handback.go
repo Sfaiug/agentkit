@@ -7,7 +7,8 @@
 // Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
 // does not type is marked pending, which the tick offers at the next quiet
 // prompt: a seat that takes no line now, or a line whose compact form cannot fit.
-// A seat not up there is still Python's to wake or reopen, or to report as gone.
+// A seat nothing is left of has its ending reported to the owner (Orphaned); any other seat not
+// up there is still Python's to wake, reopen or wait for.
 package handback
 
 import (
@@ -36,7 +37,11 @@ func Give(dir string, say func(string)) bool {
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
 	if session == "" || !run.Ended(record) && !recoveryEnding(record) || record.Str("state") == "stopped" ||
-		record.Str("state") == "error" && run.Going(record, time.Now()) || !seat.Watching(session) {
+		record.Str("state") == "error" && run.Going(record, time.Now()) {
+		return false
+	}
+	gone := !seat.Watching(session)
+	if gone && !Orphaned(record) {
 		return false
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
@@ -58,6 +63,12 @@ func Give(dir string, say func(string)) bool {
 			"handback_wait_reason", nil, "notification_pending", nil)
 		say(fmt.Sprintf("run %s is a %s", id, preexisting))
 		return true
+	}
+	if gone {
+		if Orphaned(said) {
+			orphan(dir, said, session, id, say)
+		}
+		return false // the seat was told nothing
 	}
 	recordOnly, pending := seat.EndingDelivery(said, session)
 	if recordOnly {
