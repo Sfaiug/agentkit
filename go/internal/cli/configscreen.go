@@ -64,7 +64,10 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		frame := menu.ConfigFrame(screen, view)
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
-		key := keyboard.ReadKey()
+		key := readConfigKey(session, c, keyboard)
+		if key.Name == "wake" { // the seat's record changed: drawn again, what was said kept
+			continue
+		}
 		view.Note = ""
 		level := -1
 		switch {
