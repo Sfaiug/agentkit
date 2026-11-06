@@ -36,8 +36,15 @@ func (r *repoPlace) fixLanding(l *loop, upstream string, record, wait *run.Objec
 		return notYet(failed, "a landing red after its fixer turn")
 	}
 	if !wait.Truthy("fixing") {
+		patch, red, err := r.redPatch(record, fix)
+		if err != nil {
+			return err
+		}
 		if err := l.save(func(record *run.Object) {
 			record.Set(count, spent)
+			if red {
+				record.Set("landing_red_patches", append(record.List("landing_red_patches"), patch))
+			}
 			record.Dict("waiting_on").Set("fixing", true)
 		}); err != nil {
 			return err

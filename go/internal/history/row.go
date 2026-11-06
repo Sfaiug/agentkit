@@ -140,7 +140,7 @@ func ending(id any, record *run.Object, measures ...any) func(*DB) error {
 		"reviewer", record.Get("reviewer"), "rounds_used", rounds, "final_state", record.Get("state"),
 		"verdict", record.Get("verdict"), "finished_at", finished, "session", seat(record),
 		"own_orchestrator", record.Get("own_orchestrator"), "own_orchestrator_effort", record.Get("own_orchestrator_effort")},
-		measures...)
+		append(landingCounts(record), measures...)...)
 	for i := 0; i < len(given); i += 2 {
 		if given[i+1] != nil {
 			pairs = append(pairs, given[i], given[i+1])
