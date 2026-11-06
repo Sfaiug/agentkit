@@ -78,25 +78,11 @@ func width(out io.Writer) int {
 		return columns
 	}
 	if file, ok := out.(*os.File); ok {
-		if columns, _ := size(file); columns > 0 {
+		if columns := columns(file); columns > 0 {
 			return columns
 		}
 	}
 	return 100
-}
-
-// Lines is out's height as Python's shutil.get_terminal_size reads it: LINES where it is a positive
-// number, else the terminal's, else 24.
-func Lines(out io.Writer) int {
-	if lines, err := strconv.Atoi(os.Getenv("LINES")); err == nil && lines > 0 {
-		return lines
-	}
-	if file, ok := out.(*os.File); ok {
-		if _, rows := size(file); rows > 0 {
-			return rows
-		}
-	}
-	return 24
 }
 
 // The caller's locale decides the glyphs: plain C or POSIX asks for ASCII.
