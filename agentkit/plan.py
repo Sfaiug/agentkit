@@ -564,8 +564,8 @@ def _owe(current, more):
 
 
 def _verify_held(name, check=None):
-    """`verify` under the lock: (the plan's open lines it left, whether it checked each line it
-    took in to a verdict)."""
+    """`verify` under the lock: (the plan's open lines it left, whether each line it took in
+    had a verdict)."""
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
@@ -586,13 +586,17 @@ def _verify_held(name, check=None):
         written = project_.rpartition("#")[2] if "#" in project_ else None
         with default_branch(repo) as (commit, env, checkout):
             for bare, found in group.items():
+                # a verdict is its check's exit alone: without a checkout, a tree proven the
+                # line's repository or a finished check the line has none, and deliveries stay owed
+                passed = None
                 try:
                     with checkout() as tree:     # its own: never another check's leftovers
                         # the repository the line recorded, in the very tree it runs in
-                        passed = ((not written or holds(tree, written, "HEAD"))
-                                  and not fails(tree, found["check"], env))
+                        if not written or holds(tree, written, "HEAD"):
+                            passed = not fails(tree, found["check"], env)
                 except config.Error:
-                    passed = whole = False      # no checkout, or unfinished: no verdict
+                    passed = None
+                whole = whole and passed is not None
                 results[bare] = ticked(f"- [ ] {bare}", commit if passed else None)
                 if passed:
                     passing[bare] = (repo, found, commit)
