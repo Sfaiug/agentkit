@@ -79,7 +79,7 @@ func readFrame(now time.Time, announce bool) (reading, bool) {
 func akScreen(args []string, out, errOut io.Writer) int {
 	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
 	if !terminal.Attachable() && !onLiveCheckout() {
-		return pipeMenu(dry || overlay, out, errOut)
+		return pipeMenu(dry, overlay, out, errOut)
 	}
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
@@ -145,10 +145,8 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		}
 	}()
 	go reread()
-	clock, model := &motion.Clock{}, menu.Model{}
-	if overlay {
-		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
-	}
+	clock, model, own := &motion.Clock{}, menu.Model{}, popupSeat(overlay)
+	model.Highlight.Cursor = own
 	if cursor, restarted := os.LookupEnv("AK_MENU_CURSOR"); restarted {
 		clock.Finish() // the same screen on new code: no line grows in again
 		if cursor != "" {
@@ -180,7 +178,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		model.Highlight.Cursor = menu.Step(shown.seats, shown.switches, model.Highlight.Cursor, 0)
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock,
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown, own), Highlight: model.Highlight, New: model.New, Motion: clock,
 			Switches: shown.switches}, screen.Width(), screen.Height())
 		if model.New != nil && model.New.Picker {
 			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))
@@ -274,7 +272,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				return notImplemented(errOut, "attach")
 			}
 		case key.Name == "char" && (key.Char == "x" || key.Char == "X") && overlay:
-			if leave, code := menuStop(shown, dry, keyboard, painter, &model.Highlight, errOut); leave {
+			if leave, code := menuStop(shown, own, dry, keyboard, painter, &model.Highlight, errOut); leave {
 				return code
 			}
 		}
