@@ -8,6 +8,7 @@ test_key_account_shares_settings
 test_key_agents_md_cleanup
 test_key_answer_context
 test_key_audit_off
+test_key_audit_owner_closed
 test_key_antigravity_words
 test_key_background_work_holds_the_account
 test_key_auth_reads_login
