@@ -50,13 +50,6 @@ func (r *Readings) Cell(provider, account string) (left int, said string) {
 	return -1, "empty"
 }
 
-// Held is the usage-limit resets that subscription holds for the owner to spend on `c`, as its
-// cell's account names it; 0 for none or none known (menu.in_hand).
-func (r *Readings) Held(provider, account string) int {
-	held, _ := number(r.login(provider, account).Get("resets"))
-	return int(held)
-}
-
 // login is that subscription's reading, the provider's single one for an account of "".
 func (r *Readings) login(provider, account string) *run.Object {
 	prov := object(r.providers.Get(provider))
