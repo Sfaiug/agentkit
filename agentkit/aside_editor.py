@@ -30,18 +30,20 @@ from pathlib import Path
 
 from . import host
 
-EDITOR = Path(__file__).resolve().parent.parent / "tools" / "aside-editor"
+TOOL = Path("tools", "aside-editor")     # in a checkout
+EDITOR = Path(__file__).resolve().parent.parent / TOOL
 OWNER = "AK_OWNER_EDITOR"       # the owner's own editor, as the seat's launch found it
 ASK = "@ak_aside"
 FRESH = 10                      # a step asked longer ago than this was not for the edit now opened
 ASIDE, GIVEN = "a", "g"         # a kept record's first letter: set aside, or given back since
 
 
-def launch_env(environ):
-    """The `NAME=value` words that make this editor a seat's own, with the owner's beside it --
-    the one an enclosing seat's launch found, where this launch runs inside a seat."""
+def launch_env(environ, code):
+    """The `NAME=value` words that make this editor, the checkout `code`'s, a seat's own, with the
+    owner's beside it -- the one an enclosing seat's launch found, where this launch runs inside
+    a seat."""
     owner = environ.get(OWNER, environ.get("VISUAL") or environ.get("EDITOR") or "")
-    return [f"VISUAL={EDITOR}", f"EDITOR={EDITOR}", f"{OWNER}={owner}"]
+    return [f"VISUAL={code / TOOL}", f"EDITOR={code / TOOL}", f"{OWNER}={owner}"]
 
 
 def request(mode, line=""):

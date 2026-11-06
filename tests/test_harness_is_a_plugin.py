@@ -352,7 +352,8 @@ class Seats(Fixture):
         self.assertEqual(printed[1], "orch: echo (--model)")
         self.assertIn("session echo-seat in ", printed[2])
         self.assertEqual(shlex.split(printed[-1]),
-                         ["env", "AGENTKIT_ACCOUNT=", *aside_editor.launch_env(os.environ),
+                         ["env", "AGENTKIT_ACCOUNT=",
+                          *aside_editor.launch_env(os.environ, config.REPO),
                           os.environ.get("SHELL") or "/bin/sh"])
         # a dry run records nothing; the seat it planned, really started, is given no id:
         # its TUI cannot be told one (echo.sh exits 3)

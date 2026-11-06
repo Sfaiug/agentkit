@@ -104,11 +104,17 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 				}
 			}
 		case key.Name == "char" && key.Char == "r":
-			if !menuModels(session, view.Scope, c, keyboard, painter) {
+			if !menuModels(session, "config · recommended · "+view.Scope, c, keyboard, painter) {
 				return false
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
+		}
+		if key.Name == "enter" && view.Row == len(c.Names)+1 {
+			if !menuSubscriptions(keyboard, painter) {
+				return false
+			}
+			continue
 		}
 		if key.Name == "enter" && view.Row >= len(c.Names) {
 			if view.Row != len(c.Names) || !menuConfigModels(keyboard, painter) {
@@ -143,7 +149,10 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			continue
 		}
 		if view.Column == 0 && session != "" {
-			return false // moving an orchestrator needs Python's restart confirmation
+			if !moveConfigSeat(session, &view, keyboard, painter) {
+				return false
+			}
+			continue
 		}
 		mark := c.Mark(c.Names[view.Row], view.Column)
 		var changed *run.Object
@@ -203,11 +212,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	if err != nil {
 		return nil, false
 	}
-	rounds := "rounds"
-	if numbers.Rounds == 1 {
-		rounds = "round"
-	}
-	limits := fmt.Sprintf("review %d %s · executor %d lines · orchestrator %d lines", numbers.Rounds, rounds, numbers.ReviewLines, numbers.SeatLines)
+	limits := limitsSaid(numbers)
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
 		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Lines()), cloud)},
 		{Name: "Limits", Value: limits}}, true

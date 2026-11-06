@@ -1,7 +1,7 @@
 """The added lines ak counts are the host's settings: `executor_lines` and `orchestrator_lines`.
 
 Set, lower or higher than ak's default, `executor_lines` is what a task's first review takes and
-what its executor and fixer are told, and `orchestrator_lines` is the most a seat's own pull request
+what its executor's done is held to, and `orchestrator_lines` is the most a seat's own pull request
 adds.  Unset, they read 300 and 50.  Black-box: the program `AK_BIN` names runs from outside
 through tests/fixtures/akbin.py, on a project from gitrig.py, a config from akconfig.py, a task
 from taskfile.py, scripted harnesses from fakeadapter.py, the seat of akseat.py and the GitHub
@@ -10,7 +10,6 @@ of fakegh.py; this test fails against `/bin/false`.
 
 import json
 from pathlib import Path
-import re
 import sys
 import unittest
 
@@ -91,13 +90,8 @@ class TaskChange(unittest.TestCase):
         branch = f"ak/{taskfile.slug(title)}"
         self.assertEqual(state["error"],
                          f"The change on {branch} adds {lines} lines {TAIL} {ceiling}; split it")
-        self.told(turns, ["executor"], ceiling)
-
-    def told(self, turns, roles, ceiling):
-        self.assertEqual([turn["role"] for turn in turns], roles)
-        for turn in turns:
-            self.assertEqual(re.findall(r"more than (\d+) added lines",
-                                        Path(turn["argv"][3]).read_text()), [str(ceiling)])
+        self.assertEqual([turn["role"] for turn in turns], ["executor"])
+        self.assertIn(f"this change adds {lines} lines {TAIL} {ceiling}", turns[0]["hand_ins"][0]["err"])
 
     def test_a_lower_setting_blocks_a_change_under_ak_s_default_and_the_executor_is_told(self):
         self.blocked("Cut to 120", 150, 120)
@@ -105,11 +99,12 @@ class TaskChange(unittest.TestCase):
     def test_no_setting_reads_300(self):
         self.blocked("Left at 300", 301, 300)
 
-    def test_a_higher_setting_reviews_a_change_over_ak_s_default_and_tells_the_fixer_too(self):
+    def test_a_higher_setting_takes_the_executor_s_done_over_ak_s_default_and_reviews_it(self):
         done, state, turns, reviewed = self.runs["Raised to 500"]
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertEqual((state["verdict"], reviewed), ("PASS", 2))
-        self.told(turns, ["executor", "fixer"], 500)
+        self.assertEqual([turn["role"] for turn in turns], ["executor", "fixer"])
+        self.assertEqual(turns[0]["hand_ins"][0]["code"], 0, turns[0]["hand_ins"])
 
 
 # The lines a seat builds itself are settings on the settings screen. [30 Oct 2026]

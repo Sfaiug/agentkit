@@ -22,7 +22,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if expected != nil && !run.Equal(record, expected) {
 		return 2, loop.ErrChanged.Error(), nil
 	}
-	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) {
+	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) || !run.Carries(record) {
 		return 0, "", ErrPython
 	}
 	switch state := record.Str("state"); {

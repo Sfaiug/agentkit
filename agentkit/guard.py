@@ -45,6 +45,8 @@ own merges (the lander, a review run, `merge_own_pr`) run seatless, so the shim 
 them.  Like the tmux guard, this catches the merge a seat reflexively types, not a seat that means
 to get round it; out of reach, by design: merging through gh's API (`gh api ... pulls/N/merge`, or a
 GraphQL `mergePullRequest`), a user's gh alias for `pr merge`, and gh reached by an absolute path.
+It also refuses a seat's `gh pr create` whose branch adds more lines than the seat builds
+(`pr_create_refusal`), before the PR exists; the review gate still holds what it does not reach.
 
 `scp`/`rsync`/`sftp` shims on the same PATH refuse a transfer that WRITES to the live host; a read
 FROM live runs, as the rulebook has a seat operate live freely, editing no file there.
@@ -305,9 +307,9 @@ def refusal(args, tmux="tmux"):
 GH_VALUED = {"-R", "--repo"}            # the gh persistent flag that takes a value before a subcommand
 
 
-def gh_merges(args):
-    """Does this gh call run `pr merge`?  Its first two command words are `pr` then `merge`; the
-    options between them are skipped, including -R/--repo's value (`gh pr -R acme/x merge 7` and
+def gh_command(args):
+    """The first two command words of a gh call (`pr merge`, `pr create`): the options between
+    them are skipped, including -R/--repo's value (`gh pr -R acme/x merge 7` and
     `gh pr --repo acme/x merge 7` are merges), gh's one persistent value flag before a subcommand."""
     words, skip = [], False
     for arg in args:
@@ -322,25 +324,110 @@ def gh_merges(args):
         words.append(arg)
         if len(words) == 2:
             break
-    return words == ["pr", "merge"]
+    return words
+
+
+# `gh pr create`'s options, as gh reads them: its switches, and those that take a value (-R/--repo
+# among them), each short name by its long one.  A call holding any other -- help, or one a later
+# gh adds -- runs unmeasured: what that option makes of the next word cannot be told.
+PR_CREATE_SWITCHES = {"-d", "-e", "-f", "-w", "--draft", "--dry-run", "--editor", "--fill",
+                      "--fill-first", "--fill-verbose", "--no-maintainer-edit", "--web"}
+PR_CREATE_VALUED = {"-a": "--assignee", "-B": "--base", "-b": "--body", "-F": "--body-file",
+                    "-H": "--head", "-l": "--label", "-m": "--milestone", "-p": "--project",
+                    "-R": "--repo", "-r": "--reviewer", "-T": "--template", "-t": "--title",
+                    "--recover": "--recover"}
+
+
+def pr_create_options(args):
+    """{the long name of each valued option a `gh pr create` call gives: the value gh reads, the
+    last one}, or None when it holds an option not known here.  A value rides in its option's
+    word (`--base=x`, `-Bx`, `-B=x`, `-fBx` after switches; `-t=` is an empty title) or is the
+    next word, whatever that reads like (`--title --base=x` is a title).  A switch may carry
+    its own value (`--fill=true`, `-f=false`), which ends its word."""
+    letters = "".join(name[1] for name in PR_CREATE_SWITCHES if len(name) == 2)
+    found, at = {}, 0
+    while at < len(args) and args[at] != "--":
+        word, at = args[at], at + 1
+        if word.startswith("--"):
+            name, attached, value = word.partition("=")
+            if name in PR_CREATE_SWITCHES:
+                continue
+        elif word.startswith("-") and word != "-":
+            rest = word[1:].lstrip(letters)
+            if not rest or rest[0] == "=":
+                continue
+            name, attached = f"-{rest[0]}", rest[1:]
+            value = attached.removeprefix("=")
+        else:
+            continue                                    # `pr`, `create`
+        name = PR_CREATE_VALUED.get(name, name)
+        if name not in PR_CREATE_VALUED.values():
+            return None
+        if not attached:
+            if at == len(args):
+                return None
+            value, at = args[at], at + 1
+        found[name] = value
+    return found
 
 
 def gh_refusal(args, gh="gh"):
     """Why the calling seat may not run this gh call (its argv after `gh`), or None.  Merging is
     ak's job once a PR passes review with green checks, so a seat's `gh pr merge` is refused -- it
-    lets the work land through the line.  Only this command is caught, the one a seat reflexively
+    lets the work land through the line, as is a `gh pr create` too big for the seat
+    (`pr_create_refusal`).  Only these commands are caught, the ones a seat reflexively
     types; merging through gh's API or a GraphQL mutation, a gh alias for it, or gh by an absolute
     path is out of reach by design (the module docstring names these).  The one seat that may run
     `gh pr merge` by hand is the inbox, which `ak watch` asks before merging someone else's PR.
     ak's own merges run through `run.tool_env`, which drops the seat's name, so the shim never
     reaches here for them."""
     own = config.current_session()
-    if not own or not gh_merges(args):
-        return None
-    if own == resolve(config.inbox()):
+    command = gh_command(args) if own else None
+    if command == ["pr", "create"]:
+        return pr_create_refusal(args)
+    if command != ["pr", "merge"] or own == resolve(config.inbox()):
         return None
     return ("ak refused `gh pr merge`: merging is ak's job once a PR passes review with green "
             "checks. Leave it to land through the line; a seat runs no `gh pr merge` of its own.")
+
+
+def pr_create_refusal(args):
+    """Why a seat may not open this pull request, or None: its branch adds more lines than the
+    seat builds, as the review gate counts and limits them (`transitions.seat_lines`, with the
+    project's `config.policy`), against the PR's base, so no PR is left open to close.  It reads
+    `--base`/`-B` (else the default branch, origin/HEAD) and `--head`/`-H` (else the branch
+    checked out).  What it cannot measure runs and meets the gate: an option it does not know
+    (`pr_create_options`), a checkout of no project ak knows, a repository named by
+    `--repo`/`-R` or GH_REPO (which one gh means hangs on its host settings, not on the
+    checkout), a base with no `origin/` ref here, and a head that is no local branch -- a fork's
+    `owner:branch`, or a detached HEAD."""
+    options = pr_create_options(args)
+    if options is None:
+        return None
+    from . import gitcall, orch, transitions     # only now: every seat's gh call starts this guard
+    top = gitcall.git(os.getcwd(), "rev-parse", "--show-toplevel", check=False)
+    project = top and orch.checkout_of(top)
+    if not project:
+        return None
+    if options.get("--repo") or os.environ.get("GH_REPO"):
+        return None
+    base = options.get("--base")
+    branch = options.get("--head") or gitcall.git(top, "symbolic-ref", "--short", "-q", "HEAD",
+                                                  check=False)
+    target = f"refs/remotes/origin/{base}" if base else config.RULES_REF
+    head = f"refs/heads/{branch}"
+    if not (branch and all(gitcall.git(top, "rev-parse", "--verify", "--quiet", ref, check=False)
+                           for ref in (target, head))):
+        return None
+    numbers = config.policy(project)
+    limit = numbers["orchestrator_lines"]
+    read, over = transitions.seat_lines(top, target, head, limit)
+    if not over:
+        return None
+    way = ("Split it into smaller PRs." if numbers["executor_lines"] == 0 else
+           f"Write it as a task; `from: {branch}` keeps what was built.")
+    return (f"ak refused `gh pr create`: {branch} adds {read} lines (generated files and unchanged "
+            f"moves aside): too big for the seat, which builds at most {limit} added lines. {way}")
 
 
 # git's options before its command that take the next word as their value
@@ -518,10 +605,11 @@ def install_shim():
     """Ensure every `tools/<name>-shim` is linked as `<HOME>/bin/<name>` (so `<name>` on a seat's
     PATH is its shim), and return their directory.  A new shim is picked up by its name alone, with
     no change here.  Idempotent: a stale or wrong link is replaced, so an upgrade that moves or adds
-    a shim repoints it."""
+    a shim repoints it.  Each is the live checkout's (`versions.live`): a seat outlives any run."""
+    from . import versions     # here, not at the top: each command a seat guards imports this
     link_dir = shim_dir()
     link_dir.mkdir(parents=True, exist_ok=True)
-    for target in sorted((config.REPO / "tools").glob("*-shim")):
+    for target in sorted((versions.live() / "tools").glob("*-shim")):
         name = target.name[: -len("-shim")]       # tmux-shim -> tmux, gh-shim -> gh
         link = link_dir / name
         try:

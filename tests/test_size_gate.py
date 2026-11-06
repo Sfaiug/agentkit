@@ -17,9 +17,9 @@ list the loop settles: the repository's suite line, however the task names it, r
 landing and never counts; a `# once` line counts where the run has no landing), and a task
 gets its first review only up to 300 added lines (`executor_lines`); a seat's own PR stays
 at most 50 (`orchestrator_lines`), documents included, generated files aside
-and nothing deleted counted, as `run.diff_lines` counts them, less the blocks `run.carried_lines`
-finds moved unchanged from lines the diff deletes.  tests/test_seat_pr_under_fifty_lines.py drives the
-refusal through the review itself.  Offline: a real checkout whose attributes mark a
+and nothing deleted counted, as `transitions.diff_lines` counts them, less the blocks
+`transitions.carried_lines` finds moved unchanged from lines the diff deletes.
+tests/test_seat_pr_under_fifty_lines.py drives the refusal through the review itself.  Offline: a real checkout whose attributes mark a
 generated file.
 """
 
@@ -194,13 +194,13 @@ class SizeGate(Sandbox):
         self.assertEqual(history.get(directory.name)["first_review_lines"], 2)
 
     def test_the_lines_a_first_review_reads_leave_out_generated_files_and_deletions(self):
-        self.assertEqual(run.diff_lines(self.repo, self.base, self.head, added_only=True), 2)
-        self.assertEqual(run.diff_lines(self.repo, self.base, self.head), 8)     # the recorded size: old.py's four too
+        self.assertEqual(transitions.diff_lines(self.repo, self.base, self.head, added_only=True), 2)
+        self.assertEqual(transitions.diff_lines(self.repo, self.base, self.head), 8)     # the recorded size: old.py's four too
         # a change that only deletes adds nothing: a first review takes it whatever its size
         self.write({"api.py": "a\n"}, "Delete two lines")
         head = self.git("rev-parse", "HEAD")
-        self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 0)
-        self.assertEqual(run.diff_lines(self.repo, self.base, head), 6)
+        self.assertEqual(transitions.diff_lines(self.repo, self.base, head, added_only=True), 0)
+        self.assertEqual(transitions.diff_lines(self.repo, self.base, head), 6)
         ceiling = config.policy()["executor_lines"]
         self.assertIsNone(transitions.first_review_refusal("PR #7", ceiling, ceiling))
         self.assertEqual(transitions.first_review_refusal("PR #7", ceiling + 1, ceiling),
@@ -218,11 +218,11 @@ class SizeGate(Sandbox):
         (self.repo / "fixtures").mkdir()
         self.write({"fixtures/recorded.json": "{}\n" * 500}, "Record the fixtures")
         head = self.git("rev-parse", "HEAD")
-        self.assertEqual(run.diff_lines(self.repo, self.base, head, added_only=True), 501)
+        self.assertEqual(transitions.diff_lines(self.repo, self.base, head, added_only=True), 501)
         self.assertEqual(transitions.reviewed_lines(self.repo, self.base, head)[0].total(), 501)
         self.assertIn("split it", transitions.first_review_refusal("PR #7", 501, config.policy()["executor_lines"]))
         # ... and once the marking has landed on its own, the fixtures are generated
-        self.assertEqual(run.diff_lines(self.repo, self.git("rev-parse", "HEAD~1"), head,
+        self.assertEqual(transitions.diff_lines(self.repo, self.git("rev-parse", "HEAD~1"), head,
                                         added_only=True), 0)
 
     def test_lines_moved_unchanged_from_what_the_diff_deletes_never_count(self):
@@ -252,15 +252,15 @@ class SizeGate(Sandbox):
                     + "\ntail = True\n",
                     "dist/app bundle.js": "1\n2\n3\n4\n" + "tail = True\n" * 3}, "Split it")
         head = self.git("rev-parse", "HEAD")
-        self.assertEqual(run.carried_lines(self.repo, base, head), 503)
-        added = run.diff_lines(self.repo, base, head, added_only=True)
+        self.assertEqual(transitions.carried_lines(self.repo, base, head), 503)
+        added = transitions.diff_lines(self.repo, base, head, added_only=True)
         self.assertEqual(added, 507)     # the submodule's bump is one line
         # the user's own diff settings change nothing
         (self.repo / ".git/info/attributes").write_text("* diff=blank\n")
         for key, value in (("diff.noprefix", "true"), ("diff.external", "true"),
                            ("diff.blank.textconv", "true"), ("diff.submodule", "diff")):
             self.git("config", key, value)
-        self.assertEqual(run.carried_lines(self.repo, base, head), 503)
+        self.assertEqual(transitions.carried_lines(self.repo, base, head), 503)
         self.assertIsNone(transitions.first_review_refusal("PR #7", added, 300, 503))
         self.assertEqual(transitions.first_review_refusal("PR #7", 1000, 300, 699),
                          "PR #7 adds 1000 lines, 699 of them moved unchanged from lines it deletes "
@@ -283,7 +283,7 @@ class SizeGate(Sandbox):
         self.write({"new.js": "".join(f"function fresh_{n}(x) {{\n  return x * {n};\n}}\n\n" for n in range(130))},
                    "Fresh code in its place")
         head = self.git("rev-parse", "HEAD")
-        self.assertEqual(run.diff_lines(self.repo, base, head, added_only=True), 520)
+        self.assertEqual(transitions.diff_lines(self.repo, base, head, added_only=True), 520)
         # the walk grows with the diff's size, never with its boilerplate squared: no step of
         # carried_lines or its windows per copy of a brace times its deleted copies
         carried, steps = self.traced(self.repo, base, head)
@@ -291,15 +291,15 @@ class SizeGate(Sandbox):
         self.assertLessEqual(steps, 20 * (4000 + 300 * 4 + 520))
         # a short block that reads as moved is still new: fewer than MOVED_BLOCK letters or digits
         self.write({"new.js": "function old_1() {\n  return 1;\n}\n"}, "A short block that was in old.js")
-        self.assertEqual(run.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
+        self.assertEqual(transitions.carried_lines(self.repo, base, self.git("rev-parse", "HEAD")), 0)
 
     def traced(self, *args):
-        """`run.carried_lines(*args)` and the Python steps its walk and windows took."""
+        """`transitions.carried_lines(*args)` and the Python steps its walk and windows took."""
         steps, codes = [0], (transitions.reviewed_lines.__code__, transitions._windows.__code__)
         tracer = lambda frame, event, arg: (steps.__setitem__(0, steps[0] + 1), tracer)[1]
         sys.settrace(lambda frame, event, arg: tracer if frame.f_code in codes else None)
         try:
-            return run.carried_lines(*args), steps[0]
+            return transitions.carried_lines(*args), steps[0]
         finally:
             sys.settrace(None)
 

@@ -11,3 +11,4 @@ func (k *Keyboard) Sense()         {}
 func (k *Keyboard) Wake()          {}
 func (k *Keyboard) Screen() Screen { return Screen{} }
 func (k *Keyboard) ReadKey() Key   { return Key{Name: "eof"} }
+func (k *Keyboard) Unread(...Key)  {}

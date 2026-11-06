@@ -5,7 +5,6 @@ import (
 	"math/big"
 	"path/filepath"
 	"regexp"
-	"strconv"
 )
 
 // DefaultReviewLines is ak's own first-review ceiling, which the rules Go carries say.
@@ -13,64 +12,36 @@ const DefaultReviewLines = 300
 
 var wholeNumber = regexp.MustCompile(`^[0-9]+$`)
 
-// The numbers a run holds to, Python's config.policy.
-type Numbers struct{ Rounds, ReviewLines, SeatLines int }
+// The numbers a run holds to, Python's config.policy: Rounds 0 is review off.
+type Numbers struct {
+	Rounds                 int
+	ReviewLines, SeatLines Lines
+}
 
-// HostNumbers is config.toml's numbers, ak's default for one it does not name; load has refused
-// what is out of range.
+// HostNumbers is config.toml's numbers, ak's default for one it does not name, Python's
+// host_policy: the home file's own, whatever its other tables hold.
 func HostNumbers() (Numbers, error) {
-	root, err := load()
-	if err != nil {
-		return Numbers{}, err
-	}
-	rounds, err := Rounds()
-	if err != nil {
-		return Numbers{}, err
-	}
-	number := func(key string, fallback int) int {
-		if value, set := root.get(key).(*big.Int); set && value.IsInt64() {
-			return int(value.Int64())
-		}
-		return fallback
-	}
-	return Numbers{rounds, number("executor_lines", DefaultReviewLines), number("orchestrator_lines", 50)}, nil
+	_, numbers, err := homeFile()
+	return numbers, err
 }
 
 // ProjectNumbers is the numbers in force for the checkout whose default branch declares what
 // `declared` answers, "" for none, over the host's, refused naming its AGENTS.md as Python's
-// _policy_in refuses them.
+// _policy_in refuses them: front matter is text, a whole number where it is all digits.
 func ProjectNumbers(checkout string, declared func(string) string) (Numbers, error) {
 	numbers, err := HostNumbers()
 	if err != nil {
 		return numbers, err
 	}
-	path := filepath.Join(checkout, "AGENTS.md")
-	for _, each := range []struct {
-		key     string
-		value   *int
-		floor   int
-		meaning string
-	}{
-		{"review_rounds", &numbers.Rounds, 1, roundsMeaning},
-		{"executor_lines", &numbers.ReviewLines, 1, reviewLines},
-		{"orchestrator_lines", &numbers.SeatLines, 0, seatLines},
-	} {
-		said := declared(each.key)
-		if said == "" {
-			continue
+	numbers, err = policyIn(func(key string) (any, bool) {
+		said := declared(key)
+		if number, whole := new(big.Int).SetString(said, 10); whole && wholeNumber.MatchString(said) {
+			return number, true
 		}
-		shown := "'" + said + "'"
-		if wholeNumber.MatchString(said) {
-			shown = said
-			if parsed, err := strconv.Atoi(said); err == nil && parsed >= each.floor {
-				*each.value = parsed
-				continue
-			}
-		}
-		return numbers, fmt.Errorf("%s: %s must be a whole number of at least %d, %s (got %s)", path, each.key, each.floor, each.meaning, shown)
-	}
-	if numbers.SeatLines > numbers.ReviewLines {
-		return numbers, fmt.Errorf("%s: orchestrator_lines %d, %s, is over executor_lines %d, %s", path, numbers.SeatLines, seatLines, numbers.ReviewLines, reviewLines)
+		return said, said != ""
+	}, numbers)
+	if err != nil {
+		return numbers, fmt.Errorf("%s: %w", filepath.Join(checkout, "AGENTS.md"), err)
 	}
 	return numbers, nil
 }
