@@ -79,9 +79,14 @@ func (h *Highlight) Move(key terminal.Key, frame Frame) bool {
 	return true
 }
 
-func seatOrder(seats []Seat) []string {
+// seatOrder is what the highlight rests on, top to bottom: each project's seats, after its
+// checkout where it names its feature switches (switches), as Enter on its heading opens them.
+func seatOrder(seats []Seat, switches map[string]int) []string {
 	var order []string
 	for _, project := range projects(seats) {
+		if _, named := switches[project.name]; named {
+			order = append(order, project.name)
+		}
 		for _, seat := range project.seats {
 			order = append(order, seat.Name)
 		}

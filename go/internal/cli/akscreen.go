@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"agentkit/internal/features"
 	"agentkit/internal/menu"
 	"agentkit/internal/motion"
 	"agentkit/internal/plan"
@@ -26,6 +27,7 @@ type reading struct {
 	standing string
 	past     []menu.PastSeat
 	handoff  bool
+	switches map[string]int // hiddenFeatures
 }
 
 // readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it,
@@ -68,6 +70,7 @@ func readFrame(now time.Time, announce bool) (reading, bool) {
 		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
 			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
+	found.switches = hiddenFeatures(found.seats)
 	return found, true
 }
 
@@ -128,6 +131,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			reread()
 		}
 	}()
+	go func() { // a project's switches landed: its heading counts them, and their screen draws them
+		for range features.Landed() {
+			reread()
+		}
+	}()
 	go func() { // behind the frame, which draws from the cache and waits on no adapter
 		for {
 			if usage.Refresh() == nil {
@@ -169,10 +177,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			keyboard.Give()
 			return notImplemented(errOut, "attach")
 		}
-		model.Highlight.Cursor = menu.Step(shown.seats, model.Highlight.Cursor, 0)
+		model.Highlight.Cursor = menu.Step(shown.seats, shown.switches, model.Highlight.Cursor, 0)
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock}, screen.Width(), screen.Height())
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock,
+			Switches: shown.switches}, screen.Width(), screen.Height())
 		if model.New != nil && model.New.Picker {
 			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))
 		}
@@ -212,7 +221,15 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			continue
 		}
 		choice, meter := menuChoice(key, drawn, shown.seats, keyboard), drawn.Meter(key)
+		_, heading := shown.switches[choice]
 		switch {
+		case heading:
+			frame.Stop()
+			if dry || !menuFeatures(choice, keyboard, painter) { // Python's dry run draws them once
+				keyboard.Give()
+				return notImplemented(errOut, "attach")
+			}
+			model.Highlight = menu.Highlight{Cursor: choice}
 		case choice != "":
 			settle()
 			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {

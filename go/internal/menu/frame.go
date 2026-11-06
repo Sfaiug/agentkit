@@ -62,7 +62,8 @@ type View struct {
 	Standing    string // what stands under the usage: a worker token that ends soon
 	Highlight   Highlight
 	New         *Draft
-	Motion      *motion.Clock // where what moves is this frame; nil, all still
+	Motion      *motion.Clock  // where what moves is this frame; nil, all still
+	Switches    map[string]int // each project naming its feature switches, by checkout: how many are hidden
 }
 
 // Keys is the main screen's key line, `p past` on it while a seat the owner stopped is offered.
@@ -114,8 +115,8 @@ func Draw(view View, width, height int) Frame {
 	single := len(keyLine(s, view.Keys, width, ""))
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
-	cursor := Step(view.Seats, view.Highlight.Cursor, 0)
-	frame := Frame{cursor: cursor, width: width, height: height, order: seatOrder(view.Seats)}
+	cursor := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0)
+	frame := Frame{cursor: cursor, width: width, height: height, order: seatOrder(view.Seats, view.Switches)}
 	saidRoom := max(1, sized.room-(2+sized.num+2))
 	said := map[string]int{}
 	opens := 0
@@ -180,7 +181,7 @@ func Draw(view View, width, height int) Frame {
 		if i > 0 {
 			flat = append(flat, row{})
 		}
-		flat = append(flat, row{line: heading(s, project, width)})
+		flat = append(flat, headingRow(s, project, width, view.Switches))
 		for _, block := range own[i] {
 			flat = append(flat, block...)
 		}
@@ -214,7 +215,7 @@ func Draw(view View, width, height int) Frame {
 		}
 		var cut []pageProject
 		for i, blocks := range blocks(room - 1) {
-			cut = append(cut, pageProject{row{line: heading(s, projects[i], width)}, blocks})
+			cut = append(cut, pageProject{headingRow(s, projects[i], width, view.Switches), blocks})
 		}
 		pages = projectPages(cut, room+opens, true, kept)
 	}
@@ -259,13 +260,17 @@ func Draw(view View, width, height int) Frame {
 	frame.spots = make([]string, len(out))
 	for at, each := range body {
 		lit := !view.Highlight.Hidden && each.seat != "" && each.seat == cursor
-		if lit {
-			out = append(out, s.Highlight(each.line, each.seat != above))
-		} else {
-			out = append(out, each.line)
+		_, heading := view.Switches[each.seat]
+		line := each.line
+		if lit && heading {
+			line = "  " + line // flush left: its mark goes in front of it
 		}
+		if lit {
+			line = s.Highlight(line, each.seat != above)
+		}
+		out = append(out, line)
 		frame.spots = append(frame.spots, each.seat)
-		if lit && view.Highlight.Open && (at+1 == len(body) || body[at+1].seat != each.seat) {
+		if lit && !heading && view.Highlight.Open && (at+1 == len(body) || body[at+1].seat != each.seat) {
 			seat := view.Seats[slices.IndexFunc(view.Seats, func(seat Seat) bool { return seat.Name == each.seat })]
 			for _, line := range keepDetail(detail(s, seat, saidRoom, view.Motion), opens, saidRoom) {
 				out = append(out, strings.Repeat(" ", 2+sized.num+2)+line)
@@ -304,15 +309,6 @@ func grouped(seats []Seat) []project {
 		found[at].seats = append(found[at].seats, seat)
 	}
 	return found
-}
-
-// heading is a project's checkout's name in bold; the seats filed under none have a dim one.
-func heading(s terminal.Screen, each project, width int) string {
-	room := max(1, min(width, 120)) - 2
-	if !each.filed {
-		return s.Styled(terminal.Cut(unfiled, room), "dim")
-	}
-	return s.Bold(terminal.Cut(base(each.name), room))
 }
 
 // base is a checkout's last path element.

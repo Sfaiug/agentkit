@@ -24,12 +24,13 @@ type handedReading struct {
 	Standing string
 	Past     []menu.PastSeat
 	Handoff  bool
+	Switches map[string]int
 }
 
 // handOn is found as it crosses an exec to this same code; nil where the code cannot be read.
 func handOn(found reading) []byte {
 	code := menuCode()
-	data, err := json.Marshal(handedReading{found.seats, found.cells, found.standing, found.past, found.handoff})
+	data, err := json.Marshal(handedReading{found.seats, found.cells, found.standing, found.past, found.handoff, found.switches})
 	if code == "" || err != nil {
 		return nil
 	}
@@ -51,7 +52,7 @@ func handedRead() (reading, bool) {
 	if !bytes.Equal(data, pickled(code, payload)) || json.Unmarshal(payload, &found) != nil {
 		return reading{}, false
 	}
-	return reading{found.Seats, found.Cells, found.Standing, found.Past, found.Handoff}, true
+	return reading{found.Seats, found.Cells, found.Standing, found.Past, found.Handoff, found.Switches}, true
 }
 
 // pickled is [code, data] as Python's pickle.dumps writes it at protocol 3, which Python's

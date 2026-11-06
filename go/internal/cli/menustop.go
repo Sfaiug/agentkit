@@ -32,7 +32,7 @@ func menuStop(shown *reading, dry bool, keyboard *terminal.Keyboard, painter *te
 	meaning := what + " with it; the session moves to past sessions, p, where it reopens where it stopped."
 	accepted, known := confirmMenu(keyboard, painter, name, "Stop "+name+" and everything it runs?", meaning, "Stop", func(screen terminal.Screen) menu.Frame {
 		return menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Highlight: menu.Highlight{Cursor: name, Hidden: true}}, screen.Width(), screen.Height())
+			Clock: time.Now().Format("15:04"), Highlight: menu.Highlight{Cursor: name, Hidden: true}, Switches: shown.switches}, screen.Width(), screen.Height())
 	})
 	if !known {
 		keyboard.Give()
