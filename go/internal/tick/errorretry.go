@@ -130,8 +130,9 @@ func (t *ticking) errorRetry() error {
 	return nil
 }
 
-// resumeErrored resumes a due run a rung up, false where Go's resume leaves it to Python: the
-// climb is the resume's order, so a run handed over is as it stood.
+// resumeErrored resumes a due run a rung up, false where the run is Python's as it stands: one
+// Go's resume leaves to it, or one that moved since the tick read it. The climb is the resume's
+// order, so a run its resume hands over has none.
 func (t *ticking) resumeErrored(id string, each errored, now time.Time) bool {
 	var decided *run.Object
 	climb := func(current *run.Object) {
@@ -142,17 +143,18 @@ func (t *ticking) resumeErrored(id string, each errored, now time.Time) bool {
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return false
-	case err != nil || code != 0:
-		// a start that failed before the resume wrote its order climbs here
-		run.Change(each.dir, func(current *run.Object) error {
-			if run.Equal(current, each.record) {
-				climb(current)
-			}
-			return nil
-		})
-		t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(said, fmt.Sprint(err))))
-	default:
+	case err == nil && code == 0:
 		t.log.line(fmt.Sprintf("resumed %s: error retry %s", id, run.Field(decided, "error_retries", "None")))
+		return true
 	}
-	return true
+	t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(said, fmt.Sprint(err))))
+	// a start that failed before the resume wrote its order climbs here
+	moved := run.Change(each.dir, func(current *run.Object) error {
+		if !run.Equal(current, each.record) {
+			return errMovedRun
+		}
+		climb(current)
+		return nil
+	})
+	return !errors.Is(moved, errMovedRun)
 }

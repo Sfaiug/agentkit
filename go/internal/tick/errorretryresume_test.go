@@ -17,8 +17,8 @@ import (
 )
 
 // A due error retry climbs its rung with a resume Go makes, started or failed, and with nothing
-// else: one Go's resume leaves to Python is handed over as it stood, even by a box that admits
-// only the first time it is asked.
+// else: one Go's resume leaves to Python, even by a box that admits only the first time it is
+// asked, or one another writer moves while it is admitted, is Python's as it stands.
 func TestAnErrorRetryClimbsOnlyWithAResumeGoMakes(t *testing.T) {
 	for _, each := range []struct {
 		name, box string
@@ -26,6 +26,7 @@ func TestAnErrorRetryClimbsOnlyWithAResumeGoMakes(t *testing.T) {
 		state     string // after the row; "" where the run is Python's, unwritten
 	}{
 		{"box refused", "exit 1", true, ""},
+		{"record moved during admission", "sed -i 's/^{/{\"waiting_for\": \"other-run\", /' \"$HOME/.agentkit/runs/fix-api/run.json\"", true, ""},
 		{"box admitting once", "[ -e \"$0.asked\" ] && exit 1\n: > \"$0.asked\"", true, "queued"},
 		{"start failed before its resume wrote", "exit 0", false, "error"},
 	} {
@@ -57,27 +58,30 @@ func TestAnErrorRetryClimbsOnlyWithAResumeGoMakes(t *testing.T) {
 				t.Fatal(err)
 			}
 			dir := filepath.Join(ak, "runs", "fix-api")
-			put(t, filepath.Join(dir, "run.json"), run.Line(run.Fields("state", "error", "run_id", "fix-api", "pid", gone.Process.Pid,
+			record := run.Fields("state", "error", "run_id", "fix-api", "pid", gone.Process.Pid,
 				"process_identity", run.Fields("boot", "acme-boot", "ticks", 0, "started_at", 0), "worktree", t.TempDir(),
 				"no_merge", true, "scratch", true, "rounds", 3, "round_summaries", []any{}, "executor", "opus", "reviewer", "astra",
 				"launched_session", "acme", "finished_at", epoch(now), "silence_minutes", run.SilenceMinutes,
-				"ceiling_hours", run.CeilingHours, "error_retries", 0, "error_retry_at", epoch(now)-1)))
+				"ceiling_hours", run.CeilingHours, "error_retries", 0, "error_retry_at", epoch(now)-1)
+			put(t, filepath.Join(dir, "run.json"), run.Line(record))
 			put(t, filepath.Join(dir, "task.md"), "# Retry\n\n## Done when\n```bash\ntrue\n```\n")
 			if each.log {
 				put(t, filepath.Join(dir, "log.txt"), "")
 			}
-			before := read(t, filepath.Join(dir, "run.json"))
 			var out bytes.Buffer
 			err := (&ticking{log: newLog(&out, io.Discard), clock: func() time.Time { return now }}).errorRetry()
-			if each.state == "" {
-				if !errors.Is(err, errLeft) || read(t, filepath.Join(dir, "run.json")) != before {
-					t.Fatalf("handed over %v, as %s from %s", err, read(t, filepath.Join(dir, "run.json")), before)
-				}
-				return
-			}
 			after, readErr := run.Read(dir)
 			if readErr != nil {
 				t.Fatal(readErr)
+			}
+			if each.state == "" {
+				// the other writer's key aside, the record is as the tick read it
+				left := after.Copy()
+				left.Delete("waiting_for")
+				if !errors.Is(err, errLeft) || !run.Equal(left, record) {
+					t.Fatalf("handed over %v, as %s from %s", err, run.Line(after), run.Line(record))
+				}
+				return
 			}
 			if each.state == "queued" {
 				// the driver it started is this test program, gone at once: its HOME outlives it
