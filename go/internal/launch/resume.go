@@ -51,11 +51,11 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 		// a lander's wake writes into the run's log already: following it would feed it back in
 		bg, out = true, io.Discard
 	}
-	// a receipt still queued may have no log yet: its driver starts one
+	// a receipt still unstarted may have no log yet, which its driver starts; any other run has one
 	var offset int64
 	if info, err := os.Stat(filepath.Join(dir, "log.txt")); err == nil {
 		offset = info.Size()
-	} else if !errors.Is(err, fs.ErrNotExist) {
+	} else if !errors.Is(err, fs.ErrNotExist) || !loop.Unstarted(record) {
 		return 0, "", err
 	}
 	// the record and the driver under one hold of the slots, as Python's admission changes under it
