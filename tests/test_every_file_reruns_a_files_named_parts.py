@@ -1,7 +1,7 @@
 """A test file that names its failing parts is named `<file>::<part>` by tests/every_file.py, its
 re-run runs just those parts, each with the seconds it timed, and AK_ONLY listing one runs the file
-for that part alone, named as run only where a run passed with it or named it failing; the
-Go keys check given a claim's name runs it alone, and names it failing.
+for that part alone, named as run only where a run named it failing or timed it; the Go keys
+check given a claim's name runs it alone, and names it failing.
 
 Offline: the real every_file.py runs on a temporary checkout of a stand-in noting each run's
 parts, with injected host readings; the real Go key files judge stand-in keys with AK_BIN set.
@@ -94,6 +94,7 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         self.assertEqual(self.read("ran.log"), ["acme fix_api widget", "fix_api"])
         self.assertEqual([found[1] for line in proc.stdout.splitlines()
                           if (found := suite_times.PASSED.match(line))], [ACME, WIDGET, PART])
+        self.assertCountEqual(self.read("ran"), [ACME, PART, WIDGET])
 
     def test_a_listed_part_runs_alone_and_is_named_as_run(self):
         proc = self.every_file(failing_runs=2, only=[PART])
@@ -102,11 +103,11 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         self.assertEqual((self.read("ran"), self.read("failed")), ([PART], [PART]))
 
     def test_a_listed_part_the_file_does_not_hold_is_never_named_as_run(self):
-        # As a test only a later change adds: on a tree without it, its red proves nothing, nor
-        # does it name one passing beside it as run, as a run naming no part fails each.
+        # As a test only a later change adds: on a tree without it, its red proves nothing, and
+        # one passing beside it is named as run, never as failed.
         proc = self.every_file(failing_runs=0, only=[PART, GONE])
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
-        self.assertEqual((self.read("ran"), self.read("failed")), ([], [PART, GONE]))
+        self.assertEqual((self.read("ran"), self.read("failed")), ([PART], [GONE]))
 
     def test_a_listed_part_failing_beside_one_the_file_does_not_hold_is_named_as_run(self):
         proc = self.every_file(failing_runs=2, only=[PART, GONE])

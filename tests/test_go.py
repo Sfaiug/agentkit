@@ -6,10 +6,11 @@ Its parts are `fmt`, `vet <platform>` for the caller's own platform and each Go'
 the module's tests, and `build <platform>` for each it ships on, a platform as Go names it
 (`linux/amd64`); without arguments it checks each, in that order.
 The module's tests take most of 15 minutes on a loaded host and one of them seconds, so each
-failing part is named in the file FAILED_PARTS names, and every_file.py's re-run and each
-narrowing step give it just those as its arguments: a Go test as `<package>.<Test>`, its
-top-level test, runs alone in its package; a package as its import path runs whole; a step runs
-by its name, on its platform wherever this runs.
+failing part is named in the file FAILED_PARTS names, each passing one's seconds in the file
+PART_TIMES names, and every_file.py's re-run and each narrowing step give it just those as its
+arguments: a Go test as `<package>.<Test>`, its top-level test, runs alone in its package; a
+package as its import path runs whole; a step runs by its name, on its platform wherever this
+runs.
 """
 
 import json
@@ -19,10 +20,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
-from suite_shares import name_failed
+from suite_shares import name_failed, name_timed
 
 GO = Path(__file__).resolve().parents[1] / "go"
 # The landing suite reaches nothing beyond loopback: never fetch a toolchain or a module,
@@ -128,7 +130,7 @@ class Go(unittest.TestCase):
         goenv = json.loads(found.stdout)
         gofmt = Path(goenv["GOROOT"], "bin", "gofmt")
         host = f"{goenv['GOOS']}/{goenv['GOARCH']}"
-        failed, absent, shown = [], [], []
+        failed, absent, shown, took = [], [], [], {}
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
             # Vetted for each platform, tests and all, before any test runs: a test file calling
             # a helper behind a build tag of its own compiles on one platform and fails another's
@@ -138,6 +140,7 @@ class Go(unittest.TestCase):
             for part in sys.argv[1:] or dict.fromkeys(
                     ["fmt", f"vet {host}", *(f"vet {name}" for name in PLATFORMS),
                      "./...", *(f"build {name}" for name in PLATFORMS)]):
+                began = time.monotonic()
                 names, printed = step(part, gofmt, out, **judge) or tested(part, **judge)
                 if names is None:
                     absent.append(part)
@@ -145,7 +148,10 @@ class Go(unittest.TestCase):
                 elif names:
                     failed += names
                     shown.append(f"--- {' '.join(names)}\n{printed}")
+                else:
+                    took[part] = time.monotonic() - began
         name_failed(failed, "FAILED_PARTS")
+        name_timed(took)
         self.assertFalse(failed + absent, "".join(shown))
 
 

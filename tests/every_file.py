@@ -28,9 +28,11 @@ A file may name its failing parts, one per line, in the file FAILED_PARTS names 
 as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
 gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
 lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds.
-A part is named as run only where a run of its file passed with it or named it failing: a file
-given a part it does not hold, as one only a later change adds, fails naming none.  The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
-whole run too; AK_ONLY set, they are checked only where it lists them.
+A part is named as run only where a run of its file named it failing or timed it, and a run
+failing with no part named fails each part it did not time: a file given a part it does not
+hold, as one only a later change adds, fails naming and timing none.  The imports are a test of
+their own, IMPORTS, named as run and as failed like a file, in a whole run too; AK_ONLY set, they
+are checked only where it lists them.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -326,7 +328,7 @@ def main(root, others=None):
     pending = iter(todo)
     path, parts, _ = next(pending, (None,) * 3)
     began, again, failed, flaky, jobs = time.monotonic(), [], [], [], 0
-    ran = {str(path.relative_to(root)) for path, parts, _ in todo if not parts}
+    ran = {str(path.relative_to(root)) for path, _, _ in todo}
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
@@ -337,11 +339,10 @@ def main(root, others=None):
                 name = file.relative_to(root)
                 code, out, took = done.result()
                 print(timed_lines(name, asked, timed), end="", flush=True)
+                ran.update(ids(name, [*named, *timed]))
                 if code == 0 and cases_run(out) > 0:
-                    ran.update(ids(name, asked))
                     print(pass_line(name, asked, took), flush=True)
                 else:
-                    ran.update(ids(name, named))
                     again.append((name, named or asked, out))
                     # Said now: its re-run waits for the pool, which can outlast the silence limit.
                     print(f"RETRY {' '.join(ids(name, named or asked))}: {failure(code, took)}, "
@@ -372,14 +373,13 @@ def main(root, others=None):
             code, rerun, took = run_file(root, root / name, env, parts=named, failed=still,
                                          timed=timed)
             print(timed_lines(name, named, timed), end="")
+            ran.update(ids(name, [*still, *timed]))
             if code == 0 and cases_run(rerun) > 0:
                 flaky.append(ids(name, named))
-                ran.update(flaky[-1])
                 print(pass_line(name, named, took))
                 print(f"flaky: {' '.join(flaky[-1])} failed, then passed on its re-run")
             else:
-                failed.append(ids(name, still or named))
-                ran.update(ids(name, still))
+                failed.append(ids(name, still or [part for part in named if part not in timed]))
                 out = rerun
                 print(f"FAIL  {' '.join(failed[-1])}: {failure(code, took)}, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
