@@ -34,11 +34,14 @@ func runStop(args []string, out, errOut io.Writer) int {
 }
 
 // runResume is `ak run resume <id> [--bg]`, its arguments checked already: one that raises the
-// round budget, a job's, and any point Go cannot pick up from are Python's.
+// round budget, a job's in the background, and any point Go cannot pick up from are Python's.
 func runResume(args []string, out, errOut io.Writer) int {
 	id := without(args, "--bg")
-	if len(id) != 1 || isFile(job.ReceiptPath(id[0])) {
+	if len(id) != 1 || isFile(job.ReceiptPath(id[0])) && contains(args, "--bg") {
 		return notImplemented(errOut, "run resume")
+	}
+	if isFile(job.ReceiptPath(id[0])) {
+		return resumeJob(id[0], out, errOut)
 	}
 	code, reason, err := launch.Resume(id[0], contains(args, "--bg"), out, errOut)
 	switch {
@@ -50,6 +53,19 @@ func runResume(args []string, out, errOut io.Writer) int {
 	}
 	if reason != "" {
 		fmt.Fprintf(errOut, "ak run: %s\n", reason)
+	}
+	return code
+}
+
+// resumeJob is `ak run resume <job>` in the foreground.
+func resumeJob(id string, out, errOut io.Writer) int {
+	code, err := launch.ResumeJob(id, out)
+	switch {
+	case errors.Is(err, launch.ErrPython):
+		return notImplemented(errOut, "run resume")
+	case err != nil:
+		fmt.Fprintf(errOut, "ak run: %v\n", err)
+		return 2
 	}
 	return code
 }

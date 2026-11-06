@@ -353,7 +353,7 @@ func CheckLine(name string, out io.Writer) int {
 	defer held.Close()
 	took := passes(turn)
 	started := time.Now()
-	keepPasses(turn, run.Fields("took", took, "started", clock(), "pid", os.Getpid(), "process_identity", identity(os.Getpid())))
+	keepPasses(turn, run.Fields("took", took, "started", clock(), "pid", os.Getpid(), "process_identity", Identity(os.Getpid())))
 	err = checkTurn(turn, code, stampedOut{out})
 	if spent := time.Since(started); spent >= checkedPass {
 		took = append(took, spent.Seconds())[max(0, len(took)+1-20):]

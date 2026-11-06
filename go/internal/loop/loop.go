@@ -91,7 +91,7 @@ func Start(dir string, out io.Writer, detached bool) error {
 			return err
 		}
 		run.SetAll(record, "state", "running", "slot_waiting", false, "launch_pending", false, "pid", pid,
-			"process_identity", identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
+			"process_identity", Identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
 		if waiting {
 			run.SetAll(record, "state", "queued", "slot_waiting", true)
 		}
@@ -112,8 +112,8 @@ func Start(dir string, out io.Writer, detached bool) error {
 	return nil
 }
 
-// identity is a process's birth as a record holds it, nil where it cannot be read.
-func identity(pid int) any {
+// Identity is a process's birth as a record holds it, nil where it cannot be read.
+func Identity(pid int) any {
 	if born, ok := host.ReadIdentity(pid); ok {
 		return run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
 	}
