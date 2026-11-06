@@ -29,12 +29,12 @@ def listed(cfg, provider, account, since, until):
     """The dollars the login `account` of `provider` (None, its usual one) spent between `since`
     and `until` at listed prices; None where none of its rows from then can be priced.
 
-    A row is the login's where its account is and its harness runs models of that provider
-    alone (`config.harness_providers`).  A row it cannot price, its model listing no price or
-    its counts unknown, costs what the login's priced rows cost a token.
+    A row is the login's where its account is and its harness is the provider's (`_ours`).  A
+    row it cannot price, its model listing no price or its counts unknown, costs what the
+    login's priced rows cost a token.
     """
     index = matrix._release_index(catalog.current(boards.cached()))
-    ours = functools.cache(lambda harness: config.harness_providers(cfg, harness) == [provider])
+    ours = _ours(cfg, provider)
     prices = functools.cache(lambda model: _prices(index, model))
     dollars, priced, unpriced, found = 0.0, 0, 0, False
     for harness, model, tokens, counts in _rows(account or config.DEFAULT_ACCOUNT, since, until):
@@ -60,11 +60,13 @@ def weeks(cfg, provider, meters, since, until):
     A plan's points over its dollars are the points of a week a listed dollar takes, summed
     over every login's readings on it between `since` and `until`: those its probes kept, as a
     turn's trail them (on 6 Nov one read 75 eight seconds after a probe read 76), one kept with
-    no plan its login's plan now's.  A login's readings of one plan and one week, by DRIFT, rose
-    from the earliest to the highest, as a probe may read lower than one before it; what the
-    login spent (`listed`) from the earliest to the first at the highest bought that rise, and
-    one whose spend cannot be priced counts for nothing.  A week holds nothing anyone can name
-    while its plan's points or dollars are 0.
+    no plan its login's plan now's.  A login's readings of one plan and one week, by DRIFT, are
+    cut in time order between any two between which a turn ran whose tokens ak does not know
+    (`_unknown`), as what that turn spent counts nowhere.  Each stretch rose from its earliest
+    reading to its highest, as a probe may read lower than one before it; what the login spent
+    (`listed`) from the earliest to the first at the highest bought that rise, and one whose
+    spend cannot be priced counts for nothing.  A week holds nothing anyone can name while its
+    plan's points or dollars are 0.
     """
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     plans = {account: logins.whose(provider, account)[1] for account in meters}
@@ -80,15 +82,18 @@ def weeks(cfg, provider, meters, since, until):
                 start[key] = resets_at
             last[key] = resets_at
             groups.setdefault((*key, start[key]), []).append((at, used))
+    unknown = _unknown(cfg, provider, since)
     fits = {}
     for (account, plan, _), readings in groups.items():
-        began, base = min(readings)
-        top = max(used for _, used in readings)
-        dollars = listed(cfg, provider, account, began,
-                         min(at for at, used in readings if used == top))
-        if dollars is not None:
-            points, spent = fits.get(plan, (0, 0))
-            fits[plan] = points + top - base, spent + dollars
+        spans = unknown.get(account or config.DEFAULT_ACCOUNT, [])
+        for stretch in _stretches(readings, spans):
+            began, base = stretch[0]
+            top = max(used for _, used in stretch)
+            dollars = listed(cfg, provider, account, began,
+                             min(at for at, used in stretch if used == top))
+            if dollars is not None:
+                points, spent = fits.get(plan, (0, 0))
+                fits[plan] = points + top - base, spent + dollars
     held = {plan: (100 * dollars / points if points and dollars else None, points, dollars)
             for plan, (points, dollars) in fits.items()}
     return {account: (plan, *held.get(plan, (None, 0, 0))) for account, plan in plans.items()}
@@ -141,23 +146,78 @@ def roles(cfg):
 
 
 def _rows(account, since, until):
-    """(harness, model, tokens, counts by `PRICES`) of each of the login's rows that ended between
-    `since` and `until`: a seat row's harness is its event's text before the first `:`, a turn
-    row's the one its turn's `harness` receipt names, None once that is gone; a seat row's
-    tokens are its own, a turn row's its counts summed."""
+    """(harness, model, tokens, counts by `PRICES`) of the login's rows between `since` and
+    `until`: a seat row at its `at`, a turn row the share of its span, from its `began` to its
+    `at`, that falls between them, one with no `began` at its `at`.  A seat row's harness is its
+    event's text before the first `:`, a turn row's the one its turn's `harness` receipt names,
+    None once that is gone; a seat row's tokens are its own, a turn row's its counts summed."""
     columns = ", ".join(PRICES)
     for event, model, tokens, *counts in _select(
             f"SELECT event, model, tokens, {columns} FROM seat_usage "
             "WHERE account = ? AND at >= ? AND at <= ?", account, since, until):
         yield event.split(":", 1)[0], model, tokens, counts
-    for turn, model, *counts in _select(
-            f"SELECT turn, model, {columns} FROM turn_usage "
-            "WHERE account = ? AND at >= ? AND at <= ?", account, since, until):
-        try:
-            harness = (Path(turn) / "harness").read_text().strip()
-        except OSError:
-            harness = None
-        yield harness, model, sum(count or 0 for count in counts), counts
+    for turn, model, began, at, *counts in _select(
+            f"SELECT turn, model, COALESCE(began, at), at, {columns} FROM turn_usage "
+            "WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until):
+        share = (min(at, until) - max(began, since)) / (at - began) if at > began else 1
+        counts = [None if count is None else count * share for count in counts]
+        yield _receipt(turn, "harness"), model, sum(count or 0 for count in counts), counts
+
+
+def _unknown(cfg, provider, since):
+    """{login: [(began, end)]} of each worker turn of `provider` (`_ours`) whose tokens ak does
+    not know: one that kept no `turn_usage` row, either one `counted_turns` names or one of a
+    run that has not ended.  A run that ended before `since` ran none since.  A turn is its
+    `account` receipt's login, the usual one where it names none, and ran from its `harness`
+    receipt to its last event (`history._turn_usage`).
+
+    Only these turns' directories are read: listing every run's took the owner 12.7 s cold."""
+    ours = _ours(cfg, provider)
+    counted, kept, running = set(), set(), set()
+    for run, ended, turns, turn in _select(
+            "SELECT run_id, finished_at IS NOT NULL, counted_turns, turn FROM runs "
+            "LEFT JOIN turn_usage USING (run_id) WHERE finished_at IS NULL OR finished_at >= ?",
+            since):
+        counted.update(json.loads(turns or "[]"))
+        kept.add(turn)
+        if not ended:
+            running.add(run)
+    counted.update(str(receipt.parent.resolve()) for run in running
+                   for receipt in (config.RUNS / run).glob("round-*/*/harness"))
+    spans = {}
+    for turn in counted - kept:
+        began = history._moment(Path(turn) / "harness")
+        if began is not None and ours(_receipt(turn, "harness")):
+            end = history._moment(Path(turn) / "events.jsonl") or began
+            spans.setdefault(_receipt(turn, "account") or config.DEFAULT_ACCOUNT, []).append(
+                (began, end))
+    return spans
+
+
+def _stretches(readings, spans):
+    """`readings`, (at, used) each, in time order, cut between any two a span (began, end)
+    overlaps the time between."""
+    stretch = []
+    for at, used in sorted(readings):
+        if stretch and any(began < at and end > stretch[-1][0] for began, end in spans):
+            yield stretch
+            stretch = []
+        stretch.append((at, used))
+    yield stretch
+
+
+def _ours(cfg, provider):
+    """Whether a harness runs models of `provider` alone (`config.harness_providers`), so that
+    what ran on it is the provider's."""
+    return functools.cache(lambda harness: config.harness_providers(cfg, harness) == [provider])
+
+
+def _receipt(turn, name):
+    """A turn directory's receipt `name` as `worker` wrote it, None once it is gone."""
+    try:
+        return (Path(turn) / name).read_text().strip()
+    except OSError:
+        return None
 
 
 def _select(query, *args):
