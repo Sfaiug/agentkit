@@ -35,6 +35,12 @@ func Queued() bool {
 	if dir == "" {
 		return false
 	}
+	// a launch hands its receipt to its child under this lock: read before, it names the launcher
+	release, err := run.Hold(dir)
+	if err != nil {
+		return false
+	}
+	defer release()
 	record, err := run.Read(dir)
 	if errors.Is(err, run.ErrLoneSurrogate) {
 		return true

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -301,12 +302,20 @@ func TestOnlyAQueuedChildSkipsTheBudget(t *testing.T) {
 	receipt := filepath.Join(home, "acme-1")
 	t.Setenv("AGENTKIT_RUN_DIR", receipt)
 	over := " is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope\n"
-	for _, state := range []string{"", `{"state":"fail"}`, `{"state":"queued"}`} {
-		if state != "" {
-			write(t, filepath.Join(receipt, "run.json"), state)
+	for _, each := range []struct {
+		state  string
+		queued bool
+	}{
+		{"", false}, {`{"state":"fail"}`, false}, {`{"state":"running","slot_waiting":false}`, false},
+		{`{"state":"queued"}`, true}, {fmt.Sprintf(`{"state":"running","pid":%d,"slot_waiting":false}`, os.Getpid()), true},
+		{`{"state":"queued","task_file":"/acme/fix-\udcff.md"}`, true},
+	} {
+		if each.state != "" {
+			write(t, filepath.Join(receipt, "run.json"), each.state)
+			write(t, filepath.Join(receipt, "recovery.lock"), "")
 		}
 		flag, rounds, code := "ak run: --rounds 4"+over, "ak run: task rounds 4"+over, 2
-		if state == `{"state":"queued"}` {
+		if each.queued {
 			flag, rounds, code = "ak run: not implemented in Go yet\n", "ak run: not implemented in Go yet\n", 3
 		}
 		assertCall(t, []string{"run", task, "--rounds", "4"}, code, "", flag)
