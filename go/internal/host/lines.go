@@ -42,8 +42,8 @@ func unknown(value float64, ok bool) string {
 	return Short(value)
 }
 
-// A memory is a cgroup's use against its limit, the reclaimable cache left out, swap in;
-// raw is with the cache, where the readings carry it.
+// A memory is a cgroup's use against its limit, the reclaimable cache and swap left out, and its
+// swap; raw is with the cache, where the readings carry it.
 type memory struct {
 	used, high, raw, swap float64
 	hasRaw                bool
