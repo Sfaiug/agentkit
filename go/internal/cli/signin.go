@@ -86,8 +86,11 @@ func ranVerb(harness, verb, account, provider string) bool {
 	if !login {
 		return true
 	}
-	answered, yes, _ := worker.Login(adapter, env, "seat")
-	return !answered || yes
+	if answered, yes, _ := worker.Login(adapter, env, "seat"); answered && !yes {
+		return false
+	}
+	signedIn[harness] = true // c reads its models again
+	return true
 }
 
 // forget is what that harness made for account, a login that did not finish, taken away.

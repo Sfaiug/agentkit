@@ -9,36 +9,38 @@ import (
 	"agentkit/internal/seat"
 )
 
-// A visit reads each harness once, before any key can step its models' efforts, and again only for
-// a model new since that its choices lack, which a login made in between brought.
+// A visit reads each harness once, before any key can step its models' efforts, and again after a
+// sign-in on it finishes, since a login changes what each of its models offers.
 type configCatalog struct {
 	choices map[string][]modelListing.Choice
-	served  map[[2]string]bool // each harness and model id the choices were read for
 	ask     func(string) ([]modelListing.Choice, error)
 }
 
+// signedIn is each harness a sign-in has finished on since c last read its models (ranVerb).
+var signedIn = map[string]bool{}
+
 func (catalogs *configCatalog) read(c *matrix.Configuration) error {
 	if catalogs.choices == nil {
-		catalogs.choices, catalogs.served = map[string][]modelListing.Choice{}, map[[2]string]bool{}
+		catalogs.choices = map[string][]modelListing.Choice{}
 	}
+	for harness := range signedIn {
+		delete(catalogs.choices, harness)
+	}
+	clear(signedIn)
 	ask := catalogs.ask
 	if ask == nil {
 		ask = modelListing.Choices
 	}
-	asked := map[string]bool{}
 	for _, name := range c.Names {
 		entry := c.Models[name]
 		choices, read := catalogs.choices[entry.Harness]
-		model := [2]string{entry.Harness, entry.ID}
-		lacked := !catalogs.served[model] && !slices.ContainsFunc(choices, func(choice modelListing.Choice) bool { return choice.ID == entry.ID })
-		if !read || lacked && !asked[entry.Harness] {
+		if !read {
 			var err error
 			if choices, err = ask(entry.Harness); err != nil {
 				return err
 			}
-			catalogs.choices[entry.Harness], asked[entry.Harness] = choices, true
+			catalogs.choices[entry.Harness] = choices
 		}
-		catalogs.served[model] = true
 		for _, choice := range choices {
 			if choice.ID == entry.ID {
 				c.Levels[name] = choice.Efforts
