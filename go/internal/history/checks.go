@@ -1,16 +1,22 @@
 package history
 
-import "os"
+import (
+	"os"
+	"sync"
+)
 
 // A Checked is what the rows of one check name beside its command, Python's `checked`: its run,
 // round, an int, nil for a lander's check, which runs in none, and kind (`done-when`, `rules`,
 // `base-proof`, `replay`, `landing`, `tip`), and the commit it checks, "" for a scratch run's one
-// workspace.  A nil one leaves no row.
+// workspace.  A nil one leaves no row.  It keeps the rows written under it, which its pieces write
+// at once, for Drop.
 type Checked struct {
-	Run   string
-	Round any
-	Kind  string
-	Tree  string
+	Run     string
+	Round   any
+	Kind    string
+	Tree    string
+	held    sync.Mutex
+	written []written
 }
 
 // Check is Python's history.check: the row of one check, written as it starts, so a check that
@@ -72,6 +78,7 @@ func started(checked *Checked, command string, asked float64, place string, log 
 	}) {
 		return 0
 	}
+	checked.wrote("checks", row)
 	return row
 }
 
@@ -82,7 +89,8 @@ func TestReds(checked *Checked, confirmed, flaky []string, log func(string)) {
 		return
 	}
 	at := now()
-	apply(log, func(db *DB) error {
+	var rows []int64
+	if !apply(log, func(db *DB) error {
 		kept := map[[2]any]bool{}
 		for flake, tests := range [][]string{confirmed, flaky} {
 			for _, test := range tests {
@@ -93,11 +101,17 @@ func TestReds(checked *Checked, confirmed, flaky []string, log func(string)) {
 						checked.Round, checked.Kind, checked.tree(), test, flake, at, checked.Run); err != nil {
 						return err
 					}
+					if db.conn.Changes() > 0 {
+						rows = append(rows, db.conn.LastInsertRowID())
+					}
 				}
 			}
 		}
 		return nil
-	})
+	}) {
+		return
+	}
+	checked.wrote("test_reds", rows...)
 }
 
 // tree is the commit as a row holds it, NULL for a workspace.

@@ -200,6 +200,11 @@ func (s *narrowingStack) check(checks []string, suite, kind string, selection *c
 	case selection.pinned():
 		name = fmt.Sprintf("lander-%s-tests.log", s.tree)
 	}
+	defer func() {
+		if selection.handoff {
+			selection.rows.Drop(s.l.say) // Python checks it again, and records it then
+		}
+	}()
 	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, kind, suite, selection)
 	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) || err == nil && !ok && !selection.pinned() && helper.May() {
 		// a whole check's red with suite helpers is Python's, as stack.go says
