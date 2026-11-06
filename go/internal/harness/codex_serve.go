@@ -156,11 +156,11 @@ func codexOnServer(cmd, prompt []string, receipt string, env []string, errOut io
 	// refused.  --remote is global, so it goes before a `resume`.
 	tui := []string{cmd[0], "--remote", "unix://" + socket}
 	tui = append(append(tui, slices.DeleteFunc(slices.Clone(cmd[1:]), func(word string) bool { return word == "--yolo" })...), prompt...)
-	beside, stop := context.WithCancel(context.Background())
+	beside, done := context.WithCancel(context.Background())
 	named := make(chan struct{})
 	go func() { defer close(named); codexNamed(beside, home, socket, log) }()
 	go codexSettingsFollowed(beside, socket, held.Str("launch"), changed)
-	defer func() { stop(); <-named }()
+	defer func() { done(); <-named }()
 	// The TUI runs on the seat's terminal, which hands it this process's signals: a server that
 	// stops, or a seat forgotten, ends it with one.
 	running, ended := make(chan struct{}), make(chan error, 1)
