@@ -84,7 +84,7 @@ func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *
 		if answer == nil && time.Since(asked) >= gatePoll {
 			asked, answer, said = time.Now(), make(chan *helper.Away, 1), &[]string{}
 			go func(answer chan *helper.Away, said *[]string) {
-				there, _, _ := helper.Start(cwd, cpus, memory, cmd, func(line string) { *said = append(*said, line) })
+				there, _, _ := helper.Start(cwd, cpus, memory, cmd, nil, func(line string) { *said = append(*said, line) })
 				answer <- there
 			}(answer, said)
 		}

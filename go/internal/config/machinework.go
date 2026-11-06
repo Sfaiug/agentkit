@@ -3,15 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"slices"
 )
-
-// TakesTests is whether the machine config.toml names takes suites: none does while MachineWork
-// cannot be read, and then every suite runs here.
-func TakesTests(name string) bool {
-	work, known := MachineWork(name)
-	return known && slices.Contains(work, "tests")
-}
 
 // MachineWork is the work config.toml marks machine `name` for, as Python's machines.work reads
 // the marks before a Mac's probe rules turns out: its `[machines.<name>]` table's `work`, or for
