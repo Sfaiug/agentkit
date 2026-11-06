@@ -13,7 +13,6 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
-	"agentkit/internal/screen"
 	meters "agentkit/internal/usage"
 	"agentkit/internal/worker"
 )
@@ -162,7 +161,7 @@ func (moving *seatMove) sight(name string, held bool) (sight, bool) {
 	if seen.bad != nil {
 		return sight{}, false
 	}
-	read := seen.rules.Read(screen.Tail(pane))
+	read := seen.rules.Read(pane)
 	draft, _ := seen.rules.ComposerDraft(pane)
 	found, _ := observed(filepath.Join(config.Home(), "state"), name, harness.For(moving.own), pane, seconds(time.Now()))
 	return found, read.State != "asking" && read.State != "draft" && found.state != "asking" && draft == ""

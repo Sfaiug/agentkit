@@ -1,10 +1,10 @@
-// Package screen reads what a harness has drawn: handed a harness's rules and the tail of its
-// pane, it says which state that screen shows and the rule that said so, as Python's
-// watch.screen_state does.  It hides which rows
-// a rule may read (a tray, a view scrolled away, the rule framing a footer), the attributes that
-// tell typed text from a faint suggestion, how far a composer goes, and the order rules are tried
-// in.  It names no harness, captures no pane and writes no record: every fact about a harness is
-// its manifest's, so another one comes in by its manifest alone.
+// Package screen reads what a harness has drawn: handed a harness's rules and its pane, it says
+// which state that screen shows and the rule that said so, as Python's watch.screen_state does.
+// It hides which rows a rule may read (a tray, a view scrolled away, the rule framing a footer, a
+// composer's draft above them), the attributes that tell typed text from a faint suggestion, how
+// far a composer goes, and the order rules are tried in.  It names no harness, captures no pane
+// and writes no record: every fact about a harness is its manifest's, so another one comes in by
+// its manifest alone.
 package screen
 
 import (
@@ -28,7 +28,7 @@ type Reading struct{ State, Rule, Evidence string }
 type Rules struct {
 	composer, footer, tray *pyre.Regexp // each reads a whole row
 	away, scrolled, draft  *pyre.Regexp
-	ruled, boxed           bool
+	ruled, boxed, scrolls  bool
 	faint                  []string
 	rules                  []rule
 }
@@ -66,7 +66,7 @@ func Compile(chrome map[string]any, rules []map[string]any) (*Rules, error) {
 			parts = append(parts, "(?:"+part+")")
 		}
 	}
-	read := Rules{ruled: chrome["ruled"] == true, boxed: chrome["boxed"] == true}
+	read := Rules{ruled: chrome["ruled"] == true, boxed: chrome["boxed"] == true, scrolls: chrome["scrolls"] == true}
 	if listed, ok := chrome["faint"].([]any); ok {
 		for _, colour := range listed {
 			if colour, ok := colour.(string); ok {
@@ -160,8 +160,9 @@ func Tail(pane string) string {
 	return strings.Join(lastOf(rows, tailRows), "\n")
 }
 
-// Read is the first rule, in the manifest's order, that the tail's rows match.
-func (r *Rules) Read(tail string) Reading {
+// Read is the first rule, in the manifest's order, that the pane's tail matches.
+func (r *Rules) Read(pane string) Reading {
+	tail := Tail(pane)
 	raws := contentRows(tail)
 	if len(raws) == 0 {
 		return Reading{}
@@ -176,10 +177,11 @@ func (r *Rules) Read(tail string) Reading {
 	}
 	raws, lines = r.withoutTray(raws, lines)
 	newest := r.newestRow(raws, lines)
+	reach := r.reach(pane, raws)
 	for _, each := range r.rules {
 		region, rows := lastOf(lines, each.lines), lastOf(raws, each.lines)
 		if each.id == "prompt.draft" || each.id == "prompt.suggestion" {
-			if found, ok := r.atComposer(each, rows, region); ok {
+			if found, ok := r.atComposer(each, rows, region, reach); ok {
 				return found
 			}
 			continue
