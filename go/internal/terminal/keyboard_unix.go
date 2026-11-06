@@ -39,6 +39,7 @@ type Keyboard struct {
 	screen  bool
 	sensed  Screen
 	keyed   []byte // what was read past a key, or typed while Sense waited
+	unread  []Key  // keys a wait read and kept for the screen after it (Unread)
 	woken   [2]*os.File
 	wake    atomic.Bool
 	mu      sync.Mutex
@@ -47,13 +48,13 @@ type Keyboard struct {
 	heard   chan os.Signal
 }
 
-// NewKeyboard starts hearing what ends or stops the program, and takes nothing yet.
+// NewKeyboard takes nothing yet, and leaves what ends or stops the program to its defaults till
+// Take: a read before that can still be cut short.
 func NewKeyboard() *Keyboard {
 	k := &Keyboard{cont: make(chan os.Signal, 1)}
 	k.woken[0], k.woken[1], _ = os.Pipe()
 	signal.Notify(k.cont, syscall.SIGCONT)
 	k.heard = make(chan os.Signal, 8)
-	k.listen()
 	go func() {
 		for each := range k.heard {
 			k.mu.Lock()
@@ -71,13 +72,15 @@ func (k *Keyboard) Take() {
 }
 
 // Give puts the terminal back exactly as Take found it.
-func (k *Keyboard) Give() {
+func (k *Keyboard) Give() { k.give(giveModes) }
+
+func (k *Keyboard) give(modes string) {
 	if !k.taken {
 		return
 	}
 	k.taken = false
 	if k.screen {
-		syscall.Write(outFD, []byte(giveModes))
+		syscall.Write(outFD, []byte(modes))
 	}
 	attrs(setAttrs, &k.saved)
 	signal.Stop(k.heard)
@@ -137,25 +140,16 @@ func (k *Keyboard) Wake() {
 // on going on takes it again; a resize or that return says `again`.
 func (k *Keyboard) ReadKey() Key {
 	for {
-		k.mu.Lock()
-		var heard os.Signal
-		if len(k.pending) > 0 {
-			heard, k.pending = k.pending[0], k.pending[1:]
-		}
-		k.mu.Unlock()
-		switch heard {
-		case nil:
-		case syscall.SIGWINCH:
+		if k.answer() {
 			return Key{Name: "again"}
-		case syscall.SIGTSTP:
-			k.stop()
-			return Key{Name: "again"}
-		default:
-			k.Give()
-			os.Exit(128 + int(heard.(syscall.Signal)))
 		}
 		if k.wake.Swap(false) {
 			return Key{Name: "wake"}
+		}
+		if len(k.unread) > 0 {
+			key := k.unread[0]
+			k.unread = k.unread[1:]
+			return key
 		}
 		first, got := k.keyedByte()
 		if !got {
@@ -177,6 +171,28 @@ func (k *Keyboard) ReadKey() Key {
 			return key
 		}
 	}
+}
+
+// answer answers the signal heard first, and whether there was one: what is left is a resize or a
+// return from a stop, each asking for a draw.
+func (k *Keyboard) answer() bool {
+	k.mu.Lock()
+	var heard os.Signal
+	if len(k.pending) > 0 {
+		heard, k.pending = k.pending[0], k.pending[1:]
+	}
+	k.mu.Unlock()
+	switch heard {
+	case nil:
+		return false
+	case syscall.SIGTSTP:
+		k.stop()
+	case syscall.SIGWINCH:
+	default:
+		k.Give()
+		os.Exit(128 + int(heard.(syscall.Signal)))
+	}
+	return true
 }
 
 // stop hands the terminal over and stops, which only a person's `fg` or a SIGCONT undoes.

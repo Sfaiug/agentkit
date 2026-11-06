@@ -33,7 +33,13 @@ func TestOneRecordThatCannotBeWrittenKeepsNoOtherErrorFromItsRetry(t *testing.T)
 	put(t, filepath.Join(home, ".agentkit", "state", "session-acme.json"), "{}")
 	var out bytes.Buffer
 	tick := &ticking{clock: func() time.Time { return now }, log: newLog(&out, io.Discard)}
-	carried := tick.through([]pass{{"error retry", true, tick.errorRetryIdle, tick.errorRetry}})
+	var row []pass
+	for _, each := range table(tick) {
+		if each.name == "error retry" {
+			row = append(row, each)
+		}
+	}
+	carried := tick.through(row)
 	record, err := run.Read(later)
 	if err != nil {
 		t.Fatal(err)

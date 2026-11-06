@@ -1,24 +1,20 @@
 package cli
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestModelsPickerClicksOnlyItsDrawnLabels(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second)
-	defer cancel()
 	binary := filepath.Join(t.TempDir(), "ak")
-	build := exec.CommandContext(ctx, "go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
+	build := exec.Command("go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import os, sys
 from pathlib import Path
 os.environ["AK_BIN"] = sys.argv[1]

@@ -17,7 +17,8 @@ import (
 )
 
 // ErrPython is a home whose usage Python ak reads: where its adapter scripts live, a provider
-// listing accounts, and the tokens a window holds measured in state/capacity.json are not yet Go's.
+// listing accounts, but for the ak screen's refresh, and the tokens a window holds measured in
+// state/capacity.json are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // Readings is every provider's reading, as of the moment it was read.
@@ -28,20 +29,37 @@ type Readings struct {
 	now       float64
 }
 
-// A source is a provider as the read asks it: its table, its harness's `[usage]` facts, and the
-// adapter script that answers for it or why none can.
+// A source is a provider as the read asks it: its table, its harness's `[usage]` facts, the
+// adapter script that answers for it or why none can, and the account of it asked, "" for its one
+// login.
 type source struct {
 	config.Subscription
 	facts   config.UsageFacts
 	adapter string
 	broken  error
+	account string
+}
+
+// key is what the source's probe moment and its not-before are kept under: its provider's name, an
+// account's after a dot (usage._lock).
+func (src source) key() string {
+	if src.account == "" {
+		return src.Name
+	}
+	return src.Name + "." + src.account
 }
 
 // Read is the reading of every provider config.toml lists: the one state/usage.json holds while
 // it is under five minutes old, else each provider's adapter asked again, as Python's
 // usage.collect reads it.  ErrPython before anything is locked or asked.
-func Read() (*Readings, error) {
-	sources, err := listed(false)
+func Read() (*Readings, error) { return readAll(false) }
+
+// Collected is Read as Python's tick and its marks read it, the checkout's own adapters asked
+// where no $AGENTKIT_ADAPTER_DIR is named, as the ak screen asks them.
+func Collected() (*Readings, error) { return readAll(true) }
+
+func readAll(shipped bool) (*Readings, error) {
+	sources, err := listed(shipped)
 	if err != nil {
 		return nil, err
 	}
@@ -59,9 +77,10 @@ func Check() error {
 	return err
 }
 
-// listed is every provider config.toml lists as a read asks it, or why that is not Go's; shipped
-// asks, where no $AGENTKIT_ADAPTER_DIR is named, the checkout's own adapters, as Python does.
-func listed(shipped bool) ([]source, error) {
+// listed is every provider config.toml lists as a read asks it, or why that is not Go's; a refresh
+// asks, where no $AGENTKIT_ADAPTER_DIR is named, the checkout's own adapters, and each account a
+// provider lists, as Python does.
+func listed(refresh bool) ([]source, error) {
 	subs, err := config.Subscriptions()
 	if err != nil {
 		return nil, err
@@ -77,13 +96,18 @@ func listed(shipped bool) ([]source, error) {
 			return nil, err
 		}
 		adapter, err := config.Adapter(sub.Harness)
-		if errors.Is(err, config.ErrNoAdapterDir) && shipped {
+		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
 			adapter, err = config.ShippedAdapter(sub.Harness)
 		}
-		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 {
+		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 && !refresh {
 			return nil, ErrPython
 		}
-		sources = append(sources, source{sub, facts, adapter, err})
+		if len(accounts) == 0 {
+			accounts = []string{""} // the provider's one login
+		}
+		for _, account := range accounts {
+			sources = append(sources, source{sub, facts, adapter, err, account})
+		}
 	}
 	if measured() {
 		return nil, ErrPython

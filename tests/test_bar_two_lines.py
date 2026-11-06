@@ -102,7 +102,7 @@ class TwoLines(Sandbox):
         self.assertEqual(drawn(top), f" ● working   fix-api   Fable 5.1 xhigh   {drawn(bar)}")
         # line two is its row's open line: who builds and reviews, and its task building
         self.assertEqual(drawn(self.options[statusbar.WHY]),
-                         "  GPT-6-Astra ⚒◎   ■□□")
+                         "  GPT-6-Astra xhigh ⚒◎   ■□□")
         self.assertNotIn("going", self.options[statusbar.WHY])      # never a task's name
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
         self.assertEqual(self.options["set-titles-string"], "fix-api · working")
@@ -113,7 +113,7 @@ class TwoLines(Sandbox):
         top, why = self.options[statusbar.TOP], self.options[statusbar.WHY]
         self.assertIn(f"#[fg={INK},bg=#f9e2af,bold] ! needs you #[default]", top)
         self.assertEqual(drawn(top), "  ! needs you    fix-api   Fable 5.1 xhigh")
-        self.assertEqual(drawn(why), "  GPT-6-Astra ⚒◎")
+        self.assertEqual(drawn(why), "  GPT-6-Astra xhigh ⚒◎")
         self.assertNotIn("Merge", "".join(self.options.values()))
         self.assertEqual(drawn(self.options[statusbar.KEY]), "Ctrl-b m  menu ")
 

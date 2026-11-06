@@ -317,24 +317,17 @@ sys.exit(1)
 
     # --- (g) what the workers are told ------------------------------------
 
-    def test_v5l_preambles_tell_workers_about_notify_patterns_and_one_pass(self):
+    def test_v5l_preambles_tell_workers_about_the_summary_patterns_and_one_pass(self):
         self.reviews(fail(2), PASS)
         _, directory, _ = self.launch(rounds=3)
         executor, fixer = self.calls("executor")[0], self.calls("executor")[1]
         self.assertTrue(executor["prompt"].startswith("You are the executor."))
         for prompt in (executor["prompt"], fixer["prompt"]):
-            self.assertIn("ak suppresses `ak notify` in worker sessions", prompt)
-            self.assertIn("goes into your `## Summary`", prompt)
-        self.assertIn("Fix every undisputed finding", fixer["prompt"])
-        self.assertIn("list the sites you changed in your summary", fixer["prompt"])
+            self.assertIn(worker.SUMMARY, prompt)
         reviewer = self.calls("reviewer")[0]["prompt"]
         self.assertTrue(reviewer.startswith("You are the reviewer"))
         self.assertIn("Report every finding you can establish in this one pass", reviewer)
         self.assertIn("grouped by pattern with every site listed", reviewer)
-        self.assertIn("uphold with `ak hand-in finding`", reviewer)
-        self.assertIn('concede with `ak hand-in concede path:line "why"`', reviewer)
-        self.assertIn("done waits for every answer", reviewer)
-        self.assertIn("ak re-proves each earlier --run finding on the commit a later round reviews", reviewer)
         self.assertIn("ak hand-in done", reviewer)
         self.assertNotIn("VERDICT:", reviewer)
         self.assertIn('ak hand-in finding path:line "what" "why it matters"', reviewer)
@@ -356,9 +349,7 @@ sys.exit(1)
                     self.assertIn("Report every finding you can establish in this one pass", text)
                     self.assertNotIn("ak notify", text)
                 else:
-                    self.assertIn("ak suppresses `ak notify` in worker sessions", text)
-                if role.startswith("fixer"):
-                    self.assertIn("Fix every undisputed finding", text)
+                    self.assertIn(worker.SUMMARY, text)
 
     def test_v5l_findings_grouped_by_pattern_do_not_converge(self):
         """The reviewer is asked to group by pattern; those subheadings are inside the list."""

@@ -118,12 +118,12 @@ class Highlight(Menu):
         term.keys("j")
         self.shows(term, ON_BETA)
         term.keys("Up")
-        self.shows(term, ["› acme", "Opus 5.5 ⚒◎", "  beta", "  fix-api"])
+        self.shows(term, ["› acme", "Opus 5.5 xhigh ⚒◎", "  beta", "  fix-api"])
         # k on the first row stays there, or ↓ would not land on beta
         term.keys("k", "Down")
         self.shows(term, ON_BETA)
         term.type(WHEEL_DOWN)
-        self.shows(term, ["  acme", "  beta", "› fix-api", "GPT-6-Astra ⚒◎"])
+        self.shows(term, ["  acme", "  beta", "› fix-api", "GPT-6-Astra xhigh ⚒◎"])
         # ↓ and the wheel on the last row stay there, or k would not land on beta
         term.keys("Down")
         term.type(WHEEL_DOWN)

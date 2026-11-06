@@ -873,6 +873,9 @@ def screen(harness):
              else None,
              "folded": _pattern(block.get("folded"), path),
              "scrolled": _pattern(block.get("scrolled"), path),
+             # it scrolls a draft taller than its composer's box inside it: the box is whole
+             # on the screen, however tall the draft (`screen_state`)
+             "scrolls": block.get("scrolls") is True,
              "away": _pattern(block.get("away"), path),
              "draft": _pattern(block.get("draft"), path, re.M),
              "faint": tuple(colour for colour in block.get("faint") or ()
@@ -1891,8 +1894,9 @@ def _screen_rows(tail):
     return raw_lines, [strip_sgr(line).strip() for line in raw_lines]
 
 
-def screen_state(harness, tail):
-    """(state, rule id, evidence line) of the first adapter rule that matches, else (None, "", "").
+def screen_state(harness, pane):
+    """(state, rule id, evidence line) of the first adapter rule that matches the bottom of that
+    pane, else (None, "", "").
 
     A fix here adds no fallback for a shape it did not set out to read and reads only the rows
     the code it replaces read: every such fallback, and every reach further up the pane, misread
@@ -1902,7 +1906,8 @@ def screen_state(harness, tail):
     Rules are read in file order and the first match wins, which is why every manifest puts its
     dialog rules before its working rules, its draft rule before its prompt rule, and its
     at-the-prompt rule last: a TUI still draws the composer it drew when the turn ended while
-    the next turn is running.  Only the bottom of the pane is read, never the scrolled viewport,
+    the next turn is running.  Only the bottom of the pane is read, its last PANE_LINES rows and
+    above them only a composer the harness always draws whole, never the scrolled viewport,
     and a dialog rule has to name the pair of controls a real dialog shows, so transcript text
     quoting a prompt cannot fake one.  A composer whose only content is dim -- a suggestion or
     placeholder -- is empty; one holding bright text is a draft.  The draft and suggestion
@@ -1914,6 +1919,7 @@ def screen_state(harness, tail):
     one, while whatever the harness draws between its composer and its footer, a user's
     status line, never hides it or reads as it, even where it starts with a prompt mark.
     """
+    tail = pane_tail(pane)
     raw_lines, lines = _screen_rows(tail)
     if not lines:
         return None, "", ""
@@ -1975,7 +1981,16 @@ def screen_state(harness, tail):
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
                 # row of it down to its closing rule, under the footer at the pane's bottom --
-                # or, with none drawn, a prompt row right on that bottom.
+                # or, with none drawn, a prompt row right on that bottom.  A draft taller than
+                # the rule's rows goes on above them in rows indented under its prompt row, so
+                # it is read up through those to that row, however tall: in the rows read, or
+                # above them where the harness always draws its box whole (`[screen] scrolls`).
+                rows = (_content_rows(pane)[:-PANE_LINES] if chrome["scrolls"] else []) + raw_lines
+                top = len(rows) - len(region)
+                while top and strip_sgr(rows[top])[:1].isspace():
+                    top -= 1
+                raws = rows[top:]
+                region = [strip_sgr(row).strip() for row in raws]
                 at, end = ruled_composer(chrome, raws)
                 if at is not None and not chrome_line(chrome, region[-1]):
                     at = None
@@ -2045,7 +2060,7 @@ def screen_state(harness, tail):
     return None, "", ""
 
 
-def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
+def classify(harness, pane, fact, opened_at, previous, now, interrupted=None):
     """What that live seat is doing, since when, and what decided it.  A pure function.
 
     The hook decides the states its manifest reserves for it, except where a rule positively
@@ -2064,7 +2079,7 @@ def classify(harness, tail, fact, opened_at, previous, now, interrupted=None):
     opened = (opened_at if isinstance(opened_at, (int, float))
               and not isinstance(opened_at, bool) else None)
     hooked, event, spoken, when = hook_state(harness, fact)
-    seen, rule, line = screen_state(harness, tail)
+    seen, rule, line = screen_state(harness, pane)
     if hooked == "asking" and seen not in (None, "asking") and authority.get("working") == "hooks":
         hooked, spoken = "working", "its question was answered; the turn that asked it runs on"
     # Esc ends a turn with no Stop, a question's turn too: the dialog goes with it.
@@ -2242,7 +2257,7 @@ def observed(name, harness, pane, previous, at):
             ended = max(at, _stamp(fact.get("at")) or at)
     if ended is not None and seat_fact(name, harness) != fact:
         ended = None
-    found = classify(harness, pane_tail(pane), fact, previous.get("opened_at"), previous, at,
+    found = classify(harness, pane, fact, previous.get("opened_at"), previous, at,
                      interrupted=ended)
     # read off this same capture, so a turn since answers it as soon as the screen does; a
     # capture that failed says nothing of it.  So are its harness's login words (`login`),
@@ -3646,7 +3661,7 @@ def _decided_state(name, harness, pane):
         return None
     try:
         previous = seat_read(name)
-        found = classify(harness, pane_tail(pane), seat_fact(name, harness),
+        found = classify(harness, pane, seat_fact(name, harness),
                          previous.get("opened_at"), previous, time.time())
     except (config.Error, OSError):
         return None
@@ -3836,17 +3851,16 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
     from the bottom region and the whole composer. A working seat can still hold unsent
     text. A dialog counts as landed, never as a reason for another Enter.  Still held:
     one more Enter and one more wait.  Still held after that, log and return False,
-    leaving the composer alone.  Where the seat paints no composer at all, a delivered
-    send counts as sent.
+    leaving the composer alone.
     `guard` covers text, gap and first Enter, with `veto` read once before typing, so
     another sender cannot join the line and a later veto cannot strand it. Confirmation
     waits release the guard; a retry Enter checks the veto under it again. `typed` is
     told the moment the text is in the composer; `pending` sends only its locked Enter.
     `ready` is asked under the guard right before each Enter, after the gap, and the first
     Enter waits up to SENT_WAIT for it: the owner can type in it, and an Enter it refuses is
-    never sent. None means the owner's input deferred the line before its text went in:
-    keys its terminal has not read yet, or text in its composer, which a line typed after it
-    would join and send. Those checks gate new text, never the Enter completing it:
+    never sent. None means the line was deferred before its text went in: keys its terminal
+    has not read yet, or, in a seat of a known harness, a composer `composer_draft` does not
+    read empty. Those checks gate new text, never the Enter completing it:
     withholding that Enter would leave a draft the caller cannot recover, or let a retry
     append the same text to itself.
     """
@@ -3861,24 +3875,13 @@ def type_checked(session, text, log, harness=None, guard=nullcontext,
             harness, _ = seat_model(config.load(), name)
         except (config.Error, OSError):
             harness = None
-    # a line left pending was read in its composer, whatever chrome is drawn around it
-    confirm = pending
-    if harness is not None and not confirm:
-        pane = pane_text(seat)
-        if composer_draft(harness, pane):
-            return None     # the owner's text: a line typed after it joins it, and sends both
-        try:
-            pattern = screen(harness).get("composer")
-        except config.Error:
-            pattern = None
-        if pattern is not None:
-            # Stripped first: a real capture ends in blank rows, unlike a byte stream,
-            # and a `-e` capture carries attributes a plain composer pattern never
-            # names.  A seat painting no composer at all is not a TUI waiting on one:
-            # the smoke suite's inbox seat holds a `sleep`, and a delivered send is
-            # all there is.
-            confirm = any(pattern.search(strip_sgr(line))
-                          for line in pane_tail(pane).splitlines())
+    # New text goes only into a composer read empty: typed onto the owner's text, read whole or
+    # in part, its Enter sends both; under a dialog it answers it; where no composer shows it
+    # runs as a command.  A line left pending was read in its composer, whatever chrome is
+    # drawn around it.
+    if harness is not None and not pending and composer_draft(harness, pane_text(seat)) != "":
+        return None
+    confirm = pending or harness is not None
     with guard() as held:
         kept_asked_first(seat, harness, held=held is not None)
         if veto(held if held is not None else name):
@@ -5054,6 +5057,15 @@ def _resume_on(cfg, name, log, account, continuing, still=None):
         relaunched(name, seat_model(cfg, name)[0], line, at, account=True)
 
 
+def field_empty(harness, pane):
+    """Whether that screen's input field, read whole, holds nothing: the only one a subscription
+    move respawns a live harness over, as the respawn ends whatever it holds."""
+    # The owner, 5 Nov 2026: "the text in the input field should never be deleted ... Have the
+    # change happen as soon as the input field is empty again, then we never risk that the
+    # input gets lost."  A screen's rules can read a tall draft as an empty prompt.
+    return composer_draft(harness, pane) == ""
+
+
 def between_turns(name, harness, record, opened_at, pane=None):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
     closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
@@ -5077,7 +5089,7 @@ def between_turns(name, harness, record, opened_at, pane=None):
         return False
     pane = pane_text(seat)
     fresh = observed(name, harness, pane, seat_read(name), time.time())
-    return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+    return (quiet and fresh["state"] == "at_prompt" and field_empty(harness, pane)
             and not fresh.get("holds")
             and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
@@ -5125,22 +5137,24 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def low(account):
         return usage.model_low(cfg, model, {provider: readings.get(account, {})})
 
-    lines = content_lines(harness, pane_tail(pane))
-    line = recorded_error(harness, name)
-    if line is None:
-        line = output_line(lines)
-        # The pane and not the line: its colours say whose words they are.  What it ignores is
-        # health()'s to log, as before.
-        mark = stalled_on(harness, pane, name, lambda _: None) if line else None
-        if mark:
-            # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
-            line = error_said(harness, lines[:-1] + [line])
-        outcome = failed_on(harness, [line])[0] if mark else None
-        cue = line
-    else:
-        outcome = orch.harness_plugin(harness).failure(line)[0]
+    def failure(pane):
+        """The error the seat's last turn ended on, its kind, and what starts it again."""
+        lines = content_lines(harness, pane_tail(pane))
+        line = recorded_error(harness, name)
+        if line is None:
+            line = output_line(lines)
+            # The pane and not the line: its colours say whose words they are.  What it ignores
+            # is health()'s to log, as before.
+            mark = stalled_on(harness, pane, name, lambda _: None) if line else None
+            if mark:
+                # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line
+                # above it.
+                line = error_said(harness, lines[:-1] + [line])
+            return line, failed_on(harness, [line])[0] if mark else None, line
         # What starts it again is still the screen's to say: no record holds a goal's trailer.
-        cue = error_said(harness, lines)
+        return line, orch.harness_plugin(harness).failure(line)[0], error_said(harness, lines)
+
+    line, outcome, cue = failure(pane)
     refusal = outcome in (SPENT, LIMITED)
     if (not refusal and not waiting and live.get("state") in ("at_prompt", "draft")
             and not _turn_in_flight(harness, live)[0]):
@@ -5227,16 +5241,28 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def said(text):
         # The words and whose they are: a harness may keep redrawing a box's shading, while a
         # dim suggestion the owner accepts says the same words as their draft.
-        return strip_sgr(text), screen_state(harness, pane_tail(text))
+        return strip_sgr(text), screen_state(harness, text)
 
+    # A turn begun since the wait and not refused is the owner's, answered by its account:
+    # no limit cut it, so it is never continued, reopened under or typed into.
+    flight, began = _turn_in_flight(harness, live)
+    own_turn = (flight and not refusal and waiting is not None
+                and isinstance(began, (int, float)) and began > waiting["since"])
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
                 or seat_read(name).get("opened_at") != live.get("opened_at")
-                or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                or said(pane_text(current_seat)) != said(pane)):
+                or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)):
             return True
+        if own_turn and target is not None:
+            # Ending a wait types nothing: a pane redrawn meanwhile, as a working harness's
+            # spinner is every second, never keeps it, but a refusal of that turn since does.
+            if target == current and failure(pane_text(current_seat))[1] not in (SPENT, LIMITED):
+                seat_write(name, usage_wait=None, usage_refusal=observed or None)
+            return True       # a move to another account waits for that turn's end
+        if said(pane_text(current_seat)) != said(pane):
+            return True       # nor typing
         if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
@@ -5264,28 +5290,18 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
-        # A turn begun since the wait and not refused is the owner's, answered by its account:
-        # no limit cut it, so it is never continued, reopened under or typed into.
-        flight, began = _turn_in_flight(harness, live)
-        own_turn = (flight and not refusal and waiting is not None
-                    and isinstance(began, (int, float)) and began > waiting["since"])
         continuing = bool((waiting or {}).get("continue") or refusal
                           or flight and not own_turn or limit_ended(harness, name))
         if target is not None:
-            if own_turn:
-                if target == current:
-                    seat_write(name, usage_wait=None, usage_refusal=observed or None)
-                return True       # a move to another account waits for that turn's end
             try:
                 if owned:
                     # the owner's text lifted and the harness respawned in one hold, as a switch does;
                     # a move nobody asked for waits while no editor of ak's lifts it, or none could
                     with notify.session_lock(name):
-                        if live.get("state") == "draft" and not (
-                                seat_editor(session, cfg)
-                                and carry_draft(session, harness, pane, harness, cfg)):
+                        if not carry_draft(session, harness, pane, harness, cfg):
                             return True     # a respawn would lose the text
-                        _resume_on(cfg, name, log, target, continuing)
+                        _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
+                            harness, pane_text(dict(session, pane=at))))
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True

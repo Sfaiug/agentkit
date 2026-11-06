@@ -1206,6 +1206,14 @@ def model_name(cfg, name):
             or entry["model"].rsplit("/", 1)[-1])
 
 
+def model_at(cfg, record, name, role):
+    """How every screen names model `name` in `role` for the seat `record`: `Opus 5.5 max`, its
+    full name (model_name), then the effort the seat runs it at in that role over the config's
+    (at_efforts), or its name alone where that is no effort or `none`."""
+    effort = worker_effort(at_efforts(cfg, record), name, role)
+    return model_name(cfg, name) + (f" {effort}" if effort and effort != "none" else "")
+
+
 def catalog_label(harness, model):
     """A model's full name, its harness's catalog label for its id, read off the manifest's
     table so no draw waits on a listing; None where the table names it no other way."""
@@ -1829,7 +1837,7 @@ def role_groups(cfg, workers=None, reviewers=None):
     return workers, reviewers
 
 
-def adapter(harness):
+def adapter(harness, code=None):
     """adapters/<harness>.sh, the script that runs one harness: the adapter contract.
 
     A harness is that script, adapters/<harness>.toml beside it (`manifest`), a `[models.<name>]`
@@ -1889,7 +1897,7 @@ def adapter(harness):
     $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each
     manifest table is explained at the code that reads it.
     """
-    path = adapter_path(harness)
+    path = adapter_path(harness, code)
     if not path.exists():
         raise Error(f"no adapter for harness {harness!r}: {path} does not exist")
     if not os.access(path, os.X_OK):
@@ -1897,9 +1905,11 @@ def adapter(harness):
     return path
 
 
-def adapter_path(harness):
-    """Where `adapter` looks for that harness's script, there or not."""
-    return Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser() / f"{harness}.sh"
+def adapter_path(harness, code=None):
+    """Where `adapter` looks for that harness's script, there or not: in the checkout `code`, this
+    one unless given, where no adapter directory is named."""
+    folder = os.environ.get(ADAPTER_DIR_ENV) or (code or REPO) / "adapters"
+    return Path(folder).expanduser() / f"{harness}.sh"
 
 
 def run_adapter(argv, timeout, env=None):

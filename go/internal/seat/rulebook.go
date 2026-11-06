@@ -33,9 +33,9 @@ func rstrip(text string) string { return strings.TrimRightFunc(text, config.Spac
 func digest(data []byte) string { return hooks.RulebookDigest(data) }
 
 // Rulebook is what the seat's rulebook holds if it opens now (config.seat_rulebook): ak's rules at
-// this host's numbers, then this host's own, each read as Python reads text; the AGENTS.md of the
-// project its record files it under, as on that project's default branch; an unnamed seat's
-// instruction to name itself; and, last, where the conversations it moved from are.
+// its project's numbers, else this host's, then this host's own, each read as Python reads text;
+// the AGENTS.md of the project its record files it under, as on that project's default branch; an
+// unnamed seat's instruction to name itself; and, last, where the conversations it moved from are.
 func Rulebook(name string) (string, error) { return rulebook(name, nil) }
 
 func rulebook(name string, project *string) (string, error) {
@@ -47,10 +47,6 @@ func rulebook(name string, project *string) (string, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
-	body := config.InForce(universal.Replace(string(shipped)))
-	if strings.TrimFunc(string(local), config.Space) != "" {
-		body = rstrip(body) + "\n\n" + universal.Replace(string(local))
-	}
 	record, err := run.ReadJSON(ownFile("session", name))
 	if errors.Is(err, run.ErrLoneSurrogate) {
 		return "", err
@@ -61,6 +57,19 @@ func rulebook(name string, project *string) (string, error) {
 	}
 	if project != nil {
 		repo = *project
+	}
+	body := universal.Replace(string(shipped))
+	if repo == "" {
+		body = config.InForce(body)
+	} else { // at the numbers its project's front matter sets, Python's rulebook_text(repo)
+		numbers, err := run.LaunchPolicy(repo)
+		if err != nil {
+			return "", err
+		}
+		body = config.InForceAt(body, numbers)
+	}
+	if strings.TrimFunc(string(local), config.Space) != "" {
+		body = rstrip(body) + "\n\n" + universal.Replace(string(local))
 	}
 	if repo != "" {
 		if project := gitcall.AgentsBody(repo, rulesRef); project != "" {

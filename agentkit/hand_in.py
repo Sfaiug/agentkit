@@ -388,6 +388,24 @@ def check_fixer_proofs(turn, records):
                            'whose command exits 0.')
 
 
+def oversize(wt, base, tree, limit):
+    """The refusal of a first build adding more than `limit` lines, counted as the gate after
+    the turn counts the commit the loop makes of this workspace's `tree`
+    (`roundloop.first_review_ceiling`), so the builder learns it with its work in front of it."""
+    from . import gitcall, transitions
+    if limit == "no limit":
+        return None
+    head = gitcall.git(wt, "commit-tree", tree, "-p", "HEAD", "-m", "hand-in", env=gitcall.STAMP)
+    why = transitions.first_review_refusal("this change", transitions.diff_lines(wt, base, head, added_only=True),
+                                           limit, transitions.carried_lines(wt, base, head))
+    # A cut that drops asked-for behaviour fails review or the checks later, at more cost than a split.
+    # So does packing code denser: a real executor told its limit (5 Nov 2026) wrote each function
+    # on one line to fit, which a reviewer reads no faster than the lines it saved.
+    return why and (why + "\nMake the same change in fewer lines, every asked-for behaviour kept and "
+                    "every line formatted as the project formats code (a denser line is no smaller a change), "
+                    'or hand in `ak hand-in blocked "why"` naming the pieces it splits into.')
+
+
 def check_workspace(turn):
     from . import change_rules, gitcall
     checks = turn.get("checks", {})
@@ -397,7 +415,8 @@ def check_workspace(turn):
     base = gitcall.integrated_base(wt, base, checks.get("upstream"))
     with gitcall.leftover_tree(wt, checks.get("artifacts", ()), Path(os.environ[ENV]).parent) as (head, index):
         failures = (change_rules.files_scope(wt, base, checks.get("files", ()), head=head),
-                    change_rules.rules_check(wt, base, head=head, env=index))
+                    change_rules.rules_check(wt, base, head=head, env=index),
+                    oversize(wt, base, head, checks.get("lines", "no limit")))
     if any(failures):
         raise config.Error("done refused: " + "\n".join(filter(None, failures)))
 

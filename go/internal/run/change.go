@@ -41,6 +41,15 @@ func ChangeOn(branch, repo, dir string) any {
 	return changeOf(owner)
 }
 
+// ChangeName is the name a run's change is recorded under, Python's change_name: the pull request
+// it reviews, however its URL was spelled, else its change.
+func ChangeName(record *Object) any {
+	if key := prKey(record.Get("review_pr")); key != "" {
+		return key
+	}
+	return changeOf(record)
+}
+
 // BranchLeft is ChangeLeft for a launch that continues that change on that branch: the rounds the
 // run may have, and why none, as Python's round_budget says it of a `from:`.
 func BranchLeft(record *Object, dir string, change any, branch string, asked int, now time.Time) (int, string, error) {

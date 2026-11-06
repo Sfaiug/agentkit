@@ -93,7 +93,7 @@ class CloseBetweenTypedLines(Sandbox):
                         raise AssertionError("first sender was not released")
                 elif args[-1] == "second":
                     second_typed.set()
-            return 0, ""
+            return 0, "❯" if args[0] == "capture-pane" else ""     # an empty composer
 
         def start(*_args, **_kw):
             self.seat = {"name": SEAT, "path": str(self.root), "created": 200, "legacy": False}

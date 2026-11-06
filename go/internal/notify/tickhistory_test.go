@@ -22,7 +22,7 @@ func TestRetryDropsHistoryBeforeReadingTheSeatOrDestination(t *testing.T) {
 	if carried, err := RetryPending(func(string) (string, any) {
 		t.Fatal("history read a seat's word")
 		return "", nil
-	}, io.Discard); !carried || err != nil {
+	}, false, nil, io.Discard); !carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	event, err := readEvent("old")

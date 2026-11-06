@@ -192,8 +192,8 @@ func turnMarks(rules *screen.Rules, tail string, found sight, previous *run.Obje
 var ErrUnread = errors.New("Go does not read this seat yet")
 
 // liveSeat is the home and the seat by that name, where Go reads them and its panes still run on.
-func liveSeat(name string, now time.Time, readers recordReaders) (Home, Seat, bool) {
-	home, known := reading(now, true, lookRuns, readers)
+func liveSeat(name string, now time.Time, readers recordReaders, pending ...bool) (Home, Seat, bool) {
+	home, known := reading(now, true, lookRuns, readers, pending...)
 	at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
 	if !known || at < 0 || !home.Seats[at].live {
 		return home, Seat{}, false

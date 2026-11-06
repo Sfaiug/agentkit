@@ -24,12 +24,14 @@ type climbing struct {
 	place            int
 }
 
-// An answer is a rung's: the seat's word, why and since when, and whether that why is the question
-// the seat's screen or notice asks, which its bar does not repeat.
+// An answer is a rung's: the seat's word, why and since when, whether that why is the question
+// the seat's screen or notice asks, which its bar does not repeat, and when one out of usage comes
+// back (`resumes_at`), which its bar says.
 type answer struct {
 	word, reason string
 	since        any
 	question     bool
+	back         any
 }
 
 // A rung decides the seat, nil where it passes the seat on, or says with ErrUnread that Go does not
@@ -98,7 +100,7 @@ func (seat *Seat) decided(state string, found sight, now float64, attached bool)
 	if err != nil {
 		return err
 	}
-	seat.Word, seat.reason, seat.since, seat.question = said.word, said.reason, said.since, said.question
+	seat.Word, seat.reason, seat.since, seat.question, seat.back = said.word, said.reason, said.since, said.question, said.back
 	seat.seen = found
 	seat.unsent = ""
 	if found.state == "draft" && !attached && found.composerOpen(seat.own) && !found.typedByAk {
@@ -159,31 +161,60 @@ func onItsScreen(facts climbing) (*answer, error) {
 	if facts.found.state != "asking" {
 		return nil, nil
 	}
-	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true}, nil
+	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil}, nil
 }
 
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it
 // stood through has stopped.  A watcher's own alert waits for its prompt (alert).
 func ownQuestion(facts climbing) (*answer, error) {
-	if facts.gone != nil || !notify.OwnerQuestion(facts.notice) || !facts.found.composerOpen(facts.own) {
+	if facts.gone != nil || !notify.OwnerQuestion(facts.notice) {
 		return nil, nil
 	}
-	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true}, nil
+	// a seat waiting on its usage was refused mid-turn: no turn is in flight, whatever its screen shows
+	if !facts.found.composerOpen(facts.own) {
+		if waiting, err := usage(facts); waiting == nil {
+			return nil, err
+		}
+	}
+	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil}, nil
 }
 
-// usage: a wait on its subscription, or a move to another account, which its seat file keeps.
-func usage(facts climbing) (*answer, error) {
-	if facts.gone != nil {
+// usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is
+// in or the owner closed.  ErrUnread where its word hangs on what Go does not read: a move to another
+// account that failed, a wait no limit cut a turn off for, one its runs or its `ak wait` stand
+// beside, a done plan, or a refusal kept with no wait.
+func usage(facts climbing) (*run.Object, error) {
+	if facts.gone != nil || facts.file.Truthy("closed_by_owner") {
 		return nil, nil
 	}
-	if facts.file.Get("usage_wait") != nil || facts.file.Get("usage_refusal") != nil {
+	wait := facts.file.Dict("usage_wait")
+	if wait == nil && facts.file.Get("usage_wait") == nil && facts.file.Get("usage_refusal") == nil {
+		return nil, nil
+	}
+	if wait == nil {
 		return nil, ErrUnread
 	}
-	return nil, nil
+	finished, err := plan.Finished(facts.name)
+	if _, said := wait.Get("reason").(string); !said || !wait.Has("since") || !wait.Truthy("until") || !wait.Truthy("continue") ||
+		err != nil || finished || len(facts.mine) > 0 || facts.file.Get("wait") != nil {
+		return nil, ErrUnread
+	}
+	return wait, nil
 }
 
-func moveFailed(facts climbing) (*answer, error) { return usage(facts) }
-func usageWait(facts climbing) (*answer, error)  { return usage(facts) }
+func moveFailed(facts climbing) (*answer, error) {
+	_, err := usage(facts)
+	return nil, err
+}
+
+// usageWait: its subscription ran out, and ak resumes it when the usage comes back.
+func usageWait(facts climbing) (*answer, error) {
+	wait, err := usage(facts)
+	if wait == nil {
+		return nil, err
+	}
+	return &answer{word: "out of usage", reason: wait.Str("reason"), since: wait.Get("since"), back: wait.Get("until")}, nil
+}
 
 // waitGoing: it ended its turn on `ak wait`, and what it named is not over (watch.waiting_on).
 func waitGoing(facts climbing) (*answer, error) {
@@ -205,7 +236,7 @@ func waitGoing(facts climbing) (*answer, error) {
 // turnRunning: a turn in flight, past three hours saying so and keeping the word.
 func turnRunning(facts climbing) (*answer, error) {
 	flight, began := facts.found.turnInFlight(facts.own)
-	if !flight {
+	if waiting, _ := usage(facts); !flight || waiting != nil {
 		return nil, nil
 	}
 	reason := ""

@@ -10,7 +10,8 @@ package loop
 // leaves), check (CheckLine, `ak run --lander`) and land (landFromLine, in the woken run).
 //
 // Stacks share the single member's checks and delivery; narrow.go searches a red by what failed.
-// Target repairs, helper pieces and PR reviews remain Python's once this releases its lock.
+// Target repairs, reds with suite helpers and PR reviews remain Python's once this releases its
+// lock.
 
 import (
 	"cmp"

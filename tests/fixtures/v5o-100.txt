@@ -6,16 +6,16 @@ agentkit                                                                        
 
 
 atoll
-  1  atoll-job    Fable 5.1  ● working    ━━━━━━━━━━━━━━━━━━━━━━───────────────────────────── 3 of 7
-  2  atoll-solo   Fable 5.1  ● working    ────────────────────────────────────────────── no plan yet
+  1  atoll-job    Fable 5.1 xhigh  ● working    ━━━━━━━━━━━━━━━━━━━╸───────────────────────── 3 of 7
+  2  atoll-solo   Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
 
 agentkit
-  3  herdr-quiet  Fable 5.1  ! needs you
+  3  herdr-quiet  Fable 5.1 xhigh  ! needs you
      session closed: press 3 to reopen
-  4  herdr-long   Fable 5.1  ● working    ────────────────────────────────────────────── no plan yet
+  4  herdr-long   Fable 5.1 xhigh  ● working    ──────────────────────────────────────── no plan yet
 
 not assigned yet
-  5  scribe       Fable 5.1  ! needs you
+  5  scribe       Fable 5.1 xhigh  ! needs you
      session closed: press 5 to reopen
 
   n new   c config   esc leave

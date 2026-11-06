@@ -21,12 +21,7 @@ import (
 // Python's launch says why none opens: no adapter runs, it prints no line, or a file the harness
 // reads on its own, which nothing on the line can stop, is there.
 func Command(model config.Model, env []string) ([]string, string, bool) {
-	conversation := uuid()
-	line, told, ok := command(model, env, []string{conversation, "new"}, nil)
-	if !told {
-		conversation = ""
-	}
-	return line, conversation, ok
+	return Fresh(model, append(slices.Clip(env), "AGENTKIT_ACCOUNT="))
 }
 
 // Resumed is the command a seat of model comes back on with the conversation it owns, as Python's
@@ -69,7 +64,8 @@ func command(model config.Model, env []string, first, then []string) ([]string, 
 	if err != nil {
 		return nil, false, false
 	}
-	env = append(slices.Clip(env), "AGENTKIT_ACCOUNT=")
+	account := commandAccount(env)
+	env = append(slices.Clip(env), "AGENTKIT_ACCOUNT="+account)
 	args := []string{"interactive", model.ID, model.Efforts["effort"]}
 	ask := func(words []string) ([]byte, error) {
 		run := exec.Command(argv[0], slices.Concat(argv[1:], args, words)...)
@@ -93,7 +89,7 @@ func command(model config.Model, env []string, first, then []string) ([]string, 
 	if !set {
 		owner = cmp.Or(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
 	}
-	line = append([]string{"env", "AGENTKIT_ACCOUNT=", "VISUAL=" + editor, "EDITOR=" + editor, "AK_OWNER_EDITOR=" + owner}, line...)
+	line = append([]string{"env", "AGENTKIT_ACCOUNT=" + account, "VISUAL=" + editor, "EDITOR=" + editor, "AK_OWNER_EDITOR=" + owner}, line...)
 	// looked for as the line sets the harness's home, and, on the usual login, in the usual homes
 	// too, where an adapter drops an account's home a seat handed down (config.unswitched_files)
 	_, seated := environ(line, os.Environ())

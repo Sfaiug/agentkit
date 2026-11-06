@@ -14,14 +14,13 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/run"
+	"agentkit/internal/logins"
 	"agentkit/internal/usage"
 )
 
 const (
-	endsWithin = 7 * 86400 // how near its end a login's meter turns amber (logins.WARN_WITHIN)
-	tokenLife  = 365       // days a worker token lives from its file's date (watch.TOKEN_LIFE_DAYS)
-	tokenWarn  = 14        // days out the ak screen says it (watch.TOKEN_WARN_DAYS)
+	tokenLife = 365 // days a worker token lives from its file's date (watch.TOKEN_LIFE_DAYS)
+	tokenWarn = 14  // days out the ak screen says it (watch.TOKEN_WARN_DAYS)
 )
 
 // Cells is each subscription as the grid draws it from what usage.json and logins.json hold as they
@@ -36,15 +35,11 @@ func Cells(now time.Time) ([]Cell, error) {
 	if err != nil {
 		return nil, err
 	}
-	logins, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "logins.json"))
-	if logins == nil {
-		logins = run.NewObject()
-	}
 	type shown struct {
-		sub   config.Subscription
-		name  string
-		grey  bool
-		place float64
+		sub          config.Subscription
+		name, colour string
+		grey         bool
+		place        float64
 	}
 	var rows []shown
 	for _, sub := range subs {
@@ -58,7 +53,7 @@ func Cells(now time.Time) ([]Cell, error) {
 		// a provider named nowhere is its key capitalised, in the accent, Mocha's blue
 		ownName, ownColour := harness.Company(sub.Name)
 		grey, place := hue(cmp.Or(colour, ownColour, "#89b4fa"))
-		rows = append(rows, shown{sub, cmp.Or(name, ownName, titled(sub.Name)), grey, place})
+		rows = append(rows, shown{sub, cmp.Or(name, ownName, titled(sub.Name)), cmp.Or(colour, ownColour, "accent"), grey, place})
 	}
 	slices.SortStableFunc(rows, func(a, b shown) int {
 		if a.grey != b.grey {
@@ -84,7 +79,20 @@ func Cells(now time.Time) ([]Cell, error) {
 				label += " " + roman(i+1)
 			}
 			left, said := readings.Cell(each.sub.Name, account)
-			cells = append(cells, Cell{Label: label, Left: left, Said: said, Ending: loginEnding(logins, each.sub.Name, account, now)})
+			login := logins.Of(each.sub.Name, account)
+			cell := Cell{Label: label, Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
+				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour,
+				Harness: cmp.Or(each.sub.Harness, config.ShippedHarness(each.sub.Name))} // logins.harness
+			if held := readings.Held(each.sub.Name, account); held > 0 {
+				cell.Held = strconv.Itoa(held) + " resets in hand"
+				if held == 1 {
+					cell.Held = "1 reset in hand"
+				}
+			}
+			if login != nil {
+				cell.Email, cell.Plan = login.Str("email"), login.Str("plan")
+			}
+			cells = append(cells, cell)
 		}
 	}
 	return cells, nil
@@ -138,20 +146,6 @@ func roman(number int) string {
 		number %= step.value
 	}
 	return out
-}
-
-// loginEnding is whether that login ends within endsWithin or has ended.
-func loginEnding(logins *run.Object, provider, account string, now time.Time) bool {
-	found := logins.Dict(provider)
-	if found == nil {
-		return false
-	}
-	login := found.Dict(cmp.Or(account, "default"))
-	if login == nil {
-		return false
-	}
-	ends, ok := login.Num("ends")
-	return ok && ends-float64(now.Unix()) <= endsWithin
 }
 
 // Standing is the worker token's note while the ak screen shows it, from tokenWarn days out and once

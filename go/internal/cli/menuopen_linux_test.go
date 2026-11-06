@@ -1,12 +1,10 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestMenuOpeningProgram(t *testing.T) {
@@ -22,9 +20,7 @@ func TestMenuTerminationWhileVisiting(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import os, signal, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))

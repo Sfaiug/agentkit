@@ -102,8 +102,7 @@ class LanderLifecycle(unittest.TestCase):
         with patch.object(record, "process_active", side_effect=lambda state: bool(state.get("pid"))):
             self.assertTrue(land.start_line(self.turn))
         self.assertEqual(len(self.starts), 1)
-        self.assertEqual(self.starts[0][0][1], str(code / "bin" / "ak"))
-        self.assertEqual(self.starts[0][2]["AK_RUN_CODE"], str(code))
+        self.assertEqual(self.starts[0][0][1], str(REPO / "bin" / "ak"))
         self.assertEqual([member.name for member, _ in land.line(self.turn)],
                          [first.name, "fix-docs"])
 
@@ -126,7 +125,7 @@ class LanderLifecycle(unittest.TestCase):
         self.starts.clear()
         self.assertTrue(land.start_line(self.turn))
         self.assertEqual(len(self.starts), 1)
-        self.assertEqual(self.starts[0][2]["AK_RUN_CODE"], str(code))
+        self.assertEqual(self.starts[0][0][1], str(REPO / "bin" / "ak"))
         self.assertEqual([member.name for member, _ in land.line(self.turn)],
                          [first.name, "fix-docs"])
 

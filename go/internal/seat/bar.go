@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"agentkit/internal/agent"
 	"agentkit/internal/config"
@@ -92,9 +93,9 @@ func barChip(screen terminal.Screen, word string) string {
 
 // barProgress is the seat's plan as line one's last part in room cells (menu.last_column): a smooth
 // line and its count, the same line with nothing done for one working with no plan, none for a seat
-// at rest or any other with no plan; then what the owner left unsent, whose mark alone stays where
-// both do not fit.
-func barProgress(screen terminal.Screen, word string, unsent bool, done, total, room int) string {
+// at rest or any other with no plan, and in its place for one out of usage when it comes back,
+// `back 19:20`; then what the owner left unsent, whose mark alone stays where both do not fit.
+func barProgress(screen terminal.Screen, word, back string, unsent bool, done, total, room int) string {
 	mark, left := "", room
 	if unsent {
 		mark = "✎ unsent"
@@ -104,7 +105,10 @@ func barProgress(screen terminal.Screen, word string, unsent bool, done, total, 
 		left -= terminal.Cells(mark) + 2
 	}
 	bar, cells := "", 0
-	if word != "idle" && (total > 0 || word == "working") {
+	switch {
+	case word == "out of usage" && back != "":
+		bar, cells = barPaint("back "+back, word), terminal.Cells("back "+back)
+	case word != "idle" && word != "out of usage" && (total > 0 || word == "working"):
 		bar, cells = barLine(screen, word, done, total, left)
 	}
 	if mark == "" {
@@ -170,33 +174,33 @@ func barCrew(screen terminal.Screen, builds, reviews []string) string {
 	return barPaint(screen.Crew(builds, reviews), "dim")
 }
 
-// barSelection is the seat's model and crew by their full names, none where its record does not
-// read as a seat's (config.load_session).
+// barSelection is the seat's model and crew, each named at the effort it runs that role at
+// (config.ModelAt), none where its record does not read as a seat's (config.load_session).
 func barSelection(state, name string, models map[string]config.Model) (model string, builds, reviews []string) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		return "", nil, nil
 	}
+	at := atEfforts(models, record)
 	if selected, err := configSelection(record, models); err == nil {
 		record = selected
 	}
 	if _, complaint, crewed := recordCrew(record, models); !crewed || complaint != "" {
 		return "", nil, nil
 	}
-	named := func(key string) (found []string) {
+	named := func(key, effort string) (found []string) {
 		for _, each := range record.List(key) {
 			if each, ok := each.(string); ok {
-				found = append(found, config.ModelName(each, models))
+				found = append(found, config.ModelAt(each, effort, at))
 			}
 		}
 		return found
 	}
-	builds = named("workers")
-	reviews = builds
+	builds, reviews = named("workers", "exec_effort"), named("workers", "review_effort")
 	if record.Has("reviewers") {
-		reviews = named("reviewers")
+		reviews = named("reviewers", "review_effort")
 	}
-	return config.ModelName(record.Str("orchestrator"), models), builds, reviews
+	return config.ModelAt(record.Str("orchestrator"), "effort", at), builds, reviews
 }
 
 // publish writes the seat's bar and window title from its row's own values, and with a changed word
@@ -229,7 +233,7 @@ func (seat Seat) barOptions(screen terminal.Screen, model string, builds, review
 		{target, "status-format[0]", barLineOne()}, {target, "status-format[1]", barLineTwo()}}
 	for i, option := range barTops {
 		top := head
-		if last := barProgress(screen, seat.Word, seat.unsent != "", done, total, barCells[i]); last != "" {
+		if last := barProgress(screen, seat.Word, backAt(seat.back, time.Now()), seat.unsent != "", done, total, barCells[i]); last != "" {
 			top += "   " + last
 		}
 		own = append(own, [3]string{target, option, top})
@@ -310,7 +314,7 @@ func barSessions() ([]barRow, bool) {
 			continue
 		}
 		answered = true
-		if (len(parts) == 3 || parts[3] == "" || resolved(parts[3]) == home) && parts[1] != tmux.Control {
+		if (len(parts) == 3 || parts[3] == "" || resolved(parts[3]) == home) && parts[1] != config.Control {
 			rows = append(rows, barRow{id: parts[0], name: parts[1], mark: parts[2]})
 		}
 	}

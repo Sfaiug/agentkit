@@ -29,14 +29,14 @@ var (
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
 // before anything is written: a reviewer named outright, an executor no worker of its groups, a
 // pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
-// with no box, one with a user manager to place the run under, the checkout a task folder is named
-// for, or a run under way that Python's rival check would read.
+// with no box, one with a user manager to place the run under, or the checkout a task folder is
+// named for.
 func drivable(path string, values map[string]string, bound config.Binding) error {
 	executors, reviewers := names(bound.Workers), names(bound.Reviewers)
 	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
 	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !placed() ||
-		usage.Check() != nil && !loop.Unstaffed(rules) || filed(path) || going(path) {
+		usage.Check() != nil && !loop.Unstaffed(rules) || filed(path) {
 		return ErrPython
 	}
 	return nil
@@ -68,7 +68,7 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 				project = named
 			}
 		}
-		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines, "seat_lines", at.numbers.SeatLines),
+		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines.Said(), "seat_lines", at.numbers.SeatLines.Said()),
 			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err
@@ -112,7 +112,11 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 			delivery = fmt.Sprintf("push %s to origin (fork if needed); PR into %s; merge after PASS", branch, target)
 		}
 	}
-	lines = append(lines, "--- preflight",
+	lines = append(lines, "--- preflight")
+	if at.alongside != "" {
+		lines = append(lines, "--- preflight: started alongside "+at.alongside+" (--anyway)")
+	}
+	lines = append(lines,
 		fmt.Sprintf("repo: %s | base: %s | target: %s | merge: %s", said, base, target, cmp.Or(meta["merge"], "squash")),
 		"delivery: "+delivery, "done-when: "+commands)
 	notification := "notification: none: no orchestrator session launched this run, so nothing is sent; the result is here and in `ak run status`"

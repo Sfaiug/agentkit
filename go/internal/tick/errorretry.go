@@ -73,8 +73,6 @@ func retryOf(each errored, index run.Index, now time.Time) (retry, string) {
 	return due, ""
 }
 
-func (t *ticking) errorRetryIdle() bool { return !t.dry || noErrorRetry() }
-
 // A dry row hands over wherever Python's says what it would do: a retry to stamp, one due, or a
 // person's run to take stamps off.
 func noErrorRetry() bool {

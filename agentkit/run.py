@@ -41,11 +41,12 @@ from .handback import (announce, announce_safely, clear_delivery, join_session_p
 from .staffing import (barred_refusal, best_pair, collect_usage, head_writers,
     note_handover, pair_refusal, pick_models, ready_order, refuse_outside_group,
     refuse_unready, replace_reviewer, resume_models, reviewer_order, run_workers, same_model, started_round)
-from .transitions import (carried_lines, change_budget, change_on, replacement_refusal,
-    change_reviewed, delivery, diff_lines, failed_at_budget, failed_in_integration,
+from .transitions import (change_budget, change_on, replacement_refusal,
+    change_reviewed, delivery, failed_at_budget, failed_in_integration,
     history_finish, history_start, integration_note, interrupt,
     invalidate_saved_pass, judged_in_integration, landing_line, launched_session, needs_recovery, over_lineage, park_error, park_exhausted, PR_PARTS,
-    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, settled, stands_on_dependency)
+    queued, report_config, review_pass, review_providers, round_budget, run_kind, runs_on, seat_lines, settled,
+    stands_on_dependency)
 from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridden_section,
     placed, plan_context, saved_findings, without_followups)
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
@@ -126,6 +127,11 @@ def require_project_contract(repo):
     if missing:
         raise config.Error(f"{repo}/AGENTS.md on {config.RULES_REF} is missing "
                            + "; ".join(missing) + ".")
+
+
+def fetch_branches(repo):
+    """Every branch origin has, as it has it now: (code, out) as `fetch` answers."""
+    return fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
 
 
 def loop(cfg, run_dir, task_path, opts, log, prior=None):
@@ -209,7 +215,7 @@ def loop(cfg, run_dir, task_path, opts, log, prior=None):
             # refspec follows (--single-branch follows one): the base, the target whose suite
             # the run reads and origin's default can each be any of them.
             try:
-                code, out = fetch(repo, "origin", "--prune", "+refs/heads/*:refs/remotes/origin/*")
+                code, out = fetch_branches(repo)
             except Stopped as stop:
                 code, out = None, str(stop)
             spelled = meta.get("base") or default_base(repo, log)
@@ -2298,16 +2304,16 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
     """(the lines a seat's own PR's first review reads, the sentence refusing that review or
     None), or None where no first review is ahead: a PR a review already judged in this run
     or any, whose later rounds review whatever the fix left.  The
-    seat builds at most `config.policy`'s `orchestrator_lines` added lines, the ones moved unchanged aside
-    and the files the target's tip marks generated, as the change will land on it, and a PR
+    seat builds at most `config.policy`'s `orchestrator_lines` added lines, as `seat_lines`
+    counts them against the target's tip the change will land on, and a PR
     that re-adds most of a budget-failed one's lines, no real split of it, inherits that one's
     rounds (`replacement_refusal`)."""
     if change_reviewed(pr=url):
         return None
-    lines, carried = diff_lines(repo, target_sha, head, added_only=True), carried_lines(repo, target_sha, head)
     numbers = run_record.policy_of(run_record.read_state(run_dir) or {})
-    read, limit = lines - carried, numbers["orchestrator_lines"]
-    if limit != "no limit" and read > limit:
+    limit = numbers["orchestrator_lines"]
+    read, over = seat_lines(repo, target_sha, head, limit)
+    if over:
         action = ("Split it into smaller PRs." if numbers["executor_lines"] == 0 else
                   "Write it as a task and launch it; a worker builds it")
         return read, (f"PR #{number} adds {read} lines (generated files and unchanged moves aside): "
@@ -3082,7 +3088,7 @@ def main(argv):
     opts = {"--rounds": None, "--exec": None, "--review": None, "--review-pr": None,
             "--parallel": None}
     flags = {"--no-worktree": False, "--no-merge": False, "--bg": False, "--anyway": False,
-             "--first": False}
+             "--first": False, "--in-order": False}
     positional, i = [], 0
     while i < len(argv):
         arg = argv[i]
@@ -3095,8 +3101,8 @@ def main(argv):
         elif arg.startswith("-"):
             raise config.Error(f"unknown flag {arg!r}; ak run <task.md> [--rounds N] [--exec MODEL] "
                                "[--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] "
-                               "[--bg] [--parallel N] | ak run --review-pr <url> [--review MODEL] "
-                               "[--first] [--bg]")
+                               "[--bg] [--parallel N] [--in-order] | ak run --review-pr <url> "
+                               "[--review MODEL] [--first] [--bg]")
         else:
             positional.append(arg)
             i += 1
@@ -3105,7 +3111,7 @@ def main(argv):
         raise config.Error(refused)
     if opts["--review-pr"]:
         if positional or opts["--rounds"] or opts["--exec"] or flags["--no-worktree"] \
-                or opts["--parallel"] is not None:
+                or opts["--parallel"] is not None or flags["--in-order"]:
             raise config.Error("usage: ak run --review-pr <url> [--review MODEL] [--first] [--bg]: "
                                "no task file, no executor, no rounds")
         if not PR_PARTS.match(opts["--review-pr"]):
@@ -3113,7 +3119,7 @@ def main(argv):
     elif len(positional) < 1:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
                            "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg] "
-                           "[--parallel N] | ak run --review-pr <url> | "
+                           "[--parallel N] [--in-order] | ak run --review-pr <url> | "
                            "ak run status [<runid>] | ak run resume <runid> | "
                            "ak run stop <runid> [--keep] | ak run clean <runid> | ak run gc")
     if opts["--rounds"] is not None and not (opts["--rounds"].isdigit() and int(opts["--rounds"]) > 0):
@@ -3147,9 +3153,10 @@ def main(argv):
         if not selection and (cfg.get("defaults") or {}).get("workers") == []:
             raise config.Error("defaults have no executor: start a session with an executor.")
     config.ensure_dirs()
-    if not opts["--review-pr"] and len(positional) == 1 and parallel is not None:
+    alone = "--parallel" if parallel is not None else "--in-order" if flags["--in-order"] else None
+    if not opts["--review-pr"] and len(positional) == 1 and alone:
         raise config.Error("usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] "
-                           "[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel "
+                           f"[--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: {alone} "
                            "needs more than one task file")
     if not opts["--review-pr"] and len(positional) > 1:
         job_dir, job = jobs.job_create(cfg, positional, opts, parallel)

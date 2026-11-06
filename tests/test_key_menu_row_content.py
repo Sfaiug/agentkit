@@ -87,11 +87,11 @@ class SeatsTmuxLost(unittest.TestCase):
 
     def test_a_lost_seat_says_how_to_reopen_it_once_the_highlight_moves_onto_it(self):
         menu = Terminal(self.home, size=SIZE)
-        screen = menu.wait(shows(("ghost-a", "Fable 5.1  ○ idle"),
-                                 ("ghost-b", "Fable 5.1  ! needs you")), bound=OPENS)
-        self.assertEqual(row(screen, "ghost-a")[0], "› 1  ghost-a  Fable 5.1  ○ idle")
+        screen = menu.wait(shows(("ghost-a", "Fable 5.1 xhigh  ○ idle"),
+                                 ("ghost-b", "Fable 5.1 xhigh  ! needs you")), bound=OPENS)
+        self.assertEqual(row(screen, "ghost-a")[0], "› 1  ghost-a  Fable 5.1 xhigh  ○ idle")
         self.assertTrue(row(screen, "ghost-b")[0].startswith(
-            "  2  ghost-b  Fable 5.1  ! needs you"))
+            "  2  ghost-b  Fable 5.1 xhigh  ! needs you"))
         self.assertNotIn("session closed", screen)    # nobody has pointed at a row yet
         menu.keys("j")
         screen = menu.wait("press 2 to reopen")
@@ -101,7 +101,7 @@ class SeatsTmuxLost(unittest.TestCase):
         menu.keys("k")
         screen = menu.wait("press 1 to reopen")
         self.assertEqual(row(screen, "ghost-a"),
-                         ("› 1  ghost-a  Fable 5.1  ○ idle", f"{REOPEN} 1 to reopen"))
+                         ("› 1  ghost-a  Fable 5.1 xhigh  ○ idle", f"{REOPEN} 1 to reopen"))
         self.assertNotIn("press 2 to reopen", screen)
         menu.keys("Escape")
         self.assertEqual(menu.exit_code(), 0)
@@ -110,9 +110,9 @@ class SeatsTmuxLost(unittest.TestCase):
         done = self.home.ak(input="\n")
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(row(done.out, "ghost-a"),
-                         ("  1  ghost-a  Fable 5.1  ○ idle", f"{REOPEN} 1 to reopen"))
+                         ("  1  ghost-a  Fable 5.1 xhigh  ○ idle", f"{REOPEN} 1 to reopen"))
         ghost_b = row(done.out, "ghost-b")
-        self.assertTrue(ghost_b[0].startswith("  2  ghost-b  Fable 5.1  ! needs you"), done.out)
+        self.assertTrue(ghost_b[0].startswith("  2  ghost-b  Fable 5.1 xhigh  ! needs you"), done.out)
         self.assertEqual(ghost_b[1], f"{REOPEN} 2 to reopen")
 
 
@@ -135,9 +135,9 @@ class PlanBars(unittest.TestCase):
                ["- [x] tidy the readme", checked(" ", "ship it")]),
               ("atoll-ask", "claude-question-pane.txt", []))
         menu = Terminal(cls.home, size=SIZE)
-        cls.screen = menu.wait(shows(("atoll-fix", "Fable 5.1  ● working .* 3 of 7$"),
-                                     ("atoll-job", "Fable 5.1  ● working .* 1 of 2$"),
-                                     ("atoll-ask", "Fable 5.1  ! needs you$")), bound=OPENS)
+        cls.screen = menu.wait(shows(("atoll-fix", "Fable 5.1 xhigh  ● working .* 3 of 7$"),
+                                     ("atoll-job", "Fable 5.1 xhigh  ● working .* 1 of 2$"),
+                                     ("atoll-ask", "Fable 5.1 xhigh  ! needs you$")), bound=OPENS)
 
     def assertShare(self, line, done, total):
         bar = BAR.search(line)
@@ -172,12 +172,12 @@ class DoneSeat(unittest.TestCase):
                [checked("x", f"part {n}", "abc1234") for n in range(2)]),
               ("atoll-ask", "claude-question-pane.txt", []))
         self.menu = Terminal(self.home, size=SIZE)
-        self.screen = self.menu.wait(shows(("atoll-done", "Fable 5.1  ✓ done .* 2 of 2$"),
-                                           ("atoll-ask", "Fable 5.1  ! needs you$")), bound=OPENS)
+        self.screen = self.menu.wait(shows(("atoll-done", "Fable 5.1 xhigh  ✓ done .* 2 of 2$"),
+                                           ("atoll-ask", "Fable 5.1 xhigh  ! needs you$")), bound=OPENS)
 
     def test_a_seat_whose_plan_is_all_done_reads_done_with_a_full_bar(self):
         self.assertRegex(row(self.screen, "atoll-done")[0],
-                         r"^› 1  atoll-done  Fable 5.1  ✓ done +━+ 2 of 2$")
+                         r"^› 1  atoll-done  Fable 5.1 xhigh  ✓ done +━+ 2 of 2$")
 
 
 if __name__ == "__main__":

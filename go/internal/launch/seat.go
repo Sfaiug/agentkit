@@ -66,13 +66,8 @@ func bind() (config.Binding, error) {
 }
 
 // seatQueue is what becomes of a seat's launch once everything Python asks before its queue
-// passed: refused where the seat may queue no more (seatFull), else on its way.  Python's rival
-// check comes first, which Go leaves to it wherever it may name a run: a repository's task with a
-// run under way.
-func seatQueue(seat string, repo string) error {
-	if repo != "" && going("") {
-		return ErrPython
-	}
+// passed: refused where the seat may queue no more (seatFull), else on its way.
+func seatQueue(seat string) error {
 	if why := seatFull(seat); why != "" {
 		return &refusedOutright{why}
 	}
