@@ -1,6 +1,6 @@
-"""The home's one live follower follows each run on a thread and a clock of its own, and one read
-of every run's record serves all of them an interval.  Offline: a Sandbox HOME, fake probes and
-seat, and one injected clock that every thread of the follower reads and sleeps on."""
+"""The home's one live follower follows each run on a thread and a clock of its own.  Offline: a
+Sandbox HOME, fake probes and seat, and one injected clock that every thread of the follower reads
+and sleeps on."""
 
 from contextlib import redirect_stdout
 import io
@@ -11,7 +11,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, handback, look, orch, record, watch
+from agentkit import config, orch, record, watch
 
 T0, SEAT, WINDOW = 2000000, "fix-api", watch.AFTER_MERGE_WINDOW
 
@@ -55,7 +55,7 @@ class LiveFollower(Sandbox):
                 (orch, "find", lambda _name: seat),
                 (watch, "type_at_prompt", lambda *_a, **_kw: False),        # never at its prompt
                 (watch, "health_command", self.probe),
-                (watch, "time", self.clock), (look, "time", self.clock)):
+                (watch, "time", self.clock)):
             self.stack.enter_context(patch.object(module, name, fake))
         self.stack.enter_context(redirect_stdout(io.StringIO()))
 
@@ -93,20 +93,6 @@ class LiveFollower(Sandbox):
         self.assertEqual(self.began["red"], [("health", T0 + at) for at in (0, 15, 30, 45)])
         live = record.read_state(config.RUNS / "live")
         self.assertEqual((live["live_at"], live["deployed_at"]), (T0 + 40, T0 + 5))
-
-    def test_one_read_of_the_records_serves_every_run_an_interval(self):
-        reads, asks, census, owed = [], [], record.runs, handback.live_owed
-        config.plan_path(SEAT).write_text("- [ ] verify the api\n")     # the seat owes work
-        with patch.object(record, "runs", lambda: reads.append(self.clock.now) or census()), \
-                patch.object(handback, "live_owed", lambda state, records=None: asks.append(
-                    (state["run_id"], self.clock.now)) or owed(state, records)):
-            # Each is live and owed to a seat never at its prompt, so each follow asks every
-            # interval until its window ends at T0 + 50.
-            self.follow({name: {"live_at": T0 - 60, "health": {}, "finished_at": T0 - WINDOW + 50}
-                         for name in ("api", "web", "docs")})
-        every = [T0 + at for at in (0, 15, 30, 45, 60)]
-        self.assertEqual(set(asks), {(name, at) for name in ("api", "web", "docs") for at in every})
-        self.assertEqual(reads, every)
 
 
 if __name__ == "__main__":

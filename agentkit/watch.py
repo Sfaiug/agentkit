@@ -7498,8 +7498,9 @@ def live_follower(run):
             live_handed(lock, run_record.process_owner())     # named, with each run taken
         following = [thread for thread in following if thread.is_alive()]
         if not (handed or following):
-            # The lock stays held until this process is gone: a merge waiting on it starts
-            # the next follower only then, and one before it was handed in this look.
+            # Unnamed, so a merge waiting on the lock starts the next follower even while this
+            # process still reads as alive, and the lock held until it is gone, so not before.
+            live_handed(lock, {})
             return 0
         os.close(lock)
         for name in handed:
@@ -7507,20 +7508,6 @@ def live_follower(run):
             following[-1].start()
         handed = []
         time.sleep(1)   # what a run handed over waits at most for its follow to start
-
-
-class Census:
-    """Every run's record (`record.runs`), read when a follow asks `handback` with it, as each
-    does every interval while its seat is owed a live line, and held for every follow an interval
-    (`look.held`): one read took a follower from 37 to 198 MB and 3 s of CPU (6 Nov 2026)."""
-
-    def __iter__(self):
-        with look.one_look():   # `held` keeps only what a pass asks
-            return iter(look.held(("live census", os.fspath(config.RUNS)), LIVE_INTERVAL,
-                                  run_record.runs))
-
-
-CENSUS = Census()
 
 
 def follow_live(run_dir):
@@ -7539,7 +7526,7 @@ def follow_live(run_dir):
             if not st:
                 return 0
             ready = st.get("finished_at") is not None
-            delivering = ready and handback.live_owed(st, CENSUS) and not handback.rides(st, CENSUS)
+            delivering = ready and handback.live_owed(st) and not handback.rides(st)
             if not (awaiting_live(st if ready else {**st, "finished_at": began}, now)
                     or delivering and 0 <= now - st["finished_at"] <= AFTER_MERGE_WINDOW):
                 return 0
@@ -7550,11 +7537,11 @@ def follow_live(run_dir):
             sha = after_merge_sha(st.get("pr"), st, print)
             if sha:
                 health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
-                                            now, False, print, {"clock": (now, now)}, CENSUS)
+                                            now, False, print, {"clock": (now, now)})
                 if health and health[0] == "passed":
-                    if handback.carries_live(st, CENSUS):
-                        handback.announce(st, run_dir, print, records=CENSUS)
-                    if not handback.live_owed(st, CENSUS) or handback.rides(st, CENSUS):
+                    if handback.carries_live(st):
+                        handback.announce(st, run_dir, print)
+                    if not handback.live_owed(st) or handback.rides(st):
                         return 0
             time.sleep(LIVE_INTERVAL)
 
@@ -7706,8 +7693,7 @@ def live_passed(run_dir, st, now, log, records=None):
                                       live_note=handback.ROUTINE_NOTE)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
-        if (handback.carries_live(st, records)
-                or not st.get("live_typed") and handback.rides(st, records)):
+        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):
             # its ending, still to be said, carries it, or it rides on the seat's next prompt
             # (`handback.riding`)
             return "passed", None, None
