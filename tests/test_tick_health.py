@@ -370,16 +370,18 @@ class TickHealth(unittest.TestCase):
                 self.assertIn("every three minutes", said)
 
     def test_the_line_runs_watch_from_paths_holding_spaces_quotes_and_percents(self):
-        root = self.root / "acme's 100% home"
+        root = self.root / "acme's 1% 2\\% home"
         program = root / "check out" / "bin" / "ak"
         program.parent.mkdir(parents=True)
         program.write_text('#!/bin/sh\nprintf "%s\\n" "$PATH" "$@" >"$0.called"\n')
         program.chmod(0o755)
         (root / "tmp").mkdir()
         table, _ = self.install_cron("", root=root, repo=program.parents[1])
-        # what cron hands sh: the command up to its first unescaped %, each \% a %
-        command = re.split(r"(?<!\\)%", table.splitlines()[-1].split(" ", 5)[5])[0]
-        subprocess.run(["/bin/sh", "-c", command.replace("\\%", "%")], check=True, timeout=10)
+        # what cron hands sh: a backslash and the next character are a pair, \% is a %, and
+        # the command ends at any other %
+        kept = re.match(r"(?:\\.|[^\\%])*", table.splitlines()[-1].split(" ", 5)[5])[0]
+        command = re.sub(r"\\(.)", lambda pair: "%" if pair[1] == "%" else pair[0], kept)
+        subprocess.run(["/bin/sh", "-c", command], check=True, timeout=10)
         self.assertEqual(program.with_name("ak.called").read_text().splitlines(),
                          [f"{root}/bin:{root}/bin:/usr/local/bin:/usr/bin:/bin", "watch"])
         self.assertTrue((root / "tmp" / "watch.log").exists())

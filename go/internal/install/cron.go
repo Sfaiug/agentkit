@@ -68,8 +68,9 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	return nil
 }
 
-// cronWord is text as one single-quoted word, its %s escaped: cron makes each unescaped % a
-// newline and hands the rest to sh.
+// cronWord is text as one single-quoted word to the sh cron hands the line to, each % stepping
+// out of the quotes as \%: cron reads a backslash and the next character as a pair, makes \% a %
+// and ends the command at any other %, so no backslash of the text's comes right before it.
 func cronWord(text string) string {
-	return "'" + strings.NewReplacer("'", `'\''`, "%", `\%`).Replace(text) + "'"
+	return "'" + strings.NewReplacer("'", `'\''`, "%", `'\%'`).Replace(text) + "'"
 }

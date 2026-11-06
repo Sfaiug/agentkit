@@ -682,9 +682,10 @@ CRON_TAG="# agentkit watch"
 # the tag with its `#`s and spacing loose, so a retyped or re-commented pause is still ours.
 # `ak move` reads this line to see a tick on the machine it would copy to.
 CRON_MATCH='#+[[:space:]]*agentkit[[:space:]]+watch([[:space:]]|$)'
-# cron makes each unescaped % a newline and hands the rest to sh, so a path goes in as one
-# single-quoted word with its %s escaped
-cron_word() { local word=${1//\'/\'\\\'\'}; word=${word//%/\\%}; printf "'%s'" "$word"; }
+# cron reads a backslash and the next character as a pair, makes \% a % and ends the command at
+# any other %, then hands it to sh: a path goes in as one single-quoted word, each % stepping out
+# of the quotes as \%, where no backslash of the path's comes right before it
+cron_word() { local word=${1//\'/\'\\\'\'}; word=${word//%/\'\\%\'}; printf "'%s'" "$word"; }
 case "$ROLE" in
   client)
     printf '%s\n' "$ALIAS" >"$AK/state/server"
