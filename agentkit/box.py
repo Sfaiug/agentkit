@@ -93,12 +93,13 @@ def _go_cache(env):
     if go is None:
         return None
     try:
-        # Local: ak's own Go answers, never a toolchain it would download and run here, outside
-        # the box; from /, no go.mod is read. No telemetry: it writes in HOME, and its sidecar
-        # can outlive the answer.
-        named = subprocess.run([go, "env", "GOCACHE"], cwd="/", capture_output=True, text=True,
-                               timeout=10, env={**env, "GOTOOLCHAIN": "local",
-                                                "GO_TELEMETRY_CHILD": "2"}).stdout.strip()
+        # Go starts by writing its telemetry under HOME, making a missing one, so it answers in
+        # a read-only view of the host. Local: ak's own Go answers, never a toolchain it would
+        # fetch; from /, no go.mod is read.
+        named = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", "--dev", "/dev",
+                                "--", go, "env", "GOCACHE"], cwd="/", capture_output=True,
+                               text=True, timeout=10,
+                               env={**env, "GOTOOLCHAIN": "local"}).stdout.strip()
         # `off`, empty or relative: Go keeps no cache.
         return Path(named).resolve(strict=True) if Path(named).is_absolute() else None
     except (OSError, RuntimeError, subprocess.SubprocessError):
