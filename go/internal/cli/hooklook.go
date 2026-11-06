@@ -1,22 +1,27 @@
 package cli
 
 import (
-	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
-// lookAfter has the seat looked at again once its hook's event is down, a prompt in the owner's
-// words handed over as what may answer its question (hooks/seat-state.sh's `look`).
-func lookAfter(event *run.Object, at float64) {
-	if event.Str("hook_event_name") == "UserPromptSubmit" {
+// heardAnswer is what the seat's hook heard that may answer its question, which its look after the
+// event checks (hooks/seat-state.sh's `look`): a prompt in the owner's words, or their answer on
+// the harness's own question card; nil for anything else.  False where that answer is Python's to
+// record (seat.CardCarried), with nothing written yet.
+func heardAnswer(event *run.Object, at float64, row string) (*seat.Prompt, bool) {
+	switch event.Str("hook_event_name") {
+	case "UserPromptSubmit":
 		if words := ownersWords(event); words != nil {
-			seat.LookSoon(&seat.Prompt{At: at, Said: *words})
-			return
+			return &seat.Prompt{At: at, Said: *words}, true
+		}
+	case "PostToolUse":
+		if replies := cardReplies(event); replies != nil {
+			return &seat.Prompt{At: at, Replies: replies}, seat.CardCarried(row)
 		}
 	}
-	seat.LookSoon(nil)
+	return nil, true
 }
 
-// questionStands is whether the seat keeps a question back or has one standing.
-func questionStands(name string) bool { return seat.Kept(name) || notify.Standing(name) }
+// lookAfter has the seat looked at again once its hook's event is down, with what it heard.
+func lookAfter(heard *seat.Prompt) { seat.LookSoon(heard) }

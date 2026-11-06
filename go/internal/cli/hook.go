@@ -43,8 +43,8 @@ var subAgent = []string{"agent_id", "agentId", "agent_type", "agentType", "subag
 // doing, under the name the seat goes by now, unless the fact standing keeps it
 // (`lifecycle.Keeps`).  A worker, a harness outside any seat and a sub-agent's turn write
 // nothing; a SessionStart writes only what a compaction drops.  Each event it writes has the seat
-// looked at again at once, off the harness's path; the answer on a question card a seat's question
-// waits on, which Go does not read for what it answers, is left to Python with nothing written.
+// looked at again at once, off the harness's path, with the owner's answer it heard; one on a
+// question card that Go does not record as Python does is left to Python with nothing written.
 func seatState(payload []byte, out io.Writer) int {
 	seat := os.Getenv("AGENTKIT_SESSION")
 	read, _ := run.Decode(payload)
@@ -89,7 +89,8 @@ func seatState(payload []byte, out io.Writer) int {
 		}
 		row = next
 	}
-	if name == "PostToolUse" && questionStands(row) {
+	heard, carried := heardAnswer(event, at, row)
+	if !carried {
 		return leftToPython
 	}
 	kind := first(event, "notification_type", "notificationType", "tool_name", "toolName", "trigger")
@@ -108,7 +109,7 @@ func seatState(payload []byte, out io.Writer) int {
 		fact = lifecycle.StopFact(seat, event, at, false)
 	}
 	hookfact.Record(row, fact, lifecycle.Keeps(harness, fact))
-	lookAfter(event, at)
+	lookAfter(heard)
 	return 0
 }
 
