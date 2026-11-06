@@ -86,8 +86,8 @@ func noErrorRetry() bool {
 }
 
 // errorRetry is watch.resume_errored: each move written under the record's lock, and a due run
-// resumed by Go's own resume once it has climbed its rung, which a resume that never starts keeps.
-// A due run Go's resume does not carry is Python's, as it stood.
+// resumed by Go's own resume, its rung climbed before the driver owns the run, so a start that
+// fails is tried again a rung up. A due run Go's resume does not carry is Python's, as it stood.
 func (t *ticking) errorRetry() error {
 	runs, index, ok := errorRuns()
 	if !ok {
@@ -96,47 +96,65 @@ func (t *ticking) errorRetry() error {
 	now := t.clock()
 	for _, each := range runs {
 		move, why := retryOf(each, index, now)
-		if move == unmoved {
+		id := filepath.Base(each.dir)
+		switch move {
+		case unmoved:
+			continue
+		case due:
+			if !t.resumeErrored(id, each, now) {
+				return errLeft
+			}
 			continue
 		}
-		if move == due && !launch.Carries(each.dir, each.record) {
-			return errLeft
-		}
-		var decided *run.Object
 		err := run.Change(each.dir, func(current *run.Object) error {
 			if !run.Equal(current, each.record) {
 				return errMovedRun
 			}
-			switch move {
-			case replaced, given:
-				loop.DropErrorRetry(current)
-			case footed:
+			if move == footed {
 				loop.ScheduleErrorRetry(current, now)
-			case due:
-				loop.ClimbErrorRetry(current, now)
+			} else {
+				loop.DropErrorRetry(current)
 			}
-			decided = current.Copy()
 			return nil
 		})
-		if errors.Is(err, errMovedRun) {
+		switch {
+		case errors.Is(err, errMovedRun):
 			return errLeft
-		}
-		id := filepath.Base(each.dir)
-		if err != nil {
+		case err != nil:
 			// one record that cannot be written keeps no other run from its retry
 			t.log.line(fmt.Sprintf("WARN cannot check run %s: %s", id, config.PyError(err)))
-			continue
-		}
-		switch move {
-		case given:
+		case move == given:
 			t.log.line(fmt.Sprintf("WARN %s: %s; leaving it parked for a person", id, why))
-		case due:
-			if code, said, err := launch.ResumeExpected(id, decided, nil); err != nil || code != 0 {
-				t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(said, fmt.Sprint(err))))
-			} else {
-				t.log.line(fmt.Sprintf("resumed %s: error retry %s", id, run.Field(decided, "error_retries", "None")))
-			}
 		}
 	}
 	return nil
+}
+
+// resumeErrored resumes a due run a rung up, false where the run is Python's as it stands: one
+// Go's resume leaves to it, or one that moved since the tick read it. The climb is the resume's
+// order, so a run its resume hands over has none.
+func (t *ticking) resumeErrored(id string, each errored, now time.Time) bool {
+	var decided *run.Object
+	climb := func(current *run.Object) {
+		loop.ClimbErrorRetry(current, now)
+		decided = current.Copy()
+	}
+	code, said, err := launch.ResumeExpected(id, each.record, climb)
+	switch {
+	case errors.Is(err, launch.ErrPython):
+		return false
+	case err == nil && code == 0:
+		t.log.line(fmt.Sprintf("resumed %s: error retry %s", id, run.Field(decided, "error_retries", "None")))
+		return true
+	}
+	t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(said, fmt.Sprint(err))))
+	// a start that failed before the resume wrote its order climbs here
+	moved := run.Change(each.dir, func(current *run.Object) error {
+		if !run.Equal(current, each.record) {
+			return errMovedRun
+		}
+		climb(current)
+		return nil
+	})
+	return !errors.Is(moved, errMovedRun)
 }
