@@ -29,7 +29,7 @@ from pathlib import Path
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REAL_TMUX, REPO, Home
+from fixtures.akbin import AK, REAL_TMUX, Home
 from fixtures.akseat import FIXTURES, Seat
 from fixtures.akterm import Terminal
 from fixtures.sink import Sink
@@ -107,8 +107,7 @@ class CodexHost:
         cls.addClassCleanup(cls.provider.server_close)
         cls.addClassCleanup(cls.provider.shutdown)
         proxy = f"http://127.0.0.1:{cls.provider.server_port}"
-        home.env.update({"FAKE_CODEX_REPO": str(REPO), "FAKE_THREAD": "acme-thread",
-                         "FAKE_HOLD": "1", "FAKE_PAIRING": "1",
+        home.env.update({"FAKE_THREAD": "acme-thread", "FAKE_HOLD": "1", "FAKE_PAIRING": "1",
                          "https_proxy": proxy, "HTTPS_PROXY": proxy,
                          "SSL_CERT_FILE": str(cert)})
 

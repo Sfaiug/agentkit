@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, REPO, Home
+from fixtures.akbin import REAL_TMUX, Home
 from fixtures.akseat import FIXTURES
 from fixtures.akterm import Terminal
 
@@ -33,7 +33,7 @@ class CodexSettingsFollowed(unittest.TestCase):
     def test_settings_follow_without_a_new_answer_even_after_resume_was_refused(self):
         home = Home()
         self.addCleanup(home.close)
-        home.env.update(FAKE_CODEX_REPO=str(REPO), FAKE_THREAD=THREAD, FAKE_HOLD="1",
+        home.env.update(FAKE_THREAD=THREAD, FAKE_HOLD="1",
                         FAKE_SCREEN=str(FIXTURES / "codex-prompt-pane.txt"),
                         https_proxy="http://127.0.0.1:9", HTTPS_PROXY="http://127.0.0.1:9")
         home.fake("codex", "#!/bin/sh\nexec " + shlex.join(
