@@ -18,7 +18,7 @@ const dryFor = 3600.0
 func MarkExhausted(provider string, until float64) float64 {
 	now := clock()
 	prov := run.NewObject()
-	if readings, err := Read(); err == nil {
+	if readings, err := Collected(); err == nil {
 		prov = object(readings.providers.Get(provider))
 	}
 	said := until > now

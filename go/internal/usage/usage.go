@@ -52,8 +52,14 @@ func (src source) key() string {
 // Read is the reading of every provider config.toml lists: the one state/usage.json holds while
 // it is under five minutes old, else each provider's adapter asked again, as Python's
 // usage.collect reads it.  ErrPython before anything is locked or asked.
-func Read() (*Readings, error) {
-	sources, err := listed(false)
+func Read() (*Readings, error) { return readAll(false) }
+
+// Collected is Read as Python's tick and its marks read it, the checkout's own adapters asked
+// where no $AGENTKIT_ADAPTER_DIR is named, as the ak screen asks them.
+func Collected() (*Readings, error) { return readAll(true) }
+
+func readAll(shipped bool) (*Readings, error) {
+	sources, err := listed(shipped)
 	if err != nil {
 		return nil, err
 	}

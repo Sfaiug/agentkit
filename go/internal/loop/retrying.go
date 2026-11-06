@@ -270,7 +270,7 @@ func (c *call) harnessWords(t *try) (bool, error) {
 	if ending != harness.Spent {
 		return c.waitOut(fmt.Sprintf("transient %s: %s", quoted(mark), message))
 	}
-	until := usage.MarkExhausted(c.model.Provider, tryAgainAt(said))
+	until := usage.MarkExhausted(c.model.Provider, usage.TryAgainAt(said))
 	c.l.say(fmt.Sprintf("WARN %s %s refused: %s; nothing is picked on %s until %s", c.role, c.name, message, c.model.Provider, time.Unix(int64(until), 0).Format("2006-01-02 15:04")))
 	return false, &ranDry{mark, t.out, message, t.code}
 }
