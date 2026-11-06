@@ -38,7 +38,7 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import (command_help, config, gitcall, history, matrix, staffing, terminal, turns,
+from . import (command_help, config, gitcall, history, matrix, spend, staffing, terminal, turns,
                usage_probe, worker)
 from .harness import limited, load as harness_plugin
 
@@ -2144,11 +2144,13 @@ def main(argv):
     repo = Path.cwd().name
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
+        now = time.time()
         for _, name, prov, account in _accounts(cfg, providers):
             shared = shared_week(cfg, name, prov) or {}
             prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account, shared)
             prov["price"] = price(cfg, name)
             prov["price_per_1m"] = per_million(prov["price"], prov["capacity_tokens"], shared)
+            prov["listed_usd"] = spend.listed(cfg, name, account, now - 7 * 86400, now)
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()
