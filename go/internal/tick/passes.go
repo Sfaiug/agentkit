@@ -8,6 +8,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
+	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
@@ -57,9 +58,14 @@ func table(t *ticking) []pass {
 		{"login reminder", false, nil, loginReminder},
 		{"token reminder", false, nil, nil},
 		{"exhausted resume", true, noExhaustedResume, nil},
-		{"error retry", true, noErrorRetry, nil},
+		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
 		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
-		{"old endings", false, noOldEndings, nil},
+		{"old endings", false, nil, func() error {
+			if !handback.MarkHistory(t.log.line) {
+				return errLeft
+			}
+			return nil
+		}},
 		{"endings", false, t.endingsIdle, t.endings},
 		{"job handbacks", false, jobless, nil},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
