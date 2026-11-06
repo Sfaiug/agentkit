@@ -24,7 +24,7 @@ func Delivered(ctx context.Context, name, check string) error {
 			if !ok || line.Check != check || !line.Deferred || line.proven() {
 				continue
 			}
-			if held, err := taken(current, line); held || err != nil {
+			if held, err := taken(current, line, followupOpen); held || err != nil {
 				continue
 			}
 			lines[i] = added(line.What, line.Check, line.Project, line.When, line.Base).ticked("")
