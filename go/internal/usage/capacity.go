@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
@@ -347,7 +348,9 @@ type paired struct{ meter, pair *run.Object }
 // usage._keep_pairs: each meter keeps its latest window and the one before it, the latest being
 // the latest any reading or pair named, as a turn recording late must not drop a later window's.
 func keepPairs(src source, read []paired) error {
-	held, err := lockFile(filepath.Join(state(), "capacity.lock"))
+	path := filepath.Join(state(), pairsFile)
+	beside := strings.TrimSuffix(path, filepath.Ext(path)) // Python's path.with_suffix
+	held, err := lockFile(beside + ".lock")
 	if err != nil {
 		return err
 	}
@@ -366,10 +369,10 @@ func keepPairs(src source, read []paired) error {
 		window, sized := number(each.meter.Get("window_secs"))
 		meters.Set(name, list(recent(kept, ends, end, window, sized)))
 	}
-	tmp := filepath.Join(state(), fmt.Sprintf("capacity.tmp-%d-%d", os.Getpid(), writes.Add(1)-1))
+	tmp := fmt.Sprintf("%s.tmp-%d-%d", beside, os.Getpid(), writes.Add(1)-1)
 	defer os.Remove(tmp)
 	if err := os.WriteFile(tmp, []byte(run.Line(blob)), 0o666); err != nil {
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(state(), pairsFile))
+	return os.Rename(tmp, path)
 }

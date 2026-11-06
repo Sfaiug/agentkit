@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"agentkit/internal/config/adapters"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
 )
@@ -281,18 +282,19 @@ func dig(value any, keys ...string) *run.Object {
 }
 
 // claudeTurnMeters is the login's limits the turn printed in its own stream, as endpoint meters,
-// claude.py `turn_meters`: every `claude -p` turn prints `rate_limit_event`s carrying its
-// five-hour and seven-day utilizations, 0 to 1, with their resets, so the turn's own login is
+// claude.py `turn_meters`: every `claude -p` turn prints events (adapters.ClaudeLimits) carrying
+// its five-hour and seven-day utilizations, 0 to 1, with their resets, so the turn's own login is
 // measured with no request.  The last event with a valid window is the reading.
 func claudeTurnMeters(out string) []any {
-	events, _ := jsonLines(filepath.Join(out, "events.jsonl"), func(line string) bool { return strings.Contains(line, "rate_limit_event") })
+	limits := adapters.ClaudeLimits
+	events, _ := jsonLines(filepath.Join(out, "events.jsonl"), func(line string) bool { return strings.Contains(line, limits.Event) })
 	var found []any
 	for _, line := range events {
 		event, ok := line.(*run.Object)
-		if !ok || event.Get("type") != "rate_limit_event" {
+		if !ok || event.Get("type") != limits.Event {
 			continue
 		}
-		info := event.Dict("rate_limit_info")
+		info := event.Dict(limits.Info)
 		if info == nil || info.Dict("unifiedWindows") == nil {
 			continue
 		}
