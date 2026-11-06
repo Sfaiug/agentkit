@@ -40,6 +40,10 @@ def until(test, what, bound=60):
     return got
 
 
+def stopped(pid):
+    return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "T"
+
+
 class Restart(unittest.TestCase):
     def setUp(self):
         self.home = Home()
@@ -161,8 +165,7 @@ class Restart(unittest.TestCase):
         # the first thing it does on going on is start again.
         pid = self.program()
         os.kill(pid, signal.SIGSTOP)
-        until(lambda: Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] == "T",
-              "stopped")
+        until(lambda: stopped(pid), "stopped")
         self.menu.resize(40, 15)
         self.stamp()
         os.kill(pid, signal.SIGCONT)
@@ -183,9 +186,15 @@ class Restart(unittest.TestCase):
         since = len(self.restarted()[0])
         pid = self.program()
         os.kill(pid, signal.SIGTSTP)
-        until(lambda: LEAVE in self.said()[since:], "gave the terminal back")
         # A shell with job control would hold the menu stopped until `fg`; this terminal's has
-        # none, and the system lets a stop nobody could undo pass, so only going on is seen.
+        # none, and the system lets a stop nobody could undo pass, so only going on is seen.  It is
+        # sent as `fg` is, once the menu has stopped or gone on by itself: sent while the menu is
+        # still on its way to a stop of its own, it is lost and the menu stays stopped.
+        def gave():
+            said = self.said()
+            back = said.find(LEAVE, since)
+            return back >= 0 and (stopped(pid) or said.find(ENTER, back) >= 0)
+        until(gave, "gave the terminal back and stopped")
         os.kill(pid, signal.SIGCONT)
         again = self.said().index(LEAVE, since)
         said, enter, marks = self.taken(again)
