@@ -102,6 +102,10 @@ type plugin struct {
 	wrapped func(record map[string]any, prompted func(*run.Object) bool) any
 	// forget is Forgetting's: nil where it keeps nothing for a seat beyond the seat's own files.
 	forget func(record *run.Object) (func(), bool)
+	// yolo is Yolo's: nil where the harness keeps no yolo default in a settings file, and
+	// rulebook Rulebook's, under HOME: "" where no older install linked ak's rules over its own.
+	yolo     func(out io.Writer) error
+	rulebook string
 }
 
 var plugins = map[string]plugin{}

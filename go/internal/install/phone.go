@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/task"
 )
 
 // The phone reaches the server through one authorized_keys line, tagged phoneTag, whose forced
@@ -92,10 +94,14 @@ func addPhone(keys, given string, out io.Writer) error {
 // repoint gives every phone line the forced command, backing the file up first where it
 // changes; a commented-out line stays as it is.
 func repoint(keys string, out io.Writer) error {
-	read, err := text(keys)
+	data, err := os.ReadFile(keys)
+	if err == nil && !utf8.Valid(data) {
+		err = fmt.Errorf("%s is not UTF-8", keys)
+	}
 	if err != nil {
 		return err
 	}
+	read := task.Text(data) // as Python's read_text reads it, every line ending a newline
 	var written strings.Builder
 	found := false
 	for _, line := range strings.SplitAfter(read, "\n") {
@@ -115,11 +121,16 @@ func repoint(keys string, out io.Writer) error {
 	case written.String() == read:
 		fmt.Fprintf(out, "ssh: the %s key already runs `ak attach`\n", phoneTag)
 	default:
-		backup, err := backUp(keys)
+		backup, err := config.BackUp(keys)
 		if err != nil {
 			return err
 		}
-		if err := replace(keys, written.String(), 0o600); err != nil {
+		// in whole, so sshd never reads half a file, and mode 600 before it is in place
+		tmp := keys + ".ak-tmp"
+		if err := errors.Join(os.WriteFile(tmp, []byte(written.String()), 0o600), os.Chmod(tmp, 0o600)); err != nil {
+			return err
+		}
+		if err := os.Rename(tmp, keys); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "ssh: the %s key now runs `ak attach` (%s backed up to %s)\n", phoneTag, keys, filepath.Base(backup))
