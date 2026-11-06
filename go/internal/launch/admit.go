@@ -57,7 +57,7 @@ func letIn(first bool) (*admission, bool) {
 	if !run.Historyless() {
 		return nil, false
 	}
-	took, lastIn, read := queued()
+	_, took, lastIn, read := queued()
 	poll, polled := slotPoll()
 	readings, injected := host.Injected()
 	limit, err := config.MaxRuns()
@@ -100,13 +100,13 @@ func holding() ([]int, bool) {
 	return pids, alone
 }
 
-// queued is runs/.slots.queue as Python's gate.slot_queue reads it: the waits first in line of the
-// last runs let in, and when the last went in, none where the file holds no queue; false where it
-// holds one in a shape Python's gate never writes, which Go might read otherwise.
-func queued() ([]any, float64, bool) {
+// queued is runs/.slots.queue as Python's gate.slot_queue reads it: the file, the waits first in
+// line of the last runs let in, and when the last went in, none where the file holds no queue;
+// false where it holds one in a shape Python's gate never writes, which Go might read otherwise.
+func queued() (*run.Object, []any, float64, bool) {
 	saved, err := run.ReadJSON(filepath.Join(run.Runs(), ".slots.queue"))
 	if saved == nil {
-		return nil, 0, !errors.Is(err, run.ErrLoneSurrogate)
+		return nil, nil, 0, !errors.Is(err, run.ErrLoneSurrogate)
 	}
 	queue, listed := saved.Get("queue").([]any)
 	waits, timed := saved.Get("took").([]any)
@@ -119,14 +119,14 @@ func queued() ([]any, float64, bool) {
 		slices.ContainsFunc(queue, func(id any) bool { _, text := id.(string); return !text }) ||
 		slices.ContainsFunc(waits, func(wait any) bool { _, number := wait.(run.Number); return !number }) ||
 		slices.ContainsFunc(turns, malformedTurn) {
-		return nil, 0, false
+		return nil, nil, 0, false
 	}
 	var took []any
 	for _, wait := range waits {
 		parsed, _ := run.Num(wait)
 		took = append(took, run.Float(parsed))
 	}
-	return took, lastIn, true
+	return saved, took, lastIn, true
 }
 
 // optional is a number the queue may leave out, 0 for none.

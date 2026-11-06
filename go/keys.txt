@@ -43,6 +43,7 @@ test_key_answer_context
 test_key_audit_line_delivered
 test_key_audit_off
 test_key_audit_owner_closed
+test_key_audit_stall_line
 test_key_antigravity_holds_background_work
 test_key_antigravity_words
 test_key_background_work_holds_the_account
