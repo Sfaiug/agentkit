@@ -53,26 +53,30 @@ func TestACheckoutIsTended(t *testing.T) {
 	}
 }
 
-// A checkout naming its switches or a night read ends the tick at that row, before its stamp, what
-// the rows before did standing.
-func TestADeclaredReadEndsTheTickThere(t *testing.T) {
-	for key, row := range map[string]struct {
-		stamp string
-		swept bool // the git housekeeping row, between the two, ran
-	}{"features": {"retire.json", false}, "nightly": {"nightly.json", true}} {
-		t.Run(key, func(t *testing.T) {
-			ak, api := checkoutHome(t, "---\n"+key+": tools/"+key+"\n---\n# acme\n")
-			said := ""
-			if row.swept {
-				said = "git gc: " + api + "\n"
-			}
-			endedThere(t, ak, said)
-			if _, err := os.Stat(filepath.Join(ak, "state", row.stamp)); err == nil {
-				t.Errorf("%s was stamped", row.stamp)
-			}
-			if swept := strings.Contains(read(t, filepath.Join(api, ".git", "config")), "auto = 0"); swept != row.swept {
-				t.Errorf("git housekeeping ran: %v", swept)
-			}
-		})
+// A checkout naming a night read ends the tick at that row, before its stamp, what the rows
+// before did standing.
+func TestADeclaredNightEndsTheTickThere(t *testing.T) {
+	ak, api := checkoutHome(t, "---\nnightly: tools/nightly\n---\n# acme\n")
+	endedThere(t, ak, "git gc: "+api+"\n")
+	if _, err := os.Stat(filepath.Join(ak, "state", "nightly.json")); err == nil {
+		t.Errorf("nightly.json was stamped")
+	}
+	if !strings.Contains(read(t, filepath.Join(api, ".git", "config")), "auto = 0") {
+		t.Errorf("git housekeeping did not run")
+	}
+}
+
+// A checkout whose switch list cannot be read is said so, and its list is read again next hour.
+func TestAnUnreadSwitchListIsSaid(t *testing.T) {
+	ak, api := checkoutHome(t, "---\nfeatures: tools/features\n---\n# acme\n")
+	var out bytes.Buffer
+	if !carries(&out, io.Discard) {
+		t.Fatalf("left it to Python, printing %q", out.String())
+	}
+	if !strings.Contains(out.String(), "WARN api: its switches are unread, so none was planned (") {
+		t.Errorf("printed %q", out.String())
+	}
+	if retire := read(t, filepath.Join(ak, "state", "retire.json")); strings.Contains(retire, api) {
+		t.Errorf("retire.json holds %s", retire)
 	}
 }

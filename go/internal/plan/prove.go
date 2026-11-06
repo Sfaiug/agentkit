@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/features"
 	"agentkit/internal/host"
 )
 
@@ -163,7 +164,11 @@ func (on *branch) checkout(ctx context.Context, fn func(tree string) error) erro
 }
 
 // passes is whether check passes in tree; one that does not finish within checkLimit is an error.
+// A switch's check, which runs Python ak, is read by features instead: no Python ak may be here.
 func (on *branch) passes(ctx context.Context, tree, check string) (bool, error) {
+	if passed, ours := features.Checked(tree, check); ours {
+		return passed, nil
+	}
 	limited, cancel := context.WithTimeout(ctx, checkLimit)
 	defer cancel()
 	cmd := exec.CommandContext(limited, "bash", "-c", check)

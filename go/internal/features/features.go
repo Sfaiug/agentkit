@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -20,6 +19,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
+	record "agentkit/internal/run"
 )
 
 // Every is how old a project's last `list` grows before the menu asks again.
@@ -107,24 +107,35 @@ func list(checkout string, found *entry) {
 	}
 }
 
-// switches is the rows a `list` answered, each with an id; false for no list.
-func switches(answer any) ([]Switch, bool) {
+// objects is the rows a `list` answered, each an object with an id, as Python's
+// menu.switch_rows keeps them; false for no list.
+func objects(answer any) ([]*record.Object, bool) {
 	listed, ok := answer.([]any)
 	if !ok {
 		return nil, false
 	}
-	rows := []Switch{}
+	rows := []*record.Object{}
 	for _, each := range listed {
-		row, ok := each.(map[string]any)
-		id, named := row["id"]
-		if !ok || !named {
-			continue
+		if row, ok := each.(*record.Object); ok && row.Has("id") {
+			rows = append(rows, row)
 		}
-		name, _ := row["name"].(string)
-		you, _ := row["you"].(bool)
-		everyone, _ := row["everyone"].(bool)
-		rows = append(rows, Switch{ID: fmt.Sprint(id), Name: cmp.Or(name, fmt.Sprint(id)), You: you, Everyone: everyone,
-			Fixed: row["you_switchable"] == false})
+	}
+	return rows, true
+}
+
+// switches is the rows a `list` answered, each with an id; false for no list.
+func switches(answer any) ([]Switch, bool) {
+	listed, ok := objects(answer)
+	if !ok {
+		return nil, false
+	}
+	rows := []Switch{}
+	for _, row := range listed {
+		id := record.Text(row.Get("id"))
+		you, _ := row.Get("you").(bool)
+		everyone, _ := row.Get("everyone").(bool)
+		rows = append(rows, Switch{ID: id, Name: cmp.Or(row.Str("name"), id), You: you, Everyone: everyone,
+			Fixed: row.Get("you_switchable") == false})
 	}
 	return rows, true
 }
@@ -169,8 +180,9 @@ func run(checkout string, words ...string) (any, string) {
 	case err != nil:
 		return nil, what + ": " + config.PyError(err)
 	}
-	var answer any
-	if json.Unmarshal(out.Bytes(), &answer) != nil {
+	// read as Python reads it, so an id is the text Python's str() makes of it
+	answer, err := record.Decode([]byte(gitcall.Decoded(out.String())))
+	if err != nil {
 		return nil, what + " answered no JSON"
 	}
 	return answer, ""
