@@ -378,8 +378,8 @@ func sessionFile(file string) (string, bool) {
 
 // writeSeat merges fields into the seat file under its lock, as Python's watch.seat_write does.
 func writeSeat(state, name string, fields []field) error {
-	return put(filepath.Join(state, "seat-"+name+".json"), filepath.Join(state, "seat-"+name+".lock"), run.Line, true,
-		set(fields, field{"session", name}))
+	return unrecorded(name, put(filepath.Join(state, "seat-"+name+".json"), filepath.Join(state, "seat-"+name+".lock"), run.Line, true,
+		set(fields, field{"session", name})))
 }
 
 // under runs fn holding the lock at path.

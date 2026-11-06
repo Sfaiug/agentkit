@@ -162,8 +162,9 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 		// no listing reads (forget); one renamed leaves its pointer and what the rename keeps under its
 		// old name; one tmux no longer holds leaves its announce lock, its word and its card, which the
 		// tick closes (notify.tick_cards), and what it asked the owner last, an orphan ending's question
-		// among them (handback.announce)
-		if renamed[name] || !slices.Contains(names, name) && entry.Type().IsRegular() &&
+		// among them (handback.announce); what a seat file's write lands through is read by nobody,
+		// and whatever stands there is that write's WARN (watch.seat_write)
+		if renamed[name] || kind == "seat" && suffix == "tmp" || !slices.Contains(names, name) && entry.Type().IsRegular() &&
 			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
 			continue
 		}
