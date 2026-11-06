@@ -57,7 +57,7 @@ func TestAnEndingOverAnHourOldIsHistory(t *testing.T) {
 		{run.Fields("finished_at", nil, "started_at", run.Float(now-2*maxAge)), true},
 		{run.Fields("finished_at", nil), false},
 	} {
-		if got := history(each.record, now); got != each.old {
+		if got := history(each.record); got != each.old {
 			t.Errorf("%s: got %v", run.Line(each.record), got)
 		}
 	}

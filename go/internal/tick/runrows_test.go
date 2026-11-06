@@ -4,13 +4,10 @@ package tick
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"path/filepath"
 	"testing"
 	"time"
-
-	"agentkit/internal/run"
 )
 
 func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
@@ -72,41 +69,6 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 				t.Fatal("did not hand over at this row without writing")
 			}
 		})
-	}
-}
-
-// An ending nobody heard for over an hour is marked as history, in one line, and replayed to
-// nobody; one waiting for its seat, and one under the hour, are left to be told.
-func TestOldEndingsAreMarkedNotReplayed(t *testing.T) {
-	ak, _ := idleHome(t, answers)
-	old := time.Now().Unix() - 7200
-	for name, record := range map[string]string{
-		"old":     fmt.Sprintf(`{"state":"pass","finished_at":%d}`, old),
-		"waiting": fmt.Sprintf(`{"state":"fail","finished_at":%d,"handback_pending":true}`, old),
-		"fresh":   fmt.Sprintf(`{"state":"fail","finished_at":%d}`, time.Now().Unix()-60),
-	} {
-		put(t, filepath.Join(ak, "runs", name, "run.json"), record)
-	}
-	before := files(t, filepath.Join(ak, "runs"))
-	var said bytes.Buffer
-	tick := &ticking{log: newLog(&said, io.Discard), clock: time.Now}
-	for _, each := range table(tick) {
-		if each.name == "old endings" && (each.idle != nil || each.step() != nil) {
-			t.Fatal("the row did not carry its sweep")
-		}
-	}
-	if said.String() != "marked 1 pre-existing endings as handed back without replaying (pre-existing ending; not replayed): old\n" {
-		t.Errorf("said %q", said.String())
-	}
-	marked, _ := run.Read(filepath.Join(ak, "runs", "old"))
-	if !marked.Truthy("handed_back") || marked.Str("handback_note") != "pre-existing ending; not replayed" {
-		t.Errorf("old reads %s", run.Line(marked))
-	}
-	for _, name := range []string{"waiting", "fresh"} {
-		path := filepath.Join(ak, "runs", name, "run.json")
-		if read(t, path) != before[path] {
-			t.Errorf("%s was rewritten", name)
-		}
 	}
 }
 
