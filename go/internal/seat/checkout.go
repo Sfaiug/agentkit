@@ -1,15 +1,12 @@
 package seat
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 )
@@ -155,7 +152,7 @@ type gitDirs struct {
 }
 
 // dirsOf is orch.git_dirs: a plain `.git` directory with no `commondir` is a repository's own
-// checkout; for anything else git itself is asked.
+// checkout; for anything else git itself is asked, once in gitHeld.
 func dirsOf(path string) gitDirs {
 	dot := filepath.Join(path, ".git")
 	info, err := os.Lstat(dot)
@@ -165,32 +162,7 @@ func dirsOf(path string) gitDirs {
 	if info.IsDir() && !exists(filepath.Join(dot, "commondir")) {
 		return gitDirs{config.Resolve(dot), false, true}
 	}
-	gitdir, ok := askGit(path, "--git-dir")
-	common, same := askGit(path, "--git-common-dir")
-	if !ok || !same {
-		return gitDirs{}
-	}
-	return gitDirs{common, gitdir != common, true}
-}
-
-// askGit is the path git names for a flag, asked at `path` alone, never above it, with nothing
-// of git's own environment: an inherited repository would answer for another checkout.
-func askGit(path, flag string) (string, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--path-format=absolute", flag)
-	cmd.Dir = path
-	for _, each := range os.Environ() {
-		if !strings.HasPrefix(each, "GIT_") {
-			cmd.Env = append(cmd.Env, each)
-		}
-	}
-	cmd.Env = append(cmd.Env, "GIT_CEILING_DIRECTORIES="+filepath.Dir(path))
-	out, err := cmd.Output()
-	if err != nil {
-		return "", false
-	}
-	return config.Resolve(strings.TrimSuffix(string(out), "\n")), true
+	return askedDirs(path)
 }
 
 func exists(path string) bool {

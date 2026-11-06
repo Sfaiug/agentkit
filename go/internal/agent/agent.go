@@ -76,8 +76,8 @@ func worker(pid int) bool {
 	return err == nil && slices.Contains(strings.Split(string(env), "\x00"), "AK_RUN_ROLE=worker")
 }
 
-// processes is each process's command and children by its ID, from one `ps`; nil without one.
-func processes() (map[int][]string, map[int][]int) {
+// readProcesses is each process's command and children by its ID, from one `ps`; nil without one.
+func readProcesses() (map[int][]string, map[int][]int) {
 	out, err := exec.Command("ps", "-A", "-ww", "-o", "pid=", "-o", "ppid=", "-o", "args=").Output()
 	if err != nil {
 		return nil, nil
