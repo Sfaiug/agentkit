@@ -615,7 +615,9 @@ def answers(record, cwd, conversation):
             named = request.get("prompt_id"), request.get("tool_call_id")
             if (request.get("tool_name") == "request_user_input"
                     and all(isinstance(name, str) for name in named)):
-                asked[named] = {question["id"]: question for question in request["questions"]}
+                asked[named] = {question["id"]: question for question in request["questions"]
+                                if isinstance(question["id"], str)
+                                and isinstance(question["options"], list)}
             if done.get("outcome") != "answered" or type(at) is not int:
                 continue
             questions = asked[done["prompt_id"], done["tool_call_id"]]

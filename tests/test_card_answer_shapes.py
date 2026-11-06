@@ -18,14 +18,14 @@ READ = [{"question": QUESTION, "answer": ANSWER,
          "choices": [{"label": label, "description": ""} for label in CHOICES]}]
 
 
-def codex_card(call):
+def codex_card(call, options=CHOICES):
     reply = "<send_user_message_question_reply>\n" + json.dumps([{
         "answer": ANSWER, "question": QUESTION,
         "questionItemId": json.dumps(["request_user_input_async", call, 0])}]) + (
         "\n</send_user_message_question_reply>")
     return [{"timestamp": "2026-11-05T10:00:00Z", "type": "response_item", "payload": {
                 "type": "function_call", "name": "request_user_input_async", "call_id": call,
-                "arguments": json.dumps({"questions": [{"title": QUESTION, "options": CHOICES}]})}},
+                "arguments": json.dumps({"questions": [{"title": QUESTION, "options": options}]})}},
             {"timestamp": "2026-11-05T10:01:00Z", "type": "event_msg", "payload": {
                 "type": "item_completed", "item": {"type": "UserMessage", "content": [
                     {"type": "text", "text": reply}]}}}]
@@ -70,12 +70,20 @@ class CardAnswerShapes(Sandbox):
         for call in (None, 42, False):
             with self.subTest(call=call):
                 self.assertEqual(self.read("codex", codex, "transcript", codex_card(call)), [])
+        for options in ({}, "", [42]):
+            with self.subTest(options=options):
+                self.assertEqual(self.read("codex", codex, "transcript",
+                                           codex_card("call-acme", options)), [])
 
     def test_muse_reads_a_request_user_input_card_in_words(self):
         self.assertEqual(self.read("muse", muse, "session_log", muse_card(REQUEST)), READ)
         for shape, rows in {
                 "another tool": muse_card({**REQUEST, "tool_name": "another_tool"}),
                 "an unnamed card": muse_card({**REQUEST, "prompt_id": None}, prompt_id=None),
+                **{f"a question id {name!r}": muse_card(changed(id=name), answers=[
+                    {"id": name, "selected_label": ANSWER}]) for name in (None, 42, False)},
+                **{f"options {options!r}": muse_card(changed(options=options))
+                   for options in ({}, "")},
                 "a question not in words": muse_card(changed(question=None)),
                 "a choice not in words": muse_card(changed(option={"label": 42})),
                 "a description not in words": muse_card(changed(option={"description": []})),
