@@ -69,10 +69,23 @@ func switches(ctx context.Context, checkout string) []*run.Object {
 	defer cancel()
 	cmd := exec.CommandContext(limited, "/bin/sh", "-c", command+" list")
 	var out bytes.Buffer
-	cmd.Dir, cmd.Stdout, cmd.WaitDelay = checkout, &out, time.Second // a child left holding the answer is not waited for
+	cmd.Dir, cmd.Stdout = checkout, &out
 	cmd.Env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
-	host.Group(cmd)
-	if cmd.Run() != nil {
+	stop := host.Group(cmd)
+	if cmd.Start() != nil {
+		return nil
+	}
+	waited := make(chan error, 1)
+	go func() { waited <- cmd.Wait() }()
+	select {
+	case err := <-waited:
+		if err != nil {
+			return nil
+		}
+	// the deadline holds for the whole answer: exec stops watching it once the shell exits, and a
+	// child left holding the output would hold Wait for as long as it lives
+	case <-limited.Done():
+		stop()
 		return nil
 	}
 	answer, _ := run.Decode([]byte(gitcall.Decoded(out.String())))

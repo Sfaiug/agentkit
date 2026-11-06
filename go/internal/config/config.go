@@ -53,7 +53,10 @@ func Repo() string {
 	bin := filepath.Dir(executable)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if top, err := exec.CommandContext(ctx, "git", "-C", bin, "rev-parse", "--show-toplevel").Output(); err == nil {
+	git := exec.CommandContext(ctx, "git", "-C", bin, "rev-parse", "--show-toplevel")
+	// the checkout the executable sits in, never one the caller's git variables name (a git hook's)
+	git.Env = slices.DeleteFunc(os.Environ(), func(pair string) bool { return strings.HasPrefix(pair, "GIT_") })
+	if top, err := git.Output(); err == nil {
 		return filepath.Clean(strings.TrimSuffix(string(top), "\n"))
 	}
 	return filepath.Dir(bin)
