@@ -564,6 +564,15 @@ class PlanLines(Sandbox):
         self.assertEqual(newer[0].returncode, 0, out + err)
         self.assertTrue(entered.exists())
 
+    def test_a_rename_back_takes_the_held_verification_lock_with_it(self):
+        with plan.verifying("fix-api"):
+            config.rename_session("fix-api", "fix-api-renamed")
+            # a contender that resolved the old name before the move opened its lock after it
+            config.seat_file("verify", "fix-api").touch()
+            config.rename_session("fix-api-renamed", "fix-api")
+            with plan.verifying("fix-api", wait=False) as mine:
+                self.assertFalse(mine, "a second verification took the seat beside the first")
+
     def other_acme(self, has_feature):
         """A second checkout named acme, with an origin of its own, filed under a seat."""
         other = self.root / "other-owner" / "acme"
