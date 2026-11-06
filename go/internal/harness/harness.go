@@ -53,6 +53,8 @@ type plugin struct {
 	heard  func(name string) hookfact.Fact
 	keys   []string
 	kept   *regexp.Regexp
+	// reconcile is what Reconcile writes into its seats' records; nil leaves that to Python.
+	reconcile func(record *run.Object) *run.Object
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
