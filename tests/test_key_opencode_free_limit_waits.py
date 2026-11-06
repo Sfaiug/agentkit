@@ -7,7 +7,8 @@ screen said when the free messages reset, in a box whose shading it keeps redraw
 That is a spent window with a known reset, not a bare rate limit to type `continue` past.
 Black-box: `AK_BIN` ticks beside an akseat.py seat on that screen, whose session ends on such a
 row, shaped as OpenCode 2.2.3 left it, under invented ids; the tick meets usage readings the test
-writes, and no provider.
+writes, and no provider.  OpenCode keeps opencode.db in WAL mode, so while it runs that row may be
+only in opencode.db-wal, beside a file its open connection has not checkpointed into.
 """
 
 import itertools
@@ -18,7 +19,6 @@ import sqlite3
 import sys
 import threading
 import time
-from contextlib import closing
 from pathlib import Path
 import unittest
 
@@ -46,6 +46,12 @@ MESSAGES = """CREATE TABLE `session_message` (
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class OpencodeFreeLimitWaits(unittest.TestCase):
     def test_the_seat_reads_out_of_usage_while_its_limit_screen_redraws(self):
+        self.reads_out_of_usage(journal="DELETE")
+
+    def test_so_it_reads_while_opencode_holds_its_database_open(self):
+        self.reads_out_of_usage(journal="WAL")
+
+    def reads_out_of_usage(self, journal):
         home = Home()
         self.addCleanup(home.close)
         with socket.socket() as probe:     # a port nobody listens on: no provider is reached
@@ -60,7 +66,10 @@ class OpencodeFreeLimitWaits(unittest.TestCase):
                  "retryAfterMs": RETRY_MS}
         db = home.path / ".local/share/opencode/opencode.db"
         db.parent.mkdir(parents=True)
-        with closing(sqlite3.connect(db)) as conn, conn:
+        conn = sqlite3.connect(db)      # held open, as OpenCode holds it while it runs
+        self.addCleanup(conn.close)
+        conn.execute(f"PRAGMA journal_mode={journal}")
+        with conn:
             conn.execute(MESSAGES)
             for seq, (kind, data) in enumerate([
                     ("user", {"text": "Rename the acme report."}),

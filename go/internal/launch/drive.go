@@ -61,12 +61,12 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		if at.project != "" {
 			project = at.project
 		}
+		record.Set("policy", run.Fields(at.numbers.Said()...)) // a scratch run's too, as Python's prepare
 		if at.repo == "" {
 			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", project)
 			return
 		}
-		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines.Said(), "seat_lines", at.numbers.SeatLines.Said()),
-			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
+		run.SetAll(record, "repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err
 	}

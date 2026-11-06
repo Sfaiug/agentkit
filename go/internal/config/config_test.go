@@ -100,6 +100,9 @@ func TestSchemaRefusals(t *testing.T) {
 		{"executor_lines=-1\n" + models, "executor_lines must be a whole number of at least 0, the most added lines a first review reads (got -1)"},
 		{"executor_lines=0\norchestrator_lines=0\n" + models, "executor_lines and orchestrator_lines cannot both be 0: nobody could build a change"},
 		{"orchestrator_lines=true\n" + models, "orchestrator_lines must be a whole number of at least 0, the most added lines an orchestrator builds (got True)"},
+		{"rounds=2\n" + models, "use review_rounds instead of rounds"},
+		{"review_lines=9\nexecutor_lines=9\n" + models, "use executor_lines instead of review_lines"},
+		{"seat_lines=0\n" + models, "use orchestrator_lines instead of seat_lines"},
 		{"review_rounds=2.5\n", "review_rounds must be a whole number of at least 0, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 2.5)"},
 		{"compare=5\n", "compare must list release slugs (compare = [\"acme-pro-5\"]) (got 5)"},
 		{"[models.acme]\nprovider='test'\n[providers.test]\n", "no [models.*] entry names a provider with a [providers.*] table"},
@@ -173,6 +176,27 @@ func TestRoundsReadsWhatLoadLeaves(t *testing.T) {
 		if example.reason != "" && (err == nil || !strings.HasPrefix(err.Error(), path+": review_rounds must be a whole number of at least 0, ") || !strings.HasSuffix(err.Error(), example.reason)) {
 			t.Errorf("%q: got %v, want a refusal ending %s", example.config, err, example.reason)
 		}
+	}
+}
+
+// A HOME of a link and `..` names the link target's parent, as for Python, in a path joined under Home.
+func TestHomeFollowsLinksBeforeTheirParents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Python takes each .. away first on Windows")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir+"/real/inner", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real/inner", dir+"/link"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", dir+"/link/..")
+	if got, want := filepath.Join(Home(), "state"), dir+"/real/.agentkit/state"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }
 

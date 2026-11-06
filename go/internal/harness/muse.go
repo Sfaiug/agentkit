@@ -12,7 +12,8 @@ import (
 func init() {
 	plugins["muse"] = plugin{identity: museIdentity, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn,
 		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept, forget: receiptGone("muse"),
-		opens: true, interactive: museInteractive, seatWords: museSeatWords, hookEvent: museHookEvent}
+		opens: true, interactive: museInteractive, seatWords: museSeatWords, hookEvent: museHookEvent,
+		owned: museConversation, launched: museLaunched, retire: museRetire}
 }
 
 // museIdentity is Muse's release label plus the build its launcher installed, which the launcher

@@ -15,6 +15,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/lock"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -272,6 +273,8 @@ func generation(value any) any {
 // makes no hard link and only its owner writes.
 func forget(state, name string, log func(string)) error {
 	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
+	own := config.SeatHarness(name)
 	entries, err := os.ReadDir(state)
 	if err != nil {
 		return err
@@ -304,6 +307,11 @@ func forget(state, name string, log func(string)) error {
 		}
 	}
 	notify.ForgetCard(name, log)
+	if record != nil {
+		if drop, carried := harness.Forgetting(own, record); carried {
+			drop() // what its harness kept for it, as Python's plugin `forget`
+		}
+	}
 	return nil
 }
 
@@ -334,8 +342,8 @@ func stopped(seat *run.Object) (bool, bool) {
 }
 
 // quiet is whether watch.json holds nothing a seat's word reads: what watch.forget leaves where
-// the watch kept nothing else, every map but the alert generations empty, beside the boot the
-// tick last saw and the record of how the last tick went.
+// the watch kept nothing else, every map but the alert generations and the heads the tick
+// reviewed empty, beside the boot the tick last saw and the record of how the last tick went.
 func quiet(path string) bool {
 	data, err := run.ReadJSON(path)
 	if err != nil || data == nil {
@@ -346,7 +354,7 @@ func quiet(path string) bool {
 			continue
 		}
 		held := data.Dict(key)
-		if !slices.Contains(watchKeys, key) || held == nil || key != "seen_at" && len(held.Keys()) > 0 {
+		if !slices.Contains(watchKeys, key) || held == nil || key != "seen_at" && key != "reviewed" && len(held.Keys()) > 0 {
 			return false
 		}
 	}

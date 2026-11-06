@@ -1,23 +1,24 @@
 package config
 
-import "slices"
-
 // policyRenames are the numbers' names before `review_rounds`, `executor_lines` and
 // `orchestrator_lines`, Python's POLICY_RENAMES.
 var policyRenames = [][2]string{{"rounds", "review_rounds"}, {"review_lines", "executor_lines"}, {"seat_lines", "orchestrator_lines"}}
 
-// renamePolicy reads config.toml's numbers as Python's every command leaves the file
-// (config.migrate_policy): an old name read as its new one, dropped where the file names both.
-func renamePolicy(root *table) {
-	for _, names := range policyRenames {
-		value, held := root.values[names[0]]
-		if !held {
-			continue
+// renamed is given read as Python's rename_policy keeps a run's record: an old name read as its new
+// one where that is not named, and none left under its old name.
+func renamed(given func(key string) (any, bool)) func(key string) (any, bool) {
+	return func(key string) (any, bool) {
+		for _, names := range policyRenames {
+			switch key {
+			case names[0]:
+				return nil, false
+			case names[1]:
+				if value, set := given(key); set {
+					return value, true
+				}
+				return given(names[0])
+			}
 		}
-		delete(root.values, names[0])
-		root.keys = slices.DeleteFunc(root.keys, func(key string) bool { return key == names[0] })
-		if _, named := root.values[names[1]]; !named {
-			root.put(names[1], value)
-		}
+		return given(key)
 	}
 }

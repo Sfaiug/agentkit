@@ -1,92 +1,135 @@
 package seat
 
 import (
+	"fmt"
 	"maps"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"agentkit/internal/run"
 )
 
-func TestGrokBuildSummaryLeavesChangedSettingsToPython(t *testing.T) {
+const grokSummaryDir = "%2Fwork%2Facme%20%2B%3A%40%2Fcaf%C3%A9"
+
+// grokSummarySeat is a Grok Build seat on nova, launched ten minutes ago, whose summary.json under
+// root holds that summary, if any, and whose seat file holds file, if any.
+func grokSummarySeat(t *testing.T, root, summary, file string) string {
+	t.Helper()
+	home := filepath.Dir(root)
+	write(t, filepath.Join(home, ".agentkit", "config.toml"),
+		grokConfig+"[models.swift]\nharness='grokbuild'\nmodel='grok-other'\neffort='high'\nprovider='test'\n")
+	record(t, home, "acme", map[string]any{"orchestrator": "nova", "workers": []string{"nova"}, "cwd": "/work/acme +:@/café",
+		"launched": time.Now().Unix() - 600})
+	if summary != "" {
+		write(t, filepath.Join(root, "sessions", grokSummaryDir, "conv-acme", "summary.json"), summary)
+	}
+	if file != "" {
+		write(t, stateFile(home, "seat-acme.json"), file)
+	}
+	return home
+}
+
+// grokFollowed fails unless the record runs that orchestrator at that effort, or for "" is the
+// one before.
+func grokFollowed(t *testing.T, home, before, orchestrator, effort string) {
+	t.Helper()
+	after := stateFiles(t, home)["session-acme.json"]
+	got, _ := run.ReadJSON(stateFile(home, "session-acme.json"))
+	if orchestrator == "" && after != before {
+		t.Fatalf("the record moved: %s", after)
+	}
+	efforts := got.Dict("efforts")
+	if orchestrator != "" && (got.Str("orchestrator") != orchestrator || efforts == nil || efforts.Dict(orchestrator) == nil ||
+		efforts.Dict(orchestrator).Str("effort") != effort) {
+		t.Fatalf("want %s at %s: %s", orchestrator, effort, after)
+	}
+}
+
+// Grok Build saves `/model` and effort changes in summary.json before any answer: Go keeps the
+// listing whatever it holds, and its look moves the record to what it saved since the launch or
+// the last move in place, while none is still owed.
+func TestGrokBuildSummaryMovesTheSeatOnItsLook(t *testing.T) {
+	later := fmt.Sprintf(`{"switched":%d}`, time.Now().Unix()+600)
+	owed := `{"owed_lines":[{"id":"x","line":"/model grok-test","switch":true}]}`
 	for _, folder := range []string{".grok", "custom-grok"} {
 		for _, each := range []struct {
-			name, summary, effort string
-			ready                 bool
+			name, summary, file  string
+			orchestrator, effort string // "" where the record stays as it was
 		}{
-			{"missing", "", "", true},
-			{"unreadable", "{", "", true},
-			{"not an object", "[]", "", true},
-			{"no model", `{"reasoning_effort":"low"}`, "", true},
-			{"empty model", `{"current_model_id":"","reasoning_effort":"low"}`, "", true},
-			{"same settings", `{"current_model_id":"grok-test","reasoning_effort":"high"}`, "", true},
-			{"model changed", `{"current_model_id":"grok-other","reasoning_effort":"high"}`, "", false},
-			{"effort changed", `{"current_model_id":"grok-test","reasoning_effort":"low"}`, "", false},
-			{"saved effort matches", `{"current_model_id":"grok-test","reasoning_effort":"low"}`, "low", true},
-			{"saved effort differs", `{"current_model_id":"grok-test","reasoning_effort":"high"}`, "low", false},
-			{"no effort", `{"current_model_id":"grok-test"}`, "", true},
+			{"missing", "", "", "", ""},
+			{"unreadable", "{", "", "", ""},
+			{"not an object", "[]", "", "", ""},
+			{"no model", `{"reasoning_effort":"low"}`, "", "", ""},
+			{"same settings", `{"current_model_id":"grok-test","reasoning_effort":"high"}`, "", "", ""},
+			{"no model configured", `{"current_model_id":"grok-unknown","reasoning_effort":"low"}`, "", "", ""},
+			{"saved before the last move", `{"current_model_id":"grok-other","reasoning_effort":"low"}`, later, "", ""},
+			{"a move still owed", `{"current_model_id":"grok-other","reasoning_effort":"low"}`, owed, "", ""},
+			{"model changed", `{"current_model_id":"grok-other","reasoning_effort":"high"}`, "", "swift", "high"},
+			{"effort changed", `{"current_model_id":"grok-test","reasoning_effort":"low"}`, "", "nova", "low"},
+			{"both changed", `{"current_model_id":"grok-other","reasoning_effort":"medium"}`, "", "swift", "medium"},
 		} {
 			t.Run(each.name+"/"+folder, func(t *testing.T) {
-				home := sandbox(t)
-				write(t, filepath.Join(home, ".agentkit", "config.toml"), grokConfig)
-				root := filepath.Join(home, folder)
+				root := filepath.Join(sandbox(t), folder)
 				t.Setenv("GROK_HOME", "")
 				if folder != ".grok" {
 					t.Setenv("GROK_HOME", root)
-					write(t, filepath.Join(home, ".grok", "sessions", "%2Fwork%2Facme%20%2B%3A%40%2Fcaf%C3%A9", "conv-acme", "summary.json"),
+					write(t, filepath.Join(filepath.Dir(root), ".grok", "sessions", grokSummaryDir, "conv-acme", "summary.json"),
 						`{"current_model_id":"grok-other"}`)
 				}
-				// The earlier seat would be reconciled if refusal came after publication.
-				record(t, home, "aaa", map[string]any{"id_source": nil})
-				fields := map[string]any{"orchestrator": "nova", "workers": []string{"nova"}, "cwd": "/work/acme +:@/café"}
-				if each.effort != "" {
-					fields["efforts"] = map[string]any{"nova": map[string]string{
-						"effort": each.effort, "exec_effort": "medium", "review_effort": "xhigh"}}
-				}
-				record(t, home, "acme", fields)
-				if each.summary != "" {
-					write(t, filepath.Join(root, "sessions", "%2Fwork%2Facme%20%2B%3A%40%2Fcaf%C3%A9", "conv-acme", "summary.json"), each.summary)
-				}
+				home := grokSummarySeat(t, root, each.summary, each.file)
 				drawn(t, home, "acme", grokTrust)
 				before := stateFiles(t, home)
 				listing, known := Looking(time.Now())
-				if known != each.ready || !maps.Equal(before, stateFiles(t, home)) {
-					t.Fatalf("readiness=%v, want %v, or reading changed state", known, each.ready)
+				if !known || !maps.Equal(before, stateFiles(t, home)) {
+					t.Fatalf("known=%v, or reading changed state", known)
 				}
-				if known {
-					if err := listing.Announce(time.Now()); err != nil {
-						t.Fatal(err)
-					}
-					if stateFiles(t, home)["session-acme.json"] != before["session-acme.json"] {
-						t.Fatal("publishing reconciled the record")
-					}
+				if err := listing.Announce(time.Now()); err != nil {
+					t.Fatal(err)
 				}
+				grokFollowed(t, home, before["session-acme.json"], each.orchestrator, each.effort)
 			})
 		}
 	}
 }
 
-func TestGrokBuildSummaryChangesBelongToTheNextListing(t *testing.T) {
-	home := sandbox(t)
-	t.Setenv("GROK_HOME", "")
-	write(t, filepath.Join(home, ".agentkit", "config.toml"), grokConfig)
-	record(t, home, "acme", map[string]any{"orchestrator": "nova", "workers": []string{"nova"}, "cwd": "/work/acme"})
+// The tick's health look follows the summary too, before its account decision reads the model.
+func TestGrokBuildHealthFollowsTheSummary(t *testing.T) {
+	root := filepath.Join(sandbox(t), "custom-grok")
+	t.Setenv("GROK_HOME", root)
+	home := grokSummarySeat(t, root, `{"current_model_id":"grok-other","reasoning_effort":"low"}`, "")
 	drawn(t, home, "acme", grokTrust)
-	listing, known := Looking(time.Now())
-	if !known {
-		t.Fatal("the seat without a summary needs no reconciliation")
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+		t.Fatalf("carried=%v, err=%v", carried, err)
 	}
-	write(t, filepath.Join(home, ".grok", "sessions", "%2Fwork%2Facme", "conv-acme", "summary.json"),
-		`{"current_model_id":"grok-other","reasoning_effort":"low"}`)
-	before := stateFiles(t, home)
-	lines, found, err := listing.Explain("acme", time.Now())
-	if err != nil || !found || lines[0] != "acme  needs you" || lines[2] != "  authority: screen  rule: asking.trust" {
-		t.Fatalf("the summary belongs to the next listing: %v, %v, %v", lines, found, err)
-	}
-	if stateFiles(t, home)["session-acme.json"] != before["session-acme.json"] {
-		t.Fatal("publishing reconciled the record")
-	}
-	before = stateFiles(t, home)
-	if _, known := Looking(time.Now()); known || !maps.Equal(before, stateFiles(t, home)) {
-		t.Fatal("the next listing must hand the changed summary to Python without writing")
+	grokFollowed(t, home, "", "swift", "low")
+}
+
+// A seat nobody is in is read before its announce lock is taken: a launch or a move in place
+// since then leaves that summary moving nothing.
+func TestGrokBuildFollowIsRecountedUnderTheLock(t *testing.T) {
+	for _, bound := range []string{"launched", "switched"} {
+		t.Run(bound, func(t *testing.T) {
+			root := filepath.Join(sandbox(t), "custom-grok")
+			t.Setenv("GROK_HOME", root)
+			home := grokSummarySeat(t, root, `{"current_model_id":"grok-other","reasoning_effort":"low"}`, "")
+			listing, known := Looking(time.Now())
+			if !known {
+				t.Fatal("Go did not read the seat")
+			}
+			now := run.Float(float64(time.Now().Unix() + 1))
+			moved := Write("acme", "switched", now)
+			if bound == "launched" {
+				moved = Update("acme", func(record *run.Object) bool { record.Set("launched", now); return true })
+			}
+			if moved != nil {
+				t.Fatal(moved)
+			}
+			before := stateFiles(t, home)["session-acme.json"]
+			if err := listing.Announce(time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			grokFollowed(t, home, before, "", "")
+		})
 	}
 }

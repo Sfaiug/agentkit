@@ -39,4 +39,23 @@ func TestAProjectsNumbersHoldOverTheHostsAndABadOneIsRefusedNamingItsFile(t *tes
 			t.Errorf("%s: %v", said, err)
 		}
 	}
+	// an old name is refused beside its new one too, and both builders off however the host and the
+	// project share it
+	for _, example := range []struct {
+		host string
+		said map[string]string
+		want string
+	}{
+		{"", map[string]string{"seat_lines": "10", "orchestrator_lines": "10"}, "use orchestrator_lines instead of seat_lines"},
+		{"executor_lines=0\n", map[string]string{"orchestrator_lines": "0"}, "executor_lines and orchestrator_lines cannot both be 0: nobody could build a change"},
+		{"orchestrator_lines=0\n", map[string]string{"executor_lines": "0"}, "executor_lines and orchestrator_lines cannot both be 0: nobody could build a change"},
+	} {
+		if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(example.host), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := ProjectNumbers("/acme", declaring(example.said))
+		if want := filepath.Join("/acme", "AGENTS.md") + ": " + example.want; err == nil || err.Error() != want {
+			t.Errorf("%v: %v, want %s", example.said, err, want)
+		}
+	}
 }

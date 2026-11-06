@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"cmp"
 	"errors"
 	"io/fs"
 	"math"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ncruces/go-sqlite3"
 
 	"agentkit/internal/run"
 	"agentkit/internal/sqlite"
@@ -36,52 +39,51 @@ type opencodeTurn struct {
 	answered          bool
 }
 
-// opencodeRead is what opencode.db says of that session now, read once; false where Go cannot read
-// it as Python's sqlite3 does.  Each answer reads the session's row of its kinds with the highest
-// `seq`.
+// opencodeRead is what opencode.db says of that session now, read through SQLite over a read-only
+// connection with Python's queries (opencode.py `error`, `running`), the write-ahead log OpenCode
+// keeps while it runs included; false where Go reads it otherwise than Python does.
 func opencodeRead(session string) (opencodeTurn, bool) {
-	var ended, answer latest
-	numbered := true
-	err := sqlite.Rows(opencodeDatabase(), "session_message", []string{"session_id", "type", "seq", "time_created", "data"}, func(row []any) {
-		seq, isNumber := sqlNumber(row[2])
-		switch {
-		case row[0] != session:
-		case row[1] == "user" || row[1] == "idle":
-			numbered = numbered && isNumber
-			ended.take(row, seq)
-		case row[1] == "assistant":
-			numbered = numbered && isNumber
-			answer.take(row, seq)
-		}
-	})
-	if errors.Is(err, fs.ErrNotExist) {
+	path := opencodeDatabase()
+	if info, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) || err == nil && !info.Mode().IsRegular() {
 		return opencodeTurn{}, true
 	}
-	if err != nil || !numbered { // SQLite orders a seq that is no number among the numbers its own way
+	conn, err := sqlite.Open(path, sqlite3.OPEN_READONLY)
+	if err != nil {
 		return opencodeTurn{}, false
 	}
-	turn, known := opencodeTurn{ended: ended.row != nil}, true
-	if turn.ended {
-		turn.said, known = opencodeError(ended.row)
+	defer conn.Close()
+	ended, err := opencodeRow(conn, "SELECT type, time_created, data FROM session_message"+
+		" WHERE session_id = ? AND type IN ('user', 'idle') ORDER BY seq DESC LIMIT 1", session)
+	answer, failed := opencodeRow(conn, "SELECT time_created, data FROM session_message"+
+		" WHERE session_id = ? AND type = 'assistant' ORDER BY seq DESC LIMIT 1", session)
+	if err != nil || failed != nil {
+		return opencodeTurn{}, false
 	}
-	if answer.row != nil {
-		data, readable := opencodeData(answer.row[4])
+	turn, known := opencodeTurn{ended: ended != nil}, true
+	if turn.ended {
+		turn.said, known = opencodeError(ended)
+	}
+	if answer != nil {
+		data, readable := opencodeData(answer[1])
 		known = known && readable
-		turn.model, turn.effort, turn.at, turn.answered = opencodeAnswer(data, answer.row[3])
+		turn.model, turn.effort, turn.at, turn.answered = opencodeAnswer(data, answer[0])
 	}
 	return turn, known
 }
 
-// A latest is the row of the highest seq taken so far.
-type latest struct {
-	row []any
-	seq float64
-}
-
-func (last *latest) take(row []any, seq float64) {
-	if last.row == nil || seq > last.seq {
-		*last = latest{row, seq}
+// opencodeRow is the first row the query answers for that session, each value as Python's sqlite3
+// reads it; nil where it answers none.
+func opencodeRow(conn *sqlite3.Conn, query, session string) ([]any, error) {
+	stmt, _, err := conn.Prepare(query)
+	if err != nil {
+		return nil, err
 	}
+	defer stmt.Close()
+	if err := stmt.BindText(1, session); err != nil || !stmt.Step() {
+		return nil, cmp.Or(err, stmt.Err())
+	}
+	row := make([]any, stmt.ColumnCount())
+	return row, stmt.Columns(row...)
 }
 
 // opencodeError is the error a turn's ending row holds, "" where it holds none: a failed turn's
@@ -89,8 +91,8 @@ func (last *latest) take(row []any, seq float64) {
 // behind `Error: ` -- and one that names its wait (`retryAfterMs`, from the row's own stamp)
 // says when, as `turns.try_again_at` reads it.
 func opencodeError(row []any) (string, bool) {
-	data, known := opencodeData(row[4])
-	if data == nil || row[1] != "idle" || data.Dict("error") == nil {
+	data, known := opencodeData(row[2])
+	if data == nil || row[0] != "idle" || data.Dict("error") == nil {
 		return "", known
 	}
 	failed := data.Dict("error")
@@ -102,7 +104,7 @@ func opencodeError(row []any) (string, bool) {
 	}
 	said := "Error: " + strings.Join(parts, " ")
 	wait, waits := run.Num(failed.Get("retryAfterMs"))
-	created, dated := sqlNumber(row[3])
+	created, dated := sqlNumber(row[1])
 	if !waits || !dated {
 		return said, known
 	}

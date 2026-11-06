@@ -13,7 +13,7 @@ func TurnedNeed(name string, said func(string) (string, any), errOut io.Writer) 
 }
 
 func turnedNeed(name string, said func(string) (string, any), clock func() float64, errOut io.Writer) (bool, error) {
-	return questionTransition(name, said, clock, cardWait, errOut, false, quietNeed)
+	return questionTransition(name, said, clock, cardWait, errOut, false, quietNeed, func(string) error { return nil })
 }
 
 // UnansweredNeed leaves a standing non-question to its card row when no owner message answers it.

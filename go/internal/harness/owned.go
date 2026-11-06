@@ -13,6 +13,9 @@ import (
 // harness with no plugin, only an adapter, takes the defaults.
 func Owned(name string, record map[string]any) (string, bool) {
 	own, plugged := plugins[name]
+	if own.owned != nil {
+		return own.owned(record), true
+	}
 	if own.receipt != "" {
 		return "", record[own.receipt] == nil
 	}
@@ -38,16 +41,15 @@ func Owned(name string, record map[string]any) (string, bool) {
 }
 
 // Opened is whether that harness has written the conversation a seat's record names down yet, as
-// its plugin's `opened` answers: a store nothing knows is taken at its word; false where its
-// plugin knows one Go does not read.
+// its plugin's `opened` answers: a store nothing knows is taken at its word, as is a conversation
+// its harness reported; false where its plugin knows one Go does not read.
 func Opened(name string, record map[string]any) (opened, known bool) {
-	hook := plugins[name].conversation
-	if hook == nil {
-		_, plugged := plugins[name]
-		known := !plugged || plugins[name].launch != nil
+	own, plugged := plugins[name]
+	if own.conversation == nil {
+		known = !plugged || own.launch != nil || own.owned != nil
 		return known, known
 	}
-	_, err := os.Stat(hook(record))
+	_, err := os.Stat(own.conversation(record))
 	return err == nil, true
 }
 
