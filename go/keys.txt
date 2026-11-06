@@ -120,6 +120,7 @@ test_key_lend_copy
 test_key_linux_helper_turns_a_suite_away_when_full
 test_key_live_work_plan_line
 test_key_macbridge_off_macos
+test_key_machines_measured
 test_key_manifest_errors
 test_key_menu_ascii
 test_key_menu_colour_depth
