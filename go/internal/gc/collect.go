@@ -106,8 +106,10 @@ func Automatic() error {
 
 // Schedule is the tick's collection row (gc.schedule_gc): where the home reads without a change
 // and a collection is due, a collector of Go's own starts, detached and unmarked, to outlive the
-// tick.  One that cannot start is logged.  False, before it starts, where goTakes says the
-// collection is Python's: a detached collector's handover reaches nobody, the tick's does.
+// tick.  One that cannot start is logged.  False, before it starts, where a user manager runs and
+// goTakes says the collection is Python's: there the tick went to Python, which clears the units
+// with it, before Go cleared them, and a detached collector's handover reaches nobody.  Elsewhere
+// the tick goes on, as it always has.
 func Schedule(log func(string)) bool {
 	probe, err := reading(config.Home(), true)
 	if err != nil {
@@ -117,7 +119,7 @@ func Schedule(log func(string)) bool {
 	if !Due() {
 		return true
 	}
-	if goTakes() != nil {
+	if host.UserManager() && goTakes() != nil {
 		return false
 	}
 	if err := start(); err != nil {
