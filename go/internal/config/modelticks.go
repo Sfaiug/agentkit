@@ -14,8 +14,9 @@ type namedModel struct {
 	entry *table
 }
 
-// ModelTicks keeps removed entries for this visit. Edits start from the file, so loaded
-// defaults never turn into written ones; returning to its original contents restores its bytes.
+// ModelTicks keeps, for this visit, the models taken out and each provider's table (keepTable).
+// Edits start from the file, so loaded defaults never turn into written ones; returning to its
+// original contents restores its bytes.
 type ModelTicks struct {
 	Harnesses      []string
 	root, original *table
@@ -23,6 +24,7 @@ type ModelTicks struct {
 	canonical      string
 	providers      map[string]string
 	gone           map[[2]string][]namedModel
+	tables         map[string]*table
 }
 
 func OpenModelTicks() (*ModelTicks, error) {
@@ -31,12 +33,17 @@ func OpenModelTicks() (*ModelTicks, error) {
 		return nil, err
 	}
 	ticks := &ModelTicks{root: root, original: root, text: data,
-		providers: map[string]string{}, gone: map[[2]string][]namedModel{}}
+		providers: map[string]string{}, gone: map[[2]string][]namedModel{}, tables: map[string]*table{}}
 	if ticks.canonical, err = dump(root); err != nil {
 		return nil, err
 	}
 	shipped, _ := parseDocument(defaultConfig)
 	providers := root.get("providers").(*table)
+	for _, provider := range present(providers) {
+		if entry, ok := providers.get(provider).(*table); ok {
+			ticks.keepTable(provider, entry)
+		}
+	}
 	for _, name := range present(shipped.get("models").(*table)) {
 		entry := shipped.get("models").(*table).get(name).(*table)
 		harness, _ := entry.get("harness").(string)
@@ -101,7 +108,12 @@ func modelMatches(root *table, harness, id string) []string {
 
 func (t *ModelTicks) Names(harness, id string) []string { return modelMatches(t.root, harness, id) }
 
-func (t *ModelTicks) Tick(harness, id, label string, levels []string, keep func() error) error {
+// Tick takes a model in or out (menu.models_page's tick): out where the config runs it, the last
+// model kept; else in as this page took it out, its provider's table as the page keeps it; else named
+// from its label at its harness's first model's effort, else high, as near as levels go, under that
+// model's provider, else the harness's, or under the provider a host lists it under, taken in as `add
+// a subscription` takes it (takeIn).
+func (t *ModelTicks) Tick(harness, id, label string, levels []string, under *Listed, keep func() error) error {
 	_, root, err := modelFile()
 	if err != nil {
 		return err
@@ -120,16 +132,16 @@ func (t *ModelTicks) Tick(harness, id, label string, levels []string, keep func(
 		}
 		pruned := []string{}
 		for _, one := range removed {
-			// A model added here had no settings to clean up when this page opened.
-			if t.original.get("models").(*table).get(one.name) == nil {
-				continue
-			}
-			pruned = append(pruned, one.name)
 			provider, _ := one.entry.get("provider").(string)
 			entry, _ := providers.get(provider).(*table)
-			if entry.get("usage_model") == one.name {
-				delete(entry.values, "usage_model")
+			// A model added here had no settings to clean up when this page opened.
+			if t.original.get("models").(*table).get(one.name) != nil {
+				pruned = append(pruned, one.name)
+				if entry.get("usage_model") == one.name {
+					delete(entry.values, "usage_model")
+				}
 			}
+			// a free provider is nothing but its models (config.drop_bare_free)
 			if entry.get("mode") == "free" && !slices.ContainsFunc(offered(root), func(name string) bool {
 				return models.get(name).(*table).get("provider") == provider
 			}) {
@@ -151,11 +163,12 @@ func (t *ModelTicks) Tick(harness, id, label string, levels []string, keep func(
 				provider, _ = first.get("provider").(string)
 				effort, _ = first.get("effort").(string)
 			}
-			entry := newTable()
-			entry.put("harness", harness)
-			entry.put("model", id)
-			entry.put("effort", nearestEffort(effort, levels))
-			entry.put("provider", provider)
+			entry := modelEntry(harness, id, nearestEffort(effort, levels), provider)
+			if under != nil {
+				entry.put("provider", under.ID)
+				takeIn(providers, entry, *under)
+				t.keepTable(under.ID, providers.get(under.ID).(*table))
+			}
 			entries = []namedModel{{t.shortName(models, label), entry}}
 		}
 		for _, entry := range entries {
@@ -164,8 +177,8 @@ func (t *ModelTicks) Tick(harness, id, label string, levels []string, keep func(
 			}
 			models.put(entry.name, entry.entry)
 			provider, _ := entry.entry.get("provider").(string)
-			if providers.get(provider) == nil {
-				providers.put(provider, t.original.get("providers").(*table).get(provider))
+			if err := t.tableBack(providers, provider); err != nil {
+				return err
 			}
 		}
 	}

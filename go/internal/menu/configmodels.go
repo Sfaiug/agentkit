@@ -6,15 +6,19 @@ import (
 	"agentkit/internal/terminal"
 )
 
+// A ModelRow is a harness's row on Models, or one its row opens: a model, or with Login a provider
+// to log in to.
 type ModelRow struct {
-	Name, Value, Colour string
-	Choice, Marked      bool
+	Name, Value, Colour   string
+	Choice, Marked, Login bool
 }
 
 // ConfigModelsFrame uses c's frame and hit map for the harness rows and their open model list.
 func ConfigModelsFrame(s terminal.Screen, rows []ModelRow, at, top int, clock, version, note string) MatrixFrame {
 	keys := "↑↓←→ move   ⏎ open   esc back"
-	if rows[at].Choice {
+	if rows[at].Login {
+		keys = "↑↓←→ move   ⏎ log in   esc back"
+	} else if rows[at].Choice {
 		keys = "↑↓←→ move   ␣ mark   ⏎ close   esc back"
 	}
 	if s.ASCII() {
@@ -35,7 +39,9 @@ func ConfigModelsFrame(s terminal.Screen, rows []ModelRow, at, top int, clock, v
 		}
 		folded := false
 		lead, text := "    ", row.Name
-		if row.Choice {
+		if row.Login {
+			text += " log in"
+		} else if row.Choice {
 			mark := "□"
 			if row.Marked {
 				mark = "■"
