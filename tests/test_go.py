@@ -68,11 +68,10 @@ def step(part, gofmt, out, **judge):
     where it names none: on that platform wherever this runs, as a narrowing step may give a
     part on another host than the one that named it."""
     if part == "fmt":
-        # the module's own files, as `go fmt ./...` reads them: never a vendored module's;
-        # `-d` shows what it would change in each and exits 1 where it would change any
+        # the module's own files, as `go fmt ./...` reads them: never a vendored module's
         own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
                if path.relative_to(GO).parts[0] != "vendor"]
-        return run(gofmt, "-d", *own)
+        return run(gofmt, "-l", *own)
     named = re.fullmatch(r"(vet|build) (\w+)/(\w+)", part)
     if not named:
         return None
@@ -133,9 +132,11 @@ class Go(unittest.TestCase):
                      "./...", *(f"build {name}" for name in PLATFORMS)]):
                 done = step(part, gofmt, out, **judge)
                 if done:
-                    # A step passes exiting 0, whatever it prints: the caller's GOFLAGS=-json
-                    # has a passing vet or build print JSON.
-                    names = [part] if done.returncode else []
+                    # A step passes exiting 0 with nothing on its stdout but `{}`s: there
+                    # `gofmt -l` names the files `go fmt ./...` would format, and vet's `-json`,
+                    # a caller's GOFLAGS may ask, exits 0 printing an object a package, `{}`
+                    # where it finds nothing.
+                    names = [part] if done.returncode or set(done.stdout.split()) - {"{}"} else []
                     printed = done.stdout + done.stderr
                 else:
                     names, printed = tested(part, **judge)
