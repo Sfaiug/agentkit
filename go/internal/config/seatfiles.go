@@ -10,8 +10,8 @@ import (
 // rename moves them, and a stop and the daily collector find them by this table.
 var seatFiles = map[string]string{"log": "txt", "session": "json", "notify": "json", "card": "json", "seat": "json",
 	"hook": "json", "plan": "md", "stop": "json", "live": "txt", "title": "json", "input": "jsonl", "rulebook": "md",
-	"verify": "lock", "verified": "txt", "checked": "txt", "rules": "md", "change": "md", "held": "md", "launch": "sh",
-	"refused": "txt", "handover": "md", "tell": "json"}
+	"verify": "lock", "verified": "txt", "checked": "txt", "pictures": "jsonl", "rules": "md", "change": "md", "held": "md",
+	"launch": "sh", "refused": "txt", "handover": "md", "tell": "json"}
 
 // SeatFileNames is the name of the seat's file of each kind, by kind.
 func SeatFileNames(seat string) map[string]string {
