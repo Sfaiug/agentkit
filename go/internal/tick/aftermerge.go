@@ -78,7 +78,7 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 				return closeHealth()
 			}
 		case !ok, slices.ContainsFunc(merges, func(each *merge) bool { return each.verdict == "passed" && each.finished > ended }),
-			!slices.ContainsFunc(merges, func(each *merge) bool { return each.verdict == "failed" || each.verdict == "unknown" }):
+			!slices.ContainsFunc(merges, func(each *merge) bool { return slices.Contains([]string{"failed", "pending", "unknown"}, each.verdict) }):
 		default:
 			return closeHealth()
 		}

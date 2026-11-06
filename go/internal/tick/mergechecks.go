@@ -17,13 +17,13 @@ import (
 )
 
 // A merge's live product is followed for three hours (watch.AFTER_MERGE_WINDOW), and one break
-// per repository is handed back to fix, as Python's after_merge_checks does. Go reads what the
-// runs recorded: a deployment to probe or revert, a declaration to read at the merge's commit, a
-// probe to run and a pass still to tell its seat are Python's.
+// per repository is handed back to fix, as Python's after_merge_checks does. A deployment to probe
+// or revert is Python's.
 const mergeWindow = 3 * 3600
 
 // A merge is one followed run as the merge checks read it, with its verdict: passed, failed,
-// unknown where its commit cannot be read, or "" where nobody declared its health.
+// pending while its probe fails inside its window, unknown where its commit cannot be read, or ""
+// where nobody declared its health.
 type merge struct {
 	finished           float64
 	name, pr, sha      string
@@ -33,19 +33,28 @@ type merge struct {
 
 var pullPath = regexp.MustCompile(`^/([^/\s]+)/([^/\s]+)/pull/(\d+)/?$`)
 
-// repoKey is the repository a pull request's address names, `host/owner/repo` in lower case
-// (after_merge_repo); "" where it names none.
-func repoKey(pr string) string {
+// pullRepo is the host, owner and repository a pull request's address names (after_merge_repo);
+// "" for each where it names none.
+func pullRepo(pr string) (host, owner, name string) {
 	address, err := url.Parse(pr)
 	if err != nil || address.Scheme != "https" || address.Hostname() == "" || address.User != nil ||
 		address.RawQuery != "" || address.Fragment != "" {
-		return ""
+		return "", "", ""
 	}
 	parts := pullPath.FindStringSubmatch(address.EscapedPath())
 	if parts == nil {
-		return ""
+		return "", "", ""
 	}
-	return strings.ToLower(address.Host + "/" + parts[1] + "/" + parts[2])
+	return address.Host, parts[1], parts[2]
+}
+
+// repoKey is the repository a pull request's address names, `host/owner/repo` in lower case; ""
+// where it names none.
+func repoKey(pr string) string {
+	if host, owner, name := pullRepo(pr); host != "" {
+		return strings.ToLower(host + "/" + owner + "/" + name)
+	}
+	return ""
 }
 
 // inWindow is whether a merge is still watched: a late deployment gets a window of its own.
@@ -75,21 +84,10 @@ func passedBefore(record *run.Object, now float64) bool {
 	return !inWindow(record, now) && record.Truthy("live_at") && record.Truthy("live_notified") && !healthOf(record).Has("output")
 }
 
-// pythons is whether a followed merge needs what Go does not do: a deployment, a declaration to
-// read at its commit (merge_record), a probe to run, or a pass still to be told.
+// pythons is whether a followed merge needs what Go does not do before its health is read: a
+// deployment, which after_merge_revert probes even past its window, or health that is no object.
 func pythons(record *run.Object, now float64) bool {
-	inside := inWindow(record, now)
-	switch {
-	case passedBefore(record, now):
-		return false
-	case record.Truthy("deployed") || record.Truthy("health") && record.Dict("health") == nil:
-		return true
-	case record.Truthy("live_at"):
-		return !record.Truthy("live_notified")
-	case inside && (!record.Has("health") || !record.Has("deployed")) && record.Truthy("repo"):
-		return true
-	}
-	return inside && healthOf(record).Truthy("command")
+	return !passedBefore(record, now) && (record.Truthy("deployed") || record.Truthy("health") && record.Dict("health") == nil)
 }
 
 // noMergeWork is a dry tick's read: no episode kept, and no merge but passes told before.
@@ -117,6 +115,7 @@ func (t *ticking) mergeChecks() error {
 	if !carried {
 		return errLeft
 	}
+	probes := map[[2]string]probe{}
 	keys := t.state.Dict("after_merge").Keys()
 	for key := range grouped {
 		keys = append(keys, key)
@@ -128,7 +127,7 @@ func (t *ticking) mergeChecks() error {
 			return cmp.Or(cmp.Compare(a.finished, b.finished), strings.Compare(a.name, b.name))
 		})
 		for _, each := range found {
-			if err := t.verdict(each, now); errors.Is(err, errLeft) {
+			if err := t.verdict(each, key, now, probes); errors.Is(err, errLeft) {
 				return err
 			} else if err != nil && (each.record.Truthy("health") || each.record.Truthy("live_at")) {
 				each.verdict = "unknown"
@@ -142,15 +141,16 @@ func (t *ticking) mergeChecks() error {
 	return nil
 }
 
-// verdict is after_merge_health on what the run recorded.
-func (t *ticking) verdict(each *merge, now float64) error {
+// verdict is after_merge_checks's reading of one merge: a pass told before is one still, and any
+// other is followed at its merge commit, the run's own, else the one GitHub names.
+func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]string]probe) error {
 	record := each.record
 	if passedBefore(record, now) {
 		each.sha, each.verdict = record.Str("merge_sha"), "passed"
 		return nil
 	}
-	for _, key := range []string{"merge_sha", "merge_commit", "merge_commit_sha"} {
-		if each.sha = strings.TrimSpace(record.Str(key)); each.sha != "" {
+	for _, field := range []string{"merge_sha", "merge_commit", "merge_commit_sha"} {
+		if each.sha = strings.TrimSpace(record.Str(field)); each.sha != "" {
 			break
 		}
 	}
@@ -169,31 +169,5 @@ func (t *ticking) verdict(each *merge, now float64) error {
 			return nil
 		}
 	}
-	if record.Str("merge_sha") != each.sha {
-		err := run.Change(filepath.Join(run.Runs(), each.name), func(current *run.Object) error {
-			if current.Truthy("merged") && run.Equal(current.Get("finished_at"), record.Get("finished_at")) {
-				current.Set("merge_sha", each.sha)
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	health := healthOf(record)
-	switch command := run.Text(health.Get("command")); {
-	case record.Truthy("live_at"):
-		each.verdict = "passed"
-	case health.Truthy("command"):
-		// One typed line: a line break would reach the seat as Enter and send half of it.
-		output := cmp.Or(health.Str("output"), "command exited nonzero without output")
-		parts := []string{each.pr}
-		for _, line := range config.SplitLines(output) {
-			if strings.TrimFunc(line, config.Space) != "" {
-				parts = append(parts, line)
-			}
-		}
-		each.verdict, each.check, each.at = "failed", "health: "+command, strings.Join(parts, "; ")
-	}
-	return nil
+	return mergeHealth(each, key, now, probes, t.log.line)
 }

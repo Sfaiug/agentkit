@@ -30,10 +30,10 @@ func Serve(say func(string), wait func(time.Duration) error) func() {
 // 26 Oct 2026 a review that had passed ended in error, unable to read its PR to post the verdict.
 // It says so once per reset.  A call that serves no run, the tick's among them, never waits: the
 // tick asks again next tick.
-func call(dir string, args []string) (int, string, string, string, error) {
+func call(dir string, args []string, bound time.Duration) (int, string, string, string, error) {
 	said := 0.0
 	for {
-		code, out, errOut, why, err := ask(dir, args)
+		code, out, errOut, why, err := ask(dir, args, bound)
 		if code == 0 || why != "" || err != nil || serving.wait == nil {
 			return code, out, errOut, why, err
 		}
@@ -60,7 +60,7 @@ func now() float64 { return float64(time.Now().UnixNano()) / 1e9 }
 // cause while one is spent waits for its reset once, then fails as before.  None spent, or no
 // count to read, is not spent.
 func allowanceReset(dir string) (float64, bool) {
-	code, out, _, why, err := ask(dir, []string{"api", "rate_limit"})
+	code, out, _, why, err := ask(dir, []string{"api", "rate_limit"}, limit)
 	if code != 0 || why != "" || err != nil {
 		return 0, false
 	}
