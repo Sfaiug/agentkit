@@ -132,8 +132,8 @@ def lineup(boards, offers):
 
 
 def _task_usage(cfg):
-    from . import usage
-    return usage.task_usage(usage.model_rates(cfg))
+    from . import spend     # here, not at the top: spend reads this module as it loads
+    return spend.roles(cfg)
 
 
 def _pricing(cfg):
@@ -151,6 +151,8 @@ def _pricing(cfg):
 def _costs(rows, role, lineup, cfg, shares):
     """One unit per role: measured shares, board dollars scaled by pooled shares/dollars,
     or board dollars without any measurement. Money requires every lineup provider's price."""
+    # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
+    # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
     releases = {row["release"]: {"slug": row["release"], "name": row.get("name")} for row in lineup}
     index = _release_index(releases.values())
@@ -403,17 +405,14 @@ def main(argv):
     _, rows = refresh(cfg, refresh="--refresh" in flags)
     current = {row["release"] for row in rows}
     marked = compared(cfg, current)
-    from . import usage
-    rates = usage.model_rates(cfg)
-    shares = usage.task_usage(rates)
+    shares = _task_usage(cfg)
     found, own = answer(rows, marked, cfg=cfg, task_usage=shares), live(cfg)
     if "--json" in flags:
         json.dump({**{role: {"best": said["best"], "cost_unit": said["cost_unit"], "front": [
             {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost",
                                          "board_cost", "cost_rule")},
              "notes": notes(row, said)} for row in said["front"]]}
-            for role, said in found.items()}, "live": own, "usage": rates,
-            "task_usage": shares},
+            for role, said in found.items()}, "live": own, "task_usage": shares},
             sys.stdout, indent=2)
         print()
         return 0

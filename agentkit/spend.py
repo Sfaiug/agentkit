@@ -5,13 +5,16 @@ model's listed price for its type.
 Raw token sums count a cache read like fresh input, though a model lists it at a fraction of
 that price.  Priced per type, a login's spend foretold its subscription's next meter readings
 within 2-8%, where raw sums were 23% to 75% off (the owner's back-test, 6 Nov 2026): `weeks`
-fits each plan's points of a week a listed dollar takes from every login's readings on it.
+fits each plan's points of a week a listed dollar takes from every login's readings on it, and
+`roles` prices each run's worker roles in those points.
 """
 
 import contextlib
 import functools
+import json
 from pathlib import Path
 import sqlite3
+import time
 
 from . import boards, catalog, config, history, matrix
 
@@ -37,11 +40,12 @@ def listed(cfg, provider, account, since, until):
     for harness, model, tokens, counts in _rows(account or config.DEFAULT_ACCOUNT, since, until):
         if not ours(harness):
             continue
-        if prices(model) is None or None in counts:
+        spent = _dollars(prices(model), counts)
+        if spent is None:
             unpriced += tokens or 0
             continue
         found = True
-        dollars += sum(count * price for count, price in zip(counts, prices(model))) / 1e6
+        dollars += spent
         priced += tokens or 0
     if not found:
         return None
@@ -90,6 +94,52 @@ def weeks(cfg, provider, meters, since, until):
     return {account: (plan, *held.get(plan, (None, 0, 0))) for account, plan in plans.items()}
 
 
+def roles(cfg):
+    """{model: {effort: {role: share}}} for `matrix._costs`: of each configured model at each
+    effort it did a worker role at, the mean over the task runs that ended where it did of the
+    points of a week the role's `turn_usage` rows took, at listed prices times 100 over the week
+    of each row's login under the model's provider (`usage.plan_weeks`).  A run's reviewer is at
+    the one effort its reviews name; a run counts for nothing in a role a counted turn of which
+    kept no row, a row of which has no listed price or a login of which has no week."""
+    from . import staffing, usage   # here, not at the top: usage reads this module as it loads
+    held = {name: prov for name, prov in staffing._cached_providers().items()
+            if name in cfg["providers"]}
+    weeks = {(provider, account or config.DEFAULT_ACCOUNT): fit[1]
+             for provider, logins in usage.plan_weeks(cfg, held, time.time()).items()
+             for account, fit in logins.items()}
+    index = matrix._release_index(catalog.current(boards.cached()))
+    prices = functools.cache(lambda model: _prices(index, model))
+    providers = {name: cfg["models"][name]["provider"] for name in config.offered(cfg)}
+    did = {}    # (run, role): (model, effort, the turns of it `counted_turns` names)
+    for run, executor, effort, reviewer, reviewed, counted in _select(
+            "SELECT run_id, executor, executor_effort, reviewer, (SELECT CASE WHEN "
+            "COUNT(DISTINCT effort) = 1 THEN MIN(effort) END FROM reviews WHERE "
+            "reviews.run_id = runs.run_id), counted_turns FROM runs "
+            "WHERE kind = 'task' AND finished_at IS NOT NULL"):
+        who = {"executor": (executor, effort), "reviewer": (reviewer, reviewed)}
+        for turn in json.loads(counted or "[]"):
+            role = "reviewer" if Path(turn).name.startswith("reviewer") else "executor"
+            did.setdefault((run, role), (*who[role], set()))[2].add(turn)
+    kept = {}
+    for run, turn, role, account, model, *counts in _select(
+            f"SELECT run_id, turn, role, account, model, {', '.join(PRICES)} FROM turn_usage"):
+        kept.setdefault((run, role), []).append((turn, account, model, counts))
+    samples = {}
+    for (run, role), (name, effort, turns) in did.items():
+        rows = kept.get((run, role), [])
+        if name not in providers or effort is None or turns - {turn for turn, *_ in rows}:
+            continue
+        points = [100 * spent / week for _, account, model, counts in rows
+                  if (spent := _dollars(prices(model), counts)) is not None
+                  and (week := weeks.get((providers[name], account))) is not None]
+        if len(points) == len(rows):
+            samples.setdefault((name, effort, role), []).append(sum(points))
+    found = {}
+    for (name, effort, role), points in samples.items():
+        found.setdefault(name, {}).setdefault(effort, {})[role] = sum(points) / len(points)
+    return found
+
+
 def _rows(account, since, until):
     """(harness, model, tokens, counts by `PRICES`) of each of the login's rows that ended between
     `since` and `until`: a seat row's harness is its event's text before the first `:`, a turn
@@ -117,6 +167,14 @@ def _select(query, *args):
             return db.execute(query, args).fetchall()
     except (OSError, sqlite3.Error):
         return []
+
+
+def _dollars(prices, counts):
+    """What a row's `counts` by `PRICES` cost at `prices`, a million tokens of each; None where
+    either is unknown."""
+    if prices is None or None in counts:
+        return None
+    return sum(count * price for count, price in zip(counts, prices)) / 1e6
 
 
 def _prices(index, model):
