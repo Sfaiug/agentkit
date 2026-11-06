@@ -53,7 +53,7 @@ type piece struct {
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace and cost measured
 // for its next run.
-func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (ran, string, error) {
+func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
 	asked := clock() // each piece's first go is asked for now, a later one as the one before it ends
 	cpus, memory := suiteCost(l.dir, cwd, cmd)
 	away, here := on.away, on.here
@@ -119,6 +119,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		if errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
 		} else if err != nil {
+			at.ended.flaky = flaky
 			cancel(errSibling)
 			return err
 		}
@@ -138,6 +139,17 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		all[index] = &piece{shard: fmt.Sprintf("%d/%d", index+1, count), asked: asked}
 		waiting <- all[index]
 	}
+	defer func() {
+		// a suite that does not end as one command keeps what its ended goes named, as Python's
+		// run_suite does; one handed on is Python's to run again and keep
+		if err != nil && !errors.Is(err, helper.ErrPython) {
+			var reds, flaky []string
+			for _, at := range all {
+				reds, flaky = append(reds, at.ended.confirmed...), append(flaky, at.ended.flaky...)
+			}
+			history.TestReds(rows, reds, flaky, l.say)
+		}
+	}()
 	close(waiting)
 	var started sync.WaitGroup
 	var errs []error
@@ -177,7 +189,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		there.Finish()
 	}
 	on.hold.Alone()
-	err := cmp.Or(context.Cause(l.ctx), errors.Join(errs...))
+	err = cmp.Or(context.Cause(l.ctx), errors.Join(errs...))
 	if errors.Is(err, helper.ErrPython) {
 		for _, row := range onHelper {
 			row.Drop()
