@@ -170,6 +170,21 @@ def _walls(cmd):
     cmd.extend(["--remount-ro", "/dev"])
 
 
+def _go_cache(env):
+    """The account's Go build cache, made if missing, where `go env GOCACHE` finds it: GOCACHE, else
+    go-build in the user cache directory (XDG_CACHE_HOME, else HOME/.cache); None where Go would
+    refuse it, or it is off or cannot be made."""
+    base = env.get("XDG_CACHE_HOME") or (env.get("HOME") and os.path.join(env["HOME"], ".cache"))
+    path = env.get("GOCACHE") or (base and os.path.join(base, "go-build"))
+    if not path or path == "off" or not os.path.isabs(path):
+        return None
+    try:
+        os.makedirs(path, exist_ok=True)
+    except OSError:
+        return None
+    return Path(path).resolve()
+
+
 def _writable(clean, cwd, out_dir, state, places, logins):
     """The command's own places: its workspace and Git storage, out dir and harness state."""
     from . import config
@@ -354,6 +369,13 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
                 from . import config
                 raise config.Error(f"worker box needs {path}: the host directory is missing")
     writable = _writable(clean, cwd, out_dir, state, places, logins)
+    # Go's build cache is content-addressed and safe for go commands running at once, so every
+    # box writes the account's own: a cache of the box's own compiled the standard library in
+    # each turn, check and proof, and review proofs ran out of time on it (6 Nov 2026).
+    cache = _go_cache(clean)
+    if cache is not None:
+        writable.add(cache)
+        clean["GOCACHE"] = str(cache)
     # Mount the real target too: a sandbox HOME often links the account's login.
     targets = set()
     try:
@@ -449,7 +471,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
             # Short aliases allow Unix sockets even when out has a long run id.
             cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
             clean["TMPDIR"] = "/var/tmp"
-            if not home_overlay:
+            if cache is None and not home_overlay:
                 # Go caches builds under HOME, read-only here: a turn's build failed (5 Nov 2026).
                 clean["GOCACHE"] = "/var/tmp/go-build"
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
