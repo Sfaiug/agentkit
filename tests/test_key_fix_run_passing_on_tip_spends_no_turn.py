@@ -215,6 +215,7 @@ class FixOnTip(unittest.TestCase):
         self.rig.commit({"retry.txt": "already fixed\n"})
         before = (directory / "tip.log").read_bytes()
         install = Install(self.home)
+        (install.path / "agentkit").mkdir(exist_ok=True)
         (install.path / "agentkit/run.py").write_text("raise AssertionError('resumed on another checkout')\n")
         done = self.home.run(install.ak, "run", "resume", directory.name, "--rounds", "2", timeout=300)
         state = json.loads((directory / "run.json").read_text())
