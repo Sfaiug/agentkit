@@ -33,9 +33,14 @@ func Report(out, errOut io.Writer) (int, bool) {
 	if !read {
 		return 0, false
 	}
+	gates, read := gateLine()
+	if !read {
+		return 0, false
+	}
 	fmt.Fprintln(out, host.SliceLine())
 	fmt.Fprintln(out, "tick  "+health)
 	fmt.Fprintln(out, "runs  "+runs)
+	fmt.Fprintln(out, "gates  "+gates)
 	var wrong []string
 	if refused == nil {
 		for _, machine := range machines.Known() {

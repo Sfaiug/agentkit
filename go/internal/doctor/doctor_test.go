@@ -74,7 +74,7 @@ func TestARefusedConfigFollowsTheHostLines(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".agentkit", "secrets", "google-cloud.json"), []byte("{}"), 0o600)
 	var out, errOut bytes.Buffer
 	code, read := Report(&out, &errOut)
-	if code != 2 || !read || strings.Count(out.String(), "\n") != 3 || !strings.HasPrefix(errOut.String(), "ak doctor: ") {
+	if code != 2 || !read || strings.Count(out.String(), "\n") != 4 || !strings.HasPrefix(errOut.String(), "ak doctor: ") {
 		t.Fatalf("code=%d read=%v stdout=%q stderr=%q", code, read, out.String(), errOut.String())
 	}
 }
