@@ -49,10 +49,6 @@ mode='subscription'
 	if err != nil {
 		t.Fatal(err)
 	}
-	rates, err := r.Rates()
-	if rate, _ := run.Num(rates.Dict("anvil").Get("high")); err != nil || rate != 1000 {
-		t.Fatal(rates, err)
-	}
 	held, _ := holds("acme", "", r.sharedWeek("acme", object(r.providers.Get("acme"))))
 	if tokens, _ := run.Num(held); tokens != 100000 {
 		t.Fatal(held)

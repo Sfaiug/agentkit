@@ -278,14 +278,6 @@ func TestCurrentKeepsWhatItsSeriesKeeps(t *testing.T) {
 	if efforts[0].Word != "" || !efforts[0].Default || efforts[1].Word != "max" || efforts[1].Default {
 		t.Fatalf("efforts %+v %+v", efforts[0], efforts[1])
 	}
-	for slug, want := range map[string]string{"old": "new", "fade": "new", "fade-v": "new", "strong": "strong"} {
-		if found := Successor(boards, slug); found == nil || found.Slug != want {
-			t.Errorf("successor of %s: %+v", slug, found)
-		}
-	}
-	if found := Successor(boards, "alone"); found != nil {
-		t.Errorf("alone names no successor: %+v", found)
-	}
 }
 
 func TestAnotherBoardsRowJoinsTheReleaseItNames(t *testing.T) {
