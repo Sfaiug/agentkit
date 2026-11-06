@@ -1,7 +1,8 @@
 """The Go keys check runs in pieces cut by its claims' measured seconds, kept as the suite keeps a
 file's (suite_times): no piece nears the silence that stops a landing, every claim of go/keys.txt
-runs in exactly one, and more claims make more pieces, none past its bound.  Offline: the real
-every_file.py runs three shares (AK_SHARD) of a checkout of stand-in keys and a stand-in `go`.
+runs in exactly one, and more claims make more pieces, none past its bound but a claim past it,
+alone.  Offline: the real every_file.py runs three shares (AK_SHARD) of a checkout of stand-in keys
+and a stand-in `go`.
 """
 
 import os
@@ -14,7 +15,8 @@ import unittest
 from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO))
+sys.path[:0] = [str(REPO), str(REPO / "tests")]
+import every_file
 from agentkit import config, record, suite_times
 
 # Notes the claim it runs for and the program it judges, built in its piece's own tree.
@@ -110,6 +112,13 @@ class GoKeysPieces(unittest.TestCase):
                 self.assertLessEqual(total, silence / 2, piece)
             made.append(sum(map(len, shares)))
         self.assertGreater(made[1], made[0])
+
+    def test_a_claim_past_the_bound_runs_alone_and_the_others_still_share(self):
+        claims = {"test_key_acme_slow": every_file.PIECE + 1, "test_key_acme": 10,
+                  "test_key_widget": 10}
+        cost = {f"tests/test_go_keys.py::{key}": seconds for key, seconds in claims.items()}
+        self.assertEqual([parts for _, parts, _ in every_file.runs(self.root, cost)],
+                         [["test_key_acme_slow"], ["test_key_acme", "test_key_widget"]])
 
 
 if __name__ == "__main__":

@@ -256,11 +256,13 @@ def runs(root, cost):
             found.append((root / name, [], seconds))
     for name, parts in parted.items():
         # Even runs, as shares cut them, one more until each fits; an empty one would run all.
-        least = min(len(parts), int(sum(parts.values()) // PIECE)) or 1
-        for count in range(least, len(parts) + 1):
-            owners = shares(parts, count)
-            cut = [[part for part in parts if owners[part] == run] for run in range(1, count + 1)]
-            if all(sum(parts[part] for part in run) <= PIECE for run in cut):
+        # A part costing more counts as PIECE, so it fits alone and leaves the rest to share.
+        fit = {part: min(seconds, PIECE) for part, seconds in parts.items()}
+        least = min(len(fit), int(sum(fit.values()) // PIECE)) or 1
+        for count in range(least, len(fit) + 1):
+            owners = shares(fit, count)
+            cut = [[part for part in fit if owners[part] == run] for run in range(1, count + 1)]
+            if all(sum(fit[part] for part in run) <= PIECE for run in cut):
                 break
         found.extend((root / name, sorted(run), sum(parts[part] for part in run))
                      for run in cut if run)
