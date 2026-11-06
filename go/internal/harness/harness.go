@@ -72,6 +72,8 @@ type plugin struct {
 	card  func(conversation string) (hookfact.Fact, bool)
 	said  func(conversation string) []Turn
 	typed func(conversation string) []Prompt
+	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers.
+	answered func(record map[string]any) ([]Turn, []Card, error)
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool

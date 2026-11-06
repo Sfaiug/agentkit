@@ -57,11 +57,8 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if given.Efforts != nil {
 		model.Efforts = given.Efforts
 	}
-	adapter, err := config.Adapter(model.Harness)
-	accounts, _ := config.Accounts(model.Provider)
-	if !box.Supported || errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 || config.EnsureDirs() != nil {
-		return 0, "", ErrPython
-	} else if err != nil {
+	adapter, err := Adapter(model)
+	if err != nil {
 		return 0, "", err
 	}
 	seated, err := config.ChildEnv()

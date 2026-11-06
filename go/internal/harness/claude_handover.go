@@ -14,10 +14,14 @@ func claudeHanded(record *run.Object) (string, bool) {
 	return handedMessages(path, record.Str("orchestrator"), claudeHandedMessage)
 }
 
+// claudeUnsaid marks the lines no one said here (claude.py UNSAID): bookkeeping, a compaction's
+// summary, a subagent's, view-only ones.
+var claudeUnsaid = []string{"isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly"}
+
 // The same visible words as claude.py prompt and answer; protocol frames, tools,
 // compaction and subagents never become the conversation handed to another model.
 func claudeHandedMessage(entry *run.Object) (string, string) {
-	for _, key := range []string{"isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly"} {
+	for _, key := range claudeUnsaid {
 		if entry.Truthy(key) {
 			return "", ""
 		}

@@ -78,7 +78,7 @@ func endedAt(name, own string, record *run.Object, rules *screen.Rules, pane str
 	if last == nil {
 		return nil
 	}
-	ended := script.Moment(last.Get("timestamp"))
+	ended := harness.Moment(last.Get("timestamp"))
 	if !harness.Interrupts(own, last) || ended == 0 {
 		asked := script.Prompted(own, last)
 		held, drawn := rules.ComposerDraft(pane)
