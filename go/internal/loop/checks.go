@@ -112,7 +112,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 				if outcome, text, err = l.pieces(cwd, cmd, deadline, progress, path, rows); err != nil {
 					return false, "", nil, err
 				}
-				pieced = &text
+				pieced, asked = &text, clock()
 				break
 			}
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
