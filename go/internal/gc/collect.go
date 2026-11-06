@@ -76,13 +76,10 @@ func Collect(out io.Writer) error {
 }
 
 // Automatic is the collection the tick starts, Python's gc.gc(automatic=True): while one is due,
-// its start written to gc.log and gc.json first, every line after it to gc.log.  ErrPython,
-// before anything goes, where a user manager runs, whose failed and test units Python's
-// forget_failed_units and stop_test_units clear, and where goTakes says so.
+// its start written to gc.log and gc.json first, every line after it to gc.log, the user
+// manager's units cleared before the plan is taken.  ErrPython, before anything goes, where
+// goTakes says so.
 func Automatic() error {
-	if host.UserManager() {
-		return ErrPython
-	}
 	if err := goTakes(); err != nil {
 		return err
 	}
@@ -100,6 +97,7 @@ func Automatic() error {
 		}
 		c.report("gc: automatic collection started")
 		if c.failed == nil && writeJSON(stamp, run.Fields("started_at", run.Float(epoch()))) == nil {
+			clearUnits(c.report)
 			c.pass()
 		}
 	})
