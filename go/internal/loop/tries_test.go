@@ -50,3 +50,21 @@ func TestATryKilledAfterItAnsweredStillOwesItsAnswer(t *testing.T) {
 		t.Fatalf("a try that exited answered: %q", name)
 	}
 }
+
+func TestANewerReviewSupersedesATryKilledBeforeIt(t *testing.T) {
+	round, at := t.TempDir(), time.Now()
+	for seconds, name := range []string{"reviewer", "reviewer-retry1", "reviewer-astra"} {
+		files := map[string]string{"final.md": "a\n", "session_id": "old", box.Report: killed}
+		if name == "reviewer-astra" {
+			files = map[string]string{"final.md": "a\n", "session_id": "new"}
+		}
+		turnIn(t, round, name, files)
+		when := at.Add(time.Duration(seconds) * time.Second)
+		if err := os.Chtimes(filepath.Join(round, name), when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if name, kind, _ := openReview(round); name != "reviewer-astra" || kind != "" {
+		t.Fatalf("the newest review answered: %q %q", name, kind)
+	}
+}

@@ -112,16 +112,13 @@ func roleDirs(round string, take func(fs.DirEntry) bool) []string {
 	return names
 }
 
-// openReview is the reviewer attempt to go on with, Python's open_review: a review that fell back
-// to another model wrote under `reviewer-<model>`, so it is the newest reviewer directory of any name.
+// openReview is the reviewer attempt to go on with, and how, Python's open_review: a review that
+// fell back to another model wrote under `reviewer-<model>`, so it is the newest reviewer directory
+// of any name, which supersedes those before it even when it answered, as its verdict may still
+// be pending.
 func openReview(round string) (name, kind, session string) {
-	var open []string
-	for _, each := range roleDirs(round, func(entry fs.DirEntry) bool { return strings.HasPrefix(entry.Name(), "reviewer") }) {
-		if found, _ := openTurn(round, each); found != "" {
-			open = append(open, each)
-		}
-	}
-	if name = newest(round, open); name != "" {
+	name = newest(round, roleDirs(round, func(entry fs.DirEntry) bool { return strings.HasPrefix(entry.Name(), "reviewer") }))
+	if name != "" {
 		kind, session = openTurn(round, name)
 	}
 	return name, kind, session
