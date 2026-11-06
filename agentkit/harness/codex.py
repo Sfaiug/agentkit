@@ -55,9 +55,17 @@ END = "# --- end agentkit browser bridge ---"
 
 def token_counts(run_dir):
     """Kept Codex turns as (events file, thread total, turn spend), in reporting order."""
+    for path, total, earlier in _thread_turns(run_dir):
+        yield path, total, max(0, total - (earlier[1] if earlier else 0))
+
+
+def _thread_turns(run_dir):
+    """Kept Codex turns that name their thread and whose total reads, in reporting order, as
+    (events file, thread total, the same thread's latest earlier such turn's (events file,
+    total) or None): Codex totals the thread, so a turn's own share is what grew since."""
     from .. import history
 
-    previous = {}
+    latest = {}
     for path in history.event_paths(run_dir):
         thread = None
         try:
@@ -76,9 +84,8 @@ def token_counts(run_dir):
             continue
         total = history.event_tokens(path)
         if total is not None:
-            spent = max(0, total - previous.get(thread, 0))
-            previous[thread] = total
-            yield path, total, spent
+            yield path, total, latest.get(thread)
+            latest[thread] = path, total
 
 
 def tokens(out):
@@ -89,6 +96,44 @@ def tokens(out):
         if path == events:
             return spent
     return history.event_tokens(events)
+
+
+def turn_usage(out):
+    """This turn's own counts by type, under the model the worker launched it with, as
+    `Harness.turn_usage` gives them: none where it has no `turn.completed`.
+
+    Each count is its growth over the same thread's latest earlier turn `token_counts` reads,
+    whatever model ran that one, as the turn's sum is.  The model is the worker's `model`
+    receipt, None where that is missing, empty or `default`: Codex then ran one of its choosing.
+    """
+    out = Path(out)
+    events = out / "events.jsonl"
+    counts = _completed_counts(events)
+    if counts is None:
+        return None
+    earlier = next((earlier for path, _, earlier in _thread_turns(out.parent.parent)
+                    if path == events), None)
+    if earlier:
+        counts = tuple(max(0, now - was) for now, was in zip(
+            counts, _completed_counts(earlier[0]) or (0,) * len(counts)))
+    try:
+        model = (out / "model").read_text()
+    except OSError:
+        model = ""
+    return None, {model if model not in ("", "default") else None: counts}
+
+
+def _completed_counts(events):
+    """(input, cache write, cache read, output) the last `turn.completed` in that events file
+    totals for its thread, or None where it has none."""
+    from . import last_entry
+    try:
+        done = last_entry(events, lambda entry: entry.get("type") == "turn.completed")
+    except OSError:
+        return None
+    if done is None:
+        return None
+    return _by_type(_running(done.get("usage")))
 
 
 def seat_conversations(remote):
@@ -208,9 +253,22 @@ def seat_token_sources(record):
     return paths
 
 
-# The running counts a step's `total_token_usage` holds; its input counts the cached and the
-# cache-written input too.
+# The running counts a step's `total_token_usage` and a `turn.completed`'s `usage` hold; their
+# input counts the cached and the cache-written input too, their output the reasoning.
 RUNNING = ("input_tokens", "cached_input_tokens", "cache_write_input_tokens", "output_tokens")
+
+
+def _running(usage):
+    """`RUNNING`'s counts in that usage: one it leaves out, or writes as no count, is 0."""
+    usage = usage if isinstance(usage, dict) else {}
+    return [count if type(count) is int and count >= 0 else 0 for count in map(usage.get, RUNNING)]
+
+
+def _by_type(running):
+    """`RUNNING`'s counts as (input, cache write, cache read, output), the input less what was
+    cached or written to the cache."""
+    fresh, cached, written, output = running
+    return max(0, fresh - cached - written), written, cached, output
 
 
 def seat_token_usage(entry, cursor):
@@ -224,18 +282,16 @@ def seat_token_usage(entry, cursor):
         return None
     usage = (payload.get("info") or {}).get("total_token_usage") or {}
     total = usage.get("total_tokens")
-    # A count the rollout leaves out, or writes as no count, is 0.
-    running = [count if type(count) is int and count >= 0 else 0
-               for count in map(usage.get, RUNNING)]
+    running = _running(usage)
     if type(total) is int and total >= 0 and moment(entry.get("timestamp")) is not None:
         # A cursor saved before the counts were carried read steps whose counts it lacks.
         known = "running" in cursor or "total" not in cursor
         previous, before = cursor.get("total", 0), cursor.get("running", [0] * len(RUNNING))
-        fresh, cached, written, output = (max(0, now - was) for was, now in zip(before, running))
+        grown = [max(0, now - was) for was, now in zip(before, running)]
         cursor["total"], cursor["running"] = max(previous, total), running
         return (entry["timestamp"], f"{Path(cursor['source']).name}:{total}",
                 max(0, total - previous), cursor.get("model"),
-                [max(0, fresh - cached - written), written, cached, output] if known else None)
+                list(_by_type(grown)) if known else None)
 
 
 def prompt(entry):
