@@ -173,7 +173,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 	for path, content := range map[string]string{
 		"runs/fix-api/run.json":            `{"state":"waiting_login"}`,
 		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
-		"secrets/claude_oauth_token":       "",
 		"state/session-acme.json":          "{}",
 		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
@@ -182,7 +181,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"runs/fix-api/run.json#probe": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {"command": "true"}, "deployed": null}`,
 			time.Now().Unix()),
 		"state/watch.json#auth":      `{"auth_out": {"claude": {"ok": false}}}`,
-		"state/watch.json#tokens":    `{"worker_tokens": {"claude": {}}}`,
 		"state/watch.json#surrogate": `{"mine": "\ud800"}`,
 		"config.toml":                "[audit]\non = true\n",
 		"config.toml#absent":         "",

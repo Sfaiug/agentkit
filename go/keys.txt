@@ -431,6 +431,7 @@ test_key_worker_home_contained
 test_key_worker_refusals
 test_key_worker_rules_are_lean
 test_key_worker_rules_whole
+test_key_worker_token_reminder
 test_key_worker_turn
 test_key_working_dot
 test_key_writer_reviews_only_without_room

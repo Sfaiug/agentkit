@@ -25,22 +25,27 @@ func ProviderLook(provider string) (name, colour string, err error) {
 	return strings.TrimSpace(name), colour, nil
 }
 
-// WorkerTokens is {harness, its token's file name} for each harness declaring a worker token and
-// how to renew it, by harness name (watch.token_files).
-func WorkerTokens() ([][2]string, error) {
+const (
+	TokenLife = 365 // days a worker token lives from its file's date (watch.TOKEN_LIFE_DAYS)
+	TokenWarn = 14  // days out the ak screen says it (watch.TOKEN_WARN_DAYS)
+)
+
+// WorkerTokens is {harness, its token's file name, how to renew it} for each harness declaring a
+// worker token and its remedy, by harness name (watch.token_files).
+func WorkerTokens() ([][3]string, error) {
 	found, err := manifests()
 	if err != nil {
 		return nil, err
 	}
-	var tokens [][2]string
+	var tokens [][3]string
 	for harness, manifest := range found {
 		block, _ := manifest.values["worker_token"].(*table)
 		file, _ := block.get("file").(string)
 		remedy, _ := block.get("remedy").(string)
 		if file != "" && file != "." && file != ".." && !strings.Contains(file, "/") && remedy != "" {
-			tokens = append(tokens, [2]string{harness, file})
+			tokens = append(tokens, [3]string{harness, file, remedy})
 		}
 	}
-	slices.SortFunc(tokens, func(a, b [2]string) int { return strings.Compare(a[0], b[0]) })
+	slices.SortFunc(tokens, func(a, b [3]string) int { return strings.Compare(a[0], b[0]) })
 	return tokens, nil
 }
