@@ -48,6 +48,9 @@ func carries(record *run.Object) (bool, error) {
 		return false, nil
 	}
 	session := run.Seat(record)
+	if session == "" {
+		return false, nil // a seat owes nothing (seat_owes_nothing): the notice is recorded
+	}
 	if owes, err := plan.Owes(session); !owes || err != nil {
 		return false, err
 	}
