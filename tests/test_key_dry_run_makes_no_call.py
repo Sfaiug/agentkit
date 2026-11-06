@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import AK, Home, boxable
+from fixtures.akbin import Home, boxable
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 from test_key_exhausted_resume import OFFLINE, record, tick, wait_for
@@ -23,16 +23,6 @@ REFUSED = {"final": "You've hit your 5-hour limit · resets {in 3600}", "exit": 
 RESOLVE = {"sh": "printf 'main\\nhello\\n' > retry.txt && git add retry.txt && "
                  "GIT_EDITOR=true git rebase --continue",
            "final": "Resolved.", "hand_in": [["done"]]}
-
-
-def reaching_ak(fakes):
-    """Each fake's turns reach the program they hand in through: a worker's box empties the
-    temporary directories, where a copy of the checkout and its AK_BIN may sit, and shows a
-    turn its harness's state."""
-    for fake in fakes.values():
-        alone = f"state = {json.dumps([str(fake.dir)])}"
-        fake.manifest.write_text(fake.manifest.read_text().replace(
-            alone, f"state = {json.dumps([str(fake.dir), str(Path(AK).parent)])}"))
 
 
 def back(stamps, key, seconds):
@@ -51,7 +41,6 @@ class DryRunMakesNoCall(unittest.TestCase):
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
         self.fakes = fakeadapter.install(home, claude="work", codex="pass")
-        reaching_ak(self.fakes)
         worker = self.fakes["claude"]
         held, go = worker.dir / "held", worker.dir / "go"
         worker.behave("work", REFUSED, RESOLVE)

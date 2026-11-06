@@ -1,8 +1,9 @@
 """A later review round re-proves the earlier findings and judges only the fix delta.
 
 Before the reviewer runs, ak replays each earlier blocking finding's proof on the commit under
-review, a new one or the same again: one still failing blocks whatever the reviewer hands in,
-one fixed or unable to run or finish is a note; disputed ones are left to the reviewer, and a
+review, a new one or the same again: one failing with the exit code it was proven with blocks
+whatever the reviewer hands in, one fixed, failing otherwise or unable to run or finish is a
+note; disputed ones are left to the reviewer, and a
 quote, a note in every round, is no earlier finding at all. The reviewer is given the diff since the commit the last review judged, and a new finding that
 would block outside that delta is kept as a note, unless its proof passes on that commit: the
 fix broke it.  A review of the same commit again (a fixer turn that left no commit) judges the
@@ -105,7 +106,8 @@ out = pathlib.Path(sys.argv[6])
         self.lp.rnd = 0
         self.lp.validation = run.commit_identity(self.wt)
         self.mode_fixed = probe('api.mode == "fixed"')
-        self.flag_fixed = probe('api.flag == "fixed"')
+        # a fix deleting the flag leaves this failing as proven (exit 7), not crashing (exit 1)
+        self.flag_fixed = probe('getattr(api, "flag", None) == "fixed"')
         self.never = probe("False")
 
     def commit(self, message):
@@ -484,21 +486,22 @@ out = pathlib.Path(sys.argv[6])
 
     def test_a_line_the_change_added_still_blocks_wherever_the_fix_takes_it(self):
         # git's diff tells none of these from a line put back as base has it
+        wrong = probe('getattr(api, "feature", None) == 2')     # as proven, deleted or not
         self.write("mode = 1\nflag = 1\nextra = 1\nfeature = 1\n", "Add a feature")
-        self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
+        self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", wrong)), "FAIL")
         self.write("feature = 1\nmode = 1\nflag = 1\nextra = 1\n", "Move the feature, still wrong, to the top")
         self.assertEqual(self.review(), "FAIL")
         self.write("feature = 1\nmode = 1\nflag = 1\nextra = 1\n# noted\n", "Note something else")
         self.assertEqual(self.review(), "FAIL")      # ... in every round after
         self.setUp()
         self.write("mode = 1\nflag = 1\nextra = 1\nfeature = 1\n", "Add a feature")
-        self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
+        self.assertEqual(self.review(finding("api.py:4", "the feature is wrong", wrong)), "FAIL")
         self.write("mode = 1\nflag = 1\nextra = 1\n", "Delete the feature")
         self.assertEqual(self.review(), "FAIL")
         self.assertEqual(self.records("follow-up"), [])
         self.setUp()      # ... or moved off a neighbour the fix put back as base has it
         self.write('mode = "branch"\nfeature = 1\nflag = "branch"\nextra = 1\n', "Add a feature")
-        self.assertEqual(self.review(finding("api.py:2", "the feature is wrong", probe("api.feature == 2"))), "FAIL")
+        self.assertEqual(self.review(finding("api.py:2", "the feature is wrong", wrong)), "FAIL")
         self.write('mode = "branch"\nflag = "base"\nextra = 1\nfeature = 1\n', "Put the flag back, move the feature")
         self.assertEqual(self.review(), "FAIL")
 

@@ -47,8 +47,7 @@ class Round:
         assert cloned.code == 0, cloned.err
         # Both the sibling checkout and the bare origin are writable in this fake turn's box.
         writer.manifest.write_text(writer.manifest.read_text().replace(
-            f"state = {json.dumps([str(writer.dir)])}",
-            f"state = {json.dumps([str(writer.dir), str(rig.bare)])}"))
+            "state = [", f"state = [{json.dumps(str(rig.bare))}, "))
         path, text = ("other.txt", "sibling elsewhere\n") if cls.elsewhere else (
             "widget.txt", "sibling start\n" + TAIL if cls.conflict else
             BASE.replace("base tail", "sibling tail"))

@@ -2,10 +2,11 @@
 
 `install` puts `<harness>.sh` and `<harness>.toml` in `<root>/adapters` and names that directory
 in the Home's AGENTKIT_ADAPTER_DIR, so every ak the test runs from then on calls these and no
-real harness.  The toml is the shipped manifest with the directory as its `[worker] state`, the
-one place a worker's box lets a turn write beside its workspace, and of the shipped `[worker]`
-only its `sessions` and `lent_for`.  The script runs a copy of this file there, beside one of tools/lend.py:
-a worker's box empties the temporary directories, where a test's copy of the checkout may sit.
+real harness.  The toml is the shipped manifest with the directory, and the one holding the ak
+under test, as its `[worker] state`, the places a worker's box lets a turn reach beside its
+workspace, and of the shipped `[worker]` only its `sessions` and `lent_for`.  The script runs a
+copy of this file there, beside one of tools/lend.py: a worker's box empties the temporary
+directories, where a test's copy of the checkout, and the ak it holds, may sit.
 
 A harness's script is a list of steps, one per `run` call in order, the last repeated.  A step
 is a word, which acts by the turn's role as its prompt's first line names it:
@@ -180,8 +181,8 @@ def install(home, **harnesses):
         text = shipped.read_text() if shipped.exists() else "version = 1\n"
         kept = "".join(re.findall(r"(?m)^(?:sessions|lent_for) = .*\n", text))
         text = re.sub(r"(?ms)^\[worker\]\n.*?(?=^\[|\Z)", "", text).rstrip()
-        fake.manifest.write_text(
-            f"{text}\n\n[worker]\nstate = {json.dumps([str(directory)])}\n{kept}")
+        state = json.dumps([str(directory), str(Path(AK).parent)])     # a turn hands in through AK
+        fake.manifest.write_text(f"{text}\n\n[worker]\nstate = {state}\n{kept}")
     return fakes
 
 
