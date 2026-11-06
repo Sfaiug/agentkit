@@ -29,8 +29,9 @@ func prBody(record *run.Object) string {
 		if data, err := os.ReadFile(path); err == nil {
 			text := task.Text(data)
 			body := task.Body(text)
-			for _, line := range config.SplitLines(task.Section(body, "Decided")) {
-				if line = strings.TrimFunc(line, config.Space); strings.HasPrefix(line, "Accepted:") {
+			decided, _ := task.Decided(body)
+			for _, line := range decided {
+				if strings.HasPrefix(line, "Accepted:") {
 					accepted = append(accepted, line)
 				}
 			}

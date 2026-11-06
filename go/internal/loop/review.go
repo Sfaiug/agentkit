@@ -71,8 +71,12 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 	if flakyRecord.MatchString(checked) {
 		heading += flakyRule + "\n"
 	}
+	decided, err := decidedSection(l.dir)
+	if err != nil {
+		return false, err
+	}
 	body := func(section string) string {
-		text := l.body + "\n\n" + section + "\n\n"
+		text := l.body + "\n\n" + decided + section + "\n\n"
 		if len(disputes.Records) > 0 {
 			text += disputes.Text() + "\n"
 		}
