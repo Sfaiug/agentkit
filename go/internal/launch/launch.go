@@ -246,10 +246,11 @@ func runDepth() (int, bool) {
 }
 
 // A place is what preflight settled of where a run it passes works: the repository, "" for a
-// scratch task, its base, target and numbers, the checks a round runs, and the run under way it
-// starts beside, told --anyway.
+// scratch task, its base, target, project (taskProject) and numbers, the checks a round runs, and
+// the run under way it starts beside, told --anyway.
 type place struct {
 	repo, base, target, alongside string
+	project                       string
 	numbers                       config.Numbers
 	every, once                   []string
 }
@@ -273,12 +274,15 @@ func checkout(meta map[string]string, path, copied string) (string, string, erro
 		}
 		return repo, "", nil
 	}
-	top, _, found, err := git("", "rev-parse", "--show-toplevel")
-	if err != nil || !found && filed(path) {
-		return "", "", ErrPython // the checkout a task folder is named for is Python's to find
+	top, err := taskProject("", path)
+	if err != nil {
+		return "", "", err
 	}
-	if !found {
-		return "", "", nil
+	if top == "" {
+		var found bool
+		if top, _, found, err = git("", "rev-parse", "--show-toplevel"); err != nil || !found {
+			return "", "", err
+		}
 	}
 	if repo := config.Resolve(top); readable(repo) {
 		return repo, "", nil
@@ -349,6 +353,15 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 		return refuse(refused, "", nil)
 	}
 	at.repo = repo
+	// a run belongs to the repository its task names, else to its task folder's checkout, never
+	// to one it inherits from where it was launched
+	worked := ""
+	if meta["repo"] != "" {
+		worked = repo
+	}
+	if at.project, err = taskProject(worked, path); err != nil {
+		return refuse("", "", err)
+	}
 	landing := at.repo != "" && !flags["--no-merge"]
 	at.target = cmp.Or(meta["target"], meta["base"])
 	suite := ""
@@ -389,7 +402,7 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(path, values, bound); err != nil {
+		if err := drivable(values, bound); err != nil {
 			return refuse("", "", err)
 		}
 		// a repository run on a host with a helper is Python's: its rounds' checks and turns go there

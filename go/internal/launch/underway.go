@@ -31,7 +31,7 @@ type rival struct {
 // builds, newest first, as Python's already_under_way finds them: a live run whose checks name a
 // test file the task's checks name too, which the origin default tip lacks and which no three other
 // jobs there ran unless both titles name it, or one launched from that very task file.  ErrPython
-// where a record or a filed task's checkout is Python's to read.
+// where a record is Python's to read.
 func rivals(repo, path, title string, cmds []string) ([]rival, error) {
 	if repo == "" {
 		return nil, nil
@@ -46,9 +46,6 @@ func rivals(repo, path, title string, cmds []string) ([]rival, error) {
 		}
 		if record == nil || !run.Active(record) || !run.ProcessActive(record) {
 			continue
-		}
-		if filed(path) {
-			return nil, ErrPython // a filed task works in the checkout its folder is named for
 		}
 		meta, theirs, named := copied(dir)
 		if same, err := ours(repo, dir, record, meta); err != nil || !same {
