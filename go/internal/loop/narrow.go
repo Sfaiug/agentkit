@@ -191,15 +191,16 @@ func closeNarrowing(stacks []*narrowingStack) {
 	}
 }
 
-func (s *narrowingStack) check(checks []string, suite string, selection *checkSelection, logs ...string) (*run.Object, error) {
+// check runs the checks as a check of kind, `landing`, or `tip` for a probe of the target's.
+func (s *narrowingStack) check(checks []string, suite, kind string, selection *checkSelection) (*run.Object, error) {
 	name := fmt.Sprintf("lander-%s.log", s.tree)
-	if selection.pinned() {
+	switch {
+	case kind == "tip":
+		name = "target-probe.log"
+	case selection.pinned():
 		name = fmt.Sprintf("lander-%s-tests.log", s.tree)
 	}
-	if len(logs) > 0 {
-		name = logs[0]
-	}
-	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, suite, selection)
+	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, kind, suite, selection)
 	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) || err == nil && !ok && !selection.pinned() && helper.May() {
 		// a whole check's red with suite helpers is Python's, as stack.go says
 		selection.handoff, err = true, nil
@@ -227,7 +228,7 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 }
 
 func (s *narrowingStack) checkTests(command, suite string, selection *checkSelection) (*run.Object, error) {
-	answer, err := s.check([]string{command}, suite, selection)
+	answer, err := s.check([]string{command}, suite, "landing", selection)
 	if err == nil {
 		err = s.putBack(s.head)
 	}
@@ -300,7 +301,7 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 		var err error
 		if cached == nil || cached.Str("tested") != stacks[index].tree || !covers(cached.List("checks"), checks) {
 			cached = nil
-			answer, err = stacks[index].check(checks, suite, &checkSelection{})
+			answer, err = stacks[index].check(checks, suite, "landing", &checkSelection{})
 		}
 		if err != nil || answer == nil {
 			return answer, err
@@ -408,12 +409,12 @@ func (s *narrowingStack) probeTarget(tip, suite string, fix *run.Object) (bool, 
 		return false, err
 	}
 	selection := &checkSelection{shard: fix.Str("piece"), tests: names(fix.List("tests"))}
-	answer, err := s.check([]string{suite}, suite, selection, "target-probe.log")
+	answer, err := s.check([]string{suite}, suite, "tip", selection)
 	if answer == nil && err == nil && !selection.handoff {
 		if err := s.putBack(tip); err != nil {
 			return false, err
 		}
-		answer, err = s.check([]string{suite}, suite, &checkSelection{shard: fix.Str("piece")}, "target-probe.log")
+		answer, err = s.check([]string{suite}, suite, "tip", &checkSelection{shard: fix.Str("piece")})
 	}
 	return answer != nil && answer.Has("land"), err
 }

@@ -3,11 +3,12 @@ package history
 import "os"
 
 // A Checked is what the rows of one check name beside its command, Python's `checked`: its run,
-// round and kind (`done-when`, `rules`, `base-proof`, `replay`), and the commit it checks, "" for
-// a scratch run's one workspace.  A nil one leaves no row.
+// round, an int, nil for a lander's check, which runs in none, and kind (`done-when`, `rules`,
+// `base-proof`, `replay`, `landing`, `tip`), and the commit it checks, "" for a scratch run's one
+// workspace.  A nil one leaves no row.
 type Checked struct {
 	Run   string
-	Round int
+	Round any
 	Kind  string
 	Tree  string
 }
