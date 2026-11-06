@@ -43,8 +43,9 @@ var subAgent = []string{"agent_id", "agentId", "agent_type", "agentType", "subag
 // doing, under the name the seat goes by now, unless the fact standing keeps it
 // (`lifecycle.Keeps`).  A worker, a harness outside any seat and a sub-agent's turn write
 // nothing; a SessionStart writes only what a compaction drops.  Each event it writes has the seat
-// looked at again at once, off the harness's path, with the owner's answer it heard; one on a
-// question card that Go does not record as Python does is left to Python with nothing written.
+// looked at again at once, off the harness's path, with the owner's prompt it heard; their answer
+// on a question card is recorded first, or, where Go does not record it as Python does, left to
+// Python with nothing written.
 func seatState(payload []byte, out io.Writer) int {
 	seat := os.Getenv("AGENTKIT_SESSION")
 	read, _ := run.Decode(payload)
