@@ -16,19 +16,25 @@ const listingCap = 15 * time.Second
 
 // ChoicesContext lets a screen stop its listing and reap its adapter calls before leaving.
 func ChoicesContext(ctx context.Context, harness string) ([]Choice, error) {
-	rows := askContext(ctx, harness)
+	return ChoicesAdding(ctx, harness, "", "")
+}
+
+// ChoicesAdding is ChoicesContext as the harness will answer once provider, where named, lists
+// account alone (config.ListingLoginsAdding).
+func ChoicesAdding(ctx context.Context, harness, provider, account string) ([]Choice, error) {
+	rows := askContext(ctx, harness, provider, account)
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	return choices(harness, rows)
 }
 
-func askContext(ctx context.Context, harness string) [][]string {
+func askContext(ctx context.Context, harness, provider, account string) [][]string {
 	if ctx.Err() != nil {
 		return nil
 	}
 	script, _ := config.Lister(harness)
-	logins, err := config.ListingLogins(harness)
+	logins, err := config.ListingLoginsAdding(harness, provider, account)
 	if err != nil || script == "" {
 		return nil
 	}

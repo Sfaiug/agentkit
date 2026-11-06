@@ -38,5 +38,5 @@ func Catalog(harness string) ([]Model, error) {
 // Ask is each model's [id, efforts, label] the harness's logins list, asked at once, the first login's
 // first.
 func Ask(harness string) [][]string {
-	return askContext(context.Background(), harness)
+	return askContext(context.Background(), harness, "", "")
 }

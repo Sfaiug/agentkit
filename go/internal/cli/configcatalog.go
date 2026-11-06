@@ -16,8 +16,16 @@ func waitingConfigCatalog(keyboard *terminal.Keyboard, painter *terminal.Painter
 	}}
 }
 
-// The UI owns every draw; the adapter owns only its answer. Esc cancels and reaps it.
 func waitConfigCatalog(harness, title string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) ([]modelListing.Choice, error) {
+	return waitAdapter(title, cells, keyboard, painter, func(ctx context.Context) ([]modelListing.Choice, error) {
+		return modelListing.ChoicesContext(ctx, harness)
+	})
+}
+
+// waitAdapter is what ask answers, the frame up while an adapter is asked.  The UI owns every draw;
+// the adapter owns only its answer. Esc cancels and reaps it.
+func waitAdapter[T any](title string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter, ask func(context.Context) (T, error)) (T, error) {
+	var none T
 	ctx, cancel := context.WithCancel(context.Background())
 	clock := &motion.Clock{}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake)
@@ -34,14 +42,14 @@ func waitConfigCatalog(harness, title string, cells []menu.Cell, keyboard *termi
 	}
 	draw() // the frame is visible before an adapter can block
 	type answer struct {
-		choices []modelListing.Choice
-		err     error
+		value T
+		err   error
 	}
 	result, ended := make(chan answer, 1), make(chan struct{})
 	go func() {
 		defer close(ended)
-		choices, err := modelListing.ChoicesContext(ctx, harness)
-		result <- answer{choices, err}
+		value, err := ask(ctx)
+		result <- answer{value, err}
 		keyboard.Wake()
 	}()
 	defer func() { cancel(); <-ended }()
@@ -50,13 +58,13 @@ func waitConfigCatalog(harness, title string, cells []menu.Cell, keyboard *termi
 		select {
 		case got := <-result:
 			keyboard.Unread(typed...)
-			return got.choices, got.err
+			return got.value, got.err
 		default:
 		}
 		key := keyboard.ReadKey()
 		switch key.Name {
 		case "esc", "eof":
-			return nil, context.Canceled
+			return none, context.Canceled
 		case "again":
 			painter.Forget()
 		case "wake":

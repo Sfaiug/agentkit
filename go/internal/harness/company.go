@@ -2,6 +2,7 @@ package harness
 
 import (
 	"cmp"
+	"strings"
 	"unicode"
 )
 
@@ -28,8 +29,16 @@ func capitalised(name string) string {
 	return string(out)
 }
 
-// Heading is the company a shipped provider's subscriptions sit under on Subscriptions, Python's
-// menu.COMPANIES without the harness each runs on: "" for one shipped with none, headed by its name.
+// Maker is the company a shipped provider is and the harness it runs on, as `+ add a subscription`
+// offers it, Python's menu.COMPANIES: "" for one shipped with none.
+func Maker(provider string) string {
+	return map[string]string{"anthropic": "Anthropic / Claude Code", "openai": "OpenAI / Codex", "meta": "Meta / Muse",
+		"xai": "xAI / Grok Build", "google": "Google / Antigravity"}[provider]
+}
+
+// Heading is the company a shipped provider's subscriptions sit under on Subscriptions, its Maker
+// without the harness: "" for one shipped with none, headed by its name.
 func Heading(provider string) string {
-	return map[string]string{"anthropic": "Anthropic", "openai": "OpenAI", "meta": "Meta", "xai": "xAI", "google": "Google"}[provider]
+	company, _, _ := strings.Cut(Maker(provider), " / ")
+	return company
 }

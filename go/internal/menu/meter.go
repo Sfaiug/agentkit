@@ -87,23 +87,10 @@ func fitting(notes []usage.Note, room int) []string {
 }
 
 // ActsFrame is a meter's list (menu.meter_acts), under its label: what it offers, each by its text,
-// the act the highlight is on lit while the pointer is not away from it, and the key line naming
-// what Enter does there; nothing is lit while the highlight is on no act.
+// the key line naming the act lit.
 func ActsFrame(s terminal.Screen, label, clock string, acts []string, h Highlight) Frame {
-	frame := Frame{order: acts, width: s.Width(), height: s.Height(), spots: []string{"", ""}}
-	if slices.Contains(acts, h.Cursor) {
-		frame.cursor = h.Cursor
-	}
-	var body []string
-	for _, act := range acts {
-		line := "  " + terminal.Cut(actText(s, act), s.Width()-3)
-		if act == frame.cursor && !h.Hidden {
-			line = s.Highlight(line, true)
-		}
-		body, frame.spots = append(body, line), append(frame.spots, act)
-	}
-	frame.Lines = Panel(s, label, clock, body, pageKeys(s, frame.cursor))
-	return frame
+	return List{Title: label, Clock: clock, Choices: acts, Text: func(act string) string { return actText(s, act) },
+		Enter: func(act string) string { return act }}.Frame(s, h)
 }
 
 // actText is an act as a line draws it, with UTF-8 or without (menu.act_text).

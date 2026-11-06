@@ -6,7 +6,6 @@ package matrix
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,14 +52,7 @@ func present() ([]any, error) {
 	}
 	found := []any{}
 	for _, name := range names {
-		if _, err := config.Adapter(name); err != nil && !errors.Is(err, config.ErrNoAdapterDir) {
-			continue
-		}
-		program := name
-		if version, err := config.Words(name, "update", "version"); err == nil && len(version) > 0 && version[0] != "" {
-			program = version[0]
-		}
-		if harness.Binary(program) != "" {
+		if harness.Present(name) {
 			found = append(found, name)
 		}
 	}
