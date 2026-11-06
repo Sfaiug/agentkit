@@ -239,6 +239,8 @@ type Matrix struct {
 // changed, the harnesses installed are not the ones it rowed or ak's own build is not the one that
 // computed it, since the harness catalogs it asks take time.  Asked by `ak models`, never the
 // tick: the owner wants the assessment as a feature opened, not a process running all day.
+// ErrPriced, with nothing written, where the boards as asked give a lineup Go's answer does not
+// carry (Priced).
 func Refresh(refresh bool) (*Matrix, error) {
 	now := float64(time.Now().UnixNano()) / 1e9
 	harnesses, err := present()
@@ -246,7 +248,7 @@ func Refresh(refresh bool) (*Matrix, error) {
 		return nil, err
 	}
 	build := update.Build()
-	held, err := boards.Collect(refresh, now, build)
+	held, err := boards.Collect(refresh, now, build, unpriced)
 	if err != nil {
 		return nil, err
 	}

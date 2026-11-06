@@ -33,15 +33,11 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 		return 1
 	}
 	found, err := matrix.Refresh(contains(args, "--refresh"))
-	if err != nil {
-		return fail(err)
-	}
-	priced, err := matrix.Priced(found.Rows)
-	if err != nil {
-		return fail(err)
-	}
-	if priced {
+	if errors.Is(err, matrix.ErrPriced) {
 		return notImplemented(errOut, "models")
+	}
+	if err != nil {
+		return fail(err)
 	}
 	marked, err := matrix.Compared(found.Rows)
 	if err != nil {

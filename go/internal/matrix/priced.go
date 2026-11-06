@@ -1,11 +1,27 @@
 package matrix
 
 import (
+	"errors"
+
 	"agentkit/internal/boards"
 	"agentkit/internal/config"
 	"agentkit/internal/quality"
+	"agentkit/internal/run"
 	"agentkit/internal/usage"
 )
+
+// ErrPriced is a lineup Priced holds for: its answer is Python's.
+var ErrPriced = errors.New("a measured task share prices the lineup")
+
+// unpriced refuses boards, as asked and before anything is written, whose lineup Priced holds for.
+func unpriced(held *run.Object) error {
+	// pricing reads the rows' releases and efforts alone, so no harness catalog is asked
+	priced, err := Priced(rowsOf(lineup(held, nil, nil)))
+	if err == nil && priced {
+		err = ErrPriced
+	}
+	return err
+}
 
 // Priced is whether Python's answer over rows prices one by the share of a week a task takes
 // (usage.TaskUsage), as matrix._costs does once an offered model found as that row's release
