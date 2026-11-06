@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 
-	"agentkit/internal/harness"
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
 )
@@ -22,13 +21,13 @@ type owed struct {
 // revival and the idle sleep ask: by what it was doing when its process went, asking or in a turn,
 // a Stop on background agents among them, and by the background work it held, named after that
 // line or alone, which alone owes nothing where it is only a watch (lifecycle.Watch).  False where
-// that hangs on what Go does not read: its harness, asked now, says what still runs.
+// its harness's manifest cannot be read.
 func (seat Seat) owing() (owed, bool) {
 	found, err := seat.lastSeen()
-	work := holding(seat.Name)
-	if err != nil || len(work) > 0 && harness.AsksHolds(seat.own) {
+	if err != nil {
 		return owed{}, false
 	}
+	work := holding(seat.Name)
 	cut := ""
 	flight, _ := found.turnInFlight(seat.own)
 	switch {

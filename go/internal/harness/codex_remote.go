@@ -30,7 +30,7 @@ func codexNamed(ctx context.Context, home, socket string, log io.Writer) {
 	var named [2]string
 	for {
 		wait := time.Second
-		client, err := codexDial(socket)
+		client, err := codexDial(socket, time.Time{})
 		if err == nil {
 			var status *run.Object
 			if status, err = codexStatus(client); err == nil {

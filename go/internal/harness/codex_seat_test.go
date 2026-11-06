@@ -50,9 +50,22 @@ func TestCodexSeatLine(t *testing.T) {
 			t.Errorf("%q: exit %d\n%s", each.args, code, out.String())
 		}
 	}
+	// an account's, in its own Codex home, which shares the usual one's conversations and config
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	t.Setenv("AGENTKIT_ACCOUNT", "work")
-	if code := codexInteractive("/acme", []string{"gpt-6-astra", "xhigh"}, new(bytes.Buffer), new(bytes.Buffer)); code != 2 {
-		t.Errorf("an account's seat is Python's: exit %d", code)
+	os.MkdirAll(filepath.Join(home, ".codex"), 0o700)
+	os.WriteFile(filepath.Join(home, ".codex", "config.toml"), nil, 0o600)
+	var out bytes.Buffer
+	if code := codexInteractive("/acme", []string{"gpt-6-astra", "xhigh"}, &out, new(bytes.Buffer)); code != 0 ||
+		out.String() != "env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME="+home+"/.codex-work AGENTKIT_RULEBOOK="+rulebook+
+			` /acme/bin/ak adapter /acme codex seat -- codex --yolo -m gpt-6-astra -c 'model_reasoning_effort="xhigh"' -c project_doc_max_bytes=0 -- '-v it'"'"'s on'`+"\n" {
+		t.Errorf("an account's seat: exit %d\n%s", code, out.String())
+	}
+	for _, name := range []string{"sessions", "archived_sessions", "config.toml"} {
+		if to, err := os.Readlink(filepath.Join(home, ".codex-work", name)); err != nil || to != filepath.Join(home, ".codex", name) {
+			t.Errorf("%s: %q, %v", name, to, err)
+		}
 	}
 }
 
