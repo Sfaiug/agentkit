@@ -49,15 +49,13 @@ func TestOpenCodeReadsAReportedSessionWhereItCanReadItsDatabase(t *testing.T) {
 	}
 	record.Set("conversation", "ses_A012z")
 	database := filepath.Join(home, "share", "opencode", "opencode.db")
-	for name, data := range map[string]string{database: "pages", database + "-wal": "pages it has yet to take in"} {
-		if err := os.MkdirAll(filepath.Dir(name), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(name, []byte(data), 0o600); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(filepath.Dir(database), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	check(false) // its database being written into is Python's to read
+	if err := os.WriteFile(database, []byte("pages"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check(false) // a database SQLite cannot read is Python's to read
 	record.Set("opencode_launch", "../"+token)
 	check(true) // not a receipt token, as Python's path_for decides
 }
