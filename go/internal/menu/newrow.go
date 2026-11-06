@@ -84,6 +84,7 @@ func (d *Draft) Key(key terminal.Key) string {
 		return key.Name
 	case "tab":
 		d.Picker, d.Find = true, ""
+		return "models"
 	case "enter":
 		return "start"
 	case "backspace":

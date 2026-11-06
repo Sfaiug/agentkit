@@ -194,6 +194,12 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			case "eof":
 				keyboard.Give()
 				return 0
+			case "models":
+				frame.Stop()
+				if !draftModels(model.New, shown.cells, keyboard, painter) {
+					keyboard.Give()
+					return notImplemented(errOut, "attach")
+				}
 			case "start":
 				settle()
 				if leave, code := startMenuRow(&model, dry, overlay, keyboard, painter, errOut); leave {
