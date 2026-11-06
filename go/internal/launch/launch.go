@@ -441,15 +441,17 @@ func asPython(err error) error {
 }
 
 // numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy), a
-// task's refused where executors are off; ErrPython for those Go does not carry (run.Carried), read
-// where Python's launch_policy is.
+// task's refused where executors are off (run.TaskPolicy); ErrPython for those Go does not carry
+// (run.Carried), read where Python's launch_policy is.
 func numbers(repo string, review bool) (config.Numbers, error) {
-	found, err := run.LaunchPolicy(repo)
+	read := run.TaskPolicy
+	if review {
+		read = run.LaunchPolicy
+	}
+	found, err := read(repo)
 	switch {
 	case err != nil:
 		return found, err
-	case !review && found.ReviewLines == config.AtMost(0):
-		return found, errors.New("executor_lines = 0: " + config.ExecutorsOff)
 	case !run.Carried(found):
 		return found, ErrPython
 	}
