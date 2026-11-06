@@ -279,6 +279,7 @@ test_key_seat_name_normalised
 test_key_seat_reads_waiting_ending
 test_key_seat_relay
 test_key_seat_shims_installed
+test_key_seat_status_bar
 test_key_seat_transport_full
 test_key_seat_verb_help
 test_key_seat_wrapper_looks
@@ -337,6 +338,7 @@ test_key_worker_box_leaves_nothing
 test_key_worker_box_writes
 test_key_worker_home_contained
 test_key_worker_refusals
+test_key_worker_rules_are_lean
 test_key_worker_rules_whole
 test_key_worker_turn
 test_key_working_dot
