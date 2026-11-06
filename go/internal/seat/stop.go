@@ -41,6 +41,7 @@ var stoppable = slices.Concat(recordFields, []string{"reviewers", "account", "ho
 // A seen is what a stop finds under Python's watch.state_lock.
 type seen struct {
 	live, recorded, closed bool     // tmux holds the seat's session; a record keeps it; the owner stopped it
+	server                 string   // the server holding its session
 	records                []Seat   // every seat's record, which the stop reconciles first (orch.records)
 	running                []string // for a name nothing holds, the seats Python's listing offers
 	going                  []string // the directories of the runs the seat launched still going
@@ -107,17 +108,20 @@ func Stop(arg string, now time.Time) (string, bool, error) {
 // and orch.records find them, or false where the stop is Python's: a session by that name ak did
 // not open, a seat needing the owner that other sessions' bars count and would count again
 // (statusbar.retell), a record Go does not follow, or something of the seat's own that Python
-// ends with it (ownRuns, plain).
+// ends with it (ownRuns, plain).  A legacy seat's session is on the default server, where no bar
+// counts it.
 func look(state, name string, now time.Time) (seen, bool) {
 	own := tmux.Sessions(tmux.Own())
-	found := seen{live: slices.Contains(own, tmux.Session{Name: name, Mark: "1"})}
+	_, seats := holdings(state)
+	server, held := seats[name]
+	found := seen{live: slices.Contains(own, tmux.Session{Name: name, Mark: "1"}) || held && server == tmux.Default, server: server}
 	foreign := !found.live && slices.ContainsFunc(own, func(session tmux.Session) bool { return session.Name == name })
 	mark, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	counted := found.live && len(own) > 1 && mark != nil && mark.Get("word") == "needs you"
+	counted := found.live && found.server == tmux.Own() && len(own) > 1 && mark != nil && mark.Get("word") == "needs you"
 	models, err := config.Models()
 	entries, unread := os.ReadDir(state)
 	ids, going, known := ownRuns(name)
-	if foreign || counted || marked(tmux.Default) || err != nil || unread != nil || !known || !plain(state, name, ids) {
+	if foreign || counted || err != nil || unread != nil || !known || !plain(state, name, ids) {
 		return seen{}, false
 	}
 	found.going = going
@@ -209,7 +213,7 @@ func (found seen) close(state, name string, now time.Time) (bool, error) {
 		if err := writeSeat(state, name, fields); err != nil || !found.live {
 			return err
 		}
-		if err := tmux.Kill(tmux.Own(), name); err != nil {
+		if err := tmux.Kill(found.server, name); err != nil {
 			return Refusal(fmt.Sprintf("could not stop the session %s: %v", name, err))
 		}
 		return nil

@@ -3,9 +3,7 @@ package seat
 import (
 	"path/filepath"
 
-	"agentkit/internal/agent"
 	"agentkit/internal/config"
-	"agentkit/internal/tmux"
 )
 
 // Reservations snapshots names once, so editing and drawing a draft need no disk or tmux read.
@@ -23,11 +21,6 @@ func (names Names) Reservations() (map[string]bool, bool) {
 		taken[name] = held
 	}
 	return taken, true
-}
-
-// An ordinary tmux session reserves its name but contributes no seat to the screen.
-func unrecorded(session tmux.Session) bool {
-	return session.Mark == "" && agent.Agentless(tmux.Own(), []string{session.Name})
 }
 
 func opensAt(model config.Model) bool {

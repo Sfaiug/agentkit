@@ -41,13 +41,16 @@ type Live struct {
 	Record, File *run.Object
 }
 
-// Seats is the name of every seat the home holds, false where any record is not a seat Go reads.
+// Seats is the name of every seat the home holds but a legacy one, another program's session that
+// the tick never cards, looks at or types into; false where any record is not a seat Go reads.
 // A home with no record holds none where tmux holds no seat.
 func Seats(now time.Time) ([]string, bool) {
 	home, known := seated(now)
 	var names []string
 	for _, each := range home.Seats {
-		names = append(names, each.Name)
+		if !each.legacy {
+			names = append(names, each.Name)
+		}
 	}
 	return names, known
 }
@@ -61,7 +64,7 @@ func Lives(now time.Time) ([]Live, bool) {
 	state := filepath.Join(config.Home(), "state")
 	var lives []Live
 	for _, each := range home.Seats {
-		if !each.live {
+		if !each.looked() { // no pass types into a seat nothing here started
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
@@ -80,8 +83,8 @@ func Lives(now time.Time) ([]Live, bool) {
 
 // seated is the home, false where any record or seat is one Go does not read.
 func seated(now time.Time) (Home, bool) {
-	if len(config.SeatFiles()) == 0 {
-		return Home{}, OnNoServer()
+	if len(config.SeatFiles()) == 0 && strangers() {
+		return Home{}, false
 	}
 	return TickHome(now)
 }
@@ -171,6 +174,9 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if !known {
 			carried, err = home.healthGone(state, name, now)
 			return err
+		}
+		if carried = !seat.looked(); carried { // a seat nothing here started
+			return nil
 		}
 		pane, exited := harnessScreen(name)
 		if exited {

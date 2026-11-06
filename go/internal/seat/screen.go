@@ -123,8 +123,11 @@ func harnessScreen(name string) (shown string, exited bool) {
 	return captureHarness(target)
 }
 
-// look is watch.look_at: one capture, classified and kept.
+// look is watch.look_at: one capture, classified and kept; none of a screen nobody reads.
 func (seat Seat) look(state string, now float64) (sight, error) {
+	if !seat.looked() {
+		return sight{}, nil
+	}
 	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.reader, pane, now)
 	return seat.keep(state, pane, exited, found, previous, now)
@@ -224,7 +227,7 @@ func lookedLive(state, name string, readers recordReaders) (Seat, error) {
 		if err := seat.askKeptBack(found); err != nil {
 			return err
 		}
-		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
+		attached, _ := tmux.Ask(seat.server(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
 		if err := seat.decided(state, found, seconds(now), attached != "" && attached != "0"); err != nil {
 			return err
 		}

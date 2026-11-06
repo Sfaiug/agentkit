@@ -28,10 +28,9 @@ var (
 // closeSideSessions is Python's orch.sweep_finished: a session a seat started for a build, a server
 // or a long test, which nothing else ever ends, has each pane's screen saved to ~/.agentkit/tmp and
 // is closed once every pane has been dead a day, or at once, panes running, once ak holds nothing
-// of that seat (forgotten).  A session ak opened, one a record names, Control and one no seat
-// tagged stay, and a listing that is not whole proves no pane dead.  Run on a home Looking reads,
-// where every session tmux holds that is a seat has a record.
-func closeSideSessions(now time.Time, log func(string)) {
+// of that seat (forgotten).  A session ak opened, one a record names, a seat of the home's, Control
+// and one no seat tagged stay, and a listing that is not whole proves no pane dead.
+func (home Home) closeSideSessions(now time.Time, log func(string)) {
 	out, err := tmux.Ask(tmux.Own(), "list-panes", "-a", "-F",
 		"#{session_id}\t#{session_name}\t#{"+tmux.Mark+"}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_time}\t.")
 	if err != nil {
@@ -53,7 +52,7 @@ func closeSideSessions(now time.Time, log func(string)) {
 	for _, sid := range order {
 		panes := grouped[sid]
 		name := panes[0][0]
-		if panes[0][1] == "1" || name == config.Control || named(name) ||
+		if panes[0][1] == "1" || name == config.Control || named(name) || home.holds(name) ||
 			slices.ContainsFunc(panes, func(pane []string) bool { return !paneID.MatchString(pane[2]) }) {
 			continue
 		}
@@ -65,7 +64,7 @@ func closeSideSessions(now time.Time, log func(string)) {
 		// tag whenever a process in a tagged pane started this server
 		tag, err := tmux.Ask(tmux.Own(), "show-environment", "-t", sid, ownerTag)
 		owner, tagged := strings.CutPrefix(tag, ownerTag+"=")
-		if err != nil || !tagged || owner == "" || !finished && !forgotten(owner) {
+		if err != nil || !tagged || owner == "" || !finished && !home.forgotten(owner) {
 			continue
 		}
 		path, err := saveScreens(name, owner, panes)
@@ -84,7 +83,7 @@ func closeSideSessions(now time.Time, log func(string)) {
 		condition := "#{&&:#{!=:#{" + tmux.Mark + "},1},#{==:#{" + ownerTag + "}/#{session_name}/" +
 			"#{W:#{P:#{pane_id}/#{pane_dead}/#{pane_dead_time};}}," + snapshot + "}}"
 		// a seat opened under the owner's name meanwhile takes its sessions back
-		if named(name) || !finished && !forgotten(owner) {
+		if named(name) || !finished && !home.forgotten(owner) {
 			continue
 		}
 		tmux.Ask(tmux.Own(), "show-environment", "-t", sid, ownerTag, ";", "if-shell", "-F", "-t", sid, condition, "kill-session -t '"+sid+"'")
@@ -100,18 +99,26 @@ func named(name string) bool {
 	return err == nil
 }
 
+// holds is whether a seat of the home goes by that name, on whichever server tmux holds it.
+func (home Home) holds(name string) bool {
+	return slices.ContainsFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
+}
+
 // forgotten is whether ak holds nothing of the seat a side session's tag names (orch.forgotten): no
-// record or rename's pointer and no session in tmux, under the tag or where its renames lead.
-// Asked afresh each time, as a seat may open under the name meanwhile; a rename chain it cannot
-// follow or a failed tmux probe is no proof the seat is gone.
-func forgotten(tag string) bool {
+// seat of the home, a legacy one included, no record or rename's pointer and no session on ak's
+// server, under the tag or where its renames lead.  Asked afresh each time, as a seat may open
+// under the name meanwhile; a rename chain it cannot follow or a failed tmux probe is no proof the
+// seat is gone.
+func (home Home) forgotten(tag string) bool {
 	current, _, err := config.ResolveSession(tag)
 	if err != nil {
 		return false
 	}
 	names := []string{tag, current}
 	listed, said := tmux.Names(tmux.Own())
-	return said && !slices.ContainsFunc(names, func(name string) bool { return named(name) || slices.Contains(listed, name) })
+	return said && !slices.ContainsFunc(names, func(name string) bool {
+		return home.holds(name) || named(name) || slices.Contains(listed, name)
+	})
 }
 
 // saveScreens writes the side session's panes' screens to a new file of ~/.agentkit/tmp, never

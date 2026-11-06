@@ -34,7 +34,7 @@ func Sweep(now time.Time, log func(string)) (bool, error) {
 	if !known || !read {
 		return false, nil
 	}
-	closeSideSessions(now, log)
+	home.closeSideSessions(now, log)
 	state := filepath.Join(config.Home(), "state")
 	for _, seat := range home.records {
 		went := seat.wentAt(state)
