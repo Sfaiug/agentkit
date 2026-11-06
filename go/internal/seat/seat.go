@@ -547,7 +547,7 @@ func (seat *Seat) published(state string, now time.Time, models map[string]confi
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	since := begun(previous, seat.Word, seat.since, now)
+	since := begun(previous, seat.Word, seat.reason, seat.since, now)
 	seat.since = since
 	wordFrom := seat.wordFrom
 	if wordFrom == nil {

@@ -129,14 +129,6 @@ func (found sight) wordFrom() []any {
 	return []any{found.state, found.rule, said}
 }
 
-// loginOut: a login its harness needs expired, whose remedy Go does not word yet.
-func loginOut(facts climbing) (*answer, error) {
-	if loggedOut(facts.state, facts.own) {
-		return nil, ErrUnread
-	}
-	return nil, nil
-}
-
 // aRunOfItsOwn: any run of the seat's own, at each of the rungs a run decides.
 func aRunOfItsOwn(facts climbing) (*answer, error) {
 	if facts.gone == nil {
@@ -152,14 +144,6 @@ func aRunOfItsOwn(facts climbing) (*answer, error) {
 func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
 func runsGoing(facts climbing) (*answer, error)   { return facts.besideUsage(waitedOn(goneRuns(facts))) }
 func liveCheck(facts climbing) (*answer, error)   { return waitedOn(runsAwaitingLive(facts)) }
-
-// everySeatsNews: the login no harness owns, or a worker token, dead.
-func everySeatsNews(facts climbing) (*answer, error) {
-	if newsOnEverySeat(facts.state) {
-		return nil, ErrUnread
-	}
-	return nil, nil
-}
 
 // onItsScreen: a question on its screen is the owner's even during a turn.
 func onItsScreen(facts climbing) (*answer, error) {

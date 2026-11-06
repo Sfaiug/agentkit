@@ -146,7 +146,7 @@ func TestALookThatWouldDoMoreWritesNothing(t *testing.T) {
 			write(t, state(home, "watch.json"), `{"gh_out": {"at": 1}}`)
 		},
 		"a worker token dead": func(t *testing.T, home string) {
-			write(t, state(home, "watch.json"), `{"worker_tokens": {"claude": {"expired": true}}}`)
+			write(t, state(home, "watch.json"), `{"worker_tokens": {"claude": {"harness": "claude", "remedy": "replace it", "expired": true, "at": 1}}}`)
 		},
 		"its harness logged out": func(t *testing.T, home string) {
 			write(t, state(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`)

@@ -102,40 +102,18 @@ func (seat Seat) closedReason(place int) string {
 	return reason
 }
 
-// newsOnEverySeat is whether the tick has a login no harness owns out, `gh`'s or a worker token,
-// which every seat's word says first (watch._session_state's rungs 1b and 1c); true where
-// watch.json cannot be read.
+// newsOnEverySeat is whether every seat's word is the tick's news of gh logged out or a worker token
+// dead (everySeatsNews), or hangs on what Go does not read of it, which a look does more about.
 func newsOnEverySeat(state string) bool {
-	saved, err := run.ReadJSON(filepath.Join(state, "watch.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return false
-	}
-	if saved == nil {
-		return true
-	}
-	tokens := saved.Dict("worker_tokens")
-	if saved.Truthy("gh_out") || tokens == nil && saved.Truthy("worker_tokens") {
-		return true
-	}
-	if tokens != nil {
-		for _, key := range tokens.Keys() {
-			if each := tokens.Dict(key); each != nil && each.Truthy("expired") {
-				return true
-			}
-		}
-	}
-	return false
+	said, err := everySeatsNews(climbing{state: state})
+	return said != nil || err != nil
 }
 
-// loggedOut is whether the tick found the seat's harness cannot log in, which comes before anything
-// else a seat says (watch._session_state's rung 1): Go does not word that login's remedy yet.
+// loggedOut is whether the tick found that harness's login refused (loginOut), or what Go does not
+// read of it, which a look at a seat whose harness exited does more about.
 func loggedOut(state, own string) bool {
-	saved, _ := run.ReadJSON(filepath.Join(state, "watch.json"))
-	if saved == nil || saved.Dict("auth_out") == nil {
-		return false
-	}
-	found := saved.Dict("auth_out").Dict(own)
-	return found != nil && run.Equal(found.Get("ok"), false)
+	said, err := loginOut(climbing{state: state, own: own})
+	return said != nil || err != nil
 }
 
 // failed is whether the last event the seat's harness reported ended a turn in failure, which
