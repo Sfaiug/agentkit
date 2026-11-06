@@ -71,10 +71,11 @@ func Keys(screen terminal.Screen, past bool) string {
 	if screen.ASCII() {
 		line = "arrows move   enter open   "
 	}
+	line += "n new   "
 	if past {
 		line += "p past   "
 	}
-	return line + "n new   c config   esc leave"
+	return line + "c config   esc leave"
 }
 
 // A row is a screen line and the seat it draws, "" for a line of no seat.

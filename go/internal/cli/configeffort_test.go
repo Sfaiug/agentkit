@@ -52,7 +52,7 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 	put(record, `{"orchestrator":"one","workers":["one"],"reviewers":["one"],"conversation":"second","custom":17,"efforts":{"one":{"effort":"high","review_effort":"medium"}}}`)
 	configBefore, _ := os.ReadFile(path)
 	for _, word := range []string{"low", "high", "low"} {
-		if note, known := stepConfigEffort(c, "acme", 0, 4); !known || note != "" {
+		if note, known := stepConfigEffort(c, "acme", 0, 4, -1); !known || note != "" {
 			t.Fatalf("step: %q, %v", note, known)
 		}
 		saved, err := run.ReadJSON(record)
@@ -64,7 +64,7 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 		}
 	}
 	before, _ := os.ReadFile(record)
-	if note, known := stepConfigEffort(c, "acme", 0, 3); known || note != "" {
+	if note, known := stepConfigEffort(c, "acme", 0, 3, -1); known || note != "" {
 		t.Fatalf("restart was not handed off: %q, %v", note, known)
 	}
 	if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
