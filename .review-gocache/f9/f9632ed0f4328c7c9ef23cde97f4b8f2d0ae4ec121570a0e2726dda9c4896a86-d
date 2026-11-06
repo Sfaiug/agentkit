@@ -1,0 +1,15 @@
+./announce.go
+./decision.go
+./finishedline.go
+./followupreport.go
+./followups.go
+./handback.go
+./inbox.go
+./job.go
+./look.go
+./orphan.go
+./owed.go
+./preexisting.go
+./printed.go
+./reap.go
+./tell.go

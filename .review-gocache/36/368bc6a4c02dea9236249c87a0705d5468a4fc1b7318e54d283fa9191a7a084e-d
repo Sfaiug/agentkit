@@ -1,0 +1,13 @@
+./absent.go
+./ask.go
+./capture.go
+./conf.go
+./dead.go
+./home.go
+./inputtty.go
+./lists.go
+./rename.go
+./spawn.go
+./switch.go
+./tmux.go
+./visit.go

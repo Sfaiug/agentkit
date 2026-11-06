@@ -1,0 +1,8 @@
+./checkout.go
+./contract.go
+./gitcall.go
+./integrated.go
+./keep.go
+./refresh.go
+./repository.go
+./rulesfetched.go

@@ -1,0 +1,4 @@
+./difflib.go
+./file.go
+./install.go
+./rulebook.go

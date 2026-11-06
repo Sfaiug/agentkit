@@ -1,0 +1,10 @@
+./agentkit.go
+./build.go
+./gates.go
+./harness.go
+./live.go
+./once.go
+./snapshot.go
+./swap_linux.go
+./update.go
+./versions.go

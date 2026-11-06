@@ -1,0 +1,14 @@
+./api.go
+./cksm.go
+./const.go
+./file.go
+./filename.go
+./lock.go
+./os_f2fs_linux.go
+./os_linux.go
+./os_ofd.go
+./os_unix.go
+./registry.go
+./shm.go
+./shm_ofd.go
+./vfs.go
