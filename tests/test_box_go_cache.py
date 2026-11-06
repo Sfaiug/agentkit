@@ -52,6 +52,24 @@ class GoCache(unittest.TestCase):
         self.assertEqual((result.returncode, result.stdout), (0, HELD), result.stderr)
         self.assertEqual(sorted(path.name for path in cache.iterdir()), ["held"])
 
+    def test_a_cache_named_with_any_bytes_is_named_as_it_is(self):
+        # A name may end in a space and hold bytes no text encoding reads.
+        cache = Path(os.fsdecode(os.fsencode(self.home / "go-build") + b"\xff "))
+        cache.mkdir()
+        (cache / "held").write_text(HELD)
+        goenv = self.home / "go-env"
+        goenv.write_bytes(b"GOCACHE=" + os.fsencode(cache) + b"\n")
+        result = self.checked(["sh", "-c", 'export HOME="$(mktemp -d)" && cat "$GOCACHE/held"'],
+                              {"GOENV": str(goenv)})
+        self.assertEqual((result.returncode, result.stdout), (0, HELD), result.stderr)
+
+    def test_a_cache_holding_a_writable_place_is_not_named(self):
+        # What a command wrote through GOCACHE there would stay in the account's cache.
+        place = self.home / ".cache/go-build/ab"
+        place.mkdir(parents=True)
+        result = self.checked(["sh", "-c", 'test -z "${GOCACHE+named}"'], places=(str(place),))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_a_hidden_cache_is_not_named(self):
         hidden = self.home / "hidden"
         (hidden / "go-build").mkdir(parents=True)

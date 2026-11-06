@@ -98,10 +98,11 @@ def _go_cache(env):
         # fetch; from /, no go.mod is read.
         named = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", "--dev", "/dev",
                                 "--", go, "env", "GOCACHE"], cwd="/", capture_output=True,
-                               text=True, timeout=10,
-                               env={**env, "GOTOOLCHAIN": "local"}).stdout.strip()
+                               timeout=10, env={**env, "GOTOOLCHAIN": "local"}).stdout
+        # A path is bytes, any of them its own: only Go's line end is not.
+        named = Path(os.fsdecode(named.removesuffix(b"\n")))
         # `off`, empty or relative: Go keeps no cache.
-        return Path(named).resolve(strict=True) if Path(named).is_absolute() else None
+        return named.resolve(strict=True) if named.is_absolute() else None
     except (OSError, RuntimeError, subprocess.SubprocessError):
         # No answer, or nothing where it points.
         return None
@@ -320,7 +321,8 @@ def _own(scratch, clean, cwd, writable, hidden):
 
 def _bind(own, writable, homes=()):
     """Mount HOME overlays, private and writable places, parents first so deeper mounts win;
-    and say whether a path is one a HOME overlay shows, its writes gone when the box ends."""
+    and say whether HOME overlays alone show a path and all beneath it, so that what is written
+    through it goes when the box ends."""
     from . import config, retention
     readonly = {config.REPO} if config.REPO.is_dir() else set()
     try:
@@ -352,8 +354,11 @@ def _bind(own, writable, homes=()):
                          str(binds[path]), str(path)])
 
     def overlaid(path):
-        # The deepest place mounted at or above path shows it.
-        return next((place for place in (path, *path.parents) if place in binds), None) in overlays
+        # The deepest place mounted at or above path shows it, and a place mounted beneath shows
+        # its own: a writable one there keeps what is written through path.
+        shown = next((place for place in (path, *path.parents) if place in binds), None)
+        return shown in overlays and all(place in overlays for place in binds
+                                         if path in place.parents)
     return args, overlaid
 
 
