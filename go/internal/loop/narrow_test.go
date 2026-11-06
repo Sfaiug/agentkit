@@ -57,8 +57,11 @@ func TestDeliveryRedRetainsItsFixReceipt(t *testing.T) {
 	}
 }
 
+// A member not ready (land.check_line) keeps its place and holds nothing behind it; a handoff
+// leaves the rest to Python's lander.
 func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
-	for _, kind := range []string{"conflict", "review-pr", "repair", "unready", "missing-review", "rules", "changed", "delivery-red"} {
+	passedOver := map[string]bool{"active": true, "missing-review": true, "delivery-red": true}
+	for _, kind := range []string{"conflict", "review-pr", "repair", "active", "missing-review", "rules", "changed", "delivery-red"} {
 		t.Run(kind, func(t *testing.T) {
 			_, repo := repoRig(t)
 			t.Setenv("AK_HOST_READINGS", `{"cpus":4,"load":0,"free_mb":16000}`)
@@ -95,8 +98,8 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 					switch kind {
 					case "review-pr", "repair":
 						record.Set(strings.ReplaceAll(kind, "-", "_"), true)
-					case "unready":
-						record.Set("state", "running")
+					case "active":
+						run.SetAll(record, "pid", os.Getpid(), "process_identity", identity(os.Getpid()))
 					case "missing-review":
 						record.Set("review", nil)
 					case "changed":
@@ -121,11 +124,16 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 			if !green(first.Dict("waiting_on")) {
 				t.Fatalf("ready member has no green verdict: %s", run.Encode(first))
 			}
-			for _, m := range members[1:] {
-				current, _ := run.Read(m.dir)
-				if !run.Equal(current.Dict("waiting_on"), m.record.Dict("waiting_on")) {
-					t.Fatalf("handoff changed the remainder: %s", run.Encode(current))
-				}
+			second, _ := run.Read(members[1].dir)
+			if !run.Equal(second.Dict("waiting_on"), members[1].record.Dict("waiting_on")) {
+				t.Fatalf("the member not ready or handed off was changed: %s", run.Encode(second))
+			}
+			third, _ := run.Read(members[2].dir)
+			if checked := !run.Equal(third.Dict("waiting_on"), members[2].record.Dict("waiting_on")); checked != passedOver[kind] {
+				t.Fatalf("checked behind %s: %v, %s", kind, checked, run.Encode(third))
+			}
+			if passedOver[kind] && !green(third.Dict("waiting_on")) {
+				t.Fatalf("the member behind one not ready has no green verdict: %s", run.Encode(third))
 			}
 		})
 	}
