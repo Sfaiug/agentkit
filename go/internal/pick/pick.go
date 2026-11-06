@@ -165,17 +165,21 @@ func (r *Rules) pair(room Room, executors []string) (executor, reviewer string, 
 
 // Same is whether two names are one model: the same name, or one model id on one provider.
 func (r *Rules) Same(first, second string) bool {
-	one, two := r.models[first], r.models[second]
-	return first == second || one.Provider == two.Provider && one.ID == two.ID
+	return r.tier(first, second) == 2
 }
 
-// tier is a pair's place in the owner's order of 21 Oct 2026: 0 a reviewer on another provider,
-// 1 another model on the executor's, 2 the executor's own model.
 func (r *Rules) tier(executor, reviewer string) int {
+	return Tier(r.models, executor, reviewer)
+}
+
+// Tier is a pair's place in the owner's order of 21 Oct 2026, of models as config.Models has them:
+// 0 a reviewer on another provider, 1 another model on the executor's, 2 the executor's own model.
+func Tier(models map[string]config.Model, executor, reviewer string) int {
+	one, two := models[executor], models[reviewer]
 	switch {
-	case r.Same(executor, reviewer):
+	case executor == reviewer || one.Provider == two.Provider && one.ID == two.ID:
 		return 2
-	case r.models[executor].Provider == r.models[reviewer].Provider:
+	case one.Provider == two.Provider:
 		return 1
 	}
 	return 0

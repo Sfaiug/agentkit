@@ -82,12 +82,12 @@ func (c *Conflicts) End(resolved bool) error {
 // Python's history_start and start_run leave them out.
 func recorded(runID string) bool {
 	record, _ := run.Read(filepath.Join(run.Runs(), runID))
-	return record != nil && !record.Truthy("notify_sink") && !sandbox(record.Str("repo"))
+	return record != nil && !unrecorded(record) && !sandbox(record.Str("repo"))
 }
 
 // Runless is whether no history of runs stands: no history.db, or one holding no run's row, as one
-// Go's conflict rows made does.  A run there joins no record Python keeps of others, so Go, which
-// writes no run's row yet, carries it as where none stands.
+// Go's conflict rows made does.  A run there joins no record Python keeps of others, so Go carries
+// it as where none stands.
 func Runless() bool {
 	if run.Historyless() {
 		return true

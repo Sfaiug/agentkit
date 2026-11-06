@@ -40,6 +40,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
@@ -326,12 +327,22 @@ func (l *loop) adopt() error {
 	})
 }
 
-// save changes the record as it stands, unless a stop landed or a signal came.
+// save changes the record as it stands, unless a stop landed or a signal came, and the history row
+// keeps what it keeps of it, as Python's LoopState.save.
 func (l *loop) save(change func(*run.Object)) error {
 	if l.ctx.Err() != nil {
 		return context.Cause(l.ctx)
 	}
-	return write(l.dir, change)
+	var before, after *run.Object
+	err := write(l.dir, func(record *run.Object) {
+		before = record.Copy()
+		change(record)
+		after = record
+	})
+	if err == nil {
+		history.Keep(before, after, l.say)
+	}
+	return err
 }
 
 // write is save for an ending, which no signal holds back: a stop that landed stands.
@@ -396,6 +407,10 @@ func (l *loop) work() error {
 	if err := l.open(); err != nil {
 		return err
 	}
+	// Python's history_start once more, once its loop has its workplace
+	if record, _ := run.Read(l.dir); record != nil {
+		history.Start(record, l.say)
+	}
 	if err := l.pick(); err != nil {
 		return err
 	}
@@ -434,6 +449,9 @@ func (l *loop) open() error {
 	if record == nil {
 		return cmp.Or(err, errors.New("run.json cannot be read"))
 	}
+	// Python's history_start, once the record says what the run is: before anything its workplace
+	// cuts can fail
+	history.Start(record, l.say)
 	files := task.Files(text)
 	l.place = placeOf(record)
 	l.reviewLines = numbersOf(record)
@@ -715,6 +733,7 @@ func settle(dir string) *run.Object {
 	if record == nil {
 		return nil
 	}
+	history.Finish(record, func(line string) { fmt.Fprintln(said, line) })
 	recordResult(dir, record)
 	host.EndMarked(dir, said)
 	if record.Truthy("merged") {

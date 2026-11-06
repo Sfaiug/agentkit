@@ -1,6 +1,7 @@
 // Package history opens ~/.agentkit/history.db, the record of past work Python ak keeps, through
 // Go's one SQLite.  It keeps the database in Python's schema, as Python's history._connect brings
-// an older one up to today's tables, and holds the scoreboard's queries.
+// an older one up to today's tables, holds the scoreboard's queries, and writes a run's row
+// (row.go).
 package history
 
 import (
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -406,7 +408,8 @@ func (db *DB) exec(statement string, args ...any) error {
 	return err
 }
 
-// rows are what the query answers, its ? bound to args in order.
+// rows are what the query answers, its ? bound to args in order, as Python's sqlite3 binds them:
+// a record's number as the int or float Python reads, true as 1, and what it cannot bind refused.
 func (db *DB) rows(query string, args ...any) ([]Row, error) {
 	stmt, _, err := db.conn.Prepare(query)
 	if err != nil {
@@ -414,13 +417,27 @@ func (db *DB) rows(query string, args ...any) ([]Row, error) {
 	}
 	defer stmt.Close()
 	for i, arg := range args {
+		if number, ok := arg.(run.Number); ok {
+			arg, _ = run.Num(number)
+			if whole, err := strconv.ParseInt(string(number), 10, 64); err == nil {
+				arg = whole
+			}
+		}
 		switch arg := arg.(type) {
+		case nil:
+			err = stmt.BindNull(i + 1)
+		case bool:
+			err = stmt.BindBool(i+1, arg)
 		case float64:
 			err = stmt.BindFloat(i+1, arg)
 		case int:
 			err = stmt.BindInt(i+1, arg)
+		case int64:
+			err = stmt.BindInt64(i+1, arg)
 		case string:
 			err = stmt.BindText(i+1, arg)
+		default:
+			err = fmt.Errorf("Error binding parameter %d: type '%T' is not supported", i+1, arg)
 		}
 		if err != nil {
 			return nil, err

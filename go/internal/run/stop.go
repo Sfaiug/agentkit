@@ -33,7 +33,8 @@ var settled = []string{"recovery_pending", "recovery_notified", "recovery_acknow
 var holds = []string{"pid", "scope", "job_id", "worktree", "branch", "review_pr",
 	"followups", "followup_plan", "followup_runs"}
 
-// Historyless is whether no history.db stands, whose rows of runs and ticks Go writes none of yet.
+// Historyless is whether no history.db stands, of which Go writes only a run's own row yet: not its
+// steps, checks, waits, tokens or reviews, nor the tick's rows.
 func Historyless() bool {
 	base := filepath.Join(config.Home(), "history.db")
 	return absent(base) && absent(base+"-wal")
