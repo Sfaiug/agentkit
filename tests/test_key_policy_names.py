@@ -1,9 +1,12 @@
 """Policy names, automatic host migration and inclusive orchestrator limits, through AK_BIN."""
 
 from concurrent.futures import ThreadPoolExecutor
+import fcntl
 import json
+import os
 from pathlib import Path
 import sys
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -66,18 +69,28 @@ class PolicyNames(unittest.TestCase):
                 self.assertEqual(path.read_text(), "review_rounds = 2\norchestrator_lines = 40\n" + extra)
 
     def test_simultaneous_first_commands_all_migrate_safely(self):
-        path = self.home.write(".agentkit/config.toml", "rounds = 2\nseat_lines = 40\n")
-        hooks = self.home.path / "hooks"
-        hooks.mkdir()
-        (hooks / "sitecustomize.py").write_text(
-            "from pathlib import Path\nimport time\nreplace = Path.replace\n"
-            "def paused(self, target):\n"
-            "    if self.name == 'config.tmp':\n        time.sleep(0.5)\n"
-            "    return replace(self, target)\nPath.replace = paused\n")
-        def help_command(_):
-            return self.home.ak("run", "--help", env={"PYTHONPATH": str(hooks)}, timeout=15)
+        old = "rounds = 2\nseat_lines = 40\n"
+        path = self.home.write(".agentkit/config.toml", old)
+        # The test holds the lock the rename takes, ~/.agentkit's, until all four wait on it, as
+        # Linux's /proc/locks lists them: a "->" row on that directory's inode for each.
+        held = os.open(path.parent, os.O_RDONLY)
+        fcntl.flock(held, fcntl.LOCK_EX)
+        inode = str(path.parent.stat().st_ino)
+        def waiting():
+            return sum("->" in row.split() and row.split()[-3].rsplit(":", 1)[1] == inode
+                       for row in Path("/proc/locks").read_text().splitlines())
         with ThreadPoolExecutor(max_workers=4) as pool:
-            results = list(pool.map(help_command, range(4)))
+            try:
+                started = [pool.submit(self.home.ak, "run", "--help", timeout=60) for _ in range(4)]
+                deadline = time.monotonic() + 30
+                while waiting() < 4 and not any(command.done() for command in started) \
+                        and time.monotonic() < deadline:
+                    time.sleep(0.05)
+                self.assertEqual(waiting(), 4)
+                self.assertEqual(path.read_text(), old)
+            finally:
+                os.close(held)
+            results = [command.result() for command in started]
         for done in results:
             self.assertEqual(done.code, 0, done.err)
         self.assertEqual(path.read_text(), "review_rounds = 2\norchestrator_lines = 40\n")

@@ -18,6 +18,7 @@ import (
 )
 
 func Main(args []string, out, errOut io.Writer) int {
+	config.MigratePolicy()
 	command, rest, help := "attach", args, ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, rest, help = args[0], args[1:], args[0]
