@@ -1599,6 +1599,19 @@ def conversation_of(name):
         return None
 
 
+def conversations_of(name):
+    """Each conversation that seat had, oldest first, as `conversation_of` gives its current
+    one, which comes last: before it, each one the seat left, as its record keeps them (`left`).
+    No conversation where `conversation_of` gives none."""
+    from . import orch
+    seat = conversation_of(name)
+    if seat is None:
+        return []
+    _, record, cwd, _ = seat
+    return [*((orch.harness_plugin(left["harness"]), record, cwd, left["conversation"])
+              for left in record.get("left", [])), seat]
+
+
 def owner_said(name, seat=None):
     """When the owner wrote each of their messages in that seat's conversation, oldest first:
     `user_messages` leaves ak's own lines out; none where it cannot be read."""

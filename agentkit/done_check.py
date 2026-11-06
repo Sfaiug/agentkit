@@ -3,9 +3,10 @@
 One model's one turn, as `ak worker` runs one, under the reviewer's scratch role, in a workspace
 of its own holding what the seat was asked and what it did: each message its owner wrote it
 (`notify.owner_messages`, ak's own lines left out) and each answer they gave on its question
-cards beside the question and choices it wrote (`answers`), oldest first, one file each; its
-whole conversation as its harness keeps it (`said`), so a "yes" reads against what the seat
-proposed and a question against the seat's reply; its plan; and each run it launched.  The model
+cards beside the question and choices it wrote (`answers`), oldest first, one file each, in
+each conversation it had, those it left included (`notify.conversations_of`); each of those
+conversations as its harness keeps it (`said`), so a "yes" reads against what the seat proposed
+and a question against the seat's reply; its plan; and each run it launched.  The model
 hands in each gap as a finding quoting the owner.  A quote that is not word for word in one
 message or answer of the owner's is no gap, whatever the model wrote in its workspace, the seat's
 replies, questions and choices included: that is decided here, not by the model.  Exit 1 with a
@@ -30,8 +31,9 @@ ASK = """\
 {workspace} holds the seat's record:
 - owner/: each message its owner wrote to it, and each answer they gave on its question
   cards after the question and choices it wrote, a file each, oldest first from 1.md.
-- conversation.md: its whole conversation as its harness keeps it, oldest first. The user side
-  holds ak's lines as well as the owner's: only owner/ says which words are the owner's.
+- conversation.md: each conversation it had as its harness keeps it, oldest first, a `---`
+  line where one was left for the next. The user side holds ak's lines as well as the owner's:
+  only owner/ says which words are the owner's.
 - plan.md: its plan, `- [x]` a line done and `- [ ]` one open.
 - runs/: each run it launched: its title, state, whether it merged, its PR and its task.
 
@@ -81,20 +83,21 @@ def setting(cfg):
 
 def owed(name, text):
     """Whether the seat, its plan `text` holding lines and every one done, owes a done check:
-    one is on, the owner wrote a message in its conversation, and no check that found no gap
-    read what they have said and what the plan holds now (`fingerprint`).  A record ak cannot
-    read holds the seat.  Their words are read only for such a plan; nothing here makes a check."""
+    one is on, the owner wrote a message in one of its conversations, and no check that found
+    no gap read what they have said and what the plan holds now (`fingerprint`).  A record ak
+    cannot read holds the seat.  Their words are read only for such a plan; nothing here makes a
+    check."""
     if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
         return False
     try:
         if not on(config.load()):
             return False
         with harness.strictly():
-            seat = notify.conversation_of(name)
-            messages = notify.owner_messages(name, seat)    # none with no conversation
-            if not messages:
+            seats = notify.conversations_of(name)
+            messages = [notify.owner_messages(name, seat) for seat in seats]
+            if not any(messages):       # none with no conversation
                 return False
-            owner = owner_words(seat, messages)
+            owner = owner_words(seats, messages)
         try:
             kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
         except FileNotFoundError:
@@ -104,12 +107,15 @@ def owed(name, text):
         return True
 
 
-def owner_words(seat, messages):
-    """The owner's words to the seat, oldest first, as (when, the words, the file showing them):
-    each of its `messages` and each answer they gave on its question cards."""
-    return sorted([*((message["at"], message["text"], message["text"]) for message in messages),
+def owner_words(seats, messages):
+    """The owner's words to the seat in its conversations `seats`, oldest first, as (when, the
+    words, the file showing them): each of their `messages`, a list for each, and each answer
+    they gave on its question cards."""
+    return sorted([*((message["at"], message["text"], message["text"])
+                     for said in messages for message in said),
                    *((answer["at"], answer["answer"], card(answer))
-                     for answer in seat[0].answers(*seat[1:]))], key=lambda said: said[0])
+                     for seat in seats for answer in seat[0].answers(*seat[1:]))],
+                  key=lambda said: said[0])
 
 
 def fingerprint(owner, text):
@@ -163,10 +169,10 @@ def gaps(cfg, name):
     read = None
     try:
         with harness.strictly():
-            seat = notify.conversation_of(name)
-            if seat is None or not seat[3]:
+            seats = notify.conversations_of(name)
+            if not seats or not seats[-1][3]:
                 raise config.Error(f"no seat named {name} whose conversation ak can read")
-            owner = owner_words(seat, notify.owner_messages(name, seat))
+            owner = owner_words(seats, [notify.owner_messages(name, seat) for seat in seats])
         said = [words for _, words, _ in owner]
         if not said:
             return []       # asked nothing, so nothing is missing
@@ -177,8 +183,9 @@ def gaps(cfg, name):
         with tempfile.TemporaryDirectory(prefix=f"check-{name}-", dir=config.TMP) as tmp:
             workspace, out = Path(tmp, "workspace"), Path(tmp, "out")
             files = {f"owner/{n}.md": shown for n, (_, _, shown) in enumerate(owner, 1)}
-            files["conversation.md"] = "".join(f"**{turn['who']}:** {turn['text']}\n\n"
-                                               for turn in seat[0].said(*seat[1:]) or [])
+            files["conversation.md"] = "---\n\n".join(
+                "".join(f"**{turn['who']}:** {turn['text']}\n\n"
+                        for turn in seat[0].said(*seat[1:]) or []) for seat in seats)
             files["plan.md"] = "".join(line + "\n" for line in planned)
             for directory, state in record.runs():
                 if transitions.launched_session(state) == name:

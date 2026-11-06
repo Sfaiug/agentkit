@@ -135,8 +135,9 @@ class SeatFollowsClear(Sandbox):
     def test_own_hook_moves_the_record_and_both_reopen_paths_resume_it(self):
         before = self.record()
         self.hook()
-        self.assertEqual(self.record(), {**before, "conversation": "after-clear",
-                                         "id_source": claude.SOURCE})
+        self.assertEqual(self.record(), {
+            **before, "conversation": "after-clear", "id_source": claude.SOURCE,
+            "left": [{"harness": "claude", "conversation": "before-clear"}]})
         self.assertTrue(orch.resumable(self.record()))
         self.assertEqual(orch.seat_conversation(orch.records()["lagoon"]), "after-clear")
         self.assert_resume("after-clear")
@@ -201,6 +202,8 @@ class SeatFollowsClear(Sandbox):
         self.title("next-clear", "quay")
         self.hook(conversation="next-clear")
         self.assertEqual(self.record()["conversation"], "next-clear")
+        self.assertEqual(self.record()["left"], [{"harness": "claude", "conversation": left}
+                                                 for left in ("before-clear", "after-clear")])
         self.assertEqual(self.record()["account"], "second")
         self.assertEqual(config.resolve_session("lagoon"), "quay")
         self.assertEqual(claude.session_title(self.record()), "quay")
