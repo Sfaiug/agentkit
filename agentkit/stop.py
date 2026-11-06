@@ -44,10 +44,10 @@ def owed(name):
     return owed_line(name) is not None
 
 
-def owed_line(name):
-    """The first line the seat owes, in its plan's own words, else the done check a plan with
-    every line done owes (`done_check.owed`); "" for a plan nothing can read, which proves
-    nothing done either; None where it owes nothing."""
+def owed_line(name, check=True):
+    """The first line the seat owes, in its plan's own words, else, where `check`, the done
+    check a plan with every line done owes (`done_check.owed`); "" for a plan nothing can read,
+    which proves nothing done either; None where it owes nothing."""
     from . import done_check, plan
     try:
         text = plan.lines(name)
@@ -57,7 +57,7 @@ def owed_line(name):
                 return found["what"] if found else plan.BOX.sub("", line, count=1).strip()
     except config.Error:
         return ""
-    return done_check.OWED if done_check.owed(name, text) else None
+    return done_check.OWED if check and done_check.owed(name, text) else None
 
 
 # The owner, 26 Oct 2026: work done straight on the live host involves no run, so a seat could
