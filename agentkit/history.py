@@ -258,7 +258,7 @@ READINGS_KEPT_FOR = 35 * 86400     # five weeks
 # written with the turn's sum in `runs`: `turn` its directory as `counted_turns` names it,
 # `account` the login it ran on, `model` NULL where it named none, `began` and `at` when it
 # started and ended.  Where its harness totals a session, each count is what that total exceeds
-# the rows the run already keeps for the session's turns, never below 0.
+# the rows the run keeps for the session's earlier turns, never below 0.
 TURN_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_usage (
     turn TEXT,
@@ -767,24 +767,38 @@ def _turn_usage(connection, plugin, run_id, out):
     turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them.
 
     It began when its `harness` receipt was written and ended at its last event.  What a
-    session's total exceeds is measured against the rows kept, not against what its turns report
-    now: a transcript coming home later changes a killed turn's report, never its rows."""
+    session's total exceeds is measured against the rows kept for the session's turns that began
+    before it, not against what they report now: a transcript coming home later changes a killed
+    turn's report, never its rows.  Turns are counted in whatever order their collectors find
+    them, so the session's next total kept already, which took this turn's share, gives it back.
+    """
     reported = plugin.turn_usage(out)
     if reported is None:
         return []
     session, totals, counts = reported
     began = _moment(out / "harness")
-    if totals and session is not None:
-        rows = connection.execute("SELECT turn, model, input, cache_write, cache_read, output "
-                                  "FROM turn_usage WHERE run_id=?", (run_id,)).fetchall()
-        held = {turn for turn in {row[0] for row in rows}
+    if session is not None and began is not None:
+        rows = connection.execute(
+            "SELECT turn, began, model, input, cache_write, cache_read, output FROM turn_usage "
+            "WHERE run_id=? AND began IS NOT NULL", (run_id,)).fetchall()
+        # each of the session's turns kept, and whether its counts total the session
+        ours = {turn: found[1] for turn in {row[0] for row in rows}
                 if (found := plugin.turn_usage(Path(turn))) and found[0] == session}
-        kept = {}
-        for turn, model, *numbers in rows:
-            if turn in held:
-                kept[model] = tuple(map(sum, zip(kept.get(model, (0,) * 4), numbers)))
-        counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, kept.get(
-            model, (0,) * len(numbers)))) for model, numbers in counts.items()}
+        if totals:
+            kept = {}
+            for turn, when, model, *numbers in rows:
+                if turn in ours and when < began:
+                    kept[model] = tuple(map(sum, zip(kept.get(model, (0,) * 4), numbers)))
+            counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, kept.get(
+                model, (0,) * len(numbers)))) for model, numbers in counts.items()}
+        later = min(((when, turn) for turn, when, *_ in rows if ours.get(turn) and when > began),
+                    default=None)
+        if later:
+            connection.executemany(
+                "UPDATE turn_usage SET input=MAX(0, input-?), cache_write=MAX(0, cache_write-?), "
+                "cache_read=MAX(0, cache_read-?), output=MAX(0, output-?) "
+                "WHERE turn=? AND model IS ?",
+                [(*numbers, later[1], model) for model, numbers in counts.items()])
     try:
         account = (out / "account").read_text()
     except OSError:
