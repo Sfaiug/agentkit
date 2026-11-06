@@ -60,6 +60,7 @@ var ladder = []rung{
 	alert,     // [5]
 	telling,
 	stillOwed,
+	runUndecided,
 	planFinished,
 }
 
@@ -300,7 +301,7 @@ func stillOwed(facts climbing) (*answer, error) {
 }
 
 // planFinished: a plan whose every line is proven is done, which ak reads and nobody declares; it
-// says what it did last.  A run of its own, which could still wait on the owner, aRunOfItsOwn reads.
+// says what it did last.  A run of its own still waiting on the owner, runUndecided reads.
 func planFinished(facts climbing) (*answer, error) {
 	finished, err := plan.Finished(facts.name)
 	if err != nil {
