@@ -20,8 +20,8 @@ import (
 // change close too; the last tab, frames and workers stay.  An answer that is no list of targets,
 // a tab that does not close and a record that cannot be written cost the tick nothing, and say is
 // told of what closed in one line.  False, nothing closed or written, leaves the pass to Python:
-// DevTools behind a proxy, or an answer or a record only Python's limits read, or one holding a
-// lone surrogate.
+// DevTools behind a proxy Go does not send through, or an answer or a record only Python's
+// limits read, or one holding a lone surrogate.
 func Tidy(now float64, say func(string)) bool {
 	body, err := ask("/json/list")
 	if err != nil {

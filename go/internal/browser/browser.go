@@ -65,9 +65,9 @@ var (
 // hostPort is websockify's listening address in its ExecStart, digits as Python's \d reads them.
 var hostPort = regexp.MustCompile(`^(\p{Nd}{1,3}(?:\.\p{Nd}{1,3}){3}|\[[0-9A-Fa-f:]+\]):(\p{Nd}{1,5})$`)
 
-// client reads DevTools as Python's urllib does: through no proxy (proxied leaves one to
-// Python), asking for no compression, within its 4 seconds.
-var client = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{DisableCompression: true}}
+// client reads DevTools as Python's urllib does: through the proxy it picks, asking for no
+// compression, within its 4 seconds.
+var client = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{DisableCompression: true, Proxy: through}}
 
 // Status prints `ak browser status` as Python's browser.status does and is its exit code: 1 when
 // a part that is installed is down.  Its lines wait until every reading is in, so a status left
@@ -293,6 +293,9 @@ func unitStates(env []string) ([]string, error) {
 // read is one of DevTools' JSON answers, as Python's browser.cdp reads it; an error says why it
 // cannot be read.
 func read(path string) (any, error) {
+	if proxy() != "" {
+		return nil, ErrPython // what Python says of a proxy that fails is urllib's own words
+	}
 	body, err := ask(path)
 	if err != nil {
 		return nil, err
@@ -305,11 +308,8 @@ func read(path string) (any, error) {
 }
 
 // ask is what DevTools answers at path, asked as Python's urllib asks it; an error says why it
-// did not answer.
+// did not answer, ErrPython where urllib's proxy is one Go does not send through.
 func ask(path string) ([]byte, error) {
-	if proxied() {
-		return nil, ErrPython
-	}
 	response, err := client.Get(CDP + path)
 	var failed *url.Error
 	if errors.As(err, &failed) {
@@ -324,9 +324,26 @@ func ask(path string) ([]byte, error) {
 	return io.ReadAll(response.Body)
 }
 
-// proxied is whether Python's urllib sends a request to DevTools through a proxy the
-// environment names, as its getproxies_environment and proxy_bypass_environment decide.
-func proxied() bool {
+// through is the proxy urllib sends DevTools a request through, as its _parse_proxy reads a bare
+// host:port or an http:// address; ErrPython for any other, or one carrying a login.
+func through(*http.Request) (*url.URL, error) {
+	address := proxy()
+	if address == "" {
+		return nil, nil
+	}
+	if !strings.Contains(address, "://") {
+		address = "http://" + address
+	}
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Host == "" {
+		return nil, ErrPython
+	}
+	return parsed, nil
+}
+
+// proxy is the address Python's urllib sends a request to DevTools through, as its
+// getproxies_environment and proxy_bypass_environment pick it from the environment, or "".
+func proxy() string {
 	proxies := map[string]string{}
 	for _, pair := range os.Environ() {
 		name, value, _ := strings.Cut(pair, "=")
@@ -345,8 +362,8 @@ func proxied() bool {
 			delete(proxies, strings.ToLower(scheme))
 		}
 	}
-	if proxies["http"] == "" || proxies["no"] == "*" {
-		return false
+	if proxies["no"] == "*" {
+		return ""
 	}
 	host := strings.ToLower(strings.TrimPrefix(CDP, "http://"))
 	hostOnly, _, _ := strings.Cut(host, ":")
@@ -354,11 +371,11 @@ func proxied() bool {
 		name = strings.ToLower(strings.TrimLeft(strings.TrimFunc(name, config.Space), "."))
 		for _, each := range []string{hostOnly, host} {
 			if each == name || strings.HasSuffix(each, "."+name) {
-				return false
+				return ""
 			}
 		}
 	}
-	return true
+	return proxies["http"]
 }
 
 // tabs is the reachable cdp line, the tabs line and each page's row, as Python's browser.status
