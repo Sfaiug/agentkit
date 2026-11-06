@@ -23,12 +23,12 @@ const cardWait = 2 * time.Second
 
 // AnswerCard is watch.hook_look for the owner's answer on the harness's own question card at
 // `at`, each reply the words of a question it answers and the choices it showed with them
-// (notify.answered): what the seat kept back that they answer is the owner's time and leaves it,
+// (notify.answered): what the seat kept back that they answer leaves it and is the owner's time,
 // and with no notice then, a needs you only the screen said is what was answered.  Only a hook in
 // the seat's own pane answers.  False, with nothing written, where that is Python's to record: a
 // notice standing, whose questions the card may answer; a question kept back for a turn since
-// ended, which it asks first; a conversation Go cannot name; a history or seat file that cannot
-// take what it writes; and a notice lock not had in time.
+// ended, which it asks first; a conversation Go cannot name; a seat file that cannot take what it
+// writes; and a notice lock not had in time.
 func AnswerCard(name string, at float64, replies [][]string) bool {
 	if _, own := inPane(name); !own {
 		return true
@@ -43,34 +43,54 @@ func AnswerCard(name string, at float64, replies [][]string) bool {
 	return held && !errors.Is(err, errPython)
 }
 
-// answerCard is AnswerCard under the seat's notice lock, which the caller holds: the owner's rows
-// and the questions they answer leaving the seat are one commit, so where either cannot be
-// written neither is, and the answer is Python's.
+// answerCard is AnswerCard under the seat's notice lock, which the caller holds, in Python's order:
+// the questions answered leave the seat's record first, so no answer heard again finds them, then
+// each row of the owner's time they took goes in on its own.
 func answerCard(name string, at float64, replies [][]string) error {
-	file, _ := run.ReadJSON(seatFile(name))
-	var kept []*run.Object
-	if file != nil {
-		kept = questionsKept(file.Dict("unasked"), nil)
-	}
-	answered, left := answeredKept(kept, replies, at)
 	conversation, known := conversationOf(name)
-	if notify.Standing(name) || firstOpen(left) > 0 || !known {
+	if !known || notify.Standing(name) {
 		return errPython
 	}
-	if len(answered) > 0 && history.OwnerTime(conversation, ownerTime(answered, at), func() error {
-		return dropKept(name, answered)
-	}) != nil {
-		return errPython
+	answered, err := answeredKept(name, replies, at)
+	if err != nil {
+		return err
 	}
+	ownerTime(conversation, answered, at)
 	if err := askKept(name, true); err != nil || notify.Standing(name) {
 		return err
 	}
 	return notify.ScreenAnswered(name, at)
 }
 
-// answeredKept is what watch.answered_kept finds of what the seat keeps back: the questions the
-// replies name, kept before `at`, every copy of each, and those left.
-func answeredKept(kept []*run.Object, replies [][]string, at float64) (answered, left []*run.Object) {
+// answeredKept is watch.answered_kept's write: the questions the replies name, kept before `at`,
+// every copy of each, leave what the seat keeps back in one write of its record, and any kept since
+// stay; the questions it dropped.  errPython, with nothing written, where the record cannot take
+// that write, or a question it leaves waits to be asked of a turn since ended.
+func answeredKept(name string, replies [][]string, at float64) ([]*run.Object, error) {
+	var answered []*run.Object
+	ended := false
+	path := seatFile(name)
+	err := put(path, strings.TrimSuffix(path, ".json")+".lock", run.Line, false, func(data *run.Object) bool {
+		var left []*run.Object
+		answered, left = answers(questionsKept(data.Dict("unasked"), nil), replies, at)
+		if ended = firstOpen(left) > 0; ended || len(answered) == 0 {
+			return false
+		}
+		var rest any
+		if len(left) > 0 {
+			rest = keptRecord(left)
+		}
+		return set([]field{{"unasked", rest}}, field{"session", name})(data)
+	})
+	if err != nil || ended {
+		return nil, errPython
+	}
+	return answered, nil
+}
+
+// answers is what watch.answered_kept finds of what the seat keeps back: the questions the replies
+// name, kept before `at`, every copy of each, and those left.
+func answers(kept []*run.Object, replies [][]string, at float64) (answered, left []*run.Object) {
 	latest := map[string]*run.Object{}
 	for _, question := range kept {
 		latest[notify.QuestionKey(question.Str("text"))] = question
@@ -91,9 +111,9 @@ func answeredKept(kept []*run.Object, replies [][]string, at float64) (answered,
 	return answered, left
 }
 
-// ownerTime is the owner's time those questions took, as history.owner_time writes it: each asked
-// when its words were first kept, then each answered at `at`.
-func ownerTime(answered []*run.Object, at float64) []history.Moment {
+// ownerTime is the owner's time those questions took, as watch.answered_kept writes it: each asked
+// when its words were first kept, then each answered at `at`, every row in a commit of its own.
+func ownerTime(conversation any, answered []*run.Object, at float64) {
 	asked, keys := map[string]float64{}, []string{}
 	for _, question := range answered {
 		key := notify.QuestionKey(question.Str("text"))
@@ -105,35 +125,12 @@ func ownerTime(answered []*run.Object, at float64) []history.Moment {
 		}
 		asked[key] = since
 	}
-	var moments []history.Moment
 	for _, key := range keys {
-		moments = append(moments, history.Moment{Kind: "asked", At: asked[key]})
+		history.OwnerTime("asked", asked[key], nil, conversation)
 	}
 	for _, key := range keys {
-		moments = append(moments, history.Moment{Kind: "answered", At: at, Waited: at - asked[key]})
+		history.OwnerTime("answered", at, at-asked[key], conversation)
 	}
-	return moments
-}
-
-// dropKept has those questions leave what the seat keeps back, and any kept since stay.
-func dropKept(name string, answered []*run.Object) error {
-	path := seatFile(name)
-	return put(path, strings.TrimSuffix(path, ".json")+".lock", run.Line, false, func(data *run.Object) bool {
-		var left []*run.Object
-		for _, question := range questionsKept(data.Dict("unasked"), nil) {
-			if !slices.ContainsFunc(answered, func(each *run.Object) bool {
-				return each.Str("text") == question.Str("text") && run.Equal(each.Get("id"), question.Get("id")) &&
-					run.Equal(each.Get("at"), question.Get("at"))
-			}) {
-				left = append(left, question)
-			}
-		}
-		var rest any
-		if len(left) > 0 {
-			rest = keptRecord(left)
-		}
-		return set([]field{{"unasked", rest}}, field{"session", name})(data)
-	})
 }
 
 // replied is notify.replied for a reply on the harness's card: it names that question by its
