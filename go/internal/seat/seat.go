@@ -106,6 +106,7 @@ type ran struct {
 	record *run.Object
 	quiet  float64
 	view   *runView
+	census []*run.Object // every run's record as the read that found this one found them
 }
 
 // Read is the home, and whether Go knows it: no record where milestone 6b found none, else

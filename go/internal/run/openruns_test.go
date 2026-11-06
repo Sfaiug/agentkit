@@ -73,4 +73,14 @@ func TestADamagedRecordIsRefusedOnEveryRead(t *testing.T) {
 		}
 		reader.due = time.Now()
 	}
+	// mended as a chmod would be: nothing `same` reads changes
+	if err := os.WriteFile(path, []byte("{  }"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, week, week); err != nil {
+		t.Fatal(err)
+	}
+	if _, known := reader.Read(); !known {
+		t.Fatal("a record that failed to read is not read again")
+	}
 }

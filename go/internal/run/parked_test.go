@@ -57,7 +57,12 @@ func TestASeatsParkedRunsAreItsOwnUndecidedOnes(t *testing.T) {
 					}
 				}
 			}
-			if parked, err := Parked("acme", now); parked != each.parked || (err != nil) != each.unread {
+			census, err := Records()
+			parked := false
+			if err == nil {
+				parked, err = Parked("acme", census, now)
+			}
+			if parked != each.parked || (err != nil) != each.unread {
 				t.Fatalf("parked %v, error %v", parked, err)
 			}
 		})

@@ -32,6 +32,10 @@ func menuRuns(now time.Time, reader *run.Reader) (map[string][]ran, map[string][
 	mine := map[string][]ran{}
 	projects := map[string][]ran{}
 	var records []*run.Object
+	census := make([]*run.Object, len(held))
+	for i, each := range held {
+		census[i] = each.Record
+	}
 	seats := run.Seats()
 	for _, each := range held {
 		if each.Smoke {
@@ -47,7 +51,7 @@ func menuRuns(now time.Time, reader *run.Reader) (map[string][]ran, map[string][
 		if !known {
 			return nil, nil, false
 		}
-		mine[name] = append(mine[name], ran{name: each.Name, record: record, quiet: silence(filepath.Join(run.Runs(), each.Name), record, now), view: &view})
+		mine[name] = append(mine[name], ran{name: each.Name, record: record, quiet: silence(filepath.Join(run.Runs(), each.Name), record, now), view: &view, census: census})
 	}
 	index := run.NewIndex(records)
 	for _, runs := range mine {

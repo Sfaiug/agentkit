@@ -127,12 +127,13 @@ func (reader *Reader) list(now time.Time) bool {
 }
 
 // look is one run as its run.json now stands: parsed again and its paths resolved once its stat
-// changed, and on a full read its paths resolved again.
+// changed or its last read failed, which a chmod can mend without changing what `same` reads, and
+// on a full read its paths resolved again.
 func (reader *Reader) look(name string, full bool, smoke func(*Object) bool, now time.Time) {
 	path := filepath.Join(Runs(), name, "run.json")
 	each := reader.held[name]
 	info, err := os.Stat(path)
-	if each.info == nil || err != nil || !same(each.info, info) {
+	if each.bad || each.info == nil || err != nil || !same(each.info, info) {
 		var record *Object
 		if err == nil {
 			record, err = ReadJSON(path)

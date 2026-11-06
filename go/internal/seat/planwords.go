@@ -97,7 +97,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	if err != nil {
 		return found, err
 	}
-	ends, _, err := RecordedEnding(seat.Name, record, false)
+	ends, _, err := RecordedEnding(seat.Name, nil, record, false)
 	if err != nil || ends {
 		return found, err
 	}
