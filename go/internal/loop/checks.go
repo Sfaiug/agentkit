@@ -86,6 +86,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*c
 		var outcome ran
 		var offset int64
 		var pieced *string // what a suite run in pieces hands on, its pieces' shares
+		var flaky, named []string
 		out := true
 		for {
 			if err := l.stopCheck(); err != nil {
@@ -112,11 +113,21 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*c
 			if outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, only); err != nil {
 				return false, "", nil, err
 			}
+			flaky = append(flaky, outcome.flaky...)
 			if outcome.code == 0 || first != nil || outcome.stopped != "" {
 				break
 			}
 			end, _ := progress.Seek(0, io.SeekEnd)
-			first = &[2]int64{offset, end}
+			first, named = &[2]int64{offset, end}, outcome.failed
+		}
+		if pieced == nil {
+			if first != nil && outcome.code == 0 {
+				flaky = append(flaky, named...) // the tests its first run named failed passed on its re-run
+			}
+			outcome.flaky, outcome.reds = flaky, outcome.confirmed
+			if !selection.pinned() && outcome.code > 0 {
+				outcome.reds = outcome.failed
+			}
 		}
 		if !out && first == nil {
 			// out of time: starting this one would give it a limit of its own
@@ -126,7 +137,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*c
 			break
 		}
 		ok = ok && outcome.code == 0 && outcome.stopped == ""
-		selection.observe(cmd, outcome, first != nil && outcome.code == 0)
+		selection.observe(cmd, outcome)
 		if outcome.stopped != "" {
 			marks = append(marks, nil)
 		} else {

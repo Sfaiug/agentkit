@@ -34,28 +34,30 @@ func TestPieceRetryConfirmsNamesOrReturnsToTheWholePiece(t *testing.T) {
 		name  string
 		alone ran
 		whole bool
-		flaky bool
+		flaky []string
 	}{
-		{"confirmed", ran{code: 1, testReport: testReport{confirmed: []string{"a"}}}, false, false},
-		{"unconfirmed", ran{code: 1}, true, false},
-		{"passed alone", ran{}, true, true},
+		{"confirmed", ran{code: 1, testReport: testReport{confirmed: []string{"a"}}}, false, nil},
+		{"unconfirmed", ran{code: 1}, true, nil},
+		{"passed alone", ran{}, true, []string{"a"}},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			at := &piece{ended: ran{code: 1, testReport: testReport{failed: []string{"a"}}}}
 			var calls [][]string
 			err := retryTests(at, func(at *piece, _ string, only []string) error {
 				calls = append(calls, only)
+				flaky := at.ended.flaky // each go keeps the names of those before it, as pieces' attempt does
 				at.ended = each.alone
 				if only == nil {
 					at.ended = ran{code: 1}
 				}
+				at.ended.flaky = append(flaky, at.ended.flaky...)
 				return nil
 			})
 			want := [][]string{{"a"}}
 			if each.whole {
 				want = append(want, nil)
 			}
-			if err != nil || !reflect.DeepEqual(calls, want) || at.ended.flaky != each.flaky {
+			if err != nil || !reflect.DeepEqual(calls, want) || !reflect.DeepEqual(at.ended.flaky, each.flaky) {
 				t.Fatalf("retries=%v, flaky=%v, err=%v", calls, at.ended.flaky, err)
 			}
 		})

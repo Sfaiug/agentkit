@@ -20,7 +20,7 @@ func TestNarrowingProbeLeavesTheOriginalTreeForItsWholeCheck(t *testing.T) {
 		t.Fatal(err)
 	}
 	stack := &narrowingStack{l: l, checkout: &landingCheckout{path: repo.wt}, head: head, tree: tree}
-	stack.dir = l.dir
+	stack.dir, stack.record = l.dir, run.Fields("waiting_on", run.Fields("line", ".merge-acme.lock"))
 	answer, err := stack.checkTests("touch probe-output", "", &checkSelection{shard: "1/1"})
 	if err != nil || answer == nil || !answer.Has("land") {
 		t.Fatalf("probe: %v, %v", answer, err)

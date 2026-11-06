@@ -22,8 +22,9 @@ import (
 var HoldSlots func(context.Context) (*os.File, error)
 
 // launchForSeat prepares a sibling run with the seat's lists now, not the ending's slot,
-// marker or ancestry. Its first record is queued, recoverable by Python's tick if cut off.
-// The returned start runs only after its plan line is written.
+// marker or ancestry, ahead of the queue where origin says `first`. Its first record is queued,
+// recoverable by Python's tick if cut off. The returned start runs only after its plan line is
+// written.
 func launchForSeat(dir string, state, origin *run.Object) (func() error, error) {
 	session, lists, err := config.ResolveSession(run.Seat(state))
 	if err != nil {
@@ -50,7 +51,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	if err != nil {
 		return nil, err
 	}
-	record := run.Capture(dir, path, nil, map[string]bool{"--bg": true}, bound, session)
+	record := run.Capture(dir, path, nil, map[string]bool{"--bg": true, "--first": origin.Truthy("first")}, bound, session)
 	for _, key := range origin.Keys() {
 		record.Set(key, origin.Get(key))
 	}

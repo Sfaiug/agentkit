@@ -3,9 +3,9 @@ package loop
 // Narrowing hides the search between a red stack and the last tree green on what failed.
 // Whole checks, evidence, publication and delivery remain the line's own steps. Named tests
 // passing alone are search evidence only: below each culprit a whole check must cover the
-// surviving prefix before the rebuilt suffix runs. Flakes, reds with suite helpers, PR reviews,
-// changed-file suites and target repairs stay with Python, as do integration or rules refusals on
-// a stack.
+// surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
+// (flakes.go). Reds with suite helpers, PR reviews, changed-file suites and target repairs stay
+// with Python, as do integration or rules refusals on a stack.
 
 import (
 	"context"
@@ -199,10 +199,14 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 		name = logs[0]
 	}
 	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, suite, selection)
-	if errors.Is(err, helper.ErrPython) {
+	if errors.Is(err, helper.ErrPython) || err == nil && !ok && !selection.pinned() && helper.May() {
+		// a whole check's red with suite helpers is Python's, as stack.go says
 		selection.handoff, err = true, nil
 	}
 	if err != nil || selection.handoff {
+		return nil, err
+	}
+	if err := s.flaked(selection, filepath.Join(s.dir, name)); err != nil {
 		return nil, err
 	}
 	if ok {
@@ -299,9 +303,6 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 		}
 		if err != nil || answer == nil {
 			return answer, err
-		}
-		if answer.Has("fix") && helper.May() {
-			return nil, nil // a landing red with suite helpers is Python's, as stack.go says
 		}
 		note(turn, func(trees, _, red *run.Object) {
 			entry := run.Fields("at", clock(), "leader", filepath.Base(stacks[index].dir), "checks", toList(checks), "code", codeValue(code))

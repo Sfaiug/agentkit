@@ -89,7 +89,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			where = "on " + at.there.Alias
 		}
 		l.say(fmt.Sprintf("AK_SHARD=%s %s", at.shard, where))
-		kills := host.OOMKills()
+		kills, flaky := host.OOMKills(), at.ended.flaky // the tests its earlier goes saw fail, then pass
 		if left := time.Until(deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
 		} else if at.there != nil {
@@ -103,7 +103,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			cancel(errSibling)
 			return err
 		}
-		at.ended.starved = starved(at.ended, kills)
+		at.ended.starved, at.ended.flaky = starved(at.ended, kills), append(flaky, at.ended.flaky...)
 		if at.ended.stopped != "" && at.ended.stopped != "sibling" {
 			cancel(errSibling)
 		}
@@ -209,7 +209,7 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 		if at.ended.starved {
 			status = "ran out of memory"
 		}
-		ended.flaky = ended.flaky || at.ended.flaky || at.failed != nil && at.ended.code == 0
+		ended.flaky, ended.reds = append(ended.flaky, at.ended.flaky...), append(ended.reds, at.ended.confirmed...)
 		if at.ended.stopped != "" {
 			status = "killed at the limit"
 			if at.ended.stopped != "sibling" && ended.stopped == "" {
