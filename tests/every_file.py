@@ -27,7 +27,7 @@ A file may name its failing parts, one per line, in the file FAILED_PARTS names 
 as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
 gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
 lists.  It may give the seconds of those that passed, as the record holds them, in the file
-PART_TIMES names: each is then printed as `<file>::<part>`'s, the run's own being no part's.
+PART_TIMES names: each is printed as `<file>::<part>`'s whatever the rest did, the run's no part's.
 The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
 whole run too; AK_ONLY set, they are checked only where it lists them.
 
@@ -173,13 +173,16 @@ def ids(name, parts):
     return [f"{name}::{part}" for part in parts] or [str(name)]
 
 
-def pass_line(name, parts, took, timed):
-    """The lines a run of the file `name` for `parts` that passed in `took` seconds prints: each
-    part's seconds as `timed` holds them, a part it lacks by its ID alone."""
-    if not parts:
-        return suite_times.passed(name, took)
-    return "\n".join(suite_times.passed(test, timed[part]) if part in timed else f"PASS  {test}"
-                     for part, test in zip(parts, ids(name, parts)))
+def pass_line(name, parts, took):
+    # A part's seconds are not the file's: the shares are cut by whole files' times.
+    return f"PASS  {' '.join(ids(name, parts))}" if parts else suite_times.passed(name, took)
+
+
+def timed_lines(name, parts, timed):
+    """The lines a run of the file `name` for `parts` prints, pass or fail, of those it timed
+    (`timed`), and so passed: their seconds cut the next suite as soon as they are measured."""
+    return "".join(f"{suite_times.passed(test, timed[part])}\n"
+                   for part, test in zip(parts, ids(name, parts)) if part in timed)
 
 
 def asked_parts(only, name):
@@ -323,8 +326,9 @@ def main(root, others=None):
                 (file, parts, _), named, timed = running.pop(done)
                 name = file.relative_to(root)
                 code, out, took = done.result()
+                print(timed_lines(name, parts, timed), end="", flush=True)
                 if code == 0 and cases_run(out) > 0:
-                    print(pass_line(name, parts, took, timed), flush=True)
+                    print(pass_line(name, parts, took), flush=True)
                 else:
                     again.append((name, named or parts, out))
             if run is not None:
@@ -352,9 +356,10 @@ def main(root, others=None):
             still, timed = [], {}
             code, rerun, took = run_file(root, root / name, env, parts=named, failed=still,
                                          timed=timed)
+            print(timed_lines(name, named, timed), end="")
             if code == 0 and cases_run(rerun) > 0:
                 flaky.append(ids(name, named))
-                print(pass_line(name, named, took, timed))
+                print(pass_line(name, named, took))
                 print(f"flaky: {' '.join(flaky[-1])} failed, then passed on its re-run")
             else:
                 failed.append(ids(name, still or named))
