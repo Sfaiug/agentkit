@@ -189,19 +189,10 @@ func SplitOnce(cmd string) (string, bool) {
 	return cmd, false
 }
 
-// FrontValue is a key's value in AGENTS.md front matter, or "".
+// FrontValue is a key's value in AGENTS.md front matter, or "" (FrontDeclared).
 func FrontValue(text, key string) string {
-	match := agentsRe.FindStringSubmatch(text)
-	if match == nil {
-		return ""
-	}
-	for _, line := range strings.Split(match[1], "\n") {
-		name, value, found := strings.Cut(strings.TrimSpace(line), ":")
-		if found && strings.TrimSpace(name) == key && strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
+	value, _ := FrontDeclared(text, key)
+	return value
 }
 
 // Text is text as Python reads a text file or a command's output: every line ending a

@@ -377,7 +377,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	suite := cmp.Or(gitcall.DeclaredAt(r.wt, r.baseSHA, "tests"), gitcall.Declared(r.wt, "tests"))
+	suite := gitcall.Suite(r.wt, r.baseSHA)
 	every, once := task.Group(task.RoundCommands(cmds, suite, true))
 	if len(once) == 0 {
 		return true, nil
