@@ -66,6 +66,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		painter.Write(frame.Lines, screen)
 		key := keyboard.ReadKey()
 		view.Note = ""
+		level := -1
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return true
@@ -100,6 +101,9 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 						key.Name = "enter"
 					} else if column >= 0 {
 						key.Name = "space"
+					}
+					if column >= 3 {
+						level = frame.Level(mouse, c.Effort(c.Names[row], column-3))
 					}
 				}
 			}
@@ -149,7 +153,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		}
 		if view.Column >= 3 {
 			var known bool
-			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column); !known {
+			if view.Note, known = stepConfigEffort(c, session, view.Row, view.Column, level); !known {
 				return false
 			}
 			continue

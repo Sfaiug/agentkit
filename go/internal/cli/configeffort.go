@@ -42,7 +42,9 @@ func (catalogs *configCatalog) read(c *matrix.Configuration) error {
 	return nil
 }
 
-func stepConfigEffort(c *matrix.Configuration, session string, row, column int) (string, bool) {
+// stepConfigEffort steps the effort in column one level on, from the highest round to the lowest,
+// or, `to` 0 or more, takes its to-th level, a level past its last changing nothing.
+func stepConfigEffort(c *matrix.Configuration, session string, row, column, to int) (string, bool) {
 	if session == "" || column == 3 {
 		return "", false
 	}
@@ -51,10 +53,13 @@ func stepConfigEffort(c *matrix.Configuration, session string, row, column int) 
 	if len(levels) == 0 {
 		return "", true
 	}
-	word := levels[(slices.Index(levels, current)+1)%len(levels)]
-	if word == current {
+	if to < 0 {
+		to = (slices.Index(levels, current) + 1) % len(levels)
+	}
+	if to >= len(levels) || levels[to] == current {
 		return "", true
 	}
+	word := levels[to]
 	saved, err := seat.SaveEffort(session, name, config.RoleEfforts[role], word)
 	if err != nil {
 		return err.Error(), true
