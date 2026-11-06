@@ -90,7 +90,9 @@ def tested(part, **env):
     # hung one and names it.
     done = run("go", "test", "-json", "-timeout", "0",
                *(("-run", f"^{test[2]}$", test[1]) if test else (part,)), **env)
-    events = [json.loads(line) for line in done.stdout.splitlines()]
+    # An event a line, split at LF alone: Go writes U+0085 into an Output string unescaped, a
+    # line break to splitlines().
+    events = [json.loads(line) for line in done.stdout.split("\n") if line]
     # A run whose events name nothing that failed, as one go itself refused, fails as `part`.
     names = failing(events) or ([part] if done.returncode else [])
     if test and not names and part not in map(about, events):

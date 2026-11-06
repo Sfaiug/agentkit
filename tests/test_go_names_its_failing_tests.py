@@ -73,7 +73,9 @@ WHOLE = r'''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixAp
 {"ImportPath":"agentkit/internal/widget [agentkit/internal/widget.test]","Action":"build-fail"}
 {"Action":"fail","Package":"agentkit/internal/widget","FailedBuild":"agentkit/internal/widget [agentkit/internal/widget.test]"}
 '''
-PASSES = r'''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
+# A passing test logs U+0085, which Go leaves unescaped inside its event's line.
+PASSES = '''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
+{"Action":"output","Package":"agentkit/internal/acme","Test":"TestFixApi","Output":"fix-api\u0085logged\\n"}
 {"Action":"pass","Package":"agentkit/internal/acme","Test":"TestFixApi"}
 {"Action":"pass","Package":"agentkit/internal/acme"}
 {"Action":"pass","Package":"agentkit/internal/widget"}
