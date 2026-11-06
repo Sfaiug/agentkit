@@ -36,15 +36,3 @@ func TestAnAuditKeepsItsWeeksReportWhenItsLaunchIsNotCarried(t *testing.T) {
 		}
 	}
 }
-
-func TestAnAuditLeavesAnEarlierPartialDeliveryAlone(t *testing.T) {
-	ak, _ := idleHome(t, answers)
-	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=true\n")
-	path := filepath.Join(ak, "state", "audit.json")
-	before := `{"week":"2026-W44","typed":{"line":"earlier work"},"delivered":null}`
-	put(t, path, before)
-	tick := &ticking{clock: time.Now, log: newLog(io.Discard, io.Discard)}
-	if err := tick.audit(); !errors.Is(err, errLeft) || read(t, path) != before {
-		t.Fatal(err)
-	}
-}

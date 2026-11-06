@@ -15,15 +15,19 @@ import (
 // AuditReport gives the tick a report and its loss from the CLI's one scoreboard reader.
 type AuditReport func(time.Time) (lines []string, loss string)
 
-// audit carries a weekly report with no history database. Existing audit deliveries remain
-// Python's; a fresh seat uses the same launch as an owner's, and a gone one comes back as its
-// number opens it.
+// audit carries a weekly report with no history database and its line into the audit seat
+// (tellAudit). A new week's is written once no earlier line waits in the composer for its Enter;
+// a stall's that waits there is Python's. A fresh seat uses the same launch as an owner's.
 func (t *ticking) audit() error {
 	roles, on, err := config.Audit()
 	if err != nil || !on {
 		return err
 	}
 	if !run.Historyless() {
+		return errLeft
+	}
+	// a stall's line in the composer is sent before the week's is written to go after it
+	if stall, _ := run.ReadJSON(statePath("stuck.json")); stall != nil && stall.Truthy("typed") && !stall.Truthy("delivered") {
 		return errLeft
 	}
 	file := statePath("audit.json")
@@ -34,14 +38,11 @@ func (t *ticking) audit() error {
 	if state == nil {
 		state = run.NewObject()
 	}
-	if state.Truthy("typed") && !state.Truthy("delivered") {
-		return errLeft
-	}
 	now := t.clock().UTC()
 	year, week := now.ISOWeek()
 	stamp := fmt.Sprintf("%d-W%02d", year, week)
 	write := func() error { return replaceFile(file, run.Encode(state)+"\n") }
-	if state.Str("week") != stamp {
+	if state.Str("week") != stamp && (state.Truthy("delivered") || !state.Truthy("typed")) {
 		if t.report == nil {
 			return errLeft
 		}
@@ -70,6 +71,9 @@ func (t *ticking) audit() error {
 	if err != nil {
 		return err
 	}
+	if leftTyped(name, state) {
+		return errLeft
+	}
 	mark, _ := run.ReadJSON(statePath("seat-" + name + ".json"))
 	if mark != nil && mark.Truthy("closed_by_owner") {
 		if !state.Truthy("held") {
@@ -89,5 +93,5 @@ func (t *ticking) audit() error {
 		}
 		return errLeft
 	}
-	return reopenAudit(name)
+	return t.tellAudit(name, state, write)
 }
