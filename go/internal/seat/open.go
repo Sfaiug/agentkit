@@ -3,7 +3,6 @@ package seat
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -21,14 +20,13 @@ import (
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
-	usages "agentkit/internal/usage"
 )
 
 // Open is the shared new-seat launch used by the menu and ak orch, on the login OpeningAccount
 // picks. Its rulebook precedes the adapter's command, and its record uses Python's locks and
 // format. Models are the seat's at the efforts it runs them, which its record holds and its
-// orchestrator launches at. False leaves unsupported harness launches, a usage reading Python's
-// and leftover seat files to Python.
+// orchestrator launches at. False, before anything is read, leaves a seat Go does not carry to
+// Python (Carried).
 func Open(name, orchestrator string, models map[string]config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	repo := Project(cwd)
 	if repo != "" {
@@ -38,18 +36,19 @@ func Open(name, orchestrator string, models map[string]config.Model, workers []s
 }
 
 func open(name, orchestrator string, models map[string]config.Model, workers []string, cwd string, unnamed bool, repo string, remember bool, reviews ...[]string) (bool, error) {
-	state := filepath.Join(config.Home(), "state")
 	model := models[orchestrator]
-	titled, known := harness.Opens(model.Harness)
-	bound, unbound := config.Bind()
-	configured, err := config.Models()
-	if !known || !unclaimed(state, name) || unbound != nil || err != nil {
+	if !Carried(name, model, false) {
 		return false, nil
 	}
+	state := filepath.Join(config.Home(), "state")
+	titled, _ := harness.Opens(model.Harness)
+	bound, err := config.Bind()
+	configured, unread := config.Models()
+	if err = cmp.Or(err, unread); err != nil {
+		return true, err
+	}
 	account, err := OpeningAccount(orchestrator, model)
-	if errors.Is(err, usages.ErrPython) {
-		return false, nil
-	} else if err != nil {
+	if err != nil {
 		return true, err
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
@@ -67,14 +66,11 @@ func open(name, orchestrator string, models map[string]config.Model, workers []s
 		return true, fmt.Errorf("no rulebook for %s: %w", name, err)
 	}
 	created := seconds(time.Now())
-	cmd, conversation, err := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
+	cmd, conversation, err := adapters.Fresh(orchestrator, model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
 		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)), cwd)
-	if cmd == nil {
+	if err != nil {
 		os.Remove(rulebook)
-		if err != nil {
-			return true, fmt.Errorf("%s's %w", orchestrator, err)
-		}
-		return false, nil
+		return true, err
 	}
 	fields := []field{{"orchestrator", orchestrator}, {"workers", modelList(workers)}}
 	var reviewers []string

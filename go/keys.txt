@@ -80,6 +80,7 @@ test_key_config_screen_edits
 test_key_config_scope
 test_key_conflict_rows
 test_key_conflict_wait
+test_key_credits_usage
 test_key_dash_led_attach
 test_key_dead_loop
 test_key_dead_seat_retired
