@@ -178,9 +178,9 @@ func (l *loop) proved(cwd, command, path, revision string, asked float64) (int, 
 	defer progress.Close()
 	fmt.Fprintf(progress, "$ %s (on %s)\n", command, label)
 	start, _ := progress.Seek(0, io.SeekEnd)
-	finish := history.Check(l.rows("replay", revision), command, asked, "", l.say)
+	row := history.Check(l.rows("replay", revision), command, asked, "", l.say)
 	outcome, err := l.boxed(cwd, command, "", l.ceiling, progress, path, true)
-	finish(exitOf(outcome, err))
+	row.End(exitOf(outcome, err))
 	if err != nil {
 		return 0, "", false, err
 	}

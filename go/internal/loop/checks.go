@@ -117,9 +117,9 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			}
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 			shard, only := selection.request()
-			finish := history.Check(rows, cmd, asked, "", l.say)
+			row := history.Check(rows, cmd, asked, "", l.say)
 			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, only)
-			finish(exitOf(outcome, err))
+			row.End(exitOf(outcome, err))
 			asked = clock()
 			if err != nil {
 				return false, "", nil, err

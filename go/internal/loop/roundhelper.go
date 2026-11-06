@@ -67,9 +67,9 @@ func (l *loop) onePiece(cwd string, cmds []string, path string, rows *history.Ch
 		return false, "", "", err
 	}
 	defer progress.Close()
-	finish := history.Check(rows, strings.Join(cmds, "\n"), asked, away.Alias, l.say)
+	row := history.Check(rows, strings.Join(cmds, "\n"), asked, away.Alias, l.say)
 	code, stopped, err := l.onHelper(away, "1/1", l.ceiling, progress)
-	finish(exitOf(ran{code: code, stopped: stopped}, err))
+	row.End(exitOf(ran{code: code, stopped: stopped}, err))
 	if err == nil {
 		err = l.stopCheck()
 	}

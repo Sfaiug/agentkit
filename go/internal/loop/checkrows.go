@@ -15,9 +15,9 @@ func (l *loop) rows(kind, tree string) *history.Checked {
 // rulesOn is the round's rules on tree, Python's files_scope and rules_check under one row: each
 // check's failure, "" for none, the row's exit 1 where any failed.
 func (l *loop) rulesOn(tree string, checks ...func() (string, error)) ([]string, error) {
-	finish := history.Check(l.rows("rules", tree), "files_scope, rules_check", clock(), "", l.say)
+	row := history.Check(l.rows("rules", tree), "files_scope, rules_check", clock(), "", l.say)
 	var exit *int
-	defer func() { finish(exit) }()
+	defer func() { row.End(exit) }()
 	failures := make([]string, len(checks))
 	for i, check := range checks {
 		var err error

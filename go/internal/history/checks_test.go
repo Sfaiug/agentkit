@@ -12,8 +12,8 @@ import (
 
 // A check's row is written as it starts, its exit and end once it ends, nil for one that never
 // returned; a command that, or a list holding it, already ran on the tree is a re-run, and the
-// tests a suite named stay under its check.  A suite's run, and a run with no row, keep none, as
-// does a check handed on before what it ran was kept.
+// tests a suite named stay under its check.  A suite's run, and a run with no row, keep none, and
+// a check handed on is dropped.
 func TestEachCheckLeavesItsRow(t *testing.T) {
 	home := home(t)
 	for id, text := range map[string]string{"20261105-1200-fix-api": `{"run_id": "20261105-1200-fix-api"}`,
@@ -31,16 +31,18 @@ func TestEachCheckLeavesItsRow(t *testing.T) {
 	Start(record(t, `{"run_id": "20261105-1200-fix-api", "state": "running"}`), log)
 	head := &Checked{Run: "20261105-1200-fix-api", Round: 1, Kind: "done-when", Tree: "abc"}
 	zero, one := 0, 1
-	Check(head, "test -f a\ntrue", 1.0, "acme-mac", log)(&one)
-	Check(head, "true", 2.0, "", log)(&zero)
+	Check(head, "test -f a\ntrue", 1.0, "acme-mac", log).End(&one)
+	Check(head, "true", 2.0, "", log).End(&zero)
 	hung := Check(head, "sleep 300", 3.0, "", log)
-	Check(&Checked{Run: "20261105-1200-fix-api", Round: 1, Kind: "base-proof", Tree: "def"}, "true", 4.0, "", log)(&zero)
-	Check(&Checked{Run: "20261105-1200-fix-api", Round: 1, Kind: "done-when"}, "true", 5.0, "", log)(nil)
-	Check(&Checked{Run: "20261105-1300-fix-ui", Round: 1, Kind: "done-when"}, "true", 6.0, "", log)(&zero)
-	Check(&Checked{Run: "20261105-1400-fix-db", Round: 1, Kind: "done-when"}, "true", 7.0, "", log)(&zero)
-	Check(nil, "true", 8.0, "", log)(&zero)
-	Ran(head, "AK_SHARD=1/2 bash suite.sh", 9.0, "acme-mac", log)
-	Ran(head, "AK_SHARD=2/2 bash suite.sh", 10.0, "acme-mac", log)(&one)
+	Check(&Checked{Run: "20261105-1200-fix-api", Round: 1, Kind: "base-proof", Tree: "def"}, "true", 4.0, "", log).End(&zero)
+	Check(&Checked{Run: "20261105-1200-fix-api", Round: 1, Kind: "done-when"}, "true", 5.0, "", log).End(nil)
+	Check(&Checked{Run: "20261105-1300-fix-ui", Round: 1, Kind: "done-when"}, "true", 6.0, "", log).End(&zero)
+	Check(&Checked{Run: "20261105-1400-fix-db", Round: 1, Kind: "done-when"}, "true", 7.0, "", log).End(&zero)
+	Check(nil, "true", 8.0, "", log).End(&zero)
+	handed := Check(head, "AK_SHARD=1/2 bash suite.sh", 9.0, "acme-mac", log)
+	handed.End(nil)
+	handed.Drop()
+	Check(head, "AK_SHARD=2/2 bash suite.sh", 10.0, "acme-mac", log).End(&one)
 	TestReds(head, []string{"tests/test_api.py", "tests/test_api.py"}, []string{"tests/test_web.py"}, log)
 	db, err := Open()
 	if err != nil {
@@ -73,7 +75,7 @@ func TestEachCheckLeavesItsRow(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("named %v", got)
 	}
-	hung(nil)
+	hung.End(nil)
 }
 
 // A check whose start did not commit names no row, so how it ends never lands on the check that
@@ -100,8 +102,8 @@ func TestARolledBackStartEndsNoOtherCheck(t *testing.T) {
 	reject.Store(true)
 	first := Check(head, "exit 1", 1.0, "", log)
 	zero, one := 0, 1
-	Check(head, "true", 2.0, "", log)(&zero)
-	first(&one)
+	Check(head, "true", 2.0, "", log).End(&zero)
+	first.End(&one)
 	db, err := Open()
 	if err != nil {
 		t.Fatal(err)

@@ -43,8 +43,9 @@ type piece struct {
 // command that needs this host, runs here after the others, which decides (there).  A red piece
 // here goes once more alone after the others, which decides it, a pass then said by a `flaky:`
 // record unless the kernel killed it for memory (starved.go); one stopped at its limit stops the
-// rest.  Each go leaves its row in history under rows where it ran, the goes on the helper once
-// they all ended Go's.  The suite ends as its first red piece did, and hands on what handedOn says.
+// rest.  Each go leaves its row in history under rows where it ran, those on the helper dropped
+// where it hands the suite on.  The suite ends as its first red piece did, and hands on what
+// handedOn says.
 //
 // What Python does beyond that is not Go's yet and differs here: a heavy-suite turn, and the
 // suite's pace and cost measured for its next run.
@@ -69,7 +70,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 	alone := *l
 	alone.ctx = ctx // a piece stopped at its limit ends its siblings, never the run
 	var held sync.Mutex
-	var kept []func() // the rows of the goes there, kept once the suite is known Go's
+	var onHelper []*history.Checking // the rows of its goes there, dropped where the suite is handed on
 	all := make([]*piece, count)
 	defer func() {
 		for _, each := range all {
@@ -98,19 +99,20 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		if left := time.Until(deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
 		} else {
-			command := "AK_SHARD=" + at.shard + " " + cmd
+			place := ""
 			if at.there != nil {
-				keep := history.Ran(rows, command, at.asked, at.there.Alias, l.say)
-				at.ended, err = alone.there(at.there, at.shard, left, out)
-				exit := exitOf(at.ended, err)
-				held.Lock()
-				kept = append(kept, func() { keep(exit) })
-				held.Unlock()
-			} else {
-				finish := history.Check(rows, command, at.asked, "", l.say)
-				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, only)
-				finish(exitOf(at.ended, err))
+				place = at.there.Alias
 			}
+			row := history.Check(rows, "AK_SHARD="+at.shard+" "+cmd, at.asked, place, l.say)
+			if at.there != nil {
+				held.Lock()
+				onHelper = append(onHelper, row)
+				held.Unlock()
+				at.ended, err = alone.there(at.there, at.shard, left, out)
+			} else {
+				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, only)
+			}
+			row.End(exitOf(at.ended, err))
 			at.asked = clock()
 		}
 		if errors.Is(err, errSibling) {
@@ -168,10 +170,9 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		there.Finish()
 	}
 	err = cmp.Or(context.Cause(l.ctx), errors.Join(errs...))
-	if !errors.Is(err, helper.ErrPython) {
-		// a suite handed on keeps no row: Python runs it again
-		for _, keep := range kept {
-			keep()
+	if errors.Is(err, helper.ErrPython) {
+		for _, row := range onHelper {
+			row.Drop()
 		}
 	}
 	if err != nil {
