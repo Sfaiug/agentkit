@@ -4,7 +4,9 @@ import (
 	"cmp"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -18,15 +20,21 @@ var codexWants = [][2]string{{"approval_policy", `"never"`}, {"sandbox_mode", `"
 
 // codexYolo sets codexWants at config.toml's top level, the region above its first [table]
 // header, the only one a bare key may live in, every other line kept as it is.  A key that is
-// missing goes after the last one replaced, else after model_reasoning_effort, else first.
+// missing goes after the last one replaced, else after model_reasoning_effort, else first.  The
+// lines are read one by one, so the new file must parse to the old one with only these keys set,
+// or nothing is written: a multi-line string can hold what reads as a key or a header.
 func codexYolo(out io.Writer) error {
 	path := filepath.Join(config.UserHome(), ".codex", "config.toml")
 	read, _, err := settings(path)
 	if err != nil {
 		return err
 	}
-	var lines []string
-	seen, anchor, changed, top := map[string]bool{}, 0, false, true
+	before, err := config.ReadTOML(read)
+	if err != nil {
+		return fmt.Errorf("%s is not valid TOML (%v)", path, err)
+	}
+	var lines, missing []string
+	seen, anchor, top := map[string]bool{}, 0, true
 	for _, line := range strings.SplitAfter(read, "\n") {
 		if line == "" {
 			continue
@@ -37,9 +45,7 @@ func codexYolo(out io.Writer) error {
 		key = strings.Trim(strings.TrimFunc(key, config.Space), `"'`)
 		at := slices.IndexFunc(codexWants, func(want [2]string) bool { return assigned && want[0] == key })
 		if top && at >= 0 {
-			replacement := key + " = " + codexWants[at][1] + trailingComment(value) + "\n"
-			changed = changed || line != replacement
-			lines = append(lines, replacement)
+			lines = append(lines, key+" = "+codexWants[at][1]+trailingComment(value)+"\n")
 			seen[key] = true
 			anchor = len(lines)
 			continue
@@ -49,8 +55,9 @@ func codexYolo(out io.Writer) error {
 		}
 		lines = append(lines, line)
 	}
-	var missing []string
+	var wanted strings.Builder
 	for _, want := range codexWants {
+		wanted.WriteString(want[0] + " = " + want[1] + "\n")
 		if !seen[want[0]] {
 			missing = append(missing, want[0]+" = "+want[1]+"\n")
 		}
@@ -61,13 +68,19 @@ func codexYolo(out io.Writer) error {
 		if anchor > 0 && !strings.HasSuffix(lines[anchor-1], "\n") {
 			lines[anchor-1] += "\n"
 		}
-		lines, changed = slices.Insert(lines, anchor, missing...), true
+		lines = slices.Insert(lines, anchor, missing...)
 	}
-	if !changed {
+	text := strings.Join(lines, "")
+	set, _ := config.ReadTOML(wanted.String())
+	maps.Copy(before, set)
+	if after, err := config.ReadTOML(text); err != nil || !reflect.DeepEqual(after, before) {
+		return fmt.Errorf("%s: setting its top-level keys line by line would change more, so nothing was changed", path)
+	}
+	if text == read {
 		fmt.Fprintf(out, "yolo: %s already approval_policy=never, sandbox_mode=danger-full-access\n", path)
 		return nil
 	}
-	if err := writeConfig(path, strings.Join(lines, "")); err != nil {
+	if err := writeConfig(path, text); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "yolo: %s approval_policy=never, sandbox_mode=danger-full-access\n", path)

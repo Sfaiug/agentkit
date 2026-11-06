@@ -30,9 +30,11 @@ func rulebook(out io.Writer) error {
 			continue
 		}
 		if !filepath.IsAbs(link) {
-			link = filepath.Join(filepath.Dir(target), link)
+			link = filepath.Dir(target) + string(filepath.Separator) + link
 		}
-		folder := filepath.Dir(link)
+		// not cleaned: a `..` past a link in it is that link's target's parent, as the system
+		// reads it, so the folder is resolved before it is judged
+		folder := link[:strings.LastIndexAny(link, "/"+string(filepath.Separator))+1]
 		info, err := os.Stat(folder)
 		if err != nil || !info.IsDir() || !strings.HasPrefix(config.Resolve(folder)+string(filepath.Separator), checkout) ||
 			os.Remove(target) != nil {
