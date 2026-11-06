@@ -323,6 +323,7 @@ test_key_task_key_refusals
 test_key_task_preflight
 test_key_the_seat_you_are_in_goes_first
 test_key_the_landing_line_never_waits_on_a_member_not_ready
+test_key_test_audit
 test_key_tick_gh_out
 test_key_tick_lock_held
 test_key_tick_log_roll

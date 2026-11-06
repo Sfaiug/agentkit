@@ -189,6 +189,12 @@ func validateRunSubcommand(verb string, args []string) string {
 	asked := ""
 	switch verb {
 	case "status", "show":
+		if contains(args, "--tests") {
+			if len(args) > 1 {
+				return "usage: ak run status --tests"
+			}
+			return ""
+		}
 		usage = commandhelp.Usage("run status") + " [--pending]"
 		args = without(args, "--history", "--json", "--plain", "--why", "--pending")
 		if len(args) > 1 || (len(args) == 1 && strings.HasPrefix(args[0], "-")) {
