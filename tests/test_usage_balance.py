@@ -492,6 +492,7 @@ class WeeklyBalance(unittest.TestCase):
             prov.pop("gap", None)
         with tempfile.TemporaryDirectory(prefix=".ak-test-usage-test-", dir=REPO) as tmp:
             with patch.object(config, "STATE", Path(tmp)), patch.object(config, "ensure_dirs"), \
+                    patch.object(config, "HOME", Path(tmp)), \
                     patch.object(usage.time, "time", return_value=self.now), \
                     patch.object(usage, "_probe",
                                  side_effect=lambda cfg, name, now, account=None: raw[name]) as probe:

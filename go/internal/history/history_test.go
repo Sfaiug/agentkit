@@ -79,8 +79,8 @@ func TestAnOlderDatabaseIsBroughtUpToTodaysTables(t *testing.T) {
 	for _, row := range query(t, db, "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name") {
 		tables = append(tables, row.Text("name"))
 	}
-	if want := []string{"checks", "conflicts", "done_runs", "dones", "findings", "kept", "owner", "phases",
-		"reviews", "runs", "test_reds"}; !slices.Equal(tables, want) {
+	if want := []string{"checks", "conflicts", "done_runs", "dones", "findings", "kept", "meter_readings",
+		"owner", "phases", "reviews", "runs", "test_reds"}; !slices.Equal(tables, want) {
 		t.Fatalf("tables %v, want %v", tables, want)
 	}
 	columns, _ := db.columns("runs")
