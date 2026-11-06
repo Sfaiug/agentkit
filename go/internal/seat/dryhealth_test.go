@@ -9,21 +9,30 @@ import (
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"agentkit/internal/run"
 )
 
 // A dry look at a seat just reopened, which no look has saved yet, stopped with its plan open, says
-// the `continue` the real look would type, and keeps, locks and types nothing; with its plan done
-// it says nothing and carries the seat, as the real look types nothing. A harness whose stops the
-// tick nudges, with no question to answer or repeat, decides the same.
+// the `continue` the real look would type, and keeps, locks and types nothing; with its plan done,
+// or stopped on words it was sent back on already, it says nothing and carries the seat, as the
+// real look types nothing. A harness whose stops the tick nudges, with no question to answer or
+// repeat, decides the same; its stop is its words and the turn they ended.
 func TestDryHealthSaysItWouldContinueAnOpenPlan(t *testing.T) {
-	for own, screen := range map[string]string{"claude": prompting, "muse": "────────\n❯\n────────\nspark · high · acme · YOLO\n",
-		"opencode": "┃\n┃\n┃  Build · vela\n╹\nctrl+p commands\n"} {
+	for own, each := range map[string]struct {
+		screen string
+		sent   any // the stop it was sent back on
+	}{
+		"claude":   {prompting, "The patch is ready."},
+		"muse":     {"────────\n❯\n────────\nspark · high · acme · YOLO\n", []any{nil, "The patch is ready."}},
+		"opencode": {"┃\n┃\n┃  Build · vela\n╹\nctrl+p commands\n", []any{nil, "The patch is ready."}},
+	} {
 		t.Run(own, func(t *testing.T) {
 			home := sandbox(t)
 			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+"[models.test]\nharness='"+own+"'\nmodel='test'\neffort='high'\nprovider='test'\n")
 			record(t, home, "acme", map[string]any{"orchestrator": "test", "workers": []string{"test"}})
 			write(t, stateFile(home, "plan-acme.md"), openLine)
-			drawn(t, home, "acme", "The patch is ready.\n"+screen)
+			drawn(t, home, "acme", "The patch is ready.\n"+each.screen)
 			dry := func() []string {
 				t.Helper()
 				var said []string
@@ -42,6 +51,11 @@ func TestDryHealthSaysItWouldContinueAnOpenPlan(t *testing.T) {
 			write(t, stateFile(home, "plan-acme.md"), doneLine)
 			if said := dry(); len(said) > 0 {
 				t.Fatalf("a done plan said %q", said)
+			}
+			write(t, stateFile(home, "plan-acme.md"), openLine)
+			write(t, stateFile(home, "seat-acme.json"), run.Line(run.Fields("state", "at_prompt", "stop_said", "The patch is ready.", "stop_nudged", each.sent)))
+			if said := dry(); len(said) > 0 {
+				t.Fatalf("a stop sent back already said %q", said)
 			}
 		})
 	}
