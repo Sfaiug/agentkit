@@ -15,7 +15,7 @@ import (
 
 var readingModels sync.Mutex // closing and reopening the page shares the boards' reader
 
-// title is the name `c` gives this page; the pages it opens, `p` and a row's why, carry it too.
+// title is the name `c` gives this page; a row's why, which it opens, carries it too.
 func menuModels(session, title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	type reading struct {
 		found *matrix.Matrix
@@ -23,10 +23,11 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	}
 	found := matrix.Stored()
 	var compared map[string]bool
+	var total int // the listed releases of your companies
 	var answer map[string]*quality.Said
 	// each role's answer over the lineup found, an error where Go does not draw it
 	answered := func() (err error) {
-		if compared, err = matrix.Compared(found.Rows); err != nil {
+		if compared, total, err = matrix.Compared(found.Rows); err != nil {
 			return err
 		}
 		shares, err := matrix.Shares()
@@ -54,8 +55,8 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	var colours map[string]string
 	pointing := false
 	at, top, note := -1, 0, ""
-	// A new answer -- the boards landing, a pick -- leaves the pointer on the row it was on, as
-	// Python's does; where that row is gone, on its role's pick, the first role's before any.
+	// The boards landing leave the pointer on the row it was on, as Python's do; where that row is
+	// gone, on its role's pick, the first role's before any.
 	lineup := func() {
 		colours = modelColours(found.Rows)
 		role, was := quality.Roles[0], quality.Row{}
@@ -109,17 +110,13 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			}
 		default:
 		}
-		current := map[string]bool{}
-		for _, row := range found.Rows {
-			current[row.Release] = true
-		}
 		s := keyboard.Screen()
 		light := menu.ModelLight{}
 		if pointing && at >= 0 && at < len(rows) {
 			light = menu.ModelLight{Maker: rows[at].Maker, Colour: colours[rows[at].Maker]}
 		}
 		frame := menu.ModelsFrame(s, title, menu.ModelsSaid(s, answer, found.Rows),
-			compared, len(current), found.Fetched, at, top, note, light)
+			compared, total, found.Fetched, at, top, note, light)
 		top = frame.Top
 		painter.Write(frame.Lines, s)
 		key := keyboard.ReadKey()
@@ -148,14 +145,6 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			} else {
 				pointing = false
 			}
-		case key.Name == "char" && key.Char == "p":
-			if !modelsPick(title, found.Rows, keyboard, painter) {
-				return false
-			}
-			if answered() != nil {
-				return false
-			}
-			lineup()
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {

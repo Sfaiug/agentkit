@@ -45,7 +45,7 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
-	marked, err := matrix.Compared(found.Rows)
+	marked, ours, err := matrix.Compared(found.Rows)
 	if err != nil {
 		return fail(err)
 	}
@@ -64,11 +64,7 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 		return 0
 	}
 	screen := terminal.For(out)
-	current := map[string]bool{}
-	for _, row := range found.Rows {
-		current[row.Release] = true
-	}
-	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows), marked, len(current), found.Fetched)
+	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows), marked, ours, found.Fetched)
 	if len(names) > 0 {
 		var own [][]string
 		for _, name := range names {

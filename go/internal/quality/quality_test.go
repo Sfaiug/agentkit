@@ -108,7 +108,7 @@ func TestAMissingScoreNeverHelps(t *testing.T) {
 		row("base", "high", false, intel, 45.0, "aa.frontierCode20", 0.5, "aa.terminalBench40", 0.6),
 	}
 	found := map[string]*Measure{}
-	for _, each := range rated(rows, "execute") {
+	for _, each := range Rated(rows, "execute") {
 		if each.Release == "lone" {
 			t.Fatal("a row of one measure was rated")
 		}
@@ -151,7 +151,7 @@ func TestARowsNumbersAreToTheLastDigitPythons(t *testing.T) {
 		"acme/high": "95.60000000000001 1.0800511227018421",
 		"bolt/high": "86.42979602712228 0.8889491531754309",
 	}
-	for _, each := range rated(rows, "orchestrate") {
+	for _, each := range Rated(rows, "orchestrate") {
 		got := fmt.Sprint(run.Float(each.Quality), " ", run.Float(each.SE))
 		if name := each.Release + "/" + each.Effort; got != want[name] {
 			t.Errorf("%s: %s, want %s", name, got, want[name])

@@ -38,7 +38,7 @@ func TestEveryWidthDrawsWithinItsRoomOrFolds(t *testing.T) {
 	rows := []quality.Row{modelRow("acme", "max", false, 0.9), modelRow("acme", "high", true, 0.8), modelRow("bolt", "", true, 0.7)}
 	for _, columns := range []string{"1", "2", "13", "24", "30", "40", "60", "100", "200"} {
 		screen := screenAt(t, columns)
-		lines := ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), nil, 2, 0)
+		lines := ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"acme": true, "bolt": true}, 2, 0)
 		if joined := strings.Join(lines, "\n"); !strings.Contains(joined, "comparing all 2 models") {
 			t.Errorf("at %s columns: %s", columns, joined)
 		}
@@ -51,7 +51,7 @@ func TestEveryWidthDrawsWithinItsRoomOrFolds(t *testing.T) {
 func TestNothingYoursRunsThePickSaysSo(t *testing.T) {
 	rows := []quality.Row{modelRow("acme", "max", false, 0.9)}
 	screen := screenAt(t, "100")
-	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), nil, 1, 0), "\n")
+	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"acme": true}, 1, 0), "\n")
 	if !strings.Contains(joined, "no harness of yours runs a model this good") || strings.Contains(joined, "r takes") {
 		t.Fatal(joined)
 	}
@@ -73,7 +73,7 @@ func TestAnUnpricedBestIsSaidInTheHead(t *testing.T) {
 	best.Values.Delete("aa.intelligenceIndexEvaluations.aa-briefcase.costPerTask")
 	rows := []quality.Row{best, modelRow("far", "low", true, 0.2)}
 	screen := screenAt(t, "100")
-	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), nil, 2, 0), "\n")
+	joined := strings.Join(ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"best": true, "far": true}, 2, 0), "\n")
 	for _, want := range []string{"builds · best 100.0", "★ pick"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("%q not in\n%s", want, joined)

@@ -19,9 +19,9 @@ func ModelsBody(s terminal.Screen, said []Role, compared map[string]bool, total 
 // ModelsFrame keeps the legend below the paged frontier and the pointer on its row,
 // including a folded row's mark, numbers and notes.
 func ModelsFrame(s terminal.Screen, title string, said []Role, compared map[string]bool, total int, fetched float64, at, top int, note string, light ModelLight) MatrixFrame {
-	keys := "↑↓ move   ⏎ why   p pick   r take   esc back"
+	keys := "↑↓ move   ⏎ why   r take   esc back"
 	if s.ASCII() {
-		keys = "up/down move   enter why   p pick   r take   esc back"
+		keys = "up/down move   enter why   r take   esc back"
 	}
 	body := modelsBody(s, said, compared, total, fetched, light)
 	fold := slices.IndexFunc(body, func(row matrixRow) bool { return row.row == -2 })

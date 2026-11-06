@@ -24,27 +24,25 @@ func modelsHome(t *testing.T, text string) {
 func TestLegacyWithinIsIgnored(t *testing.T) {
 	for _, text := range []string{"within = 1\n", "within = 'near'\n", "within = -1\n", "within = true\n", "within = 101\n"} {
 		modelsHome(t, text)
-		if _, err := Compare(); err != nil {
+		if _, _, err := ModelList(); err != nil {
 			t.Fatalf("%q: %v", text, err)
 		}
 	}
 }
 
-func TestCompareIsTheConfigsMarks(t *testing.T) {
+func TestTheModelListIsTheConfigs(t *testing.T) {
 	modelsHome(t, "")
-	if got, err := Compare(); err != nil || got != nil {
-		t.Fatalf("none: %v %v", got, err)
+	if companies, off, err := ModelList(); err != nil || companies != nil || off != nil {
+		t.Fatalf("none: %v %v %v", companies, off, err)
 	}
-	modelsHome(t, "compare = ['acme-5', 'bolt-3']\n")
-	if got, err := Compare(); err != nil || !reflect.DeepEqual(got, []string{"acme-5", "bolt-3"}) {
-		t.Fatalf("marks: %v %v", got, err)
+	modelsHome(t, "companies = []\nmodels_off = ['acme-5', 'bolt-3']\n")
+	if companies, off, err := ModelList(); err != nil || companies == nil || len(companies) != 0 ||
+		!reflect.DeepEqual(off, []string{"acme-5", "bolt-3"}) {
+		t.Fatalf("set: %v %v %v", companies, off, err)
 	}
-}
-
-func TestAMarkOfTheWrongKindIsRefused(t *testing.T) {
-	for _, text := range []string{"compare = [1]\n", "compare = 'acme-5'\n"} {
+	for _, text := range []string{"models_off = [1]\n", "companies = 'Acme'\n"} {
 		modelsHome(t, text)
-		if _, err := Compare(); err == nil {
+		if _, _, err := ModelList(); err == nil {
 			t.Errorf("%q was not refused", text)
 		}
 	}

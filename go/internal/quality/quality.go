@@ -193,10 +193,10 @@ func (r *Rating) Missing() int {
 	return missing
 }
 
-// rated is each of rows that has at least two of the role's measures measured or carried, its
+// Rated is each of rows that has at least two of the role's measures measured or carried, its
 // quality 100 less its weighted mean points behind the best over the measures a row of the index
 // has, its SE the root of squares of its error's parts by the score each comes from.
-func rated(rows []Row, role string) []*Rating {
+func Rated(rows []Row, role string) []*Rating {
 	type scale struct {
 		kind string
 		top  float64
@@ -427,7 +427,7 @@ func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said
 	out := map[string]*Said{}
 	for _, role := range Roles {
 		said := &Said{CostUnit: "board_dollars"}
-		ratings := rated(rows, role)
+		ratings := Rated(rows, role)
 		if price != nil {
 			said.CostUnit = price(role, rows, ratings)
 		}

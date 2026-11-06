@@ -336,35 +336,3 @@ func rowsOf(lineup []any) []quality.Row {
 	}
 	return rows
 }
-
-// Compared is the releases of rows that `compare` in the config marks, one replaced since as its
-// successor, so a mark never holds a replaced model, and one that is neither as nothing; nil,
-// every one, where nothing is marked.
-func Compared(rows []quality.Row) (map[string]bool, error) {
-	marked, err := config.Compare()
-	if err != nil {
-		return nil, err
-	}
-	current := map[string]bool{}
-	for _, row := range rows {
-		current[row.Release] = true
-	}
-	var held *run.Object // the boards only for a replaced one
-	found := map[string]bool{}
-	for _, slug := range marked {
-		if current[slug] {
-			found[slug] = true
-			continue
-		}
-		if held == nil {
-			held = boards.Cached()
-		}
-		if next := boards.Successor(held, slug); next != nil && current[next.Slug] {
-			found[next.Slug] = true
-		}
-	}
-	if len(found) == 0 {
-		return nil, nil
-	}
-	return found, nil
-}
