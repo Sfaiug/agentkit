@@ -78,6 +78,7 @@ test_key_gc_scheduled
 test_key_gone_seat_hears_its_wait_end
 test_key_gemini_signs_in_again
 test_key_gone_seat_words
+test_key_google_best_machine
 test_key_gh_merge_refused
 test_key_github_rate_limit_waited
 test_key_git_worktree_refused

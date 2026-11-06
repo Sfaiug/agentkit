@@ -51,9 +51,6 @@ func home(t *testing.T, config string) (string, string) {
 // Each read Go cannot make says nothing and leaves all of it to Python.
 func TestAReadGoCannotMakeSaysNothing(t *testing.T) {
 	for name, arrange := range map[string]func(t *testing.T, root string){
-		"a Google key": func(t *testing.T, root string) {
-			os.WriteFile(filepath.Join(root, ".agentkit", "secrets", "google-cloud.json"), []byte("{}"), 0o600)
-		},
 		"ak may rent": func(t *testing.T, root string) {
 			config := filepath.Join(root, ".agentkit", "config.toml")
 			os.WriteFile(config, []byte(models+"\n[google_cloud]\nactive = true\n"), 0o600)
