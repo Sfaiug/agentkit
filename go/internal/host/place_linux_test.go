@@ -15,7 +15,8 @@ import (
 )
 
 // A manager listens; systemd-run is scripted, logging its words; this process sits in the
-// manager's own subtree where inManager.  The work writes its own pid where it says.
+// manager's own subtree where inManager.  The work writes its own pid where it says, and where
+// AK_PLACED says, as this program does (Placed).
 func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called string) {
 	t.Setenv("HOME", t.TempDir())
 	runtime, bin, dir := t.TempDir(), t.TempDir(), t.TempDir()
@@ -41,7 +42,11 @@ func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called 
 	return filepath.Join(dir, "log.txt"), filepath.Join(dir, "ran"), called
 }
 
-func work(ran string) *exec.Cmd { return exec.Command("/bin/sh", "-c", `echo "$$" >"$0"`, ran) }
+func work(ran string) *exec.Cmd {
+	script := filepath.Join(filepath.Dir(ran), "work.sh")
+	os.WriteFile(script, []byte(`[ -z "$AK_PLACED" ] || printf %s "$$" >"$AK_PLACED"; echo "$$" >"$1"`), 0o644)
+	return exec.Command("/bin/sh", script, ran)
+}
 
 func ranAs(t *testing.T, ran string) int {
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
@@ -60,10 +65,12 @@ func TestWorkGoesIntoItsUnitOrStartsPlainlyWhereTheManagerRefuses(t *testing.T) 
 		inManager, detached bool
 		scope, reason, warn string
 	}{
-		"a scope the manager makes": {`while [ "$1" != -- ]; do shift; done; shift; exec "$@"`, true, true, "agentkit-run-fix-api", "", ""},
-		"a scope it refuses":        {"exit 1", true, true, "none", "systemd-run failed (nothing started in it)", "nothing started in it"},
-		"a service it refuses":      {"exit 1", false, true, "none", "systemd-run failed (systemd-run exited 1)", "systemd-run exited 1"},
-		"a foreground run outside":  {"exit 1", false, false, "none", "started outside the user manager, which cannot move it", ""},
+		// from systemd 258 a scope expands its command: none of it may hold a dollar
+		"a scope the manager makes": {`while [ "$1" != -- ]; do shift; done; shift; case "$*" in *'$'*) exit 1;; esac; exec "$@"`,
+			true, true, "agentkit-run-fix-api", "", ""},
+		"a scope it refuses":       {"exit 1", true, true, "none", "systemd-run failed (nothing started in it)", "nothing started in it"},
+		"a service it refuses":     {"exit 1", false, true, "none", "systemd-run failed (systemd-run exited 1)", "systemd-run exited 1"},
+		"a foreground run outside": {"exit 1", false, false, "none", "started outside the user manager, which cannot move it", ""},
 	} {
 		t.Run(name, func(t *testing.T) {
 			log, ran, called := placing(t, each.systemdRun, each.inManager)
@@ -83,6 +90,19 @@ func TestWorkGoesIntoItsUnitOrStartsPlainlyWhereTheManagerRefuses(t *testing.T) 
 				t.Error("the claim outlived its start")
 			}
 		})
+	}
+}
+
+// The program's word that it started where it was placed reaches no process it starts.
+func TestPlacedWorkSaysItStartedAndHandsNothingOn(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "agentkit-run-fix-api.launched")
+	t.Setenv(placedEnv, marker)
+	Placed()
+	if data, _ := os.ReadFile(marker); string(data) != strconv.Itoa(os.Getpid()) {
+		t.Errorf("mark %q", data)
+	}
+	if _, set := os.LookupEnv(placedEnv); set {
+		t.Error("what it starts inherits the mark's place")
 	}
 }
 

@@ -15,15 +15,20 @@ import (
 
 // place starts cmd, the run's driver, in the run's own unit, Python's run_placement, and says on
 // the record and in the log where it went: its unit and the memory cap it holds, which a cap's
-// kill names after the process that knew it is gone, or none and why.  A run Go starts is new or
-// one no unit held (unitless), so no earlier attempt's unit can hold the name.
+// kill names after the process that knew it is gone, or none and why.  A run a unit held before,
+// one its lander wakes, goes in a unit no leftover of that one holds.
 func place(dir string, cmd *exec.Cmd, detached bool, record *run.Object) (int, error) {
 	capMB, err := run.MemoryCapMB(host.SliceMemoryMax())
 	if err != nil {
 		return 0, err
 	}
-	pid, scope, reason, err := host.Place(cmd, filepath.Join(dir, "log.txt"), "agentkit-run-"+filepath.Base(dir),
-		host.Limits(capMB, host.RunWeight), detached)
+	unit := "agentkit-run-" + filepath.Base(dir)
+	if !unitless(record) {
+		if unit, err = host.FreeUnit(unit); err != nil {
+			return 0, err
+		}
+	}
+	pid, scope, reason, err := host.Place(cmd, filepath.Join(dir, "log.txt"), unit, host.Limits(capMB, host.RunWeight), detached)
 	if err != nil {
 		return 0, err
 	}
