@@ -46,12 +46,19 @@ def followup_place(text):
     return text.splitlines()[0].strip()
 
 
-def followup_open(state):
-    """Whether this fix run is still on its way: running, about to, or resuming itself --
-    and a FAIL on a conflict with main, which the tick parks and resumes (`parkable_conflict`)."""
+def followup_moving(state):
+    """Whether this fix run is running or about to: its delivery, its next step, checks its plan
+    line, which a verification of the seat's plan leaves to it (`plan._verify_held`)."""
     return (state.get("state") == "running"
             or (state.get("state") == "queued"
-                and (run_record.process_active(state) or state.get("slot_waiting")))
+                and (run_record.process_active(state) or state.get("slot_waiting"))))
+
+
+def followup_open(state):
+    """Whether this fix run is still on its way: running, about to (`followup_moving`), or
+    resuming itself -- and a FAIL on a conflict with main, which the tick parks and resumes
+    (`parkable_conflict`)."""
+    return (followup_moving(state)
             or (state.get("state") in ("waiting", "waiting_login", "exhausted", "error")
                 and transitions.going(state))
             or (state.get("state") == "interrupted" and state.get("deaths")
@@ -76,16 +83,17 @@ def repair_open(state, tip):
         and state.get("repair_tip") == tip)
 
 
-def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None):
+def open_followup(state, text, repair=None, tip=None, split=None, check=None, held=None,
+                  going=followup_open):
     """The open run already fixing `text`, or None.
 
     A review follow-up is the same `check` in the same repository from the same seat: a run
     whose done-when is that command fixes it, whatever its words; any other follow-up is the
-    same site.  With `held`, the time its deferred line was written, a run that ended
-    delivering it since counts too: the line's work is that run's, never a done's
-    (`plan.outcomes`); one that delivered before had only an earlier line.  A `repair` is the
-    same repository, target and command from any seat, open at the target's `tip`: the
-    target is everybody's.  A suite split holds its line forever, and its repository while
+    same site.  Its run is open as `going` reads it.  With `held`, the time its deferred line
+    was written, a run that ended delivering it since counts too: the line's work is that
+    run's, never a done's (`plan.outcomes`); one that delivered before had only an earlier
+    line.  A `repair` is the same repository, target and command from any seat, open at the
+    target's `tip`: the target is everybody's.  A suite split holds its line forever, and its repository while
     open.
     """
     for directory in run_record.run_dirs():
@@ -102,7 +110,7 @@ def open_followup(state, text, repair=None, tip=None, split=None, check=None, he
                      transitions.launched_session(other) == transitions.launched_session(state)
                      and ((other["followup"].get("check") or "").strip() == check.strip() if check
                           else other["followup"]["place"] == followup_place(text))
-                     and (followup_open(other) or held is not None and transitions.delivered(other)
+                     and (going(other) or held is not None and transitions.delivered(other)
                           and (other.get("finished_at") or 0) >= held))):
             return directory.name
     return None

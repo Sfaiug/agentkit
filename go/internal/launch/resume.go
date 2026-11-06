@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -39,7 +40,7 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 	case state == "stopped":
 		return 2, "stopped runs are not resumed; start a new task from its branch", nil
 	}
-	if !goesOn(dir, record) {
+	if !goesOn(dir, read, record) {
 		return 0, "", ErrPython
 	}
 	if dry := loop.Dry(record); dry != "" {
@@ -49,9 +50,11 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 		// a lander's wake writes into the run's log already: following it would feed it back in
 		bg, out = true, io.Discard
 	}
-	log := filepath.Join(dir, "log.txt")
-	info, err := os.Stat(log)
-	if err != nil {
+	// a receipt still unstarted may have no log yet, which its driver starts; any other run has one
+	var offset int64
+	if info, err := os.Stat(filepath.Join(dir, "log.txt")); err == nil {
+		offset = info.Size()
+	} else if !errors.Is(err, fs.ErrNotExist) || !loop.Unstarted(record) {
 		return 0, "", err
 	}
 	// the record and the driver under one hold of the slots, as Python's admission changes under it
@@ -78,7 +81,7 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 	if bg {
 		return 0, "", nil
 	}
-	return loop.Follow(dir, info.Size(), out, errOut), "", nil
+	return loop.Follow(dir, offset, out, errOut), "", nil
 }
 
 // reached is whether Go's resume reads that run at all: anything else is Python's before a refusal.
@@ -86,16 +89,19 @@ func reached(dir string, record *run.Object) bool {
 	return record != nil && !elsewhere(filepath.Base(dir)) && !(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
 }
 
-// goesOn is whether Go's resume takes up a run it reached and did not refuse.  The box comes
-// first, as Python's resume checks it before it reads the run's task.
-func goesOn(dir string, record *run.Object) bool {
+// goesOn is whether Go's resume takes up a run it reached and did not refuse, record being the
+// one read as the resume's order leaves it.  The box comes first, as Python's resume checks it
+// before it reads the run's task.
+func goesOn(dir string, read, record *run.Object) bool {
 	if box.Check() != nil {
 		return false
 	}
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil {
 		return false
 	}
-	return driverHere() && !(record.Truthy("repo") && helper.May()) && (loop.Pickup(dir, record) || loop.Woken(record))
+	return driverHere() && !(record.Truthy("repo") && helper.May()) &&
+		(loop.Pickup(dir, record) || loop.Woken(record) || loop.Unstarted(record) && launchStands(dir, record) ||
+			loop.Raised(dir, read, record))
 }
 
 // driverHere is whether a driver can run on this host: in a box, with meters it can read, its

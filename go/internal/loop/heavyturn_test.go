@@ -136,7 +136,7 @@ func TestALinesCheckWhoseMemberLeftHandsOver(t *testing.T) {
 	selection := &checkSelection{}
 	done := make(chan error, 1)
 	go func() {
-		_, err := stacks[0].check([]string{"true"}, "", selection)
+		_, err := stacks[0].check([]string{"true"}, "", "landing", selection)
 		done <- err
 	}()
 	for deadline := time.Now().Add(30 * time.Second); !host.LineCheckWaits(); time.Sleep(10 * time.Millisecond) {

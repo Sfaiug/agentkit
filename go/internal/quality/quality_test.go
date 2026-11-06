@@ -35,7 +35,7 @@ func TestAnswerPicksAboveTheLine(t *testing.T) {
 	}
 	rows := []Row{share("top", "max", false, 0.9, 30), share("near", "high", false, 0.87, 10),
 		share("mine", "high", true, 0.86, 12), share("worse", "low", true, 0.5, 20), share("low", "low", false, 0.5, 1)}
-	said := Answer(rows, nil)["execute"]
+	said := Answer(rows, nil, nil)["execute"]
 	if *said.Best != 100 || said.Pick.Release != "near" || said.Take.Release != "mine" {
 		t.Fatalf("best %v pick %s take %s", *said.Best, said.Pick.Release, said.Take.Release)
 	}
@@ -45,10 +45,10 @@ func TestAnswerPicksAboveTheLine(t *testing.T) {
 	if want := "[top/max 100.000 near/high 97.000 mine/high 96.000 low/low 60.000]"; got != want {
 		t.Fatalf("front %s, want %s", got, want)
 	}
-	if compared := Answer(rows, map[string]bool{"worse": true})["execute"]; compared.Pick.Release != "worse" || *compared.Best != 60 {
+	if compared := Answer(rows, map[string]bool{"worse": true}, nil)["execute"]; compared.Pick.Release != "worse" || *compared.Best != 60 {
 		t.Fatalf("compared %v", shown(compared.Front))
 	}
-	if none := Answer(rows, map[string]bool{"nothing": true})["execute"]; none.Best != nil || none.Pick != nil || len(none.Front) != 0 {
+	if none := Answer(rows, map[string]bool{"nothing": true}, nil)["execute"]; none.Best != nil || none.Pick != nil || len(none.Front) != 0 {
 		t.Fatalf("none compared %+v", none)
 	}
 }
@@ -63,7 +63,7 @@ func TestRoleChoicesStayVisible(t *testing.T) {
 			"aa.omniscience.lower95ci", p[2], "aa.omniscience.upper95ci", p[2]))
 	}
 	for n, want := range []string{"acme-noisy", "acme-best"} {
-		said := Answer(rows[:3+n], nil)["review"]
+		said := Answer(rows[:3+n], nil, nil)["review"]
 		if said.Pick.Release != want || said.Take.Release != "acme-noisy" {
 			t.Fatalf("pick %s, take %s", said.Pick.Release, said.Take.Release)
 		}
@@ -108,7 +108,7 @@ func TestAMissingScoreNeverHelps(t *testing.T) {
 		row("base", "high", false, intel, 45.0, "aa.frontierCode20", 0.5, "aa.terminalBench40", 0.6),
 	}
 	found := map[string]*Measure{}
-	for _, each := range rated(rows, "execute") {
+	for _, each := range Rated(rows, "execute") {
 		if each.Release == "lone" {
 			t.Fatal("a row of one measure was rated")
 		}
@@ -151,7 +151,7 @@ func TestARowsNumbersAreToTheLastDigitPythons(t *testing.T) {
 		"acme/high": "95.60000000000001 1.0800511227018421",
 		"bolt/high": "86.42979602712228 0.8889491531754309",
 	}
-	for _, each := range rated(rows, "orchestrate") {
+	for _, each := range Rated(rows, "orchestrate") {
 		got := fmt.Sprint(run.Float(each.Quality), " ", run.Float(each.SE))
 		if name := each.Release + "/" + each.Effort; got != want[name] {
 			t.Errorf("%s: %s, want %s", name, got, want[name])

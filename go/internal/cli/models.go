@@ -4,9 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"agentkit/internal/config"
@@ -15,64 +12,63 @@ import (
 	"agentkit/internal/quality"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
-	"agentkit/internal/usage"
 )
 
 func init() { commands["models"] = modelsAnswer }
 
 // modelsAnswer answers `ak models` as Python's matrix.main does: the boards, the lineup, each role's
-// answer and ak's own run numbers, as JSON with --json beside what a million tokens of each model
-// cost of its week and a run of it in each role, else drawn.  Its own numbers are the one part
-// that reads SQLite: a home with a history.db is left to Python before anything is asked.
+// answer, priced at what ak's own runs measured, and ak's own run numbers, as JSON with --json
+// beside those measurements, else drawn.  A home whose own numbers count a run (ownNumbers), or
+// whose answer to draw some role prices off ak's runs (matrix.Drawn), is left to Python before
+// anything is written.
 func modelsAnswer(args []string, out, errOut io.Writer) int {
-	if _, err := os.Stat(filepath.Join(config.Home(), "history.db")); !errors.Is(err, fs.ErrNotExist) {
-		return notImplemented(errOut, "models")
-	}
 	fail := func(err error) int {
 		fmt.Fprintf(errOut, "ak models: %s\n", err)
 		return 1
 	}
-	found, err := matrix.Refresh(contains(args, "--refresh"))
+	names, err := config.Offered()
+	if err != nil {
+		return fail(err)
+	}
+	models, err := config.Models()
+	if err != nil {
+		return fail(err)
+	}
+	if ownNumbers(names, models) {
+		return notImplemented(errOut, "models")
+	}
+	asJSON := contains(args, "--json")
+	found, err := matrix.Refresh(contains(args, "--refresh"), !asJSON)
 	if errors.Is(err, matrix.ErrPriced) {
 		return notImplemented(errOut, "models")
 	}
 	if err != nil {
 		return fail(err)
 	}
-	marked, err := matrix.Compared(found.Rows)
+	marked, ours, err := matrix.Compared(found.Rows)
 	if err != nil {
 		return fail(err)
 	}
-	names, err := config.Offered()
+	shares, err := matrix.Shares()
 	if err != nil {
 		return fail(err)
 	}
-	answer := quality.Answer(found.Rows, marked)
-	if contains(args, "--json") {
-		readings, err := usage.Cached()
-		if err != nil {
-			return fail(err)
-		}
-		rates, err := readings.Rates()
-		if err != nil {
-			return fail(err)
-		}
+	answer, err := matrix.Answer(found.Rows, marked, shares)
+	if err != nil {
+		return fail(err)
+	}
+	if asJSON {
 		whole := modelsJSON(answer, names)
-		whole.Set("usage", rates)
-		whole.Set("task_usage", usage.TaskUsage(rates))
+		whole.Set("task_usage", shares)
 		fmt.Fprintln(out, run.Encode(whole))
 		return 0
 	}
 	screen := terminal.For(out)
-	current := map[string]bool{}
-	for _, row := range found.Rows {
-		current[row.Release] = true
-	}
-	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows), marked, len(current), found.Fetched)
+	lines := menu.ModelsBody(screen, menu.ModelsSaid(screen, answer, found.Rows), marked, ours, found.Fetched)
 	if len(names) > 0 {
 		var own [][]string
 		for _, name := range names {
-			own = append(own, []string{name, "-", "-", "-"}) // a home without a history has run nothing
+			own = append(own, []string{name, "-", "-", "-"}) // ownNumbers counts no run of it
 		}
 		lines = append(append(lines, ""), menu.LiveLines(screen, own)...)
 	}
@@ -80,8 +76,9 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// modelsJSON is each role's best and front, with what the screen notes beside each row, and ak's
-// own numbers, null for a model that ran nothing.
+// modelsJSON is each role's best, cost unit and front, with each row's cost, board cost and how
+// its cost was had, and what the screen notes beside each row; and ak's own numbers, null for a
+// model that ran nothing.
 func modelsJSON(answer map[string]*quality.Said, names []string) *run.Object {
 	whole := run.NewObject()
 	for _, role := range quality.Roles {
@@ -98,7 +95,14 @@ func modelsJSON(answer map[string]*quality.Said, names []string) *run.Object {
 			}
 			entry.Set("quality", row.Quality)
 			entry.Set("se", row.SE)
-			entry.Set("cost", row.Values.Get(quality.Costs[role]))
+			board := row.Values.Get(quality.Costs[role])
+			var cost any = *row.Cost // a front row has one
+			if row.CostRule == "board" {
+				cost = board // as the board wrote it: an int stays one
+			}
+			entry.Set("cost", cost)
+			entry.Set("board_cost", board)
+			entry.Set("cost_rule", row.CostRule)
 			notes := []any{}
 			if row == said.Pick {
 				notes = append(notes, "pick")
@@ -118,6 +122,7 @@ func modelsJSON(answer map[string]*quality.Said, names []string) *run.Object {
 		} else {
 			rolled.Set("best", *said.Best)
 		}
+		rolled.Set("cost_unit", said.CostUnit)
 		rolled.Set("front", front)
 		whole.Set(role, rolled)
 	}

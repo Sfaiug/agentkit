@@ -45,7 +45,9 @@ func rig(t *testing.T, silence time.Duration) *loop {
 		t.Skip(err)
 	}
 	home := t.TempDir()
-	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""} {
+	// no user manager: a run under one is Python's to stop, whatever the host runs
+	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
+		"XDG_RUNTIME_DIR": t.TempDir()} {
 		t.Setenv(key, value)
 	}
 	dir := filepath.Join(home, ".agentkit", "runs", "20260101-0000-acme")

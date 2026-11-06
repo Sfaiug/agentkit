@@ -5,20 +5,6 @@ import (
 	"strings"
 )
 
-// Compare is the release slugs `compare` in the config marks.
-func Compare() ([]string, error) {
-	root, err := load()
-	if err != nil {
-		return nil, err
-	}
-	listed, _ := root.values["compare"].([]any)
-	var marks []string
-	for _, slug := range listed {
-		marks = append(marks, slug.(string))
-	}
-	return marks, nil
-}
-
 // ModelsKey is what of the config a lineup is computed from, as Python's matrix.config_key: each
 // offered model's name, harness, id and the effort it runs each role at, by name.
 func ModelsKey() ([][]string, error) {

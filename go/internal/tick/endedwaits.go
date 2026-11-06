@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handback"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -16,8 +17,9 @@ import (
 // written on the wait as `over` the moment it is seen.  A seat gone without the owner closing it is
 // then reopened through the revival's reopen and typed that wait's line, once; one the owner closed
 // or stopped, or one out of usage, stays down.  Under the lifecycle lock, as the revival is, so an
-// owner's close cannot land between the decision and the reopen.  A wait on a pull request, a live
-// seat's line at its prompt and the ending a seat's own run hands back are Python's.
+// owner's close cannot land between the decision and the reopen.  A wait on a run of the seat's own
+// that its run's own notice told is told with it.  A wait on a pull request, a live seat's line at
+// its prompt and the ending a seat's own run still hands back are Python's.
 func (t *ticking) endedWaits() error {
 	var paged []string
 	err := locked(func() error {
@@ -80,8 +82,20 @@ func (t *ticking) endWait(each seat.Revival) (bool, error) {
 	}
 	if ran := wait.Str("run"); ran != "" {
 		record, err := run.Read(filepath.Join(run.Runs(), ran))
-		if errors.Is(err, run.ErrLoneSurrogate) || record != nil && run.Seat(record) == each.Name {
-			return false, errLeft // its own run hands this ending back, and that is the one line it hears
+		if errors.Is(err, run.ErrLoneSurrogate) {
+			return false, errLeft
+		}
+		if record != nil && run.Seat(record) == each.Name {
+			switch {
+			case !run.Ended(record) || run.OwesEnding(record, t.clock()):
+				return false, errLeft // its own run hands this ending back, and that is the one line it hears
+			case handback.ToldItsSeat(record):
+				if told, err := seat.MarkWait(each.Name, wait, "told", run.Float(epoch(t.clock()))); err != nil || told == nil {
+					return false, err
+				}
+				t.log.line(each.Name + ": its own run's notice told it that " + run.Text(wait.Get("over")) + "; its wait is over")
+				return false, nil
+			}
 		}
 	}
 	file := each.File

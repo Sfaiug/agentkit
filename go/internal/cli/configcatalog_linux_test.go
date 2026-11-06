@@ -67,7 +67,10 @@ for page, colour, size in (("config", False, (100, 30)), ("models", False, (100,
                 term.wait(lambda s: s.splitlines()[1] != rule, bound=3)
             term.keys("Escape")
             if page == "models":
-                term.wait(lambda s: "config · models" in s and "Reading models" not in s, bound=3)
+                # the list opens saying so, as Python's does (menu.models_page), and Esc shuts it
+                term.wait(lambda s: "not read: esc and open it again" in s and "Reading models" not in s, bound=3)
+                term.keys("Escape")
+                term.wait(lambda s: "config · models" in s and "not read" not in s, bound=3)
                 term.keys("Escape")
                 term.wait("For  acme", bound=3)
             else:

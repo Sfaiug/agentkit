@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 import http.client
 import json
 import os
+from pathlib import Path
 import re
 import secrets
 import subprocess
@@ -154,7 +155,7 @@ def said(mb_per_cpu):
     since = f" as of {time.strftime('%-d %b %H:%M', time.localtime(at))}"
     running = sum("from" not in one for one in ledger["machines"].values())
     return [f"{running} running · €{ledger['spent']:.2f} of €{cap:.2f} this "
-            f"month{since * (time.time() - at > 2 * PASS)}", *late]
+            f"month{since * (_now() - at > 2 * PASS)}", *late]
 
 
 def summary(count=True):
@@ -166,7 +167,7 @@ def summary(count=True):
                 if left and count else "off")
     ledger = _ledger()
     if not ledger or not ledger["answered"] or (
-            time.gmtime(ledger["answered"])[:2] != time.gmtime(time.time())[:2]):
+            time.gmtime(ledger["answered"])[:2] != time.gmtime(_now())[:2]):
         return "on · spend unknown"
     running = sum("from" not in one for one in ledger["machines"].values())
     return (f"on · €{ledger['spent']:.2f} of €{cap:g} this month" +
@@ -182,7 +183,7 @@ def watch():
     wanted, (active, cap), work = _noted(config.STATE / NEED), _setting(), machines.work(None)
     if (not active or not work) and not (config.SECRETS / KEY).exists():
         return
-    listed, now = rented(), time.time()
+    listed, now = rented(), _now()
     try:
         kept = json.loads((config.STATE / OFFERS).read_text())
         at, offered = kept["at"], [Offer(*one) for one in kept["offers"]]
@@ -392,7 +393,7 @@ def _rent(ledger, wanted, cap, now, offered, limits, taken, skipped):
                 f"{one}: {used[one]:g} of {limits[one]:g} vCPUs in use" for one in full)]
             continue
         for zone in sorted(offer.zones, key=taken.__contains__):
-            name, asked = f"ak-{secrets.token_hex(6)}", time.time()    # past refusals' polls
+            name, asked = f"ak-{secrets.token_hex(6)}", _now()    # past refusals' polls
             ledger["machines"][name] = {"price": offer.hourly, "from": asked, "until": asked + life}
             config._write_json(config.STATE / LEDGER, ledger)
             try:
@@ -636,7 +637,7 @@ def _ours(machine):
 
 def _token(key):
     """An access token for `key`'s service account, bought with a JWT it signs."""
-    now = int(time.time())
+    now = int(_now())
     url = _url("oauth2", "/token")
     claims = {"iss": key.get("client_email"), "aud": url, "iat": now, "exp": now + 3600,
               "scope": "https://www.googleapis.com/auth/cloud-platform"}
@@ -703,6 +704,14 @@ def _codes(answer):
 def _url(host, path):
     # the answer key's fake Google answers for every host
     return os.environ.get("AK_GOOGLE_URL", f"https://{host}.googleapis.com") + path
+
+
+def _now():
+    """The time this module reads.  An answer key names its clock in `AK_GOOGLE_CLOCK`, a file of
+    Unix seconds read anew each time, so it reaches whatever program the key runs and moves
+    between commands; unset, the real clock.  Only readings move: polls still sleep real seconds."""
+    clock = os.environ.get("AK_GOOGLE_CLOCK")
+    return float(Path(clock).read_text()) if clock else time.time()
 
 
 def _hourly(sku):

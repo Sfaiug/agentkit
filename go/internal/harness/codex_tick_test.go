@@ -12,9 +12,13 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/browser"
 	"agentkit/internal/run"
 	"agentkit/internal/tick"
 )
+
+// the tick's browser tidy reads none: the host's shared browser is no test's
+func init() { browser.CDP = "http://127.0.0.1:0" }
 
 // TestATickBindsTheThreadACodexReceiptProves: Go's tick writes codex.py `reconcile` into each Codex
 // seat's record, as Python's tick does, and goes on to its end.
@@ -54,8 +58,8 @@ case "$*" in "api user") echo '{"login": "acme"}' ;; *) echo '{"items": []}' ;; 
 		return path
 	}
 	bound, kept := seat("acme", proven), seat("beta", unproven)
-	if carried, err := tick.Carry(io.Discard, io.Discard); !carried || err != nil {
-		t.Fatalf("the tick handed over: %v", err)
+	if carried, failed := tick.Carry(io.Discard, io.Discard); !carried || failed {
+		t.Fatalf("the tick handed over (carried %v, failed %v)", carried, failed)
 	}
 	for path, want := range map[string][]any{bound: {"t1", "codex-session-start", true}, kept: {"old", "launcher", false}} {
 		record, _ := run.ReadJSON(path)

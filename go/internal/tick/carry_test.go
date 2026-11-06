@@ -58,8 +58,8 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 // carries is whether a tick was carried out whole: Go did not leave it to Python, and it saved
 // watch.json.
 func carries(out, errOut io.Writer) bool {
-	carried, err := Carry(out, errOut)
-	return carried && err == nil
+	carried, failed := Carry(out, errOut)
+	return carried && !failed
 }
 
 func put(t *testing.T, path, content string) {
@@ -225,6 +225,30 @@ func TestAFailedReadEndsTheTickThere(t *testing.T) {
 			}
 			endedThere(t, ak, "")
 		})
+	}
+}
+
+// A tick that cannot save watch.json fails, saying why in its log dated as every other line there.
+func TestASaveThatFailsIsSaidDatedInTheLog(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	if err := os.MkdirAll(filepath.Join(ak, "state", "watch.tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(ak, "tmp", logName)
+	put(t, path, "")
+	stream := appending(t, path)
+	if _, failed := Carry(stream, stream); !failed {
+		t.Fatal("the save did not fail")
+	}
+	lines := strings.SplitAfter(read(t, path), "\n")
+	last := lines[len(lines)-2]
+	for _, line := range lines[:len(lines)-1] {
+		if !stamped.MatchString(line) {
+			t.Errorf("undated in the log: %q", line)
+		}
+	}
+	if want := "ak watch: [Errno 21] Is a directory: '" + filepath.Join(ak, "state", "watch.tmp") + "'\n"; stamped.ReplaceAllString(last, "") != want {
+		t.Errorf("the tick ended its log with %q", last)
 	}
 }
 

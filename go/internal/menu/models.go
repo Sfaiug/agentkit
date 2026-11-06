@@ -107,8 +107,8 @@ func packed(parts []string, room int) []string {
 // way first, each row's notes going under it; where the line is still under 8 cells, each row's
 // mark, then its name and effort, take a line and its line, numbers and notes the next, the name
 // alone cut; the notes that do not fit beside the numbers then go under the row, broken only
-// between two. Then the legend, how many of the total models are compared and when the
-// boards were read, broken only at ` · `.
+// between two. Then the legend, how many of the total listed models of your companies are
+// compared (matrix.Compared) and when the boards were read, broken only at ` · `.
 func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, total int, fetched float64, light ModelLight) []matrixRow {
 	room := screen.LayoutWidth()
 	var rows []Line
@@ -233,7 +233,7 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		}
 	}
 	shown := "all"
-	if compared != nil {
+	if len(compared) != total {
 		shown = strconv.Itoa(len(compared)) + " of"
 	}
 	parts := []string{"comparing " + shown + " " + strconv.Itoa(total) + " models"}

@@ -21,7 +21,7 @@ func TestABlockedEndingIsToldInItsDecisionLineWhole(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	dir := filepath.Join(home, ".agentkit", "runs", "20261103-0931-add-retry-file")
-	got := handbackLine(blocked("cannot be\n  done as written"), dir, true)
+	got := handbackLine(blocked("cannot be\n  done as written"), dir, true, false)
 	want := "run 20261103-0931-add-retry-file BLOCKED (0 of 3): cannot be done as written. Next: rewrite the task " +
 		"and relaunch it with `from: ak/add-retry-file`. Result: ~/.agentkit/runs/20261103-0931-add-retry-file/result.md"
 	if got != want {
