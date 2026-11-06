@@ -2,13 +2,14 @@
 
     python3 tests/test_go.py [part ...]
 
-Its parts are `fmt`, `vet <platform>` for each platform Go's ak ships on, the module's tests,
-and `build <platform>` for each platform; without arguments it checks each, in that order.
+Its parts are `fmt`, `vet <platform>` for the caller's own platform and each Go's ak ships on,
+the module's tests, and `build <platform>` for each it ships on, a platform as Go names it
+(`linux/amd64`); without arguments it checks each, in that order.
 The module's tests take most of 15 minutes on a loaded host and one of them seconds, so each
 failing part is named in the file FAILED_PARTS names, and every_file.py's re-run and each
 narrowing step give it just those as its arguments: a Go test as `<package>.<Test>`, its
 top-level test, runs alone in its package; a package as its import path runs whole; a step runs
-by its name.
+by its name, on its platform wherever this runs.
 """
 
 import json
@@ -19,7 +20,6 @@ import subprocess
 import sys
 import tempfile
 import unittest
-from functools import partial
 from pathlib import Path
 
 from suite_shares import name_failed
@@ -28,8 +28,8 @@ GO = Path(__file__).resolve().parents[1] / "go"
 # The landing suite reaches nothing beyond loopback: never fetch a toolchain or a module,
 # so a go.mod asking for either fails here instead of hanging; one static binary, no C.
 ENV = {**os.environ, "GOTOOLCHAIN": "local", "GOPROXY": "off", "CGO_ENABLED": "0"}
-# Where Go's ak ships: the architecture each system is built for.
-PLATFORMS = {"linux": "amd64", "darwin": "arm64", "windows": "amd64"}
+# Where Go's ak ships, each platform as `go tool dist list` names it.
+PLATFORMS = ("linux/amd64", "darwin/arm64", "windows/amd64")
 
 
 def run(*command, **env):
@@ -63,6 +63,24 @@ def failing(events):
     return sorted(whole | {about(event) for event in failed_tests if event["Package"] not in whole})
 
 
+def step(part, gofmt, out, **judge):
+    """The run of the step `part` names, `fmt`, `vet <platform>` or `build <platform>`, None
+    where it names none: on that platform wherever this runs, as a narrowing step may give a
+    part on another host than the one that named it."""
+    if part == "fmt":
+        # the module's own files, as `go fmt ./...` reads them: never a vendored module's
+        own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
+               if path.relative_to(GO).parts[0] != "vendor"]
+        return run(gofmt, "-l", *own)
+    named = re.fullmatch(r"(vet|build) (\w+)/(\w+)", part)
+    if not named:
+        return None
+    what, system, arch = named.groups()
+    # Vetted tests and all; built as the one program Go's ak ships.
+    target = ("./...",) if what == "vet" else ("-o", os.path.join(out, system), "./cmd/ak")
+    return run("go", what, *target, GOOS=system, GOARCH=arch, **judge)
+
+
 def tested(part, **env):
     """The failing parts of the module's tests `part` names, and what they printed: a test
     alone in its package, else the package or pattern whole."""
@@ -94,31 +112,24 @@ class Go(unittest.TestCase):
         release = re.search(r"^toolchain (\S+)$", (GO / "go.mod").read_text(), re.M)
         self.assertTrue(release, "go/go.mod names no toolchain: the Go release that judges go/")
         judge = {"GOTOOLCHAIN": release[1]}
-        found = run("go", "env", "GOROOT", **judge)
+        found = run("go", "env", "GOROOT", "GOOS", "GOARCH", **judge)
         self.assertEqual(found.returncode, 0, f"go env {judge}\n{found.stdout}{found.stderr}")
-        root = found.stdout.strip()
-        # the module's own files, as `go fmt ./...` reads them: never a vendored module's
-        own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
-               if path.relative_to(GO).parts[0] != "vendor"]
+        root, system, arch = found.stdout.splitlines()
+        gofmt = Path(root, "bin", "gofmt")
         failed, shown = [], []
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
-            # A step passes exiting 0 with nothing on its stdout, where `gofmt -l` names the
-            # files `go fmt ./...` would format.
-            steps = {"fmt": partial(run, Path(root, "bin", "gofmt"), "-l", *own),
-                     **{f"vet {name}": partial(run, "go", "vet", "./...", GOOS=name, GOARCH=arch,
-                                               **judge)
-                        for name, arch in PLATFORMS.items()},
-                     **{f"build {name}": partial(run, "go", "build", "-o", os.path.join(out, name),
-                                                 "./cmd/ak", GOOS=name, GOARCH=arch, **judge)
-                        for name, arch in PLATFORMS.items()}}
             # Vetted for each platform, tests and all, before any test runs: a test file calling
-            # a helper behind a build tag of its own compiles here and fails another platform's
-            # `go test`.  Every part runs whatever one before it did: a re-run of the failing
-            # ones alone passes this file only where every other part has passed.
-            for part in sys.argv[1:] or ["fmt", *(f"vet {name}" for name in PLATFORMS), "./...",
-                                         *(f"build {name}" for name in PLATFORMS)]:
-                if part in steps:
-                    done = steps[part]()
+            # a helper behind a build tag of its own compiles on one platform and fails another's
+            # `go test`; first the caller's own, where its tests run, once where Go's ak ships on
+            # it.  Every part runs whatever one before it did: a re-run of the failing ones alone
+            # passes this file only where every other part has passed.
+            for part in sys.argv[1:] or dict.fromkeys(
+                    ["fmt", f"vet {system}/{arch}", *(f"vet {name}" for name in PLATFORMS),
+                     "./...", *(f"build {name}" for name in PLATFORMS)]):
+                done = step(part, gofmt, out, **judge)
+                if done:
+                    # A step passes exiting 0 with nothing on its stdout, where `gofmt -l` names
+                    # the files `go fmt ./...` would format.
                     names = [part] if done.returncode or done.stdout else []
                     printed = done.stdout + done.stderr
                 else:

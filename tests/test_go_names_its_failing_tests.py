@@ -1,12 +1,14 @@
 """A failing tests/test_go.py names what failed in the file FAILED_PARTS names, read from
 `go test -json`'s events: a top-level test any of whose runs failed as `<package>.<Test>`; a
 package whose test binary died, or that failed with no test of its own failing, by its import
-path and none of its tests; a step by what it checks.  Given parts it runs just those after the
-toolchain check, a named test with no event failing as not there; without, every part in its
-order.  The caller's GOFLAGS hold in every run it makes.
+path and none of its tests; a step by what it checks, the vet of the caller's own platform among
+them.  Given parts it runs just those after the toolchain check, a step on its platform, a named
+test with no event failing as not there; without, every part in its order.  The caller's GOFLAGS
+hold in every run it makes.
 
-Offline: the real test_go.py runs with a fake `go` first on PATH, noting each call and its
-GOFLAGS, whose `test -json` prints the events a test hands it, whatever it is asked.
+Offline: the real test_go.py runs with a fake `go` first on PATH, on the platform ACME_HOST
+names, noting each call and its GOFLAGS, whose `test -json` prints the events a test hands it,
+whatever it is asked.
 """
 
 import os
@@ -27,7 +29,7 @@ esac
 echo "$call" >>"$ACME_LOG"
 echo "$GOFLAGS" >>"$ACME_FLAGS"
 case "$1" in
-env) echo "$ACME_ROOT" ;;
+env) echo "$ACME_ROOT"; echo "$ACME_HOST" | tr / '\n' ;;
 test) cat "$ACME_EVENTS"; ! grep -q '"Action":"fail"' "$ACME_EVENTS" ;;
 *) case "$ACME_BROKEN" in *"$call"*) echo "$call broke" >&2; exit 1 ;; esac ;;
 esac
@@ -39,7 +41,7 @@ printf %s "$ACME_UNFORMATTED"
 '''
 GOFLAGS = "-skip=TestWidget -count=2"
 ACME, WIDGET = "agentkit/internal/acme", "agentkit/internal/widget"
-TOOLCHAIN = "go env GOROOT"
+TOOLCHAIN = "go env GOROOT GOOS GOARCH"
 # t.Fatal in a subtest ends its run `fail`, then its test's, then its package's.
 FATAL = r'''{"Action":"start","Package":"agentkit/internal/acme"}
 {"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
@@ -90,16 +92,18 @@ class GoNamesItsFailingTests(unittest.TestCase):
         path = self.root / name
         return path.read_text().splitlines() if path.exists() else []
 
-    def checked(self, *parts, events=PASSES, **env):
-        """test_go.py's run for `parts`: its exit code, output, named parts and calls."""
+    def checked(self, *parts, events=PASSES, host="linux/arm64", **env):
+        """test_go.py's run for `parts` on `host`: its exit code, output, named parts and calls."""
         (self.root / "events").write_text(events)
+        for name in ("calls", "flags", "parts"):
+            (self.root / name).unlink(missing_ok=True)
         done = subprocess.run(
             [sys.executable, REPO / "tests/test_go.py", *parts],
             env=dict(os.environ, PATH=f"{self.root / 'bin'}{os.pathsep}{os.environ['PATH']}",
                      GOFLAGS=GOFLAGS, ACME_LOG=str(self.root / "calls"),
                      ACME_FLAGS=str(self.root / "flags"), ACME_ROOT=str(self.root / "goroot"),
                      ACME_EVENTS=str(self.root / "events"), FAILED_PARTS=str(self.root / "parts"),
-                     **env),
+                     ACME_HOST=host, **env),
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         return done.returncode, done.stdout + done.stderr, self.read("parts"), self.read("calls")
 
@@ -123,15 +127,29 @@ class GoNamesItsFailingTests(unittest.TestCase):
         code, out, parts, calls = self.checked(
             ACME_UNFORMATTED="cmd/ak/main.go\n",
             ACME_BROKEN="go vet darwin/arm64 go build windows/amd64")
-        self.assertEqual((code, parts), (1, ["fmt", "vet darwin", "build windows"]), out)
+        self.assertEqual((code, parts),
+                         (1, ["fmt", "vet darwin/arm64", "build windows/amd64"]), out)
         self.assertIn("cmd/ak/main.go", out)
-        self.assertEqual(calls, [TOOLCHAIN, "gofmt -l", "go vet linux/amd64", "go vet darwin/arm64",
-                                 "go vet windows/amd64", "go test -json -timeout 0 ./...",
-                                 "go build linux/amd64", "go build darwin/arm64",
-                                 "go build windows/amd64"])
+        self.assertEqual(calls, [TOOLCHAIN, "gofmt -l", "go vet linux/arm64", "go vet linux/amd64",
+                                 "go vet darwin/arm64", "go vet windows/amd64",
+                                 "go test -json -timeout 0 ./...", "go build linux/amd64",
+                                 "go build darwin/arm64", "go build windows/amd64"])
+
+    def test_a_failing_vet_of_the_callers_own_platform_is_named_by_it_and_given_runs_there(self):
+        code, out, parts, _ = self.checked(ACME_BROKEN="go vet linux/arm64")
+        self.assertEqual((code, parts), (1, ["vet linux/arm64"]), out)
+        code, out, parts, calls = self.checked("vet linux/arm64", host="linux/amd64",
+                                               ACME_BROKEN="go vet linux/arm64")
+        self.assertEqual((code, parts, calls), (1, ["vet linux/arm64"],
+                                                [TOOLCHAIN, "go vet linux/arm64"]), out)
+
+    def test_the_callers_own_platform_go_ships_on_is_vetted_first_and_once(self):
+        _, out, _, calls = self.checked(host="darwin/arm64")
+        self.assertEqual([call for call in calls if call.startswith("go vet")],
+                         ["go vet darwin/arm64", "go vet linux/amd64", "go vet windows/amd64"], out)
 
     def test_given_parts_it_runs_just_those_after_the_toolchain_check(self):
-        code, out, parts, calls = self.checked(f"{ACME}.TestFixApi", WIDGET, "build windows")
+        code, out, parts, calls = self.checked(f"{ACME}.TestFixApi", WIDGET, "build windows/amd64")
         self.assertEqual((code, parts), (0, []), out)
         self.assertEqual(calls, [TOOLCHAIN,
                                  f"go test -json -timeout 0 -run ^TestFixApi$ {ACME}",
@@ -143,9 +161,9 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertIn(f"{ACME}.TestGone is not there", out)
 
     def test_the_callers_goflags_hold_in_every_run(self):
-        self.checked()
-        self.checked(f"{ACME}.TestFixApi")
-        self.assertEqual(self.read("flags"), [GOFLAGS] * len(self.read("calls")))
+        for parts in ((), (f"{ACME}.TestFixApi", "vet linux/arm64")):
+            calls = self.checked(*parts)[3]
+            self.assertEqual(self.read("flags"), [GOFLAGS] * len(calls))
 
 
 if __name__ == "__main__":
