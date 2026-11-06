@@ -59,6 +59,10 @@ type plugin struct {
 	// line (`title_command`).
 	opens, titled bool
 	launch        func() (*run.Object, []string)
+	launched      func(string, string, *run.Object) (*run.Object, []string, error)
+	retire        func(*run.Object) error
+	handed        func(*run.Object) (string, bool)
+	moveReady     func() bool
 	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool

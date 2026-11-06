@@ -1,7 +1,8 @@
 """A turn the owner began while the seat waited for usage is never reopened under or typed into.
 
 Such a turn ran on an account that answered it, so no limit cut it: where that account has
-room again the wait just ends; a move to another account waits for the turn's end.  A turn
+room again the wait just ends, though its screen redraws while the meters are read, unless
+the account refuses it meanwhile; a move to another account waits for the turn's end.  A turn
 that was running when the wait began is the one the limit cut, and goes on as before.
 
 The fixture is `test_seat_account`'s: temporary HOME, fake tmux and meters, offline.
@@ -12,7 +13,7 @@ import unittest
 from unittest.mock import patch
 
 import test_seat_account as seats
-from agentkit import watch
+from agentkit import usage, watch
 
 NAME = seats.NAME
 
@@ -41,6 +42,19 @@ class UsageWaitBetweenTurns(unittest.TestCase):
         self.assertEqual((self.commands, self.typed), ([], []))
         self.assertIsNone(watch.seat_read(NAME)["usage_wait"])
         self.assertFalse(watch.seat_read(NAME).get("midturn"))
+
+    def test_a_refusal_while_the_meters_are_read_keeps_the_wait(self):
+        self.meters(20, 20)
+        self.waiting(began=60)
+        collect = usage.collect
+
+        def refused(cfg):
+            self.pane = "Usage limit reached"
+            return collect(cfg)
+        with patch.object(usage, "collect", side_effect=refused):
+            self.tick()
+        self.assertEqual((self.commands, self.typed), ([], []))
+        self.assertTrue(watch.seat_read(NAME)["usage_wait"])
 
     def test_a_move_to_another_account_waits_for_the_owner_s_turn_to_end(self):
         self.meters(100, 20)

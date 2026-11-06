@@ -269,6 +269,10 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
 			return true
 		}
+		// a run with review off or no limit is Python's whole, its status too
+		if !run.Carries(entry.record) {
+			return true
+		}
 	}
 	return false
 }

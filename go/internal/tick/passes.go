@@ -11,7 +11,6 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
-	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -19,7 +18,7 @@ import (
 // A pass is one row of the tick, as one of Python's watch.local_passes.
 type pass struct {
 	name string
-	dry  bool         // a dry tick reads it too
+	dry  bool         // a dry tick runs it too, as Python's does
 	idle func() bool  // whether it has nothing to act on, asked at its turn: false for a read Go cannot make
 	step func() error // what Go carries out of it: errLeft where it finds what Go does not carry, else an error is its WARN line
 }
@@ -33,13 +32,14 @@ var errLeft = errors.New("left to Python")
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
 // that act whatever the home holds: usage refresh, login reminder, browser tidy, machine check
 // and harness upgrade.  Each row reads the seats at its own turn, and a home holding a seat
-// Go does not read leaves the tick to Python at the first row that reads one.
+// Go does not read leaves the tick to Python at the first row that reads one. A step a dry tick
+// runs checks t.dry where it would act; until it does, it is wet.
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
-		{"merge checks", true, t.dryly(noMergeWork), t.mergeChecks},
+		{"merge checks", true, t.dryly(noMergeWork), t.wet(t.mergeChecks)},
 		// installation establishes a baseline; another boot leaves recovery to Python
-		{"boot resume", true, all(configured, seated, noBootResume), bootBaseline},
+		{"boot resume", true, all(configured, seated, noBootResume), t.wet(bootBaseline)},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
@@ -47,24 +47,22 @@ func table(t *ticking) []pass {
 		// worker tokens are in secrets, and a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
-		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.health},
+		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
 		{"switched turns", false, configured, accountTurns},
 		{"dead loops", true, all(configured, noDeadLoops), nil},
 		{"dead jobs", true, jobless, nil},
 		{"stall recovery", true, all(configured, noStallRecovery), nil},
-		{"lease scan", false, noLeaseScan, nil},
-		{"lease restart", false, noLeaseRestart, nil},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		{"login reminder", false, nil, loginReminder},
 		{"token reminder", false, nil, nil},
 		{"exhausted resume", true, noExhaustedResume, nil},
 		{"error retry", true, noErrorRetry, nil},
-		{"waiting resume", true, t.waitingIdle, t.waiting},
+		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
 		{"old endings", false, noOldEndings, nil},
 		{"endings", false, t.endingsIdle, t.endings},
 		{"job handbacks", false, jobless, nil},
-		{"ended waits", false, all(configured, seated, waitsOnNothing), nil},
+		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
 		{"seat tokens", false, run.Historyless, nil},
@@ -73,7 +71,7 @@ func table(t *ticking) []pass {
 		{"weekly audit", false, configured, t.audit},
 		{"typed answers", false, every(unasked), nil},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
-		{"notification retry", true, t.dryly(notify.QuietOutbox), t.retryNotifications},
+		{"notification retry", true, nil, t.retryNotifications},
 		{"end hook", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
@@ -96,9 +94,18 @@ func table(t *ticking) []pass {
 	}
 }
 
-// dryly is read where the tick is a dry one, which carries out no step to read it in.
+// dryly is read where the tick is a dry one, which carries out no wet step to read it in.
 func (t *ticking) dryly(read func() bool) func() bool {
 	return func() bool { return !t.dry || read() }
+}
+
+// wet is a step that does not check t.dry yet: a dry tick runs none of it, and its row's idle
+// read answers for it.
+func (t *ticking) wet(step func() error) func() error {
+	if t.dry {
+		return nil
+	}
+	return step
 }
 
 func all(reads ...func() bool) func() bool {

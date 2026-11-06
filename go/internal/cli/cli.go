@@ -18,6 +18,7 @@ import (
 )
 
 func Main(args []string, out, errOut io.Writer) int {
+	config.MigratePolicy()
 	command, rest, help := "attach", args, ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, rest, help = args[0], args[1:], args[0]
@@ -45,12 +46,12 @@ func Main(args []string, out, errOut io.Writer) int {
 		return 2
 	}
 	if entry, ok := commandhelp.Help(help, rest); ok {
-		fmt.Fprint(out, commandhelp.Render(entry, func(text string) string { return terminal.Dim(out, text) }))
+		fmt.Fprint(out, helpWords(commandhelp.Render(entry, func(text string) string { return terminal.Dim(out, text) })))
 		return 0
 	}
 	host.Mark("ak " + command) // what the command starts, through every way Go starts a program
 	if command == "browser" && len(rest) == 0 {
-		fmt.Fprint(out, commandhelp.Render("browser", func(text string) string { return text }))
+		fmt.Fprint(out, helpWords(commandhelp.Render("browser", func(text string) string { return text })))
 		return 2
 	}
 	if command == "run" && (!runSubcommand(rest) || rest[0] == "resume") {

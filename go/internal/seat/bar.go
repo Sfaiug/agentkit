@@ -310,7 +310,7 @@ func barSessions() ([]barRow, bool) {
 			continue
 		}
 		answered = true
-		if (len(parts) == 3 || parts[3] == "" || resolved(parts[3]) == home) && parts[1] != tmux.Control {
+		if (len(parts) == 3 || parts[3] == "" || resolved(parts[3]) == home) && parts[1] != config.Control {
 			rows = append(rows, barRow{id: parts[0], name: parts[1], mark: parts[2]})
 		}
 	}

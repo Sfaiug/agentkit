@@ -25,7 +25,7 @@ func TestADoneQueuesItsWorkOnceEvenWhenItsCardIsLost(t *testing.T) {
 	work := func(string) ([]any, error) { return []any{[]any{"acme/api", "API ships"}}, nil }
 	cardPath := seatFile("card", "acme", "json")
 	for range 2 {
-		if carried, err := TurnedPlan("acme", said, work); !carried || err != nil || !QuietOutbox() {
+		if carried, err := TurnedPlan("acme", said, work); !carried || err != nil {
 			t.Fatalf("carried=%v: %v", carried, err)
 		}
 		before, _ := os.ReadFile(cardPath)
@@ -39,8 +39,10 @@ func TestADoneQueuesItsWorkOnceEvenWhenItsCardIsLost(t *testing.T) {
 		if len(events) != 1 {
 			t.Fatalf("queued %d events", len(events))
 		}
+		// went out or was turned away: a held done would neither deliver nor retry
 		event, _ := run.ReadJSON(events[0])
-		if event.Str("kind") != "done" || event.Dict("payload").Str("content") != "✅ Done · acme" {
+		status := event.Str("status")
+		if event.Str("kind") != "done" || status != "delivered" && status != "disabled" || event.Dict("payload").Str("content") != "✅ Done · acme" {
 			t.Fatal(run.Line(event))
 		}
 		if err := os.Remove(cardPath); err != nil {

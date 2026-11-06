@@ -238,9 +238,10 @@ func merged(evidence, proof *run.Object) *run.Object {
 // weigh is Python's weigh_review: a quote shows where to look; only a failing command decides what
 // must be fixed.  A finding's command runs on this commit and on the base with the changed tests
 // laid over: a defect elsewhere that fails on base too is a follow-up.  A follow-up from before the
-// task is proven on base; one of this change on this commit too.  In a later round a new finding
-// blocks only inside the fix delta, or with a proof that passes on the commit the last review
-// judged; one at an earlier finding's site upholds it.
+// task is proven on base; one without --before on this commit too, and blocks as a finding where
+// it passes on base: the change caused it.  In a later round a new finding blocks only inside the
+// fix delta, or with a proof that passes on the commit the last review judged; one at an earlier
+// finding's site upholds it.
 func (r *repoPlace) weigh(l *loop, row *run.Object, index int, j *judging) (*run.Object, error) {
 	head, err := r.git().Must("rev-parse", "HEAD")
 	if err != nil {
@@ -267,6 +268,10 @@ func (r *repoPlace) weigh(l *loop, row *run.Object, index int, j *judging) (*run
 			}
 			evidence = merged(run.Fields("run", command, "commit", head), proof)
 			evidence.Set("base", merged(run.Fields("sha", r.baseSHA), base))
+			// passing on base and failing here shows the change caused it, wherever its site
+			if code, _ := base.Int("returncode"); handin.ProofFailed(evidence) && code == 0 && !base.Truthy("killed") {
+				kind = "finding"
+			}
 			deferred = !(handin.ProofFailed(evidence) && handin.ProofFailed(base))
 		}
 	case kind == "follow-up":

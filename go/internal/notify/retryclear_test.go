@@ -47,7 +47,7 @@ func TestRetryDefersQuestionRetirementAfterTheCardRow(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
-		if carried, err := RetryPending(said, io.Discard); carried || err != nil {
+		if carried, err := RetryPending(said, false, nil, io.Discard); carried || err != nil {
 			t.Fatal("a queued retirement was not left to Python", carried, err)
 		}
 		if after, err := os.ReadFile(path); err != nil || string(after) != before || hits.Load() != 0 {

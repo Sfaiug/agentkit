@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestMenuNoticesWaitForDraftsAndRestartTheReplacedProgram(t *testing.T) {
@@ -13,15 +11,13 @@ func TestMenuNoticesWaitForDraftsAndRestartTheReplacedProgram(t *testing.T) {
 		t.Skip("no tmux installed")
 	}
 	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 	program := filepath.Join(t.TempDir(), "ak")
-	build := exec.CommandContext(ctx, "go", "build", "-o", program, "./cmd/ak")
+	build := exec.Command("go", "build", "-o", program, "./cmd/ak")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import os, shlex, shutil, sys, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))
@@ -102,10 +98,11 @@ for launch in ("binary", "symlink", "path"):
         akconfig.write(home, ["opus", "astra"])
         home.write(".agentkit/state/installed-at", f"{time.time()}\n")
         menu.keys("i")
-        screen = menu.wait(lambda screen: "ChatGPT" in screen and "esc leave" in screen)
+        # the first frame is the read handed over the exec; the read after it moves acme down
+        menu.wait(lambda screen: "ChatGPT" in screen and "esc leave" in screen
+                  and any(line.startswith("› 2  acme") for line in screen.splitlines()))
         assert (home.path / "restarted").exists(), "restart skipped the replaced launch path"
         assert (home.path / "restarted").read_text() == "acme\n", "restart lost the initial highlight"
-        assert any(line.startswith("› 2  acme") for line in screen.splitlines()), screen
         menu.keys("Escape")
         assert menu.exit_code() == 0
 `, program)

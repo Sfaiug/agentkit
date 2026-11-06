@@ -11,7 +11,6 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/commandhelp"
-	"agentkit/internal/tmux"
 )
 
 var sessionPunctuation = regexp.MustCompile(`[^a-z0-9_-]+`)
@@ -58,6 +57,10 @@ func SessionPath(name string) (string, error) {
 	return sessionPath(Fold(name))
 }
 
+// Control is Go's own hidden session on ak's server, a name no seat takes: no caller is ever
+// shown it.
+const Control = "_ak"
+
 // SessionName is the seat name Python's session_name makes of a word: lowercased, each run of
 // anything but a-z, 0-9, _ and - one dash, cut to 40, and none for ak's control session's name.
 func SessionName(raw string) string {
@@ -70,7 +73,7 @@ func SessionName(raw string) string {
 		name = name[:40]
 	}
 	name = strings.Trim(name, "-")
-	if name == tmux.Control {
+	if name == Control {
 		return ""
 	}
 	return name

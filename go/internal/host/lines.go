@@ -128,7 +128,14 @@ func (r Readings) heavyLimit() int {
 // derived_heavy_limit(running=0, unit=True): each piece costs what the suite measured, never less
 // than a heavy suite's first estimate, and fits the unit's own memory room too.
 func Pieces(cpus, memMB float64) int {
-	return Read().fit(0, max(cpus, heavyCPUs), max(memMB, heavyMemMB), true)
+	cpus, memMB = Cost(cpus, memMB)
+	return Read().fit(0, cpus, memMB, true)
+}
+
+// Cost is what one piece of a suite costs as Python's gate.suite_cost gives it: what a run
+// measured, never less than a heavy suite's first estimate.
+func Cost(cpus, memMB float64) (float64, float64) {
+	return max(cpus, heavyCPUs), max(memMB, heavyMemMB)
 }
 
 // fit is running plus how many more jobs of that cost the headroom fits, at least one; with unit,
