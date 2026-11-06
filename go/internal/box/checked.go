@@ -30,7 +30,7 @@ const drainFlag = "--drain"
 // the watch says ended it.  The watch counts silence from the box being up and finds a declared
 // `timeout` among the box's own processes.
 func RunCheck(ctx context.Context, watch host.Watch, argv []string, env map[string]string, workspace, out string, output *os.File) (int, string, error) {
-	file := filepath.Join(config.Resolve(out), "box-processes.json")
+	file := filepath.Join(config.Resolve(out), Report)
 	homes := []string{config.Resolve(cmp.Or(env["HOME"], config.UserHome()))}
 	if account, err := user.Current(); err == nil {
 		homes = append(homes, config.Resolve(account.HomeDir))
