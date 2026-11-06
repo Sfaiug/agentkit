@@ -82,7 +82,7 @@ func run(server string, args ...string) (string, error) {
 // asked is what one call answers, asked as a UTF-8 client whatever this process's locale: tmux shows
 // any other client a tab, as every format here divides its fields, and each letter past ASCII as `_`.
 func asked(ctx context.Context, server string, args ...string) ([]byte, error) {
-	return command(ctx, server, append([]string{"-u"}, args...)...).Output()
+	return command(ctx, server, append(utf8(), args...)...).Output()
 }
 
 // command is one call to a server. $TMUX goes: inside somebody's tmux, a call to the default

@@ -96,6 +96,11 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		return false, nil
 	}
 	spent := own.Spent != ""
+	if spent { // a done seat has nothing a spent account would continue: it stays put
+		if done, err := doneUnprompted(live.Name, live.Own, live.Record, file, found); done || err != nil {
+			return done, nil
+		}
+	}
 	work := holding(live.Name)
 	if !spent && len(work) > 0 {
 		return true, nil
