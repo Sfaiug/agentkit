@@ -6,11 +6,6 @@ import (
 	"agentkit/internal/seat"
 )
 
-func restingGone() bool {
-	home, known := seat.TickHome(time.Now())
-	return known && home.RestingGone()
-}
-
 func stampGone(now time.Time) error {
 	home, known := seat.TickHome(now)
 	if !known {

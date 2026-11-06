@@ -354,6 +354,7 @@ func quiet(path string) bool {
 	if err != nil || data == nil {
 		return false
 	}
+	data.Delete("boot_resume") // the seats the tick reopened after the boot it last saw
 	for _, key := range data.Keys() {
 		if key == "boot_id" || key == "tick" || key == "tick_completed_at" {
 			continue

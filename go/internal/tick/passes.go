@@ -39,8 +39,7 @@ func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
 		{"merge checks", true, t.dryly(noMergeWork), t.wet(t.mergeChecks)},
-		// installation establishes a baseline; another boot leaves recovery to Python
-		{"boot resume", true, all(configured, seated, noBootResume), t.wet(bootBaseline)},
+		{"boot resume", true, configured, t.bootResume},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
