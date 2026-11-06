@@ -35,35 +35,36 @@ type piece struct {
 	asked  float64
 }
 
-// pieces runs cmd, which names AK_SHARD, in pieces, Python's gate.run_suite with no turn held: on
-// the suite helper that takes it, cut in twice the VMs that machine fits empty and run on the VMs it
-// has room for now, more as room frees, else here, in as many as this host fits at once.  Each has
-// its share `AK_SHARD=k/N`, its own silence window and the list's deadline, its output added to
-// progress under its own header as it ends.  A piece red on the helper, whose offline VM fails a
+// pieces runs cmd, which names AK_SHARD, in pieces, Python's gate.run_suite, where its placement on
+// says: on the suite helper that took it, cut in twice the VMs that machine fits empty and run on
+// the VMs it has room for now, more as room frees; else here, on the heavy-suite turns held, cut in
+// twice the places they were admitted at and run on a place each, more as turns free; else, where no
+// turn is taken, in as many as this host fits at once.  Each has its share `AK_SHARD=k/N`, its own
+// silence window and the list's deadline, its output added to progress under its own header as it
+// ends, and is told when it holds a turn.  A piece red on the helper, whose offline VM fails a
 // command that needs this host, runs here after the others, which decides (there).  A red piece
 // here goes once more alone after the others, which decides it, a pass then said by a `flaky:`
 // record unless the kernel killed it for memory (starved.go); one stopped at its limit stops the
-// rest.  Each go leaves its row in history under rows where it ran, those on the helper dropped
-// where it hands the suite on.  The suite ends as its first red piece did, and hands on what
-// handedOn says.
+// rest.  A whole go after the others runs on a turn here, taken first where the suite holds none,
+// and a go told it holds one that answers busy never ran: its first beside the others or any go
+// after, it goes again alone once its turn was given back for a poll (again).  Each go leaves its
+// row in history under rows where it ran, those on the helper dropped where it hands the suite on.
+// The suite ends as its first red piece did, and hands on what handedOn says.
 //
-// What Python does beyond that is not Go's yet and differs here: a heavy-suite turn, and the
-// suite's pace and cost measured for its next run.
-func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, path string, rows *history.Checked) (ran, string, error) {
+// What Python does beyond that is not Go's yet and differs here: the suite's pace and cost measured
+// for its next run.
+func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (ran, string, error) {
 	asked := clock() // each piece's first go is asked for now, a later one as the one before it ends
 	cpus, memory := suiteCost(l.dir, cwd, cmd)
-	away, here, err := helper.Start(cwd, cpus, memory, cmd, l.say)
-	if err != nil {
-		return ran{}, "", err
-	}
+	away, here := on.away, on.here
 	count := host.Pieces(cpus, memory)
 	places := count
-	if away != nil {
-		defer away.Finish()
+	switch {
+	case away != nil:
 		// cut for the whole machine, not the room it has now, so the suite grows into what frees
 		count, places = cmp.Or(2*away.Most, count), away.Count
-	} else {
-		l.say("suite runs here: " + here)
+	case on.holds():
+		count, places = 2*on.hold.Places(), 0 // each turn starts its place (Grow)
 	}
 	ctx, cancel := context.WithCancelCause(l.ctx)
 	defer cancel(nil)
@@ -96,7 +97,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		}
 		l.say(fmt.Sprintf("AK_SHARD=%s %s", at.shard, where))
 		kills, flaky := host.OOMKills(), at.ended.flaky // the tests its earlier goes saw fail, then pass
-		if left := time.Until(deadline); left <= 0 {
+		if left := time.Until(*deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
 		} else {
 			place := ""
@@ -110,7 +111,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 				held.Unlock()
 				at.ended, err = alone.there(at.there, at.shard, left, out)
 			} else {
-				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, only)
+				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
 			at.asked = clock()
@@ -164,12 +165,19 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			defer started.Done()
 			joined = alone.grow(cwd, cpus, memory, cmd, waiting, place)
 		}()
+	} else if on.holds() {
+		started.Add(1)
+		go func() {
+			defer started.Done()
+			on.hold.Grow(ctx, func() bool { return len(waiting) > 0 }, func() { place(nil) })
+		}()
 	}
 	started.Wait()
 	for _, there := range joined {
 		there.Finish()
 	}
-	err = cmp.Or(context.Cause(l.ctx), errors.Join(errs...))
+	on.hold.Alone()
+	err := cmp.Or(context.Cause(l.ctx), errors.Join(errs...))
 	if errors.Is(err, helper.ErrPython) {
 		for _, row := range onHelper {
 			row.Drop()
@@ -178,7 +186,36 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 	if err != nil {
 		return ran{}, "", err
 	}
+	// a go that answered busy never ran: alone, it goes again each time once its turn was given back
+	// for a poll (again); one on the suite helper held none here
+	settle := func(at *piece, why string, only []string) error {
+		for at.there == nil && ctx.Err() == nil {
+			if busy, err := l.again(on, cmd, at.ended, deadline); err != nil || !busy {
+				return err
+			}
+			if err := attempt(at, why, only); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	// a go once the others ended, Python's rerun: a whole one first takes a turn here where the suite
+	// holds none, as only named tests go without one
+	rerun := func(at *piece, why string, only []string) error {
+		if only == nil {
+			if err := l.turnHere(on, deadline); err != nil {
+				return err
+			}
+		}
+		if err := attempt(at, why, only); err != nil {
+			return err
+		}
+		return settle(at, why, only)
+	}
 	for _, at := range all {
+		if err := settle(at, pieceRetry, nil); err != nil {
+			return ran{}, "", err
+		}
 		if at.there != nil && at.ended.code != 0 && ctx.Err() == nil {
 			// its go here takes its place in the suite's output: a copy keeps what it printed there
 			kept, err := os.CreateTemp(l.dir, stem(path)+"-helper-failed-*.log")
@@ -192,13 +229,13 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			l.say(fmt.Sprintf("WARN AK_SHARD=%s failed on the suite helper; what it printed there: %s", at.shard, kept.Name()))
 			why := "helper " + at.there.Alias + " " + helper.Failure(at.ended.code)
 			at.there = nil
-			if err := attempt(at, why, nil); err != nil {
+			if err := rerun(at, why, nil); err != nil {
 				return ran{}, "", err
 			}
 		}
 		if at.ended.starved && ctx.Err() == nil {
 			// out of memory beside its siblings: once more after them
-			if err := attempt(at, pieceRetry, nil); err != nil {
+			if err := rerun(at, pieceRetry, nil); err != nil {
 				return ran{}, "", err
 			}
 		}
@@ -209,7 +246,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		if err != nil {
 			return ran{}, "", err
 		}
-		if err := retryTests(at, attempt); err != nil {
+		if err := retryTests(at, rerun); err != nil {
 			return ran{}, "", err
 		}
 		at.failed = failed
