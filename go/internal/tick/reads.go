@@ -21,9 +21,6 @@ func statePath(name string) string { return filepath.Join(config.Home(), "state"
 // cardless is whether no seat's card waits to be retired.
 func cardless() bool { return len(config.SeatRecords("card")) == 0 }
 
-// outageless is whether no outage is kept for the alive pass to forget.
-func outageless() bool { return missing(statePath("alive.json")) }
-
 // noRenting is whether ak may rent no machine and no suite noted one it needs, a note the pass
 // takes even so.
 func noRenting() bool { return !config.MayRent() && missing(statePath("google-cloud-need")) }

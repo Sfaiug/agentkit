@@ -38,7 +38,7 @@ func declares(checkout, key string) bool {
 // fetchProjects is the project rules row (orch.fetch_projects): each checkout's, and each project's
 // a seat is filed under, every branch fetched and origin/HEAD set again to origin's default branch,
 // which the later rows read. One that fails is named, after every other is fetched.
-func fetchProjects() error {
+func (t *ticking) fetchProjects() error {
 	repos, err := seatProjects()
 	if err != nil {
 		return err
@@ -54,6 +54,8 @@ func fetchProjects() error {
 	for _, repo := range checkouts {
 		if err := gitcall.Refresh(repo); err != nil {
 			failed = append(failed, err.Error())
+		} else {
+			t.fetched = append(t.fetched, repo)
 		}
 	}
 	if len(failed) > 0 {

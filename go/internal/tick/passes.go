@@ -95,9 +95,9 @@ func table(t *ticking) []pass {
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"machine check", false, nil, machines.Check},
-		{"project rules", false, checkoutsSeen, fetchProjects},
+		{"project rules", false, checkoutsSeen, t.fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
-		{"alive checks", false, all(noSeatAlive, outageless), nil},
+		{"alive checks", false, nil, t.alive},
 		{"night reads", false, noNights, t.nights},
 		{"live update", false, liveUpdateIdle, t.liveUpdate},
 	}

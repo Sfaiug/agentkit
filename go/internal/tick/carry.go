@@ -27,7 +27,8 @@ type ticking struct {
 	clock       func() time.Time
 	slowest     time.Duration
 	slowestName string
-	dry         bool // a dry tick: it runs the rows Python's does, each acting only where it checks this
+	dry         bool     // a dry tick: it runs the rows Python's does, each acting only where it checks this
+	fetched     []string // each project the project rules row fetched, for the rows after it to read
 	report      AuditReport
 }
 
