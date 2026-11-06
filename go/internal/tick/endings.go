@@ -11,8 +11,9 @@ import (
 
 func (t *ticking) endingsIdle() bool { return true } // this real row reads at its step
 
-// endings is offer_endings: decisions first, through the run's own hand-back. Cleanup,
-// orphan recovery and inbox questions remain Python's; a busy seat leaves its mark pending.
+// endings is offer_endings: decisions first, through the run's own hand-back, then each merge
+// question the inbox still owes. Cleanup and orphan recovery remain Python's, but for the card of
+// a seat nothing is left of (handback.Orphaned); a busy seat leaves its mark pending.
 func (t *ticking) endings() error {
 	type ending struct {
 		dir    string
@@ -21,9 +22,9 @@ func (t *ticking) endings() error {
 	var owed []ending
 	carried := run.Every(func(dir string, record *run.Object) bool {
 		if run.Active(record) {
-			return run.ProcessActive(record) || launchGrace(record, epoch(t.clock())) || resumeOrdered(record, epoch(t.clock()))
+			return goingOn(record, epoch(t.clock()))
 		}
-		if record.Truthy("pending_inbox") || record.Truthy("handback_typed") {
+		if record.Truthy("handback_typed") {
 			// Python finishes an existing line's Enter; Go must not leave it blocking the composer.
 			return false
 		}
@@ -37,13 +38,12 @@ func (t *ticking) endings() error {
 		if _, sweep := run.Reap(record); sweep {
 			return false
 		}
-		if handback.Awaiting(record, t.clock()) {
-			if run.Ended(record) && run.Seat(record) == "" {
-				return true // launched from no seat, it has nobody to hand back to (handback.announce)
-			}
-			if !seat.Watching(run.Seat(record)) {
-				return false
-			}
+		// launched from no seat, a run has nobody to hand its ending back to (handback.announce)
+		told := handback.Awaiting(record, t.clock()) && (run.Seat(record) != "" || !run.Ended(record))
+		if told && !seat.Watching(run.Seat(record)) && !handback.Orphaned(record) {
+			return false
+		}
+		if told || run.Ended(record) && record.Truthy("pending_inbox") {
 			owed = append(owed, ending{dir, record})
 		}
 		return true
@@ -56,8 +56,16 @@ func (t *ticking) endings() error {
 		if err := loop.OfferEnding(each.dir, t.log.line); err != nil {
 			return err
 		}
-		if current, _ := run.Read(each.dir); current != nil && current.Truthy("handback_typed") {
+		current, _ := run.Read(each.dir)
+		if current != nil && current.Truthy("handback_typed") {
 			return errLeft // this offer's text arrived, but its Enter did not
+		}
+		if current != nil && handback.Awaiting(current, t.clock()) && handback.Orphaned(current) {
+			return errLeft // its card was not Go's to send, or not accepted
+		}
+		if current != nil && run.Ended(current) && current.Truthy("pending_inbox") &&
+			!handback.AskAgain(each.dir, current, t.log.line, t.log.errOut) {
+			return errLeft
 		}
 	}
 	return nil

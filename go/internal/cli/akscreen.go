@@ -28,28 +28,24 @@ type reading struct {
 	handoff  bool
 }
 
-// readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it;
-// false where Go does not read that home, or where opening it would do more than draw.
+// readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it,
+// each seat's word written down as `ak orch list` writes it (menu.v5o_seat_info's look) once all
+// of the frame is Go's to draw; false where Go does not read that home, or where opening it would
+// do more than draw.
 func readFrame(now time.Time) (reading, bool) {
 	home, known := seat.Menu(now)
 	if !known || !home.Settled() {
 		return reading{}, false
 	}
 	var found reading
-	for i, each := range home.Seats {
+	for _, each := range home.Seats {
 		if each.Past() {
 			row, known := pastRow(each, now)
 			if !known {
 				return reading{handoff: true}, true
 			}
 			found.past = append(found.past, row)
-			continue
 		}
-		done, total := plan.Progress(each.Name)
-		builds, reviews := home.Crew(each)
-		model, alone := home.ModelName(each)
-		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
-			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	sortPast(found.past)
 	var err error
@@ -58,6 +54,19 @@ func readFrame(now time.Time) (reading, bool) {
 	}
 	if found.standing, err = menu.Standing(now); err != nil {
 		return reading{}, false
+	}
+	if home.Announce(now) != nil {
+		return reading{}, false
+	}
+	for i, each := range home.Seats {
+		if each.Past() {
+			continue
+		}
+		done, total := plan.Progress(each.Name)
+		builds, reviews := home.Crew(each)
+		model, alone := home.ModelName(each)
+		found.seats = append(found.seats, menu.Seat{Number: i + 1, Name: each.Name, Checkout: each.Checkout(), Model: model, Alone: alone,
+			Word: each.Word, Unsent: each.Unsent(), Said: each.Said(), Done: done, Total: total, Builds: builds, Reviews: reviews, Tasks: each.Tasks()})
 	}
 	return found, true
 }
@@ -88,11 +97,10 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		keyboard.Take() // stays up however long a read takes
 		painter.Restore(left, keyboard.Screen())
 	}
-	// a restart's first frame waits on no read, nor on a sweep: the tick's next one runs it
-	first, handed := handedRead()
-	known, said := handed, []string(nil)
+	first, handed := handedRead() // a restart's first frame waits on no read
+	known := handed
 	if !handed {
-		keyboard.While(func() { first, said, known = openedFrame(dry || overlay) })
+		keyboard.While(func() { first, known = readFrame(time.Now()) })
 	}
 	if !known || first.handoff {
 		keyboard.Give()
@@ -102,7 +110,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	keyboard.Sense()
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)
+	// a restart leaves its sweep to the tick; an act waiting for one answers a kill as a key's wait does
+	swept, heard := sweepBehind(handed || dry || overlay, &latest, keyboard.Wake)
+	settle := func() { keyboard.While(func() { <-swept }) }
 	reread := func() {
+		<-swept
 		if found, known := readFrame(time.Now()); known {
 			latest.Store(&found)
 		}
@@ -125,9 +137,6 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	if handed {
 		go reread()
 	}
-	if len(said) > 0 && !showMenuNotices(said, keyboard, painter) {
-		return 0
-	}
 	clock, model := &motion.Clock{}, menu.Model{}
 	if overlay {
 		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")
@@ -144,7 +153,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	framed := false // the last wait read no key: its frame is still up
 	for {
 		if model.New == nil {
-			if messages := menuNotices(); len(messages) > 0 {
+			if messages := append(heard(), menuNotices()...); len(messages) > 0 {
 				frame.Stop()
 				if !showMenuNotices(messages, keyboard, painter) {
 					return 0
@@ -186,6 +195,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				keyboard.Give()
 				return 0
 			case "start":
+				settle()
 				if leave, code := startMenuRow(&model, dry, overlay, keyboard, painter, errOut); leave {
 					return code
 				}
@@ -195,13 +205,21 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			}
 			continue
 		}
-		choice := menuChoice(key, drawn, shown.seats, keyboard)
+		choice, meter := menuChoice(key, drawn, shown.seats, keyboard), drawn.Meter(key)
 		switch {
 		case choice != "":
+			settle()
 			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
 			model.Highlight, clock = menu.Highlight{Cursor: choice}, &motion.Clock{}
+		case meter >= 0:
+			frame.Stop()
+			if !menuMeter(shown.cells[meter], &model.Highlight, keyboard, painter) {
+				keyboard.Give()
+				return notImplemented(errOut, "attach")
+			}
+			go reread() // a login made again greys its meter
 		case key.Name == "char" && (key.Char == "n" || key.Char == "N"):
 			var known bool
 			if model.New, known = newMenuRow(); !known {
@@ -217,7 +235,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		case key.Name == "char" && (key.Char == "p" || key.Char == "P") && len(shown.past) > 0:
 			frame.Stop()
 			returned := *shown
-			if leave, code := menuPast(&returned.past, dry, overlay, keyboard, painter, errOut); leave {
+			if leave, code := menuPast(&returned.past, settle, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
 			latest.Store(&returned)

@@ -1,6 +1,7 @@
 // Package history opens ~/.agentkit/history.db, the record of past work Python ak keeps, through
 // Go's one SQLite.  It keeps the database in Python's schema, as Python's history._connect brings
-// an older one up to today's tables, and holds the scoreboard's queries.
+// an older one up to today's tables, holds the scoreboard's queries, and writes a run's row
+// (row.go).
 package history
 
 import (
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -155,6 +157,34 @@ CREATE TABLE IF NOT EXISTS done_runs (
     run_id TEXT
 )
 `
+	meterReadingsSchema = `
+CREATE TABLE IF NOT EXISTS meter_readings (
+    provider TEXT,
+    account TEXT,
+    meter TEXT,
+    used REAL,
+    resets_at REAL,
+    window_secs REAL,
+    at REAL,
+    source TEXT,
+    PRIMARY KEY (provider, account, meter, at)
+)
+`
+	turnUsageSchema = `
+CREATE TABLE IF NOT EXISTS turn_usage (
+    turn TEXT,
+    run_id TEXT,
+    role TEXT,
+    account TEXT,
+    model TEXT,
+    began REAL,
+    at REAL,
+    input INTEGER,
+    cache_write INTEGER,
+    cache_read INTEGER,
+    output INTEGER
+)
+`
 )
 
 // The columns each table gained after it was first made, in the order Python adds them.
@@ -171,6 +201,7 @@ var migrations = []struct{ table, columns string }{
 	{"reviews", "round INTEGER, verdict TEXT, effort TEXT"},
 	{"owner", "conversation TEXT"},
 	{"dones", "work TEXT"},
+	{"meter_readings", "plan TEXT"},
 }
 
 // dropped are the columns of runs an older ak made and nothing reads or writes.
@@ -193,8 +224,8 @@ func Path() string {
 	return filepath.Join(config.Home(), "history.db")
 }
 
-// Open is history.db brought up to today's tables, keeping its rows; nil where none stands,
-// since Go makes none.  An error where Go leaves it to Python ak, having written nothing: SQLite
+// Open is history.db brought up to today's tables, keeping its rows; nil where none stands, as
+// a read makes none.  An error where Go leaves it to Python ak, having written nothing: SQLite
 // cannot open it, it keeps seats' tokens, which Python alone reads on, or its tokens wait for
 // Python's one-time repair.  All of it under Python's writers' lock, so what Go decides on stays
 // as it read it until it is done.
@@ -203,7 +234,7 @@ func Open() (*DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, nil
 	}
-	held, err := lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
+	held, err := writers(path)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +252,12 @@ func Open() (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// writers is Python's lock every writer of the database at path holds, waited for, Python's
+// waiter.writing: one writer at a time across processes, SQLite's own wait being too short.
+func writers(path string) (*os.File, error) {
+	return lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
 }
 
 // connect opens a connection that never moves the WAL into the database, which the tick alone
@@ -263,6 +300,12 @@ func leftToPython(path string) (recounted bool, err error) {
 	if err != nil || len(seats) > 0 {
 		return false, cmp.Or(err, errors.New("it keeps seats' tokens, which Python ak alone reads on"))
 	}
+	return db.recounted()
+}
+
+// recounted is whether Python's one-time recount of the tokens is done, an error where it is owed:
+// it reads the turns' event files, which only Python ak can.
+func (db *DB) recounted() (bool, error) {
 	version, err := db.rows("PRAGMA user_version")
 	if err != nil {
 		return false, err
@@ -308,7 +351,8 @@ func (db *DB) migrate(recounted bool) (err error) {
 		return err
 	}
 	for _, schema := range []string{runsSchema, phasesSchema, checksSchema, testRedsSchema,
-		conflictsSchema, reviewsSchema, findingsSchema, ownerSchema, donesSchema, doneRunsSchema} {
+		conflictsSchema, reviewsSchema, findingsSchema, ownerSchema, donesSchema, doneRunsSchema,
+		meterReadingsSchema, turnUsageSchema} {
 		if err := db.exec(schema); err != nil {
 			return err
 		}
@@ -380,7 +424,8 @@ func (db *DB) exec(statement string, args ...any) error {
 	return err
 }
 
-// rows are what the query answers, its ? bound to args in order.
+// rows are what the query answers, its ? bound to args in order, as Python's sqlite3 binds them:
+// a record's number as the int or float Python reads, true as 1, and what it cannot bind refused.
 func (db *DB) rows(query string, args ...any) ([]Row, error) {
 	stmt, _, err := db.conn.Prepare(query)
 	if err != nil {
@@ -388,13 +433,27 @@ func (db *DB) rows(query string, args ...any) ([]Row, error) {
 	}
 	defer stmt.Close()
 	for i, arg := range args {
+		if number, ok := arg.(run.Number); ok {
+			arg, _ = run.Num(number)
+			if whole, err := strconv.ParseInt(string(number), 10, 64); err == nil {
+				arg = whole
+			}
+		}
 		switch arg := arg.(type) {
+		case nil:
+			err = stmt.BindNull(i + 1)
+		case bool:
+			err = stmt.BindBool(i+1, arg)
 		case float64:
 			err = stmt.BindFloat(i+1, arg)
 		case int:
 			err = stmt.BindInt(i+1, arg)
+		case int64:
+			err = stmt.BindInt64(i+1, arg)
 		case string:
 			err = stmt.BindText(i+1, arg)
+		default:
+			err = fmt.Errorf("Error binding parameter %d: type '%T' is not supported", i+1, arg)
 		}
 		if err != nil {
 			return nil, err

@@ -316,6 +316,7 @@ class RulesCapTold(unittest.TestCase):
                     patch.object(run.watch, "ask_inbox", return_value=0), \
                     patch.object(run, "merge_own_pr", side_effect=AssertionError("merged")), \
                     patch.object(run, "fix_own_pr", return_value=False), \
+                    patch.object(run, "unanswered_head", return_value=None), \
                     patch.object(run, "gh_json", return_value=(info, "")):
                 directory = config.RUNS / f"pr-review-{own}"
                 directory.mkdir()

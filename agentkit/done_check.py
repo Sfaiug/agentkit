@@ -1,12 +1,15 @@
 """`ak orch check SEAT`: does the seat's work hold everything its owner said to it?
 
 One model's one turn, as `ak worker` runs one, under the reviewer's scratch role, in a workspace
-of its own holding what the seat was asked and what it did: each message its owner wrote it,
-oldest first, one file each (`notify.owner_messages`, ak's own lines left out); its plan; and
-each run it launched.  The model hands in each gap as a finding quoting the owner.  A quote that
-is not word for word in one message of the owner's is no gap, whatever the model wrote in its
-workspace: that is decided here, not by the model.  Exit 1 with a gap, 0 with none, and 2 (an
-Error) where nothing could be checked.
+of its own holding what the seat was asked and what it did: each message its owner wrote it
+(`notify.owner_messages`, ak's own lines left out) and each answer they gave on its question
+cards beside the question and choices it wrote (`answers`), oldest first, one file each; its
+whole conversation as its harness keeps it (`said`), so a "yes" reads against what the seat
+proposed and a question against the seat's reply; its plan; and each run it launched.  The model
+hands in each gap as a finding quoting the owner.  A quote that is not word for word in one
+message or answer of the owner's is no gap, whatever the model wrote in its workspace, the seat's
+replies, questions and choices included: that is decided here, not by the model.  Exit 1 with a
+gap, 0 with none, and 2 (an Error) where nothing could be checked.
 """
 
 import sys
@@ -19,17 +22,23 @@ ASK = """\
 # Does seat {name}'s work hold everything its owner asked of it?
 
 {workspace} holds the seat's record:
-- owner/: each message its owner wrote to it, a file each, oldest first from 1.md.
+- owner/: each message its owner wrote to it, and each answer they gave on its question
+  cards after the question and choices it wrote, a file each, oldest first from 1.md.
+- conversation.md: its whole conversation as its harness keeps it, oldest first. The user side
+  holds ak's lines as well as the owner's: only owner/ says which words are the owner's.
 - plan.md: its plan, `- [x]` a line done and `- [ ]` one open.
 - runs/: each run it launched: its title, state, whether it merged, its PR and its task.
 
-A gap is something the owner asked for that no done plan line and no merged run delivered. A
-later message of the owner's that drops or changes an ask replaces it.
+Read each message of the owner's where it stands in the conversation: a "yes" or "the second
+one" takes what the seat proposed just before. A gap is something the owner asked to be built or
+changed that no done plan line and no merged run delivered, or a question or a request to explain
+that no reply of the seat's answered. Only a later message of the owner's drops or changes an
+ask; the seat's replies never do.
 
 Hand in each gap as `ak hand-in finding owner/N.md:LINE "what the work does not hold" "why the
-owner needs it" --quote "the owner's words"`, the words copied exactly from that message. Here
-the quote is what makes a finding a gap, never a note: ak keeps each gap the owner's own words
-hold and drops every other. Then `ak hand-in done`, with gaps or with none.
+owner needs it" --quote "the owner's words"`, the words copied exactly from that message or
+answer. Here the quote is what makes a finding a gap, never a note: ak keeps each gap the owner's
+own words hold and drops every other. Then `ak hand-in done`, with gaps or with none.
 """
 
 
@@ -47,12 +56,25 @@ def checker(cfg, name):
     return order[0]
 
 
+def card(answer):
+    """An answer's file: the question and choices the seat wrote, then the owner's answer."""
+    return "".join([f"The seat asked on its question card: {answer['question']}\n",
+                    *(f"- {choice['label']}: {choice['description']}\n"
+                      for choice in answer["choices"]),
+                    f"\nThe owner answered:\n{answer['answer']}\n"])
+
+
 def gaps(cfg, name):
-    """The findings of the checking turn that quote one of the owner's messages."""
+    """The findings of the checking turn that quote one of the owner's messages or answers."""
     seat = notify.conversation_of(name)
     if seat is None or not seat[3]:
         raise config.Error(f"no seat named {name} whose conversation ak can read")
-    said = [message["text"] for message in notify.owner_messages(name, seat, strict=True)]
+    # (when, the owner's words, the file showing them), oldest first
+    owner = sorted([*((message["at"], message["text"], message["text"])
+                      for message in notify.owner_messages(name, seat, strict=True)),
+                    *((answer["at"], answer["answer"], card(answer))
+                      for answer in seat[0].answers(*seat[1:]))], key=lambda said: said[0])
+    said = [words for _, words, _ in owner]
     if not said:
         return []       # asked nothing, so nothing is missing
     model = checker(cfg, name)
@@ -60,7 +82,9 @@ def gaps(cfg, name):
     config.ensure_dirs()
     with tempfile.TemporaryDirectory(prefix=f"check-{name}-", dir=config.TMP) as tmp:
         workspace, out = Path(tmp, "workspace"), Path(tmp, "out")
-        files = {f"owner/{n}.md": text for n, text in enumerate(said, 1)}
+        files = {f"owner/{n}.md": shown for n, (_, _, shown) in enumerate(owner, 1)}
+        files["conversation.md"] = "".join(f"**{turn['who']}:** {turn['text']}\n\n"
+                                           for turn in seat[0].said(*seat[1:]) or [])
         files["plan.md"] = "".join(line + "\n" for line in plan.lines(name))
         for directory, state in record.runs():
             if transitions.launched_session(state) == name:

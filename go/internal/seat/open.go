@@ -1,7 +1,9 @@
 package seat
 
 import (
+	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -19,18 +21,13 @@ import (
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
+	usages "agentkit/internal/usage"
 )
 
-// serverWide is what Python's tmux.conf sets on ak's server, but its pane-died hook and Ctrl-b
-// m, which run Python's ak: a touch scrolls a seat's output, 50000 lines of it; a harness that
-// ends keeps its pane; a link it prints, and each repaint, reaches the owner's terminal whole.
-var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", "-g", "history-limit", "50000", ";",
-	"set-option", "-g", "remain-on-exit", "on", ";", "set-option", "-g", "allow-passthrough", "on", ";",
-	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks:sync", ";"}
-
-// Open is the shared new-seat launch used by the menu and ak orch. Its rulebook precedes
-// the adapter's command, and its record uses Python's locks and format. False leaves
-// unsupported harness launches, provider accounts and leftover seat files to Python.
+// Open is the shared new-seat launch used by the menu and ak orch, on the login OpeningAccount
+// picks. Its rulebook precedes the adapter's command, and its record uses Python's locks and
+// format. False leaves unsupported harness launches, a usage reading Python's and leftover seat
+// files to Python.
 func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	repo := Project(cwd)
 	if repo != "" {
@@ -44,8 +41,14 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
 	models, err := config.Models()
-	if !known || !opensAt(model) || !unclaimed(state, name) || unbound != nil || err != nil {
+	if !known || !unclaimed(state, name) || unbound != nil || err != nil {
 		return false, nil
+	}
+	account, err := OpeningAccount(orchestrator, model)
+	if errors.Is(err, usages.ErrPython) {
+		return false, nil
+	} else if err != nil {
+		return true, err
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
@@ -62,10 +65,13 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		return true, fmt.Errorf("no rulebook for %s: %w", name, err)
 	}
 	created := seconds(time.Now())
-	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
-		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
-	if !ok {
+	cmd, conversation, err := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
+		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)))
+	if cmd == nil {
 		os.Remove(rulebook)
+		if err != nil {
+			return true, fmt.Errorf("%s's %w", orchestrator, err)
+		}
 		return false, nil
 	}
 	fields := []field{{"orchestrator", orchestrator}, {"workers", modelList(workers)}}
@@ -79,7 +85,7 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if reviewers != nil {
 		fields = append(fields, field{"reviewers", modelList(reviewers)})
 	}
-	fields = append(fields, field{"cwd", cwd}, field{"repo", orNone(repo)}, field{"created", created}, field{"account", nil}, field{"home_account", nil})
+	fields = append(fields, field{"cwd", cwd}, field{"repo", orNone(repo)}, field{"created", created}, field{"account", orNone(account)}, field{"home_account", orNone(account)})
 	if unnamed {
 		fields = append(fields, field{"unnamed", true})
 	}
@@ -118,13 +124,26 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	hooks.HandTaskTemplate()
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
+		var issued *run.Object
+		var extra []string
+		var preparing error
 		// before the harness is up: its first prompt may be offered a newer rulebook already
-		if err := update(state, current, func(data *run.Object) bool {
-			data.Set("resumable", conversation != "")
+		err := update(state, current, func(data *run.Object) bool {
+			if issued, extra, preparing = harness.Launched(model.Harness, cwd, conversation, data.Copy()); preparing != nil {
+				return false
+			}
+			for _, key := range issued.Keys() {
+				fill(data, []field{{key, issued.Get(key)}})
+			}
 			data.Set("rulebook_sha", digest([]byte(text)))
 			return true
-		}); err != nil {
+		})
+		if err = cmp.Or(err, preparing); err != nil {
+			harness.Retire(model.Harness, issued)
 			return err
+		}
+		if len(extra) > 0 {
+			cmd = slices.Concat([]string{"env"}, extra, cmd)
 		}
 		// A fresh launch has begun no turn. Publish before starting it, so a hook can supersede
 		// this baseline even when the caller opens a seat after the tick's health row.
@@ -133,9 +152,11 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		}
 		if err := start(state, current, cwd, cmd); err != nil {
 			// no harness read them
+			harness.Retire(model.Harness, issued)
 			update(state, current, func(data *run.Object) bool {
-				data.Delete("resumable")
-				data.Delete("rulebook_sha")
+				for _, key := range append([]string{"resumable", "rulebook_sha"}, harness.RecordKeys(model.Harness)...) {
+					data.Delete(key)
+				}
 				return true
 			})
 			return err
@@ -193,7 +214,7 @@ func start(state, name, cwd string, cmd []string) error {
 		return err
 	}
 	target := "=" + name + ":"
-	args := slices.Concat(serverWide, []string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
+	args := slices.Concat([]string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
 	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
 		os.Remove(launch)
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)

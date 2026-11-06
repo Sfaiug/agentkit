@@ -78,16 +78,24 @@ func DryRun(seat, question string, out, errOut io.Writer) error {
 	return nil
 }
 
-// payload is what a page posts: its title, then the owner's mention, the only one it may ping.
-// What was asked stays in the seat.
+// payload is what a seat's page posts: its title, then the owner's mention. What was asked stays
+// in the seat.
 func payload(seat string) (*run.Object, error) {
-	owner, err := secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
-	if err != nil {
-		return nil, err
+	return cardPayload("\U0001f64b Needs you · "+about(config.Fold(seat)), true) // 🙋 a seat with its hand up
+}
+
+// cardPayload is what a page saying content posts, then, where mention, the owner's mention,
+// the only one it may ping.
+func cardPayload(content string, mention bool) (*run.Object, error) {
+	owner := ""
+	if mention {
+		var err error
+		if owner, err = secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id"); err != nil {
+			return nil, err
+		}
 	}
 	page, mentions := run.NewObject(), run.NewObject()
 	page.Set("username", "agentkit")
-	content := "\U0001f64b Needs you · " + about(config.Fold(seat)) // 🙋 a seat with its hand up
 	if owner != "" {
 		content += " <@" + owner + ">"
 		mentions.Set("users", []any{owner})

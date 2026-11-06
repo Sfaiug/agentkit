@@ -80,6 +80,13 @@ func upgradeAll(env []string, repo string, plans []plan, before map[string]strin
 		return 1
 	}
 	defer held.Close()
+	return upgradeHeld(env, repo, plans, before, out, errOut)
+}
+
+// upgradeHeld is Python's update.upgrade under the lock that keeps two upgrades apart, the one
+// path `ak update` and the tick's background upgrade both take: the exit code.
+func upgradeHeld(env []string, repo string, plans []plan, before map[string]string, out, errOut io.Writer) int {
+	tmp := filepath.Join(config.Home(), "tmp")
 	// a move of ~/agentkit under way ends before anything here reads it; any later one waits
 	// for this upgrade to end (moveAgentkit)
 	move, err := lock.Wait(context.Background(), filepath.Join(tmp, moving))
@@ -88,6 +95,10 @@ func upgradeAll(env []string, repo string, plans []plan, before map[string]strin
 		return 1
 	}
 	move.Close()
+	if _, err := liveGate(repo); err != nil {
+		fmt.Fprintf(errOut, "update: %s\n", err)
+		return 1
+	}
 	log, err := os.CreateTemp(tmp, "update-"+time.Now().Format("20060102-150405")+"-*.log")
 	if err != nil {
 		fmt.Fprintf(errOut, "update: %s\n", config.PyError(err))

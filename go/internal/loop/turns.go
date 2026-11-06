@@ -131,16 +131,20 @@ func openReview(round string) (name, kind, session string) {
 // openWorker is the executor or fixer attempt to go on with, Python's open_worker: only the one
 // written last, as a later attempt supersedes those before it even when it closed.
 func openWorker(round string) (name, kind, session string) {
-	name = newest(round, roleDirs(round, func(entry fs.DirEntry) bool {
-		return !strings.HasPrefix(entry.Name(), "reviewer") && workerName.MatchString(entry.Name())
-	}))
-	if name == "" {
+	if name = latestWorker(round); name == "" {
 		return "", "", ""
 	}
 	if kind, session = openTurn(round, name); kind == "" {
 		return "", "", ""
 	}
 	return name, kind, session
+}
+
+// latestWorker is the base of the round's executor or fixer written last, "" before any.
+func latestWorker(round string) string {
+	return newest(round, roleDirs(round, func(entry fs.DirEntry) bool {
+		return !strings.HasPrefix(entry.Name(), "reviewer") && workerName.MatchString(entry.Name())
+	}))
 }
 
 // reviewTurn is the round's latest reviewer turn on that session, unless it is since, Python's

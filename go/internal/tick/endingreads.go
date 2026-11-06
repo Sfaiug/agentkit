@@ -1,6 +1,8 @@
 package tick
 
 import (
+	"time"
+
 	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
@@ -20,7 +22,7 @@ func noRunRevival() bool {
 // An unfinished run can protect its seat from retirement; settled runs protect none.
 func noRunSweep() bool {
 	return run.Every(func(_ string, record *run.Object) bool {
-		return (!run.Active(record) || run.ProcessActive(record)) &&
+		return (!run.Active(record) || goingOn(record, epoch(time.Now()))) &&
 			(record.Str("state") == "interrupted" || run.Ended(record) || !run.NeedsRecovery(record) || record.Truthy("recovery_acknowledged_at"))
 	})
 }

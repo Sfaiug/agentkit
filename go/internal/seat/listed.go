@@ -22,7 +22,7 @@ func (seat Seat) Explanation(now time.Time) []string {
 // Path is the session's current directory, or the launch directory when tmux has lost it.
 func (seat Seat) Path() string {
 	if seat.live || seat.held {
-		if path, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+seat.Name+":", "#{pane_current_path}"); err == nil {
+		if path, err := tmux.Ask(seat.server(), "display-message", "-p", "-t", "="+seat.Name+":", "#{pane_current_path}"); err == nil {
 			return path
 		}
 	}

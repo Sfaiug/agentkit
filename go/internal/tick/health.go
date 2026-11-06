@@ -21,7 +21,8 @@ func Health() (line string, stuck, ok bool) {
 	}
 	held := "lock free"
 	if lock.Held(lockPath()) {
-		pid, holding := holder(lockPath())
+		pid, began := holder(lockPath())
+		holding := max(0, time.Since(began))
 		held = fmt.Sprintf("lock held by pid %s for %d min", pid, int(holding/time.Minute))
 		stuck = holding >= hung
 	}

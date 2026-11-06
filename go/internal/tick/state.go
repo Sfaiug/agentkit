@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -53,11 +52,13 @@ func generation(value any) any {
 	return run.Number("0")
 }
 
-// quiet is whether watch.json holds only what a home with nothing to act on holds: no PR, run,
-// stall, login or worker token kept. Alert generations are bookkeeping, kept even after an open.
+// quiet is whether watch.json holds only what a home with nothing to act on holds: no PR
+// followed, stall, login or worker token kept. Alert generations are bookkeeping, kept even after
+// an open; the heads reviewed are the incoming pass's own, and a merge's break the merge checks',
+// both of which Go carries.
 func quiet(state *run.Object) bool {
 	for _, key := range kept {
-		if key != "seen_at" && len(state.Dict(key).Keys()) > 0 {
+		if key != "seen_at" && key != "reviewed" && key != "after_merge" && len(state.Dict(key).Keys()) > 0 {
 			return false
 		}
 	}
@@ -124,24 +125,4 @@ func syncSeen(state, current *run.Object) {
 			stalls.Set(name, entry)
 		}
 	}
-}
-
-// bootBaseline records this boot, written at once as Python's resume_after_boot does: with no
-// seat there is nobody to resume.
-func bootBaseline() error {
-	boot := host.BootID()
-	if boot == "" {
-		return nil
-	}
-	return locked(func() error {
-		state, ok := loadState()
-		if !ok {
-			return errUnwritable
-		}
-		if state.Get("boot_id") == boot {
-			return nil
-		}
-		state.Set("boot_id", boot)
-		return writeState(state)
-	})
 }

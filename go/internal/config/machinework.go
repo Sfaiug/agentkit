@@ -1,22 +1,34 @@
 package config
 
-import "slices"
+import (
+	"os"
+	"path/filepath"
+	"slices"
+)
 
-// TakesTests is whether the machine config.toml names takes suites, as Python's machines.work reads
-// its marks: its `[machines.<name>]` table's `work` where it has one, else always.  None does while
-// any table's marks are some Python refuses (config._work_in), or the file cannot be read: then
-// every suite runs here.
+// TakesTests is whether the machine config.toml names takes suites: none does while MachineWork
+// cannot be read, and then every suite runs here.
 func TakesTests(name string) bool {
-	machines, _, err := topLevel("machines")
-	if err != nil {
-		return false
+	work, known := MachineWork(name)
+	return known && slices.Contains(work, "tests")
+}
+
+// MachineWork is the work config.toml marks machine `name` for, as Python's machines.work reads
+// the marks before a Mac's probe rules turns out: its `[machines.<name>]` table's `work`, or for
+// "" `[google_cloud]`'s, every rental's; with none, the old turns_on_machines switch's, turns
+// while it is true, and tests.  False where the file cannot be read or any table's marks are some
+// Python refuses (config._work_in).
+func MachineWork(name string) ([]string, bool) {
+	data, err := os.ReadFile(filepath.Join(Home(), "config.toml"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, false
 	}
-	rented, _, err := topLevel("google_cloud")
+	root, err := parseDocument(string(data))
 	if err != nil {
-		return false
+		return nil, false
 	}
-	named, _ := machines.(*table)
-	tables := []any{rented}
+	named, _ := root.get("machines").(*table)
+	tables := []any{root.get("google_cloud")}
 	if named != nil {
 		for _, key := range named.keys {
 			tables = append(tables, named.values[key])
@@ -24,11 +36,20 @@ func TakesTests(name string) bool {
 	}
 	for _, each := range tables {
 		if own, ok := each.(*table); ok && own.values["work"] != nil && marks(own.values["work"]) == nil {
-			return false
+			return nil, false
 		}
 	}
-	own, _ := named.get(name).(*table)
-	return own.get("work") == nil || slices.Contains(marks(own.get("work")), "tests")
+	own, _ := root.get("google_cloud").(*table)
+	if name != "" {
+		own, _ = named.get(name).(*table)
+	}
+	if work := own.get("work"); work != nil {
+		return marks(work), true
+	}
+	if root.get("turns_on_machines") == true {
+		return []string{"turns", "tests"}, true
+	}
+	return []string{"tests"}, true
 }
 
 // marks is a `work` value's words, nil where it is not a list of only turns and tests.

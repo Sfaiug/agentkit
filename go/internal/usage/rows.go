@@ -18,30 +18,29 @@ const asOfAfter = 1800.0 // seconds a reading is old before `ak usage` says when
 // signs are the currencies a balance is shown by the sign nobody misreads, else by its code.
 var signs = map[string]string{"USD": "$", "EUR": "€", "GBP": "£"}
 
-// Rows is a row per subscription as `ak usage` prints it, Python's usage.rows: its name and
-// models, what its tightest week has left, the tokens that week holds, its price a month, when
-// the shared week resets, how far the tightest week has run, what its session has left, the
-// resets it holds, its headroom, budget and outlook, `-` for what it reports none of.  No
-// reading Read takes measures what a week holds.
-func (r *Readings) Rows() [][]string {
+// Rows is a row per subscription as `ak usage` prints it, each account of a provider listing
+// several its own, Python's usage.rows: its label and models, what its tightest week has left,
+// the tokens that week holds, its price a month, when the shared week resets, how far the
+// tightest week has run, what its session has left, the resets it holds, its headroom, budget and
+// outlook, `-` for what it reports none of.
+func (r *Readings) Rows(screen terminal.Screen) [][]string {
 	var rows [][]string
-	for _, name := range r.providers.Keys() {
-		prov, src := object(r.providers.Get(name)), r.source(name)
-		week := weekly(prov)
+	for _, each := range r.logins() {
+		name, prov := each.provider, each.prov
+		src, week := r.source(name), weekly(prov)
 		var sess *run.Object
 		for _, meter := range objects(prov.Get("meters")) {
 			if session(meter) && (sess == nil || used(meter) > used(sess)) {
 				sess = meter
 			}
 		}
-		models, price := cmp.Or(strings.Join(src.Models, ", "), "-"), "-"
-		if src.Price != nil {
-			price = grouped(strconv.FormatFloat(*src.Price, 'f', -1, 64))
-		}
+		shared := r.sharedWeek(name, prov)
+		held, _ := holds(name, each.account, shared)
 		resets, counted := reading(prov, "resets")
 		room, known := headroom(week)
-		rows = append(rows, []string{name, models, percent(left(week)), "-", price,
-			cmp.Or(resetWhen(r.sharedWeek(name, prov), r.now), "-"), percent(reading(week, "elapsed")),
+		rows = append(rows, []string{each.label, cmp.Or(strings.Join(src.Models, ", "), "-"), percent(left(week)),
+			heldText(screen, held, shared), buysText(screen, src.Price, held, shared),
+			cmp.Or(resetWhen(shared, r.now), "-"), percent(reading(week, "elapsed")),
 			percent(left(sess)), fixed(resets, counted, 0), fixed(room, known, 1),
 			budgetLabel(providerBudget(prov, r.now)), outlook(prov)})
 	}
@@ -78,17 +77,15 @@ func (r *Readings) Notes(dim func(string) string) []string {
 			notes = append(notes, "  budget: "+strings.Join(shown, "; "))
 		}
 	}
-	for _, name := range names {
-		prov := object(r.providers.Get(name))
-		if said := text(prov.Get("error")); prov.Truthy("error") && (prov.Get("probe_error") == nil || !refused(said)) {
-			notes = append(notes, "note: "+name+" "+said)
+	for _, each := range r.logins() {
+		if said := text(each.prov.Get("error")); each.prov.Truthy("error") && (each.prov.Get("probe_error") == nil || !refused(said)) {
+			notes = append(notes, "note: "+each.label+" "+said)
 		}
 	}
-	for _, name := range names {
-		prov := object(r.providers.Get(name))
-		open := slices.ContainsFunc(objects(prov.Get("meters")), func(meter *run.Object) bool { return !past(meter, r.now) })
-		if at := asOf(prov, r.now); at != "" && open {
-			notes = append(notes, dim("note: "+name+" "+at))
+	for _, each := range r.logins() {
+		open := slices.ContainsFunc(objects(each.prov.Get("meters")), func(meter *run.Object) bool { return !past(meter, r.now) })
+		if at := asOf(each.prov, r.now); at != "" && open {
+			notes = append(notes, dim("note: "+each.label+" "+at))
 		}
 	}
 	for _, name := range names {
@@ -96,9 +93,9 @@ func (r *Readings) Notes(dim func(string) string) []string {
 			notes = append(notes, name+": "+text(note))
 		}
 	}
-	for _, name := range names {
-		if note := creditsNote(object(r.providers.Get(name))); note != "" {
-			notes = append(notes, name+": "+note)
+	for _, each := range r.logins() {
+		if note := creditsNote(each.prov); note != "" {
+			notes = append(notes, each.label+": "+note)
 		}
 	}
 	return notes

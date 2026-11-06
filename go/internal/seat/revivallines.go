@@ -3,13 +3,14 @@ package seat
 import (
 	"context"
 	"path/filepath"
+	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 )
 
-// revivalLines recognizes only the continuation this pass owns. Other deliveries, and a
+// revivalLines recognizes only the continuations this pass owns. Other deliveries, and a
 // partially typed continuation whose send has to be resumed, remain Python's at owed lines.
 func revivalLines(file *run.Object) bool {
 	if file == nil {
@@ -22,7 +23,9 @@ func revivalLines(file *run.Object) bool {
 	for _, each := range lines {
 		line, ok := each.(*run.Object)
 		if !ok || line.Str("id") == "" || !only(line, []string{"line", "id", "typed"}) ||
-			line.Str("line") != QuestionContinue && line.Str("line") != QuestionContinue+freshContinue {
+			!slices.ContainsFunc([]string{QuestionContinue, MidturnContinue}, func(owed string) bool {
+				return line.Str("line") == owed || line.Str("line") == owed+freshContinue
+			}) {
 			return false
 		}
 	}

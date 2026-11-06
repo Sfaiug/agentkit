@@ -22,7 +22,8 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 
 DATABASE = ".agentkit/history.db"
-TABLES = {"runs", "phases", "checks", "test_reds", "conflicts", "reviews", "findings", "owner", "dones", "kept", "done_runs"}
+TABLES = {"runs", "phases", "checks", "test_reds", "conflicts", "reviews", "findings", "owner", "dones", "kept",
+          "done_runs", "meter_readings", "turn_usage"}
 # The `runs` table as the first ak to keep a history made it, and nothing else.
 ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT"),
             ("reviewer", "TEXT"), ("rounds_used", "INTEGER"), ("final_state", "TEXT"),
@@ -31,9 +32,13 @@ ORIGINAL = (("run_id", "TEXT PRIMARY KEY"), ("repo", "TEXT"), ("executor", "TEXT
             ("reviewer_seconds", "REAL"), ("merge_seconds", "REAL"), ("total_seconds", "REAL"),
             ("executor_tokens", "INTEGER"), ("reviewer_tokens", "INTEGER"),
             ("peak_rss_mb", "REAL"), ("session", "TEXT"))
+# A reading as the first ak to keep them kept it, before each named its login's plan.
+READING = {"provider": "anthropic", "account": "default", "meter": "weekly_all", "used": 30.0,
+           "resets_at": None, "window_secs": 604800.0, "at": 1793000000.0, "source": "probe"}
 GAINED = {"runs": {"task_words", "orchestrator", "change", "merge_sha", "landing_breaks", "landing_flakes",
                    "broke_after_merge", "executor_effort", "own_orchestrator_effort"},
-          "phases": {"wait_kind"}, "reviews": {"round", "verdict", "effort"}, "dones": {"work"}}
+          "phases": {"wait_kind"}, "reviews": {"round", "verdict", "effort"}, "dones": {"work"},
+          "meter_readings": {"plan"}}
 # The Home's notify sink marks every run a test suite's, which ak never records: these runs go
 # without it, as the owner's, and with no webhook configured nothing is posted anywhere.
 OWNERS = {"AK_NOTIFY_SINK": None}
@@ -72,6 +77,10 @@ class AnOlderDatabase(unittest.TestCase):
         connection.execute("CREATE TABLE runs (%s)" % ", ".join(map(" ".join, ORIGINAL)))
         connection.execute("INSERT INTO runs VALUES (%s)" % ",".join("?" * len(ORIGINAL)),
                            [cls.old[name] for name, _ in ORIGINAL])
+        connection.execute("CREATE TABLE meter_readings (%s, PRIMARY KEY (provider, account, "
+                           "meter, at))" % ", ".join(READING))
+        connection.execute("INSERT INTO meter_readings VALUES (%s)" % ",".join("?" * len(READING)),
+                           list(READING.values()))
         connection.commit()
         connection.close()
         cls.before = time.time()
@@ -91,6 +100,10 @@ class AnOlderDatabase(unittest.TestCase):
         sized = [line for line in self.done.out.splitlines() if line.startswith("acme:")]
         self.assertEqual(len(sized), 1, self.done.out)
         self.assertIn("median 2 rounds", sized[0])
+
+    def test_its_readings_keep_no_plan(self):
+        self.assertEqual(read(self.home, "SELECT * FROM meter_readings"),
+                         [{**READING, "plan": None}])
 
     def test_it_says_dones_were_kept_only_from_the_moment_it_was_brought_up(self):
         kept = read(self.home, "SELECT since FROM kept")

@@ -95,7 +95,7 @@ func Start(cwd string, cpus, memoryMB float64, command string, say func(string))
 	if len(aliases) == 0 && !config.MayRent() {
 		return nil, "no suite helper set up", nil
 	}
-	away := &Away{key: token(), repo: repository(cwd), command: pinned(command), programs: programs()}
+	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: pinned(command), programs: programs()}
 	image, files, err := recipeOf(cwd, away.repo)
 	if err != nil {
 		say(fmt.Sprintf("WARN the suite helper cannot build suite_image: %v; the suite runs here", err))

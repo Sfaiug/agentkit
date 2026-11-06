@@ -6,14 +6,19 @@ import (
 	"agentkit/internal/terminal"
 )
 
-// Panel is a sub-screen in the menu's frame, with the key line always last.
+// Panel is a sub-screen in the menu's frame, with the key line always last: none where no key
+// does anything, as on a report printed once.
 func Panel(s terminal.Screen, title, clock string, body []string, keys string) []string {
 	rule := "─"
 	if s.ASCII() {
 		rule = "-"
 	}
 	lines := []string{panelHeader(title, clock, s.LayoutWidth()), s.Styled(strings.Repeat(rule, s.LayoutWidth()), "dim")}
-	return append(append(append(lines, body...), ""), keyLine(s, keys, s.Width(), "")...)
+	lines = append(append(lines, body...), "")
+	if keys == "" {
+		return lines
+	}
+	return append(lines, keyLine(s, keys, s.Width(), "")...)
 }
 
 func panelHeader(name, clock string, room int) string {

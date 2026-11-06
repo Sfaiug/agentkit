@@ -21,7 +21,7 @@ class ExecutorsOff(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, ["opus", "astra"], settings={} if front else numbers)
-        rules = "---\ntests: none\nhealth: none\n"
+        rules = "---\ntests: none\nhealth: none\nusers: none\n"
         if front:
             rules += "".join(f"{key}: {value}\n" for key, value in numbers.items())
         self.rig = Rig(self.home, "widgets", files={"AGENTS.md": rules + "---\nA project.\n"})

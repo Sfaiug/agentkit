@@ -7,14 +7,12 @@ import (
 	"sort"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
 // A Prompt is one of the owner's messages: when it was written, in Unix seconds, and its words.
-type Prompt struct {
-	At   float64
-	Text string
-}
+type Prompt = harness.Prompt
 
 // Prompts is every dated message the owner wrote in the conversation at path, oldest first, as a
 // harness's `user_messages` reads them; none where its harness has no `[transcript]` table or the
@@ -32,7 +30,7 @@ func Prompts(name, path string) (found []Prompt) {
 			continue
 		}
 		if text, when := promptWords(name, kinds, entry), moment(first(at(entry, stamp))); text != "" && when != 0 {
-			found = append(found, Prompt{when, text})
+			found = append(found, Prompt{At: when, Text: text})
 		}
 	}
 	sort.SliceStable(found, func(i, j int) bool { return found[i].At < found[j].At })

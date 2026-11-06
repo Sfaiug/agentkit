@@ -130,6 +130,26 @@ func OtherHome(path string) bool {
 	return strings.HasPrefix(path, "~") && tilde(path) == path
 }
 
+// Pure is a path as Python's PurePosixPath spells it: no empty or `.` parts, `..` kept.
+func Pure(path string) string {
+	var parts []string
+	for _, part := range strings.Split(path, "/") {
+		if part != "" && part != "." {
+			parts = append(parts, part)
+		}
+	}
+	joined := strings.Join(parts, "/")
+	switch {
+	case strings.HasPrefix(path, "//") && !strings.HasPrefix(path, "///"):
+		return "//" + joined
+	case strings.HasPrefix(path, "/"):
+		return "/" + joined
+	case joined == "":
+		return "."
+	}
+	return joined
+}
+
 // Resolve is path made absolute with its links followed, as far as they exist, and a leading
 // `~` kept literal, as Python's Path.resolve() reads it: name by name, so a `..` after a link
 // leaves the link's target, and a link that loops is kept as it is.  On Windows, Python takes
@@ -248,6 +268,35 @@ func load() (*table, error) {
 	return root, nil
 }
 
+// workIn refuses work marks no machine knows, even on a table placement never reads, as Python's
+// config._work_in does: a mistyped word would otherwise send no work there without a word.
+func workIn(root *table) error {
+	labels, tables := []string{"google_cloud"}, []any{root.values["google_cloud"]}
+	if named, ok := root.values["machines"].(*table); ok {
+		for _, name := range named.keys {
+			labels, tables = append(labels, "machines."+name), append(tables, named.values[name])
+		}
+	}
+	for i, value := range tables {
+		marks, ok := value.(*table)
+		if !ok {
+			continue
+		}
+		work, ok := marks.values["work"]
+		if !ok {
+			continue
+		}
+		words, known := work.([]any)
+		for _, word := range words {
+			known = known && (word == "turns" || word == "tests")
+		}
+		if !known {
+			return fmt.Errorf("[%s].work must list only turns and tests (got %s)", labels[i], valueRepr(work))
+		}
+	}
+	return nil
+}
+
 func hasTables(root *table) bool {
 	for _, name := range []string{"defaults", "tiers", "models", "providers"} {
 		if _, ok := root.values[name]; ok {
@@ -277,6 +326,9 @@ func stringList(value any, nonempty bool) bool {
 }
 
 func validate(root *table) error {
+	if err := workIn(root); err != nil {
+		return err
+	}
 	models, ok := root.values["models"].(*table)
 	if !ok {
 		return fmt.Errorf("missing [models] table")
@@ -584,16 +636,7 @@ func resolve(root *table, name string) (Model, error) {
 	if _, exists := root.values["providers"].(*table).values[provider]; !valid || !exists {
 		return Model{}, fmt.Errorf("~/.agentkit/config.toml: [models.%s].provider=%s has no [providers.*] entry", name, valueRepr(entry.values["provider"]))
 	}
-	harness, _ := entry.values["harness"].(string)
-	efforts := map[string]string{}
-	for _, key := range RoleEfforts {
-		if word, ok := entry.values[key].(string); ok {
-			efforts[key] = word
-		}
-	}
-	meter, _ := entry.values["meter"].(string)
-	mode, _ := entry.values["mode"].(string)
-	return Model{provider, fmt.Sprint(entry.values["model"]), harness, efforts, meter, mode}, nil
+	return modelOf(entry), nil
 }
 
 func valueRepr(value any) string {

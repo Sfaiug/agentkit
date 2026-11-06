@@ -78,7 +78,7 @@ func stillFails(command, workspace, beside string) (string, error) {
 	}
 	defer spool.Close()
 	ctx, watched := host.Watch{Silence: run.SilenceMinutes * time.Minute, Ceiling: run.CeilingHours * time.Hour,
-		Heard: host.Written(spool.Name()), Marker: os.Getenv(host.Marker)}.Stop(context.Background())
+		Heard: host.Written(spool.Name()), Declared: host.Declared(os.Getenv(host.Marker))}.Stop(context.Background())
 	cmd := exec.CommandContext(ctx, "bash", "-c", command)
 	stop := host.Group(cmd)
 	cmd.Dir, cmd.Stdout, cmd.Stderr = workspace, spool, spool

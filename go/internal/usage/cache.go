@@ -20,35 +20,32 @@ const cacheTTL = 300.0 // seconds a snapshot answers for without asking any adap
 var mark = []string{"exhausted_until", "exhausted_at", "exhausted_ends", "exhausted_by"}
 
 // collect is every provider's record, Python's usage.collect: the snapshot's while it is under
-// cacheTTL old, a provider with a meter past its reset or accounts it no longer lists asked
-// again, else, or on a refresh, every provider asked.
+// cacheTTL old, a provider with a meter past its reset or other accounts than it lists now asked
+// again, else, or on a refresh, every provider asked.  No read spends a reset.
 func collect(sources []source, models map[string]config.Model, refresh bool) (*run.Object, error) {
 	now := clock()
 	blob := object(read())
 	held, cached := blob.Get("providers").(*run.Object)
 	if at, ok := run.Num(blob.Get("fetched_at")); ok && now-at <= cacheTTL && cached && !refresh {
-		listed := map[string]source{}
-		for _, src := range sources {
-			listed[src.Name] = src
-		}
 		providers := run.NewObject()
 		for _, name := range held.Keys() {
-			if _, ok := listed[name]; ok {
+			if slices.ContainsFunc(sources, func(src source) bool { return src.Name == name }) {
 				providers.Set(name, object(held.Get(name)))
 			}
 		}
 		stored, counted := false, map[string]any{}
 		for _, name := range providers.Keys() {
 			prov := providers.Dict(name)
-			if prov.Truthy("accounts") || rolled(prov, now) {
-				prov = withoutPast(gently(listed[name]), now, "the adapter")
+			if !slices.Equal(object(prov.Get("accounts")).Keys(), accounts(sources, name)) || rolled(prov, now) {
+				prov = withoutPast(asked(sources, name, models), now, "the adapter")
 				providers.Set(name, prov)
 				stored = true
 			}
 			if !numbers(prov, "resets") {
 				stored = true
-				if listed[name].Via != "" { // a reading from before its harness counted any
-					counted[name] = listed[name].resets()
+				at := slices.IndexFunc(sources, func(src source) bool { return src.Name == name && src.account == prov.Str("account") })
+				if at >= 0 && sources[at].Via != "" { // a reading from before its harness counted any
+					counted[name] = sources[at].resets()
 					prov.Set("resets", counted[name])
 				}
 			}
@@ -61,15 +58,9 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 	}
 	providers := run.NewObject()
 	for _, src := range sources {
-		record := withoutPast(gently(src), now, "the adapter")
-		if src.account == "" {
-			providers.Set(src.Name, record)
-			continue
+		if !providers.Has(src.Name) {
+			providers.Set(src.Name, withoutPast(asked(sources, src.Name, models), now, "the adapter"))
 		}
-		if providers.Dict(src.Name) == nil { // the snapshot's record stands where it holds one
-			providers.Set(src.Name, fields("provider", src.Name, "accounts", run.NewObject()))
-		}
-		providers.Dict(src.Name).Dict("accounts").Set(src.account, record)
 	}
 	providers, err := store(sources, providers, models, now, &now, nil)
 	return gateFlags(providers, now, models), err
@@ -80,9 +71,10 @@ func rolled(prov *run.Object, now float64) bool {
 	return slices.ContainsFunc(objects(prov.Get("meters")), func(meter *run.Object) bool { return past(meter, now) })
 }
 
-// store writes what collect answers, each provider's record as the snapshot holds it now, a
-// copy of providers standing in only where it holds none, and a provider config.toml no longer
-// lists gone, Python's usage._store; fetchedAt dates the snapshot where given.
+// store writes what collect answers, each provider's record as the snapshot holds it now, with
+// an entry for each account it lists, a copy of providers standing in only where it holds none,
+// and a provider config.toml no longer lists gone, Python's usage._store; fetchedAt dates the
+// snapshot where given.
 func store(sources []source, providers *run.Object, models map[string]config.Model, now float64, fetchedAt *float64, counted map[string]any) (*run.Object, error) {
 	return write(func(disk *run.Object, _ float64) *run.Object {
 		for _, name := range disk.Keys() {
@@ -92,23 +84,29 @@ func store(sources []source, providers *run.Object, models map[string]config.Mod
 		}
 		answer := run.NewObject()
 		for _, name := range providers.Keys() {
+			mine := object(providers.Get(name))
 			prov, ok := disk.Get(name).(*run.Object)
 			if !ok {
-				prov = object(providers.Get(name))
+				prov = mine
 			}
-			if rolled(prov, now) {
-				prov = withoutPast(prov, now, "the adapter")
-			} else {
-				prov = prov.Copy()
-			}
-			if resets, ok := counted[name]; ok && !numbers(prov, "resets") {
-				prov.Set("resets", resets)
+			prov = current(prov, now)
+			record := laidOut(prov, mine, accounts(sources, name), now)
+			if resets, ok := counted[name]; ok && !numbers(record, "resets") {
+				record.Set("resets", resets)
 			}
 			disk.Set(name, prov)
 			answer.Set(name, prov)
 		}
 		return gateFlags(answer, now, models)
 	}, fetchedAt)
+}
+
+// current is a copy of a record with each meter past its reset dropped.
+func current(prov *run.Object, now float64) *run.Object {
+	if rolled(prov, now) {
+		return withoutPast(prov, now, "the adapter")
+	}
+	return prov.Copy()
 }
 
 // patch puts one freshly read provider, or account of one, into the snapshot as it stands now, the

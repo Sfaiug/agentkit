@@ -18,11 +18,11 @@ import (
 
 // pythonRoads are what a record holds on a road Go does not drive: Python's to resume.
 var pythonRoads = []string{"job_id", "review_pr", "from_pass", "waiting_on", "pickup",
-	"stall_resume_at", "resume_after", "lease_wait", "waiting_for"}
+	"resume_after", "lease_wait", "waiting_for"}
 
 // Pickup is whether Go carries that dead run on from where it was cut off: at the review, at the
-// executor or the fixer, or at the next round's start.  Decided before anything is written, as
-// Python's resume takes any other point.
+// executor or the fixer, at the checks after their answer, or at the next round's start.  Decided
+// before anything is written, as Python's resume takes any other point.
 func Pickup(dir string, record *run.Object) bool {
 	if record.Str("state") == "waiting" {
 		return waitingPickup(dir, record)
@@ -76,7 +76,7 @@ func unitless(record *run.Object) bool {
 }
 
 // point is whether the run was cut off where Go goes on from, Python's rounds and continuation: a
-// retry directory, an answer with no closing and checks cut off are Python's roads.
+// retry directory and an answer with no closing are Python's roads.
 func point(dir string, record *run.Object) bool {
 	rounds, known := record.Int("rounds")
 	spent := len(record.List("round_summaries"))
@@ -105,7 +105,7 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	name, _, _ := openWorker(round)
-	return name != "" && !exists(filepath.Join(latestTurn(round, name), "final.md"))
+	return name != "" && !exists(filepath.Join(latestTurn(round, name), "final.md")) || answered(round) != ""
 }
 
 // retried is whether Python's retries wrote in that round, which Go does not read on.
@@ -144,10 +144,14 @@ var ErrChanged = errors.New("the run changed while choosing recovery; select it 
 
 // Reopen takes the dead run the record read describes back into the queue for a new driver,
 // Python's reap and resume_run: what its last loop left running ended and the death recorded.
-func Reopen(dir string, read *run.Object) error {
+// order, where the tick gave one, goes on the record first, in the same write.
+func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 	return run.Change(dir, func(record *run.Object) error {
 		if !run.Equal(record, read) {
 			return ErrChanged
+		}
+		if order != nil {
+			order(record)
 		}
 		if record.Str("state") == "waiting" && !parkedInLine(record) {
 			if err := resumeWaiting(dir, record); err != nil {
@@ -155,9 +159,10 @@ func Reopen(dir string, read *run.Object) error {
 			}
 		}
 		host.EndMarked(dir, io.Discard)
-		// what the resume takes the run up from, Python's resume_from: a dead driver's is an interruption
+		// what the resume takes the run up from, Python's resume_from: a dead driver's is an
+		// interruption, but for one whose resume the tick ordered, holding the death it noticed
 		from := record.Str("state")
-		if from == "running" {
+		if from == "running" && !run.ResumeOrdered(record, clock()) {
 			from = "interrupted"
 			reason := "Run process exited or its identity changed."
 			run.SetAll(record, "interrupted_at", clock(), "interruption_reason", reason)
@@ -181,11 +186,11 @@ func Reopen(dir string, read *run.Object) error {
 			}
 			run.SetAll(record, "merge_failed", false, "merge_note", nil)
 		}
-		for _, key := range []string{"waiting_resume_at", "slot_waited", "slot_wait_reason", "slot_wait_kind"} {
+		for _, key := range []string{"waiting_resume_at", "slot_waited", "slot_wait_reason", "slot_wait_kind", "stall_resume_at"} {
 			record.Delete(key)
 		}
 		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", clock(),
-			"pid", os.Getpid(), "process_identity", identity(os.Getpid()), "recovery_pending", true,
+			"pid", os.Getpid(), "process_identity", Identity(os.Getpid()), "recovery_pending", true,
 			"recovery_acknowledged_at", nil, "error", nil, "finished_at", nil, "reported", false)
 		return nil
 	})

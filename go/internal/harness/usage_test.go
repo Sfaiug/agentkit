@@ -37,4 +37,15 @@ func TestAMuseRefusalIsKeptOutsideItsBox(t *testing.T) {
 	if found := UsageRecorded("muse", state, now+7200); len(found) != 0 {
 		t.Fatalf("past its reset: %d meters", len(found))
 	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	listed := "[models.glint]\nharness='muse'\nmodel='muse-1'\neffort='high'\nprovider='meta'\n" +
+		"[providers.meta]\nmode='subscription'\naccounts=['shoal','reef']\n"
+	if os.MkdirAll(filepath.Join(home, ".agentkit"), 0o700) != nil || os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(listed), 0o600) != nil {
+		t.Fatal("no config")
+	}
+	if found := UsageRecorded("muse", state, now); len(found) != 0 {
+		t.Fatalf("the usual login's refusal stood for each listed account: %d meters", len(found))
+	}
 }

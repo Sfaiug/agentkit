@@ -194,12 +194,12 @@ func texts(value any) []string {
 // gonePath is a place inside a `~/.agentkit/tmp/smoke-*` sandbox or a `~/.agentkit/wt/*`
 // checkout that is gone (retention.gone_path).
 func gonePath(value string) bool {
-	if !strings.HasPrefix(value, "/") || climbs(pure(value)) {
+	if !strings.HasPrefix(value, "/") || climbs(config.Pure(value)) {
 		return false
 	}
 	for _, root := range [][2]string{{tmpDir(), "smoke-"}, {wtDir(), ""}} {
 		if below(value, root[0]) {
-			top, _, _ := strings.Cut(strings.TrimPrefix(pure(value), root[0]+"/"), "/")
+			top, _, _ := strings.Cut(strings.TrimPrefix(config.Pure(value), root[0]+"/"), "/")
 			return strings.HasPrefix(top, root[1]) && !present(filepath.Join(root[0], top))
 		}
 	}
@@ -329,7 +329,7 @@ func (r *reads) repoTmpEntries() []Item {
 		}
 		seen[value] = true
 		// only the plain case: canonical, so no link and no `..`, and directly under /var/tmp
-		if filepath.Dir(pure(value)) != "/var/tmp" || config.Resolve(value) != value {
+		if filepath.Dir(config.Pure(value)) != "/var/tmp" || config.Resolve(value) != value {
 			// a TMPDIR gc never sweeps is named once a pass, and left alone
 			skipped := Item{"skip", "repo-tmp", value, "not a canonical path directly under /var/tmp", nil}
 			skipped.take = func(c *collection) (bool, error) {

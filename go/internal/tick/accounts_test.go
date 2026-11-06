@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"agentkit/internal/run"
 )
@@ -41,7 +40,7 @@ esac
 			if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
+			tick := checking(t, io.Discard)
 			reached := false
 			rows := table(tick)
 			for i, row := range rows {

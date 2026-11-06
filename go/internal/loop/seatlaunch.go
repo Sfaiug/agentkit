@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -32,7 +33,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	if err != nil {
 		return nil, err
 	}
-	policy, err := run.LaunchPolicy(origin.Str("repo"))
+	policy, err := run.TaskPolicy(origin.Str("repo"))
 	if err != nil {
 		return nil, err
 	}
@@ -40,27 +41,30 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 		// no receipt: the line stays the seat's own to build, as where a launch fails
 		return nil, errors.New("review off or no limit is Python's to carry")
 	}
-	held, err := HoldSlots(context.Background())
-	if err != nil {
-		return nil, err
-	}
-	defer held.Close()
 	path := filepath.Join(dir, "task.md")
-	record := run.Capture(dir, path, nil, map[string]bool{"--bg": true}, bound, session)
-	for _, key := range origin.Keys() {
-		record.Set(key, origin.Get(key))
-	}
 	text, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
+	held, err := HoldSlots(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	record := run.Capture(dir, path, nil, map[string]bool{"--bg": true}, bound, session)
+	for _, key := range origin.Keys() {
+		record.Set(key, origin.Get(key))
+	}
 	run.SetAll(record, "title", task.Title(string(text), "task"), "state", "queued", "slot_waiting", true,
 		"run_depth", 0, "parent_run", nil, "unattended", false, "slot_started_at", nil,
 		"project", seat.CheckoutOf(record.Str("repo")), "notify_sink", state.Get("notify_sink"),
-		"policy", run.Fields("rounds", policy.Rounds, "review_lines", policy.ReviewLines.Said(), "seat_lines", policy.SeatLines.Said()))
-	if err := run.Create(dir, record); err != nil {
+		"policy", run.Fields(policy.Said()...))
+	err = run.Create(dir, record)
+	held.Close()
+	if err != nil {
 		return nil, err
 	}
+	// its row, out of the slots lock, as Python's capture_launch writes it
+	history.Start(record, nil)
 	return func() error {
 		// General host admission is still Python's. Keep its queued receipt, not an
 		// error ending, if the gates changed since this run's own launch.

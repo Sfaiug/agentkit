@@ -186,6 +186,24 @@ class EveryFilePool(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("flaky: tests/test_acme.py failed, then passed on its re-run\n", out)
 
+    def test_a_failed_file_is_named_as_it_ends_not_once_the_pool_has_drained(self):
+        # Its re-run waits for every other file: silent until then, a long piece looks hung.
+        tests = self.root / "tests"
+        tests.mkdir()
+        (tests / "smoke.sh").write_text("#!/bin/bash\n")
+        for name in ("test_acme", "test_widget"):
+            (tests / f"{name}.py").write_text('print("TESTS_RUN=1")\n')
+        out, seen = io.StringIO(), []
+
+        def run(*_args, **_kw):
+            seen.append(out.getvalue().count("RETRY tests/"))
+            return 1, "", 1
+
+        with patch.object(host, "host_readings", return_value={**CALM, "free_mb": 230}), \
+                patch.object(every_file, "run_file", side_effect=run), redirect_stdout(out):
+            self.assertEqual(every_file.main(self.root), 1)
+        self.assertEqual(seen, [0, 1, 2, 2], out.getvalue())
+
     def pressure_file(self, path, total):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(f"some avg10=90.00 avg60=80.00 avg300=70.00 total={total}\n"

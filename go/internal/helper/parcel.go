@@ -3,7 +3,6 @@ package helper
 import (
 	"archive/tar"
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"maps"
@@ -11,7 +10,6 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -23,9 +21,6 @@ import (
 
 // recipe is a repository's recipe where its `suite_image:` names none.
 const recipe = "tools/helper/Containerfile"
-
-// told is the name a check's clone was given of the repository it came from.
-var told = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
 // A file is one of the repository's the parcel holds: its mode and bytes.
 type file struct {
@@ -162,29 +157,6 @@ func (a *Away) pack(cwd string, known []string, files map[string]file, parcel io
 		}
 	}
 	return out.Close()
-}
-
-// repository is the short name a machine keeps the repository's history under, Python's
-// gitcall.repository_id: the one a check's clone was told (`ak.repository`), else its main
-// checkout's, ak's own being ~/agentkit whatever version of it this checks.
-func repository(cwd string) string {
-	g := gitcall.Git{Repo: cwd}
-	if code, name, err := g.Out("config", "--local", "--get", "ak.repository"); err == nil && code == 0 && told.MatchString(name) {
-		return name
-	}
-	main := cwd
-	if code, common, err := g.Out("rev-parse", "--git-common-dir"); err == nil && code == 0 && common != "" {
-		if !filepath.IsAbs(common) {
-			common = filepath.Join(cwd, common)
-		}
-		common = config.Resolve(common)
-		main = filepath.Dir(common)
-		if common == config.Resolve(filepath.Join(config.Home(), "agentkit.git")) {
-			main = filepath.Join(config.UserHome(), "agentkit")
-		}
-	}
-	sum := sha256.Sum256([]byte(main))
-	return hex.EncodeToString(sum[:6])
 }
 
 // least is the MiB each VM of the repository's suites gets at least, more than one ran out of, as

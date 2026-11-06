@@ -109,6 +109,7 @@ class ExecutorsOptional(Sandbox):
                 patch.object(run, "origin_default", return_value="main"), \
                 patch.object(run, "git", return_value=""), \
                 patch.object(run, "own_pr_first_review", return_value=None), \
+                patch.object(run, "unanswered_head", return_value=None), \
                 patch.object(run, "pr_view", return_value=info), \
                 patch.object(run, "viewer_login", return_value="acme-owner"), \
                 patch.object(run, "drive", side_effect=drive), \

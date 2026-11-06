@@ -1,10 +1,32 @@
 package seat
 
 import (
+	"os"
+	"os/exec"
 	"testing"
 
 	"agentkit/internal/config"
+	"agentkit/internal/tmux"
 )
+
+func TestALegacySeatsNameIsTaken(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("no tmux installed")
+	}
+	sandbox(t)
+	t.Cleanup(func() { tmux.Ask(tmux.Default, "kill-server") })
+	if err := tmux.Spawn(tmux.Default, os.Getenv("PATH"), "new-session", "-d", "-s", "unnamed", "sleep 60", ";",
+		"set-option", "-t", "=unnamed:", tmux.Mark, "1"); err != nil {
+		t.Fatal(err)
+	}
+	names := ReadNames()
+	if reserved, known := names.Reservations(); !known || !reserved["unnamed"] {
+		t.Errorf("the menu offers a legacy seat's name: %v, %v", reserved, known)
+	}
+	if taken, known := names.Taken("unnamed"); !taken || !known {
+		t.Errorf("ak orch new takes a legacy seat's name: %v, %v", taken, known)
+	}
+}
 
 func TestMenuReadsAnOrchestratorBuildingAlone(t *testing.T) {
 	for _, live := range []bool{false, true} {

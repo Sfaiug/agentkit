@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"agentkit/internal/config"
+	"agentkit/internal/run"
 )
 
 // ErrSilent is a turn stopped for streaming nothing for its Given's Silence.
@@ -26,10 +26,10 @@ type Given struct {
 	Efforts map[string]string
 	Env     []string
 	Silence time.Duration
-	// UsersAt is the ref a review's `users:` is read at, ReviewLines the first review's ceiling,
-	// the host's where it is zero.
-	UsersAt     string
-	ReviewLines config.Lines
+	// UsersAt is the ref a review's `users:` is read at.
+	UsersAt string
+	// Checks is what a builder's `ak hand-in done` is held to, nil for nothing.
+	Checks *run.Object
 	// Findings is the file of blocking findings handed to the turn, "" for none.
 	Findings string
 	// Previous is the record file of the turn this one resumes, "" for none.

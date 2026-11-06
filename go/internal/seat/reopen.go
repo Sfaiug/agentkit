@@ -1,6 +1,7 @@
 package seat
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -43,8 +44,10 @@ var (
 )
 
 // How is what the caller of Reopen has: DryRun only says what would be done, and Terminal is one
-// to hand over, without which the seat's way in is said instead.
-type How struct{ DryRun, Terminal bool }
+// to hand over, without which the seat's way in is said instead.  Detached is a waking with nobody
+// at it (orch.resume's): a seat tmux still holds is left as it is, and one whose recorded directory
+// is gone refused.
+type How struct{ DryRun, Terminal, Detached bool }
 
 // A reopening is what a seat comes back as, read from its record.
 type reopening struct {
@@ -76,6 +79,14 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	notice, _ := run.ReadJSON(filepath.Join(state, "notify-"+name+".json"))
 	if !known {
 		return false, nil
+	}
+	if how.Detached {
+		cwd, _ := record["cwd"].(string)
+		if info, err := os.Stat(cwd); held {
+			return true, nil
+		} else if err != nil || !info.IsDir() {
+			return true, Refusal(fmt.Sprintf("%s: recorded directory is unavailable: %s", name, cmp.Or(cwd, ".")))
+		}
 	}
 	if how.Terminal && !how.DryRun && notice != nil && notice.Get("opened_at") == nil {
 		if !held || exited {
@@ -131,7 +142,7 @@ func Tidy(now time.Time) bool {
 	state := filepath.Join(config.Home(), "state")
 	for _, session := range own {
 		_, unrecorded := os.Lstat(filepath.Join(state, "session-"+session.Name+".json"))
-		if session.Mark != "1" && unrecorded != nil {
+		if session.Mark != "1" && unrecorded != nil && sideSession(session.Name) {
 			return false
 		}
 	}
@@ -301,34 +312,43 @@ func atOwnEfforts(model config.Model, orchestrator string, record map[string]any
 }
 
 // cutOff is whether the seat's end may have cut off something its relaunch has to tell it
-// (watch.cut_off): it asked, was in a turn or held work, by its last hook's word or its last look.
-// One the owner closed or stopped ended on purpose.
+// (watch.cut_off): it asked, was in a turn or held work, by its last hook's word or its last look,
+// that hook's where it spoke since the look, as it is then the newest word.  One the owner closed
+// or stopped ended on purpose.
 func cutOff(name, own string, file *run.Object) bool {
 	if file != nil && (file.Truthy("stopped_at") || file.Truthy("closed_by_owner")) {
 		return false
 	}
-	fact := hookfact.Standing(name)
+	fact := harness.For(own).HookFact(name)
 	hooked, _, err := lifecycle.State(own, fact)
-	if err != nil || notify.Standing(name) || len(fact.Holds) > 0 || hooked == "asking" || hooked == "working" {
+	if err != nil || notify.Standing(name) || len(hookfact.Standing(name).Holds) > 0 || hooked == "asking" || hooked == "working" {
 		return true
 	}
-	return file != nil && (file.Truthy("holds") || file.Str("state") == "asking" || file.Str("state") == "working" ||
-		file.Str("hooked") == "working" || file.Str("rule") == "none" && !continuationQueued(file))
+	if file == nil || file.Truthy("holds") {
+		return file != nil
+	}
+	if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
+		return false
+	}
+	return file.Str("state") == "asking" || file.Str("state") == "working" ||
+		file.Str("hooked") == "working" || file.Str("rule") == "none" && !continuationQueued(file)
 }
 
 // command is the seat's line and the conversation it owns on it (orch.resume, resume_command): the
 // one its record holds, or one a new launch can be told, "" for none.  told is what else its adapter
-// is told: the rulebook written for it.
+// is told: the rulebook written for it.  False where none opens, a seat its adapter refuses too:
+// Python's resume says why.
 func (seat reopening) command(told []string) ([]string, string, bool) {
 	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
 	if seat.moving != nil {
 		env = append(env, "AGENTKIT_FIRST_PROMPT="+seat.moving.line)
 	}
 	if seat.conversation == "" {
-		return adapters.Fresh(seat.model, env)
+		cmd, conversation, _ := adapters.Fresh(seat.model, env)
+		return cmd, conversation, cmd != nil
 	}
-	cmd, ok := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
-	return cmd, seat.conversation, ok
+	cmd, _ := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
+	return cmd, seat.conversation, cmd != nil
 }
 
 // said is what the seat is told to be doing, as orch.resume logs it.

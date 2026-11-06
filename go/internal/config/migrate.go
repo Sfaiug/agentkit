@@ -16,8 +16,8 @@ var firstKey = regexp.MustCompile(`^(\s*)(?:[\w-]+|'[^']*'|"(?:\\.|[^"\\])*")`)
 
 // MigratePolicy renames config.toml's old policy names, as Python's every command does first
 // (config.migrate_policy), keeping every other byte; a file naming both loses the old one. A file
-// that does not read, or cannot be written, is left as it is: commands reading it report it, and
-// renamePolicy reads old names as new ones.
+// that does not read, or cannot be written, is left as it is: commands reading it report it, an old
+// name among what they refuse.
 func MigratePolicy() {
 	path := filepath.Join(Home(), "config.toml")
 	if _, root := policyFile(path); root == nil {

@@ -23,8 +23,8 @@ SEAT = "fix-api"
 
 class MenuLooksAtASeatFoundOnNews(Sandbox):
     def test_a_seat_opened_as_soon_as_it_is_found_gets_its_word_while_its_owner_is_in_it(self):
-        found, frames, holder, seen = [], [], {}, []
-        watching = menu.Live.watch
+        found, frames, holder, seen, listed = [], [], {}, [], threading.Event()
+        watching, waking = menu.Live.watch, menu.Live._wake
 
         def start(live, last):
             holder["live"] = live
@@ -32,17 +32,24 @@ class MenuLooksAtASeatFoundOnNews(Sandbox):
             live.looker.join()
             holder["first"] = live.looker
 
+        def wake(live):
+            waking(live)
+            if live.last[0]:
+                listed.set()    # the read that lists the seat has landed and asked for its draw
+
         def moving(*_args, **_kw):
             live = holder["live"]
             if not frames:
-                # a seat another terminal just started: its record is news to this menu
+                # a seat another terminal just started: its record is news to this menu, read by
+                # its watcher, the one thread a drawn menu reads on (asked, not waited for), and
+                # the wait ends on the draw that read asks for, not on the clock, which looks again
                 config.save_session(self.cfg, SEAT, "astra", ["opus"],
                                     {"cwd": str(self.root), "created": 10000})
                 found.append({"name": SEAT, "path": str(self.root), "created": 10000,
                               "attached": False, "exited": False, "legacy": False,
                               "resumable": False})
-                live.read()
-                live._wake()    # the wait ends on that news, not on the clock, which looks again
+                live.ask()
+                listed.wait(30)
                 frames.append("the new seat is drawn")
                 return None
             if len(frames) == 1:
@@ -73,6 +80,7 @@ class MenuLooksAtASeatFoundOnNews(Sandbox):
         with patch.object(orch, "listing", side_effect=lambda **_kw: list(found)), \
                 patch.object(orch, "job_notices", return_value=[]), \
                 patch.object(menu.Live, "watch", start), \
+                patch.object(menu.Live, "_wake", wake), \
                 patch.object(menu.Live, "probe", return_value=False), \
                 patch.object(menu, "moving", side_effect=moving), \
                 patch.object(menu, "wait_key"), patch.object(menu, "read"), \

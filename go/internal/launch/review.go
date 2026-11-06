@@ -19,22 +19,26 @@ import (
 	"agentkit/internal/task"
 )
 
-// Review launches a review of somebody else's pull request at url, Python's review_pr_main, from no
-// seat: `ak run`'s exit status, and why the launch is refused.  Whose PR a seat is reviewing stays
-// with Python, decided before anything is written.
+// Review launches a review of the pull request at url, Python's review_pr_main: `ak run`'s exit
+// status, and why the launch is refused.  Its numbers are read first, as every launch's.  From no
+// session it is a review of somebody else's pull request; one with a session name is a seat's, with
+// or without its record (ownReview).
 func Review(url string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
-	bound, unbound := config.Bind()
-	_, rules := pick.Load()
-	if unbound != nil || elsewhere() || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
-		values["--review"] != "" || !rules || !driverHere() || unreadRun() {
-		return 0, "", ErrPython
-	}
 	parts := gh.PullURL.FindStringSubmatch(url)
 	numbersIn, err := reviewNumbers(parts[1] + "/" + parts[2])
 	if errors.Is(err, ErrPython) {
 		return 0, "", err
 	} else if err != nil {
 		return 2, err.Error(), nil
+	}
+	if session, _, unnamed := config.CurrentSession(); session != "" || unnamed != nil {
+		return ownReview(url, numbersIn, values, flags, out, errOut)
+	}
+	bound, unbound := config.Bind()
+	_, rules := pick.Load()
+	if unbound != nil || elsewhere("") || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
+		values["--review"] != "" || !rules || !driverHere() || unreadRun() {
+		return 0, "", ErrPython
 	}
 	pull, unread := gh.View(url)
 	if errors.Is(unread, gh.ErrPython) {
@@ -61,6 +65,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 			taken = runOn(url)
 			return receipt(dir, "", values, flags, bound, "")
 		},
+		func() error { recorded(dir); return nil },
 	} {
 		if err := step(); err != nil {
 			return 0, "", err
@@ -74,7 +79,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}
 	if err := unstopped(func(record *run.Object) {
 		run.SetAll(record, "title", fmt.Sprintf("Review PR #%s: %s", pull.Number, pull.Title), "own_pr", false, "own_orchestrator", nil,
-			"own_orchestrator_effort", nil, "policy", run.Fields("rounds", numbersIn.Rounds, "review_lines", numbersIn.ReviewLines.Said(), "seat_lines", numbersIn.SeatLines.Said()))
+			"own_orchestrator_effort", nil, "policy", run.Fields(numbersIn.Said()...))
 	}); err != nil {
 		return 0, "", err
 	}
@@ -116,5 +121,5 @@ func samePull(one, two string) bool {
 // reviewNumbers is the numbers in force for a review of that repository: its checkout's here, else
 // the host's.
 func reviewNumbers(slug string) (config.Numbers, error) {
-	return numbers(seat.CheckoutFor(slug))
+	return numbers(seat.CheckoutFor(slug), true)
 }

@@ -8,7 +8,6 @@ package usage
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -16,9 +15,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// ErrPython is a home whose usage Python ak reads: where its adapter scripts live, a provider
-// listing accounts, but for the ak screen's refresh, and the tokens a window holds measured in
-// state/capacity.json are not yet Go's.
+// ErrPython is a home whose usage Python ak reads: where its adapter scripts live is not yet
+// Go's.
 var ErrPython = errors.New("left to Python")
 
 // Readings is every provider's reading, as of the moment it was read.
@@ -63,7 +61,7 @@ func readAll(shipped bool) (*Readings, error) {
 	if err != nil {
 		return nil, err
 	}
-	models, err := config.Models()
+	models, err := config.Entries()
 	if err != nil {
 		return nil, err
 	}
@@ -77,9 +75,9 @@ func Check() error {
 	return err
 }
 
-// listed is every provider config.toml lists as a read asks it, or why that is not Go's; a refresh
-// asks, where no $AGENTKIT_ADAPTER_DIR is named, the checkout's own adapters, and each account a
-// provider lists, as Python does.
+// listed is every login config.toml lists as a read asks it, a provider's one or each account it
+// lists, as Python does, or why that is not Go's; a refresh asks, where no $AGENTKIT_ADAPTER_DIR
+// is named, the checkout's own adapters.
 func listed(refresh bool) ([]source, error) {
 	subs, err := config.Subscriptions()
 	if err != nil {
@@ -99,7 +97,7 @@ func listed(refresh bool) ([]source, error) {
 		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
 			adapter, err = config.ShippedAdapter(sub.Harness)
 		}
-		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 && !refresh {
+		if errors.Is(err, config.ErrNoAdapterDir) {
 			return nil, ErrPython
 		}
 		if len(accounts) == 0 {
@@ -108,9 +106,6 @@ func listed(refresh bool) ([]source, error) {
 		for _, account := range accounts {
 			sources = append(sources, source{sub, facts, adapter, err, account})
 		}
-	}
-	if measured() {
-		return nil, ErrPython
 	}
 	return sources, nil
 }
@@ -168,28 +163,21 @@ func (r *Readings) OnCredits(name string) bool {
 	return false
 }
 
-// Shown is every reading as `ak usage --json` prints it: each with its price a month, and with
-// what its week holds in tokens and what a million of them cost, which no capacity.json reading
-// measures (Read).
+// Shown is every reading as `ak usage --json` prints it: each login's with what its shared week
+// holds in tokens and how many pairs measure it (holds), its price a month and what a million
+// tokens cost at it.
 func (r *Readings) Shown() *run.Object {
-	for _, src := range r.sources {
-		prov, ok := r.providers.Get(src.Name).(*run.Object)
-		if !ok {
-			continue
+	for _, each := range r.logins() {
+		price := r.source(each.provider).Price
+		shared := r.sharedWeek(each.provider, each.prov)
+		tokens, pairs := holds(each.provider, each.account, shared)
+		each.prov.Set("capacity_tokens", tokens)
+		each.prov.Set("capacity_pairs", pairs)
+		each.prov.Set("price", nil)
+		if price != nil {
+			each.prov.Set("price", *price)
 		}
-		records := []*run.Object{prov}
-		if accounts, ok := prov.Get("accounts").(*run.Object); ok && len(accounts.Keys()) > 0 {
-			records = objects(values(accounts))
-		}
-		for _, record := range records {
-			record.Set("capacity_tokens", nil)
-			record.Set("capacity_pairs", 0)
-			record.Set("price", nil)
-			if src.Price != nil {
-				record.Set("price", *src.Price)
-			}
-			record.Set("price_per_1m", nil)
-		}
+		each.prov.Set("price_per_1m", perMillion(price, tokens, shared))
 	}
 	return r.providers
 }
@@ -214,28 +202,6 @@ func (r *Readings) gating(name string) ([]*run.Object, *run.Object) {
 		}
 	}
 	return meters, prov
-}
-
-// measured is whether state/capacity.json holds a pair of a turn's tokens and how far it moved a
-// meter, from which Python's usage.holds measures what a window holds.
-func measured() bool {
-	data, err := os.ReadFile(filepath.Join(state(), "capacity.json"))
-	if err != nil {
-		return false
-	}
-	held, _ := run.Decode(data)
-	for _, accounts := range values(object(held)) {
-		for _, meters := range values(object(accounts)) {
-			for _, pairs := range values(object(meters)) {
-				for _, pair := range objects(pairs) {
-					if numbers(pair, "at", "tokens", "moved", "resets_at") {
-						return true
-					}
-				}
-			}
-		}
-	}
-	return false
 }
 
 func state() string {

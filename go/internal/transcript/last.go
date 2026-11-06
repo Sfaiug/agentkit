@@ -16,5 +16,5 @@ func Prompted(name string, entry *run.Object) Prompt {
 		return Prompt{}
 	}
 	stamp, _ := table["at"].(string)
-	return Prompt{moment(first(at(entry, stamp))), promptWords(name, promptKinds(table), entry)}
+	return Prompt{At: moment(first(at(entry, stamp))), Text: promptWords(name, promptKinds(table), entry)}
 }

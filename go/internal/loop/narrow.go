@@ -52,6 +52,7 @@ func withCandidates(prefix, pending []member, action func() bool) bool {
 	})
 }
 
+// redBehind is whether a red on a stack still waits on runs in the line, members.
 func redBehind(wait *run.Object, members []member) bool {
 	if !wait.Has("fix") || wait.Has("land") {
 		return false
@@ -60,57 +61,50 @@ func redBehind(wait *run.Object, members []member) bool {
 	return after != nil && slices.ContainsFunc(members, func(m member) bool { return after.Has(filepath.Base(m.dir)) })
 }
 
+// narrowLine checks the line's ready stack, Python's check_line: a member that changed or runs keeps
+// its place, a green delivery ahead in the stack, a red is the pass's wake's, a saved green wakes
+// again, and the first member with no verdict is checked with every later one ready for it.
 func narrowLine(turn, code, repo, tip, upstream string, members []member, said io.Writer) error {
 	var prefix, pending []member
-	for _, m := range members {
-		if m.record.Truthy("review_pr") || m.record.Truthy("repair") {
-			break
-		}
-		review := m.record.Dict("review")
-		if review == nil || review.Str("verdict") != "PASS" {
-			break
-		}
+	for index, m := range members {
 		wait := m.record.Dict("waiting_on")
-		if green(wait) {
-			if m.record.Str("state") == "waiting" {
-				withPrefix(prefix, func() bool { return publish(m.dir, m.record, wait, said) })
+		if run.ProcessActive(m.record) || !unchanged(m.dir, m.record) {
+			if green(wait) {
+				prefix = append(prefix, m)
 			}
+			continue
+		}
+		if wait.Has("fix") {
+			continue
+		}
+		if m.record.Str("state") != "waiting" {
+			prefix = append(prefix, m) // a green delivery the tick resumes
+			continue
+		}
+		if pythons(m.record) {
+			return nil
+		}
+		if green(wait) {
+			withPrefix(prefix, func() bool { return publish(m.dir, m.record, wait, said) })
 			prefix = append(prefix, m)
 			continue
 		}
-		if m.record.Str("state") != "waiting" || !unchanged(m.dir, m.record) {
-			break
-		}
-		if wait.Has("fix") {
-			if wait.Has("land") {
-				if len(pending) == 0 && landingFixHandoff(wait) == "" {
-					publish(m.dir, m.record, wait, said)
-				}
-				break // required checks failed during delivery: its own fixer verdict stands
-			}
-			if redBehind(wait, members) {
-				continue
-			}
-			if after := wait.Dict("after"); after == nil || len(after.Keys()) == 0 {
-				if landingFixHandoff(wait) == "" {
-					publish(m.dir, m.record, wait, said)
-				}
-				continue
-			}
-			// Its predecessors landed: recheck its own tree before spending its fixer turn.
-			if err := run.Change(m.dir, func(current *run.Object) error {
-				if !run.Equal(current, m.record) || run.ProcessActive(current) {
-					return errStale
-				}
-				current.Dict("waiting_on").Delete("fix")
-				current.Dict("waiting_on").Delete("after")
-				return nil
-			}); err != nil {
-				break
-			}
-			m.record, _ = run.Read(m.dir)
+		if !reviewPassed(m.record) {
+			continue
 		}
 		pending = append(pending, m)
+		for _, later := range members[index+1:] {
+			wait := later.record.Dict("waiting_on")
+			if later.record.Str("state") != "waiting" || wait.Has("fix") || wait.Has("land") || !reviewPassed(later.record) ||
+				run.ProcessActive(later.record) || !unchanged(later.dir, later.record) {
+				continue
+			}
+			if pythons(later.record) {
+				break // the stack ends short of it
+			}
+			pending = append(pending, later)
+		}
+		break
 	}
 	below := -1
 	for len(pending) > 0 {
@@ -138,6 +132,11 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 		below = culprit - landed - 1
 	}
 	return nil
+}
+
+func reviewPassed(record *run.Object) bool {
+	review := record.Dict("review")
+	return review != nil && review.Str("verdict") == "PASS"
 }
 
 func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said io.Writer) (stacks []*narrowingStack, err error) {
@@ -275,7 +274,7 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 		answer.Set("after", after)
 		stack := stacks[index]
 		return valid(func() bool {
-			if !publish(stack.dir, stack.record, answer, said, answer.Has("fix") && len(after.Keys()) > 0) {
+			if !publish(stack.dir, stack.record, answer, said) {
 				return false
 			}
 			stack.record, _ = run.Read(stack.dir)

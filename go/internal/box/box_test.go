@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"agentkit/internal/host"
 )
 
 // TestMain is the box's first process where Run starts this test program as one.
@@ -94,7 +96,7 @@ func TestACheckRunsToItsOutputsEndWithAThrowawayHome(t *testing.T) {
 	}
 	defer output.Close()
 	env := map[string]string{"HOME": home, "PATH": os.Getenv("PATH")}
-	code, err := RunCheck(context.Background(), []string{"bash", "-c", "touch ~/leak && (sleep 1; echo late) & echo early; exit 7"}, env, workspace, out, output)
+	code, _, err := RunCheck(context.Background(), host.Watch{}, []string{"bash", "-c", "touch ~/leak && (sleep 1; echo late) & echo early; exit 7"}, env, workspace, out, output)
 	if err != nil || code != 7 {
 		t.Fatalf("exit %d, %v", code, err)
 	}
@@ -109,7 +111,7 @@ func TestACheckRunsToItsOutputsEndWithAThrowawayHome(t *testing.T) {
 	if !strings.HasPrefix(string(report), `{"returncode":7,"processes":[],"cpu_seconds":`) {
 		t.Fatalf("report %s", report)
 	}
-	code, err = RunCheck(context.Background(), []string{"no-such-program"}, env, workspace, out, output)
+	code, _, err = RunCheck(context.Background(), host.Watch{}, []string{"no-such-program"}, env, workspace, out, output)
 	if err != nil || code != 127 {
 		t.Fatalf("a command that cannot start: exit %d, %v", code, err)
 	}

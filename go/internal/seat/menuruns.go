@@ -18,8 +18,8 @@ type Task struct {
 
 // runView is what a full record says to the row's ladder and to its open line together.
 type runView struct {
-	going, live, needs bool
-	task               *Task
+	going, live, needs, parked, undecided bool
+	task                                  *Task
 }
 
 func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
@@ -55,16 +55,14 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 		if !known {
 			return nil, nil, false
 		}
-		info, err := os.Stat(filepath.Join(dir, "run.json"))
-		if err != nil {
-			return nil, nil, false
-		}
-		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds(), view: &view})
+		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: silence(dir, record, now), view: &view})
 	}
 	index := run.NewIndex(records)
 	for _, runs := range mine {
 		for _, each := range runs {
 			each.view.needs = index.NeedsLook(each.record, now)
+			each.view.undecided = index.Unfinished(each.record)
+			each.view.parked = parked(each.record, *each.view, index, now)
 		}
 	}
 	return mine, projects, true
@@ -72,7 +70,7 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	state := record.Str("state")
-	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" {
+	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" && state != "stalled" {
 		return runView{}, false
 	}
 	for _, field := range []string{"waiting_on", "gate_turn", "transient_wait", "process_identity", "lease_wait", "health"} {
@@ -89,8 +87,8 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 		return view, true
 	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
-	// Other parked recovery still needs Python's reader; a parked error is rung 3's (runParked).
-	if !view.going && state != "error" && (run.NeedsRecovery(record) || state == "waiting") {
+	// Other parked recovery still needs Python's reader; a parked error or merge wait is rung 3's (runParked).
+	if !view.going && state != "error" && run.NeedsRecovery(record) {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]
@@ -117,12 +115,20 @@ func awaitingLive(record *run.Object, now time.Time) bool {
 		age >= 0 && age <= 3*3600 && health != nil && health.Truthy("command")
 }
 
+// runsAwaitingLive is rung 3a: only where nothing below is the owner's either, so a run of its own
+// undecided (the stop hook's `unfinished`, which it puts first) or a watcher's alert keeps the word
+// a lower rung gives it.  A parked one rung 3 has already answered.
 func runsAwaitingLive(facts climbing) (*answer, error) {
 	if _, err := aRunOfItsOwn(facts); err != nil {
 		return nil, err
 	}
 	if facts.notice != nil {
 		return nil, nil
+	}
+	for _, each := range facts.mine {
+		if each.view != nil && each.view.undecided {
+			return nil, nil
+		}
 	}
 	for _, each := range facts.mine {
 		if each.view != nil && each.view.live {

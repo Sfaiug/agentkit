@@ -13,8 +13,10 @@ import (
 // A going loop with recent output needs no stall recovery. Locks and temporaries are
 // the tick's writes, so they never count as the loop's life (watch.stall_clock).
 func notSilent(dir string, record *run.Object) bool {
+	// a dead loop's silence is measured too: only a live one is asked whether the host froze it
 	pid, _ := record.Int("pid")
-	if !run.ProcessActive(record) || record.Truthy("frozen_since") || host.Frozen(pid) {
+	alive := run.ProcessActive(record)
+	if record.Truthy("frozen_since") || alive && host.Frozen(pid) {
 		return false
 	}
 	minutes := float64(run.SilenceMinutes)
@@ -28,7 +30,7 @@ func notSilent(dir string, record *run.Object) bool {
 	if wait := record.Dict("transient_wait"); wait != nil && run.Equal(wait.Get("pid"), record.Get("pid")) {
 		latest = max(latest, run.FirstNumber(wait, "until"))
 	}
-	if record.Truthy("delivery_wait") && run.Equal(record.Get("delivery_wait"), record.Get("pid")) {
+	if alive && record.Truthy("delivery_wait") && run.Equal(record.Get("delivery_wait"), record.Get("pid")) {
 		return true
 	}
 	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {

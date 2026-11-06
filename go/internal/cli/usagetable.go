@@ -21,14 +21,14 @@ var (
 // table still does not, its notes, the pick order and the review pair, each line wrapped to the
 // terminal.
 func usageText(screen terminal.Screen, readings *usage.Readings, rules *pick.Rules, order []string) string {
-	width, rows := screen.Width(), readings.Rows()
+	width, rows := screen.Width(), readings.Rows(screen)
 	table := append([][]string{usageHeadings}, rows...)
 	widths := usageWidths(table)
 	if width >= 60 && !usageFits(widths, width) {
 		table[0] = usageShort
 		widths = usageWidths(table)
-		// model(s), provider and outlook give way first
-		widths[1], widths[0], widths[11] = min(widths[1], 14), min(widths[0], 12), min(widths[11], 18)
+		// model(s), provider and outlook give way first, an account's label kept whole
+		widths[1], widths[0], widths[11] = min(widths[1], 14), min(widths[0], max(12, readings.LabelCells())), min(widths[11], 18)
 	}
 	var lines []string
 	if usageFits(widths, width) {

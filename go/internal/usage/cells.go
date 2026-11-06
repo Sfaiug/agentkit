@@ -18,7 +18,7 @@ var unreadWords = []struct {
 
 // Cached is state/usage.json as it stands: nobody is asked and nothing is written.
 func Cached() (*Readings, error) {
-	models, err := config.Models()
+	models, err := config.Entries()
 	if err != nil {
 		return nil, err
 	}
@@ -48,13 +48,6 @@ func (r *Readings) Cell(provider, account string) (left int, said string) {
 		return -1, "empty until " + when
 	}
 	return -1, "empty"
-}
-
-// Held is the usage-limit resets that subscription holds for the owner to spend on `c`, as its
-// cell's account names it; 0 for none or none known (menu.in_hand).
-func (r *Readings) Held(provider, account string) int {
-	held, _ := number(r.login(provider, account).Get("resets"))
-	return int(held)
 }
 
 // login is that subscription's reading, the provider's single one for an account of "".

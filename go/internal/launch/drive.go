@@ -29,13 +29,14 @@ var (
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
 // before anything is written: a reviewer named outright, an executor no worker of its groups, a
 // pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
-// with no box, or one with a user manager to place the run under.
+// with no box, one with a user manager to place the run under, or a turn on a provider's accounts
+// unless the run parks at its pick before any.
 func drivable(values map[string]string, bound config.Binding) error {
 	executors, reviewers := names(bound.Workers), names(bound.Reviewers)
 	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
 	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !placed() ||
-		usage.Check() != nil && !loop.Unstaffed(rules) {
+		usage.Check() != nil && !loop.Unstaffed(rules) || accountTurns() && !loop.Parks(rules, named) {
 		return ErrPython
 	}
 	return nil
@@ -61,12 +62,12 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 		if at.project != "" {
 			project = at.project
 		}
+		record.Set("policy", run.Fields(at.numbers.Said()...)) // a scratch run's too, as Python's prepare
 		if at.repo == "" {
 			run.SetAll(record, "repo", nil, "scratch", true, "no_merge", true, "project", project)
 			return
 		}
-		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines.Said(), "seat_lines", at.numbers.SeatLines.Said()),
-			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
+		run.SetAll(record, "repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err
 	}

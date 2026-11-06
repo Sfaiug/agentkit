@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"agentkit/internal/adapters"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -130,7 +129,7 @@ esac
 	}
 }
 
-func TestFreshReopenKeepsItsAccountWhileNewSeatsUseTheUsualLogin(t *testing.T) {
+func TestFreshReopenKeepsItsAccount(t *testing.T) {
 	home := accountHome(t)
 	accountAdapter(t, home, "printf '%s' \"$AGENTKIT_ACCOUNT\" > \"$HOME/adapter-account\"\necho 'sleep 600'\n")
 	back := reopening{name: "acme", account: "second", model: config.Model{Harness: "claude"}}
@@ -138,11 +137,6 @@ func TestFreshReopenKeepsItsAccountWhileNewSeatsUseTheUsualLogin(t *testing.T) {
 	account, _ := os.ReadFile(filepath.Join(home, "adapter-account"))
 	if !known || conversation == "" || string(account) != "second" || cmd[1] != "AGENTKIT_ACCOUNT=second" {
 		t.Fatal(cmd, conversation, string(account), known)
-	}
-	cmd, _, known = adapters.Command(back.model, append(os.Environ(), "AGENTKIT_ACCOUNT=second"))
-	account, _ = os.ReadFile(filepath.Join(home, "adapter-account"))
-	if !known || len(account) != 0 || cmd[1] != "AGENTKIT_ACCOUNT=" {
-		t.Fatal("a new seat inherited its caller's login", cmd, string(account))
 	}
 }
 

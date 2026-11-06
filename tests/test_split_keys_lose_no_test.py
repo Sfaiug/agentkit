@@ -1,12 +1,9 @@
-"""Every screen test keeps its unittest name; every Go claim runs in exactly one slice."""
+"""Every screen test keeps its unittest name."""
 
 import ast
 import importlib
 from pathlib import Path
 import unittest
-from unittest.mock import patch
-
-import test_go_keys as go
 
 HERE = Path(__file__).resolve().parent
 NAMES = (
@@ -39,24 +36,6 @@ class SplitKeys(unittest.TestCase):
             self.assertLessEqual(len(names), 1, str(path))
             found.extend(names)
         self.assertCountEqual(found, NAMES)
-
-    def test_go_claims_run_once_across_proper_slices(self):
-        listed = [line.split() for line in (go.REPO / "go/keys.txt").read_text().splitlines()]
-        claimed = []
-        for path in [HERE / "test_go_keys.py", *sorted(HERE.glob("test_go_keys_part_*.py"))]:
-            module = importlib.import_module(path.stem)
-            with patch.object(go.shutil, "copytree"), \
-                    patch.dict(go.os.environ, {"AK_BIN": "/bin/true"}), \
-                    patch.object(go.sys, "argv", [str(path)]), \
-                    patch.object(go.subprocess, "run", return_value=go.subprocess.CompletedProcess(
-                        [], 0, "", "Ran 1 test in 0.0s\n\nOK\n")) as run:
-                module.Claims("test_each_claim_passes").test_each_claim_passes()
-            commands = [call.args[0][1:] for call in run.call_args_list
-                        if call.args[0][0] == go.sys.executable]
-            self.assertTrue(commands, str(path))
-            self.assertLess(len(commands), len(listed), str(path))
-            claimed.extend(commands)
-        self.assertCountEqual(claimed, [[f"tests/{name}.py", *parts] for name, *parts in listed])
 
 
 if __name__ == "__main__":

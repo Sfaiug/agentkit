@@ -39,7 +39,7 @@ esac
 	file, _ := run.ReadJSON(seatFile("acme"))
 	owed := file.List("owed_lines")[0].(*run.Object)
 	// The send stops just after its durable receipt, as a killed tick would.
-	if TypeAtPrompt("acme", line, func(mark *run.Object) error {
+	if TypeAtPrompt("acme", line, nil, func(mark *run.Object) error {
 		owed.Set("typed", mark)
 		if err := Write("acme", "owed_lines", []any{owed}); err != nil {
 			t.Fatal(err)

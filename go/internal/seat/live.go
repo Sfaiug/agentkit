@@ -41,13 +41,16 @@ type Live struct {
 	Record, File *run.Object
 }
 
-// Seats is the name of every seat the home holds, false where any record is not a seat Go reads.
+// Seats is the name of every seat the home holds but a legacy one, another program's session that
+// the tick never cards, looks at or types into; false where any record is not a seat Go reads.
 // A home with no record holds none where tmux holds no seat.
 func Seats(now time.Time) ([]string, bool) {
 	home, known := seated(now)
 	var names []string
 	for _, each := range home.Seats {
-		names = append(names, each.Name)
+		if !each.legacy {
+			names = append(names, each.Name)
+		}
 	}
 	return names, known
 }
@@ -61,7 +64,7 @@ func Lives(now time.Time) ([]Live, bool) {
 	state := filepath.Join(config.Home(), "state")
 	var lives []Live
 	for _, each := range home.Seats {
-		if !each.live {
+		if !each.looked() { // no pass types into a seat nothing here started
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)
@@ -80,8 +83,8 @@ func Lives(now time.Time) ([]Live, bool) {
 
 // seated is the home, false where any record or seat is one Go does not read.
 func seated(now time.Time) (Home, bool) {
-	if len(config.SeatFiles()) == 0 {
-		return Home{}, OnNoServer()
+	if len(config.SeatFiles()) == 0 && strangers() {
+		return Home{}, false
 	}
 	return TickHome(now)
 }
@@ -131,8 +134,9 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // on from where the last reading stopped, then under its announce lock one capture, read as Live
 // reads it. Both ok and the account decision run before that capture is kept and its word
 // published, so unsupported recovery leaves no publish behind. The account decision may reopen
-// the seat through its shared launch path; a refusal its record ends on is instead waited on, the
-// wait written before the publish (waitOnUsage). False where either decision leaves work to Python.
+// the seat through its shared launch path; a refusal its record ends on, or its one subscription
+// spent, is instead waited on, the wait written before the publish (waitOnUsage). False where
+// either decision leaves work to Python.
 func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
@@ -157,8 +161,8 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	carried := false
 	// that wait is written under every lifecycle change's lock, which watch.seat_account takes
 	// outside the announce lock, the meters read before either
-	readings, refusing := usageAhead(state, name, models)
-	if refusing {
+	readings, ahead := usageAhead(state, name, models)
+	if ahead {
 		held, err := lock.Wait(context.Background(), filepath.Join(state, "watch.lock"))
 		if err != nil {
 			return false, err
@@ -171,6 +175,9 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if !known {
 			carried, err = home.healthGone(state, name, now)
 			return err
+		}
+		if carried = !seat.looked(); carried { // a seat nothing here started
+			return nil
 		}
 		pane, exited := harnessScreen(name)
 		if exited {
@@ -185,7 +192,22 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		var wait func() error
 		blank := strings.TrimFunc(pane, config.Space) == ""
 		// a capture that came back blank is no look to follow; the account decisions read the
-		// model followed, as watch.health's seat_model does
+		// model followed, as watch.health's seat_model does, decided before the move is written
+		model := live.Record.Str("orchestrator")
+		if !blank && seat.follow.chosen != "" {
+			model = seat.follow.chosen
+		}
+		if due := live.Refused != "" || spentAlone(model, home.models[model]); due || ahead {
+			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's,
+			// as is one watch.lock was taken ahead for, or not, on a model the look no longer follows:
+			// no wait is written without that lock, and no account moved under it, as the move takes it
+			if carried = due && readings != nil && !blank; carried {
+				wait, carried = seat.waitOnUsage(state, live, model, found, readings, now, log)
+			}
+			if !carried {
+				return nil
+			}
+		}
 		if !blank {
 			if err := seat.moved(state, home.models); err != nil {
 				return err
@@ -193,14 +215,8 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 			if record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json")); record != nil {
 				live.Record = record
 			}
-		}
-		if live.Refused != "" || refusing {
-			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's,
-			// as is one the look no longer reads, whose account move would take watch.lock again
-			if carried = readings != nil && live.Refused != "" && !blank; carried {
-				wait, carried = seat.waitOnUsage(state, live, readings, now, log)
-			}
-			if !carried {
+			// a record changed meanwhile took no move, and its wait is Python's
+			if carried = wait == nil || live.Record.Str("orchestrator") == model; !carried {
 				return nil
 			}
 		}
@@ -224,7 +240,11 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 				return err
 			}
 		} else if live.sameRecord() { // A relaunch consumed the old Stop; it cannot nudge the replacement harness.
-			found, err = seat.nudgeOpenWork(state, found, log)
+			// an unanswered owner decision is never a reason to type a resume
+			asked := notify.OwnerQuestion(notify.Last(seat.Name))
+			if found, err = seat.nudgeQuestion(state, found, log); err == nil && !asked {
+				found, err = seat.nudgeOpenWork(state, found, log)
+			}
 			if err != nil {
 				return err
 			}

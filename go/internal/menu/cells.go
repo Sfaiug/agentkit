@@ -73,22 +73,13 @@ func Cells(now time.Time) ([]Cell, error) {
 		if len(accounts) == 0 {
 			accounts = []string{""} // the provider's one login
 		}
-		for i, account := range accounts {
-			label := each.name
-			if len(accounts) > 1 {
-				label += " " + roman(i+1)
-			}
+		for _, account := range accounts {
 			left, said := readings.Cell(each.sub.Name, account)
 			login := logins.Of(each.sub.Name, account)
-			cell := Cell{Label: label, Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
+			cell := Cell{Label: config.AccountLabel(accounts, account, each.name), Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
 				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour,
-				Harness: cmp.Or(each.sub.Harness, config.ShippedHarness(each.sub.Name))} // logins.harness
-			if held := readings.Held(each.sub.Name, account); held > 0 {
-				cell.Held = strconv.Itoa(held) + " resets in hand"
-				if held == 1 {
-					cell.Held = "1 reset in hand"
-				}
-			}
+				Harness: cmp.Or(each.sub.Harness, config.ShippedHarness(each.sub.Name)), // logins.harness
+				Held:    readings.InHand(each.sub.Name, account), Notes: readings.Detail(each.sub.Name, account)}
 			if login != nil {
 				cell.Email, cell.Plan = login.Str("email"), login.Str("plan")
 			}
@@ -133,19 +124,6 @@ func titled(name string) string {
 		start = !unicode.IsLetter(r)
 	}
 	return string(out)
-}
-
-// roman is one of several subscriptions' place in its provider's list.
-func roman(number int) string {
-	out := ""
-	for _, step := range []struct {
-		value  int
-		digits string
-	}{{1000, "M"}, {900, "CM"}, {500, "D"}, {400, "CD"}, {100, "C"}, {90, "XC"}, {50, "L"}, {40, "XL"}, {10, "X"}, {9, "IX"}, {5, "V"}, {4, "IV"}, {1, "I"}} {
-		out += strings.Repeat(step.digits, number/step.value)
-		number %= step.value
-	}
-	return out
 }
 
 // Standing is the worker token's note while the ak screen shows it, from tokenWarn days out and once

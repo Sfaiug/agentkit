@@ -32,6 +32,9 @@ provider='test'
 mode='subscription'
 `
 
+// gemini is a model whose seats Go does not open.
+const gemini = "[models.gemini]\nharness='antigravity'\nmodel='gemini-flash'\neffort='low'\nprovider='test'\n"
+
 var moment = time.Unix(1_800_000_000, 0)
 
 func sandbox(t *testing.T) string {
@@ -49,6 +52,17 @@ func sandbox(t *testing.T) string {
 	} {
 		t.Setenv(key, value)
 	}
+	// A worker runs these tests inside its own seat and run, whose names would reach the code
+	// under test: each test runs as no seat, and one that needs a name sets it.
+	for _, key := range []string{"AGENTKIT_SESSION", "AGENTKIT_ACCOUNT", "AGENTKIT_UNATTENDED",
+		"AGENTKIT_INBOX_SESSION", "TMUX", "TMUX_PANE", "AK_PARENT_RUN", "AK_RUN_DEPTH",
+		"AK_NOTIFY_SINK", "AK_MAX_RUNS", "AK_MAX_LOAD"} {
+		t.Setenv(key, "") // puts the worker's value back after the test
+		os.Unsetenv(key)
+	}
+	// A session a test opens runs a shell that never ends, so its server would outlive the
+	// test: it is ended first, while TMUX_TMPDIR still names its socket.
+	t.Cleanup(func() { exec.Command("tmux", "-L", "seat-test", "kill-server").Run() })
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig)
 	return home
 }

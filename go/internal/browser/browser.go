@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,18 +55,19 @@ var units = []string{"browser-bridge-xvfb.service", "browser-bridge-openbox.serv
 // writes, then the one the stack's installer wrote.
 var passwords = []string{"browser-bridge-vnc.txt", "browser-bridge-vnc"}
 
-// Where the stack answers; a test points them at its own.
+// Where the stack answers; a test points them at its own, and one whose ticks would reach the
+// host's browser points CDP at none.
 var (
-	cdp     = "http://127.0.0.1:9222"
+	CDP     = "http://127.0.0.1:9222"
 	unitDir = "/etc/systemd/system"
 )
 
 // hostPort is websockify's listening address in its ExecStart, digits as Python's \d reads them.
 var hostPort = regexp.MustCompile(`^(\p{Nd}{1,3}(?:\.\p{Nd}{1,3}){3}|\[[0-9A-Fa-f:]+\]):(\p{Nd}{1,5})$`)
 
-// client reads DevTools as Python's urllib does: through no proxy (proxied leaves one to
-// Python), asking for no compression, within its 4 seconds.
-var client = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{DisableCompression: true}}
+// client reads DevTools as Python's urllib does: through the proxy it picks, asking for no
+// compression, within its 4 seconds.
+var client = &http.Client{Timeout: 4 * time.Second, Transport: &http.Transport{DisableCompression: true, Proxy: through}}
 
 // Status prints `ak browser status` as Python's browser.status does and is its exit code: 1 when
 // a part that is installed is down.  Its lines wait until every reading is in, so a status left
@@ -182,7 +184,7 @@ func status() ([]string, bool, error) {
 		return nil, false, err
 	}
 	if err != nil {
-		say("cdp        %s unreachable (%v)", cdp, err)
+		say("cdp        %s unreachable (%v)", CDP, err)
 		healthy = healthy && !installed
 	} else {
 		rows, err := tabs(version, list)
@@ -291,21 +293,10 @@ func unitStates(env []string) ([]string, error) {
 // read is one of DevTools' JSON answers, as Python's browser.cdp reads it; an error says why it
 // cannot be read.
 func read(path string) (any, error) {
-	if proxied() {
-		return nil, ErrPython
+	if proxy() != "" {
+		return nil, ErrPython // what Python says of a proxy that fails is urllib's own words
 	}
-	response, err := client.Get(cdp + path)
-	var failed *url.Error
-	if errors.As(err, &failed) {
-		return nil, failed.Err // the address is on the line already
-	} else if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		return nil, errors.New(response.Status)
-	}
-	body, err := io.ReadAll(response.Body)
+	body, err := ask(path)
 	if err != nil {
 		return nil, err
 	}
@@ -316,9 +307,43 @@ func read(path string) (any, error) {
 	return value, err
 }
 
-// proxied is whether Python's urllib sends a request to DevTools through a proxy the
-// environment names, as its getproxies_environment and proxy_bypass_environment decide.
-func proxied() bool {
+// ask is what DevTools answers at path, asked as Python's urllib asks it; an error says why it
+// did not answer, ErrPython where urllib's proxy is one Go does not send through.
+func ask(path string) ([]byte, error) {
+	response, err := client.Get(CDP + path)
+	var failed *url.Error
+	if errors.As(err, &failed) {
+		return nil, failed.Err // the address is on the line already
+	} else if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return nil, errors.New(response.Status)
+	}
+	return io.ReadAll(response.Body)
+}
+
+// through is the proxy urllib sends DevTools a request through, as its _parse_proxy reads a bare
+// host:port or an http:// address; ErrPython for any other, or one carrying a login.
+func through(*http.Request) (*url.URL, error) {
+	address := proxy()
+	if address == "" {
+		return nil, nil
+	}
+	if !strings.Contains(address, "://") {
+		address = "http://" + address
+	}
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Host == "" {
+		return nil, ErrPython
+	}
+	return parsed, nil
+}
+
+// proxy is the address Python's urllib sends a request to DevTools through, as its
+// getproxies_environment and proxy_bypass_environment pick it from the environment, or "".
+func proxy() string {
 	proxies := map[string]string{}
 	for _, pair := range os.Environ() {
 		name, value, _ := strings.Cut(pair, "=")
@@ -337,20 +362,20 @@ func proxied() bool {
 			delete(proxies, strings.ToLower(scheme))
 		}
 	}
-	if proxies["http"] == "" || proxies["no"] == "*" {
-		return false
+	if proxies["no"] == "*" {
+		return ""
 	}
-	host := strings.ToLower(strings.TrimPrefix(cdp, "http://"))
+	host := strings.ToLower(strings.TrimPrefix(CDP, "http://"))
 	hostOnly, _, _ := strings.Cut(host, ":")
 	for _, name := range strings.Split(proxies["no"], ",") { // an empty name matches no host
 		name = strings.ToLower(strings.TrimLeft(strings.TrimFunc(name, config.Space), "."))
 		for _, each := range []string{hostOnly, host} {
 			if each == name || strings.HasSuffix(each, "."+name) {
-				return false
+				return ""
 			}
 		}
 	}
-	return true
+	return proxies["http"]
 }
 
 // tabs is the reachable cdp line, the tabs line and each page's row, as Python's browser.status
@@ -375,11 +400,11 @@ func tabs(version, list any) ([]string, error) {
 			pages = append(pages, page)
 		}
 	}
-	rows := []string{fmt.Sprintf("cdp        %s reachable, %s", cdp, browser),
+	rows := []string{fmt.Sprintf("cdp        %s reachable, %s", CDP, browser),
 		fmt.Sprintf("tabs       %d open (cap %s; a tab idle %s min is closed by ak watch)", len(pages),
-			setting("AK_BROWSER_TAB_CAP", "12"), setting("AK_BROWSER_TAB_IDLE_MIN", "60"))}
+			tabCap(), idleMinutes())}
 	stored := run.NewObject()
-	data, err := os.ReadFile(filepath.Join(config.Home(), "state", "browser-tabs.json"))
+	data, err := os.ReadFile(records())
 	if err == nil {
 		records, err := run.DecodeShown(data)
 		if errors.Is(err, run.ErrLimit) {
@@ -424,15 +449,23 @@ func tabs(version, list any) ([]string, error) {
 	return rows, nil
 }
 
+// tabCap and idleMinutes are how many tabs the watch tick leaves open and how many minutes one
+// may stay unchanged, as Python's browser.tab_cap and tab_idle_minutes read them.
+func tabCap() *big.Int      { return setting("AK_BROWSER_TAB_CAP", 12) }
+func idleMinutes() *big.Int { return setting("AK_BROWSER_TAB_IDLE_MIN", 60) }
+
 // setting is the variable's number as Python's int() reads it where that is 1 or more, else
-// fallback: the watch tick's tab cap and idle minutes.
-func setting(name, fallback string) string {
+// fallback.
+func setting(name string, fallback int64) *big.Int {
 	number := config.Int(strings.TrimFunc(os.Getenv(name), config.Space))
 	if number == nil || number.Sign() < 1 {
-		return fallback
+		return big.NewInt(fallback)
 	}
-	return number.String()
+	return number
 }
+
+// records is the file of each tab's url and title as last seen, and when they last changed.
+func records() string { return filepath.Join(config.Home(), "state", "browser-tabs.json") }
 
 // floorDiv is Python's int(x // y) for a finite x ≥ 0 and a y > 0, rounded as CPython's float
 // floor division rounds it.

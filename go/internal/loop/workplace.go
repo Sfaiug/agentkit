@@ -24,6 +24,8 @@ type workplace interface {
 	landing() (bool, string)
 	// role is the rules a turn of that word takes.
 	role(word string) string
+	// doneChecks is what a builder's done holds a turn of that word to, nil for nothing.
+	doneChecks(l *loop, word string) *run.Object
 	// beforeTurn readies the place for a worker, worked follows the executor's turn.
 	beforeTurn(l *loop)
 	worked(l *loop) error
@@ -53,6 +55,9 @@ type workplace interface {
 
 // placeOf is the workplace a record describes, for what reads a run from outside its driver.
 func placeOf(record *run.Object) workplace {
+	if record.Truthy("own_pr") {
+		return &ownPull{pullFrom(record)}
+	}
 	if record.Truthy("review_pr") {
 		return pullFrom(record)
 	}

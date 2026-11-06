@@ -32,7 +32,7 @@ func TestAQuestionLeavesAnUnknownLaunchAndBootRecoveryToPython(t *testing.T) {
 				"session", "acme", "kind", "needs", "text", "Which database?", "time", asked)))
 			put(t, filepath.Join(ak, "state", "card-acme.json"), run.Line(run.Fields(
 				"word", "needs you", "since", asked, "began", asked, "episode", "question", "sent", false)))
-			if Carry(io.Discard, io.Discard) {
+			if carries(io.Discard, io.Discard) {
 				t.Fatal("a resumable seat's interrupted question skipped recovery")
 			}
 			if boot != "" {

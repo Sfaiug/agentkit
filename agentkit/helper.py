@@ -181,20 +181,20 @@ def _parcel(cwd, default, known, recipe, parcel, turn=None):
             tar.addfile(tar.gettarinfo(arcname="repo.bundle", fileobj=bundle), bundle)
 
 
-def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
+def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0, one=False):
     """(the suite sent to a helper that takes it, reason): an Away, or (None, why it runs here).
     `command` is what each of its pieces runs there (`piece`): one whose line is longer than one
     argument holds keeps the suite here. With `turn`, a model turn's (agentkit/machine_turn.py),
     it goes to a machine that takes turns, holding `piece_cpus` of it until it starts, not half,
-    `turn(tar)` adding its own files to the parcel. None goes to a machine Google ends within
+    `turn(tar)` adding its own files to the parcel. With `one`, a probe of a red stack's
+    narrowing (land._probe), it holds only the CPUs its one piece gets, so the probes of its round
+    started beside it find the rest (`places`). None goes to a machine Google ends within
     `lasting` seconds of when it would start there, and one placed where no machine with room
     lasts a rent and a pass more (google_cloud.READY, PASS) asks for a machine, as none does:
     the next is ready as the chosen one stops taking that work, not turns run here meanwhile."""
     work = "turns" if turn else "tests"
     try:
-        not_serving = google_cloud.not_serving()
-        aliases = [alias for alias in machines.helpers()
-                   if alias not in not_serving and work in machines.work(alias)]
+        aliases = _takers(work)
         renting = google_cloud.renting() and work in machines.work(None)
     except config.Error:  # a config.toml mid-edit fails no run's suite: it runs here
         aliases, renting = [], False
@@ -251,7 +251,8 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
                     parcel.seek(0)
                     # a new recipe's build fetches packages, a first suite sends the whole history
                     sent = _remote(alias, "prepare", away.key, image, repo,
-                                   *([piece_cpus] if turn else []), stdin=parcel,
+                                   *([piece_cpus] if turn else [fit[1]] if one else []),
+                                   stdin=parcel,
                                    timeout=1800).returncode
                 # The copy went since `known` answered: the whole history, once.
                 known = [] if known and sent == LACKS else None
@@ -268,6 +269,28 @@ def start(piece_cpus, piece_mem_mb, cwd, log, command, turn=None, lasting=0):
     need()
     return None, " · ".join(f"helper {alias} {reason}"
                             for alias, (_, reason) in rooms.items()) or "no suite helper set up"
+
+
+def _takers(work):
+    """The machines that take `work`, rentals taking no more work aside; config.Error where a
+    config.toml is mid-edit."""
+    not_serving = google_cloud.not_serving()
+    return [alias for alias in machines.helpers()
+            if alias not in not_serving and work in machines.work(alias)]
+
+
+def places(piece_cpus, piece_mem_mb, cwd):
+    """How many pieces the machines that take tests fit now, as `start` weighs each: a red stack's
+    narrowing sends as many probes in a round (land._round). 0 where the repository has no
+    recipe, as `start` then sends nothing."""
+    try:
+        aliases, repo = _takers("tests"), gitcall.repository_id(cwd)
+        if not aliases or not _recipe(cwd, repo):
+            return 0
+    except (config.Error, ValueError):
+        return 0
+    return sum(fit[0] for fit, _ in (room(alias, piece_cpus, piece_mem_mb, _least(repo))
+                                     for alias in aliases) if fit)
 
 
 def _least(repo):
@@ -307,8 +330,8 @@ def piece(away, shard, command):
 
 def failed(away, shard, named="failed"):
     """The tests the ended piece of `shard` named as failed there (`AK_FAILED`), or with `named`
-    "flaky" as failed, then passed (`AK_FLAKY`), from the file piece.sh gives it, never from
-    what it printed; none where the helper does not answer."""
+    "flaky" as failed, then passed (`AK_FLAKY`), or "ran" as run (`AK_RAN`), from the file
+    piece.sh gives it, never from what it printed; none where the helper does not answer."""
     try:
         reply = _remote(away.alias, "failed", away.key, _vm(away, shard), named, text=True,
                         errors="replace", timeout=30)

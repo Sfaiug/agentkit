@@ -38,7 +38,8 @@ import time
 from decimal import Decimal
 from pathlib import Path
 
-from . import command_help, config, gitcall, matrix, staffing, terminal, turns, usage_probe, worker
+from . import (command_help, config, gitcall, history, matrix, staffing, terminal, turns,
+               usage_probe, worker)
 from .harness import limited, load as harness_plugin
 
 CACHE_TTL = 300
@@ -418,6 +419,7 @@ def _probe_gently(cfg, provider, account=None):
         fresh = _probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
         cached = _cached_provider(provider, account)
+        _keep_probed(provider, account, cached, fresh)
         return _onto(cached, _kept(cached, fresh, now), now)
     with handle:
         fcntl.flock(handle, fcntl.LOCK_EX)
@@ -429,9 +431,30 @@ def _probe_gently(cfg, provider, account=None):
         lock.write_text(repr(now))
         fresh = _probe(cfg, provider, now, account)
         _note_retry(provider, fresh, time.time(), account)
+        _keep_probed(provider, account, cached, fresh)
         # The mark on disk travels with the record that replaces it (`_onto`), not the one
         # `cached` held: a mark made since, or a credit that lifted it since, is the later word.
         return _patch(provider, _kept(cached, fresh, now), account)
+
+
+def _keep_probed(provider, account, cached, fresh):
+    """Keep the meters a probe read (`_keep`) when they were measured after the reading the
+    snapshot holds, spent or not: an adapter's own cache read again, or a refused probe, is no
+    new reading."""
+    at, stood = _taken(fresh), _taken(cached)
+    if fresh.get("meters") and at is not None and (stood is None or at > stood):
+        _keep(provider, account, fresh["meters"], at, "probe")
+
+
+def _keep(provider, account, meters, at, source):
+    """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
+    its login is on as state/logins.json names it now."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    account = account or config.DEFAULT_ACCOUNT
+    plan = logins.whose(provider, account)[1]
+    history.keep_readings([(provider, account, meter["name"], meter["used"],
+                            _number(meter.get("resets_at")), _number(meter.get("window_secs")),
+                            at, source, plan) for meter in meters])
 
 
 def _adapter_json(harness, verb, timeout, account=None):
@@ -1087,6 +1110,7 @@ def _record_turn_meters(cfg, provider, fresh, account, measured):
         stood = _number(cached.get("probed_at"))
     if stood is not None and measured <= stood:
         return False
+    _keep(provider, account, fresh, measured, "turn")
     old = cached.get("meters") if isinstance(cached.get("meters"), list) else []
     # Normalized as a probed meter is, because every reader of the snapshot reads one.
     new = {m["name"]: _normalized(m, measured) for m in fresh}

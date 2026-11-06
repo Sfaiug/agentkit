@@ -21,7 +21,7 @@ func TestRevivalBackoffKeepsPythonRecoveryBoundaries(t *testing.T) {
 		death   int
 		carried bool
 	}{
-		{"warmup", 5, true}, {"warmup ended", 10, false}, {"late death", 15, false}, {"codex", 0, false},
+		{"warmup", 5, true}, {"warmup ended", 10, false}, {"late death", 15, false}, {"antigravity", 0, false},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			ak := revivalHome(t)
@@ -29,11 +29,11 @@ func TestRevivalBackoffKeepsPythonRecoveryBoundaries(t *testing.T) {
 			path := filepath.Join(ak, "state", "session-acme.json")
 			record, _ := run.ReadJSON(path)
 			record.Set("launched", run.Float(epoch(now)-180))
-			if each.name == "codex" {
+			if each.name == "antigravity" {
 				config := filepath.Join(ak, "config.toml")
-				put(t, config, read(t, config)+"[models.astra]\nharness='codex'\nmodel='gpt'\neffort='xhigh'\nprovider='test'\n")
-				record.Set("orchestrator", "astra")
-				record.Set("workers", []any{"astra"})
+				put(t, config, read(t, config)+"[models.gemini]\nharness='antigravity'\nmodel='gemini-flash'\neffort='low'\nprovider='test'\n")
+				record.Set("orchestrator", "gemini")
+				record.Set("workers", []any{"gemini"})
 			} else {
 				bin := strings.Split(os.Getenv("PATH"), string(os.PathListSeparator))[0]
 				put(t, filepath.Join(bin, "tmux"), fmt.Sprintf(`#!/bin/sh

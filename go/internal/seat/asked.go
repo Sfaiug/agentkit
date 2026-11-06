@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/harness"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
+	script "agentkit/internal/transcript"
 )
 
 // promptWritten is how long a prompt's own message is given to reach the seat's conversation: a
@@ -68,7 +68,8 @@ func answering(state, name string, heard *Prompt) error {
 	if _, known, err := answerWritten(state, name, heard.At, promptWritten); known || err != nil {
 		return err
 	}
-	return answered(state, name, heard.At, nil)
+	_, err := answered(state, name, heard.At, nil)
+	return err
 }
 
 // answerWritten is notify.answer_written: a message of the owner's in the seat's conversation,
@@ -89,7 +90,7 @@ func answerWritten(state, name string, at float64, wait time.Duration) (done, kn
 	if err != nil || record == nil {
 		return false, false, nil
 	}
-	if path, read := harness.Conversation(config.SeatHarness(name), record); !read || path == "" {
+	if conversation, _, read := script.Typed(config.SeatHarness(name), record); !read || conversation == nil || conversation == "" {
 		return false, false, nil
 	}
 	for deadline := time.Now().Add(wait); asked && !Kept(name); since, asked = notify.AskedAt(name) {
@@ -99,7 +100,8 @@ func answerWritten(state, name string, at float64, wait time.Duration) (done, kn
 		}
 		if len(said) > 0 && slices.Max(said) > since {
 			typed := slices.Max(said)
-			return true, true, answered(state, name, at, &typed)
+			done, err := answered(state, name, at, &typed)
+			return done, true, err
 		}
 		if !time.Now().Before(deadline) {
 			break
@@ -109,13 +111,14 @@ func answerWritten(state, name string, at float64, wait time.Duration) (done, kn
 	return false, true, nil
 }
 
-// answered is notify.answered, with what it lets go of once its lock is down (watch.forget).
-func answered(state, name string, at float64, typed *float64) error {
+// answered is notify.answered, with what it lets go of once its lock is down (watch.forget): whether
+// a question was answered.
+func answered(state, name string, at float64, typed *float64) (bool, error) {
 	done, err := notify.Answered(name, at, typed, func(current string) error { return askKept(current, true) })
 	if err != nil || !done {
-		return err
+		return done, err
 	}
-	return nextGeneration(state, name, time.Now())
+	return true, nextGeneration(state, name, time.Now())
 }
 
 // askKeptBack is watch.ask_kept_back: a look that finds the seat's turn ended, at a prompt, a draft
@@ -185,7 +188,7 @@ func keptAsked(name string, kept []*run.Object) error {
 // lookKinds are what a seat its panes run on may hold beside `kinds`: what the ladder and its hooks
 // read, or its look writes through a temporary beside it, or what no word hangs on.
 var lookKinds = map[string][]string{"session": {"tmp"}, "seat": {"tmp"}, "hook": {"json", "tmp"}, ".hook": {"lock"}, "notify": {"json", "tmp"},
-	"card": {"json", "tmp"}, "stop": {"json"}, "input": {"jsonl"}, "rulebook": {"md"}, "held": {"md"}, "change": {"md"}, "rules": {"md"},
+	"card": {"json", "tmp"}, "input": {"jsonl"}, "rulebook": {"md"}, "held": {"md"}, "change": {"md"}, "rules": {"md"},
 	"title": {"json"}, "live": {"txt"}}
 
 // looksKind is whether a live seat's file of that kind is one lookKinds names, or its prompt hook's

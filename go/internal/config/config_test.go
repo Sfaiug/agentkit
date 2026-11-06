@@ -100,6 +100,9 @@ func TestSchemaRefusals(t *testing.T) {
 		{"executor_lines=-1\n" + models, "executor_lines must be a whole number of at least 0, the most added lines a first review reads (got -1)"},
 		{"executor_lines=0\norchestrator_lines=0\n" + models, "executor_lines and orchestrator_lines cannot both be 0: nobody could build a change"},
 		{"orchestrator_lines=true\n" + models, "orchestrator_lines must be a whole number of at least 0, the most added lines an orchestrator builds (got True)"},
+		{"rounds=2\n" + models, "use review_rounds instead of rounds"},
+		{"review_lines=9\nexecutor_lines=9\n" + models, "use executor_lines instead of review_lines"},
+		{"seat_lines=0\n" + models, "use orchestrator_lines instead of seat_lines"},
 		{"review_rounds=2.5\n", "review_rounds must be a whole number of at least 0, the review rounds a change has before it goes back to its orchestrator to split or re-scope (got 2.5)"},
 		{"compare=5\n", "compare must list release slugs (compare = [\"acme-pro-5\"]) (got 5)"},
 		{"[models.acme]\nprovider='test'\n[providers.test]\n", "no [models.*] entry names a provider with a [providers.*] table"},
@@ -137,6 +140,16 @@ func TestSchemaRefusals(t *testing.T) {
 	}
 	if _, err := ModelNamed("acme"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Pure spells a path as PurePosixPath does: empty and `.` names go, `..` stays, and only a
+// leading `//` of exactly two is kept.
+func TestPureKeepsWhatPathlibKeeps(t *testing.T) {
+	for path, want := range map[string]string{"/a/./b/../c//": "/a/b/../c", "//a/b": "//a/b", "///a": "/a", "./": "."} {
+		if got := Pure(path); got != want {
+			t.Errorf("Pure(%q) = %q, want %q", path, got, want)
+		}
 	}
 }
 

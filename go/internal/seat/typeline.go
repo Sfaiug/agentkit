@@ -49,16 +49,12 @@ var (
 // types past, it puts nothing in and the line is the tick's.
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
 	own, record := seatHarness(name)
-	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
+	if !typable(own) {
 		return false
 	}
-	if chrome, err := config.Section(own, "screen"); err != nil || chrome["cursor"] == true {
-		return false
-	}
-	path, known := harness.Conversation(own, record)
 	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{pane_id}\t#{session_created}")
 	pane, born, _ := strings.Cut(said, "\t")
-	if !known || err != nil || !paneID.MatchString(pane) {
+	if err != nil || !paneID.MatchString(pane) {
 		return false
 	}
 	text := keyed(line)
@@ -75,8 +71,9 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
 			return errUntyped
 		}
+		conversation, prompts, _ := script.Typed(own, record)
 		entry := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
-			"conversation", record["conversation"], "after", len(script.Prompts(own, path)))
+			"conversation", conversation, "after", len(prompts))
 		file, err := os.OpenFile(ownFile("input", current), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
 			return err
@@ -124,6 +121,17 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 		}
 	}
 	return at.holds(text) == "empty" && !at.unread()
+}
+
+// typable is a harness Go types into: one whose screen it reads as Python does, whose composer
+// keeps no cursor of its own, and whose conversation it finds to count the prompts before a line.
+func typable(own string) bool {
+	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
+		return false
+	}
+	chrome, err := config.Section(own, "screen")
+	_, _, known := script.Typed(own, nil)
+	return err == nil && chrome["cursor"] != true && known
 }
 
 // Watching is whether that seat is up for a line to go into, Python's orch.watching of a seat on

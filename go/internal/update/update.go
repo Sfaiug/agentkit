@@ -44,19 +44,19 @@ var release = regexp.MustCompile(`\p{Nd}+\.\p{Nd}+\.\p{Nd}+`)
 // A plan is one harness `ak update` moves, as its manifest's `[update]` says, and its
 // `[snapshot]` where nothing else puts it back.
 type plan struct {
-	name                     string
-	version, upgrade, revert []string
-	env                      []string // KEY=value each
-	cannot                   string
-	snapshot                 *recipe
+	name                             string
+	version, upgrade, revert, latest []string
+	env                              []string // KEY=value each
+	cannot                           string
+	snapshot                         *recipe
 }
 
 // Main is `ak update` from the checkout at repo where Go carries it out, in Python's update.main
 // order: what it prints, and its exit code or a refusal in Python's words.
 func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
-	live := filepath.Join(repo, "tests", "live.sh")
-	if !regular(live) {
-		return refuse(fmt.Errorf("no acceptance gate at %s; an unverified upgrade is not one", live))
+	live, err := liveGate(repo)
+	if err != nil {
+		return refuse(err)
 	}
 	plans, err := harnesses()
 	if err == nil && len(plans) == 0 {
@@ -147,6 +147,16 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	return 0, nil
 }
 
+// liveGate is the checkout's tests/live.sh, the gate a harness upgrade passes before its fresh
+// install, as Python's update.live_gate: or why there is none, as an unverified upgrade is not one.
+func liveGate(repo string) (string, error) {
+	live := filepath.Join(repo, "tests", "live.sh")
+	if !regular(live) {
+		return "", fmt.Errorf("no acceptance gate at %s; an unverified upgrade is not one", live)
+	}
+	return live, nil
+}
+
 // refuse is a refusal once ak's own folders are made, as Python makes them first.
 func refuse(err error) (int, error) {
 	if errors.Is(err, ErrPython) || config.EnsureDirs() != nil {
@@ -183,7 +193,8 @@ func harnesses() ([]plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := words(name, facts, "latest"); err != nil {
+		latest, err := words(name, facts, "latest")
+		if err != nil {
 			return nil, err
 		}
 		cannot, _ := facts["cannot"].(string)
@@ -191,7 +202,7 @@ func harnesses() ([]plan, error) {
 		if !ok {
 			return nil, ErrPython // a value Python's str() writes as Go does not
 		}
-		plans = append(plans, plan{name, version, upgrade, revert, env, cannot, snapshotted(name)})
+		plans = append(plans, plan{name, version, upgrade, revert, latest, env, cannot, snapshotted(name)})
 	}
 	return plans, nil
 }

@@ -185,7 +185,7 @@ home = pathlib.Path.home()
 py_compile.compile(__file__, doraise=True)
 assert (home / "acme-state").read_text() == name
 assert not any(k.startswith(("AK_", "AGENTKIT_")) for k in os.environ)
-print("fixture: " + json.dumps({"name": name, "home": str(home),
+print("fixture: " + json.dumps({"name": name, "home": str(home), "go": os.environ["GOCACHE"],
       "temp": os.environ["TMPDIR"], "cache": os.environ["PYTHONPYCACHEPREFIX"]}))
 print("TESTS_RUN=1")
 '''
@@ -233,6 +233,7 @@ sys.exit(every_file.main(every_file.Path(sys.argv[2])))
         for row in found:
             self.assertEqual(row["home"], row["temp"])
             self.assertFalse(row["cache"].startswith(row["home"]))
+            self.assertTrue(row["go"] and not row["go"].startswith(row["home"]))
             self.assertFalse(Path(row["cache"]).exists())
             socket = Path(row["temp"]) / "acme-fixture-12345678" / f"tmux-{os.getuid()}/agentkit-test"
             self.assertLessEqual(len(os.fsencode(socket.resolve())), 103)

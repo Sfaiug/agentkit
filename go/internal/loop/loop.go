@@ -6,7 +6,7 @@
 // error, Clean takes a run's checkout, StopRun ends a run, Pickup and Woken say which dead or
 // woken one Reopen hands to a new driver, CheckLine is a landing line's lander, and Logging says a
 // process writes into a run's log.  A review of somebody else's pull request takes the same
-// driver, with no executor.
+// driver, with no executor, as does a seat's own, whose fixer is the seat's orchestrator.
 //
 // It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
@@ -40,6 +40,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
@@ -91,7 +92,7 @@ func Start(dir string, out io.Writer, detached bool) error {
 			return err
 		}
 		run.SetAll(record, "state", "running", "slot_waiting", false, "launch_pending", false, "pid", pid,
-			"process_identity", identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
+			"process_identity", Identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
 		if waiting {
 			run.SetAll(record, "state", "queued", "slot_waiting", true)
 		}
@@ -112,8 +113,8 @@ func Start(dir string, out io.Writer, detached bool) error {
 	return nil
 }
 
-// identity is a process's birth as a record holds it, nil where it cannot be read.
-func identity(pid int) any {
+// Identity is a process's birth as a record holds it, nil where it cannot be read.
+func Identity(pid int) any {
 	if born, ok := host.ReadIdentity(pid); ok {
 		return run.Fields("boot", born.Boot, "ticks", int(born.Ticks), "started_at", born.StartedAt)
 	}
@@ -250,6 +251,9 @@ func Drive(dir string) int {
 	return drive(dir, func(l *loop) error {
 		if l.pull != "" {
 			l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
+			if record, _ := run.Read(dir); record != nil && record.Truthy("own_pr") {
+				return l.reviewOwn()
+			}
 			return l.reviewPull()
 		}
 		word := "run"
@@ -269,6 +273,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 		}
 	}()
 	host.Lower()
+	oneThreadAtATime()
 	for _, name := range []string{"AK_HAND_IN", "AK_HAND_IN_CONTINUE", "AK_HAND_IN_FINDINGS"} {
 		os.Unsetenv(name)
 	}
@@ -322,12 +327,22 @@ func (l *loop) adopt() error {
 	})
 }
 
-// save changes the record as it stands, unless a stop landed or a signal came.
+// save changes the record as it stands, unless a stop landed or a signal came, and the history row
+// keeps what it keeps of it, as Python's LoopState.save.
 func (l *loop) save(change func(*run.Object)) error {
 	if l.ctx.Err() != nil {
 		return context.Cause(l.ctx)
 	}
-	return write(l.dir, change)
+	var before, after *run.Object
+	err := write(l.dir, func(record *run.Object) {
+		before = record.Copy()
+		change(record)
+		after = record
+	})
+	if err == nil {
+		history.Keep(before, after, l.say)
+	}
+	return err
 }
 
 // write is save for an ending, which no signal holds back: a stop that landed stands.
@@ -392,6 +407,10 @@ func (l *loop) work() error {
 	if err := l.open(); err != nil {
 		return err
 	}
+	// Python's history_start once more, once its loop has its workplace
+	if record, _ := run.Read(l.dir); record != nil {
+		history.Start(record, l.say)
+	}
 	if err := l.pick(); err != nil {
 		return err
 	}
@@ -430,6 +449,9 @@ func (l *loop) open() error {
 	if record == nil {
 		return cmp.Or(err, errors.New("run.json cannot be read"))
 	}
+	// Python's history_start, once the record says what the run is: before anything its workplace
+	// cuts can fail
+	history.Start(record, l.say)
 	files := task.Files(text)
 	l.place = placeOf(record)
 	l.reviewLines = numbersOf(record)
@@ -595,6 +617,7 @@ func (l *loop) pick() error {
 func (l *loop) finish(err error) int {
 	var cannot *blocked
 	var unnecessary *notNeeded
+	var gone *overtaken
 	switch {
 	case errors.Is(err, errStop):
 		return 1
@@ -611,9 +634,15 @@ func (l *loop) finish(err error) int {
 		})
 	case errors.As(err, &unnecessary):
 		err = l.finishNotNeeded(unnecessary)
+	case errors.As(err, &gone):
+		err = write(l.dir, func(record *run.Object) {
+			run.SetAll(record, "state", "fail", "error", gone.why, "finished_at", clock())
+		})
+		l.say("FAIL " + gone.why)
 	case err != nil:
 		said, park, stands := parked(err)
 		if !stands {
+			endNoRoom(l.dir, err)
 			return End(l.dir, err.Error())
 		}
 		l.say(said)
@@ -704,6 +733,7 @@ func settle(dir string) *run.Object {
 	if record == nil {
 		return nil
 	}
+	history.Finish(record, func(line string) { fmt.Fprintln(said, line) })
 	recordResult(dir, record)
 	host.EndMarked(dir, said)
 	if record.Truthy("merged") {

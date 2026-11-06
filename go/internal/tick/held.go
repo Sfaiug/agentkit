@@ -15,7 +15,7 @@ import (
 // ASKED_LINE, CONTINUE_LINE).
 var fixedLines = []string{
 	"Your turn was cut off when its usage ran out, and there is usage again. Continue that turn and finish it; do not start over.",
-	"Your process was ended, not by you, in the middle of a turn. Continue that turn and finish it; do not start over.",
+	seat.MidturnContinue,
 	"This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over.",
 	seat.QuestionContinue,
 	"continue",

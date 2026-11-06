@@ -1,7 +1,6 @@
 package loop
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"path/filepath"
@@ -44,7 +43,7 @@ func fileTail(path string) string {
 		file.Seek(max(0, end-outCap), io.SeekStart)
 	}
 	data, _ := io.ReadAll(file)
-	return string(bytes.ToValidUTF8(data, []byte("\uFFFD")))
+	return decoded(data)
 }
 
 // answers is whether text is the worker's answer rather than a refusal in its place, Python's

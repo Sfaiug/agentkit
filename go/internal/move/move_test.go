@@ -10,9 +10,6 @@ import (
 )
 
 func TestPartsNameEachFolderAboveWhatIsAsked(t *testing.T) {
-	if got, want := pure("/a/./b/../c//"), "/a/b/../c"; got != want {
-		t.Fatalf("pure = %q, want %q", got, want)
-	}
 	want := []string{"/", "/.agentkit", "/.agentkit/tmp", "/.local", "/.local/share", "/.local/share/browser-bridge",
 		"/.local/share/browser-bridge/profile", "/.ssh", "/.ssh/authorized_keys"}
 	if got := parts("/"); !reflect.DeepEqual(got, want) {

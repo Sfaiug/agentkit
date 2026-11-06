@@ -10,15 +10,21 @@ import (
 )
 
 // Spawn runs a command list that starts a pane on one server, from a client whose PATH is path:
-// tmux gives a pane it spawns its client's PATH, over its session's.  A server not running is
-// started reading no config file, as ~/.tmux.conf is the person's own.  Its error is what tmux
-// said refusing.
+// tmux gives a pane it spawns its client's PATH, over its session's.  The server runs on ak's own
+// config (Conf), never the owner's: one already up is given it first, as only the command starting
+// one reads -f, and remain-on-exit has to hold before the pane exists.  Its error is what tmux said
+// refusing.
 func Spawn(server, path string, args ...string) error {
+	conf, err := Conf()
+	if err != nil {
+		return err
+	}
+	Ask(server, "source-file", conf) // a server not up says so, and -f starts it on the file
 	ctx, cancel := context.WithTimeout(context.Background(), ceiling)
 	defer cancel()
-	call := command(ctx, server, append([]string{"-f", os.DevNull, "start-server", ";"}, args...)...)
+	call := command(ctx, server, append([]string{"-f", conf, "start-server", ";"}, args...)...)
 	call.Env = append(call.Env, "PATH="+path)
-	_, err := call.Output()
+	_, err = call.Output()
 	if refused, ok := err.(*exec.ExitError); ok {
 		return errors.New(strings.TrimSpace(string(refused.Stderr)))
 	}

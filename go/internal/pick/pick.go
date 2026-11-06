@@ -15,7 +15,6 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
-	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
@@ -28,6 +27,9 @@ type Room interface {
 	Budget(model string) (float64, string)
 	// OnCredits is whether it runs on credits past a spent window.
 	OnCredits(model string) bool
+	// Pace is how far the meters gating it run ahead of their windows at most, false where none
+	// reports a pace.
+	Pace(model string) (float64, bool)
 }
 
 // Rules are a run's groups, as its picks read them.
@@ -35,6 +37,8 @@ type Rules struct {
 	executors, reviewers []string
 	reviewList           []string // reviewers as the group names them, those barred from reviewing too
 	models               map[string]config.Model
+	payg                 map[string]bool // paying's
+	margin               float64         // pace_margin, how far ahead of pace lets a payg model in
 }
 
 // Load is the Rules of the home's groups as they stand.
@@ -48,32 +52,24 @@ func Load() (*Rules, bool) {
 }
 
 // Within is the Rules of these groups, reviewers nil being the executors, false where Python ak
-// picks there: a payg provider or model, one whose harness says how it is paid, a pace_margin
-// Python refuses, a model a group names that config.model refuses, a matrix lineup from
-// state/matrix.json that ranks the models, are not yet Go's.
+// picks there: a pace_margin Python refuses, a model a group names that config.model refuses, a
+// matrix lineup from state/matrix.json that ranks the models, are not yet Go's.
 func Within(executors, reviewers []string) (*Rules, bool) {
-	if _, ok := config.PaceMargin(); !ok || ranked() {
-		return nil, false
-	}
+	margin, ok := config.PaceMargin()
 	models, err := config.Models()
 	subs, failed := config.Subscriptions()
-	if err != nil || failed != nil {
+	if !ok || err != nil || failed != nil || ranked(models) {
 		return nil, false
-	}
-	for _, sub := range subs {
-		if sub.Mode == "payg" {
-			return nil, false
-		}
 	}
 	if reviewers == nil {
 		reviewers = executors
 	}
 	for _, name := range append(slices.Clone(executors), reviewers...) {
-		if model, ok := models[name]; !ok || model.Mode == "payg" || harness.PaysItsOwnWay(model.Harness) {
+		if _, ok := models[name]; !ok {
 			return nil, false
 		}
 	}
-	rules := &Rules{executors: executors, models: models, reviewList: reviewers}
+	rules := &Rules{executors: executors, models: models, reviewList: reviewers, payg: paying(models, subs), margin: margin}
 	for _, name := range reviewers {
 		allowed, err := config.CanReview(models[name].Harness)
 		if err != nil {
@@ -87,9 +83,10 @@ func Within(executors, reviewers []string) (*Rules, bool) {
 }
 
 // Order is the models with room for a role, executors or with review reviewers, Python's
-// usage.pick_order: one on credits after every one with a window left, an unknown budget after
-// every known one, then the most budget first, else the order config.toml lists them in.  told,
-// unless nil, hears each model left out and why, then each whose budget is unknown.
+// usage.pick_order: a payg one only once no subscription one is below pace (paid), one on credits
+// after every one with a window left, an unknown budget after every known one, then the most
+// budget first, else the order config.toml lists them in.  told, unless nil, hears each model
+// left out and why, then each whose budget is unknown.
 func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 	names, role := r.executors, "executor"
 	if review {
@@ -103,6 +100,7 @@ func (r *Rules) Order(room Room, review bool, told io.Writer) []string {
 			fmt.Fprintf(told, "pick %s: %s excluded: %s\n", role, name, why)
 		}
 	}
+	order = r.paid(room, order)
 	type key struct {
 		credits, unknown bool
 		budget           float64
@@ -164,17 +162,21 @@ func (r *Rules) pair(room Room, executors []string) (executor, reviewer string, 
 
 // Same is whether two names are one model: the same name, or one model id on one provider.
 func (r *Rules) Same(first, second string) bool {
-	one, two := r.models[first], r.models[second]
-	return first == second || one.Provider == two.Provider && one.ID == two.ID
+	return r.tier(first, second) == 2
 }
 
-// tier is a pair's place in the owner's order of 21 Oct 2026: 0 a reviewer on another provider,
-// 1 another model on the executor's, 2 the executor's own model.
 func (r *Rules) tier(executor, reviewer string) int {
+	return Tier(r.models, executor, reviewer)
+}
+
+// Tier is a pair's place in the owner's order of 21 Oct 2026, of models as config.Models has them:
+// 0 a reviewer on another provider, 1 another model on the executor's, 2 the executor's own model.
+func Tier(models map[string]config.Model, executor, reviewer string) int {
+	one, two := models[executor], models[reviewer]
 	switch {
-	case r.Same(executor, reviewer):
+	case executor == reviewer || one.Provider == two.Provider && one.ID == two.ID:
 		return 2
-	case r.models[executor].Provider == r.models[reviewer].Provider:
+	case one.Provider == two.Provider:
 		return 1
 	}
 	return 0
@@ -188,9 +190,11 @@ func compare(later bool) int {
 	return -1
 }
 
-// ranked is whether state/matrix.json may hold a lineup Python's matrix.rank places a model by:
-// anything but no file, or one whose matrix lists no lineup.
-func ranked() bool {
+// ranked is whether state/matrix.json may hold a lineup Python's matrix.rank places one of models
+// by: anything but no file, a matrix listing no lineup, or a lineup no row of which a model's
+// harness runs as that model (`yours`).  A model no row is ranks after every ranked one, so where
+// none is, budget alone orders them, as here.
+func ranked(models map[string]config.Model) bool {
 	data, err := os.ReadFile(filepath.Join(config.Home(), "state", "matrix.json"))
 	if os.IsNotExist(err) {
 		return false
@@ -201,5 +205,36 @@ func ranked() bool {
 		return true
 	}
 	matrix, isObject := held.Get("matrix").(*run.Object)
-	return held.Truthy("matrix") && (!isObject || matrix.Truthy("lineup"))
+	if !held.Truthy("matrix") || isObject && !matrix.Truthy("lineup") {
+		return false
+	}
+	if !isObject {
+		return true
+	}
+	lineup, listed := matrix.Get("lineup").([]any)
+	if !listed {
+		return true
+	}
+	for _, row := range lineup {
+		entry, ok := row.(*run.Object)
+		if !ok {
+			return true
+		}
+		yours, listed := entry.Get("yours").([]any)
+		if !listed {
+			return true
+		}
+		for _, one := range yours {
+			own, ok := one.(*run.Object)
+			if !ok {
+				return true
+			}
+			for _, model := range models {
+				if own.Get("harness") == model.Harness && own.Get("model") == model.ID {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }

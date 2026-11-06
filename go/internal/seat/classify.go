@@ -14,9 +14,7 @@ import (
 )
 
 // hookState is lifecycle.state: the state the harness's manifest gives the fact, the event as a
-// mark names it, the fact's words and when it was heard; none for a fact no moment dates.  No
-// harness Go reads keeps a question card of its own, so the fact its hooks wrote is the whole of
-// watch.seat_fact.
+// mark names it, the fact's words and when it was heard; none for a fact no moment dates.
 func hookState(own string, fact hookfact.Fact) (state, event, spoken string, when float64) {
 	state, event, _ = lifecycle.State(own, fact)
 	if state == "" || fact.At == 0 {

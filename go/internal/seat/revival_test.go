@@ -78,7 +78,7 @@ func TestQuestionRevivalKeepsItsConversationPaneAndContinuation(t *testing.T) {
 				}
 				write(t, chat, "")
 			}
-			if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+			if carried, err := seat.reviveTurn(moment, QuestionContinue, func(string) {}, io.Discard); !carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			file := revivalFile("acme")
@@ -99,7 +99,7 @@ func TestQuestionRevivalKeepsItsConversationPaneAndContinuation(t *testing.T) {
 			if after["conversation"] != record["conversation"] || after["id_source"] != "launcher" || after["rulebook_sha"] == nil || after["launched"] == nil {
 				t.Fatal(after)
 			}
-			if carried, err := seat.reviveQuestion(moment.Add(time.Second), func(string) {}, io.Discard); !carried || err != nil {
+			if carried, err := seat.reviveTurn(moment.Add(time.Second), QuestionContinue, func(string) {}, io.Discard); !carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			second, _ := os.ReadFile(filepath.Join(home, "started"))
@@ -122,7 +122,7 @@ func TestQuestionRevivalBoundsDeathsAndAcceptsTheOldScalar(t *testing.T) {
 				t.Fatal(err)
 			}
 			before := run.Line(revivalFile("acme"))
-			if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+			if carried, err := seat.reviveTurn(moment, QuestionContinue, func(string) {}, io.Discard); !carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			if run.Line(revivalFile("acme")) != before {
@@ -141,7 +141,7 @@ func TestAThirdQuestionDeathAsksOnceWithoutReopening(t *testing.T) {
 		t.Fatal(err)
 	}
 	for range 2 {
-		if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+		if carried, err := seat.reviveTurn(moment, QuestionContinue, func(string) {}, io.Discard); !carried || err != nil {
 			t.Fatal(carried, err)
 		}
 	}
@@ -160,7 +160,7 @@ func TestAThirdQuestionDeathAsksOnceWithoutReopening(t *testing.T) {
 func TestARefusedQuestionRevivalKeepsItsDeathAndReportsTheFailure(t *testing.T) {
 	home, seat := questionRecoveryHome(t)
 	t.Setenv("RECOVERY_REFUSE", "1")
-	if carried, err := seat.reviveQuestion(moment, func(string) {}, io.Discard); !carried || err != nil {
+	if carried, err := seat.reviveTurn(moment, QuestionContinue, func(string) {}, io.Discard); !carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	if len(revivalFile("acme").List("reopened_at")) != 1 || revivalFile("acme").Truthy("owed_lines") {
@@ -189,7 +189,7 @@ func TestQuestionRevivalLeavesOwnerStoppedAndSleepingSeatsAlone(t *testing.T) {
 			if !known {
 				t.Fatal("seat not readable")
 			}
-			if carried, err := found.ReviveQuestions(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
+			if carried, err := found.ReviveTurns(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || revivalFile("acme").Truthy("reopened_at") {
@@ -229,6 +229,7 @@ func TestOwedLinesHandOverLiveForeignOrPartlyTypedLinesAtTheirOwnTurn(t *testing
 
 func TestRevivalLeavesLaterDeathsAndUnsupportedHarnessesToPython(t *testing.T) {
 	home := sandbox(t)
+	write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+gemini)
 	cwd := filepath.Join(home, "work", "acme")
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		t.Fatal(err)
@@ -253,7 +254,7 @@ esac
 		{"opus", "claude", "1005", true, true},
 		{"opus", "claude", "1010", false, true},
 		{"opus", "claude", "unreadable", false, true},
-		{"astra", "codex", "1005", false, false},
+		{"gemini", "antigravity", "1005", false, false},
 	} {
 		t.Run(each.own+"/"+each.death, func(t *testing.T) {
 			t.Setenv("DIED", each.death)

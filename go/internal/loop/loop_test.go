@@ -249,6 +249,7 @@ type room struct{}
 func (room) Spent(string) string             { return "" }
 func (room) Budget(string) (float64, string) { return 1, "" }
 func (room) OnCredits(string) bool           { return false }
+func (room) Pace(string) (float64, bool)     { return 0, true }
 
 func TestEveryPickStaysInTheListsTheRunWasLaunchedWith(t *testing.T) {
 	l := rig(t, time.Minute)
@@ -286,7 +287,7 @@ mode = "subscription"
 	if executor, reviewer, _ := rules.Pair(room{}); executor != "opus" || reviewer != "opus" {
 		t.Fatalf("picked %q and %q", executor, reviewer)
 	}
-	if writers := []string{"opus"}; !rules.Wrote(rules.Beside(room{}, writers)[0], writers) {
+	if writers := []string{"opus"}; !rules.Wrote(rules.Beside(room{}, writers, nil)[0], writers) {
 		t.Fatal("no other reviewer to take the review over, yet one is offered")
 	}
 }

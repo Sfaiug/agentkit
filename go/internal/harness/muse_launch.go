@@ -76,7 +76,7 @@ func museSeatWords(words, env []string) []string {
 	}
 	hook := []string{"env"}
 	// Muse drops the pane's environment when firing a hook; quote it into each command here.
-	for _, key := range []string{"AGENTKIT_SESSION", "TMUX", "TMUX_PANE", "AGENTKIT_TMUX_SOCKET"} {
+	for _, key := range []string{"AGENTKIT_SESSION", "TMUX", "TMUX_PANE", "AGENTKIT_TMUX_SOCKET", museReceiptEnv} {
 		hook = append(hook, key+"="+values[key])
 	}
 	hook = append(hook, self, "adapter", filepath.Dir(filepath.Dir(self)), "muse", "hook")

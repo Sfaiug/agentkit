@@ -29,9 +29,9 @@ func machine(t *testing.T) (version, list *string) {
 		io.WriteString(w, map[string]string{"/json/version": *version, "/json/list": *list}[r.URL.Path])
 	}))
 	t.Cleanup(server.Close)
-	was, wasDir := cdp, unitDir
-	cdp, unitDir = server.URL, t.TempDir()
-	t.Cleanup(func() { cdp, unitDir = was, wasDir })
+	was, wasDir := CDP, unitDir
+	CDP, unitDir = server.URL, t.TempDir()
+	t.Cleanup(func() { CDP, unitDir = was, wasDir })
 	records := fmt.Sprintf(`{"A": {"last_change": %d}}`, time.Now().Unix()-7300)
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit", "state"), 0o700); err != nil {
 		t.Fatal(err)
@@ -54,7 +54,7 @@ func TestTabsAreCutAndPaddedByCodePoint(t *testing.T) {
 	want := strings.Join([]string{
 		"units      no systemd on this machine; the stack lives on the server",
 		"mcp        no systemd on this machine; the shared server lives on the server",
-		"cdp        " + cdp + " reachable, 140",
+		"cdp        " + CDP + " reachable, 140",
 		"tabs       2 open (cap 12; a tab idle 60 min is closed by ak watch)",
 		"  " + strings.Repeat("é", 60) + " https://acme.test/" + strings.Repeat("ü", 62) + " idle 2h",
 		// a lone surrogate, which Python's print cannot write, is U+FFFD
