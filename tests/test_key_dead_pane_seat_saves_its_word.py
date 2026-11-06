@@ -58,7 +58,7 @@ def bar(home):
         screen = seen.screen()
         if screen != shown:
             shown, since = screen, time.monotonic()
-        elif shown.strip() and time.monotonic() - since >= 1 or time.monotonic() > deadline:
+        if shown.strip() and time.monotonic() - since >= 1 or time.monotonic() > deadline:
             return shown.splitlines()[-2:]
         time.sleep(0.05)
 
