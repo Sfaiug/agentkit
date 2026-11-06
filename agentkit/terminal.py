@@ -593,14 +593,15 @@ def effort_cells(count, filled):
 
 
 def toggle(mark, width, kind=None):
-    """A mark -- `●`, `■`, their open `○`, `□` -- in its column `width` cells wide, the one way a
-    screen draws one and its frames move it (motion.toggled): ` ■ ` from the column's middle in
-    `kind`, dim where it is off, reversed where the keys are, bracketed `[■]` where there is no
-    colour to reverse."""
-    shown, lead = f" {mark} ", (width - 3) // 2
+    """A mark -- `●`, `■`, their open `○`, `□`, or any cell's words -- in its column `width`
+    cells wide, the one way a screen draws one and its frames move it (motion.toggled): ` ■ `
+    from the column's middle in `kind`, dim where it is off, reversed where the keys are,
+    bracketed `[■]` where there is no colour to reverse."""
+    size = cells(mark) + 2
+    shown, lead = f" {mark} ", (width - size) // 2
     if kind == "reverse" and not colour_depth():
         shown = f"[{mark}]"
-    return " " * lead + (styled(shown, kind) if kind else shown) + " " * (width - lead - 3)
+    return " " * lead + (styled(shown, kind) if kind else shown) + " " * (width - lead - size)
 
 
 ESC = "\x1b"   # what Esc alone reads as: the single byte with nothing after it

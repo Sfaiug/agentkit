@@ -3222,9 +3222,14 @@ def marks_saved(name, selected, changed):
 
 
 # The models screen, `r recommended` on `c`: each role answered over the models on in your
-# companies (matrix.compared), its pointer moving only up and down.
-MODELS_KEYS = ("↑↓ move   ⏎ why   r take   esc back",
-               "up/down move   enter why   r take   esc back")
+# companies (matrix.compared), its pointer moving only up and down; `p` lists your companies,
+# their models turned on or off on it and others added (company_list, company_add).
+MODELS_KEYS = {"answer": ("↑↓ move   ⏎ why   p models   r take   esc back",
+                          "up/down move   enter why   p models   r take   esc back"),
+               "list": ("↑↓ company   ←→ model   ␣ on or off   a add a company   esc done",
+                        "up/down company   left/right model   space on or off   "
+                        "a add a company   esc done"),
+               "add": ("↑↓ company   ⏎ add   esc back", "up/down company   enter add   esc back")}
 MARK = 7                          # a row's mark's column, as wide as `r takes`
 LEGEND = (("left out", "a row no better than a cheaper one, yours compared with yours"),)
 # Under a role priced in week shares (matrix.answer's cost_unit "share"): only a row noted
@@ -3477,8 +3482,9 @@ def models_screen(cfg, session, selected, providers):
     or move of the mouse's pointer or the keys', the row pointed at lights its maker: every row
     of it in its company's colour (models_body); none while the pointer is on no row.  ⏎ or a
     click opens the pointed row's why (models_why) until Esc, ↑/↓ turning its pages where it is
-    taller than the screen.  `r` takes each role's take (takes, take_advice): the seat's
-    executors and reviewers, the orchestrator only said; without a seat new seats' three roles.
+    taller than the screen.  `p` lists your companies (company_list), answered again once it is
+    left.  `r` takes each role's take (takes, take_advice): the seat's executors and reviewers,
+    the orchestrator only said; without a seat new seats' three roles.
     """
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note, title = None, 0, "", f"config · recommended · {session or NEW_SEATS}"
@@ -3515,7 +3521,7 @@ def models_screen(cfg, session, selected, providers):
         fold = next(line for line, (row, _) in places.items() if row == LEGEND_ROW)
         places = {line: place for line, place in places.items() if line < fold}
         act, moved, _, top = matrix_key(title, body[:fold], places, rows, here, top, note,
-                                        MODELS_KEYS[not terminal.utf8()], marks=0,
+                                        MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
                                         under=body[fold:],
                                         moves=moves,
                                         clock=clock, began=fetch and fetch.began,
@@ -3532,6 +3538,8 @@ def models_screen(cfg, session, selected, providers):
             return
         if act == "r":
             note = take_advice(cfg, session, selected, providers, takes(cfg, answer))
+        elif act == "p":
+            note, answer = company_list(cfg, title), None
         elif act == "enter" and here:
             _, role, *at = here
             row = next(row for row in answer[role]["front"]
@@ -3542,6 +3550,165 @@ def models_screen(cfg, session, selected, providers):
                 key, _, _, page = matrix_key(title, lines, dict.fromkeys(range(len(lines)),
                                                                          (why, [])),
                                              [why], why, page, "", "esc back")
+
+
+ADD_COMPANY = ("row", "add")      # the company list's `+ add a company`, which a click opens
+COMPANIES_SAID = ("ak uses only the models that are on. Space turns one on or off, or, on a "
+                  "company's name, all of them. A company with none on leaves the list.")
+
+
+def company_models():
+    """The lineup last stored and each company with a listed model (matrix.listed), strongest
+    first as the lineup orders them, its listed models in that order: {maker: {slug: name}}."""
+    lineup, found = matrix.listed()
+    makers = {}
+    for row in lineup:
+        if row["release"] in found:
+            makers.setdefault(row["maker"], {})[row["release"]] = row["name"]
+    return lineup, makers
+
+
+def your_companies(cfg, lineup):
+    """Your companies (matrix.companies) as `companies` lists them, else as the lineup does."""
+    if cfg.get("companies") is not None:
+        return list(cfg["companies"])
+    had = matrix.companies(cfg, lineup)
+    return [maker for maker in dict.fromkeys(row["maker"] for row in lineup) if maker in had]
+
+
+def models_listed(cfg, yours, off):
+    """`yours` saved as `companies` and the slugs `off` as `models_off`, at once (_saved), so
+    a first change while the config names no companies writes the ones it had.  What to say
+    under the list, or ""."""
+    before = copy.deepcopy(cfg)
+    cfg["companies"] = yours
+    if off:
+        cfg["models_off"] = sorted(off)
+    else:
+        cfg.pop("models_off", None)
+    return _saved(cfg, cfg, before)
+
+
+def companies_body(makers, yours, off, at=None, column=0):
+    """The company list's lines, and where its rows sit on them: {line: (row, cells)}.
+
+    Each of `yours` with a listed model (`makers`) a line: its name, then each of those models,
+    `●` on, or `○` and dim where `off` holds it, two cells between; where the width runs out
+    they go on under the column where they began, a name wider than that whole room cut.  The
+    cell the keys are on, `column` of the row `at` -- its name 0, its models from 1 -- is
+    reversed, bracketed with no colour (terminal.toggle).  Last, `+ add a company`."""
+    room = terminal.layout_width()
+    on, out = ("●", "○") if terminal.utf8() else ("*", ".")
+    shown = [maker for maker in yours if maker in makers]
+    label = max((terminal.cells(maker) for maker in shown), default=0)
+    start = label + 4         # the models' first column: after a space, the name's cell and one
+    lines, places = [], {}
+    for maker in shown:
+        row, parts = ("company", maker), [(" ", [])]
+        texts = [(maker, None), *((f"{out if slug in off else on} "
+                                   f"{terminal.cut(name, room - start - 2)}",
+                                   "dim" if slug in off else None)
+                                  for slug, name in makers[maker].items())]
+        for number, (text, kind) in enumerate(texts):
+            line, cells = parts[-1]
+            first, width = terminal.cells(line) + 1, terminal.cells(text) + 2
+            if number > 1 and first + width - 2 > room:      # its space after may go
+                parts.append((" " * (start - 1), []))
+                line, cells = parts[-1]
+                first = start
+            line += terminal.toggle(text, width, "reverse" if row == at and number == column
+                                    else kind)
+            cells.append((first, first + width - 1, number))
+            parts[-1] = (line + " " * (label - terminal.cells(text) if not number else 0), cells)
+        for number, (line, cells) in enumerate(parts):
+            places[len(lines)] = (row, cells)
+            lines.append(terminal.highlight(line.rstrip(), not number) if row == at
+                         else line.rstrip())
+    places[len(lines)] = (ADD_COMPANY, [])
+    lines.append(terminal.highlight("  + add a company") if at == ADD_COMPANY
+                 else "  + add a company")
+    return lines, places
+
+
+@terminal.clicks_its_own
+def company_list(cfg, title):
+    """`p` on the models screen: `<title> · models`, your companies on companies_body, under
+    COMPANIES_SAID and over how many models are on (matrix.compared), from how many companies,
+    and how many more companies have benchmark scores, until Esc.  ↑/↓ move between companies
+    and `+ add a company`, ←/→ between a company's name and its models.  Space, or a click,
+    turns the model pointed at on or off, and on a company's name all of its models on, or off
+    where all are on already, each change saved at once (models_listed).  `a`, or Space or ⏎
+    on `+ add a company`, adds one (company_add) with all its models on, the pointer then on
+    it.  On Esc each company left with no model on is dropped from `companies`, and its models
+    from `models_off`.  What to say under the answer, or ""."""
+    title, here, column, top, note = f"{title} · models", None, 0, 0, ""
+    while True:
+        lineup, makers = company_models()
+        yours, off = your_companies(cfg, lineup), set(cfg.get("models_off") or ())
+        rows = [*(("company", maker) for maker in yours if maker in makers), ADD_COMPANY]
+        here = here if here in rows else rows[0]
+        column = min(column, len(makers.get(here[1], ())) if here[0] == "company" else 0)
+        room, now = terminal.layout_width(), matrix.compared(cfg)
+        lit = sum(bool(now & models.keys()) for models in makers.values())
+        more = len(makers.keys() - set(yours))
+        said = [f"{len(now)} model{'s' * (len(now) != 1)} on, from {lit} "
+                f"{'company' if lit == 1 else 'companies'}",
+                f"{more} more {'company has' if more == 1 else 'companies have'} "
+                "benchmark scores"]
+        body, places = companies_body(makers, yours, off, None if terminal.away() else here,
+                                      column)
+        act, here, clicked, top = matrix_key(
+            title, body, places, rows, here, top, note, MODELS_KEYS["list"][not terminal.utf8()],
+            marks=1 + max(map(len, makers.values()), default=0), keyed=column,
+            over=[*("  " + part for part in terminal.wrap(COMPANIES_SAID, room - 2)), ""],
+            under=["", *("  " + terminal.styled(part, "dim")
+                         for part in packed(said, " · ", room - 2))])
+        column = column if clicked is None else clicked
+        if act is None:
+            continue                  # a resize or the pointer: drawn again
+        note, models = "", list(makers[here[1]]) if here[0] == "company" else []
+        if act == "back":
+            gone = [maker for maker in yours if makers.get(maker) and off >= makers[maker].keys()]
+            return models_listed(cfg, [maker for maker in yours if maker not in gone],
+                                 off.difference(*(makers[maker] for maker in gone))) if gone else ""
+        if act == "a" or act in ("space", "enter") and here == ADD_COMPANY:
+            added = company_add(title, makers, yours)
+            if added:
+                note = models_listed(cfg, [*yours, added], off - makers[added].keys())
+                here, column = ("company", added), 0
+        elif act in ("left", "right"):
+            column = max(0, min(column + (1 if act == "right" else -1), len(models)))
+        elif act == "space" and models:
+            # a model alone, or on a name all of its company's: all on turn off, else all on
+            slugs = set(models if column == 0 else models[column - 1:column])
+            note = models_listed(cfg, yours, off - slugs if off & slugs else off | slugs)
+
+
+@terminal.clicks_its_own
+def company_add(title, makers, yours):
+    """`a` on the company list: `<title> · add a company`, each company with a listed model
+    (`makers`) not among `yours`, strongest first, with how many listed models it has and its
+    strongest, until ⏎ or a click picks one, or Esc goes back: that company, or None."""
+    rows, here, top = [("row", maker) for maker in makers if maker not in yours], None, 0
+    counts = {maker: f"{len(makers[maker])} model{'s' * (len(makers[maker]) != 1)}"
+              for _, maker in rows}
+    while True:
+        here = here if here in rows else rows[0] if rows else None
+        widths = [max((terminal.cells(text) for text in texts), default=0)
+                  for texts in (counts, counts.values())]
+        widths.append(max(1, terminal.layout_width() - 6 - sum(widths)))
+        body, places = [], {}
+        for row in rows:
+            line = terminal.table_row([row[1], counts[row[1]], next(iter(makers[row[1]].values()))],
+                                      widths, indent="  ")
+            places[len(body)] = (row, [])
+            body.append(terminal.highlight(line) if row == here and not terminal.away() else line)
+        act, here, _, top = matrix_key(f"{title} · add a company", body, places, rows, here, top,
+                                       "", MODELS_KEYS["add"][not terminal.utf8()], marks=0)
+        if act == "back":
+            return None
+        if act == "enter" and here:
+            return here[1]
 
 
 def config_columns(selected, name):
