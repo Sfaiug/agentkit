@@ -50,6 +50,16 @@ func Known() []Machine {
 	return machines
 }
 
+// Named is the machine of that name as the ticks' record has it now, the Cloud for "".
+func Named(name string) Machine {
+	for _, machine := range Known() {
+		if machine.Name == name {
+			return machine
+		}
+	}
+	return Machine{Name: name}
+}
+
 // known is every machine ak may use, this one first: config.toml's, then those ak rents that
 // serve; the ticks' record of them, empty where it cannot be read; and those rentals.
 func known() ([]string, *run.Object, []googlecloud.Rental) {

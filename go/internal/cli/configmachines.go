@@ -28,7 +28,7 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			}
 			row := menu.PageRow{Label: machine.Name, Value: machine.Overview() + " · " + work}
 			if machine.Name != machines.Here {
-				row.Open = func() bool { return menuMachineWork(machine, keyboard, painter) }
+				row.Open = func() bool { return menuMachineWork(machine.Name, keyboard, painter) }
 			}
 			rows = append(rows, row)
 		}
@@ -36,19 +36,20 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		work, known := workWords(machines.Cloud)
 		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(time.Now(), true) + " · " + work, On: active,
 			Flip: func() string { return saved(machines.Cloud.Save("active", !active, seat.KeepConfigEfforts)) },
-			Open: func() bool { return menuMachineWork(machines.Cloud, keyboard, painter) }}), known
+			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}), known
 	}, keyboard, painter)
 }
 
 // menuMachineWork is `config · machines · <name>`: a mark for each work a machine may take,
 // Space flipping it, saved at once, but builds and reviews on a Mac.  A machine ak rents takes
-// the cloud's marks, whose page has its monthly cap too, a field that is Python's.
-func menuMachineWork(machine machines.Machine, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
-	if machine.Rented() {
-		machine = machines.Cloud
+// the cloud's marks, whose page has its monthly cap too, a field that is Python's.  Each draw
+// and each flip reads the machine afresh, as a probe may land while the page is open.
+func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	if machines.Named(name).Rented() {
+		name = ""
 	}
-	return configPage("machines · "+cmp.Or(machine.Name, "Google Cloud"), func() ([]menu.PageRow, bool) {
-		work, known := machine.Work()
+	return configPage("machines · "+cmp.Or(name, "Google Cloud"), func() ([]menu.PageRow, bool) {
+		work, known := machines.Named(name).Work()
 		if !known {
 			return nil, false
 		}
@@ -58,22 +59,28 @@ func menuMachineWork(machine machines.Machine, keyboard *terminal.Keyboard, pain
 			if on {
 				value = "on"
 			}
-			rows = append(rows, menu.PageRow{Label: mark[1], Value: value, On: on, Flip: func() string {
-				flipped := slices.DeleteFunc([]string{"turns", "tests"}, func(word string) bool {
-					return slices.Contains(work, word) == (word == mark[0])
-				})
-				if !slices.Equal(machine.Takes(flipped), flipped) {
-					return "this machine cannot build or review"
-				}
-				return saved(machine.Save("work", flipped, seat.KeepConfigEfforts))
-			}})
+			rows = append(rows, menu.PageRow{Label: mark[1], Value: value, On: on, Flip: func() string { return flipWork(name, mark[0]) }})
 		}
-		if machine.Name == "" {
+		if name == "" {
 			_, cap := config.CloudBudget()
 			rows = append(rows, menu.PageRow{Label: "Monthly cap", Value: fmt.Sprintf("€%.6g", cap), Open: func() bool { return false }})
 		}
 		return rows, true
 	}, keyboard, painter)
+}
+
+// flipWork saves the machine's marks with `word` flipped, refusing, nothing written, marks it
+// could not take as saved (menu.config_machines' flip).  Marks that cannot be read Save refuses.
+func flipWork(name, word string) string {
+	machine := machines.Named(name)
+	work, _ := machine.Work()
+	flipped := slices.DeleteFunc([]string{"turns", "tests"}, func(each string) bool {
+		return slices.Contains(work, each) == (each == word)
+	})
+	if !slices.Equal(machine.Takes(flipped), flipped) {
+		return "this machine cannot build or review"
+	}
+	return saved(machine.Save("work", flipped, seat.KeepConfigEfforts))
 }
 
 // workWords is the work a machine's marks allow as the page names it (menu.work_words).
