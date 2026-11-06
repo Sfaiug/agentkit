@@ -50,7 +50,7 @@ func (r *repoPlace) rulesCheck() (string, error) {
 		}
 	}
 	if failure != "" {
-		return strings.ToValidUTF8(failure, "�"), nil
+		return shown(failure), nil
 	}
 	return r.agentsCheck()
 }
