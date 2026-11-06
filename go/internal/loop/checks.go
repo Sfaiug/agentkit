@@ -42,11 +42,13 @@ var (
 // stays.
 var flakyKey = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}_.])/[^\s'"` + "`" + `<>]+|\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|\d+(?:\.\d+)?(?:e[+-]?\d+)?`)
 
-// A ran is how one command ended: its status, and how a stop ended it, "" where none did.
+// A ran is how one command ended: its status, how a stop ended it, "" where none did, and whether
+// the kernel killed it for memory (starved.go).
 type ran struct {
 	code    int
 	stopped string
 	left    []string
+	starved bool
 	testReport
 }
 

@@ -40,8 +40,11 @@ func noSeatAlive() bool {
 	return true
 }
 
-func (t *ticking) retainedSeats() bool {
-	now := t.clock()
-	home, known := seat.TickHome(now)
-	return known && home.Retained(now)
+// sweep is the seat sweep row, the one sweep the ak screen's opening runs too.
+func (t *ticking) sweep() error {
+	carried, err := seat.Sweep(t.clock(), t.log.line)
+	if !carried {
+		return errLeft
+	}
+	return err
 }

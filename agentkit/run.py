@@ -649,6 +649,19 @@ def seat_refusal(opts, flags):
     return None
 
 
+def users_refusal(checkout, ref, then):
+    """Why a launch into `checkout` waits for its owner, or None: its AGENTS.md at `ref` has no
+    `users:` answer, which decides whether a reviewer holds a new feature to the project's
+    switch (`worker.REAL_USERS`), and only the owner can give it.  `then` says where the
+    answer goes."""
+    if checkout is None or worker.users_declared(checkout, ref):
+        return None
+    return (f"{checkout}/AGENTS.md has no users: line. Ask the owner \"Does "
+            f"{orch.project_name(checkout)} have real users?\": \"No, straight to live\" is "
+            "users: none; \"Yes, new features stay hidden until I switch them on\" is users: "
+            f"real. {then}")
+
+
 def from_seat():
     """Whether this launch is a seat's own: a recorded session's (`config.session_records`),
     outside any run (`RUN_DIR_ENV`)."""
@@ -3131,6 +3144,12 @@ def main(argv):
         numbers = launch_policy(task)
         refusal = (taskfile.rounds_refusal(opts["--rounds"], "--rounds", numbers["review_rounds"])
                    if opts["--rounds"] else None)
+        # a seat's task carries the owner's answer into AGENTS.md, read once launch_policy has
+        # resolved the clone's default branch; no checkout, no file to read
+        checkout = launch_checkout(task) if not refusal and from_seat() else None
+        if checkout and not re.search(r"\busers: (none|real)\b", Path(task).expanduser().read_text()):
+            refusal = users_refusal(checkout, config.RULES_REF,
+                                    "Put the chosen line in the task, which adds it to AGENTS.md.")
         if refusal:
             raise config.Error(refusal)
     parallel = None

@@ -209,6 +209,9 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 	if ok {
 		return run.Fields("land", s.tree), nil
 	}
+	if s.short(selection) {
+		return nil, nil
+	}
 	if selection.tests != nil && (selection.red == nil || !selection.red.Has("tests")) {
 		return nil, nil // a missing or unconfirmed test needs the stack's whole check
 	}
@@ -228,7 +231,7 @@ func (s *narrowingStack) checkTests(command, suite string, selection *checkSelec
 }
 
 func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingStack, below int, said io.Writer) (int, int, error) {
-	suite := declaredSuite(stacks[0].checkout.path, tip)
+	suite := gitcall.Suite(stacks[0].checkout.path, tip)
 	limit := host.Pieces(0, 0)
 	if pinned, _ := config.MaxGates(); pinned > 0 {
 		limit = pinned

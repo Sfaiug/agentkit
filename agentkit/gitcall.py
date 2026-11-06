@@ -1380,16 +1380,3 @@ def project_answer(command, checkout, wait, what):
         return json.loads(out), ""
     except ValueError:
         return None, f"{what} answered no JSON"
-
-
-def users_declared(wt):
-    """The checkout's `users:` answer, `real` or `none`, or None until the owner is asked.
-
-    Read as the YAML scalar it is: `users: "real"  # launched in May` says `real`, and a
-    comment or quotes left on the word would quietly drop the reviewer's rule for it.  Only
-    this word is unwrapped; a `tests:` command is a shell line and keeps what it says.
-    """
-    value = re.sub(r"(^|\s)#.*", "", declared(wt, "users") or "").strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in "'\"":
-        value = value[1:-1].strip()
-    return value or None

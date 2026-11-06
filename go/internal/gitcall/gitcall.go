@@ -301,11 +301,8 @@ func AgentsBody(repo, ref string) string {
 // DeclaredAt is a key's value in the front matter of AGENTS.md at ref, "" for none: a read that
 // fails or runs slow is no declaration.
 func DeclaredAt(repo, ref, key string, env ...string) string {
-	text, err := Git{Repo: repo, Env: env}.Try("show", ref+":AGENTS.md")
-	if err != nil {
-		return ""
-	}
-	return task.FrontValue(text, key)
+	value, _ := declaredAt(repo, ref, key, env)
+	return value
 }
 
 // Declared is a key's value in the front matter of the checkout's AGENTS.md as written.

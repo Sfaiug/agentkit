@@ -96,7 +96,7 @@ class ModelsWhy(unittest.TestCase):
                                    "bolt": {"harness": "codex", "model": "bolt-3", "effort": "low"}})
         self.home.write(".agentkit/state/boards.json", boards())
 
-    def models(self, width=78, height=100):
+    def models(self, width=78, height=60):
         """`r` on `c` in a window of its own, once the answer is drawn."""
         term = Terminal(self.home, size=(width, height), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",

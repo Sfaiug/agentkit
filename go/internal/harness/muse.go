@@ -11,7 +11,7 @@ import (
 
 func init() {
 	plugins["muse"] = plugin{identity: museIdentity, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn,
-		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept,
+		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept, forget: receiptGone("muse"),
 		opens: true, interactive: museInteractive, seatWords: museSeatWords, hookEvent: museHookEvent}
 }
 

@@ -98,8 +98,8 @@ func packed(parts []string, room int) []string {
 	return lines
 }
 
-// modelsBody draws each role under its own heading, with one set of column heads above the first
-// frontier and a blank line between roles: a row's mark in `mark` cells, its name, its effort
+// modelsBody is the screen's lines.  Per role, a blank line between two, its head, beside the first
+// with rows the columns' heads, then its lines: a row's mark in `mark` cells, its name, its effort
 // -- its cells, then its word, in one column after the most cells any row has -- its line, taking
 // the room the other columns leave, then its quality, cost and notes, these one under another in a
 // column as wide as the widest. Every column fits the full frontier.
@@ -167,9 +167,15 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		if number > 0 {
 			put("")
 		}
-		put("  " + role.Head)
+		if number != first || !wide {
+			put("  " + role.Head)
+		}
 		if number == first {
-			put(strings.Repeat(" ", before+size) + "  " +
+			head := ""
+			if wide {
+				head = role.Head
+			}
+			put("  " + terminal.Pad(head, before+size-2) + "  " +
 				fill("quality", qualityWide) + screen.Styled("quality", "dim") + "  " +
 				fill("a task", costWide) + screen.Styled("a task", "dim"))
 		}

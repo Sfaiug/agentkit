@@ -163,6 +163,23 @@ func ownCgroup() (string, bool) {
 	return "", false
 }
 
+// OOMKills is how many of this process's cgroup's processes the kernel killed for memory, the
+// `oom_kill` of its memory.events, Python's _SuiteMeasure.oom("oom_kill"): 0 where none is read.
+func OOMKills() int {
+	relative, ok := ownCgroup()
+	if !ok {
+		return 0
+	}
+	data, _ := os.ReadFile(filepath.Join(cgroupPath(relative), "memory.events"))
+	for _, line := range strings.Split(string(data), "\n") {
+		if value, found := strings.CutPrefix(line, "oom_kill "); found {
+			kills, _ := strconv.Atoi(strings.TrimSpace(value))
+			return kills
+		}
+	}
+	return 0
+}
+
 // sliceCgroup is the slice every agent process starts in, under the user's manager:
 // systemd reads the dashes in `agentkit-test.slice` as a path inside `agentkit.slice`.
 func sliceCgroup() string {

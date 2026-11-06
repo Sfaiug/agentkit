@@ -77,7 +77,7 @@ class ModelsRowsDrawnAsC(unittest.TestCase):
 
     def models(self, width, until="comparing all 2 models"):
         """`r` on `c` in a window of its own, once the answer is drawn."""
-        term = Terminal(self.home, size=(width, 120), env=ENV)
+        term = Terminal(self.home, size=(width, 60), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")

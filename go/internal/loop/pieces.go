@@ -38,9 +38,10 @@ type piece struct {
 // has room for now, more as room frees, else here, in as many as this host fits at once.  Each has
 // its share `AK_SHARD=k/N`, its own silence window and the list's deadline, its output added to
 // progress under its own header as it ends.  A red piece here goes once more alone after the
-// others, which decides it, a pass then said by a `flaky:` record; one stopped at its limit stops
-// the rest, as a piece that does not pass on the helper does, which is Python's (helper.ErrPython).
-// The suite ends as its first red piece did, and hands on what handedOn says.
+// others, which decides it, a pass then said by a `flaky:` record unless the kernel killed it for
+// memory (starved.go); one stopped at its limit stops the rest, as a piece that does not pass on
+// the helper does, which is Python's (helper.ErrPython).  The suite ends as its first red piece
+// did, and hands on what handedOn says.
 //
 // What Python does beyond that is not Go's yet and differs here: a heavy-suite turn, and the
 // suite's pace and cost measured for its next run.
@@ -88,6 +89,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			where = "on " + at.there.Alias
 		}
 		l.say(fmt.Sprintf("AK_SHARD=%s %s", at.shard, where))
+		kills := host.OOMKills()
 		if left := time.Until(deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
 		} else if at.there != nil {
@@ -101,6 +103,7 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			cancel(errSibling)
 			return err
 		}
+		at.ended.starved = starved(at.ended, kills)
 		if at.ended.stopped != "" && at.ended.stopped != "sibling" {
 			cancel(errSibling)
 		}
@@ -152,7 +155,13 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		return ran{}, "", err
 	}
 	for _, at := range all {
-		if at.ended.code == 0 || at.ended.stopped != "" || ctx.Err() != nil {
+		if at.ended.starved && ctx.Err() == nil {
+			// out of memory beside its siblings: once more after them
+			if err := attempt(at, pieceRetry, nil); err != nil {
+				return ran{}, "", err
+			}
+		}
+		if at.ended.code == 0 || at.ended.stopped != "" || at.ended.starved || ctx.Err() != nil {
 			continue
 		}
 		failed, err := os.ReadFile(at.out.Name())
@@ -191,10 +200,14 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 		most, into, status := share, &green, fmt.Sprintf("exit %d", at.ended.code)
 		if at.ended.code != 0 {
 			most, into = redShare, &red
-			if ended.code == 0 {
-				ended.piece, ended.confirmed = at.shard, at.ended.confirmed
+			// a piece out of memory hands on its red only where no other piece is red
+			if ended.code == 0 || ended.starved && !at.ended.starved {
+				ended.piece, ended.confirmed, ended.starved = at.shard, at.ended.confirmed, at.ended.starved
 			}
 			ended.code = cmp.Or(ended.code, at.ended.code)
+		}
+		if at.ended.starved {
+			status = "ran out of memory"
 		}
 		ended.flaky = ended.flaky || at.ended.flaky || at.failed != nil && at.ended.code == 0
 		if at.ended.stopped != "" {
