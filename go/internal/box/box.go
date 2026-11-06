@@ -78,12 +78,14 @@ func Run(ctx context.Context, argv []string, env map[string]string, workspace, o
 	}
 	defer done()
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, stderr
-	return supervised(ctx, cmd, file)
+	return supervised(ctx, cmd, &look{report: file})
 }
 
 // supervised runs cmd, the box's first process given its report, until it ends, or ctx ends and
-// that process with it: how the command ended, and what the box's end stopped, by pid.
-func supervised(ctx context.Context, cmd *exec.Cmd, file string) (int, map[int]string, error) {
+// that process with it: how the command ended, and what the box's end stopped, by pid.  The look
+// learns the first process's pid as bubblewrap starts it.
+func supervised(ctx context.Context, cmd *exec.Cmd, box *look) (int, map[int]string, error) {
+	file := box.report
 	// The running image, not the file at its path, which a build may since have replaced.
 	self, err := os.Open("/proc/self/exe")
 	if err != nil {
@@ -97,8 +99,15 @@ func supervised(ctx context.Context, cmd *exec.Cmd, file string) (int, map[int]s
 	defer stop.Close()
 	defer stopping.Close()
 	defer context.AfterFunc(ctx, func() { stopping.Close() })()
+	info, informing, err := os.Pipe()
+	if err != nil {
+		return 0, nil, err
+	}
+	defer info.Close()
+	defer informing.Close()
+	go box.read(info)
 	os.Remove(file)
-	cmd.ExtraFiles = []*os.File{self, stop} // exeFD, stopFD
+	cmd.ExtraFiles = []*os.File{self, stop, informing} // exeFD, stopFD, infoFD
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
 		return 0, nil, err
@@ -171,7 +180,7 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 	args := append([]string{"--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session"}, walls()...)
 	args = append(append(args, mounts...), masks(hidden)...)
 	if argv[0] == exe {
-		args = append(args, "--ro-bind", fmt.Sprintf("/proc/self/fd/%d", exeFD), exe)
+		args = append(args, "--ro-bind", fmt.Sprintf("/proc/self/fd/%d", exeFD), exe, "--info-fd", strconv.Itoa(infoFD))
 	}
 	args = append(args, "--")
 	env["TMPDIR"] = "/var/tmp"
@@ -192,6 +201,7 @@ func First() (int, bool) {
 	}
 	syscall.CloseOnExec(exeFD)
 	syscall.CloseOnExec(stopFD)
+	os.WriteFile(os.Args[1], nil, 0o666) // the box is up: its command's silence counts from here (look.up)
 	var code int
 	var left map[int]string
 	if os.Args[2] == drainFlag {

@@ -210,10 +210,8 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
 	}
 	var left []string
-	ctx, watched := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Marker: l.dir,
-		Before: func() { left = stillRunning(l.dir) }}.Stop(l.ctx)
-	code, err := box.RunCheck(ctx, []string{"bash", "-c", cmd}, env, cwd, out, progress)
-	stopped := watched()
+	watch := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Before: func() { left = stillRunning(l.dir) }}
+	code, stopped, err := box.RunCheck(l.ctx, watch, []string{"bash", "-c", cmd}, env, cwd, out, progress)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return ran{}, notYet("the host has no box for a check", "a check here")
 	}

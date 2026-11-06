@@ -8,17 +8,24 @@ import (
 	"strings"
 )
 
-// Declared is whether a command among the run's marked processes is inside the time it gave
-// `timeout`, Python's worker.within_declared_timeout: a command started under `timeout` has said
-// how long it may take, however little it prints, so its silence is no hang before that bound.
-func Declared(marker string, now float64) bool {
-	for _, pid := range Marked(marker) {
-		said, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+// Declared says, for a Watch, whether a command among the marker's processes is inside the time
+// it gave `timeout`, Python's worker.within_declared_timeout: a command started under `timeout`
+// has said how long it may take, however little it prints, so its silence is no hang before that
+// bound.
+func Declared(marker string) func(now float64) bool {
+	return func(now float64) bool { return DeclaredIn("/proc", Marked(marker), now) }
+}
+
+// DeclaredIn is whether any of those pids, read in the /proc at proc, is a `timeout N` still
+// inside its N seconds, Python's worker.declared_in.
+func DeclaredIn(proc string, pids []int, now float64) bool {
+	for _, pid := range pids {
+		said, err := os.ReadFile(proc + "/" + strconv.Itoa(pid) + "/cmdline")
 		if err != nil {
 			continue
 		}
 		seconds := timeoutSeconds(strings.Split(string(said), "\x00"))
-		if born, ok := ReadIdentity(pid); ok && seconds > 0 && now-born.StartedAt < seconds {
+		if born, ok := ReadIdentityIn(proc, pid); ok && seconds > 0 && now-born.StartedAt < seconds {
 			return true
 		}
 	}

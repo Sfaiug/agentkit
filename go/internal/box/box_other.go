@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"os"
+
+	"agentkit/internal/host"
 )
 
 // Supported is false: bubblewrap's box runs on Linux alone.
@@ -17,8 +19,8 @@ func Run(ctx context.Context, argv []string, env map[string]string, workspace, o
 }
 
 // RunCheck refuses, as there is no box to run argv in.
-func RunCheck(ctx context.Context, argv []string, env map[string]string, workspace, out string, output *os.File) (int, error) {
-	return 0, errors.ErrUnsupported
+func RunCheck(ctx context.Context, watch host.Watch, argv []string, env map[string]string, workspace, out string, output *os.File) (int, string, error) {
+	return 0, "", errors.ErrUnsupported
 }
 
 // First is false: nothing starts this program as a box's first process here.

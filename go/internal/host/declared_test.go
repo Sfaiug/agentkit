@@ -23,16 +23,16 @@ func TestACommandInsideTheTimeItGaveIsDeclared(t *testing.T) {
 		cmd.Wait()
 	}()
 	now := float64(time.Now().UnixNano()) / 1e9
-	for late := time.Now().Add(30 * time.Second); !Declared(marker, now) && time.Now().Before(late); {
+	for late := time.Now().Add(30 * time.Second); !Declared(marker)(now) && time.Now().Before(late); {
 		time.Sleep(10 * time.Millisecond)
 	}
-	if !Declared(marker, now) {
+	if !Declared(marker)(now) {
 		t.Fatal("inside its 60 seconds")
 	}
-	if Declared(marker, now+61) {
+	if Declared(marker)(now + 61) {
 		t.Fatal("past its 60 seconds")
 	}
-	if Declared("", now) {
+	if Declared("")(now) {
 		t.Fatal("no marker declares nothing: every run's processes are below an empty one")
 	}
 }

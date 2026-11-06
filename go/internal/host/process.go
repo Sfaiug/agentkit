@@ -80,16 +80,19 @@ type Identity struct {
 	StartedAt float64
 }
 
-func ReadIdentity(pid int) (Identity, bool) {
-	stat, ok := ReadStat(pid)
+func ReadIdentity(pid int) (Identity, bool) { return ReadIdentityIn("/proc", pid) }
+
+// ReadIdentityIn is ReadIdentity of a /proc at proc, a box's own among them.
+func ReadIdentityIn(proc string, pid int) (Identity, bool) {
+	stat, ok := ReadStatIn(proc, pid)
 	if !ok || stat.Exited() {
 		return Identity{}, false
 	}
-	boot, err := os.ReadFile("/proc/sys/kernel/random/boot_id")
+	boot, err := os.ReadFile(proc + "/sys/kernel/random/boot_id")
 	if err != nil {
 		return Identity{}, false
 	}
-	data, err := os.ReadFile("/proc/stat")
+	data, err := os.ReadFile(proc + "/stat")
 	if err != nil {
 		return Identity{}, false
 	}
