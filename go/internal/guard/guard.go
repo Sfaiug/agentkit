@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/tmux"
 )
 
 // refusals are what each tool asks: why this call may not run, "" where it may, or an error where
@@ -249,7 +248,7 @@ func asked(real string, server []string, question ...string) string {
 func sessions(real string, server []string) []string {
 	var names []string
 	for _, line := range strings.Split(asked(real, server, "list-sessions", "-F", "#{session_id}\t#{session_name}"), "\n") {
-		if _, name, ok := strings.Cut(line, "\t"); ok && name != tmux.Control {
+		if _, name, ok := strings.Cut(line, "\t"); ok && name != config.Control {
 			names = append(names, name)
 		}
 	}
