@@ -3,8 +3,10 @@ package seat
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,6 +41,10 @@ func open(name, orchestrator string, models map[string]config.Model, workers []s
 	model := models[orchestrator]
 	if !Carried(name, model, false) {
 		return false, nil
+	}
+	// the folders it writes in, made only now: a seat left to Python leaves the home as it was
+	if err := config.EnsureDirs(); err != nil {
+		return true, err
 	}
 	state := filepath.Join(config.Home(), "state")
 	titled, _ := harness.Opens(model.Harness)
@@ -273,10 +279,11 @@ func environment(name, server string) ([]field, error) {
 	return values, err
 }
 
-// unclaimed leaves files of a gone seat to Python, but not the locks its writers wait on.
+// unclaimed leaves files of a gone seat to Python, but not the locks its writers wait on; a state
+// folder not made yet holds none.
 func unclaimed(state, name string) bool {
 	entries, err := os.ReadDir(state)
-	if err != nil {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false
 	}
 	for _, entry := range entries {
