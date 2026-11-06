@@ -1,7 +1,7 @@
 package harness
 
 // Antigravity's launcher-owned conversations reopen without learning an id from its SQLite store,
-// whose steps say what they hold and who typed what when.
+// which Go reads for what was said in them, by whom and when, and which model answered last.
 func init() {
 	plugins["antigravity"] = plugin{seats: true, looks: true, record: antigravityRecord,
 		launch: antigravityLaunch, interactive: antigravityInteractive, report: antigravityReported,
