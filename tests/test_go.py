@@ -35,7 +35,9 @@ class Go(unittest.TestCase):
                if path.relative_to(GO).parts[0] != "vendor"]
         self.assertEqual(self.check(gofmt, "-l", *own), "", "`go fmt ./...` formats these files")
         self.check("go", "vet", "./...", **judge)
-        self.check("go", "test", "./...", **judge)
+        # No deadline: a busy host only slows a package, and the landing's silence watch ends a
+        # hung one and names it.
+        self.check("go", "test", "-timeout", "0", "./...", **judge)
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
             for system, arch in (("linux", "amd64"), ("darwin", "arm64"), ("windows", "amd64")):
                 self.check("go", "build", "-o", os.path.join(out, system), "./cmd/ak",
