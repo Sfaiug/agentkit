@@ -22,9 +22,10 @@ const conflictRounds = 3
 // resolve_conflicts: whether the branch carries tip now, made its base, and with recheck passes
 // there again.  A conflict is the world moving, never a verdict on reviewed work, so its fixer
 // rounds spend no task round and never end the run FAIL: a git they leave unfinished parks the run
-// waiting on the target.  With recheck the branch is checked and reviewed again on tip, a red or a
-// failed review there being Python's; without, the round under way checks and reviews it next.  A
-// conflict beside its lander's red is Python's whole.
+// waiting on the target.  With recheck the branch is checked and reviewed again on tip: a red the
+// target itself has parks it there too, and a failed review is one like any other, its findings
+// fixed in the task's own rounds while any are left.  Without, the round under way checks and
+// reviews it next.  A conflict beside its lander's red is Python's whole.
 func (r *repoPlace) resolve(l *loop, upstream, how, tip, out string, recheck bool) (bool, error) {
 	record, err := read(l)
 	if err != nil {
@@ -53,14 +54,124 @@ func (r *repoPlace) resolve(l *loop, upstream, how, tip, out string, recheck boo
 	}); err != nil {
 		return false, err
 	}
-	text, err := r.retest(l, upstream, how)
+	ok, text, err := l.verify()
 	if err != nil {
 		return false, err
 	}
-	if passed, err := l.review(summary, true, text, again); err != nil || passed {
+	if ok {
+		l.say("done-when after the " + how + ": all passed")
+	} else {
+		l.say("done-when after the " + how + ": FAILED")
+		said, err := r.targetFails(l, upstream, tip, text)
+		if err != nil || said != "" {
+			return false, cmp.Or(err, r.park(l, upstream+" itself fails: "+said, upstream, tip))
+		}
+	}
+	passed, err := l.review(summary, ok, text, again)
+	if err == nil && !passed {
+		passed, err = r.fixReview(l, what)
+	}
+	if err != nil || passed {
 		return passed, err
 	}
-	return false, notYet("the review after "+what+" failed", "a fixer round on its findings")
+	return false, r.note(l, "done-when or review after "+what+" did not pass", false)
+}
+
+// targetFails is what the first failing check says on the pinned tip where it passes on the base
+// the last reviewed head was checked on, Python's target_fails: the target's own red, which no fixer
+// of this branch mends.  "" where the check needs the branch: it fails on that base too, passes on
+// the tip, or there is nothing to probe.  That base is never the tip after a conflict, so a check
+// naming a file only the branch has fails there and needs no reading of its own.  A seated run's red
+// is Python's, which starts a repair of the target for it.
+func (r *repoPlace) targetFails(l *loop, upstream, tip, text string) (string, error) {
+	record, err := read(l)
+	failed := failingChecks(text)
+	if err != nil || len(failed) == 0 {
+		return "", err
+	}
+	cmd := run.Text(failed[0].([]any)[0])
+	if repair := record.Dict("repair"); repair != nil && repair.Str("command") == cmd {
+		return "", nil // a repair of the target is checked by its own rounds
+	}
+	if code, _, err := r.git().Out("diff", "--quiet", "HEAD"); err != nil || code != 0 {
+		return "", err
+	}
+	if run.Seat(record) != "" {
+		return "", notYet(fmt.Sprintf("`%s` failed on %s at %s", cmd, upstream, tip[:12]), "probing the target for its seat's repair")
+	}
+	probe := func(sha, where string) (*run.Object, error) {
+		l.say(fmt.Sprintf("--- merge: `%s` failed; probing it once on %s (%s)", cmd, where, sha[:12]))
+		return r.proofOn(l, cmd, filepath.Join(l.dir, "target-probe.log"), sha, "")
+	}
+	red := func(proof *run.Object) bool {
+		code, _ := proof.Int("returncode")
+		return code != 0 || proof.Truthy("killed")
+	}
+	onTip, err := probe(tip, upstream)
+	if err != nil || !red(onTip) {
+		return "", err
+	}
+	passed := passedReviewHead(record)
+	if passed == "" {
+		return "", nil
+	}
+	base, err := r.git().Try("merge-base", passed, tip)
+	if err != nil || base == "" {
+		return "", err
+	}
+	if base != tip {
+		onBase, err := probe(base, "old base")
+		if err != nil || red(onBase) {
+			if err == nil {
+				l.say(fmt.Sprintf("--- merge: `%s` fails on %s too: needs this branch", cmd, base[:12]))
+			}
+			return "", err
+		}
+	}
+	code, _ := onTip.Int("returncode")
+	return firstFailure(fmt.Sprintf("$ %s\n[exit %d]\n%s", cmd, code, onTip.Str("output"))), nil
+}
+
+// fixReview is the rounds a failed review after a conflict gets, Python's fix_after_failed_review:
+// each a task round, its fixer handed the findings and the red the review judged, its work checked
+// and reviewed again, until a review passes or the budget is spent.
+func (r *repoPlace) fixReview(l *loop, what string) (bool, error) {
+	for l.rnd < l.budget {
+		if err := l.allowed(); err != nil {
+			return false, err
+		}
+		record, err := read(l)
+		if err != nil {
+			return false, err
+		}
+		fix := l.prompt + "\n\n## Reviewer findings to fix\n" + withoutAsides(l.findings)
+		if review := record.Dict("review"); review != nil && review.Get("done_when") == false {
+			checked, _ := os.ReadFile(filepath.Join(l.roundDir(), "donewhen.log"))
+			fix += "\n\n## The done-when commands failed. Fix the root cause.\n```\n" + decoded(checked) + "\n```"
+		}
+		l.rnd++
+		l.say(fmt.Sprintf("--- round %d/%d: fixer %s (findings after %s)", l.rnd, l.budget, l.executor, what))
+		summary, err := l.execute("fixer", "executor", fix, filepath.Join(filepath.Dir(l.findingsFile), "findings.json"))
+		if err != nil {
+			return false, err
+		}
+		ok, text, err := l.verify()
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			l.say("done-when after the fix: all passed")
+		} else {
+			l.say("done-when after the fix: FAILED")
+		}
+		if err := l.sameFailure(ok, text, true); err != nil {
+			return false, err
+		}
+		if passed, err := l.review(summary, ok, text, "Re-review after fixes for "+what+"."); err != nil || passed {
+			return passed, err
+		}
+	}
+	return false, nil
 }
 
 // fixConflicts is the fixer rounds on the one stopped git, each on the files no fixer was handed

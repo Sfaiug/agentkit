@@ -350,10 +350,15 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 	if err != nil {
 		return err
 	}
-	text, err := r.retest(l, upstream, how)
+	ok, text, err := l.verify()
 	if err != nil {
 		return err
 	}
+	if !ok {
+		l.say("done-when after the " + how + ": FAILED")
+		return notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
+	}
+	l.say("done-when after the " + how + ": all passed")
 	if moved, err := r.changedSince(head, tree); err != nil || moved {
 		return cmp.Or(err, notYet("the checks after the "+how+" changed the commit", "reviewing it again at landing"))
 	}
@@ -365,21 +370,6 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 		keepFlakes(record, text)
 		record.Delete("review_pending")
 	})
-}
-
-// retest runs the round's checks on what an integration made, what they said where they passed: a
-// red there is Python's.
-func (r *repoPlace) retest(l *loop, upstream, how string) (string, error) {
-	ok, text, err := l.verify()
-	if err != nil {
-		return "", err
-	}
-	if !ok {
-		l.say("done-when after the " + how + ": FAILED")
-		return "", notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
-	}
-	l.say("done-when after the " + how + ": all passed")
-	return text, nil
 }
 
 // finalCheck runs the round's checks and those deferred to landing on the commit about to be
