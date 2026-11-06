@@ -18,6 +18,7 @@ const proven = 14 * 24 * time.Hour
 // unproven refuses the check Python's retirement writes for a proven switch while the project's
 // switch list dates that proof in the future, as Python's retire.vet_check does: ak plans that
 // line itself once the switch is proven, so a seat never holds work only time can finish.
+// ErrUnread where Go does not read that list as Python surely does.
 func unproven(ctx context.Context, checkout, check string) error {
 	words, ok := commandhelp.ShellSplit(check)
 	if !ok || len(words) < 2 || words[len(words)-1] != "proven" {
@@ -28,7 +29,10 @@ func unproven(ctx context.Context, checkout, check string) error {
 		`); from agentkit import retire; retire.check_main()" `+commandhelp.ShellJoin([]string{id})+" proven" {
 		return nil
 	}
-	rows, _ := features.List(ctx, checkout)
+	rows, err := features.List(ctx, checkout)
+	if err != nil {
+		return ErrUnread
+	}
 	for _, row := range rows {
 		// when it last went on for everyone, as Python's retire.since reads it: each Z +00:00
 		at, dated := fromISO(strings.ReplaceAll(row.Since, "Z", "+00:00"))

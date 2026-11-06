@@ -123,15 +123,15 @@ func TestPastTheWaitAnOutputHeldFromAnotherSessionIsClosed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows, listed := List(context.Background(), checkout)
+	rows, unsure := List(context.Background(), checkout)
 	data, err := os.ReadFile(filepath.Join(checkout, "child.pid"))
 	pid, unread := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || unread != nil {
 		t.Fatal(err, unread)
 	}
 	defer syscall.Kill(pid, syscall.SIGKILL)
-	if listed {
-		t.Errorf("answered %v past the wait", rows)
+	if rows != nil || unsure != nil {
+		t.Errorf("answered %v, %v past the wait", rows, unsure)
 	}
 	if left, _ := os.ReadDir("/dev/fd"); len(left) > len(open) {
 		t.Errorf("%d descriptors open after, %d before", len(left), len(open))

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -87,12 +86,6 @@ func Read(checkout string, every time.Duration) Reading {
 	return found.Reading
 }
 
-// List is the checkout's switches as its `list` answers now; false for no list.
-func List(ctx context.Context, checkout string) ([]Switch, bool) {
-	answer, _ := run(ctx, checkout, "list")
-	return switches(answer)
-}
-
 // Landed is told once a list has landed since it was last read from: what draws the switches
 // draws again.
 func Landed() <-chan struct{} { return landed }
@@ -131,19 +124,33 @@ func switches(answer any) ([]Switch, bool) {
 		you, _ := row["you"].(bool)
 		everyone, _ := row["everyone"].(bool)
 		since, _ := row["everyone_since"].(string)
-		rows = append(rows, Switch{ID: fmt.Sprint(id), Name: cmp.Or(name, fmt.Sprint(id)), You: you, Everyone: everyone,
+		spelled, _ := spell(id)
+		rows = append(rows, Switch{ID: spelled, Name: cmp.Or(name, spelled), You: you, Everyone: everyone,
 			Fixed: row["you_switchable"] == false, Since: since})
 	}
 	return rows, true
 }
 
 // run is the project's features command with words after it, as Python's gitcall.project_answer
-// runs a project's own command: its JSON answer, or nil and the one line saying why.  It runs in
-// the checkout, reading nothing, in a session of its own, without the seat's name (owner_env): an
-// ssh in it never reads the keys, nor is it a seat reaching the live host.  One past the wait is
-// killed with everything it started, so a `set` said to have failed never lands after, as is one
-// running when ctx ends.
+// runs a project's own command: its JSON answer (decode), or nil and the one line saying why.
 func run(ctx context.Context, checkout string, words ...string) (any, string) {
+	out, why := output(ctx, checkout, words...)
+	if why != "" {
+		return nil, why
+	}
+	answer, err := decode(out)
+	if err != nil {
+		return nil, words[0] + " answered no JSON"
+	}
+	return answer, ""
+}
+
+// output is what the project's features command with words after it printed, or nil and the one
+// line saying why it answered nothing.  It runs in the checkout, reading nothing, in a session of
+// its own, without the seat's name (owner_env): an ssh in it never reads the keys, nor is it a
+// seat reaching the live host.  One past the wait is killed with everything it started, so a
+// `set` said to have failed never lands after, as is one running when ctx ends.
+func output(ctx context.Context, checkout string, words ...string) ([]byte, string) {
 	what, command := words[0], gitcall.Declared(checkout, "features")
 	if command == "" {
 		return nil, "AGENTS.md names no features command"
@@ -178,9 +185,5 @@ func run(ctx context.Context, checkout string, words ...string) (any, string) {
 	case err != nil:
 		return nil, what + ": " + config.PyError(err)
 	}
-	var answer any
-	if json.Unmarshal(out.Bytes(), &answer) != nil {
-		return nil, what + " answered no JSON"
-	}
-	return answer, ""
+	return out.Bytes(), ""
 }

@@ -355,7 +355,8 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 	return line, err
 }
 
-// ErrUnread is a line Go cannot read as Python does, which leaves the command to Python.
+// ErrUnread is a line, or a switch list, Go cannot read as Python does, which leaves the command
+// to Python.
 var ErrUnread = errors.New("a line Go cannot read as Python does")
 
 // Check puts check in place of plan line number's check, the line open again and the seat's
