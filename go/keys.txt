@@ -211,6 +211,7 @@ test_key_page_owner_in_seat
 test_key_page_quiet
 test_key_page_question_once
 test_key_page_retry
+test_key_parked_run_word
 test_key_parse_simple
 test_key_pick_above_the_line
 test_key_plan_add

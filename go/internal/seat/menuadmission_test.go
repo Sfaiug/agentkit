@@ -16,8 +16,6 @@ func TestMenuLeavesParkedRunDecisionsToPython(t *testing.T) {
 		fields map[string]any
 		known  bool
 	}{
-		{"expired merge wait", map[string]any{"state": "waiting", "finished_at": seconds(moment) - 172800,
-			"waiting_on": map[string]any{"ref": "origin/main", "sha": "abc123"}}, false},
 		{"scheduled retry", map[string]any{"state": "error", "finished_at": seconds(moment) - 10, "error_retry_at": seconds(moment) + 60}, true},
 		{"admitted merge wait", map[string]any{"state": "waiting", "finished_at": seconds(moment) - 10,
 			"waiting_on": map[string]any{"ref": "origin/main", "sha": "abc123"}}, true},

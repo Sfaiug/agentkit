@@ -18,8 +18,8 @@ type Task struct {
 
 // runView is what a full record says to the row's ladder and to its open line together.
 type runView struct {
-	going, live, needs bool
-	task               *Task
+	going, live, needs, parked, undecided bool
+	task                                  *Task
 }
 
 func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
@@ -65,6 +65,8 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 	for _, runs := range mine {
 		for _, each := range runs {
 			each.view.needs = index.NeedsLook(each.record, now)
+			each.view.undecided = index.Unfinished(each.record)
+			each.view.parked = parked(each.record, *each.view, index, now)
 		}
 	}
 	return mine, projects, true
@@ -72,7 +74,7 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	state := record.Str("state")
-	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" {
+	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" && state != "stalled" {
 		return runView{}, false
 	}
 	for _, field := range []string{"waiting_on", "gate_turn", "transient_wait", "process_identity", "lease_wait", "health"} {
@@ -89,8 +91,8 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 		return view, true
 	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
-	// Other parked recovery still needs Python's reader; a parked error is rung 3's (runParked).
-	if !view.going && state != "error" && (run.NeedsRecovery(record) || state == "waiting") {
+	// Other parked recovery still needs Python's reader; a parked error or merge wait is rung 3's (runParked).
+	if !view.going && state != "error" && run.NeedsRecovery(record) {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]

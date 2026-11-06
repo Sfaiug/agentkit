@@ -22,8 +22,7 @@ func Parked(name string, now time.Time) (bool, error) {
 	}
 	index := NewIndex(records)
 	for _, record := range records {
-		if !NeedsRecovery(record) || record.Truthy("recovery_acknowledged_at") ||
-			index.replaced(record, "merged-from") || Seat(record) != name {
+		if !index.Unfinished(record) || Seat(record) != name {
 			continue
 		}
 		state := record.Str("state")
