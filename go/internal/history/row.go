@@ -16,8 +16,8 @@ import (
 
 // A run's row, written where Python's transitions writes it, from the run's record: made, or
 // brought back to running, as the run is launched and as it starts (Start); kept as its loop goes
-// (Keep); and closed in history_ending's terms as it ends (Finish).  The steps, checks, waits and
-// tokens Python records beside it are not Go's yet.
+// (Keep), its turns' tokens counted as each ends (Spent); and closed in history_ending's terms as it
+// ends (Finish).  The steps, checks and waits Python records beside it are not Go's yet.
 
 // Start is Python's transitions.history_start: the row of a run as its launch or its start finds
 // it, made running.  A suite's repository has none, and the row a launch wrote before its
@@ -124,7 +124,7 @@ func Finish(record *run.Object, log func(string)) {
 
 // ending is Python's finish_run of history_ending's terms: the row of that id ended as the record
 // ends its run, with the measures given as column, value pairs, in one commit with the run time it
-// closes.
+// closes and every turn the run's receipts name counted, one killed with its run included.
 func ending(id any, record *run.Object, measures ...any) func(*DB) error {
 	finished := record.Get("finished_at")
 	if !record.Truthy("finished_at") {
@@ -163,6 +163,9 @@ func ending(id any, record *run.Object, measures ...any) func(*DB) error {
 			err = db.exec("UPDATE runs SET total_seconds=CASE WHEN started_at IS NULL THEN total_seconds "+
 				"ELSE MAX(0, ?-started_at) END WHERE run_id=?", finished, id)
 		}
+		if err == nil {
+			err = db.spendAll(id)
+		}
 		return err
 	}
 }
@@ -187,8 +190,9 @@ func (db *DB) update(id any, pairs ...any) error {
 
 // Carried is whether history.db holds a step of the run, or of any run for "", which Python
 // records and Go does not yet: a run Python carried, whose going on is Python's, or a history of
-// runs Python kept, which a launch would join.  Where none stands it holds none; where SQLite cannot
-// say, it may.
+// runs Python kept, which a launch would join; or whether its tokens wait for Python's one-time
+// repair, which any write of a run's row makes first.  Where none stands it holds none; where
+// SQLite cannot say, it may.
 func Carried(id string) bool {
 	path := Path()
 	if _, err := os.Stat(path); err != nil {
@@ -200,7 +204,8 @@ func Carried(id string) bool {
 	}
 	defer db.Close()
 	steps, err := db.rows("SELECT 1 FROM phases WHERE ? IN ('', run_id) LIMIT 1", id)
-	return err != nil || len(steps) > 0
+	_, owed := db.recounted()
+	return err != nil || len(steps) > 0 || owed != nil
 }
 
 // unrecorded is whether the run has no row: a suite's, under its notify sink.  Go makes no

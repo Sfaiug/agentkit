@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -54,6 +55,7 @@ func StopRun(id string, keep bool, out io.Writer) error {
 	}, func() {
 		if !again {
 			recordResult(dir, state)
+			endProcesses(dir, state)
 		}
 	})
 	if err != nil {
@@ -66,13 +68,20 @@ func StopRun(id string, keep bool, out io.Writer) error {
 	return nil
 }
 
-// endStopped is what follows the record of a stop: the loop, all it started and its checkout.
-func endStopped(dir string, state *run.Object, keep bool) {
+// endProcesses is what follows the record of a stop under its lock, as Python's end holds it: the
+// loop and all it started, then the history row, which counts what the turn they were cut off in
+// spent once nothing writes it, a tick's history sync waiting on the lock till then.
+func endProcesses(dir string, state *run.Object) {
 	if pid, _ := state.Int("pid"); pid > 0 && pid != os.Getpid() && run.ProcessActive(state) {
 		host.EndTree(pid)
 	}
 	host.EndMarked(dir, io.Discard)
+	history.Finish(state, func(line string) { appendLog(dir, stamped(line)) })
 	redressStopped(state)
+}
+
+// endStopped is what follows a stop's lock, as Python's stop_checkout does: its checkout.
+func endStopped(dir string, state *run.Object, keep bool) {
 	// the checkout is still there, a live loop or a git that said no, so its branch stays with it
 	// and the record says kept, as `--keep` does
 	if !keep && !stopCheckout(dir, state, func(line string) { appendLog(dir, stamped(line)) }, false) {
@@ -127,17 +136,17 @@ func checkStopOwner(record *run.Object) error {
 	return nil
 }
 
-// goStops is whether this stop is the record, the result, the process tree and the checkout, all
-// Go does: no process but a Go driver of this run alive, nothing of a job or a review to
-// tell, no landing line, no history row to close, no browser tab to shut, and no unit that may
-// hold it, as Python stops a unit by its name.
+// goStops is whether this stop is the record, the result, the process tree, the history row and
+// the checkout, all Go does: no process but a Go driver of this run alive, nothing of a job or a
+// review to tell, no landing line, no step of the run's in history, which Python records, no browser
+// tab to shut, and no unit that may hold it, as Python stops a unit by its name.
 func goStops(dir string, record *run.Object) bool {
 	for _, key := range []string{"job_id", "review_pr"} {
 		if record.Truthy(key) {
 			return false
 		}
 	}
-	return unitless(record) && !host.UserManager() && !run.Lined(record) && run.Historyless() && !tabbed(filepath.Base(dir)) &&
+	return unitless(record) && !host.UserManager() && !run.Lined(record) && !history.Carried(filepath.Base(dir)) && !tabbed(filepath.Base(dir)) &&
 		(!run.ProcessActive(record) || driving(record, dir))
 }
 

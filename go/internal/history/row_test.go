@@ -153,8 +153,8 @@ func TestAFailedWriteIsSaid(t *testing.T) {
 }
 
 // A run goes on in Go unless history.db holds a step of it, which only Python records: one Python
-// carried, or a database SQLite cannot read; and a history holds Python's runs where it holds a
-// step of any.
+// carried, tokens that wait for Python's repair, or a database SQLite cannot read; and a history
+// holds Python's runs where it holds a step of any.
 func TestARunWithStepsIsPythons(t *testing.T) {
 	home(t)
 	if Carried("20261105-1200-fix-api") || Carried("") {
@@ -168,6 +168,11 @@ func TestARunWithStepsIsPythons(t *testing.T) {
 	write(t, "INSERT INTO phases VALUES ('20261105-1200-fix-api', 'executor', 1.0, 2.0, NULL)")
 	if !Carried("20261105-1200-fix-api") || Carried("20261105-1300-fix-ui") || !Carried("") {
 		t.Fatal("a step not read as Python's")
+	}
+	write(t, "PRAGMA user_version=1")
+	put(t, filepath.Join(run.Runs(), "20261105-1200-fix-api", "round-1", "executor-opus", "events.jsonl"), "")
+	if !Carried("20261105-1300-fix-ui") {
+		t.Fatal("tokens owed Python's repair left to Go")
 	}
 	os.WriteFile(Path(), []byte("not a database"), 0o600)
 	if !Carried("20261105-1300-fix-ui") {
