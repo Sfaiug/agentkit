@@ -36,6 +36,13 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if err != nil {
 		return fail(err)
 	}
+	priced, err := matrix.Priced(found.Rows)
+	if err != nil {
+		return fail(err)
+	}
+	if priced {
+		return notImplemented(errOut, "models")
+	}
 	marked, err := matrix.Compared(found.Rows)
 	if err != nil {
 		return fail(err)

@@ -30,7 +30,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	}()
 	found := matrix.Stored()
 	compared, err := matrix.Compared(found.Rows)
-	if err != nil {
+	if priced, failed := matrix.Priced(found.Rows); err != nil || failed != nil || priced {
 		return false
 	}
 	answer := quality.Answer(found.Rows, compared)
@@ -65,7 +65,8 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				note = "the boards were not read: " + fresh.err.Error()
 			} else {
 				found = fresh.found
-				if compared, err = matrix.Compared(found.Rows); err != nil {
+				compared, err = matrix.Compared(found.Rows)
+				if priced, failed := matrix.Priced(found.Rows); err != nil || failed != nil || priced {
 					return false
 				}
 				answer = quality.Answer(found.Rows, compared)
