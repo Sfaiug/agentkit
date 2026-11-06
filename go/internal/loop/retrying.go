@@ -165,6 +165,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 	} else {
 		err = turn("")
 	}
+	l.spent(c.model.Harness, target)
 	c.session = cmp.Or(t.session, c.session)
 	if kept := l.keepDisputes(target); kept != nil && err == nil {
 		err = kept

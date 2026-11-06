@@ -36,8 +36,8 @@ func (db *DB) keepsSeats() (bool, error) {
 // killed before it).  A run whose record has ended gives its row that ending, as Finish writes it
 // but for what git measures; one whose directory is gone ends as unknown; one still going, or
 // started again before the write, ends its row itself.  False, having written nothing, where an
-// ending is Python ak's to write: a record Go cannot read as Python does, turns' tokens to count,
-// a merge's landing breaks, or tokens waiting for Python's one-time repair.
+// ending is Python ak's to write: a record Go cannot read as Python does, a merge's landing breaks,
+// or tokens waiting for Python's one-time repair.
 func Agree(log func(string)) bool {
 	ids, writable := running()
 	type due struct {
@@ -52,8 +52,7 @@ func Agree(log func(string)) bool {
 			return false
 		}
 		if record != nil && run.Ended(record) {
-			receipts, err := filepath.Glob(filepath.Join(dir, "round-*", "*", "harness"))
-			if len(receipts) > 0 || err != nil || record.Truthy("merged") && record.Truthy("landing_red_patches") {
+			if record.Truthy("merged") && record.Truthy("landing_red_patches") {
 				return false
 			}
 			dues = append(dues, due{id, record, record})

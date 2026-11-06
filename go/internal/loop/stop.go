@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -72,6 +73,8 @@ func endStopped(dir string, state *run.Object, keep bool) {
 		host.EndTree(pid)
 	}
 	host.EndMarked(dir, io.Discard)
+	// once its workers are gone, the row counts what the turn they were cut off in spent
+	history.Finish(state, func(line string) { appendLog(dir, stamped(line)) })
 	redressStopped(state)
 	// the checkout is still there, a live loop or a git that said no, so its branch stays with it
 	// and the record says kept, as `--keep` does
@@ -127,17 +130,17 @@ func checkStopOwner(record *run.Object) error {
 	return nil
 }
 
-// goStops is whether this stop is the record, the result, the process tree and the checkout, all
-// Go does: no process but a Go driver of this run alive, nothing of a job or a review to
-// tell, no landing line, no history row to close, no browser tab to shut, and no unit that may
-// hold it, as Python stops a unit by its name.
+// goStops is whether this stop is the record, the result, the process tree, the history row and
+// the checkout, all Go does: no process but a Go driver of this run alive, nothing of a job or a
+// review to tell, no landing line, no step of the run's in history, which Python records, no browser
+// tab to shut, and no unit that may hold it, as Python stops a unit by its name.
 func goStops(dir string, record *run.Object) bool {
 	for _, key := range []string{"job_id", "review_pr"} {
 		if record.Truthy(key) {
 			return false
 		}
 	}
-	return unitless(record) && !host.UserManager() && !run.Lined(record) && run.Historyless() && !tabbed(filepath.Base(dir)) &&
+	return unitless(record) && !host.UserManager() && !run.Lined(record) && !history.Carried(filepath.Base(dir)) && !tabbed(filepath.Base(dir)) &&
 		(!run.ProcessActive(record) || driving(record, dir))
 }
 

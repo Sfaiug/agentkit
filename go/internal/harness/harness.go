@@ -92,6 +92,8 @@ type plugin struct {
 	// limits, and where its event log says what it spent.
 	turnMeters func(out string) []any
 	tokens     func(out string) (float64, bool)
+	// turnCounts is TurnCounts': nil where a turn reports no counts by model and kind.
+	turnCounts func(out string) (any, []Counts, bool)
 	// failed is TurnFailed's: nil where a failed turn's stderr holds all it says of why.
 	failed func(out string, result map[string]any)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
