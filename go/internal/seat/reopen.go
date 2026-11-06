@@ -131,7 +131,7 @@ func Tidy(now time.Time) bool {
 	state := filepath.Join(config.Home(), "state")
 	for _, session := range own {
 		_, unrecorded := os.Lstat(filepath.Join(state, "session-"+session.Name+".json"))
-		if session.Mark != "1" && unrecorded != nil {
+		if session.Mark != "1" && unrecorded != nil && sideSession(session.Name) {
 			return false
 		}
 	}
@@ -301,19 +301,26 @@ func atOwnEfforts(model config.Model, orchestrator string, record map[string]any
 }
 
 // cutOff is whether the seat's end may have cut off something its relaunch has to tell it
-// (watch.cut_off): it asked, was in a turn or held work, by its last hook's word or its last look.
-// One the owner closed or stopped ended on purpose.
+// (watch.cut_off): it asked, was in a turn or held work, by its last hook's word or its last look,
+// that hook's where it spoke since the look, as it is then the newest word.  One the owner closed
+// or stopped ended on purpose.
 func cutOff(name, own string, file *run.Object) bool {
 	if file != nil && (file.Truthy("stopped_at") || file.Truthy("closed_by_owner")) {
 		return false
 	}
-	fact := hookfact.Standing(name)
+	fact := harness.For(own).HookFact(name)
 	hooked, _, err := lifecycle.State(own, fact)
-	if err != nil || notify.Standing(name) || len(fact.Holds) > 0 || hooked == "asking" || hooked == "working" {
+	if err != nil || notify.Standing(name) || len(hookfact.Standing(name).Holds) > 0 || hooked == "asking" || hooked == "working" {
 		return true
 	}
-	return file != nil && (file.Truthy("holds") || file.Str("state") == "asking" || file.Str("state") == "working" ||
-		file.Str("hooked") == "working" || file.Str("rule") == "none" && !continuationQueued(file))
+	if file == nil || file.Truthy("holds") {
+		return file != nil
+	}
+	if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
+		return false
+	}
+	return file.Str("state") == "asking" || file.Str("state") == "working" ||
+		file.Str("hooked") == "working" || file.Str("rule") == "none" && !continuationQueued(file)
 }
 
 // command is the seat's line and the conversation it owns on it (orch.resume, resume_command): the

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -52,8 +53,12 @@ func refused(live seat.Live) bool { return live.Refused != "" && looked(live) }
 
 // titleKept is whether the seat's title is the name it has, which the owner has not retitled
 // (watch.follow_title) and sync_title has nothing to send for: a title it superseded is one it
-// names the seat again.
+// names the seat again.  A harness that takes no title has none to follow or send, where
+// title_record retires no title sends of an earlier conversation.
 func titleKept(live seat.Live) bool {
+	if harness.Untitled(live.Own) {
+		return !live.Record.Has("title_conversation") || run.Equal(live.Record.Get("title_conversation"), live.Record.Get("conversation"))
+	}
 	if live.Record.Str("session_title") != live.Name || live.Record.Has("title_sync") {
 		return false
 	}
