@@ -19,7 +19,7 @@ const gatePoll = 15 * time.Second
 // red, lost or turned away there, or stopped, is Python's, which runs its tests again here or sends
 // it on to the next machine.
 func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *os.File) (ran, error) {
-	ctx, watched := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(out.Name()), Marker: l.dir}.Stop(l.ctx)
+	ctx, watched := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(out.Name()), Declared: host.Declared(l.dir)}.Stop(l.ctx)
 	code := away.Piece(ctx, shard, out)
 	stopped := watched()
 	if l.ctx.Err() != nil {

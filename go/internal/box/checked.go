@@ -17,6 +17,7 @@ import (
 	"syscall"
 
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 )
 
 // drainFlag tells the box's first process it runs a check.
@@ -24,9 +25,11 @@ const drainFlag = "--drain"
 
 // RunCheck runs argv as a check, Python's box.command with home_overlay and drain: the worker's
 // walls in the workspace, with throwaway writes in the account's homes, its stdin empty and its
-// output into output, until its output's end, or ctx ends and the box's first process with it:
-// how it ended, the shell's 126 for a box that never started.
-func RunCheck(ctx context.Context, argv []string, env map[string]string, workspace, out string, output *os.File) (int, error) {
+// output into output, until its output's end, or ctx ends or the watch stops it, and the box's
+// first process with it: how it ended, the shell's 126 for a box that never started, and what
+// the watch says ended it.  The watch counts silence from the box being up and finds a declared
+// `timeout` among the box's own processes.
+func RunCheck(ctx context.Context, watch host.Watch, argv []string, env map[string]string, workspace, out string, output *os.File) (int, string, error) {
 	file := filepath.Join(config.Resolve(out), "box-processes.json")
 	homes := []string{config.Resolve(cmp.Or(env["HOME"], config.UserHome()))}
 	if account, err := user.Current(); err == nil {
@@ -34,20 +37,24 @@ func RunCheck(ctx context.Context, argv []string, env map[string]string, workspa
 	}
 	cmd, done, err := command(append([]string{exe, file, drainFlag}, argv...), env, workspace, out, nil, nil, nil, homes)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer done()
 	nothing, err := os.Open(os.DevNull)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer nothing.Close()
 	cmd.Dir, cmd.Stdin, cmd.Stdout, cmd.Stderr = workspace, nothing, output, output
-	code, _, err := supervised(ctx, cmd, file)
+	box := &look{report: file}
+	watch.Began, watch.Declared = box.up, box.declared
+	ctx, watched := watch.Stop(ctx)
+	code, _, err := supervised(ctx, cmd, box)
+	stopped := watched()
 	if _, unreported := os.Stat(file); err == nil && unreported != nil && code == 1 {
-		return 126, nil // bubblewrap exits 1 when it cannot build the box: no exit of the command
+		return 126, stopped, nil // bubblewrap exits 1 when it cannot build the box: no exit of the command
 	}
-	return code, err
+	return code, stopped, err
 }
 
 // overlays are those of homes the box may write as a throwaway overlay: no place of its own or
