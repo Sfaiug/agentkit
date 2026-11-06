@@ -36,9 +36,11 @@ type field struct {
 // Ask asks the owner a seat's question for it, by name, as Python's shaped does: kept as the
 // seat's notice, joined to the questions still standing there, and its card following the word
 // the seat says with it, which asked reads (`once`), a needs you paged at once, the card of its
-// episode going out once.  It answers the exit code and whether Go decided it at all: where
-// the seat's word hangs on a record Go does not read yet, or a file it reads is one Go cannot
-// read as Python does, it records nothing and leaves the ask to Python.
+// episode going out once.  It decides from the record and files it finds holding the seat's notice
+// lock.  It answers the exit code and whether Go decided it at all: where the seat's word hangs on
+// a record Go does not read yet, a file it reads is one Go cannot read as Python does, or a
+// question's retirement waits for that lock (which Python's holder carries out first), it records
+// nothing and leaves the ask to Python.
 func Ask(name string, record map[string]any, question string, asked Asked, out, errOut io.Writer) (int, bool) {
 	_, ownerErr := secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
 	if _, webhookErr := webhook(false, io.Discard); ownerErr != nil || webhookErr != nil {
@@ -87,7 +89,7 @@ func Ask(name string, record map[string]any, question string, asked Asked, out, 
 		card = run.NewObject()
 	}
 	_, eventErr := readEvent(cardKey(card.Get("episode")))
-	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil {
+	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil || !retirementsDrained() {
 		return 0, false
 	}
 	now := time.Now() // the command's moment, which its word and its episode begin at
@@ -122,11 +124,14 @@ func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Obje
 	stands := previous != nil && previous.Get("watcher") != true && !resolved(previous)
 	if stands {
 		standing = questions(previous)
-		var read [3]bool
-		dated, read[0] = copied(previous, "asked_at", run.NewObject())
-		dates, read[1] = copied(previous, "question_times", dated)
-		ids, read[2] = copied(previous, "question_ids", run.NewObject())
-		if read != [3]bool{true, true, true} {
+		var read bool
+		if dated, read = copied(previous, "asked_at", run.NewObject()); !read {
+			return nil, false
+		}
+		if dates, read = copied(previous, "question_times", dated); !read {
+			return nil, false
+		}
+		if ids, read = copied(previous, "question_ids", run.NewObject()); !read {
 			return nil, false
 		}
 	}

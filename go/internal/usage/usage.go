@@ -142,18 +142,9 @@ func (r *Readings) Budget(name string) (float64, string) {
 // OnCredits is whether that model runs on its provider's credits, a meter it watches spent,
 // Python's usage.on_credits.
 func (r *Readings) OnCredits(name string) bool {
-	meters, prov := r.gating(name)
+	meters, prov := r.watched(name)
 	if creditsLeft(prov) == 0 {
 		return false
-	}
-	named := map[string]bool{}
-	for _, meter := range meters {
-		named[meter.Str("name")] = true
-	}
-	for _, meter := range objects(prov.Get("meters")) {
-		if session(meter) && !named[meter.Str("name")] {
-			meters = append(meters, meter)
-		}
 	}
 	for _, meter := range meters {
 		if used(meter) >= 100 {

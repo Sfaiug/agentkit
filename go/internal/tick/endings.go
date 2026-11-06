@@ -30,7 +30,7 @@ func (t *ticking) endings() error {
 		if record.Str("state") == "stalled" {
 			return true // parked by the tick: handback.reap leaves it be, and only a resume moves it
 		}
-		if !run.Ended(record) && run.NeedsRecovery(record) && (record.Str("state") != "interrupted" || run.ProcessActive(record)) {
+		if !run.Ended(record) && run.NeedsRecovery(record) && !handback.Untold(record) && (record.Str("state") != "interrupted" || run.ProcessActive(record)) {
 			return false
 		}
 		if record.Str("state") == "interrupted" && (record.Get("pid") != nil || record.Get("scope") != nil) &&

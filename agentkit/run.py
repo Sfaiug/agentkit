@@ -52,7 +52,7 @@ from .prompts import (HANDOVER, done_when_block, fix_body, fixer_words, overridd
 from .turns import (Blocked, Dead, Exhausted, Killed, NotNeeded, QuotaDry, _scope_units,
     answered, finished_answer, scope_is_real,
     shell_foreground_note, stop_run_tree)
-from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity, commit_leftovers,
+from .gitcall import (Stopped, TOOL_CAP, _RUN_CONTEXT, commit_identity,
     default_base, exclude_junk, fetch, git, git_out, log_is_stdout, logger, make_worktree, origin_default, repo_line, repo_rules, round_commands, run_depth, say,
     slugify, stopped, tool_env, tool_run, with_suite)
 
@@ -2456,7 +2456,6 @@ def fix_own_pr(cfg, run_dir, url, state, opts, log):
             except Blocked as exc:
                 pr_review_blocked(lp, exc)
                 return False
-        commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         pin_checkout(lp)        # the next round judges what the fix left, its landing's rebase gone
         head = git(lp.wt, "rev-parse", "HEAD")
         # the PR as it stands after the fix, whatever the fix left: a closed PR or a head

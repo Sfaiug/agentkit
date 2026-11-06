@@ -22,10 +22,7 @@ func revivalLines(file *run.Object) bool {
 	}
 	for _, each := range lines {
 		line, ok := each.(*run.Object)
-		if !ok || line.Str("id") == "" || !only(line, []string{"line", "id", "typed"}) ||
-			!slices.ContainsFunc([]string{QuestionContinue, MidturnContinue}, func(owed string) bool {
-				return line.Str("line") == owed || line.Str("line") == owed+freshContinue
-			}) {
+		if !ok || line.Str("id") == "" || !only(line, []string{"line", "id", "typed"}) || !owedLine.MatchString(line.Str("line")) {
 			return false
 		}
 	}
@@ -71,7 +68,8 @@ func tellRevivalLine(name string, log func(string)) (bool, error) {
 	change := func(current string, mark *run.Object, remove bool) error {
 		path := seatFile(current)
 		return put(path, filepath.Join(filepath.Dir(path), "seat-"+current+".lock"), run.Line, true, func(file *run.Object) bool {
-			lines := file.List("owed_lines")
+			// a copy: the mark set in place would leave set nothing to change
+			lines := slices.Clone(file.List("owed_lines"))
 			if len(lines) == 0 || !run.Equal(lines[0], owed) {
 				return false
 			}

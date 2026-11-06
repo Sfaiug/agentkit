@@ -20,6 +20,7 @@ type ConfigView struct {
 	Row, Column, Top            int
 	Scope, Clock, Version, Note string
 	Fresh                       bool
+	Away                        bool // the pointer is on nothing drawn: no row or cell lit, the keys going on from Row
 	Cells                       []Cell
 	Options                     []ConfigOption
 }
@@ -38,20 +39,25 @@ type MatrixFrame struct {
 	spots []matrixRow
 }
 
+// Hit is the row and cell the pointer is on where they are drawn (terminal.Under), column -1 on the
+// row off its cells; not ok on nothing.
 func (f MatrixFrame) Hit(mouse terminal.Mouse) (row, column int, ok bool) {
-	if mouse.Row <= 0 || mouse.Row > len(f.spots) {
+	if mouse.Row <= 0 || mouse.Row > min(len(f.spots), len(f.Lines)) || f.spots[mouse.Row-1].row < 0 {
 		return 0, 0, false
 	}
 	spot := f.spots[mouse.Row-1]
-	if spot.row < 0 {
+	cells := make([][2]int, len(spot.cells))
+	for i, cell := range spot.cells {
+		cells[i] = [2]int{cell.first, cell.last}
+	}
+	switch at, on := terminal.Under(f.Lines[mouse.Row-1], mouse.Column, cells...); {
+	case !on:
 		return 0, 0, false
+	case at < 0:
+		return spot.row, -1, true
+	default:
+		return spot.row, spot.cells[at].column, true
 	}
-	for _, cell := range spot.cells {
-		if mouse.Column >= cell.first && mouse.Column <= cell.last {
-			return spot.row, cell.column, true
-		}
-	}
-	return spot.row, -1, true
 }
 
 // ConfigFrame pages the matrix under the usage and above its version and key line.
@@ -76,7 +82,11 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 		keys += "a apply to all sessions   "
 	}
 	keys += "esc back"
-	body := configBody(s, view)
+	lit := view
+	if view.Away {
+		lit.Row = -1
+	}
+	body := configBody(s, lit)
 	over := usageLines(s, view.Cells, s.LayoutWidth())
 	if len(over) == 0 {
 		over = usageSummary(view.Cells, s.LayoutWidth(), -1)

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 
 	"agentkit/internal/job"
 	"agentkit/internal/launch"
@@ -33,17 +34,26 @@ func runStop(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// runResume is `ak run resume <id> [--bg]`, its arguments checked already: one that raises the
-// round budget, a job's in the background, and any point Go cannot pick up from are Python's.
+// runResume is `ak run resume <id> [--rounds N] [--bg]`, its arguments checked already: a job's
+// in the background or with rounds, and any point Go cannot pick up from are Python's.
 func runResume(args []string, out, errOut io.Writer) int {
 	id := without(args, "--bg")
-	if len(id) != 1 || isFile(job.ReceiptPath(id[0])) && contains(args, "--bg") {
+	rounds := 0
+	if len(id) == 3 {
+		// `<id> --rounds N`; a number past Go's int is Python's
+		var err error
+		if rounds, err = strconv.Atoi(id[2]); err != nil {
+			return notImplemented(errOut, "run resume")
+		}
+		id = id[:1]
+	}
+	if len(id) != 1 || isFile(job.ReceiptPath(id[0])) && (contains(args, "--bg") || rounds > 0) {
 		return notImplemented(errOut, "run resume")
 	}
 	if isFile(job.ReceiptPath(id[0])) {
 		return resumeJob(id[0], out, errOut)
 	}
-	code, reason, err := launch.Resume(id[0], contains(args, "--bg"), out, errOut)
+	code, reason, err := launch.Resume(id[0], rounds, contains(args, "--bg"), out, errOut)
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return notImplemented(errOut, "run resume")

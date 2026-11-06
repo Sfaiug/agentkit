@@ -52,7 +52,7 @@ from contextlib import ExitStack, contextmanager, nullcontext, redirect_stderr, 
 from datetime import datetime
 from pathlib import Path
 
-from . import aside_editor, command_help, config, gitcall, guard, host, look, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage, versions
+from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage, versions
 from . import record as run_record
 from .harness import LAUNCH_KEYS, LAUNCHER, entries, load as harness_plugin
 
@@ -144,9 +144,10 @@ _PROCESSES = {}            # the last reading of the process table, when, and wh
 
 def in_order(cfg):
     """The models a seat may run on, as a pick tries them: the default orchestrator, then every
-    other offered model in list order."""
-    default = cfg["defaults"]["orchestrator"]
-    return [default, *(name for name in config.offered(cfg) if name != default)]
+    other offered model in list order, none of them off in the model list (matrix.off)."""
+    default, off = cfg["defaults"]["orchestrator"], matrix.off(cfg)
+    return [name for name in [default, *(name for name in config.offered(cfg) if name != default)]
+            if name not in off]
 
 
 def choose(cfg, providers):
@@ -154,14 +155,19 @@ def choose(cfg, providers):
 
     Pace does not enter into it.  The orchestrator is the seat the user works from, so the only
     reason to pass the default over is that it cannot be spent at all: its gate meter, or the
-    5h session window it runs inside, reads 100% used.  Then the first model in list order that
-    can still be spent takes the seat.  Never refuses either -- a refusal costs more than an
-    overspend, so with every model spent the default is launched anyway with a WARN.  A model
+    5h session window it runs inside, reads 100% used, or it is off in the model list.  Then the
+    first model in `in_order` that can still be spent takes the seat.  Never refuses for usage
+    either -- a refusal costs more than an overspend, so with every model spent the first is
+    launched anyway with a WARN; only with every model off is there none to launch.  A model
     on credits (`usage.on_credits`) goes after every one with a window left.
     """
-    default = cfg["defaults"]["orchestrator"]
-    notes, credits = [], None
-    for name in in_order(cfg):
+    names, default = in_order(cfg), cfg["defaults"]["orchestrator"]
+    if not names:
+        raise config.Error(f"every model is {matrix.OFF}: turn one on with `companies` or "
+                           "`models_off` in config.toml")
+    notes = [] if names[0] == default else [f"skipped {default}: {matrix.OFF}"]
+    default, credits = names[0], None
+    for name in names:
         spent, why = usage.model_spent(cfg, name, providers)
         if not spent and not usage.on_credits(cfg, name, providers):
             return name, "; ".join([why] + notes)
@@ -276,9 +282,11 @@ def command(cfg, name, conversation=None, fresh=False, account=None, rulebook=No
     that file where the caller wrote it for more than one asking.  What the harness checks
     before a launch is checked here too (its plugin's `checked`), and the adapter told so.
     `line` is what the harness opens on as its first prompt, in $AGENTKIT_FIRST_PROMPT, where
-    its manifest says it takes one (`takes_line`); none is passed on from this process.
+    its manifest says it takes one (`takes_line`); none is passed on from this process.  A
+    model off in the model list opens no seat, a dry run's included (matrix.refuse_off).
     """
     entry = config.model(cfg, name)
+    matrix.refuse_off(cfg, name)
     adapter = config.adapter(entry["harness"], versions.live())
     rulebook = rulebook or write_rulebook(os.environ.get(config.SESSION_ENV, ""))
     told = {**config.account_env(account), config.RULEBOOK_ENV: str(rulebook),
@@ -4143,11 +4151,13 @@ def ask_name(taken, default=None, auto=False, screen=None):
 def prompt_orchestrator(cfg, default, providers, reason):
     """Orchestrator first: a number or a model name. Enter takes the default; Esc goes back.
 
-    Every model is a choice.  When `choose()` passed the default orchestrator over, its reason
-    follows the bracket in its own words: the skipped models, or the whole WARN when every
-    model is spent anyway.  With the default taken, nothing follows.
+    Every model is a choice but one off in the model list, which no seat runs.  When `choose()`
+    passed the default orchestrator over, its reason follows the bracket in its own words: the
+    skipped models, or the whole WARN when every model is spent anyway.  With the default
+    taken, nothing follows.
     """
-    names = config.offered(cfg)
+    off = matrix.off(cfg)
+    names = [name for name in config.offered(cfg) if name not in off]
     suffix = ""
     if default != cfg["defaults"]["orchestrator"] or reason.startswith("WARN"):
         _, own_why = usage.model_spent(cfg, default, providers)
@@ -4308,6 +4318,7 @@ def _switch_plan(cfg, name, model, providers, credits=True, effort=None):
         return "", record.get("account")
     try:
         harness = config.model(cfg, model)["harness"]
+        matrix.refuse_off(cfg, model)   # a move in place builds no command to refuse it
     except config.Error as exc:
         return str(exc), None
     if not config.harness_present(harness):
@@ -4608,7 +4619,7 @@ def default_crew(cfg, providers, default):
     fresh one."""
     names = config.offered(cfg)
     fresh = [name for name in names if not spent_note(cfg, name, providers)]
-    model = next((name for name in [default, *names] if name in fresh), None)
+    model = next((name for name in [default, *in_order(cfg)] if name in fresh), None)
     base = cfg["defaults"]
     selected = {"orchestrator": model,
                 "workers": [name for name in base["workers"] if name in fresh],

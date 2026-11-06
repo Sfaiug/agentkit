@@ -34,6 +34,9 @@ func cards(errOut io.Writer, log func(string)) error {
 		if !carried && err == nil {
 			carried, err = notify.TurnedRetiredQuestion(name, seat.CardWord)
 		}
+		if !carried && err == nil {
+			carried, err = notify.TurnedKeptQuestion(name, seat.CardWord)
+		}
 		if err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}

@@ -23,8 +23,8 @@ from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, RIGHT, UP,  # noqa: 
 
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
 SPELLED = {
-    "menu.py MODELS_KEYS": "the models screen: ↑↓ moves the pointer, and on `p` Space marks "
-                           "and every other key typed finds, as their tasks spell them",
+    "menu.py MODELS_KEYS": "the models screen: only ↑↓ move its pointer, and on its company list "
+                           "↑↓ and ←→ move between companies and models, as their tasks spell them",
 }
 
 

@@ -23,8 +23,8 @@ type plugin struct {
 	identity    func(text string, argv []string) (string, bool)
 	interactive func(root string, args []string, out, errOut io.Writer) int
 	seatWords   func(words, env []string) []string
-	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int) int
-	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error)) (*run.Object, int)
+	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
+	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), reconciled func(seat string)) (*run.Object, int)
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
@@ -53,6 +53,8 @@ type plugin struct {
 	heard  func(name string) hookfact.Fact
 	keys   []string
 	kept   *regexp.Regexp
+	// reconcile is what Reconcile writes into its seats' records; nil leaves that to Python.
+	reconcile func(record *run.Object) *run.Object
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
@@ -74,6 +76,8 @@ type plugin struct {
 	typed func(conversation string) []Prompt
 	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers.
 	answered func(record map[string]any) ([]Turn, []Card, error)
+	// usual is whether Go opens its seats on its usual login alone (UsualLoginOnly).
+	usual bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
@@ -110,6 +114,8 @@ type plugin struct {
 	// rulebook Rulebook's, under HOME: "" where no older install linked ak's rules over its own.
 	yolo     func(out io.Writer) error
 	rulebook string
+	// holds is AsksHolds'.
+	holds bool
 }
 
 var plugins = map[string]plugin{}
@@ -131,8 +137,8 @@ func Reopens(name string) (string, bool) {
 	return own.fresh, own.seats
 }
 
-// Receipt is the key of a seat's record that names that harness's evidence of the conversation it
-// owns, which Go does not verify yet; "" where the record alone says.
+// Receipt is the key of a seat's record that names that harness's launch receipt, its evidence of
+// the conversation it owns; "" where the record alone says.
 func Receipt(name string) string {
 	return plugins[name].receipt
 }

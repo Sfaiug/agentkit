@@ -95,7 +95,7 @@ func noMergeWork() bool {
 	state, ok := loadState()
 	now := epoch(time.Now())
 	return ok && len(state.Dict("after_merge").Keys()) == 0 && run.Every(func(_ string, record *run.Object) bool {
-		return followed(record, now) == "" || passedBefore(record, now)
+		return followed(record, now) == "" || passedBefore(record, now) || toldInside(record, now)
 	})
 }
 
@@ -149,12 +149,7 @@ func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]st
 		each.sha, each.verdict = record.Str("merge_sha"), "passed"
 		return nil
 	}
-	for _, field := range []string{"merge_sha", "merge_commit", "merge_commit_sha"} {
-		if each.sha = strings.TrimSpace(record.Str(field)); each.sha != "" {
-			break
-		}
-	}
-	if each.sha == "" {
+	if each.sha = recordedSHA(record); each.sha == "" {
 		value, why, err := gh.JSON(run.Runs(), "pr", "view", each.pr, "--json", "mergeCommit")
 		if err != nil {
 			return errLeft
@@ -170,4 +165,14 @@ func (t *ticking) verdict(each *merge, key string, now float64, probes map[[2]st
 		}
 	}
 	return mergeHealth(each, key, now, probes, t.log.line)
+}
+
+// recordedSHA is the merge commit the run holds, "" for none (after_merge_sha).
+func recordedSHA(record *run.Object) string {
+	for _, field := range []string{"merge_sha", "merge_commit", "merge_commit_sha"} {
+		if sha := strings.TrimSpace(record.Str(field)); sha != "" {
+			return sha
+		}
+	}
+	return ""
 }

@@ -8,12 +8,11 @@ import (
 )
 
 // A running row whose ending Python's finish_run writes more of than Go's is left to Python, its
-// database as it was: a merge's landing breaks, a record Go cannot read as Python does, and tokens
-// waiting for Python's one-time repair.
+// database as it was: a record Go cannot read as Python does, and tokens waiting for Python's
+// one-time repair.
 func TestAgreeLeavesToPythonWhatItsEndingWritesMore(t *testing.T) {
 	const ended = `{"run_id": "fix-api", "state": "pass", "finished_at": 2.5}`
 	for name, files := range map[string]map[string]string{
-		"landing breaks":   {"run.json": `{"state": "pass", "merged": true, "landing_red_patches": ["a1"]}`},
 		"a lone surrogate": {"run.json": `{"state": "pass", "title": "\ud800"}`},
 		"a recount owed":   {"run.json": ended, "round-1/executor/events.jsonl": "{}\n"},
 	} {

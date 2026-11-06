@@ -79,7 +79,7 @@ esac
 }
 
 func TestUnportedGoneSeatWorkHandsOverAtTheRevivalRow(t *testing.T) {
-	for _, file := range []string{`{"state":"working"}`, `{"holds":["background work"]}`, `{"reopened_at":[1]}`} {
+	for _, file := range []string{`{"state":"working"}`, `{"holds":["background work"]}`} {
 		t.Run(file, func(t *testing.T) {
 			ak, _ := goneHome(t)
 			path := filepath.Join(ak, "state", "seat-acme.json")

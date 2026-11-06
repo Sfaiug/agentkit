@@ -231,16 +231,30 @@ type Matrix struct {
 // changed, the harnesses installed are not the ones it rowed or ak's own build is not the one that
 // computed it, since the harness catalogs it asks take time.  Asked by `ak models`, never the
 // tick: the owner wants the assessment as a feature opened, not a process running all day.
-// ErrPriced, with nothing written, where the boards as asked give a lineup Go's answer does not
-// carry (Priced).
-func Refresh(refresh bool) (*Matrix, error) {
+// Where drawn, ErrPriced, with nothing written, for boards as asked whose lineup's answer Go does
+// not draw (Drawn).
+func Refresh(refresh, drawn bool) (*Matrix, error) {
 	now := float64(time.Now().UnixNano()) / 1e9
 	harnesses, err := present()
 	if err != nil {
 		return nil, err
 	}
 	build := update.Build()
-	held, err := boards.Collect(refresh, now, build, unpriced)
+	held, err := boards.Collect(refresh, now, build, func(held *run.Object) error {
+		if !drawn {
+			return nil
+		}
+		// pricing reads the rows' releases, efforts and makers alone, so no harness catalog is asked
+		measured, err := shares(held)
+		if err != nil {
+			return err
+		}
+		answer, err := Answer(rowsOf(lineup(held, nil, nil)), nil, measured)
+		if err != nil {
+			return err
+		}
+		return Drawn(answer)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -321,36 +335,4 @@ func rowsOf(lineup []any) []quality.Row {
 			Effort: row.Str("effort"), Maker: row.Str("maker"), Values: values, Yours: row.Truthy("yours"), Runners: runners(row)})
 	}
 	return rows
-}
-
-// Compared is the releases of rows that `compare` in the config marks, one replaced since as its
-// successor, so a mark never holds a replaced model, and one that is neither as nothing; nil,
-// every one, where nothing is marked.
-func Compared(rows []quality.Row) (map[string]bool, error) {
-	marked, err := config.Compare()
-	if err != nil {
-		return nil, err
-	}
-	current := map[string]bool{}
-	for _, row := range rows {
-		current[row.Release] = true
-	}
-	var held *run.Object // the boards only for a replaced one
-	found := map[string]bool{}
-	for _, slug := range marked {
-		if current[slug] {
-			found[slug] = true
-			continue
-		}
-		if held == nil {
-			held = boards.Cached()
-		}
-		if next := boards.Successor(held, slug); next != nil && current[next.Slug] {
-			found[next.Slug] = true
-		}
-	}
-	if len(found) == 0 {
-		return nil, nil
-	}
-	return found, nil
 }

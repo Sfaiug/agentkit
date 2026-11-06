@@ -39,13 +39,13 @@ func table(t *ticking) []pass {
 		{"boot resume", true, configured, t.bootResume},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
-		{"rebooted turns", false, configured, rebootedTurns},
+		{"rebooted turns", false, configured, continueTurns(false)},
 		{"login resume", true, noLoginResume, nil},
 		// a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
 		{"seat health", true, all(configured, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
-		{"switched turns", false, configured, accountTurns},
+		{"switched turns", false, configured, continueTurns(true)},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
 		{"stall recovery", true, all(configured, noStallRecovery, t.dryly(noneParked)), t.wet(t.tellParked)},
@@ -55,7 +55,7 @@ func table(t *ticking) []pass {
 		{"usage refresh", true, configured, t.wet(refreshUsage)},
 		{"login reminder", false, nil, t.remindLogins},
 		{"token reminder", false, nil, t.remindTokens},
-		{"exhausted resume", true, noExhaustedResume, nil},
+		{"exhausted resume", true, all(configured, unseated, t.dryly(noExhaustedResume)), t.wet(t.exhaustedResume)},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
 		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
 		{"old endings", false, nil, func() error {

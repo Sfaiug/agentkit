@@ -8,6 +8,8 @@ import (
 	"agentkit/internal/run"
 )
 
+const looked = "read by its seat's own ak run status or ak wait: printed there, not typed"
+
 // Waiting is an ending deferred to its seat's prompt, with no line already in its composer.
 func Waiting(record *run.Object) bool {
 	return record.Truthy("handback_pending") && !record.Truthy("handback_typed") && !handedBack(record)
@@ -27,7 +29,7 @@ func LookLine(dir string, record *run.Object) (string, func()) {
 	if held != nil {
 		defer held.Close()
 	}
-	line := handbackLine(record, dir, held != nil)
+	line := handbackLine(record, dir, held != nil, false)
 	if line == "" || held == nil {
 		return line, nil
 	}
@@ -45,7 +47,7 @@ func printedAtLook(dir string, snapshot *run.Object) {
 	said, _ := run.Read(dir)
 	if said != nil && sameAttempt(snapshot, said) && Waiting(said) {
 		mark(dir, said, "handed_back", now(), "reported", true,
-			"handback_note", "read by its seat's own ak run status or ak wait: printed there, not typed",
+			"handback_note", looked,
 			"handback_pending", nil, "handback_wait_reason", nil, "notification_pending", nil)
 	}
 }

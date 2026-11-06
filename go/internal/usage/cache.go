@@ -66,9 +66,11 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 	return gateFlags(providers, now, models), err
 }
 
-// rolled is whether a meter of that record is past its reset.
+// rolled is whether a meter of that record, or of an account it holds, is past its reset.
 func rolled(prov *run.Object, now float64) bool {
-	return slices.ContainsFunc(objects(prov.Get("meters")), func(meter *run.Object) bool { return past(meter, now) })
+	accounts := object(prov.Get("accounts"))
+	return slices.ContainsFunc(objects(prov.Get("meters")), func(meter *run.Object) bool { return past(meter, now) }) ||
+		slices.ContainsFunc(accounts.Keys(), func(account string) bool { return rolled(object(accounts.Get(account)), now) })
 }
 
 // store writes what collect answers, each provider's record as the snapshot holds it now, with

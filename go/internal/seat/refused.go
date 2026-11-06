@@ -34,8 +34,8 @@ func QuestionRefused(name string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if parked, err := run.Parked(name, records, time.Now()); parked || err != nil {
-		return "", err
+	if run.Parked(name, records, time.Now()) {
+		return "", nil
 	}
 	return doneAsking, nil
 }

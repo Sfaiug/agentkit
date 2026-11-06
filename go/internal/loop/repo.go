@@ -28,6 +28,7 @@ type repoPlace struct {
 	base, target, baseSHA  string
 	noWorktree, noMerge    bool
 	followup               bool
+	fetched                bool // origin's base came in as the run opened: its tip is known
 	artifacts              map[string]bool
 	checked, viewed        [2]string // the commit and tree the round's checks ran on, and its review read
 	title                  string
@@ -129,6 +130,7 @@ func (r *repoPlace) open(l *loop, meta map[string]string, path string, common []
 			code, out = 1, "origin has no branch "+name
 		}
 	}
+	r.fetched = code == 0
 	if code != 0 {
 		// git's reason is its first line; the rest is advice
 		why, _, _ := strings.Cut(out, "\n")

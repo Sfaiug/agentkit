@@ -599,11 +599,17 @@ def load():
 
     def held(key):      # a top-level setting's error sends the owner to the file that holds it
         return HOME / CONFIG_NAME if key in (home or ()) else path
-    marks = cfg.get("compare")
-    if marks is not None and (not isinstance(marks, list)
-                              or any(not isinstance(slug, str) for slug in marks)):
-        raise Error(f"{held('compare')}: compare must list release slugs "
-                    f"(compare = [\"acme-pro-5\"]) (got {marks!r})")
+    # the model list (matrix.compared): the makers you have, and the releases of theirs turned off
+    for key, what, example in (("companies", "makers as the boards name them", '"Acme", "Bolt"'),
+                               ("models_off", "release slugs", '"acme-pro-5"')):
+        named = cfg.get(key)
+        if named is not None and (not isinstance(named, list)
+                                  or any(not isinstance(one, str) for one in named)):
+            raise Error(f"{held(key)}: {key} must list {what} ({key} = [{example}]) "
+                        f"(got {named!r})")
+        # a maker written twice would be two rows of the company list the keys cannot tell apart
+        if named is not None:
+            cfg[key] = list(dict.fromkeys(named))
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")
@@ -1242,7 +1248,10 @@ SEAT_FILES = {
     "input": "jsonl",    # each line ak typed, with its source and conversation
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
-    "verified": "txt",   # how many verifications of it began, and the last to check each open line (`plan._verified`)
+    "unverified": "txt",  # how many deliveries are owed a verification of its plan begun after them (`plan._owed`)
+    # written by nothing since deliveries stopped waiting for verifications: named so a stop and the daily
+    # collector still take those a host holds from before, as they take every other file of a gone seat
+    "verified": "txt",
     "checked": "txt",    # what its last done check finding no gap read (`done_check.keep`)
     "pictures": "jsonl", # each picture of a screen it kept for its done check (`done_check.look`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
@@ -1728,7 +1737,9 @@ def rename_session(old, new):
     # and a pane still starting reads the launch file it was given.  Back to a name it had, what the
     # seat wrote under it since is kept rather than moved over: a seat renamed still writes its
     # plan under the name it was launched with, and `plan.path` reads the plan under every name
-    # the seat had, the newest one winning.
+    # the seat had, the newest one winning.  The verification lock always moves: the one held is
+    # the one the seat's name reaches (`plan.verifying`), and one under the old name is a
+    # contender's that resolved that name before the last move and opened it after: none keeps it.
     for kind in SEAT_FILES.keys() - {"session", "rulebook", "stop", "live", "launch"}:
         was, now = seat_file(kind, old), seat_file(kind, new)
         if kind == "handover" and was.exists():
@@ -1737,7 +1748,7 @@ def rename_session(old, new):
             copied = now.with_name(f"{now.name}.{os.getpid()}.tmp")
             copied.write_bytes(was.read_bytes())
             copied.replace(now)
-        elif was.exists() and not (target == old and now.exists()):
+        elif was.exists() and (kind == "verify" or not (target == old and now.exists())):
             was.replace(now)
 
 

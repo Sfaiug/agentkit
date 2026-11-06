@@ -19,7 +19,7 @@ import (
 )
 
 // menuConfig uses the popup's seat, never the main screen's highlighted row. An ordinary
-// window edits only defaults. False leaves a key beyond this milestone to the shadow build.
+// window edits what new seats take. False leaves a key beyond this milestone to the shadow build.
 func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	c, err := matrix.Configured()
 	if err != nil || len(c.Names) == 0 {
@@ -66,16 +66,21 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
 		key := nextKey(c)
-		if key.Name == "wake" { // the seat's record changed: drawn again, what was said kept
+		switch {
+		case key.Name == "again": // a resize: drawn whole again, what was said and the pointer's place kept
+			painter.Forget()
+			continue
+		case key.Name == "wake": // the seat's record changed: drawn again, what was said kept
+			continue
+		case view.Away && (key.Name == "space" || key.Name == "enter"):
+			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
-		view.Note = ""
+		view.Note, view.Away = "", false
 		level := -1
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return true
-		case key.Name == "again":
-			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
 			view.Row = max(0, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
@@ -106,6 +111,8 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 						level = frame.Level(mouse, c.Effort(c.Names[row], column-3))
 					}
 				}
+			} else {
+				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
 			if !menuModels(session, "config · recommended · "+view.Scope, c, keyboard, painter) {
@@ -113,6 +120,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
+		}
+		if key.Name == "enter" && view.Row == len(c.Names)+3 {
+			if !menuAudit(keyboard, painter) {
+				return false
+			}
+			continue
 		}
 		if key.Name == "enter" && view.Row == len(c.Names)+5 {
 			if !menuMachines(keyboard, painter) {
@@ -201,17 +214,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	if err != nil {
 		audit = err.Error()
 	} else {
-		named := func(names []string) string {
-			labels := []string{}
-			for _, name := range names {
-				labels = append(labels, config.ModelName(name, c.Models))
-			}
-			if len(labels) == 0 {
-				return "nobody"
-			}
-			return strings.Join(labels, ", ")
-		}
-		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + named(setting.Workers) + " · " + menu.RoleHead(2) + " " + named(setting.Reviewers)
+		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + auditNames(setting.Workers, c.Models) + " · " + menu.RoleHead(2) + " " + auditNames(setting.Reviewers, c.Models)
 	}
 	checker, on, err := config.DoneCheck()
 	check := ""

@@ -89,8 +89,9 @@ func codexOwns(record *run.Object, conversation string) bool {
 	return thread == conversation
 }
 
-// codexRecord leaves binding a proven thread to Python's reconcile. Without one, including at
-// prepare's startup chooser, the screen still says the seat's word; legacy ids stay untouched.
+// codexRecord hands Python a record whose proven thread no reconcile has bound yet (codexReconcile
+// is the tick's). Without one, including at prepare's startup chooser, the screen still says the
+// seat's word; legacy ids stay untouched.
 func codexRecord(_ string, record *run.Object) (plugin, bool) {
 	thread, rollout := codexThread(record)
 	ready := thread == "" || record.Get("conversation") == thread &&
@@ -145,8 +146,9 @@ func codexErrorAt(rollout string) (string, bool) {
 
 // codexAnswer is the model and effort of the turn that holds the seat's thread's latest answer,
 // and that answer's time (codex.py `running`): Codex records them as a turn starts
-// (`turn_context`), so `/model` typed in the seat shows at its next answer, and a turn that never
-// answered shows nothing.
+// (`turn_context`), and a turn that never answered shows nothing.  Settings applied since that
+// turn began come first, with their own time: Codex 0.166 records `/model` and effort changes
+// (`thread_settings_applied`) before another turn answers.
 func codexAnswer(record *run.Object) (model, effort, at any, found bool) {
 	_, rollout := codexThread(record)
 	return codexAnswerAt(rollout)
@@ -157,7 +159,19 @@ func codexAnswerAt(rollout string) (model, effort, at any, found bool) {
 		return nil, nil, nil, false
 	}
 	var answered *run.Object
+	settings := func(entry *run.Object) *run.Object {
+		if payload := entry.Dict("payload"); entry.Str("type") == "event_msg" && payload != nil &&
+			payload.Str("type") == "thread_settings_applied" && payload.Dict("thread_settings") != nil {
+			if _, named := payload.Dict("thread_settings").Get("model").(string); named {
+				return payload.Dict("thread_settings")
+			}
+		}
+		return nil
+	}
 	entry, _ := lastEntry(rollout, func(entry *run.Object) bool {
+		if settings(entry) != nil {
+			return true
+		}
 		if answered == nil && codexAnswered(entry) {
 			answered = entry
 		}
@@ -170,6 +184,9 @@ func codexAnswerAt(rollout string) (model, effort, at any, found bool) {
 	})
 	if entry == nil {
 		return nil, nil, nil, false
+	}
+	if applied := settings(entry); applied != nil {
+		return applied.Get("model"), applied.Get("reasoning_effort"), entry.Get("timestamp"), true
 	}
 	return entry.Dict("payload").Get("model"), entry.Dict("payload").Get("effort"), answered.Get("timestamp"), true
 }

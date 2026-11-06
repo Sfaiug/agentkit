@@ -1,6 +1,9 @@
 package tmux
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // message is what one call to tmux may carry (orch.TMUX_MESSAGE).
 const message = 15 * 1024
@@ -57,12 +60,42 @@ func list(server string, words []string) error {
 		if end < 0 {
 			end = len(words)
 		}
-		if _, err := run(server, words[:end]...); err != nil {
-			return err
+		for _, call := range pieces(words[:end]) {
+			if _, err := run(server, call...); err != nil {
+				return err
+			}
 		}
 		words = words[min(end+1, len(words)):]
 	}
 	return nil
+}
+
+// pieces is that command in calls a message carries: itself, or a set-option wider than a message,
+// which tmux refuses whole, its text as tmux reads it cut between characters, each piece after the
+// first added to the one before (`set-option -a`, orch.tmux_option).
+func pieces(words []string) (calls [][]string) {
+	if width(words) <= message || words[0] != "set-option" {
+		return [][]string{words}
+	}
+	last := len(words) - 1
+	text, escaped := strings.CutSuffix(words[last], `\;`)
+	if escaped {
+		text += ";"
+	}
+	set, more := words[:last], slices.Concat(words[:1], []string{"-a"}, words[1:last])
+	room := message - width(more) - 2 // the piece's own space, and the `\` Literal may add
+	for {
+		cut := min(room, len(text))
+		// back to where a character starts: past at most three bytes that go on with one (10xxxxxx)
+		for cut < len(text) && cut > room-3 && text[cut]&0xc0 == 0x80 {
+			cut--
+		}
+		calls = append(calls, slices.Concat(set, []string{Literal(text[:cut])}))
+		if text = text[cut:]; text == "" {
+			return calls
+		}
+		set = more
+	}
 }
 
 // width is what a command list takes of a call's message, the `;` before it included.

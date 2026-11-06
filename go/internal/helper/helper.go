@@ -4,8 +4,8 @@
 // hides ssh, the remote script and the parcel: each verb is one line over ssh, `bash -c <script>
 // mac.sh VERB ...`, the script tools/helper's linux.sh and mac.sh as this program carries them, and
 // a suite reaches the machine as one tar on `prepare`'s stdin: the recipe and the files it copies,
-// the piece's script, the heads under test and the history the machine lacks.  A machine ak may
-// rent stays Python's (ErrPython), and model turns on machines never reach a Go run.
+// the piece's script, the heads under test and the history the machine lacks, and a model turn's
+// own files where it carries one.  A machine ak may rent stays Python's (ErrPython).
 package helper
 
 import (
@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"os"
 	"os/exec"
@@ -81,17 +82,17 @@ type Away struct {
 }
 
 // Start sends the suite to the machine with the most room that takes it, and on to the next where
-// one turns it away, Python's start for a suite: the Away there, or nil and why its pieces run
-// here.  command is what each piece runs there, cpus and memoryMB one piece's cost; what it has to
-// say goes to say.  A suite a machine ak may rent could take is ErrPython's, before anything is
-// sent.
-func Start(cwd string, cpus, memoryMB float64, command string, say func(string)) (*Away, string, error) {
-	var aliases []string
-	for _, name := range config.MachineNames() {
-		if config.TakesTests(name) && !slices.Contains(aliases, name) {
-			aliases = append(aliases, name)
-		}
+// one turns it away, Python's start: the Away there, or nil and why its pieces run here.  command
+// is what each piece runs there, cpus and memoryMB one piece's cost; what it has to say goes to
+// say.  A model turn's, with its own files for the parcel (turnFiles), is one piece that goes to
+// the machine with the least room that takes turns, holding its cpus there until it starts, not
+// half the machine.  Work a machine ak may rent could take is ErrPython's, before anything is sent.
+func Start(cwd string, cpus, memoryMB float64, command string, turn map[string]file, say func(string)) (*Away, string, error) {
+	work, first, holds := "tests", -1, []string(nil)
+	if turn != nil {
+		work, first, holds = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}
 	}
+	aliases := takers(work)
 	if len(aliases) == 0 && !config.MayRent() {
 		return nil, "no suite helper set up", nil
 	}
@@ -105,6 +106,7 @@ func Start(cwd string, cpus, memoryMB float64, command string, say func(string))
 		return nil, "no recipe for the suite helper", nil
 	}
 	away.image = image
+	maps.Copy(files, turn)
 	g := gitcall.Git{Repo: cwd}
 	if code, branch, err := g.Out("symbolic-ref", "-q", "--short", "HEAD"); err == nil && code == 0 {
 		away.branch = branch
@@ -122,17 +124,18 @@ func Start(cwd string, cpus, memoryMB float64, command string, say func(string))
 	fits, why := make([]fit, len(aliases)), make([]string, len(aliases))
 	var order []int
 	for i, alias := range aliases {
-		if fits[i], why[i] = room(alias, cpus, memoryMB, least); fits[i].count > 0 {
+		if fits[i], why[i] = room(alias, cpus, memoryMB, least, turn != nil); fits[i].count > 0 {
 			order = append(order, i)
 		}
 	}
-	// A suite splits into as many pieces as fit, so most room first.  On to the next where one
-	// refuses: its room can go between the probe and `prepare`.
-	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(fits[b].count, fits[a].count) })
+	// A suite splits into as many pieces as fit, so most room first; a turn takes one place and is
+	// as fast on a busy machine, so least first.  On to the next where one refuses: its room can go
+	// between the probe and `prepare`.
+	slices.SortStableFunc(order, func(a, b int) int { return cmp.Compare(first*fits[a].count, first*fits[b].count) })
 	for _, i := range order {
 		there := *away
 		there.Alias, there.Count, there.CPUs, there.MemoryMB, there.Most = aliases[i], fits[i].count, fits[i].cpus, fits[i].mb, fits[i].most
-		sent := there.send(cwd, files)
+		sent := there.send(cwd, files, holds)
 		if sent == 0 {
 			say(fmt.Sprintf("suite on %s: %d pieces, %d CPUs and %d MiB each", there.Alias, there.Count, there.CPUs, there.MemoryMB))
 			return &there, "", nil
@@ -193,16 +196,17 @@ func (a *Away) vm(shard string) string {
 	return "ak-" + a.key + "-" + strings.ReplaceAll(shard, "/", "-")
 }
 
-// send prepares the suite there: a parcel of the history the machine lacks, sent once more whole
-// where its copy went since it answered; the machine's exit, `lost` where it never answered.
-func (a *Away) send(cwd string, files map[string]file) int {
+// send prepares the suite there, holding the CPUs holds names where it names any: a parcel of the
+// history the machine lacks, sent once more whole where its copy went since it answered; the
+// machine's exit, `lost` where it never answered.
+func (a *Away) send(cwd string, files map[string]file, holds []string) int {
 	code, said := ask(a.Alias, 30*time.Second, nil, "known", a.repo)
 	if code != 0 {
 		return lost
 	}
 	known := strings.Fields(said)
 	for {
-		sent := a.prepare(cwd, known, files)
+		sent := a.prepare(cwd, known, files, holds)
 		if sent != lacks || len(known) == 0 {
 			return sent
 		}
@@ -210,7 +214,7 @@ func (a *Away) send(cwd string, files map[string]file) int {
 	}
 }
 
-func (a *Away) prepare(cwd string, known []string, files map[string]file) int {
+func (a *Away) prepare(cwd string, known []string, files map[string]file, holds []string) int {
 	parcel, err := os.CreateTemp("", "ak-parcel-*")
 	if err != nil {
 		return lost
@@ -224,7 +228,7 @@ func (a *Away) prepare(cwd string, known []string, files map[string]file) int {
 		return lost
 	}
 	// a new recipe's build fetches packages, a first suite sends the whole history
-	code, _ := ask(a.Alias, 30*time.Minute, parcel, "prepare", a.key, a.image, a.repo)
+	code, _ := ask(a.Alias, 30*time.Minute, parcel, "prepare", append([]string{a.key, a.image, a.repo}, holds...)...)
 	return code
 }
 
@@ -234,8 +238,9 @@ type fit struct{ count, cpus, mb, most int }
 
 // room is the machine's fit for pieces of that cost, or why it has none: its CPUs less its load,
 // split equally among VMs of two CPUs or more, as VMs time-share them, and the MiB ak's VMs may
-// still be given there, beside other suites' VMs.
-func room(alias string, cpus, memoryMB float64, least int) (fit, string) {
+// still be given there, beside other suites' VMs.  For turns, only where its probe reads `turns
+// 1`: a Mac runs suites alone.
+func room(alias string, cpus, memoryMB float64, least int, turns bool) (fit, string) {
 	code, said := ask(alias, 30*time.Second, nil, "probe")
 	if code != 0 {
 		return fit{}, Failure(code)
@@ -254,6 +259,9 @@ func room(alias string, cpus, memoryMB float64, least int) (fit, string) {
 			return fit{}, asleep
 		}
 		readings[words[0]] = value
+	}
+	if turns && readings["turns"] != 1 {
+		return fit{}, "takes no model turns"
 	}
 	machine, hasCPUs := readings["cpus"]
 	load, hasLoad := readings["load"]

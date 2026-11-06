@@ -11,7 +11,10 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/ncruces/go-sqlite3"
+
 	"agentkit/internal/box"
+	"agentkit/internal/sqlite"
 )
 
 const testConfig = "[models.acme]\nharness='echo'\nmodel='echo-1'\neffort='low'\nprovider='test'\n[providers.test]\nmode='subscription'\n"
@@ -263,14 +266,19 @@ func TestRunRecognizesJobs(t *testing.T) {
 	}
 }
 
-// Its own numbers are the one part of `ak models` that reads SQLite: a home with a history is
-// Python's, before anything is asked or written.
-func TestModelsLeavesAHistoryToPython(t *testing.T) {
+// ak's own numbers, which Go does not count yet: a home whose history holds a judged run an offered
+// model executed is Python's, before anything is asked or written.
+func TestModelsLeavesItsOwnNumbersToPython(t *testing.T) {
 	home := sandbox(t)
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0o777); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, ".agentkit", "history.db"), nil, 0o666); err != nil {
+	db, err := sqlite.Open(filepath.Join(home, ".agentkit", "history.db"), sqlite3.OPEN_READWRITE|sqlite3.OPEN_CREATE)
+	if err == nil {
+		err = db.Exec("CREATE TABLE runs (run_id, executor, final_state, finished_at, repo); " +
+			"INSERT INTO runs VALUES ('fix-api-1', 'acme', 'pass', 1, 'acme')")
+	}
+	if err != nil || db.Close() != nil {
 		t.Fatal(err)
 	}
 	before := tree(t, home)

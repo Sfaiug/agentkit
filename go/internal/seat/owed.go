@@ -120,6 +120,9 @@ func TellOwed(name string, log func(string)) (bool, error) {
 		return true, receiptErr
 	}
 	err := notify.Held(context.Background(), name, func(current string) error { return replace(current) })
+	if err == nil {
+		log("told " + name + ": " + read.Str("line"))
+	}
 	return true, err
 }
 

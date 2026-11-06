@@ -28,8 +28,9 @@ func (reader Reader) Reconciled(name string, record *run.Object) (Reader, bool) 
 	return reader.hearing(name), true
 }
 
-// RecordReadOnly keeps a harness's own reconciliation entirely in Python, including when the
-// record changes between Go reading it and publishing its seat's word.
+// RecordReadOnly keeps a harness's own reconciliation out of what a listing writes, for Python or
+// the tick's Reconcile, including when the record changes between Go reading it and publishing its
+// seat's word.
 func RecordReadOnly(name string) bool { return plugins[name].record != nil }
 
 // RecordKeys are the keys a seat's record of that harness holds beyond every seat's, as its plugin

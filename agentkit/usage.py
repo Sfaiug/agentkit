@@ -13,8 +13,9 @@ refills.  A provider's pace is the max over its meters.  It no longer ranks anyt
 decides one thing, when a payg provider is allowed in, and it never withholds a model from
 anything.
 
-Exhaustion is the one hard exclusion, and it is not a knob: a meter is spent at 100% used and
-not one point earlier, because a subscription is bought to be used to the end.  The worker
+Exhaustion is the one hard exclusion of usage, and it is not a knob: a meter is spent at 100%
+used and not one point earlier, because a subscription is bought to be used to the end.
+Beside it, a model off in the model list (`matrix.off`) is never picked.  The worker
 pick (`pick_order`) ranks whatever is left by `matrix.rank` for the role, budget only among
 models ranked alike or ranked by nothing; the orchestrator choice (`ak orch`) ignores every
 number and takes the default orchestrator while it still has something to spend.
@@ -829,7 +830,8 @@ def collect(cfg, *, refresh=False):
                              if name in cfg["providers"]}
                 # ... and so is one read before the config listed the accounts it lists now
                 rolled = [name for name, prov in providers.items()
-                          if any(_past(m, now) for m in prov.get("meters") or [])
+                          if any(_past(m, now) for record in [prov, *_record(prov.get("accounts")).values()]
+                                 for m in _record(record).get("meters") or [])
                           or list(prov.get("accounts") or []) != config.accounts(cfg, name)]
                 for name in rolled:
                     providers[name] = _reread(cfg, name, providers[name], now)
@@ -1645,11 +1647,15 @@ def spent_meter(cfg, name, providers):
 
 
 def unready(cfg, name, providers):
-    """Why this model's harness cannot run a turn here, or None when nothing says so.
+    """Why this model cannot run a turn here, or None when nothing says so: off in the model
+    list (matrix.off), so a named or saved model is refused or handed over as one whose
+    harness cannot run, else what its harness said.
 
     Read off the `harnesses` a pick's `readiness` asked; a read that carries none withholds
     nothing, as a turn goes ahead on an `auth` verb that said nothing.
     """
+    if name in matrix.off(cfg):
+        return matrix.OFF
     return getattr(providers, "harnesses", {}).get(_asked(cfg, config.model(cfg, name)))
 
 
@@ -1685,12 +1691,13 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     model.  Among models ranked alike, budget decides:
     the fraction unspent over the fraction of the window still to go, unknown readings after
     every known one; a model on credits (`on_credits`) after every one with a window left;
-    equal on all of it keeps list order.  The one exclusion is a gate meter at 100% used with
-    no credits left; `skip` names models a caller leaves out before any of this reads the
-    list.  payg providers are the exception: they cost money, so they stay out while any
-    subscription model is still below pace, and a subscription model whose meters report
-    nothing counts as below it.  Where the harness's own config says what a model is paid
-    from, that outranks the model's own `mode`, which outranks its provider's.
+    equal on all of it keeps list order.  The exclusions are a model off in the model list
+    (`matrix.off`) and a gate meter at 100% used with no credits left; `skip` names models a
+    caller leaves out before any of this reads the list.  payg providers are the exception:
+    they cost money, so they stay out while any subscription model is still below pace, and a
+    subscription model whose meters report nothing counts as below it.  Where the harness's
+    own config says what a model is paid from, that outranks the model's own `mode`, which
+    outranks its provider's.
 
     Each role stays within its selection. ak's own run numbers never affect the order. JSON
     output uses `quiet` because the providers already carry their unknown reasons as
@@ -1713,7 +1720,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     def pace(name):
         return model_pace(cfg, name, providers)[0]
 
-    gates = {n: model_exhausted(cfg, n, providers) for n in tier_b}
+    off = matrix.off(cfg)
+    gates = {n: (True, matrix.OFF) if n in off else model_exhausted(cfg, n, providers)
+             for n in tier_b}
     if not quiet:
         for name, (exhausted, reason) in gates.items():
             if exhausted:
@@ -2054,14 +2063,33 @@ def render(cfg, providers, order, *, repo=None):
                       terminal.wrap(line, width)))
 
 
-def plan_weeks(cfg, providers, now):
+def plan_weeks(cfg, providers, now, over=SPENT_OVER):
     """{provider: {account: `spend.weeks`'s fit}} of each login of `providers` (`_accounts`), from
-    the readings of its shared week over the `SPENT_OVER` up to `now`."""
+    the readings of its shared week over the `over` seconds up to `now`."""
     logins = [(name, account, (shared_week(cfg, name, prov) or {}).get("name"))
               for _, name, prov, account in _accounts(cfg, providers)]
     return {name: spend.weeks(cfg, name, {account: meter for of, account, meter in logins
-                                          if of == name}, now - SPENT_OVER, now)
+                                          if of == name}, now - over, now)
             for name in providers}
+
+
+def plan_checks(cfg, providers, now):
+    """{provider: {account: [check]}} of each login of `providers` (`_accounts`): oldest first, a
+    check of each of the last seven days, the 24 hours up to `until`, that its plan rose
+    (`plan_weeks` over that day) and had a week in the seven days before -- the points it rose
+    by, `rose`, against those that week foretold for what bought them, `predicted`.  Each is
+    the plan's number as ak knew it then, against a day it had not seen."""
+    checks = {}
+    for days in range(6, -1, -1):
+        until = now - days * 86400
+        before = plan_weeks(cfg, providers, until - 86400)
+        for name, fits in plan_weeks(cfg, providers, until, 86400).items():
+            for account, (_, _, rose, spent) in fits.items():
+                week = before[name][account][1]
+                found = checks.setdefault(name, {}).setdefault(account, [])
+                if rose and week is not None:
+                    found.append({"until": until, "rose": rose, "predicted": 100 * spent / week})
+    return checks
 
 
 def main(argv):
@@ -2077,7 +2105,7 @@ def main(argv):
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
         now = time.time()
-        weeks = plan_weeks(cfg, providers, now)
+        weeks, checks = plan_weeks(cfg, providers, now), plan_checks(cfg, providers, now)
         for _, name, prov, account in _accounts(cfg, providers):
             shared = shared_week(cfg, name, prov) or {}
             prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account, shared)
@@ -2086,6 +2114,7 @@ def main(argv):
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]
+            prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()

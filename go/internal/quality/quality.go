@@ -173,9 +173,13 @@ type source struct{ release, effort, column string }
 // A Rating is a row rated for one role.
 type Rating struct {
 	Row
-	Measures    []*Measure
-	Cost        *float64 // Costs at its own effort, nil where it has none
-	Quality, SE float64
+	Measures []*Measure
+	// Cost is what a task of the role costs it in its Said's CostUnit, nil where nothing says;
+	// BoardCost its Costs at its own effort, nil where it has none; CostRule how Cost was had:
+	// "measured", "provider", "global" or "board" (a Pricer's words).
+	Cost, BoardCost *float64
+	CostRule        string
+	Quality, SE     float64
 }
 
 // Missing is how many of its measures no effort of its release has.
@@ -189,10 +193,10 @@ func (r *Rating) Missing() int {
 	return missing
 }
 
-// rated is each of rows that has at least two of the role's measures measured or carried, its
+// Rated is each of rows that has at least two of the role's measures measured or carried, its
 // quality 100 less its weighted mean points behind the best over the measures a row of the index
 // has, its SE the root of squares of its error's parts by the score each comes from.
-func rated(rows []Row, role string) []*Rating {
+func Rated(rows []Row, role string) []*Rating {
 	type scale struct {
 		kind string
 		top  float64
@@ -362,10 +366,10 @@ func rated(rows []Row, role string) []*Rating {
 				parts[each.source] += weights[one.Column] * each.error / total
 			}
 		}
-		rating := &Rating{Row: row, Measures: scored, Quality: 100 - Sum(behinds)/total}
+		rating := &Rating{Row: row, Measures: scored, CostRule: "board", Quality: 100 - Sum(behinds)/total}
 		rating.SE = hypot(parts)
 		if cost, ok := row.Values.Num(Costs[role]); ok {
-			rating.Cost = &cost
+			rating.Cost, rating.BoardCost = &cost, &cost
 		}
 		out = append(out, rating)
 	}
@@ -402,22 +406,33 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 // the role's pick, Front those with a cost, best first, each better
 // than every cheaper one, a row of yours than every cheaper one of yours, as one no harness of
 // yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
-// Pick and Take stay visible even if rows outside their eligible pool beat them.
+// Pick and Take stay visible even if rows outside their eligible pool beat them.  CostUnit is
+// what its rows' costs are in.
 type Said struct {
 	Front      []*Rating
 	Best       *float64
 	Pick, Take *Rating
 	Top        *Rating // best over all rows, including those not compared or priced
+	CostUnit   string
 }
 
-// Answer is each role's Said; compared, the releases compared, nil for every one.  Every row is
-// rated whatever is compared, so a row's quality never changes with that.
-func Answer(rows []Row, compared map[string]bool) map[string]*Said {
+// A Pricer prices a role's rated rows of the lineup rows in place, each one's Cost and CostRule,
+// and says their unit: "share", "money", or "board_dollars" for every row left at its board's.
+type Pricer func(role string, rows []Row, rated []*Rating) string
+
+// Answer is each role's Said, its rows priced by price (nil leaves them at their board's dollars);
+// compared, the releases compared, nil for every one.  Every row is rated and priced whatever is
+// compared, so a row's quality and cost never change with that.
+func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said {
 	out := map[string]*Said{}
 	for _, role := range Roles {
-		said := &Said{}
+		said := &Said{CostUnit: "board_dollars"}
+		ratings := Rated(rows, role)
+		if price != nil {
+			said.CostUnit = price(role, rows, ratings)
+		}
 		var priced []*Rating
-		for _, row := range rated(rows, role) {
+		for _, row := range ratings {
 			if said.Top == nil || row.Quality > said.Top.Quality {
 				said.Top = row
 			}

@@ -1,10 +1,8 @@
 package harness
 
 import (
-	"path/filepath"
 	"regexp"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -27,8 +25,9 @@ func antigravityRecord(_ string, record *run.Object) (plugin, bool) {
 		_, pending := record.Get("antigravity_launch").(string)
 		return own, !pending
 	}
-	if !antigravityConversation.MatchString(conversation) {
+	path := antigravityStore(conversation)
+	if path == "" {
 		return own, true
 	}
-	return antigravityStored(own, conversation, filepath.Join(config.UserHome(), ".gemini", "antigravity-cli", "conversations", conversation+".db"))
+	return antigravityStored(own, conversation, path)
 }

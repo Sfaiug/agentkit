@@ -160,15 +160,3 @@ def current(boards):
             if effort:
                 _join(effort["values"], row["values"])
     return releases
-
-
-def successor(boards, slug):
-    """The current release the release `slug` went to: its `deprecatedTo` chain's end (`_end`),
-    then on from each release its series gave up to where that went (`_gone`); None where that
-    is nowhere or loops back."""
-    releases = _releases(boards)
-    gone, slug, seen = _gone(releases), _end(releases, slug), set()
-    while slug in gone and slug not in seen:
-        seen.add(slug)
-        slug = gone[slug]
-    return next((release for release in current(boards) if release["slug"] == slug), None)

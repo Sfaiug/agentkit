@@ -18,9 +18,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/hookfact"
 	"agentkit/internal/host"
-	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
@@ -103,9 +101,9 @@ func (seat Seat) rest(state string, now time.Time, table func() map[int]proc) (R
 	}
 	conversation, owned := harness.Owned(seat.own, record)
 	rests, err := climbingOf(state, seat, keptSight(file), seconds(now)).rests()
-	owes, readOwed := seat.owes(file)
+	cut, readOwed := seat.owing()
 	switch {
-	case owned && conversation == "" || err == nil && !rests || owes:
+	case owned && conversation == "" || err == nil && !rests || cut.line != "":
 		return Rest{}, false, true
 	case !owned || err != nil || !readOwed:
 		return rest, false, false
@@ -144,24 +142,6 @@ func waitedOn(said *answer, err error) (*answer, error) {
 		said.waits = true
 	}
 	return said, err
-}
-
-// owes is watch.cut_off's first answer: whether the seat would owe something once back, having
-// asked, by its last look or a hook heard since, or the owner a question of its own, or being in a
-// turn.  read is false where it held background work, whose kinds only its harness says.
-func (seat Seat) owes(file *run.Object) (owes, read bool) {
-	fact := seat.reader.HookFact(seat.Name)
-	if hooked, event, err := lifecycle.State(seat.own, fact); err == nil {
-		looked := keptSight(file)
-		if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
-			looked = sight{state: hooked, hooked: hooked, hookedEvent: event, hookedAt: fact.At}
-		}
-		flight, _ := looked.turnInFlight(seat.own)
-		if looked.state == "asking" || notify.OwnerQuestion(notify.Last(seat.Name)) || flight {
-			return true, true
-		}
-	}
-	return false, len(hookfact.Standing(seat.Name).Holds) == 0 && !file.Truthy("holds")
 }
 
 // A proc is a process as watch._proc_table reads it: its parent and its command's words.

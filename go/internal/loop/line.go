@@ -28,6 +28,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
@@ -477,8 +478,9 @@ func (l *loop) fixed(name, text string, conflict bool) *run.Object {
 
 // checkTree runs the checks on the scratch checkout, pinned to its commit, Python's _check: whether
 // they passed, the line that says what failed, and the first command that failed, the suite where
-// none did yet they did not pass.
-func (l *loop) checkTree(scratch string, checks []string, name, suite string, selections ...*checkSelection) (bool, string, string, error) {
+// none did yet they did not pass.  Each command, or piece of one, leaves its row of kind under the
+// member's run, on the commit checked: `landing`, or `tip` for a probe of the target's.
+func (l *loop) checkTree(scratch string, checks []string, name, kind, suite string, selection *checkSelection) (bool, string, string, error) {
 	in := gitcall.Git{Repo: scratch}
 	place := &repoPlace{wt: scratch}
 	head, tree, err := place.identity()
@@ -490,7 +492,8 @@ func (l *loop) checkTree(scratch string, checks []string, name, suite string, se
 		return false, "", "", err
 	}
 	path := filepath.Join(l.dir, name)
-	ok, text, marks, err := l.checksIn(scratch, checks, path, nil, selections...)
+	selection.rows = &history.Checked{Run: l.id, Kind: kind, Tree: head}
+	ok, text, marks, err := l.checksIn(scratch, checks, path, selection.rows, selection)
 	if err != nil {
 		return false, "", "", err
 	}
@@ -499,9 +502,7 @@ func (l *loop) checkTree(scratch string, checks []string, name, suite string, se
 			return false, "", "", err
 		}
 		ok = false
-		if selection := selectedCheck(selections); selection != nil {
-			selection.handoff = true
-		}
+		selection.handoff = true
 		text += "\n\nCheckout changed during the final check; these commands do not verify the pinned commit."
 	}
 	text = fmt.Sprintf("Commit: %s\nTree: %s\n\n%s", head, tree, text)

@@ -44,16 +44,17 @@ func TestABarPythonToldTheSameIsLeftAlone(t *testing.T) {
 	}
 }
 
-// Five versions of line two holding a long reason are more than one tmux call carries: they are
-// told one by one, the digest last.
+// Five versions of line two holding a reason longer than a tmux message are more than one call
+// carries, and each more than tmux takes whole: they are told one by one, each in pieces cut
+// between characters, its last `;` still text, the digest last.
 func TestABarLongerThanACallIsToldWhole(t *testing.T) {
 	home := sandbox(t)
 	record(t, home, "acme", nil)
 	drawn(t, home, "acme", prompting)
 	state := filepath.Join(home, ".agentkit", "state")
-	write(t, filepath.Join(state, "plan-acme.md"), strings.Replace(openLine, "Ship it", strings.Repeat("context ", 450), 1))
+	write(t, filepath.Join(state, "plan-acme.md"), strings.Replace(openLine, "Ship it", strings.Repeat("context é; ", 2000), 1))
 	seat, err := LookedLive(state, "acme")
-	if err != nil || seat.Word != "needs you" || len(seat.reason) < 3600 {
+	if err != nil || seat.Word != "needs you" || len(seat.reason) < 20000 {
 		t.Fatalf("look: %v, word %q, reason of %d bytes", err, seat.Word, len(seat.reason))
 	}
 	shown, _ := tmux.Ask(tmux.Own(), "show-options", "-v", "-t", "=acme:", barWhy+"4")

@@ -376,14 +376,20 @@ func validate(root *table) error {
 	if !ok {
 		return fmt.Errorf("[defaults] must be a table")
 	}
-	if value, exists := root.values["compare"]; exists {
-		marks, ok := value.([]any)
-		for _, slug := range marks {
-			_, valid := slug.(string)
-			ok = ok && valid
-		}
-		if !ok {
-			return fmt.Errorf("compare must list release slugs (compare = [\"acme-pro-5\"]) (got %s)", valueRepr(value))
+	// the model list (ModelList): the makers you have, and the releases of theirs turned off
+	for _, list := range []struct{ key, what, example string }{
+		{"companies", "makers as the boards name them", `"Acme", "Bolt"`},
+		{"models_off", "release slugs", `"acme-pro-5"`},
+	} {
+		if value, exists := root.values[list.key]; exists {
+			named, ok := value.([]any)
+			for _, one := range named {
+				_, valid := one.(string)
+				ok = ok && valid
+			}
+			if !ok {
+				return fmt.Errorf("%s must list %s (%s = [%s]) (got %s)", list.key, list.what, list.key, list.example, valueRepr(value))
+			}
 		}
 	}
 	if _, exists := defaults.values["orchestrator"]; !exists {

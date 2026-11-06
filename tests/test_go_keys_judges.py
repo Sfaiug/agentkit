@@ -9,6 +9,8 @@ import sys
 import tempfile
 import unittest
 
+from suite_shares import claims
+
 TESTS = Path(__file__).resolve().parent
 KEY = """import os, subprocess, sys, unittest
 from pathlib import Path
@@ -75,10 +77,11 @@ class Judges(unittest.TestCase):
                       "test_key_no_test", "test_key_python_ak Acme", "test_key_passes Other",
                       "test_key_passes Absent"):
             with self.subTest(claim):
-                # Listed before a passing claim, of the same file in the last two.
+                # Listed before a passing claim, of the same file in the last two: one claim with
+                # it then, failing all the same.
                 done = self.judged(keys=[claim, "test_key_passes Acme"])
                 self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-                self.assertIn(f"['{claim}'] is not false", done.stderr)
+                self.assertIn(f"['{' '.join(claims(self.root)[0])}'] is not false", done.stderr)
 
     def test_names_keep_it_to_those_files_and_each_must_be_listed(self):
         keys = ["test_key_passes Acme", "test_key_fails"]

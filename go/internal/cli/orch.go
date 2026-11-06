@@ -125,12 +125,16 @@ func orchOpen(args []string, out, errOut io.Writer) int {
 	// a seat name CurrentSession refuses is Python's
 	seat, _, err := config.CurrentSession()
 	typed := terminal.TypedHere()
-	if err != nil || !tidy || config.EnsureDirs() != nil {
+	if err != nil || !tidy {
 		return notImplemented(errOut, "orch")
 	}
 	// a terminal a seat made is not a person's
 	if typed && seat == "" {
 		return orchNew(name, flags, false, out, errOut)
+	}
+	// Python's maintenance makes ak's folders before it refuses; an open makes them once it is Go's
+	if config.EnsureDirs() != nil {
+		return notImplemented(errOut, "orch")
 	}
 	how := "a new seat opens only from a terminal (the menu's n, or `ak orch NAME` typed there)"
 	if typed {

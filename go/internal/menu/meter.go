@@ -9,7 +9,7 @@ import (
 )
 
 // A meterSpot is where a subscription's cell sits on the ak screen's grid: its screen row, its first
-// and last column, and its place in the cells (menu.meter_spots).
+// and last drawn column (terminal.Drawn), and its place in the cells (menu.meter_spots).
 type meterSpot struct{ row, first, last, cell int }
 
 // meterAt is the cell the pointer is on, -1 for none.

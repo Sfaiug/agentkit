@@ -528,9 +528,6 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if _, err := l.execute("fixer", "executor", fix, filepath.Join(filepath.Dir(l.findingsFile), "findings.json")); err != nil {
 		return err
 	}
-	if err := place.commitLeftovers(l); err != nil {
-		return err
-	}
 	if err := place.pin(l); err != nil { // what the next round judges
 		return err
 	}

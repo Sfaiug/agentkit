@@ -13,8 +13,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// A home holding nothing is answered; anything a pass would act on, or a gh logged in, leaves
-// the dry run to Python with nothing printed.
+// A home holding nothing is answered, its GitHub passes run dry where gh is logged in; anything a
+// pass would act on leaves the dry run to Python with nothing printed.
 func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 	home := t.TempDir()
 	bin := t.TempDir()
@@ -59,12 +59,14 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 	dry(false)
 	t.Setenv("AGENTKIT_SESSION", "")
 	gh(`echo '{"login": "acme"}'`)
-	dry(false)
+	if got := dry(true); got != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\nWARN authored PR discovery failed: gh did not return arrays of pages\n" {
+		t.Fatalf("printed %q", got)
+	}
 }
 
 // The retry row runs its own step dry: it says what it would retry and sends nothing. What the
-// rows say waits until every row and gh are Go's, so a later event Go cannot read, or a gh
-// logged in, prints none of it.
+// rows say waits until every row and GitHub pass are Go's, so a later event Go cannot read, or a
+// pull request of this account's on another's repository, prints none of it.
 func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 	ak, gh := idleHome(t, "echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
 	put(t, filepath.Join(ak, "state", "notification-outbox", "card.json"), run.Line(run.Fields("id", "card", "source", "card:done-1",
@@ -86,8 +88,9 @@ func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 	if err := os.Remove(unread); err != nil {
 		t.Fatal(err)
 	}
-	gh(user)
+	gh(`[ "$*" = "api user" ] && exec echo '{"login": "acme"}'
+echo '{"items": [{"pull_request": {"html_url": "https://github.com/other/app/pull/1"}}]}'`)
 	if Dry(&out) || out.Len() > 0 {
-		t.Fatalf("a gh logged in printed %q", &out)
+		t.Fatalf("a pull request to follow printed %q", &out)
 	}
 }

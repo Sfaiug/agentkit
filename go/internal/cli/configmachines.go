@@ -19,7 +19,7 @@ import (
 // for every machine ak may use, this one first, Enter opening its work but on this one's; then
 // the cloud's, Space switching it on or off, saved at once, and Enter opening its work.
 func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
-	return configPage("machines", func() ([]menu.PageRow, bool) {
+	return configPage("machines", "", func() ([]menu.PageRow, bool) {
 		var rows []menu.PageRow
 		for _, machine := range machines.Known() {
 			work, known := workWords(machine)
@@ -48,7 +48,7 @@ func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal
 	if machines.Named(name).Rented() {
 		name = ""
 	}
-	return configPage("machines · "+cmp.Or(name, "Google Cloud"), func() ([]menu.PageRow, bool) {
+	return configPage("machines · "+cmp.Or(name, "Google Cloud"), "", func() ([]menu.PageRow, bool) {
 		work, known := machines.Named(name).Work()
 		if !known {
 			return nil, false

@@ -244,6 +244,7 @@ type loop struct {
 	pull          string    // the pull request this run reviews alone, "" for a run of a task
 	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
 	marker        string    // what marks the processes it starts, the process's own where none: a check beside the review has its own
+	line          string    // the landing line whose checker this is: its checks wait for a turn as the line's own
 }
 
 // Drive is the driver process of the run at dir, its exit status the ending's.  It is no turn, so
@@ -415,6 +416,9 @@ func (l *loop) work() error {
 		history.Start(record, l.say)
 	}
 	if err := l.pick(); err != nil {
+		return err
+	}
+	if err := l.fixOnTip(); err != nil {
 		return err
 	}
 	passed, err := l.rounds()
@@ -669,7 +673,11 @@ func (l *loop) finish(err error) int {
 				finished = nil
 			}
 			run.SetAll(record, "state", state, "finished_at", finished)
-			record.Delete("transient_wait") // a wait that ended, which nothing reads now
+			// a finished run waits on nothing: a wait that ended, a window it ran dry on, a refusal's
+			// or an error's retry
+			for _, key := range []string{"transient_wait", "quota_dry", "refusal_retry"} {
+				record.Delete(key)
+			}
 			DropErrorRetry(record)
 		})
 	}
@@ -739,8 +747,9 @@ func settle(dir string) *run.Object {
 	history.Finish(record, func(line string) { fmt.Fprintln(said, line) })
 	recordResult(dir, record)
 	host.EndMarked(dir, said)
-	if record.Truthy("merged") {
-		// a merged run's work is on its remote: its checkout and its branch go
+	if record.Truthy("merged") || record.Str("state") == "not_needed" {
+		// a merged run's work is on its remote, and a run not needed has none: its checkout and
+		// its branch go
 		stopCheckout(dir, record, func(line string) { fmt.Fprintln(said, line) }, false)
 	}
 	// said on the record, so nothing reaps it again

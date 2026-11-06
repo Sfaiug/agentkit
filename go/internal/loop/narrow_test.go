@@ -28,7 +28,7 @@ func TestNarrowingProbeLeavesTheOriginalTreeForItsWholeCheck(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(repo.wt, "probe-output")); !os.IsNotExist(err) {
 		t.Fatalf("probe output survived into the next check: %v", err)
 	}
-	answer, err = stack.check([]string{"test ! -e probe-output"}, "", &checkSelection{})
+	answer, err = stack.check([]string{"test ! -e probe-output"}, "", "landing", &checkSelection{})
 	if err != nil || answer == nil || !answer.Has("land") {
 		t.Fatalf("whole check: %v, %v", answer, err)
 	}

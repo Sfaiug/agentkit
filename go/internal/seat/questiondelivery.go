@@ -56,5 +56,5 @@ func questionUnseen(name, own string, found sight, notice *run.Object) (string, 
 	if len(said) > 0 && said[len(said)-1].Who == "model" {
 		closing = said[len(said)-1].Text
 	}
-	return reminder(closing, asked), nil
+	return Reminder(closing, asked), nil
 }

@@ -6,8 +6,8 @@
 // pull request from no seat, or of a seat's own, and that run goes on in package loop.  A seat's launch it judges as
 // Python's run.parse does, and one that passes is the seat's run: its receipt names the seat and
 // binds the seat's lists and efforts, and the seat's bar and project follow it (seat.go).  Any
-// other it leaves to Python (ErrPython), deciding so before it writes anything, so preflight is
-// settled first.
+// other it leaves to Python (ErrPython), deciding so before it writes anything but the slots lock
+// its admission is decided under (admit), so preflight is settled first.
 package launch
 
 import (
@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -85,6 +86,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if errors.As(err, &outright) {
 		return 2, outright.why, nil
 	}
+	defer place.admitted.release()
 	seated, _, _ := Seat()
 	// a seat's launch a rule refuses is said where the seat typed it, which is Python's yet
 	if err == nil && reason != "" && seated != "" {
@@ -101,7 +103,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
 		func() error { return os.WriteFile(logged, nil, 0o666) },
-		func() error { return receive(dir, path, values, flags, bound, seated) },
+		func() error { return receive(dir, path, values, flags, bound, seated, place.admitted) },
 		func() error { recorded(dir); return nil },
 		func() error { seat.Redress(seated); return nil }, // the seat's bar says it from the start
 		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
@@ -217,23 +219,23 @@ func elsewhere(id string) bool {
 }
 
 // surroundings is whether this process's surroundings leave a launch, or the run id names going
-// on, to Python: those unread, or a config Python refuses before its run.
+// on, to Python: those unread, one Python's gate decides, or a config Python refuses before its run.
 func surroundings(id string) bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	return capped != nil || memory != nil || unread(id)
+	return capped != nil || memory != nil || gated() || unread(id)
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python for a launch, or
 // the run id names going on: a queued run's start; one a history Python kept would record (no
 // suite's sink marks it) past the rows Go writes, any launch where it holds a run's step and a run
-// Python carried, while one Go carried from its launch goes on as it began; one the gate does not
-// admit outright, a home HOME does not name, or text Python would write with a lone surrogate.
+// Python carried, while one Go carried from its launch goes on as it began, a launch the gate
+// decides left to its admission, which never opens history.db; a home HOME does not name, or text
+// Python would write with a lone surrogate.
 func unread(id string) bool {
-	depth, known := runDepth()
-	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && history.Carried(id) ||
-		os.Getenv("HOME") == "" || !known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
+	_, known := runDepth()
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !gated() && history.Carried(id) ||
+		os.Getenv("HOME") == "" || !known ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
 
@@ -255,13 +257,14 @@ func runDepth() (int, bool) {
 }
 
 // A place is what preflight settled of where a run it passes works: the repository, "" for a
-// scratch task, its base, target, project (taskProject) and numbers, the checks a round runs, and
-// the run under way it starts beside, told --anyway.
+// scratch task, its base, target, project (taskProject) and numbers, the checks a round runs, the
+// run under way it starts beside, told --anyway, and the slot its gate let it into (admit).
 type place struct {
 	repo, base, target, alongside string
 	project                       string
 	numbers                       config.Numbers
 	every, once                   []string
+	admitted                      *admission
 }
 
 // checkout is the checkout a launch of the task works in, "" for none, as Python's task_repo finds
@@ -321,10 +324,16 @@ func Budget(path string) (int, error) {
 // preflight is why Python's preflight refuses the task, run from its copy, the warning its log says
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
-// Python a run whose suite is narrowed to its change, or whose landing checks run in pieces.
+// Python a run whose suite is narrowed to its change, or whose landing checks run in pieces, and,
+// where Python's gate decides the launch, a refusal it ends as a run in error, whose receipt Python
+// writes queued for its slot.  A run it passes is admitted before it finds its base, which may
+// write origin/HEAD.
 func preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool, bound config.Binding) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
+		if reason != "" && gated() {
+			err = ErrPython
+		}
 		return reason, warning, at, err
 	}
 	repo, refused, err := checkout(meta, path, copied)
@@ -419,8 +428,11 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 			return refuse("", "", ErrPython)
 		}
 	}
-	if at.repo == "" {
+	if later != "" && (at.repo == "" || gated()) {
 		return refuse(later, "", nil)
+	}
+	if at.admitted, err = admit(flags["--first"]); err != nil || at.repo == "" {
+		return refuse("", "", err)
 	}
 	warning := ""
 	at.base = meta["base"]
@@ -490,8 +502,26 @@ func holdAdmission(ctx context.Context) (*os.File, error) {
 	return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
 }
 
-// receive writes the launch's receipt under the slots lock.
-func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
+// plainDecimal is a poll both Python's float() and Go read alike.
+var plainDecimal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+
+// slotPoll is the seconds between a waiting run's polls, AK_SLOT_POLL as Python's gate reads it,
+// 30 where unset; false where it holds what Python's float() might read otherwise than Go.
+func slotPoll() (float64, bool) {
+	text, set := os.LookupEnv("AK_SLOT_POLL")
+	if !set {
+		return 30, true
+	}
+	poll, err := strconv.ParseFloat(text, 64)
+	return poll, err == nil && plainDecimal.MatchString(text)
+}
+
+// receive writes the launch's receipt under the slots lock: in the hold its admission took, claiming
+// the slot it was let into, else in one of its own.
+func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string, admitted *admission) error {
+	if admitted != nil {
+		return admitted.claim(dir, run.Capture(dir, path, values, flags, bound, seat))
+	}
 	slots, err := holdSlots()
 	if err != nil {
 		return err

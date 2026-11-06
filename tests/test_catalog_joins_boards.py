@@ -1,9 +1,9 @@
 """Each current release's efforts carry every board's numbers for that release at that effort.
 
-`catalog.current` and `catalog.successor` give each effort its Artificial Analysis row's numbers
-and those of every other board's rows naming the release: the names match on letters and digits
-alone, a bracket of dates and sizes dropped and an eight-digit date matching as its last four
-digits; a name keeping another bracket, or matching two current releases, joins nothing.  A row
+`catalog.current` gives each effort its Artificial Analysis row's numbers and those of every
+other board's rows naming the release: the names match on letters and digits alone, a bracket
+of dates and sizes dropped and an eight-digit date matching as its last four digits; a name
+keeping another bracket, or matching two current releases, joins nothing.  A row
 joins the effort it names, the default where it names none, else the release's only effort;
 of several rows on one column the lowest is kept, with its own interval.
 
@@ -73,11 +73,6 @@ class JoinsBoards(unittest.TestCase):
         self.assertEqual(self.efforts(releases["gamma-1"]), {"low": {"aa.intelligenceIndex": 30}})
         self.assertEqual(self.efforts(releases["gamma-1-x"]),
                          {"low": {"aa.intelligenceIndex": 20}})
-
-    def test_a_successor_carries_them_too(self):
-        self.assertEqual(catalog.successor(BOARDS, "acme-6"),
-                         next(release for release in catalog.current(BOARDS)
-                              if release["slug"] == "acme-7"))
 
     def test_a_board_s_rows_are_left_as_they_were(self):
         before = repr(BOARDS)

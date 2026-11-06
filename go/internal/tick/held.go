@@ -21,10 +21,14 @@ var fixedLines = []string{
 	"continue",
 }
 
-// holdsNoLine is whether the seat's composer holds none of those lines, nor its harness's resume
-// key, alone or among the lines ak typed there last that it is all of (watch.finish_own_lines).
+// holdsNoLine is whether the seat's composer holds none of those lines, nor the one its
+// continue_turns mark owes, nor its harness's resume key, alone or among the lines ak typed there
+// last that it is all of (watch.finish_own_lines).
 func holdsNoLine(live seat.Live) bool {
 	lines := slices.Clone(fixedLines)
+	if mark := live.File.Dict("midturn"); mark != nil && mark.Str("line") != "" {
+		lines = append(lines, mark.Str("line"))
+	}
 	if resume, _ := config.Section(live.Own, "resume"); resume != nil {
 		if key, _ := resume["key"].(string); key != "" {
 			lines = append(lines, key)

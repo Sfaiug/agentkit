@@ -73,6 +73,12 @@ func (r *repoPlace) resolve(l *loop, upstream, how, tip, out string, recheck boo
 		}
 	}
 	passed, err := l.review(summary, ok, text, again)
+	return r.afterReview(l, what, passed, err)
+}
+
+// afterReview ends a landing's review, Python's fix_after_failed_review after it: a failed one has its
+// findings fixed in the task's own rounds, and one that never passes leaves the work unmerged.
+func (r *repoPlace) afterReview(l *loop, what string, passed bool, err error) (bool, error) {
 	if err == nil && !passed {
 		passed, err = r.fixReview(l, what)
 	}
@@ -141,10 +147,15 @@ func (r *repoPlace) targetFails(l *loop, upstream, tip, text string) (string, er
 	return firstFailure(fmt.Sprintf("$ %s\n[exit %d]\n%s", cmd, code, onTip.Str("output"))), nil
 }
 
-// suite is cmd's run in cwd as Python's gate.run_suite runs a check with no turn held: in pieces
-// where it names AK_SHARD, else whole and once.  Its output is added to the log at path, under
-// label, and handed on whole.
+// suite is cmd's run in cwd as Python's gate.run_suite runs a probe: in pieces where it names
+// AK_SHARD, else whole and once, on a heavy-suite turn where it is heavy.  Its output is added to the
+// log at path, under label, and handed on whole.
 func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
+	at, err := l.placed(cwd, cmd, nil, path)
+	defer at.close()
+	if err != nil {
+		return 0, "", false, err
+	}
 	progress, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o666)
 	if err != nil {
 		return 0, "", false, err
@@ -153,11 +164,20 @@ func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
 	fmt.Fprintf(progress, "$ %s (on %s)\n", cmd, label)
 	start, _ := progress.Seek(0, io.SeekEnd)
 	var outcome ran
+	deadline := time.Now().Add(l.ceiling)
 	if namesShard.MatchString(cmd) {
-		outcome, _, err = l.pieces(cwd, cmd, time.Now().Add(l.ceiling), progress, path, nil)
+		outcome, _, err = l.pieces(cwd, cmd, &deadline, progress, path, nil, at)
 	} else {
 		l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
-		outcome, err = l.boxed(cwd, cmd, "", l.ceiling, progress, path, false)
+		for busy := true; busy && err == nil; {
+			left := time.Until(deadline)
+			if left <= 0 {
+				break // still busy once out of time, it hands that answer on, as Python's probe does
+			}
+			if outcome, err = l.boxed(cwd, cmd, "", left, progress, path, false, at.holds()); err == nil {
+				busy, err = l.again(at, cmd, outcome, &deadline)
+			}
+		}
 	}
 	if err != nil {
 		return 0, "", false, err

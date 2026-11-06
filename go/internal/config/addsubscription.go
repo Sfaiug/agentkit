@@ -153,32 +153,36 @@ func Runs(harness, id, effort string) ([]string, error) {
 }
 
 // TakeIn puts a model a host harness runs in the config, named from its label as Models names one,
-// its provider one the harness lists by label and mode, with that provider's table where the config
-// has none: the shipped default's where it has one, else that mode under that label.  The model
-// takes that mode as its own where its provider's table says another (menu._take_in).
+// under a provider the harness lists (takeIn).
 func TakeIn(model, harness, id, effort, provider, label, mode string, keep func() error) error {
 	return saveSubscriptions(func(root *table) error {
 		name := (&ModelTicks{}).shortName(root.get("models").(*table), model)
-		providers := root.get("providers").(*table)
-		if providers.get(provider) == nil {
-			shipped, _ := parseDocument(defaultConfig)
-			entry, ok := shipped.get("providers").(*table).get(provider).(*table)
-			if !ok {
-				entry = newTable()
-				entry.put("mode", mode)
-				entry.put("name", label)
-			}
-			providers.put(provider, entry)
-		}
 		entry := modelEntry(harness, id, effort, provider)
-		// a table that came with another harness's login: a plan paid for there pays for no call a
-		// host makes on that provider's key
-		if own, _ := providers.get(provider).(*table).get("mode").(string); mode != cmp.Or(own, "subscription") {
-			entry.put("mode", mode)
-		}
+		takeIn(root.get("providers").(*table), entry, Listed{provider, label, mode})
 		root.get("models").(*table).put(name, entry)
 		return nil
 	}, keep)
+}
+
+// takeIn gives a model entry under a provider a host lists that provider's table where providers have
+// none: the shipped default's where it has one, else the listed mode under the listed name.  The
+// entry takes that mode as its own where its provider's table says another (menu._take_in).
+func takeIn(providers, entry *table, under Listed) {
+	if providers.get(under.ID) == nil {
+		shipped, _ := parseDocument(defaultConfig)
+		fresh, ok := shipped.get("providers").(*table).get(under.ID).(*table)
+		if !ok {
+			fresh = newTable()
+			fresh.put("mode", under.Mode)
+			fresh.put("name", under.Name)
+		}
+		providers.put(under.ID, fresh)
+	}
+	// a table that came with another harness's login: a plan paid for there pays for no call a host
+	// makes on that provider's key
+	if own, _ := providers.get(under.ID).(*table).get("mode").(string); under.Mode != cmp.Or(own, "subscription") {
+		entry.put("mode", under.Mode)
+	}
 }
 
 // RemoveProvider takes provider out of the config, its table and its models, [defaults] passing over

@@ -35,7 +35,8 @@ func TestConfigRolesFoldAndThePageKeepsItsSelectedCell(t *testing.T) {
 		}
 		for number, spot := range frame.spots {
 			for _, cell := range spot.cells {
-				row, column, ok := frame.Hit(terminal.Mouse{Row: number + 1, Column: cell.first})
+				first, _ := terminal.Drawn(frame.Lines[number], cell.first, cell.last)
+				row, column, ok := frame.Hit(terminal.Mouse{Row: number + 1, Column: first})
 				if !ok || row != spot.row || column != cell.column {
 					t.Fatalf("at %d columns, cell points to (%d, %d, %v)", width, row, column, ok)
 				}
