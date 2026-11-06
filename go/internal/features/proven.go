@@ -16,9 +16,10 @@ import (
 var ErrStamp = errors.New("an everyone_since Go cannot read as Python does")
 
 // stamp is ISO 8601 as a deploy writes it, each form one Python's fromisoformat reads alike: a
-// date, then a time to the minute, second or past it, with `Z`, an offset, or none for UTC.
+// date, then a time to the minute, second or past it, with `Z`, an offset (`date +%z`'s too), or
+// none for UTC.
 var stamp = regexp.MustCompile(`^([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[T ]([0-9]{2}):([0-9]{2})` +
-	`(?::([0-9]{2})(?:\.([0-9]+))?)?(?:Z|([+-])([0-9]{2}):([0-9]{2}))?)?$`)
+	`(?::([0-9]{2})(?:[.,]([0-9]+))?)?(?:Z|([+-])([0-9]{2}):?([0-9]{2}))?)?$`)
 
 // retire.check's line around the path of Python ak's checkout, which Python's retire.check_main
 // is read from.
@@ -27,7 +28,7 @@ const lead, call = `python3 -c "import sys; sys.path.insert(0, `, `); from agent
 // Listed is the rows the checkout's `list` answers now (menu.switch_rows); false for no list,
 // with the one line saying why where there is one.
 func Listed(checkout string) ([]*record.Object, bool, string) {
-	answer, why := run(checkout, "list")
+	answer, why := own(checkout, "list")
 	rows, listed := objects(answer)
 	return rows, listed, why
 }
@@ -73,9 +74,9 @@ func Check(id string, proven bool) string {
 }
 
 // Checked is whether check is Check's, and then whether it passes in tree, a checkout of the
-// project: read here, as no Python ak may be there to run it.  A list unread fails it, and so
-// does a stamp Go cannot read, which leaves the line open.
-func Checked(tree, check string) (passed, ours bool) {
+// project, its list asked in env, the check's environment: read here, as no Python ak may be
+// there to run it.  A list unread fails it; a stamp Go cannot read leaves it to run as written.
+func Checked(tree, check string, env []string) (passed, ours bool) {
 	at := strings.LastIndex(check, call)
 	if !strings.HasPrefix(check, lead) || at < 0 {
 		return false, false
@@ -93,7 +94,8 @@ func Checked(tree, check string) (passed, ours bool) {
 	if commandhelp.ShellJoin([]string{id})+" "+kind != words || kind != "proven" && kind != "unproven" {
 		return false, false
 	}
-	rows, listed, _ := Listed(tree)
+	answer, _ := run(tree, env, "list")
+	rows, listed := objects(answer)
 	if !listed {
 		return false, true
 	}
@@ -101,7 +103,11 @@ func Checked(tree, check string) (passed, ours bool) {
 		if record.Text(row.Get("id")) != id {
 			continue
 		}
-		if _, on, err := Since(row); kind == "proven" || row.Get("everyone") == true && (!on || err != nil) {
+		_, on, err := Since(row)
+		if kind == "unproven" && err != nil {
+			return false, false
+		}
+		if kind == "proven" || row.Get("everyone") == true && !on {
 			return false, true
 		}
 	}

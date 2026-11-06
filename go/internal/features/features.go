@@ -91,7 +91,7 @@ func Read(checkout string, every time.Duration) Reading {
 func Landed() <-chan struct{} { return landed }
 
 func list(checkout string, found *entry) {
-	answer, why := run(checkout, "list")
+	answer, why := own(checkout, "list")
 	rows, listed := switches(answer)
 	held.Lock()
 	found.Asking = time.Time{}
@@ -140,29 +140,37 @@ func switches(answer any) ([]Switch, bool) {
 	return rows, true
 }
 
-// run is the project's features command with words after it, as Python's gitcall.project_answer
-// runs a project's own command: its JSON answer, or nil and the one line saying why.  It runs in
-// the checkout, reading nothing, in a session of its own, without the seat's name (owner_env): an
-// ssh in it never reads the keys, nor is it a seat reaching the live host.  One past the wait is
-// killed with everything it started, so a `set` said to have failed never lands after.
-func run(checkout string, words ...string) (any, string) {
+// own is the project's features command run in ak's own environment, as the menu and the tick
+// run it.
+func own(checkout string, words ...string) (any, string) {
+	env, err := config.ChildEnv()
+	if err != nil {
+		return nil, words[0] + ": " + config.PyError(err)
+	}
+	return run(checkout, env, words...)
+}
+
+// run is the project's features command with words after it, in env, as Python's
+// gitcall.project_answer runs a project's own command: its JSON answer, or nil and the one line
+// saying why.  It runs in the checkout, reading nothing, in a session of its own, without the
+// seat's name (owner_env): an ssh in it never reads the keys, nor is it a seat reaching the live
+// host.  One past the wait is killed with everything it started, so a `set` said to have failed
+// never lands after.
+func run(checkout string, env []string, words ...string) (any, string) {
 	what, command := words[0], gitcall.Declared(checkout, "features")
 	if command == "" {
 		return nil, "AGENTS.md names no features command"
-	}
-	env, err := config.ChildEnv()
-	if err != nil {
-		return nil, what + ": " + config.PyError(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), wait)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command+" "+commandhelp.ShellJoin(words))
 	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then
-	cmd.Env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
+	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	var out, said bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &said
 	stop := host.Group(cmd)
-	if err = cmd.Start(); err == nil {
+	err := cmd.Start()
+	if err == nil {
 		// past the wait its session goes, even once the shell is gone: what it started may still
 		// hold the output open, and exec stops watching the deadline when the shell exits
 		defer context.AfterFunc(ctx, stop)()
