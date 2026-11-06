@@ -4,8 +4,10 @@ each better than every cheaper one, the best last.  `choices`: its rows within 1
 best, cheapest first, each a point or more above the last kept, the best taking the place of
 one less than a point below it; the costliest five.  `others`: the best row of each release
 with no choice, best first, `beaten` by a choice, else a row of the front, as good and no
-dearer; on the front, `close` to the nearest choice within 10 points of the best, else `far
-below`, by null.  Qualities exactly 10 or 1 apart are so, whatever a rating's roundoff.
+dearer; on the front, `far below`, by null, more than 10 points under the best; else `close`
+to the nearest choice, less than a point from it; else `no room`, by null, a point or more under
+every choice, as the costliest five leave it.  Qualities exactly 10 or 1 apart are so, whatever
+a rating's roundoff.
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
 one maker, its one harness a fake running one of them; only `ak models --json` is observed.
@@ -43,8 +45,8 @@ CHOICES = [("Acme Mid 1", "high"), ("Acme Step 1", "high"), ("Acme Wide 1", "hig
 OTHERS = [("Acme Edge 1", "high", "close", {"name": "Acme Best 1", "effort": "high"}),
           ("Acme Dear 1", "high", "beaten", {"name": "Acme Wide 1", "effort": "high"}),
           ("Acme Near 1", "high", "close", {"name": "Acme Mid 1", "effort": "high"}),
-          # within 10 points, under the five: close to the cheapest of them
-          ("Acme Cut 1", "high", "close", {"name": "Acme Mid 1", "effort": "high"}),
+          # within 10 points, but 1.5 under the cheapest of the five
+          ("Acme Cut 1", "high", "no room", None),
           ("Acme Low 1", "high", "far below", None),
           ("Acme Lite 1", "high", "beaten", {"name": "Acme Low 1", "effort": "high"})]
 # Shares whose qualities lie exactly 10, 1 and 1 apart, which a rating's floats put a hair

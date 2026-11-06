@@ -252,9 +252,9 @@ def _choices(priced):
     the best taking the place of one less than that below it; the costliest `PLACES` of them.
     `others`: of each release with no choice its best row, a cheaper one on a tie, best first,
     each with its `why` and `by`: `beaten` by the cheapest choice, else row of the front, as
-    good and no dearer; on the front, `close` within `WINDOW` of the best, by the nearest
-    choice: less than `APART` from it, or the cheapest, over a row the costliest `PLACES` left
-    under it; else `far below`, by None."""
+    good and no dearer; on the front, `far below`, by None, more than `WINDOW` under the best;
+    else `close` to the nearest choice, less than `APART` from it; else `no room`, by None:
+    `APART` or more under every choice, as the costliest `PLACES` leave it."""
     front = []
     for row in priced:
         if not front or _above(row, front[-1]) > 0:
@@ -281,10 +281,12 @@ def _choices(priced):
             row["why"], row["by"] = "beaten", next(
                 one for one in (*choices, *front)
                 if _above(one, row) >= 0 and one["cost"] <= row["cost"])
-        elif _above(front[-1], row) <= WINDOW:
-            row["why"], row["by"] = "close", min(choices, key=lambda one: abs(_above(one, row)))
-        else:
+        elif _above(front[-1], row) > WINDOW:
             row["why"], row["by"] = "far below", None
+        else:
+            near = min(choices, key=lambda one: abs(_above(one, row)))
+            close = abs(_above(near, row)) < APART
+            row["why"], row["by"] = ("close", near) if close else ("no room", None)
     return choices, others
 
 
