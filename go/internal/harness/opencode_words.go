@@ -1,16 +1,11 @@
 package harness
 
 import (
-	"os"
-	"path/filepath"
 	"regexp"
-	"strings"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
-var opencodeSession = regexp.MustCompile(`^ses_[0-9A-Za-z]+$`)
 var opencodeKept = regexp.MustCompile(`^opencode-launch-[0-9a-f]{32}(?:\.gone)?$`)
 
 // opencodeRecord reads what opencode.db says of the session this launch reported (opencode.py
@@ -20,12 +15,8 @@ var opencodeKept = regexp.MustCompile(`^opencode-launch-[0-9a-f]{32}(?:\.gone)?$
 func opencodeRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["opencode"]
 	token := record.Str("opencode_launch")
-	if !launchToken.MatchString(token) {
-		return own, true
-	}
-	reported, err := os.ReadFile(filepath.Join(config.Home(), "state", "opencode-launch-"+token, "session"))
-	session := strings.TrimFunc(string(reported), config.Space)
-	if err != nil || !opencodeSession.MatchString(session) {
+	session := opencodeConversation(map[string]any{"opencode_launch": token})
+	if session == "" {
 		return own, true
 	}
 	turn, known := opencodeRead(session)
