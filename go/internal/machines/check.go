@@ -14,6 +14,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/googlecloud"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -41,7 +42,7 @@ var readings = []struct {
 // each answered, as Python's machines.check writes it.
 func Check() error {
 	now := float64(time.Now().UnixNano()) / 1e9
-	names, found := known()
+	names, found, _ := known()
 	answers := ask(names)
 	record := run.NewObject()
 	for i, name := range names {
@@ -85,9 +86,9 @@ func ask(names []string) []string {
 	var asking sync.WaitGroup
 	for i, name := range names {
 		command := []string{"bash", "-c", probe}
-		if name != here {
-			command = []string{"ssh", "-o", "BatchMode=yes", "-o", fmt.Sprintf("ConnectTimeout=%d", timeout),
-				"--", name, commandhelp.ShellJoin(command)}
+		if name != Here {
+			command = append(append([]string{"ssh", "-o", "BatchMode=yes", "-o", fmt.Sprintf("ConnectTimeout=%d", timeout)},
+				googlecloud.SSHConfig(name)...), "--", name, commandhelp.ShellJoin(command))
 		}
 		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
 		stop := host.Group(cmd)

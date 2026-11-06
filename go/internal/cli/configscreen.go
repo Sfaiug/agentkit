@@ -116,6 +116,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			}
 			continue
 		}
+		if key.Name == "enter" && view.Row == len(c.Names)+4 {
+			if !menuMachines(keyboard, painter) {
+				return false
+			}
+			continue
+		}
 		if key.Name == "enter" && view.Row >= len(c.Names) {
 			if view.Row != len(c.Names) || !menuConfigModels(keyboard, painter) {
 				return false
@@ -214,6 +220,6 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	}
 	limits := limitsSaid(numbers)
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
-		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Lines()), cloud)},
+		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Known()), cloud)},
 		{Name: "Limits", Value: limits}}, true
 }

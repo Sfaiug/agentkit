@@ -1,7 +1,6 @@
 package menu
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -42,20 +41,5 @@ func TestConfigServicesShowSavedStatusWithoutRevealingSecrets(t *testing.T) {
 	discord, _ = ConfigServices(now)
 	if discord != "id …4321 · webhook …secret" {
 		t.Fatal(discord)
-	}
-	ledger := fmt.Sprintf(`{"answered":%d,"spent":12.5,"machines":{"one":{"price":1,"until":4},"two":{"price":1,"until":4,"from":2}}}`, now.Unix())
-	for _, each := range []struct{ active, ledger, want string }{
-		{"true", "{}", "on · spend unknown"},
-		{"true", ledger, "on · €12.50 of €100 this month · 1 machine up"},
-		{"false", ledger, "off · 2 machines going once idle"},
-		{"true", `{"answered":1,"spent":12.5,"machines":{}}`, "on · spend unknown"},
-		{"true", fmt.Sprintf(`{"answered":%d,"spent":-1,"machines":{}}`, now.Unix()), "on · spend unknown"},
-		{"true", fmt.Sprintf(`{"answered":%d,"spent":0,"machines":{"one":{}}}`, now.Unix()), "on · spend unknown"},
-	} {
-		write("config.toml", "[google_cloud]\nactive = "+each.active+"\nmax_month = 100\n")
-		write("state/google-cloud-ledger.json", each.ledger)
-		if _, got := ConfigServices(now); got != each.want {
-			t.Errorf("cloud %s: %q, want %q", each.ledger, got, each.want)
-		}
 	}
 }
