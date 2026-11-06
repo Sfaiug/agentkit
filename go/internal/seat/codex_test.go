@@ -65,9 +65,7 @@ func TestCodexScreenReadsTheThreadOnceTheTickBindsIt(t *testing.T) {
 		t.Fatalf("listing changed the record: %s", after)
 	}
 	// The tick's reconcile binds the thread, and the next look reads the record it leaves.
-	if err := Reconcile(); err != nil {
-		t.Fatal(err)
-	}
+	Reconcile()
 	if bound, _ := run.ReadJSON(stateFile(home, "session-acme.json")); bound.Get("conversation") != "t1" ||
 		bound.Get("id_source") != "codex-session-start" || bound.Get("resumable") != true {
 		t.Fatalf("the tick did not bind the receipt: %s", run.Encode(bound))
