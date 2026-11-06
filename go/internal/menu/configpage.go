@@ -10,15 +10,20 @@ import (
 )
 
 // A PageRow is a row of a page `c` opens (menu.config_page's), or a choice of the list a row opens
-// under it: its label, in its colour where it has one, its value, and what its keys do, nil where
-// they do nothing.  A mark leads the value of a row Space flips, full while On: ● on a row and on a
-// choice of a list that picks one, ■ on a choice of a list of several; a choice that acts is
-// followed by its word, dim.  A choice no key acts on is a line saying why the list holds none, dim.
+// under it: its label, in its colour where it has one, its value and its Aside, dim, and what its
+// keys do, nil where they do nothing.  A mark leads the value of a row Space flips, full while On:
+// ● on a row and on a choice of a list that picks one, ■ on a choice of a list of several; a choice
+// that acts is followed by its word, dim.  A choice no key acts on is a line saying why the list
+// holds none, dim.
 type PageRow struct {
-	Label, Value, Colour string
-	On                   bool
-	Flip                 func() string // Space or a click: flips the mark, and what to say under the rows
-	Open                 func() bool   // Enter or a click: opens what the row opens, false where that is Python's
+	Label, Value, Colour, Aside string
+	On                          bool
+	// while the keys are on the row: said under the rows instead of the page's note, and lines
+	// drawn as they are under it, where the page keeps room for the lit row beside them
+	Note  string
+	Under func(terminal.Screen) []string
+	Flip  func() string // Space or a click: flips the mark, and what to say under the rows
+	Open  func() bool   // Enter or a click: opens what the row opens, false where that is Python's
 	// a choice's Enter or click, the key line naming it Does: what to say under the rows, the list
 	// asked again after it
 	Act  func() string
@@ -36,6 +41,7 @@ type Page struct {
 	Choices    []PageRow // the list open under the row the keys are on: none while it is shut
 	At, Choice int       // the row the keys are on, and with a list open its choice
 	Lists      int       // how many lists the page has opened: the one open comes up as it is news
+	Away       bool      // the pointer is off every row: none lit, and no row's note said
 	Top        int       // the first line shown
 	Clock      string
 	Said, Note string        // what the last key's act said, and the page's own note
@@ -122,6 +128,10 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	if len(view.Choices) > 0 {
 		at.choice = view.Choice
 	}
+	lit := at // what is drawn lit: nothing while the pointer is off every row
+	if view.Away {
+		lit = pageEntry{-1, -1}
+	}
 	_, opening := clock.Moved("opened", view.Lists, motion.Open)
 	var body []string
 	var lines []pageEntry
@@ -136,7 +146,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			lead = "    "
 		}
 		left := max(1, room-terminal.Cells(lead))
-		parts := []part{{row.Value, ""}}
+		parts := []part{{row.Value, ""}, {row.Aside, "dim"}}
 		if row.Flip != nil {
 			glyphs := []rune(marks)
 			mark := part{string(glyphs[1]), "dim"}
@@ -159,7 +169,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			if row.Colour != "" {
 				line = "  " + s.Styled(terminal.Cut(row.Label, room-2), row.Colour)
 			}
-			if entry == at {
+			if entry == lit {
 				line = s.Highlight(line, true)
 			}
 			body, lines = append(body, line), append(lines, entry)
@@ -186,7 +196,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 				lead = strings.Repeat(" ", terminal.Cells(lead))
 			}
 			line := strings.TrimRight(lead+strings.Join(pieces, " "), " ")
-			if entry == at {
+			if entry == lit {
 				line = s.Highlight(line, number == 0 && !folded)
 			}
 			if entry.choice >= 0 {
@@ -244,8 +254,15 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	if s.ASCII() {
 		keys = strings.NewReplacer("↑↓←→", "arrows", "␣", "space", "⏎", "enter").Replace(keys)
 	}
+	note, drawn := view.Note, []string(nil) // the lit row's own note and lines, else the page's note
+	if !view.Away && view.At < len(view.Rows) && view.Rows[view.At].Note != "" {
+		note = view.Rows[view.At].Note
+		if view.Rows[view.At].Under != nil {
+			drawn = view.Rows[view.At].Under(s)
+		}
+	}
 	var under []string
-	for _, note := range []string{view.Said, view.Note} {
+	for _, note := range []string{view.Said, note} {
 		for _, said := range strings.Split(note, "\n") {
 			for _, line := range terminal.Wrap(said, room-2) {
 				under = append(under, "  "+s.Styled(line, "dim"))
@@ -255,8 +272,18 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	if len(under) > 0 {
 		under = append([]string{""}, under...)
 	}
-	// the key line and the note stay on the screen, and so does the highlighted row
-	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under))
+	// the key line and the note stay on the screen, and so does the highlighted row: the lit row's
+	// lines only where they leave it room
+	height, tall := s.Height()-5-len(keyLine(s, keys, s.Width(), "")), 0
+	for _, line := range lines {
+		if line == at {
+			tall++
+		}
+	}
+	if height-len(under)-len(drawn) >= tall {
+		under = append(under, drawn...)
+	}
+	page := max(1, height-len(under))
 	top := pageTop(lines, at, view.Top, page)
 	shown := min(len(body), top+page)
 	title := "config · " + view.Name
