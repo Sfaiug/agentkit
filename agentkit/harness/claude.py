@@ -162,11 +162,14 @@ NOTES_ONLY = "(notes only)"
 def answers(record, cwd, conversation):
     """Each question the owner answered on an AskUserQuestion card, from the result Claude Code
     records beside the questions and options the seat wrote: the options picked, comma-separated,
-    or the words typed, then the notes added, then any free text written in place of a pick.  A
-    card that closed itself while the owner was away (`afkTimeoutMs`) holds nothing of theirs."""
+    or the words typed, then the notes added, then any free text written in place of a pick, as
+    recorded when the owner sent the card or went idle on it.  A line no one said here (`UNSAID`),
+    a subagent's card among them, holds no answer of the owner's."""
     from . import entries, moment
     cards = set()
     for entry in entries(transcript(record, cwd, conversation)):
+        if any(entry.get(key) for key in UNSAID):
+            continue
         said = []
         try:    # a line of any other shape answers nothing
             parts = [part for part in entry["message"]["content"] if isinstance(part, dict)]
@@ -175,7 +178,7 @@ def answers(record, cwd, conversation):
             result, at = entry.get("toolUseResult"), moment(entry.get("timestamp"))
             card = any(part.get("type") == "tool_result" and part.get("tool_use_id") in cards
                        for part in parts)
-            if not card or at is None or result.get("afkTimeoutMs"):
+            if not card or at is None:
                 continue
             picks, notes = result.get("answers", {}), result.get("annotations", {})
             for asked in result["questions"]:
