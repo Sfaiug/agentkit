@@ -2833,16 +2833,17 @@ def start_look(launched, ending=False):
         return None
 
 
-def still_owed(name, stopped):
+def still_owed(name, stopped, check=True):
     """Why a seat with nothing running and nothing asked on its screen or in its notices is
     still the owner's, or None where it rests.  Work its plan owes is a stop that going back did
-    not move (`goes_back`): the stop hook's own test says which (`stop.owed_line`), so this word
-    and the turn's end never disagree -- except after
+    not move (`goes_back`): the stop hook's own test says which (`stop.owed_line`, the done
+    check a finished plan owes only where `check`), so this word and the turn's end never
+    disagree -- except after
     a turn the owner `stopped`: they are in the seat and know (owner, 14 Oct 2026).  So does a
     question it kept back for its turn's end.  Any ending of its runs is typed into the seat at
     its next quiet prompt, so it is the seat's to act on, not theirs."""
     from . import stop as stop_mod    # stop imports this module
-    line = None if stopped else stop_mod.owed_line(name)
+    line = None if stopped else stop_mod.owed_line(name, check)
     if line is not None or seat_read(name).get("unasked"):
         return f"stopped with work open: {line}" if line else "stopped with work open"
     return None
@@ -2914,8 +2915,10 @@ def owes_work(name, mine, index, at):
     """Whether that seat still owes work: a question or a watcher's alert still standing, what
     keeps any resting seat the owner's (`still_owed`), or a run of its own that does
     (`runs_owe`).  It keeps a seat nobody is in the owner's, and, beside what it was cut off
-    owing (`cut_off`), brings one back after a reboot."""
-    return bool(notify.last(name) or still_owed(name, stopped=False) is not None
+    owing (`cut_off`), brings one back after a reboot.  The done check its finished plan owes
+    is none of it: only the seat's own `ak plan` makes one, so a seat nobody is in waits for it
+    idle, and no reboot reopens one for it."""
+    return bool(notify.last(name) or still_owed(name, stopped=False, check=False) is not None
                 or runs_owe(mine, index, at))
 
 

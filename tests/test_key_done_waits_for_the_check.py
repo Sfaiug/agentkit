@@ -228,6 +228,17 @@ class DoneWaitsForTheCheck(unittest.TestCase):
         self.plan()
         self.assertEqual(self.fake.n, 0)
 
+    def test_a_seat_nobody_is_in_owing_only_its_check_rests(self):
+        """Only the seat's own `ak plan` makes its check: it is not the owner's, and no reboot
+        reopens a seat for it."""
+        self.configure()
+        self.assertEqual(self.why(), "acme  idle")
+        self.home.write(".agentkit/state/gc.json", {"started_at": time.time()})
+        self.home.write(".agentkit/state/watch.json", {"boot_id": "before"})
+        tick = self.home.ak("watch", "--dry-run")
+        self.assertEqual(tick.code, 0, tick.out + tick.err)
+        self.assertNotIn("would resume acme after reboot", tick.out)
+
 
 if __name__ == "__main__":
     unittest.main()
