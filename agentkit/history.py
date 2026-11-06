@@ -384,16 +384,16 @@ def _write(fn, log=None):
 
 
 def keep_readings(rows):
-    """Add `meter_readings` rows, each its columns in order, and drop those past five weeks;
-    no row to add writes nothing."""
+    """Add `meter_readings` rows, each its columns in order, and drop those past five weeks
+    when one went in: no row to add, or only rows kept already, writes nothing."""
     if not rows:
         return
 
     def keep(connection):
-        connection.executemany("INSERT OR IGNORE INTO meter_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                               rows)
-        connection.execute("DELETE FROM meter_readings WHERE at < ?",
-                           (time.time() - READINGS_KEPT_FOR,))
+        if connection.executemany("INSERT OR IGNORE INTO meter_readings VALUES "
+                                  "(?, ?, ?, ?, ?, ?, ?, ?)", rows).rowcount > 0:
+            connection.execute("DELETE FROM meter_readings WHERE at < ?",
+                               (time.time() - READINGS_KEPT_FOR,))
     _write(keep)
 
 
