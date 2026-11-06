@@ -7433,56 +7433,101 @@ def awaiting_live(state, now=None):
     return bool((state.get("health") or {}).get("command"))
 
 
+@contextmanager
+def live_lock():
+    """Whether this process holds the lock of the home's one live follower (`follow_live`)
+    while inside: False where another holds it."""
+    with (config.RUNS / ".live.lock").open("a") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            yield False
+        else:
+            yield True
+
+
 def start_live_probe(run_dir):
-    """Follow this merge independently of its run; a missed start leaves the tick as backstop."""
+    """Hand this merge to the home's one live follower, which finds it on its record, and start
+    that follower where none holds its lock; a missed start leaves the tick as backstop."""
     env = config.child_env()
     for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
                 config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
         env.pop(key, None)
     env["AK_RUN_DEPTH"] = "0"
     try:
-        orch.start_in_slice(
-            [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
-            f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
-            target_slice=orch.run_slice_name())
+        with live_lock() as free:
+            if not free:
+                return
+        orch.start_in_slice([sys.executable, str(config.REPO / "bin/ak"), "watch", "--live"],
+                            f"agentkit-live-{time.time_ns()}", env, run_dir / "live.log",
+                            target_slice=orch.run_slice_name())
     except (OSError, config.Error):
         pass  # the tick still follows it
 
 
-def follow_live(run_dir):
-    """One follower per run, bounded by the same window and probe timeout as the tick.
+def follow_live():
+    """The home's one live follower, however many merges wait: one each held 6.4 GB of a
+    15 GB host for 27 merges (6 Nov 2026).  It follows each run `live_followed` names, as the
+    tick would, probed `LIVE_INTERVAL` after its own last probe ends, and ends once none is left.
 
     Health and its notice run here; updating agentkit's live checkout remains the tick's go_live.
     """
-    with (run_dir / "live.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
+    seen, due = {}, {}  # by run: when first seen merged before its ending; its next probe
+    while True:
+        with live_lock() as free:
+            if not free:
+                return 0
+            while (pause := follow_pass(seen, due)) is not None:
+                time.sleep(pause)
+        # The last look comes after letting go: a merge that found the lock held is seen in it,
+        # and one that finds it free starts a follower of its own.
+        records, now = run_record.runs(), time.time()
+        if not any(live_followed(run_dir, st, records, seen, now) for run_dir, st in records):
             return 0
-        began = time.time()
-        while True:
-            st, now = run_record.read_state(run_dir), time.time()
-            if not st:
-                return 0
-            ready = st.get("finished_at") is not None
-            delivering = ready and handback.live_owed(st) and not handback.rides(st)
-            if not (awaiting_live(st if ready else {**st, "finished_at": began}, now)
-                    or delivering and 0 <= now - st["finished_at"] <= AFTER_MERGE_WINDOW):
-                return 0
-            if not ready:
+
+
+def follow_pass(seen, due):
+    """One pass of the live follower, on one read of every record (`records`), probing each of
+    its runs that is due: the seconds until the next is, None for no run left."""
+    records, began = run_record.runs(), time.time()
+    probes, left = {"clock": (began, began)}, []
+    for run_dir, st in records:
+        if not live_followed(run_dir, st, records, seen, began):
+            continue
+        now = time.time()
+        if due.get(run_dir.name, 0) <= now:
+            st = run_record.read_state(run_dir)     # its own, which following changes
+            if not st or st.get("finished_at") is None:
                 # A merge precedes its ending; delivery must see that stable attempt.
-                time.sleep(0.1)
-                continue
-            sha = after_merge_sha(st.get("pr"), st, print)
-            if sha:
-                health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
-                                            now, False, print, {"clock": (now, now)})
-                if health and health[0] == "passed":
-                    if handback.carries_live(st):
-                        handback.announce(st, run_dir, print)
-                    if not handback.live_owed(st) or handback.rides(st):
-                        return 0
-            time.sleep(LIVE_INTERVAL)
+                due[run_dir.name] = now + 1
+            else:
+                try:
+                    if sha := after_merge_sha(st.get("pr"), st, print):
+                        health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
+                                                    now, False, print, probes, records)
+                        if health and health[0] == "passed" and handback.carries_live(st):
+                            handback.announce(st, run_dir, print, records=records)
+                except PASS_ERRORS as exc:     # one run's error ends no other run's following
+                    print(f"WARN run {run_dir.name}'s health could not be followed: {exc}")
+                due[run_dir.name] = time.time() + LIVE_INTERVAL
+                if not live_followed(run_dir, st, records, seen, time.time()):
+                    continue
+        left.append(due[run_dir.name])
+    return max(0, min(left) - time.time()) if left else None
+
+
+def live_followed(run_dir, st, records, seen, now):
+    """Whether the live follower follows this run, read with every run's `records`: merged and
+    waiting to go live in its window (`awaiting_live`), or live in it while its seat is owed a
+    typed line (`handback.live_owed`).  A merge precedes its ending: until that is written, its
+    window counts from when this follower first saw it (`seen`)."""
+    finished = st.get("finished_at")
+    if finished is None:
+        return bool(st.get("merged")) and awaiting_live(
+            {**st, "finished_at": seen.setdefault(run_dir.name, now)}, now)
+    return awaiting_live(st, now) or (
+        type(finished) in (int, float) and 0 <= now - finished <= AFTER_MERGE_WINDOW
+        and handback.live_owed(st, records) and not handback.rides(st, records))
 
 
 def merge_record(repo, sha, pr_url=None):
@@ -8410,10 +8455,8 @@ def local_passes(state, dry_run, log):
 
 
 def main(argv):
-    if argv[:1] == ["--live"]:
-        if len(argv) != 2 or Path(argv[1]).name != argv[1] or argv[1] in (".", ".."):
-            raise config.Error("usage: ak watch --live RUN")
-        return follow_live(config.RUNS / argv[1])
+    if argv == ["--live"]:
+        return follow_live()
     if command_help.show("watch", argv):
         return 0
     dry_run = argv == ["--dry-run"]

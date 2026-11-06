@@ -274,12 +274,16 @@ class HandBack(Sandbox):
             config.update_session(name, launched=10000)
             return name
 
+        def sleep(seconds):
+            self.screen = "at_prompt"
+            watch.time.time.return_value += seconds     # a run is probed again once its interval passed
+
         with patch.object(orch, "resume", side_effect=resume) as wake, \
                 patch.object(watch, "health_command", return_value=(True, "")), \
-                patch.object(watch.time, "sleep", side_effect=lambda _s: setattr(self, "screen", "at_prompt")):
+                patch.object(watch.time, "sleep", side_effect=sleep):
             handback.announce(record.read_state(directory), directory, self.logs.append)
             wake.assert_not_called()
-            self.assertEqual(watch.follow_live(directory), 0)
+            self.assertEqual(watch.follow_live(), 0)
         wake.assert_called_once()
         self.assertTrue(record.read_state(directory).get("live_notified"))
         self.assertEqual(len(self.typed), 1, self.typed)

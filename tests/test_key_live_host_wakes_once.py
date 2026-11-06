@@ -113,7 +113,7 @@ class LiveHostWakesOnce(unittest.TestCase):
         self.case()
         self.assertEqual(self.seat.typed(), "")
         self.home.write("live-ready", "")
-        done = self.home.ak("watch", "--live", RUN)
+        done = self.home.ak("watch", "--live")
         self.assertEqual(done.code, 0, done.out + done.err)
         self.heard(live=True)
 

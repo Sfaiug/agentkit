@@ -524,16 +524,16 @@ class HealthAfterMerge(unittest.TestCase):
 
         def probe(*_args, **_kw):
             attempts.append(now[0])
-            self.assertEqual(watch.follow_live(directory), 0)  # its singleton lock is held
+            self.assertEqual(watch.follow_live(), 0)  # the home's lock is held
             now[0] += 10
             return len(attempts) == 3, "deploying"
 
         self.probes.side_effect = probe
         with patch.object(watch, "time", clock), patch.object(watch.update, "go_live") as move:
-            self.assertEqual(watch.follow_live(directory), 0)
-        self.assertEqual(attempts, [NOW + 0.1 + offset for offset in (0, 25, 50)])
+            self.assertEqual(watch.follow_live(), 0)
+        self.assertEqual(attempts, [NOW + 1 + offset for offset in (0, 25, 50)])
         self.assertEqual([call.args for call in clock.sleep.call_args_list],
-                         [(0.1,), (15,), (15,)])
+                         [(1,), (15,), (15,)])
         self.assertEqual(record.read_state(directory)["live_at"], attempts[-1])
         move.assert_not_called()
 
@@ -542,11 +542,12 @@ class HealthAfterMerge(unittest.TestCase):
         with record.record(directory) as current:
             current["health"] = {"command": "exit 1"}
         self.probes.return_value = False, "deployment missing"
+        now = [NOW]
         clock = Mock(wraps=watch.time)
-        clock.time.side_effect = [NOW, NOW, NOW + watch.AFTER_MERGE_WINDOW + 1]
-        clock.sleep.return_value = None
+        clock.time.side_effect = lambda: now[0]
+        clock.sleep.side_effect = lambda _seconds: now.append(now.pop() + watch.AFTER_MERGE_WINDOW + 1)
         with patch.object(watch, "time", clock):
-            self.assertEqual(watch.follow_live(directory), 0)
+            self.assertEqual(watch.follow_live(), 0)
         self.assertEqual(self.probes.call_count, 1)
         self.assertNotIn("live_at", record.read_state(directory))
         self.assertEqual(self.lines, [])
@@ -554,6 +555,25 @@ class HealthAfterMerge(unittest.TestCase):
         self.assertEqual(self.probes.call_count, 1)
         self.assertEqual(len(self.lines), 1)
         self.assertIn("deployment missing", self.lines[0][1])
+
+    def test_the_followers_last_look_comes_after_it_lets_go(self):
+        """A merge that found the follower's lock held, as its last pass found no run, is
+        followed: it is in the look after."""
+        directory = self.merged(self.declare("exit 0"), age=0)
+        with record.record(directory) as current:
+            current["health"] = {"command": "exit 0"}
+        census, free = record.runs, []
+
+        def runs():
+            with watch.live_lock() as unheld:
+                free.append(unheld)
+            return census() if len(free) > 1 else []    # the merge's record after the first
+
+        with patch.object(record, "runs", runs):
+            self.assertEqual(watch.follow_live(), 0)
+        self.assertEqual(free[:2], [False, True])
+        self.assertEqual(self.probes.call_count, 1)
+        self.assertEqual(record.read_state(directory)["live_at"], NOW)
 
     def test_common_record_write_starts_on_the_merge_without_waiting_for_its_ending(self):
         directory = self.merged(self.declare("exit 0"), age=0)
