@@ -227,8 +227,11 @@ def gaps(cfg, name):
             files["plan.md"] = "".join(line + "\n" for line in planned)
             shown = []
             for n, picture in enumerate(pictures, 1):
-                files[f"pictures/{n}-{picture['name']}"] = base64.b64decode(picture["data"])
-                shown.append(f"  - pictures/{n}-{picture['name']}, kept "
+                # numbered, never named: a name the filesystem took leaves no room for more;
+                # its type stays for the reader, the name itself in the list
+                kept = f"pictures/{n}{Path(picture['name']).suffix[:16]}"
+                files[kept] = base64.b64decode(picture["data"])
+                shown.append(f"  - {kept}: {picture['name']}, kept "
                              + time.strftime(plan.STAMP, time.localtime(picture["at"])))
             for directory, state in record.runs():
                 if transitions.launched_session(state) == name:
