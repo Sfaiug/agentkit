@@ -126,7 +126,7 @@ RULES = [
               r"|capacity[._](json|tokens|pairs)|(\"api\", \"|github_)rate_limit",
      "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
               "agentkit/google_cloud.py"),
-     "max": 58},
+     "max": 57},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.

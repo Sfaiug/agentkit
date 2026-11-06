@@ -1,7 +1,7 @@
-"""AK_BIN's models JSON measures weekly percentage points per million tokens.
+"""AK_BIN's usage JSON measures the tokens a week holds from capacity pairs, which runs record.
 
 Black-box, with a temporary HOME and invented capacity pairs. Overlaps share one login's
-meter move; accounts pool rates, never meter coordinates. Legacy pairs only measure holds.
+meter move; legacy pairs count too.
 """
 
 import json
@@ -47,100 +47,29 @@ class UsagePerModel(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         return json.loads(done.out)
 
-    def answer(self, *pairs):
+    def write(self, *pairs):
         self.home.write(".agentkit/state/capacity.json",
                         {"anthropic": {"default": {"weekly_all": list(pairs)}}})
-        return self.command("models", "--json")["usage"]
 
     def holds(self):
         return self.command("usage", "--json")["providers"]["anthropic"]["capacity_tokens"]
 
-    def test_each_model_and_effort_uses_its_own_rate_including_zero_move_tokens(self):
-        answer = self.answer(pair("anvil"), pair("anvil", prior=11, moved=0),
-                             pair("anvil", "low", tokens=4000, prior=11),
-                             pair("bloom", prior=12, moved=4))
-        self.assertEqual(answer["anvil"], {"high": 500, "low": 250})
-        self.assertEqual(answer["bloom"], {"high": 4000, "low": None})
-
     def test_overlapping_turns_split_the_same_one_percent_by_tokens(self):
-        answer = self.answer(pair("anvil", prior=40),
-                             pair("bloom", tokens=3000, prior=40))
-        self.assertEqual(answer["anvil"]["high"], 250)
-        self.assertEqual(answer["bloom"]["high"], 250)
+        self.write(pair("anvil", prior=40), pair("bloom", tokens=3000, prior=40))
         self.assertEqual(self.holds(), 400000)
 
     def test_partial_overlaps_share_only_the_part_both_claim(self):
-        answer = self.answer(pair("anvil", prior=40, moved=2),
-                             pair("bloom", tokens=3000, prior=41, moved=2))
-        self.assertEqual(answer["anvil"]["high"], 1250)
-        self.assertAlmostEqual(answer["bloom"]["high"], 1e6 * 1.75 / 3000)
+        self.write(pair("anvil", prior=40, moved=2), pair("bloom", tokens=3000, prior=41, moved=2))
         self.assertEqual(self.holds(), 133333)
 
     def test_the_same_percent_in_different_windows_counts_twice(self):
-        answer = self.answer(pair("anvil", prior=40, ends=ENDS - WEEK),
-                             pair("bloom", tokens=3000, prior=40))
-        self.assertEqual(answer["anvil"]["high"], 1000)
-        self.assertAlmostEqual(answer["bloom"]["high"], 1e6 / 3000)
+        self.write(pair("anvil", prior=40, ends=ENDS - WEEK), pair("bloom", tokens=3000, prior=40))
         self.assertEqual(self.holds(), 200000)
 
-    def test_no_pairs_and_zero_moves_report_null_without_borrowing_an_effort(self):
-        answer = self.answer(pair("anvil", moved=0), pair("anvil", "low"))
-        self.assertEqual(answer, {"anvil": {"high": None, "low": 1000},
-                                  "bloom": {"high": None, "low": None},
-                                  "blank": {"high": None, "low": None}})
-
-    def test_legacy_pairs_count_toward_holds_and_toward_no_model(self):
+    def test_legacy_pairs_count_toward_holds(self):
         old = {"at": NOW - 200, "tokens": 10000, "moved": 2, "resets_at": ENDS}
-        answer = self.answer(old, pair("anvil"))
-        self.assertEqual(answer["anvil"]["high"], 1000)
-        self.assertIsNone(answer["bloom"]["high"])
+        self.write(old, pair("anvil"))
         self.assertEqual(self.holds(), 366667)
-
-    def test_provider_pools_models_by_tokens_without_merging_logins_moves(self):
-        cfg = akconfig.read(self.home)
-        akconfig.write(self.home, cfg["models"], providers={"anthropic": {
-            **cfg["providers"]["anthropic"], "accounts": ["default", "second"]}})
-        path = self.home.path / ".agentkit/state/usage.json"
-        record = json.loads(path.read_text())["providers"]["anthropic"]
-        self.home.write(".agentkit/state/usage.json", {"providers": {"anthropic": {
-            "provider": "anthropic", "accounts": dict.fromkeys(("default", "second"), record)}}})
-        self.home.write(".agentkit/state/capacity.json", {"anthropic": {
-            "default": {"weekly_all": [pair("anvil"), pair("bloom", tokens=3000)]},
-            "second": {"weekly_all": [pair("anvil"), pair("bloom")]}}})
-        answer = self.command("models", "--json")["usage"]
-        self.assertEqual(answer["anvil"]["high"], 375)
-        self.assertEqual(answer["bloom"]["high"], 312.5)
-
-    def test_pairs_older_than_the_previous_meter_window_count_for_nothing(self):
-        path = self.home.path / ".agentkit/state/usage.json"
-        held = json.loads(path.read_text())
-        held["providers"]["anthropic"]["meters"][0]["resets_at"] += 2 * WEEK
-        path.write_text(json.dumps(held))
-        self.assertIsNone(self.answer(pair("anvil"))["anvil"]["high"])
-
-    def test_capacity_pairs_need_no_live_meter_reading(self):
-        (self.home.path / ".agentkit/state/usage.json").unlink()
-        self.assertEqual(self.answer(pair("anvil"))["anvil"]["high"], 1000)
-
-    def test_observed_efforts_remain_measured_after_the_configured_effort_changes(self):
-        self.assertEqual(self.answer(pair("anvil", "medium"))["anvil"],
-                         {"high": None, "low": None, "medium": 1000})
-
-    def test_a_models_scoped_meter_is_not_its_providers_week(self):
-        cfg = akconfig.read(self.home)
-        cfg["models"]["bloom"]["meter"] = "weekly_scoped"
-        akconfig.write(self.home, cfg["models"])
-        (self.home.path / ".agentkit/state/usage.json").unlink()
-        self.home.write(".agentkit/state/capacity.json", {"anthropic": {"default": {
-            "weekly_all": [pair("bloom")], "weekly_scoped": [pair("bloom", moved=10)]}}})
-        self.assertEqual(self.command("models", "--json")["usage"]["bloom"]["high"], 1000)
-
-    def test_retained_unoffered_models_do_not_break_the_answer(self):
-        with (self.home.path / ".agentkit/config.toml").open("a") as opened:
-            opened.write('\n[models.unfinished]\nharness = "claude"\nmodel = "unused-1"\n')
-        answer = self.answer(pair("unfinished"))
-        self.assertEqual(set(answer), {"anvil", "bloom", "blank"})
-        self.assertIsNone(answer["anvil"]["high"])
 
     def test_new_pairs_record_the_turns_model_effort_run_and_role(self):
         rig = Rig(self.home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n"})

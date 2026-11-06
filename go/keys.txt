@@ -418,7 +418,6 @@ test_key_update_nothing_installed
 test_key_update_other_checkout
 test_key_usage_one_login
 test_key_usage_per_model
-test_key_usage_per_task
 test_key_wait_records
 test_key_watch_dry_run
 test_key_what_a_gone_ak_left_ends

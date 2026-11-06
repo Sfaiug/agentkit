@@ -1,6 +1,6 @@
 """AK_BIN prices role picks in measured subscription usage, scaling every unmeasured row.
 
-Invented boards, capacity pairs and launch receipts in a temporary HOME; models and usage output
+Invented boards, logins' weeks and finished runs in a temporary HOME; models and usage output
 is observed. Shares retain task_usage's units; prices multiply them only for a full lineup.
 """
 
@@ -14,23 +14,29 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, EVALUATIONS, aa, boards
 from test_key_config_save_keeps import UNKNOWN
-from test_key_usage_per_task import pair
+from test_key_role_cost_from_runs import NOW, History
 
 # release, effort, provider, quality's coding share, board dollars
 ROWS = [("anvil", "low", "acme", .60, 1), ("anvil", "high", "acme", .80, 2),
         ("bloom", "high", "acme", .89, 50), ("crown", "high", "acme", .90, 100),
         ("dune", "high", "bolt", .65, 10), ("echo", "high", "crux", .70, 20)]
+# each provider's harness, running its models alone, so its seats' spend fits its week
+HARNESSES = {"acme": "claude", "bolt": "codex", "crux": "opencode"}
 
 
 class PicksPricedInUsage(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
-        self.fake = fake = fakeadapter.install(home, claude="pass")["claude"]
-        fake.answer("models", "".join(f"{name}-1\t{name}\tlow high\n"
-                                      for name in dict.fromkeys(row[0] for row in ROWS)))
+        fakes = fakeadapter.install(home, **dict.fromkeys(HARNESSES.values(), "pass"))
+        self.fake = fakes["claude"]
+        for provider, harness in HARNESSES.items():
+            fakes[harness].answer("models", "".join(
+                f"{name}-1\t{name}\tlow high\n"
+                for name in dict.fromkeys(row[0] for row in ROWS if row[2] == provider)))
         # Crown is on the boards and harness, but has no configured alias or measurement.
-        self.models = {name: {"harness": "claude", "model": f"{name}-1", "provider": provider}
+        self.models = {name: {"harness": HARNESSES[provider], "model": f"{name}-1",
+                              "provider": provider}
                        for name, _, provider, *_ in ROWS if name != "crown"}
         self.providers = {name: {"mode": "subscription", "maker": name.title()}
                           for name in ("acme", "bolt", "crux")}
@@ -41,7 +47,8 @@ class PicksPricedInUsage(unittest.TestCase):
             row = aa(f"{name}-1", name.title(), effort, {
                 "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
                 "aa.terminalBench40": share, "aa.omniscience": 100 * share,
-                "aa.automationBenchPartialScore": share,
+                "aa.automationBenchPartialScore": share, "aa.price1mInputTokens": 1,
+                "aa.price1mOutputTokens": 1,
                 **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": dollars
                    for slug in EVALUATIONS}})
             row["maker"] = provider.title()
@@ -49,19 +56,19 @@ class PicksPricedInUsage(unittest.TestCase):
             held["arena.ai"]["rows"].append({"model": name.title(), "effort": effort,
                                             "values": {"arena.agent": share}})
         home.write(".agentkit/state/boards.json", held)
-        self.capacity = {}
-        for turn, (model, provider, role, moved, tokens) in enumerate([
-                ("anvil", "acme", "executor", .2, 1000),
-                ("bloom", "acme", "executor", .3, 1000),
-                ("dune", "bolt", "executor", 2, 1000),
-                ("anvil", "acme", "reviewer", 4, 20000),
-                ("bloom", "acme", "reviewer", 6, 20000)]):
-            run = f"acme-measured-{turn}"
-            self.capacity.setdefault(provider, {"default": {"weekly_all": []}})[
-                "default"]["weekly_all"].append(pair(
-                    run, turn, model=model, role=role, moved=moved, tokens=tokens))
-            home.write(f".agentkit/runs/{run}/round-1/{role}/harness", "claude")
-        home.write(".agentkit/state/capacity.json", self.capacity)
+        home.write(".agentkit/state/usage.json", {"providers": {provider: {"meters": [
+            {"name": "weekly", "used": 40, "window_secs": 604800, "resets_at": NOW + 86400}]}
+            for provider in ("acme", "bolt")}})
+        history = History(home)
+        # each week $100 at a dollar a million tokens, so a run's points are its dollars
+        for provider, model in (("acme", "anvil-1"), ("bolt", "dune-1")):
+            history.week(provider, "default", HARNESSES[provider], model, 50e6, 50)
+        spent = lambda model, points: [[("default", f"{model}-1", (points * 1e6, 0, 0, 0))]]
+        for model, points in (("anvil", .2), ("bloom", .3), ("dune", 2)):
+            history.run((model, "high"), built=spent(model, points))
+        for model, points in (("anvil", 4), ("bloom", 6)):
+            history.run(None, model, ["high"], reviewed=spent(model, points))
+        history.save()
 
     def command(self, compare=None, prices=None, *args):
         akconfig.write(self.home, self.models, settings={"compare": compare} if compare else {},
@@ -125,7 +132,7 @@ class PicksPricedInUsage(unittest.TestCase):
         self.home.write(".agentkit/state/boards.json", held)
         self.assertAlmostEqual(self.row("anvil")["cost"], .2)
         self.assertEqual(self.row("crown")["cost_rule"], "global")
-        self.home.write(".agentkit/state/capacity.json", {})
+        History(self.home).save()
         self.assertEqual(self.row("anvil")["cost"], 2)
 
     def test_no_measurements_keep_board_dollars_and_say_so(self):
@@ -133,7 +140,7 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertEqual(answer["orchestrate"]["cost_unit"], "board_dollars")
         for row in answer["orchestrate"]["front"]:
             self.assertEqual((row["cost"], row["cost_rule"]), (row["board_cost"], "board"))
-        self.home.write(".agentkit/state/capacity.json", {})
+        History(self.home).save()
         self.assertTrue(all(role["cost_unit"] == "board_dollars"
                             for name, role in self.answer().items()
                             if name in ("orchestrate", "execute", "review")))
@@ -142,7 +149,7 @@ class PicksPricedInUsage(unittest.TestCase):
         pick = lambda answer: next(row["release"] for row in answer["execute"]["front"]
                                    if "pick" in row["notes"])
         self.assertEqual(pick(self.answer()), "bloom-1")
-        self.home.write(".agentkit/state/capacity.json", {})
+        History(self.home).save()
         self.assertEqual(pick(self.answer()), "anvil-1")
 
     def test_prices_apply_only_when_every_lineup_provider_has_one(self):

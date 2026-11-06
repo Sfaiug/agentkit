@@ -1,7 +1,7 @@
 """AK_BIN's models table says which week shares were measured and what the rest are.
 
 Owner, 3 Nov 2026: a cost on screen must never look more certain than it is. Reuses the
-invented lineup and capacity pairs of test_key_picks_priced_in_usage in a temporary HOME.
+invented lineup and runs of test_key_picks_priced_in_usage in a temporary HOME.
 """
 
 from pathlib import Path
@@ -10,6 +10,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_key_picks_priced_in_usage as priced
+from test_key_role_cost_from_runs import History
 
 LEGEND = "  week %     a task's share of its subscription's week: measured where the row says"
 
@@ -31,7 +32,7 @@ class MeasuredNote(unittest.TestCase):
         self.assertTrue(any(line.startswith(LEGEND) for line in table.splitlines()), table)
 
     def test_board_dollars_alone_add_no_legend_line(self):
-        self.home.write(".agentkit/state/capacity.json", {})
+        History(self.home).save()
         table = self.command(["anvil-1", "crown-1"])
         self.assertNotIn("week %", table)
         self.assertNotIn("measured", table)

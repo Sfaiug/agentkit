@@ -1317,85 +1317,6 @@ def _allocated(pairs):
     return moved
 
 
-def model_rates(cfg):
-    """Per model and effort, weekly percentage points per million tokens, or None.
-
-    Pool subscriptions by tokens, excluding model-specific caps. Zero-move turns contribute
-    tokens; an entirely unmoved model/effort has no rate. No endpoint is asked.
-    """
-    models = {name: cfg["models"][name] for name in config.offered(cfg)}
-    totals = {}
-    for provider, accounts in _measured().items():
-        scoped = {entry.get("meter") for entry in models.values()
-                  if entry["provider"] == provider}
-        for account, meters in _record(accounts).items():
-            login = None if account == config.DEFAULT_ACCOUNT and not config.accounts(
-                cfg, provider) else account
-            shared = shared_week(cfg, provider, _cached_provider(provider, login)) or {}
-            for name, values in _record(meters).items():
-                if name in scoped or (shared and name != shared["name"]):
-                    continue
-                pairs, seen = _pairs(values), _seen(provider, account, name)
-                ends = _number(shared.get("resets_at")) or max(
-                    [*seen, *(pair["resets_at"] for pair in pairs)], default=None)
-                pairs = _recent(pairs, seen, ends, _number(shared.get("window_secs")))
-                for pair, moved in zip(pairs, _allocated(pairs)):
-                    model, effort = pair.get("model"), pair.get("effort")
-                    if (model not in models or not isinstance(effort, str)
-                            or models[model]["provider"] != provider):
-                        continue
-                    total = totals.setdefault((model, effort), [0.0, 0.0])
-                    total[0] += pair["tokens"]
-                    total[1] += moved
-    found = {}
-    for name, entry in models.items():
-        efforts = {config.role_effort(entry, role) for role in config.ROLE_EFFORTS}
-        efforts |= {effort for model, effort in totals if model == name}
-        found[name] = {}
-        for effort in sorted(efforts):
-            tokens, moved = totals.get((name, effort), (0, 0))
-            found[name][effort] = 1e6 * moved / tokens if tokens > 0 and moved > 0 else None
-    return found
-
-
-def task_usage(rates):
-    """Mean weekly percentage points per complete run, separately for each worker role."""
-    roles = ("executor", "reviewer")
-    found = {model: {effort: dict.fromkeys(roles) for effort in efforts}
-             for model, efforts in rates.items()}
-    runs, samples = {}, {}
-    for provider, accounts in _measured().items():
-        for account, meters in _record(accounts).items():
-            for values in _record(meters).values():
-                for pair in _pairs(values):
-                    run, role = pair.get("run_id"), pair.get("role")
-                    if isinstance(run, str) and run and role in roles:
-                        runs.setdefault((run, role), []).append((provider, account, pair))
-    for (run, role), pairs in runs.items():
-        model, effort = pairs[0][2].get("model"), pairs[0][2].get("effort")
-        if (not isinstance(model, str) or not isinstance(effort, str)
-                or any((p.get("model"), p.get("effort")) != (model, effort)
-                       for _, _, p in pairs)):
-            continue
-        rate = rates.get(model, {}).get(effort)
-        if rate is None:
-            continue
-        # One turn can pair several gating meters at the same timestamp.
-        tokens = {(provider, account, p["at"]): p["tokens"]
-                  for provider, account, p in pairs}
-        launches = sum(("reviewer" if receipt.parent.name.startswith("reviewer") else
-                        "executor") == role
-                       for receipt in (config.RUNS / run).glob("round-*/*/harness"))
-        # A missed reading (or pruned window) must not make a task look cheaper. Without
-        # every launch receipt and its pair, including after diagnostics go, it is unknown.
-        if launches != len(tokens) or not launches or any(t <= 0 for t in tokens.values()):
-            continue
-        samples.setdefault((model, effort, role), []).append(sum(tokens.values()) * rate / 1e6)
-    for (model, effort, role), shares in samples.items():
-        found[model][effort][role] = sum(shares) / len(shares)
-    return found
-
-
 def holds(provider, account, meter):
     """(the tokens 100% of this subscription's `meter`, a reading's, stands for, the pairs it is
     measured from): those of the window the reading names and the one before it (`_recent`),
@@ -1824,6 +1745,7 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
 HEADERS = ("provider", "model(s)", "left", "holds", "a month", "resets", "week elapsed",
            "session", "resets held", "headroom", "budget", "outlook")
 MONTH = 365.25 * 86400 / 12     # a month of a subscription, in seconds
+SPENT_OVER = 7 * 86400          # what a login's spend is priced over, and its plan's week fitted
 
 
 def _pct(value):
@@ -2132,6 +2054,16 @@ def render(cfg, providers, order, *, repo=None):
                       terminal.wrap(line, width)))
 
 
+def plan_weeks(cfg, providers, now):
+    """{provider: {account: `spend.weeks`'s fit}} of each login of `providers` (`_accounts`), from
+    the readings of its shared week over the `SPENT_OVER` up to `now`."""
+    logins = [(name, account, (shared_week(cfg, name, prov) or {}).get("name"))
+              for _, name, prov, account in _accounts(cfg, providers)]
+    return {name: spend.weeks(cfg, name, {account: meter for of, account, meter in logins
+                                          if of == name}, now - SPENT_OVER, now)
+            for name in providers}
+
+
 def main(argv):
     if command_help.show("usage", argv):
         return 0
@@ -2145,17 +2077,13 @@ def main(argv):
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
         now = time.time()
-        since = now - 7 * 86400
-        logins = [(name, prov, account, shared_week(cfg, name, prov) or {})
-                  for _, name, prov, account in _accounts(cfg, providers)]
-        weeks = {name: spend.weeks(cfg, name, {account: shared.get("name") for of, _, account,
-                                               shared in logins if of == name}, since, now)
-                 for name in providers}
-        for name, prov, account, shared in logins:
+        weeks = plan_weeks(cfg, providers, now)
+        for _, name, prov, account in _accounts(cfg, providers):
+            shared = shared_week(cfg, name, prov) or {}
             prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account, shared)
             prov["price"] = price(cfg, name)
             prov["price_per_1m"] = per_million(prov["price"], prov["capacity_tokens"], shared)
-            prov["listed_usd"] = spend.listed(cfg, name, account, since, now)
+            prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]
         json.dump({"providers": providers, "pick_order": order,
