@@ -381,3 +381,4 @@ test_key_worker_rules_are_lean
 test_key_worker_rules_whole
 test_key_worker_turn
 test_key_working_dot
+test_key_writer_reviews_only_without_room

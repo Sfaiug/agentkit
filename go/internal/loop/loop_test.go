@@ -249,6 +249,7 @@ type room struct{}
 func (room) Spent(string) string             { return "" }
 func (room) Budget(string) (float64, string) { return 1, "" }
 func (room) OnCredits(string) bool           { return false }
+func (room) Pace(string) (float64, bool)     { return 0, true }
 
 func TestEveryPickStaysInTheListsTheRunWasLaunchedWith(t *testing.T) {
 	l := rig(t, time.Minute)
