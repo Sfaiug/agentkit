@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"math/big"
 	"net/http"
 	"net/url"
 	"os"
@@ -54,9 +55,10 @@ var units = []string{"browser-bridge-xvfb.service", "browser-bridge-openbox.serv
 // writes, then the one the stack's installer wrote.
 var passwords = []string{"browser-bridge-vnc.txt", "browser-bridge-vnc"}
 
-// Where the stack answers; a test points them at its own.
+// Where the stack answers; a test points them at its own, and one whose ticks would reach the
+// host's browser points CDP at none.
 var (
-	cdp     = "http://127.0.0.1:9222"
+	CDP     = "http://127.0.0.1:9222"
 	unitDir = "/etc/systemd/system"
 )
 
@@ -182,7 +184,7 @@ func status() ([]string, bool, error) {
 		return nil, false, err
 	}
 	if err != nil {
-		say("cdp        %s unreachable (%v)", cdp, err)
+		say("cdp        %s unreachable (%v)", CDP, err)
 		healthy = healthy && !installed
 	} else {
 		rows, err := tabs(version, list)
@@ -291,10 +293,24 @@ func unitStates(env []string) ([]string, error) {
 // read is one of DevTools' JSON answers, as Python's browser.cdp reads it; an error says why it
 // cannot be read.
 func read(path string) (any, error) {
+	body, err := ask(path)
+	if err != nil {
+		return nil, err
+	}
+	value, err := run.DecodeShown(body)
+	if errors.Is(err, run.ErrLimit) {
+		return nil, ErrPython
+	}
+	return value, err
+}
+
+// ask is what DevTools answers at path, asked as Python's urllib asks it; an error says why it
+// did not answer.
+func ask(path string) ([]byte, error) {
 	if proxied() {
 		return nil, ErrPython
 	}
-	response, err := client.Get(cdp + path)
+	response, err := client.Get(CDP + path)
 	var failed *url.Error
 	if errors.As(err, &failed) {
 		return nil, failed.Err // the address is on the line already
@@ -305,15 +321,7 @@ func read(path string) (any, error) {
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		return nil, errors.New(response.Status)
 	}
-	body, err := io.ReadAll(response.Body)
-	if err != nil {
-		return nil, err
-	}
-	value, err := run.DecodeShown(body)
-	if errors.Is(err, run.ErrLimit) {
-		return nil, ErrPython
-	}
-	return value, err
+	return io.ReadAll(response.Body)
 }
 
 // proxied is whether Python's urllib sends a request to DevTools through a proxy the
@@ -340,7 +348,7 @@ func proxied() bool {
 	if proxies["http"] == "" || proxies["no"] == "*" {
 		return false
 	}
-	host := strings.ToLower(strings.TrimPrefix(cdp, "http://"))
+	host := strings.ToLower(strings.TrimPrefix(CDP, "http://"))
 	hostOnly, _, _ := strings.Cut(host, ":")
 	for _, name := range strings.Split(proxies["no"], ",") { // an empty name matches no host
 		name = strings.ToLower(strings.TrimLeft(strings.TrimFunc(name, config.Space), "."))
@@ -375,11 +383,11 @@ func tabs(version, list any) ([]string, error) {
 			pages = append(pages, page)
 		}
 	}
-	rows := []string{fmt.Sprintf("cdp        %s reachable, %s", cdp, browser),
+	rows := []string{fmt.Sprintf("cdp        %s reachable, %s", CDP, browser),
 		fmt.Sprintf("tabs       %d open (cap %s; a tab idle %s min is closed by ak watch)", len(pages),
-			setting("AK_BROWSER_TAB_CAP", "12"), setting("AK_BROWSER_TAB_IDLE_MIN", "60"))}
+			tabCap(), idleMinutes())}
 	stored := run.NewObject()
-	data, err := os.ReadFile(filepath.Join(config.Home(), "state", "browser-tabs.json"))
+	data, err := os.ReadFile(records())
 	if err == nil {
 		records, err := run.DecodeShown(data)
 		if errors.Is(err, run.ErrLimit) {
@@ -424,15 +432,23 @@ func tabs(version, list any) ([]string, error) {
 	return rows, nil
 }
 
+// tabCap and idleMinutes are how many tabs the watch tick leaves open and how many minutes one
+// may stay unchanged, as Python's browser.tab_cap and tab_idle_minutes read them.
+func tabCap() *big.Int      { return setting("AK_BROWSER_TAB_CAP", 12) }
+func idleMinutes() *big.Int { return setting("AK_BROWSER_TAB_IDLE_MIN", 60) }
+
 // setting is the variable's number as Python's int() reads it where that is 1 or more, else
-// fallback: the watch tick's tab cap and idle minutes.
-func setting(name, fallback string) string {
+// fallback.
+func setting(name string, fallback int64) *big.Int {
 	number := config.Int(strings.TrimFunc(os.Getenv(name), config.Space))
 	if number == nil || number.Sign() < 1 {
-		return fallback
+		return big.NewInt(fallback)
 	}
-	return number.String()
+	return number
 }
+
+// records is the file of each tab's url and title as last seen, and when they last changed.
+func records() string { return filepath.Join(config.Home(), "state", "browser-tabs.json") }
 
 // floorDiv is Python's int(x // y) for a finite x ≥ 0 and a y > 0, rounded as CPython's float
 // floor division rounds it.

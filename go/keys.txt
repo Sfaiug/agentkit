@@ -353,6 +353,7 @@ test_key_tick_log_roll
 test_key_tick_no_user_manager
 test_key_tick_one_pass
 test_key_tick_pass_names
+test_key_tick_tidies_browser_tabs
 test_key_tmux_conf
 test_key_ticks_stopped_page
 test_key_tmux_shim_new_session
