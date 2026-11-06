@@ -3,6 +3,7 @@ package leftover
 import (
 	"cmp"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,7 +23,8 @@ type faked struct {
 const home = "HOME=/home/acme"
 
 // fakeProc makes a /proc holding these processes, its namespace 77, and the signals sent to
-// them recorded in place of being sent; the grace is none.
+// them recorded in place of being sent; the grace is none, and the one seat ak has forgotten is
+// `gone`.
 func fakeProc(t *testing.T, processes ...faked) *[]string {
 	root := t.TempDir()
 	t.Setenv("HOME", "/home/acme")
@@ -43,9 +45,10 @@ func fakeProc(t *testing.T, processes ...faked) *[]string {
 		put(filepath.Join(dir, "cmdline"), "sleep\x00600 s\x00")
 	}
 	sent := &[]string{}
-	was, waited, sending := proc, grace, send
-	t.Cleanup(func() { proc, grace, send = was, waited, sending })
+	was, waited, sending, forgetting := proc, grace, send, forgotten
+	t.Cleanup(func() { proc, grace, send, forgotten = was, waited, sending, forgetting })
 	proc, grace = root, 0
+	forgotten = func() (func(string) bool, bool) { return func(tag string) bool { return tag == "gone" }, true }
 	send = func(pid int, start int64, number syscall.Signal) bool {
 		stat, ok := readStat(pid)
 		*sent = append(*sent, fmt.Sprintf("%d %d", pid, number))
@@ -54,11 +57,15 @@ func fakeProc(t *testing.T, processes ...faked) *[]string {
 	return sent
 }
 
-// A gone `ak`'s process left in its session gets TERM, then, a look later, KILL, each logged.
+// A gone `ak`'s process left in its session gets TERM, then, a look later, KILL, each logged; with
+// no seat's tag to ask about, a home Go does not read is never read.
 func TestWhatAGoneAkLeftInItsSessionEnds(t *testing.T) {
 	sent := fakeProc(t, faked{pid: 31, session: 4, start: 900, env: []string{home, "AK_OWNER=77 4 800 4 ak usage"}})
+	forgotten = func() (func(string) bool, bool) { return nil, false }
 	var said []string
-	Sweep(func(line string) { said = append(said, line) })
+	if !Sweep(func(line string) { said = append(said, line) }) {
+		t.Error("the sweep was left to Python")
+	}
 	if want := []string{"31 15", "31 9"}; !slices.Equal(*sent, want) {
 		t.Errorf("sent %v, want %v", *sent, want)
 	}
@@ -81,41 +88,71 @@ func TestAnExitedOrRecycledAkIsGone(t *testing.T) {
 	}
 }
 
-// None of these is a leftover, and with no tag among them Go carries the sweep.
+// None of these is a leftover, those tagged not even with a forgotten seat's tag.
 func TestWhatIsNeverALeftover(t *testing.T) {
-	mark := "AK_OWNER=77 4 800 4 ak usage"
+	mark, tag := "AK_OWNER=77 4 800 4 ak usage", "AK_TMUX_OWNER=gone"
 	for name, p := range map[string]faked{
 		"its ak runs":         {pid: 4, session: 4, start: 800, env: []string{home, mark}},
 		"a session its own":   {pid: 31, session: 31, start: 900, env: []string{home, mark}},
 		"another namespace":   {pid: 31, session: 4, start: 900, env: []string{home, "AK_OWNER=78 4 800 4 ak usage"}},
-		"exited":              {pid: 31, session: 4, start: 900, state: "Z", env: []string{home, mark}},
-		"a run's":             {pid: 31, session: 4, start: 900, env: []string{home, mark, "AGENTKIT_RUN=/r"}},
-		"another HOME's":      {pid: 31, session: 4, start: 900, env: []string{"HOME=/home/other", mark}},
-		"a tmux server":       {pid: 31, session: 4, start: 900, comm: "tmux: server", env: []string{home, mark}},
+		"exited":              {pid: 31, session: 4, start: 900, state: "Z", env: []string{home, mark, tag}},
+		"a run's":             {pid: 31, session: 4, start: 900, env: []string{home, mark, tag, "AGENTKIT_RUN=/r"}},
+		"another HOME's":      {pid: 31, session: 4, start: 900, env: []string{"HOME=/home/other", mark, tag}},
+		"a tmux server":       {pid: 31, session: 4, start: 900, comm: "tmux: server", env: []string{home, mark, tag}},
 		"below a tmux server": {pid: 31, parent: 20, session: 4, start: 900, env: []string{home, mark}},
 		"unmarked":            {pid: 31, session: 4, start: 900, env: []string{home}},
+		"a held seat's":       {pid: 31, session: 31, start: 900, env: []string{home, "AK_TMUX_OWNER=acme"}},
 	} {
 		sent := fakeProc(t, p, faked{pid: 20, parent: 31, session: 4, start: 1, comm: "tmux: server"})
 		Sweep(func(string) {})
-		if len(*sent) > 0 || !Tagless() {
+		if len(*sent) > 0 {
 			t.Errorf("%s: sent %v", name, *sent)
 		}
 	}
 }
 
-// A seat's tag is Python's to judge, unless the process is one the sweep never ends.
-func TestATagIsForPython(t *testing.T) {
-	fakeProc(t, faked{pid: 31, session: 31, start: 900, env: []string{home, "AK_TMUX_OWNER=acme"}})
-	if Tagless() {
-		t.Error("a tagged process went unseen")
+// What a seat ak has forgotten left gets TERM, then KILL, each logged, wherever it runs: in a
+// session of its own, below a tmux server, beside its mark's running `ak`. Each look reads the home
+// once and asks it once of each seat, and ends what a gone `ak` left first.
+func TestWhatAForgottenSeatLeftEnds(t *testing.T) {
+	mark, tag := "AK_OWNER=77 4 800 4 ak usage", "AK_TMUX_OWNER=gone"
+	sent := fakeProc(t,
+		faked{pid: 4, session: 4, start: 800, env: []string{home, mark}},
+		faked{pid: 20, session: 20, start: 1, comm: "tmux: server"},
+		faked{pid: 31, session: 31, start: 900, env: []string{home, tag}},
+		faked{pid: 32, parent: 20, session: 32, start: 900, env: []string{home, tag}},
+		faked{pid: 33, session: 4, start: 900, env: []string{home, mark, tag}},
+		faked{pid: 34, session: 4, start: 900, env: []string{home, "AK_OWNER=77 5 800 4 ak usage", tag}},
+		faked{pid: 35, session: 35, start: 900, env: []string{home, "AK_TMUX_OWNER=acme"}})
+	reads, asked := 0, map[string]int{}
+	forgotten = func() (func(string) bool, bool) {
+		reads++
+		return func(tag string) bool { asked[tag]++; return tag == "gone" }, true
 	}
-	fakeProc(t, faked{pid: 31, session: 4, start: 900, env: []string{home, "AK_OWNER=77 4 800 4 ak usage", "AK_TMUX_OWNER=acme"}})
-	if Tagless() {
-		t.Error("a leftover's tag went unseen")
+	var said []string
+	if !Sweep(func(line string) { said = append(said, line) }) {
+		t.Error("the sweep was left to Python")
 	}
-	fakeProc(t, faked{pid: 31, session: 31, start: 900, env: []string{"HOME=/home/other", "AK_TMUX_OWNER=acme"}})
-	if !Tagless() {
-		t.Error("another HOME's tag counted")
+	if want := []string{"34 15", "31 15", "32 15", "33 15", "34 9", "31 9", "32 9", "33 9"}; !slices.Equal(*sent, want) {
+		t.Errorf("sent %v, want %v", *sent, want)
+	}
+	if want := "TERM to sleep '600 s' (pid 31), which a forgotten seat `gone` left running"; len(said) != 8 || said[1] != want {
+		t.Errorf("logged %q", said)
+	}
+	if want := map[string]int{"gone": 2, "acme": 2}; reads != 2 || !maps.Equal(asked, want) {
+		t.Errorf("read the home %d times, asked %v, want %v", reads, asked, want)
+	}
+}
+
+// A seat's tag on a home Go does not read leaves the sweep to Python before anything is sent,
+// what a gone `ak` left included.
+func TestATagOnAHomeGoDoesNotReadIsPythons(t *testing.T) {
+	sent := fakeProc(t,
+		faked{pid: 31, session: 4, start: 900, env: []string{home, "AK_OWNER=77 4 800 4 ak usage"}},
+		faked{pid: 32, session: 32, start: 900, env: []string{home, "AK_TMUX_OWNER=gone"}})
+	forgotten = func() (func(string) bool, bool) { return nil, false }
+	if Sweep(func(string) {}) || len(*sent) > 0 {
+		t.Errorf("carried, sent %v", *sent)
 	}
 }
 
@@ -124,7 +161,7 @@ func TestNoProcFindsNothing(t *testing.T) {
 	sent := fakeProc(t)
 	proc = filepath.Join(proc, "none")
 	Sweep(func(string) {})
-	if len(*sent) > 0 || !Tagless() {
+	if len(*sent) > 0 {
 		t.Errorf("sent %v", *sent)
 	}
 }
