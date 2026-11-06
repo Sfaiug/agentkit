@@ -2,7 +2,6 @@ package loop
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 
@@ -167,10 +166,7 @@ func (r *repoPlace) earlierWork(l *loop, j *judging, whole, head string) (string
 			j.replayed = append(j.replayed, replay{standing, now, handin.ProofFailed(now), touched, lines})
 		}
 	}
-	j.listed = filepath.Join(l.roundDir(), "earlier.json")
-	if err := os.WriteFile(j.listed, []byte(run.Line(listed)), 0o666); err != nil {
-		return "", err
-	}
+	j.standing = listed
 	section := replaySection(j.replayed, left, j.since)
 	if j.since == "" {
 		return whole + "\n\n" + section, nil

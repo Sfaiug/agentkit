@@ -16,8 +16,8 @@ import (
 
 // A run's row, written where Python's transitions writes it, from the run's record: made, or
 // brought back to running, as the run is launched and as it starts (Start); kept as its loop goes
-// (Keep); and closed in history_ending's terms as it ends (Finish).  The steps, checks, waits,
-// tokens and reviews Python records beside it are not Go's yet.
+// (Keep); and closed in history_ending's terms as it ends (Finish).  The steps, checks, waits and
+// tokens Python records beside it are not Go's yet.
 
 // Start is Python's transitions.history_start: the row of a run as its launch or its start finds
 // it, made running.  A suite's repository has none, and the row a launch wrote before its
@@ -177,9 +177,10 @@ func (db *DB) update(id any, pairs ...any) error {
 	return db.exec("UPDATE runs SET "+strings.Join(columns, ", ")+" WHERE run_id=?", append(values, id)...)
 }
 
-// Carried is whether history.db holds a step of the run, which Python records and Go does not
-// yet: a run Python carried, whose going on is Python's.  Where none stands it holds none; where
-// SQLite cannot say, it may.
+// Carried is whether history.db holds a step of the run, or of any run for "", which Python
+// records and Go does not yet: a run Python carried, whose going on is Python's, or a history of
+// runs Python kept, which a launch would join.  Where none stands it holds none; where SQLite cannot
+// say, it may.
 func Carried(id string) bool {
 	path := Path()
 	if _, err := os.Stat(path); err != nil {
@@ -190,7 +191,7 @@ func Carried(id string) bool {
 		return true
 	}
 	defer db.Close()
-	steps, err := db.rows("SELECT 1 FROM phases WHERE run_id=? LIMIT 1", id)
+	steps, err := db.rows("SELECT 1 FROM phases WHERE ? IN ('', run_id) LIMIT 1", id)
 	return err != nil || len(steps) > 0
 }
 

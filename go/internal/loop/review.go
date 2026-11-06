@@ -13,6 +13,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/handin"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 )
 
@@ -58,6 +59,9 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 		return false, err
 	}
 	disputes, err := l.reviewDisputes(j)
+	if err == nil {
+		err = l.handDisputes(j, disputes)
+	}
 	if err != nil {
 		return false, err
 	}
@@ -205,11 +209,8 @@ func (l *loop) review(summary string, ok bool, checked, preface string) (bool, e
 	if err != nil {
 		return false, err
 	}
-	dropped, err := l.dropped(j, disputes, weighed)
-	if err != nil {
-		return false, err
-	}
-	return l.record(summary, done.out, reviewed, weighed, done.code, ok, checked, dropped, j)
+	answer(j, disputes, submitted)
+	return l.record(summary, done.out, reviewed, weighed, disputes, done.code, ok, checked, j)
 }
 
 // giveUp keeps what a reviewer that gave no verdict said, on the record for whoever reads it next.
@@ -263,9 +264,10 @@ func (l *loop) weigh(submitted *handin.Review, j *judging) (*handin.Review, erro
 
 // record puts the verdict on the record: review.md and findings.json beside the reviewer's turn,
 // the round's summary unless the review spends no round, and the evidence delivery is decided on:
-// whether it passed.  What the reviewer passed the loop fails where its turn exited non-zero, a
+// whether it passed, and history.db's rows of the review and of its records, the round's answered
+// disputes after them.  What the reviewer passed the loop fails where its turn exited non-zero, a
 // check is failing, or the checkout moved after verification.
-func (l *loop) record(summary, out string, reviewed config.Model, submitted *handin.Review, code int, ok bool, checked string, dropped []any, j *judging) (bool, error) {
+func (l *loop) record(summary, out string, reviewed config.Model, submitted, disputes *handin.Review, code int, ok bool, checked string, j *judging) (bool, error) {
 	verdict := submitted.Verdict()
 	overridden := ""
 	if code != 0 && verdict == "PASS" {
@@ -318,7 +320,9 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		review.Set("overridden", overridden)
 	}
 	checks, commits, defects := submitted.FollowupRecords()
+	var saved *run.Object
 	err = l.save(func(record *run.Object) {
+		saved = record
 		if !j.uncounted {
 			record.Set("round_summaries", append(record.List("round_summaries"), entry))
 		}
@@ -330,8 +334,8 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 			keepFlakes(record, checked)
 		}
 		kept := record.List("disputes")
-		for _, each := range dropped {
-			if !slices.Contains(kept, each) {
+		for _, row := range disputes.Records {
+			if each := "Conceded: " + handin.ItemText(row); row.Str("outcome") == "conceded" && !slices.Contains(kept, any(each)) {
 				kept = append(kept, each)
 			}
 		}
@@ -345,6 +349,7 @@ func (l *loop) record(summary, out string, reviewed config.Model, submitted *han
 		return false, err
 	}
 	l.say(fmt.Sprintf("round %d verdict: %s", l.rnd, verdict))
+	history.Reviewed(saved, out, reviewed, l.rnd, verdict, slices.Concat(submitted.Records, disputes.Records), l.say)
 	return verdict == "PASS", nil
 }
 

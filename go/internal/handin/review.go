@@ -2,6 +2,7 @@ package handin
 
 import (
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -15,7 +16,7 @@ const File = "hand-in.jsonl"
 // A Review is what a turn handed in, Python's hand_in.Review, its turn's row aside.
 type Review struct {
 	Records []*run.Object
-	Handed  any // the blocking findings handed to the turn
+	Handed  []any // the blocking findings handed to the turn, then the disputes
 }
 
 var closings = []string{"done", "blocked", "not-needed"}
@@ -68,18 +69,22 @@ func Read(path string) (*Review, bool) {
 			if blank(row.Str("why")) {
 				return empty, true
 			}
+		case kind == "concede":
+			if blank(row.Str("why")) || !sited(row) {
+				return empty, true
+			}
 		case kind != "done" && !wellFormed(row):
 			return empty, true
 		}
 	}
-	return &Review{records, rows[0].Get("findings")}, true
+	return &Review{records, slices.Concat(rows[0].List("findings"), rows[0].List("disputes"))}, true
 }
 
 // allowed is whether a turn of that role hands in that kind of record.
 func allowed(role, kind string) bool {
 	switch {
 	case strings.HasPrefix(role, "reviewer"):
-		return kind == "finding" || kind == "follow-up" || kind == "done"
+		return kind == "finding" || kind == "follow-up" || kind == "concede" || kind == "done"
 	case strings.HasPrefix(role, "fixer"):
 		return kind == "dispute" || closing(kind)
 	}
@@ -238,6 +243,9 @@ func itemText(row *run.Object) string {
 	}
 	if row.Truthy("replayed") {
 		text += "\nRe-proven by ak on this commit: " + row.Str("replayed")
+	}
+	if row.Truthy("conceded") {
+		text += "\nConceded: " + row.Str("conceded")
 	}
 	return strings.TrimFunc(text, config.Space)
 }

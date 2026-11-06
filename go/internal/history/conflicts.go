@@ -85,22 +85,6 @@ func recorded(runID string) bool {
 	return record != nil && !unrecorded(record) && !sandbox(record.Str("repo"))
 }
 
-// Runless is whether no history of runs stands: no history.db, or one holding no run's row, as one
-// Go's conflict rows made does.  A run there joins no record Python keeps of others, so Go carries
-// it as where none stands.
-func Runless() bool {
-	if run.Historyless() {
-		return true
-	}
-	db, err := connect(Path(), sqlite3.OPEN_READONLY)
-	if err != nil {
-		return false
-	}
-	defer db.Close()
-	rows, err := db.rows("SELECT 1 FROM runs LIMIT 1")
-	return err == nil && len(rows) == 0
-}
-
 // commit is one change to history.db in one transaction, under the writers' lock held to its end,
 // Python's _write: a database none stands for is made, and any brought up to today's tables first.
 // An error, having written nothing, where SQLite failed or the tokens wait for Python's repair.

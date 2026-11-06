@@ -12,14 +12,16 @@ import (
 
 // A judging is what one review holds from its start to its verdict.
 type judging struct {
-	earlier  []*run.Object   // the blocking findings the last review handed in, as weighed then
-	from     string          // the commit the last review judged
-	since    string          // that commit where this review reads what changed since, else ""
-	sites    map[string]bool // where an earlier finding can stand on this commit, once since is set
-	disputes []*run.Object   // what the round's fixer disputed
-	replayed []replay        // ak's own proof of the earlier findings on this commit
-	listed   string          // the file of earlier findings handed to the reviewer, "" for none
-	whole    string          // the whole change, for a conversation that starts fresh; "" where the section is that
+	earlier   []*run.Object   // the blocking findings the last review handed in, as weighed then
+	from      string          // the commit the last review judged
+	since     string          // that commit where this review reads what changed since, else ""
+	sites     map[string]bool // where an earlier finding can stand on this commit, once since is set
+	disputes  []*run.Object   // what the round's fixer disputed
+	replayed  []replay        // ak's own proof of the earlier findings on this commit
+	standing  []any           // the earlier findings where they stand on this commit, for the reviewer
+	answering []*run.Object   // the disputes handed to the reviewer, each with the lines the fix left it at
+	listed    string          // the file of earlier findings and disputes handed to the reviewer, "" for none
+	whole     string          // the whole change, for a conversation that starts fresh; "" where the section is that
 
 	uncounted bool   // a landing re-review, which spends no round
 	passed    string // the head the task's checks last passed on as it began
@@ -112,26 +114,6 @@ func (l *loop) reviewDisputes(j *judging) (*handin.Review, error) {
 		rows = append(rows, kept)
 	}
 	return &handin.Review{Records: rows}, nil
-}
-
-// dropped is the disputes the reviewer did not hand in again, as result.md lists them: a dispute's
-// finding is upheld wherever the fix left its line.
-func (l *loop) dropped(j *judging, disputes, weighed *handin.Review) ([]any, error) {
-	upheld := map[string]bool{}
-	for _, row := range weighed.Of("finding") {
-		upheld[siteKey(row.Str("path"), lineOf(row))] = true
-	}
-	found := []any{}
-	for _, row := range disputes.Records {
-		lines, _, err := l.place.moved(row.Str("path"), lineOf(row), j.since)
-		if err != nil {
-			return nil, err
-		}
-		if !slices.ContainsFunc(lines, func(line int) bool { return upheld[siteKey(row.Str("path"), line)] }) {
-			found = append(found, "Dropped: "+handin.ItemText(row))
-		}
-	}
-	return found, nil
 }
 
 // replayWord is how a replayed proof went, for the reviewer and the record.

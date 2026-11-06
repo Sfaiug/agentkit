@@ -36,6 +36,7 @@ type turn struct {
 	workspace any // the checkout, a path only as a string
 	role      string
 	findings  any // the blocking findings handed to the turn (handed)
+	disputes  any // the disputes handed to a review, each with the lines the fix left it at (disputed)
 	records   []*run.Object
 	checks    *run.Object // what a builder's done is held to, nil for nothing
 }
@@ -44,16 +45,17 @@ type turn struct {
 const variable = "AK_HAND_IN"
 
 // Start opens a turn's record file in its out directory with the turn's row, the workspace and
-// role, the blocking findings handed to it, the list the file findings holds, none for "", and the
-// checks its done is held to, none for nil: the variable naming that file to the turn.  A turn that
-// resumes one cut off gets what that one's record file, previous, holds: a session keeps its
-// records, its completion being this turn's alone.
+// role, what is handed to it, the list the file findings holds, none for "": the blocking findings,
+// and apart from them the disputes a review answers; and the checks its done is held to, none for
+// nil: the variable naming that file to the turn.  A turn that resumes one cut off gets what that
+// one's record file, previous, holds: a session keeps its records, its completion being this
+// turn's alone.
 func Start(out, workspace, role, findings, previous string, checks *run.Object) (string, error) {
 	path := filepath.Join(config.Resolve(out), File)
-	handed := any([]any{})
+	handed := []any{}
 	var before *Review
 	if previous != "" {
-		if before, _ = Read(previous); before != nil && before.Handed != nil {
+		if before, _ = Read(previous); before != nil {
 			handed = before.Handed
 		}
 	}
@@ -62,15 +64,28 @@ func Start(out, workspace, role, findings, previous string, checks *run.Object) 
 		if err != nil {
 			return "", err
 		}
-		if handed, err = run.Decode(data); err != nil {
+		listed, err := run.Decode(data)
+		if err != nil {
 			return "", err
+		}
+		handed, _ = listed.([]any)
+	}
+	found, disputes := []any{}, []any{}
+	for _, item := range handed {
+		if row, _ := item.(*run.Object); row != nil && row.Str("kind") == "dispute" {
+			disputes = append(disputes, item)
+		} else {
+			found = append(found, item)
 		}
 	}
 	row := run.NewObject()
 	row.Set("kind", "turn")
 	row.Set("workspace", config.Resolve(workspace))
 	row.Set("role", role)
-	row.Set("findings", handed)
+	row.Set("findings", found)
+	if len(disputes) > 0 {
+		row.Set("disputes", disputes)
+	}
 	if checks != nil {
 		row.Set("checks", checks)
 	}
@@ -110,6 +125,9 @@ func Hand(args []string) error {
 		}
 	}
 	row, err := t.checked(args)
+	if err == nil && row.Str("kind") == "done" && strings.HasPrefix(t.role, "reviewer") {
+		err = t.answered()
+	}
 	if err == nil && row.Str("kind") == "done" && !strings.HasPrefix(t.role, "reviewer") {
 		if err = t.oversize(); err == nil {
 			err = t.checksPass(filepath.Dir(path))
@@ -153,7 +171,7 @@ func read(data []byte) (*turn, error) {
 	} else if first.Str("kind") != "turn" {
 		return nil, invalid
 	}
-	t := &turn{workspace: first.Get("workspace"), role: "reviewer", findings: []any{}}
+	t := &turn{workspace: first.Get("workspace"), role: "reviewer", findings: []any{}, disputes: []any{}}
 	for _, row := range rows {
 		record, ok := row.(*run.Object)
 		if !ok {
@@ -175,6 +193,9 @@ func read(data []byte) (*turn, error) {
 	if first.Has("findings") {
 		t.findings = first.Get("findings")
 	}
+	if first.Has("disputes") {
+		t.disputes = first.Get("disputes")
+	}
 	t.checks = first.Dict("checks")
 	return t, nil
 }
@@ -184,6 +205,8 @@ func (t *turn) checked(args []string) (*run.Object, error) {
 	row := run.NewObject()
 	if len(args) > 0 {
 		switch args[0] {
+		case "concede":
+			return t.concede(args)
 		case "blocked", "not-needed":
 			if strings.HasPrefix(t.role, "reviewer") {
 				return nil, errors.New("blocked and not-needed are only for executor or fixer turns")
