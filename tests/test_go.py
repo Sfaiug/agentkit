@@ -68,10 +68,11 @@ def step(part, gofmt, out, **judge):
     where it names none: on that platform wherever this runs, as a narrowing step may give a
     part on another host than the one that named it."""
     if part == "fmt":
-        # the module's own files, as `go fmt ./...` reads them: never a vendored module's
+        # the module's own files, as `go fmt ./...` reads them: never a vendored module's;
+        # `-d` shows what it would change in each and exits 1 where it would change any
         own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
                if path.relative_to(GO).parts[0] != "vendor"]
-        return run(gofmt, "-l", *own)
+        return run(gofmt, "-d", *own)
     named = re.fullmatch(r"(vet|build) (\w+)/(\w+)", part)
     if not named:
         return None
@@ -114,10 +115,12 @@ class Go(unittest.TestCase):
         release = re.search(r"^toolchain (\S+)$", (GO / "go.mod").read_text(), re.M)
         self.assertTrue(release, "go/go.mod names no toolchain: the Go release that judges go/")
         judge = {"GOTOOLCHAIN": release[1]}
-        found = run("go", "env", "GOROOT", "GOOS", "GOARCH", **judge)
+        # JSON, the one format go env keeps whatever the caller's GOFLAGS (`-json`) ask.
+        found = run("go", "env", "-json", "GOROOT", "GOOS", "GOARCH", **judge)
         self.assertEqual(found.returncode, 0, f"go env {judge}\n{found.stdout}{found.stderr}")
-        root, system, arch = found.stdout.splitlines()
-        gofmt = Path(root, "bin", "gofmt")
+        goenv = json.loads(found.stdout)
+        gofmt = Path(goenv["GOROOT"], "bin", "gofmt")
+        host = f"{goenv['GOOS']}/{goenv['GOARCH']}"
         failed, shown = [], []
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
             # Vetted for each platform, tests and all, before any test runs: a test file calling
@@ -126,13 +129,13 @@ class Go(unittest.TestCase):
             # it.  Every part runs whatever one before it did: a re-run of the failing ones alone
             # passes this file only where every other part has passed.
             for part in sys.argv[1:] or dict.fromkeys(
-                    ["fmt", f"vet {system}/{arch}", *(f"vet {name}" for name in PLATFORMS),
+                    ["fmt", f"vet {host}", *(f"vet {name}" for name in PLATFORMS),
                      "./...", *(f"build {name}" for name in PLATFORMS)]):
                 done = step(part, gofmt, out, **judge)
                 if done:
-                    # A step passes exiting 0 with nothing on its stdout, where `gofmt -l` names
-                    # the files `go fmt ./...` would format.
-                    names = [part] if done.returncode or done.stdout else []
+                    # A step passes exiting 0, whatever it prints: the caller's GOFLAGS=-json
+                    # has a passing vet or build print JSON.
+                    names = [part] if done.returncode else []
                     printed = done.stdout + done.stderr
                 else:
                     names, printed = tested(part, **judge)

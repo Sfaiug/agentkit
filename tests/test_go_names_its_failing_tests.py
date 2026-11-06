@@ -29,7 +29,7 @@ esac
 echo "$call" >>"$ACME_LOG"
 echo "$GOFLAGS" >>"$ACME_FLAGS"
 case "$1" in
-env) echo "$ACME_ROOT"; echo "$ACME_HOST" | tr / '\n' ;;
+env) printf '{"GOROOT": "%s", "GOOS": "%s", "GOARCH": "%s"}\n' "$ACME_ROOT" "${ACME_HOST%/*}" "${ACME_HOST#*/}" ;;
 test) cat "$ACME_EVENTS"; ! grep -q '"Action":"fail"' "$ACME_EVENTS" ;;
 *) case "$ACME_BROKEN" in *"$call"*) echo "$call broke" >&2; exit 1 ;; esac ;;
 esac
@@ -38,10 +38,11 @@ GOFMT = '''#!/bin/sh
 echo "gofmt $1" >>"$ACME_LOG"
 echo "$GOFLAGS" >>"$ACME_FLAGS"
 printf %s "$ACME_UNFORMATTED"
+[ -z "$ACME_UNFORMATTED" ]
 '''
 GOFLAGS = "-skip=TestWidget -count=2"
 ACME, WIDGET = "agentkit/internal/acme", "agentkit/internal/widget"
-TOOLCHAIN = "go env GOROOT GOOS GOARCH"
+TOOLCHAIN = "go env -json GOROOT GOOS GOARCH"
 # t.Fatal in a subtest ends its run `fail`, then its test's, then its package's.
 FATAL = r'''{"Action":"start","Package":"agentkit/internal/acme"}
 {"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
@@ -132,7 +133,7 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertEqual((code, parts),
                          (1, ["fmt", "vet darwin/arm64", "build windows/amd64"]), out)
         self.assertIn("cmd/ak/main.go", out)
-        self.assertEqual(calls, [TOOLCHAIN, "gofmt -l", "go vet linux/arm64", "go vet linux/amd64",
+        self.assertEqual(calls, [TOOLCHAIN, "gofmt -d", "go vet linux/arm64", "go vet linux/amd64",
                                  "go vet darwin/arm64", "go vet windows/amd64",
                                  "go test -json -timeout 0 ./...", "go build linux/amd64",
                                  "go build darwin/arm64", "go build windows/amd64"])
