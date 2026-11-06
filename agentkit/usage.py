@@ -2145,12 +2145,19 @@ def main(argv):
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
         now = time.time()
-        for _, name, prov, account in _accounts(cfg, providers):
-            shared = shared_week(cfg, name, prov) or {}
+        since = now - 7 * 86400
+        logins = [(name, prov, account, shared_week(cfg, name, prov) or {})
+                  for _, name, prov, account in _accounts(cfg, providers)]
+        weeks = {name: spend.weeks(cfg, name, {account: shared.get("name") for of, _, account,
+                                               shared in logins if of == name}, since, now)
+                 for name in providers}
+        for name, prov, account, shared in logins:
             prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account, shared)
             prov["price"] = price(cfg, name)
             prov["price_per_1m"] = per_million(prov["price"], prov["capacity_tokens"], shared)
-            prov["listed_usd"] = spend.listed(cfg, name, account, now - 7 * 86400, now)
+            prov["listed_usd"] = spend.listed(cfg, name, account, since, now)
+            (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
+             prov["plan_listed_usd"]) = weeks[name][account]
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()

@@ -4,7 +4,8 @@ model's listed price for its type.
 
 Raw token sums count a cache read like fresh input, though a model lists it at a fraction of
 that price.  Priced per type, a login's spend foretold its subscription's next meter readings
-within 2-8%, where raw sums were 23% to 75% off (the owner's back-test, 6 Nov 2026).
+within 2-8%, where raw sums were 23% to 75% off (the owner's back-test, 6 Nov 2026): `weeks`
+fits each plan's points of a week a listed dollar takes from every login's readings on it.
 """
 
 import contextlib
@@ -14,6 +15,8 @@ import sqlite3
 
 from . import boards, catalog, config, history, matrix
 
+# a reading is of the week of the one before it, by `resets_at`, at most this many seconds later
+DRIFT = 600
 # each count a row keeps, and the column of a release's values listing its price a million tokens
 PRICES = {"input": "aa.price1mInputTokens", "cache_write": "aa.cacheWritePrice",
           "cache_read": "aa.cacheHitPrice", "output": "aa.price1mOutputTokens"}
@@ -43,6 +46,48 @@ def listed(cfg, provider, account, since, until):
     if not found:
         return None
     return dollars + (unpriced * dollars / priced if priced else 0.0)
+
+
+def weeks(cfg, provider, meters, since, until):
+    """{account: (its plan as state/logins.json names it now, what a week of that plan holds in
+    listed dollars, and the points and dollars that is read from)} for each login of `provider`
+    in `meters`, {account, None for the usual one: the meter `usage.shared_week` names for it}.
+
+    A plan's points over its dollars are the points of a week a listed dollar takes, summed
+    over every login's readings on it between `since` and `until`: those its probes kept, as a
+    turn's trail them (on 6 Nov one read 75 eight seconds after a probe read 76), one kept with
+    no plan its login's plan now's.  A login's readings of one plan and one week, by DRIFT, rose
+    from the earliest to the highest, as a probe may read lower than one before it; what the
+    login spent (`listed`) from the earliest to the first at the highest bought that rise, and
+    one whose spend cannot be priced counts for nothing.  A week holds nothing anyone can name
+    while its plan's points or dollars are 0.
+    """
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    plans = {account: logins.whose(provider, account)[1] for account in meters}
+    groups, start, last = {}, {}, {}
+    for account, meter in meters.items():
+        for used, resets_at, at, plan in _select(
+                "SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "
+                "account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "
+                "used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
+                provider, account or config.DEFAULT_ACCOUNT, meter, since, until):
+            key = account, plan or plans[account]
+            if key not in last or resets_at - last[key] > DRIFT:
+                start[key] = resets_at
+            last[key] = resets_at
+            groups.setdefault((*key, start[key]), []).append((at, used))
+    fits = {}
+    for (account, plan, _), readings in groups.items():
+        began, base = min(readings)
+        top = max(used for _, used in readings)
+        dollars = listed(cfg, provider, account, began,
+                         min(at for at, used in readings if used == top))
+        if dollars is not None:
+            points, spent = fits.get(plan, (0, 0))
+            fits[plan] = points + top - base, spent + dollars
+    held = {plan: (100 * dollars / points if points and dollars else None, points, dollars)
+            for plan, (points, dollars) in fits.items()}
+    return {account: (plan, *held.get(plan, (None, 0, 0))) for account, plan in plans.items()}
 
 
 def _rows(account, since, until):
