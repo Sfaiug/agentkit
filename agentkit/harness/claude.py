@@ -95,7 +95,8 @@ def turn_usage(out):
 
     `modelUsage` counts its subagents too, and totals every turn of its session; a result
     without it counts this turn's own `usage`, under no model.  A turn with no result, killed
-    before Claude Code wrote one, counts its own messages from its session's transcripts.
+    before Claude Code wrote one, counts its own messages from its stream and its session's
+    transcripts.
     """
     from . import last_entry
     out = Path(out)
@@ -124,14 +125,18 @@ def turn_usage(out):
 
 
 def _transcript_usage(out, init):
-    """(None, {model: counts}) of the messages the transcripts of the session `init` names hold
-    from the turn's `harness` receipt to its last event, the span history keeps the turn under;
-    None where its transcript is gone.
+    """(None, {model: counts}) of the turn's own messages, each at the most a line counts it:
+    those its stream names, and those the transcripts of the session `init` names hold from the
+    turn's `harness` receipt to its last event, the span history keeps the turn under; None
+    where none is found.
 
-    The stream counts only a message's first chunk of output; the transcript keeps each
-    message's final counts, and a resumed session's earlier turns too.
+    The stream counts a message's input and cache but only its first chunk of output; the
+    transcript keeps each message's final counts, and a resumed session's earlier turns too.  A
+    turn on a rented machine (agentkit/machine_turn.py) brings its transcript home only when it
+    ends with its session reported, so one killed there keeps its stream's counts.
     """
     from . import moment
+    events = out / "events.jsonl"
     try:
         began, ended = ((out / name).stat().st_mtime for name in ("harness", "events.jsonl"))
     except OSError:
@@ -140,14 +145,9 @@ def _transcript_usage(out, init):
         account = (out / "account").read_text()
     except OSError:
         account = None
-    cwd, session = init.get("cwd"), init.get("session_id")
-    if not isinstance(cwd, str) or not isinstance(session, str):
-        return None
-    sources = seat_token_sources({"account": account, "cwd": cwd, "conversation": session})
-    if not sources or not sources[0].is_file():
-        return None
+    record = {"account": account, "cwd": init.get("cwd"), "conversation": init.get("session_id")}
     messages = {}
-    for path in sources:
+    for path in (events, *seat_token_sources(record)):
         try:
             with path.open(errors="replace") as stream:
                 for n, line in enumerate(stream):
@@ -155,8 +155,9 @@ def _transcript_usage(out, init):
                         usage = seat_token_usage(json.loads(line), None)
                     except (ValueError, TypeError, AttributeError):
                         continue
-                    if usage is None or (at := moment(usage[0])) is None \
-                            or not began <= at <= ended:
+                    # the stream's events are the turn's own, and carry no time
+                    if usage is None or path != events and (
+                            (at := moment(usage[0])) is None or not began <= at <= ended):
                         continue
                     _, key, tokens, model, counts = usage
                     # A message's lines repeat it; the one counting most holds its final counts.
@@ -164,7 +165,9 @@ def _transcript_usage(out, init):
                     if key not in messages or tokens > messages[key][0]:
                         messages[key] = (tokens, model, counts)
         except OSError:
-            continue        # a subagent's file gone since it was listed
+            continue        # a transcript that never came home, or a subagent's gone since
+    if not messages:
+        return None
     totals = {}
     for _, model, counts in messages.values():
         totals[model] = tuple(map(sum, zip(totals.get(model, (0,) * 4), counts)))

@@ -2,8 +2,9 @@
 
 Such a turn's `turn_usage` rows in history.db hold, for each model, each type summed over the
 messages its session's transcripts hold from its start to its last event, its subagent's too,
-each message once however many lines repeat it.  A turn with its `result` keeps what the result
-gives.  Black-box: AK_BIN runs tasks through tests/fixtures/akbin.py on a fake Claude harness.
+each message once however many lines repeat it.  Where no transcript came home, as from a turn
+killed on a rented machine, each message counts as its stream reported it.  A turn with its
+`result` keeps what the result gives.  Black-box: AK_BIN runs tasks through tests/fixtures/akbin.py on a fake Claude harness.
 While the executor's turn waits, the test does what Claude Code would: it writes the turn's
 events, naming the session and the turn's working directory, and that session's transcripts in
 the Home's Claude projects folder.  history.db is read with sqlite3.
@@ -79,7 +80,7 @@ class Turn:
     """One run whose Claude executor waits while the test writes what Claude Code would."""
 
     @classmethod
-    def start(cls, result=None):
+    def start(cls, result=None, transcripts=True):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         rig = Rig(cls.home, "widgets")
@@ -109,8 +110,9 @@ class Turn:
         times = {"before": began - 60, "during": (began + ended) / 2, "after": ended + 60}
         # Claude Code's folder for a short path: every character not a letter or digit a hyphen
         project = cls.home.path / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", workspace)
-        transcript(project / f"{SESSION}.jsonl", MAIN, times)
-        transcript(project / SESSION / "subagents/agent-a1.jsonl", SUBAGENT, times, True)
+        if transcripts:
+            transcript(project / f"{SESSION}.jsonl", MAIN, times)
+            transcript(project / SESSION / "subagents/agent-a1.jsonl", SUBAGENT, times, True)
         release.touch()
         cls.code = proc.wait(timeout=300)
         connection = sqlite3.connect(cls.home.path / ".agentkit/history.db")
@@ -140,6 +142,17 @@ class AKilledTurn(Turn, unittest.TestCase):
         # msg_1 and msg_2 at their final counts, the subagent's message once; neither the
         # resumed session's earlier message nor the one after the last event
         self.assertEqual(self.kept(), [(HAIKU, 5, 700, 0, 90), (OPUS, 10, 2300, 22000, 81575)])
+        self.assertEqual(len(self.rows), 2, self.rows)
+
+
+class AKilledTurnWhoseTranscriptNeverCameHome(Turn, unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.start(transcripts=False)
+
+    def test_each_message_counts_as_its_stream_reported_it(self):
+        # input and cache whole, output its first chunk's
+        self.assertEqual(self.kept(), [(HAIKU, 5, 700, 0, 90), (OPUS, 10, 2300, 22000, 4)])
         self.assertEqual(len(self.rows), 2, self.rows)
 
 
