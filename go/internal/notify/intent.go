@@ -24,13 +24,8 @@ type intent struct {
 
 // intentOf is the row the seat's done writes now, read before the card's files are written, its
 // finished work the plan's ticked lines and the runs it launched that merged; nil where it writes
-// none, and an error where Go does not read it as Python does.  None in a home with no history.db,
-// which Python's tick makes at its seat tokens and Go's keeps without: one made here would hand
-// every later tick to Python.
+// none, and an error where Go does not read it as Python does.
 func intentOf(name string, ticked []any) (*intent, error) {
-	if run.Historyless() {
-		return nil, nil
-	}
 	conversation, messages, err := OwnerMessages(name)
 	if err != nil || conversation == "" {
 		return nil, err

@@ -11,7 +11,6 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
-	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
@@ -69,10 +68,8 @@ func table(t *ticking) []pass {
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
-		// a home with no history.db is given none, where Python's row makes one: a done card is
-		// Go's to page only there, as Go writes no done's row yet (notify)
 		{"seat tokens", false, nil, func() error {
-			if !run.Historyless() && !history.SeatTokens() {
+			if !history.SeatTokens() {
 				return errLeft
 			}
 			return nil

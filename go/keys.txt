@@ -398,6 +398,7 @@ test_key_seat_reads_waiting_ending
 test_key_seat_relay
 test_key_seat_shims_installed
 test_key_seat_status_bar
+test_key_seat_tokens_counted_once
 test_key_seat_transport_full
 test_key_seat_verb_help
 test_key_seat_wrapper_looks

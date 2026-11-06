@@ -34,8 +34,8 @@ var holds = []string{"pid", "scope", "job_id", "worktree", "branch", "review_pr"
 	"followups", "followup_plan", "followup_runs"}
 
 // Historyless is whether no history.db stands, of which Go writes only a run's own row and its
-// tokens and checks yet, and the tick's sync of it: not its steps, waits or reviews, nor the tick's
-// other rows.
+// tokens and checks yet, a done's row, and the tick's seat tokens and sync of it: not its steps,
+// waits or reviews, nor the tick's other rows.
 func Historyless() bool {
 	base := filepath.Join(config.Home(), "history.db")
 	return absent(base) && absent(base+"-wal")
