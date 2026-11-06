@@ -58,7 +58,7 @@ func DrawPast(s terminal.Screen, past []PastSeat, h Highlight, now time.Time, co
 		f.cursor = f.order[0]
 	}
 	name, project = min(name, 24, max(1, width-2-num-2)), min(project, max(1, width-4))
-	free := width - (2 + num + 2 + name + 2 + project + 4 + clock)
+	free := width - (2 + num + 2 + name + 2 + project + 6 + clock) // a row stops two short, as Python's
 	fold := width < 60 || free < count
 	indent := strings.Repeat(" ", 2+num+2)
 	details := map[string][]string{}
@@ -86,7 +86,7 @@ func DrawPast(s terminal.Screen, past []PastSeat, h Highlight, now time.Time, co
 			}
 		} else {
 			line := head + "  " + cell(s, base(each.Checkout), project, "dim") + "  " + bar +
-				strings.Repeat(" ", max(0, free-terminal.Cells(bar))) + "  " + cell(s, when, clock, "dim")
+				strings.Repeat(" ", max(0, free-terminal.Cells(bar))) + "  " + strings.Repeat(" ", clock-terminal.Cells(when)) + when
 			block = []row{{strings.TrimRight(line, " "), each.Name}}
 		}
 		if len(block)+1 > room {
@@ -110,7 +110,7 @@ func DrawPast(s terminal.Screen, past []PastSeat, h Highlight, now time.Time, co
 			opens[name] = min(opened, len(lines))
 		}
 	}
-	pages := projectPages(groups, room, opens)
+	pages := projectPages(groups, room, false, opens)
 	f.page = max(0, slices.IndexFunc(pages, func(lines []row) bool {
 		return slices.ContainsFunc(lines, func(each row) bool { return each.seat == f.cursor })
 	}))

@@ -210,22 +210,14 @@ func elsewhere() bool {
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
 // start, one a history.db that stands would record (no suite's sink marks it), one the
-// gate does not admit outright, a home HOME does not name, a local time Go reads otherwise, or text
-// Python would write with a lone surrogate.
+// gate does not admit outright, a home HOME does not name, or text Python would write with a lone
+// surrogate.
 func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
 	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !run.Historyless() ||
-		os.Getenv("HOME") == "" || !localTime() ||
-		!known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
+		os.Getenv("HOME") == "" || !known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
-}
-
-// localTime is whether Go's local time is the C library's, which Python's datetime.now reads:
-// for a TZ naming no zone file, a POSIX rule such as `UTC-3` among them, Go falls back to UTC.
-func localTime() bool {
-	tz := strings.TrimPrefix(os.Getenv("TZ"), ":")
-	return time.Local.String() != "UTC" || tz == "" || tz == "UTC"
 }
 
 // readable is whether every text is UTF-8, as Go reads back what it writes: Python writes a
