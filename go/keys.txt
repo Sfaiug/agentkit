@@ -127,6 +127,7 @@ test_key_models_why
 test_key_move_copies
 test_key_muse_hooks
 test_key_muse_words
+test_key_no_limit NoLimit.test_other_text_is_refused_naming_the_accepted_values
 test_key_notice_hook
 test_key_notify_dry_run
 test_key_notify_mentions ASeatAsks
@@ -194,6 +195,7 @@ test_key_result_opens_with_its_decision
 test_key_resume_interrupted
 test_key_review_pr
 test_key_reviewer_edits_undone
+test_key_review_off ReviewOff.test_invalid_round_counts_name_the_zero_floor
 test_key_reviewer_fail_rounds
 test_key_reviewer_verdict_only
 test_key_revive_seat
@@ -267,6 +269,7 @@ test_key_watch_dry_run
 test_key_what_a_gone_ak_left_ends
 test_key_window_title
 test_key_word_since
+test_key_words_carry_the_numbers
 test_key_worker_auth_expired
 test_key_worker_box_credentials
 test_key_worker_box_exit_status

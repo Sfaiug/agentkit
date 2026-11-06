@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/run"
 )
@@ -31,7 +32,7 @@ func repoRig(t *testing.T) (*loop, *repoPlace) {
 	r := &repoPlace{repo: repo, wt: filepath.Join(home, ".agentkit", "wt", l.id), branch: "ak/acme", base: "main", target: "main", title: "Add acme", artifacts: map[string]bool{}}
 	shell(t, repo, "git worktree add -q -b ak/acme "+r.wt)
 	r.baseSHA = strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
-	l.workspace, l.place, l.reviewLines = r.wt, r, 300
+	l.workspace, l.place, l.reviewLines = r.wt, r, config.AtMost(300)
 	if err := run.Change(l.dir, func(record *run.Object) error {
 		run.SetAll(record, "run_id", l.id, "repo", repo, "worktree", r.wt, "branch", r.branch, "title", r.title, "scratch", false, "state", "fail")
 		return nil
@@ -92,7 +93,7 @@ func TestTheExcludeTakesOnlyWhatItIsMissingAndItsFailureSaysWhatBreaks(t *testin
 
 func TestAChangePastTheCeilingEndsBlockedAndAMovedBlockIsNotCounted(t *testing.T) {
 	l, r := repoRig(t)
-	l.reviewLines = 10
+	l.reviewLines = config.AtMost(10)
 	shell(t, r.wt, "seq 1 8 | sed 's/^/the moved row of the retry table number /' > table.txt; git add -A; git commit -qm table")
 	r.baseSHA = strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
 	shell(t, r.wt, "mkdir sub; git mv table.txt sub/other.txt; printf 'x\\n' >> sub/other.txt; git add -A; git -c diff.renames=false commit -qm move")
@@ -105,6 +106,9 @@ func TestAChangePastTheCeilingEndsBlockedAndAMovedBlockIsNotCounted(t *testing.T
 	if err == nil || !strings.Contains(err.Error(), "The change on ak/acme adds ") || !strings.HasSuffix(err.Error(), "a first review takes at most 10; split it") || !asBlocked(err, &cannot) {
 		t.Fatalf("err %v", err)
 	}
+	if l.reviewLines = config.NoLimit; r.firstReviewCeiling(l) != nil {
+		t.Fatal("no limit refused a change")
+	}
 }
 
 func asBlocked(err error, into **blocked) bool {
@@ -115,7 +119,7 @@ func asBlocked(err error, into **blocked) bool {
 
 func TestAGeneratedFileCountsForNothingAndItsMarkIsReadAtBase(t *testing.T) {
 	l, r := repoRig(t)
-	l.reviewLines = 3
+	l.reviewLines = config.AtMost(3)
 	shell(t, r.wt, "echo 'gen/** linguist-generated' > .gitattributes; git add -A; git commit -qm mark")
 	r.baseSHA = strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
 	shell(t, r.wt, "mkdir gen; seq 1 50 > gen/out.txt; git add -A; git commit -qm generated")

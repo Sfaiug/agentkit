@@ -15,6 +15,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/hooks"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
@@ -114,6 +115,7 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		return true, err
 	}
 	defer release()
+	hooks.HandTaskTemplate()
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
 		// before the harness is up: its first prompt may be offered a newer rulebook already

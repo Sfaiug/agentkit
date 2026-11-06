@@ -68,7 +68,7 @@ func drive(dir string, meta map[string]string, at place, warning string, flags m
 				project = named
 			}
 		}
-		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines, "seat_lines", at.numbers.SeatLines),
+		run.SetAll(record, "policy", run.Fields("rounds", at.numbers.Rounds, "review_lines", at.numbers.ReviewLines.Said(), "seat_lines", at.numbers.SeatLines.Said()),
 			"repo", at.repo, "scratch", false, "no_merge", flags["--no-merge"], "project", project)
 	}); err != nil {
 		return 0, err

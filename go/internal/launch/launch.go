@@ -287,7 +287,8 @@ func checkout(meta map[string]string, path, copied string) (string, string, erro
 
 // Budget is the rounds in force for a launch of the task at path, as Python's launch_policy reads
 // them before anything else is judged: its checkout's, the host's where the task does not read or
-// names a checkout that is none; ErrPython where the checkout is Python's to find.
+// names a checkout that is none; ErrPython where the checkout is Python's to find, or the
+// numbers Python's to carry (numbers).
 func Budget(path string) (int, error) {
 	repo := ""
 	if meta, _, err := task.Read(path); err == nil {
@@ -317,7 +318,9 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 		return refuse("", "", err)
 	}
 	// a refused checkout is none (repo ""), so the host's numbers are in force, as in Budget
-	if at.numbers, err = numbers(repo); err != nil {
+	if at.numbers, err = numbers(repo); errors.Is(err, ErrPython) {
+		return refuse("", "", err)
+	} else if err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
 	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged
@@ -426,8 +429,14 @@ func asPython(err error) error {
 	return nil
 }
 
+// numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy);
+// ErrPython for those Go does not carry (run.Carried), read where Python's launch_policy is.
 func numbers(repo string) (config.Numbers, error) {
-	return run.LaunchPolicy(repo)
+	found, err := run.LaunchPolicy(repo)
+	if err == nil && !run.Carried(found) {
+		return found, ErrPython
+	}
+	return found, err
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it
