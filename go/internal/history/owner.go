@@ -8,9 +8,9 @@ type Moment struct {
 	Waited any
 }
 
-// Owner writes those moments, in that order and in one commit, each naming the seat's
+// OwnerTime writes those moments, in that order and in one commit, each naming the seat's
 // conversation as `<harness>:<id>`, nil where its harness says it holds none.
-func Owner(conversation any, moments []Moment, log func(string)) {
+func OwnerTime(conversation any, moments []Moment, log func(string)) {
 	if len(moments) == 0 {
 		return
 	}

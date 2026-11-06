@@ -108,7 +108,7 @@ func answeredKept(name string, replies [][]string, at float64) error {
 		moments = append(moments, history.Moment{Kind: "answered", At: at, Waited: at - asked[key]})
 	}
 	conversation, _ := conversationOf(name)
-	history.Owner(conversation, moments, nil)
+	history.OwnerTime(conversation, moments, nil)
 	return nil
 }
 
