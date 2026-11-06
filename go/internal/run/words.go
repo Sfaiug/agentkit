@@ -71,14 +71,20 @@ func RecoveryReason(record *Object) string {
 	return firstText(record, "The run stopped before recording completion.", "interruption_reason", "error")
 }
 
-// Seat is the seat the run was launched from, by its name now, or "".
-func Seat(record *Object) string {
+// Launched is the name of the seat the run was launched from as it recorded it, or "": from none.
+func Launched(record *Object) string {
 	// `session` is what a record written before the field was renamed calls the same thing
 	value := record.Get("launched_session")
 	if !record.Truthy("launched_session") {
 		value = record.Get("session")
 	}
 	name, _ := value.(string)
+	return name
+}
+
+// Seat is the seat the run was launched from, by its name now, or "".
+func Seat(record *Object) string {
+	name := Launched(record)
 	if name == "" {
 		return ""
 	}

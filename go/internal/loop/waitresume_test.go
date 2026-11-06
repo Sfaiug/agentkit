@@ -41,7 +41,7 @@ func TestWaitingResumeRestoresOnlyTheReviewOfItsCheckoutAndSpendsNoTaskRound(t *
 				shell(t, r.wt, "echo other > other.txt && git add -A && git commit -qm other")
 			}
 			before, _ := run.Read(l.dir)
-			err = Reopen(l.dir, before)
+			err = Reopen(l.dir, before, nil)
 			if changed {
 				after, _ := run.Read(l.dir)
 				if !errors.Is(err, ErrChanged) || !run.Equal(after, before) {

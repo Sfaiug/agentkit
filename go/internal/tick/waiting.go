@@ -137,7 +137,7 @@ func (t *ticking) waiting() error {
 		if !loop.Pickup(dir, record) {
 			return false
 		}
-		code, why, err := launch.ResumeExpected(id, record)
+		code, why, err := launch.ResumeExpected(id, record, nil)
 		if errors.Is(err, launch.ErrPython) {
 			return false
 		}

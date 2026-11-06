@@ -39,7 +39,7 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 	for row, due := range map[string]string{
 		"login resume":     `{"state":"waiting_login"}`,
 		"seat health":      `{"state":"waiting_login"}`,
-		"dead loops":       `{"state":"running"}`,
+		"dead loops":       `{"state":"running","scope":"acme.scope"}`,
 		"stall recovery":   `{"state":"stalled"}`,
 		"exhausted resume": `{"state":"exhausted","quota_dry":true}`,
 		"error retry":      `{"state":"error","error_retry_at":1,"title":"\ud800"}`,

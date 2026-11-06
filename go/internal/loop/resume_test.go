@@ -120,10 +120,10 @@ func TestReopenRecordsTheDeathAndHandsTheRecordToANewDriver(t *testing.T) {
 	read, _ := run.Read(l.dir)
 	moved := read.Copy()
 	moved.Set("pid", 1)
-	if err := Reopen(l.dir, moved); !errors.Is(err, ErrChanged) {
+	if err := Reopen(l.dir, moved, nil); !errors.Is(err, ErrChanged) {
 		t.Fatalf("a record that moved: %v", err)
 	}
-	if err := Reopen(l.dir, read); err != nil {
+	if err := Reopen(l.dir, read, nil); err != nil {
 		t.Fatal(err)
 	}
 	record, _ := run.Read(l.dir)

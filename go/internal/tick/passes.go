@@ -51,7 +51,7 @@ func table(t *ticking) []pass {
 		// publishes nothing, reads them here
 		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
 		{"switched turns", false, configured, accountTurns},
-		{"dead loops", true, all(configured, noDeadLoops), nil},
+		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, jobless, nil},
 		{"stall recovery", true, all(configured, noStallRecovery), nil},
 		{"seat headroom", false, nil, t.giveWay},
