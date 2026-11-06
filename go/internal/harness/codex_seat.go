@@ -120,11 +120,12 @@ func codexServeSeat(words, env []string, errOut io.Writer, terminal func(words, 
 }
 
 // codexHooked is whether that Codex takes hooks on its command line: its help names the flag
-// that would bypass their trust, which is never passed, as no other hook's trust is waived.
+// that would bypass their trust, which is never passed, as no other hook's trust is waived.  The
+// Codex asked is the one the seat runs, found where an installer put it.
 func codexHooked(program string, env []string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	help := exec.CommandContext(ctx, program, "--help")
+	help := exec.CommandContext(ctx, Binary(program), "--help")
 	help.Env = env
 	out, _ := help.Output()
 	return bytes.Contains(out, []byte("--dangerously-bypass-hook-trust"))

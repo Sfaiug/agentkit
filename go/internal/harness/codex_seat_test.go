@@ -1,11 +1,16 @@
 package harness
 
 import (
+	"bufio"
 	"bytes"
+	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Codex runs a command-line hook only once its hash is trusted: the trust is codex.py's `trust`,
@@ -48,5 +53,52 @@ func TestCodexSeatLine(t *testing.T) {
 	t.Setenv("AGENTKIT_ACCOUNT", "work")
 	if code := codexInteractive("/acme", []string{"gpt-6-astra", "xhigh"}, new(bytes.Buffer), new(bytes.Buffer)); code != 2 {
 		t.Errorf("an account's seat is Python's: exit %d", code)
+	}
+}
+
+// A Codex an installer put in a folder no fresh shell has on PATH is asked about hooks too, as the
+// seat finds it to run.
+func TestCodexHookSupportIsAskedOfTheCodexTheSeatRuns(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake Codex is a shell script")
+	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	codex := filepath.Join(home, ".npm-global", "bin", "codex")
+	os.MkdirAll(filepath.Dir(codex), 0o700)
+	os.WriteFile(codex, []byte("#!/bin/sh\necho '  --dangerously-bypass-hook-trust'\n"), 0o700)
+	if !codexHooked("codex", os.Environ()) {
+		t.Fatal("the Codex in ~/.npm-global/bin was not asked")
+	}
+}
+
+// A server's ping is answered with its own payload, as a WebSocket peer must.
+func TestCodexClientAnswersAPingWithItsPayload(t *testing.T) {
+	conn, server := net.Pipe()
+	defer conn.Close()
+	defer server.Close()
+	server.SetDeadline(time.Now().Add(5 * time.Second))
+	conn.SetDeadline(time.Now().Add(5 * time.Second))
+	pong := make(chan []byte, 1)
+	go func() {
+		defer close(pong)
+		server.Write([]byte{0x89, 3, 'a', 'k', '?'})
+		frame := make([]byte, 2+4+3)
+		if _, err := io.ReadFull(server, frame); err != nil || frame[0] != 0x8a || frame[1] != 0x80|3 {
+			return
+		}
+		for i := range 3 {
+			frame[6+i] ^= frame[2+i%4]
+		}
+		pong <- frame[6:]
+		server.Write([]byte{0x81, 2, '{', '}'})
+	}()
+	client := codexClient{conn: conn, read: bufio.NewReader(conn)}
+	if _, err := client.receive(); err != nil {
+		t.Fatal(err)
+	}
+	if got := <-pong; string(got) != "ak?" {
+		t.Fatalf("pong payload %q", got)
 	}
 }

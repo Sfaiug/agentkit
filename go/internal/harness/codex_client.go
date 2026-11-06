@@ -65,13 +65,18 @@ func codexDial(socket string) (*codexClient, error) {
 	return client, nil
 }
 
-// send writes one masked text frame, as a client must.
+// send writes one message, a text frame.
 func (client *codexClient) send(value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	frame := []byte{0x81}
+	return client.frame(0x1, data)
+}
+
+// frame writes one final frame of that opcode, masked, as a client must.
+func (client *codexClient) frame(opcode byte, data []byte) error {
+	frame := []byte{0x80 | opcode}
 	switch size := len(data); {
 	case size < 126:
 		frame = append(frame, 0x80|byte(size))
@@ -86,7 +91,7 @@ func (client *codexClient) send(value any) error {
 	for i, b := range data {
 		frame = append(frame, b^mask[i%4])
 	}
-	_, err = client.conn.Write(frame)
+	_, err := client.conn.Write(frame)
 	return err
 }
 
@@ -123,7 +128,7 @@ func (client *codexClient) receive() (map[string]json.RawMessage, error) {
 		case 8:
 			return nil, errors.New("Codex app server closed its connection")
 		case 9:
-			client.conn.Write(append([]byte{0x8a, 0x80}, 0, 0, 0, 0)) // a pong, masked by zeros
+			client.frame(0xa, data) // a pong carries its ping's payload back
 		case 0, 1:
 			message = append(message, data...)
 			if head[0]&128 != 0 {
