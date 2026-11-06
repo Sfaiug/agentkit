@@ -8,6 +8,6 @@ func init() {
 		record: codexRecord, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
 		fresh: "starts a new Codex conversation", receipt: codexLaunch, registerMCP: codexRegisterMCP,
 		launched: codexLaunched, retire: codexRetire, handed: codexHanded, moveReady: codexMoveReady, forget: codexForget,
-		opens: true, interactive: codexInteractive, serve: codexServeSeat, hookEvent: codexHookEvent,
+		opens: true, usual: true, interactive: codexInteractive, serve: codexServeSeat, hookEvent: codexHookEvent,
 		tokens: codexTokens, yolo: codexYolo, rulebook: ".codex/AGENTS.md"}
 }
