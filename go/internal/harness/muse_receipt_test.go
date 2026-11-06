@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 		payload, _ := io.ReadAll(os.Stdin)
 		read, _ := run.Decode(payload)
 		event, _ := read.(*run.Object)
-		HookEvent(os.Args[3], event, io.Discard, nil)
+		HookEvent(os.Args[3], event, io.Discard, nil, nil)
 		os.Exit(0)
 	}
 	os.Exit(m.Run())

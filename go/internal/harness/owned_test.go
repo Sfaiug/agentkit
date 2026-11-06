@@ -30,7 +30,7 @@ func TestOwnedConversation(t *testing.T) {
 		{"one nothing vouches for", "claude", map[string]any{"conversation": "c"}, "", false},
 		{"no conversation", "claude", map[string]any{}, "", true},
 		{"no receipt, whatever the record names", "codex", map[string]any{"conversation": "c", "id_source": "launcher"}, "", true},
-		{"a receipt to verify", "codex", map[string]any{"codex_launch": "r"}, "", false},
+		{"a receipt that names no launch", "codex", map[string]any{"codex_launch": "r"}, "", true},
 		{"no report, whatever the record names", "opencode", map[string]any{"conversation": "c", "id_source": "launcher"}, "", true},
 		{"the session its launch reported", "opencode", map[string]any{"opencode_launch": token}, "ses_Acme", true},
 		{"a store Go has no plugin for", "antigravity", map[string]any{}, "", false},
