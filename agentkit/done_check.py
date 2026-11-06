@@ -52,7 +52,7 @@ def gaps(cfg, name):
     seat = notify.conversation_of(name)
     if seat is None or not seat[3]:
         raise config.Error(f"no seat named {name} whose conversation ak can read")
-    said = [message["text"] for message in notify.owner_messages(name, seat)]
+    said = [message["text"] for message in notify.owner_messages(name, seat, strict=True)]
     if not said:
         return []       # asked nothing, so nothing is missing
     model = checker(cfg, name)
@@ -93,7 +93,12 @@ def main(argv):
     if len(argv) != 1:
         raise config.Error("usage: ak orch check SEAT")
     name = config.resolve_session(argv[0])
-    found = gaps(config.load(), name)
+    # a record ak cannot read leaves the seat unchecked, exit 2: an uncaught one would exit 1,
+    # which says a gap
+    try:
+        found = gaps(config.load(), name)
+    except (OSError, ValueError) as exc:
+        raise config.Error(f"could not check {name}: {exc}") from None
     if not found:
         print(f"{name}: its work holds everything its owner asked")
         return 0

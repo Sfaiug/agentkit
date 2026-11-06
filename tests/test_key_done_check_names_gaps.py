@@ -41,7 +41,7 @@ class DoneCheck(unittest.TestCase):
         seat = Seat(home, "acme", alive=False,
                     record={"conversation": CONVERSATION, "reviewers": ["astra"]})
         folder = re.sub(r"[^A-Za-z0-9]", "-", str(seat.cwd))
-        home.write(f".claude/projects/{folder}/{CONVERSATION}.jsonl", "".join(
+        self.transcript = home.write(f".claude/projects/{folder}/{CONVERSATION}.jsonl", "".join(
             json.dumps({"type": "user", "timestamp": f"2026-11-05T10:0{n}:00Z",
                         "message": {"role": "user", "content": text}}) + "\n"
             for n, text in enumerate((FIRST, SECOND))))
@@ -51,7 +51,7 @@ class DoneCheck(unittest.TestCase):
         home.write(f"{run}/run.json", {"run_id": "20261105-1010-retry-button", "title": TITLE,
                                        "launched_session": "acme", "state": "pass",
                                        "verdict": "PASS", "merged": True, "pr": PR})
-        home.write(f"{run}/task.md", f"# {TITLE}\n\n## Goal\n{FIRST}\n")
+        self.task = home.write(f"{run}/task.md", f"# {TITLE}\n\n## Goal\n{FIRST}\n")
 
     def check(self, *quotes, model=None):
         """`ak orch check acme`, the model's turn naming a gap for each of `quotes` at whichever
@@ -101,6 +101,17 @@ class DoneCheck(unittest.TestCase):
         self.fakes["codex"].behave("silent")
         self.assertEqual(self.home.ak("orch", "check", "acme").code, 2)
         self.assertEqual(self.took(), {"codex": 1})
+
+    def test_a_record_ak_cannot_read_could_not_check_and_exits_2(self):
+        akconfig.write(self.home, ["opus", "astra"])
+        self.task.unlink()
+        self.task.symlink_to("/proc/self/mem")      # a file whose read fails, EIO
+        self.assertEqual(self.home.ak("orch", "check", "acme").code, 2)
+        self.task.unlink()
+        self.transcript.unlink()
+        self.transcript.mkdir()     # the owner's messages, unreadable
+        self.assertEqual(self.home.ak("orch", "check", "acme").code, 2)
+        self.assertEqual(self.took(), {})
 
 
 if __name__ == "__main__":
