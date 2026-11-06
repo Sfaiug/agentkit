@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/install"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tick"
+	"agentkit/internal/update"
 )
 
 func Main(args []string, out, errOut io.Writer) int {
@@ -44,6 +45,9 @@ func Main(args []string, out, errOut io.Writer) int {
 	}
 	if command == gc.CollectVerb && len(rest) == 0 { // unlisted too, and unmarked as setup is
 		return collect()
+	}
+	if command == update.KeepVerb && len(rest) == 1 { // unlisted too: it marks itself
+		return update.Background(config.Repo(), rest[0])
 	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))
