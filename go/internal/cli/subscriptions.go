@@ -16,8 +16,8 @@ import (
 // a click runs that act or `+ add a subscription`, a subscription it adds pointed at.  The line a row
 // the keys come to opens lit on `log in again` where offered, and an act going from under the light
 // lights nothing in its place.
-// The usage it shows is read again every draw, at least every rereadEvery, so a reading that lands
-// shows without a key.
+// The usage it shows is read again every draw but one after a key that runs no act, which draws
+// what was read, and at least every rereadEvery, so a reading that lands shows without a key.
 func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	view, clock := menu.Subscriptions{}, &motion.Clock{}
 	// whose line the keys last opened: none yet, so the first lights its first act
@@ -25,10 +25,15 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
 	defer frame.Stop()
 	defer painter.Forget()
+	var cells []menu.Cell
+	var read time.Time // when cells were read; zero to read them on the next draw
 	for {
-		cells, err := menu.Cells(time.Now())
-		if err != nil {
-			return false
+		if time.Since(read) >= rereadEvery {
+			var err error
+			if cells, err = menu.Cells(time.Now()); err != nil {
+				return false
+			}
+			read = time.Now()
 		}
 		view.Cells, view.At = cells, min(view.At, len(cells))
 		whose := ""
@@ -53,6 +58,9 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 		}
 		frame.Reset(next)
 		key := keyboard.ReadKey()
+		if key.Name == "wake" || key.Name == "again" {
+			read = time.Time{}
+		}
 		if key.Name != "wake" && key.Name != "again" && key.Name != "pointer" {
 			clock.Finish() // a key, not the pointer, ends what moves on its last frame
 			view.Note, view.Away = "", false
@@ -109,5 +117,6 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 		clock = &motion.Clock{} // back from a list, a card or a sign-in, the page is drawn as it is
 		clock.Finish()
 		painter.Forget()
+		read = time.Time{}
 	}
 }

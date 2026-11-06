@@ -17,28 +17,39 @@ const auditNote = "Once a week ak opens a seat named audit with the week's large
 // takes, a row each, each change written to `[audit]` at once.  Space on `On` turns it the other
 // way; Enter on `Orchestrator` opens every model, ● the one it is, and on `Builds` and `Reviews`
 // every model, ■ each in that role.  A setting Audit cannot read is Python's, to say why and mend.
+// The rows are read once and again after each write, as Python's page reads the config it holds.
 func menuAudit(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	var rows []menu.PageRow // as last read
+	saved := func(key string, value any) string {
+		rows = nil
+		return auditSaved(key, value)
+	}
 	return configPage("weekly audit", auditNote, func() ([]menu.PageRow, bool) {
+		if rows != nil {
+			return rows, true
+		}
 		held, on, err := config.Audit()
 		models, listed := config.Models()
 		if err != nil || listed != nil {
 			return nil, false
 		}
 		roles := func(key string) func() ([]menu.PageRow, bool) {
-			return func() ([]menu.PageRow, bool) { return auditChoices(key) }
+			return func() ([]menu.PageRow, bool) { return auditChoices(key, saved) }
 		}
-		return []menu.PageRow{
-			{Label: "On", Value: onOff(on), On: on, Flip: func() string { return auditSaved("on", !on) }},
+		rows = []menu.PageRow{
+			{Label: "On", Value: onOff(on), On: on, Flip: func() string { return saved("on", !on) }},
 			{Label: "Orchestrator", Value: config.ModelName(held.Orchestrator, models), List: roles("orchestrator")},
 			{Label: "Builds", Value: auditNames(held.Workers, models), List: roles("workers"), Several: true},
 			{Label: "Reviews", Value: auditNames(held.Reviewers, models), List: roles("reviewers"), Several: true},
-		}, true
+		}
+		return rows, true
 	}, keyboard, painter)
 }
 
 // auditChoices is the list a role's row opens, read afresh: every model the config offers, marked
-// where it holds the role, Space moving the orchestrator to it or taking it in or out of the role.
-func auditChoices(key string) ([]menu.PageRow, bool) {
+// where it holds the role, Space moving the orchestrator to it or taking it in or out of the role,
+// written through `saved`.
+func auditChoices(key string, saved func(key string, value any) string) ([]menu.PageRow, bool) {
 	held, _, err := config.Audit()
 	models, listed := config.Models()
 	offered, asked := config.Offered()
@@ -56,7 +67,7 @@ func auditChoices(key string) ([]menu.PageRow, bool) {
 			value = append(slices.Clone(group), name)
 		}
 		choices = append(choices, menu.PageRow{Value: config.ModelName(name, models), On: in,
-			Flip: func() string { return auditSaved(key, value) }})
+			Flip: func() string { return saved(key, value) }})
 	}
 	return choices, true
 }

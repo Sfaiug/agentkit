@@ -17,17 +17,21 @@ const ticksNote = "Space on a model under its harness takes it in or out of the 
 // menuConfigModels is `Models` on `c` (menu.models_page): a row per harness the config's providers
 // run on, in its colour, opening every model it lists (modelsList), ■ each the config runs there,
 // Space taking it in or out (config.ModelTicks), saved at once; on a host, the config's providers
-// it has no login for after them, Enter logging in to one.
+// it has no login for after them, Enter logging in to one.  The models' names are read once and
+// again after each tick, as Python's page reads the config it holds.
 func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	ticks, err := config.OpenModelTicks()
 	if err != nil || len(ticks.Harnesses) == 0 {
 		return false
 	}
 	catalogs := map[string][]throughChoice{} // each harness's, once read this visit
+	var models map[string]config.Model       // as last read
+	ticked := func() { models = nil }
 	return configPage("models", ticksNote, func() ([]menu.PageRow, bool) {
-		models, err := config.Models()
-		if err != nil {
-			return nil, false
+		if models == nil {
+			if models, err = config.Models(); err != nil {
+				return nil, false
+			}
 		}
 		var rows []menu.PageRow
 		for _, harness := range ticks.Harnesses {
@@ -37,16 +41,19 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 				labels = append(labels, config.ModelName(name, models))
 			}
 			rows = append(rows, menu.PageRow{Label: name, Colour: colour, Value: cmp.Or(strings.Join(labels, ", "), "none"), Several: true,
-				List: func() ([]menu.PageRow, bool) { return modelChoices(harness, ticks, catalogs, keyboard, painter) }})
+				List: func() ([]menu.PageRow, bool) {
+					return modelChoices(harness, ticks, ticked, catalogs, keyboard, painter)
+				}})
 		}
 		return rows, true
 	}, keyboard, painter)
 }
 
 // modelChoices is the list a harness's row opens: each choice modelsList makes, asked behind the
-// waiting rule until one answer is read, ■ each model the config runs, and a provider logged in to
-// asking it again, its models listed now; else a line saying why none is.
-func modelChoices(harness string, ticks *config.ModelTicks, catalogs map[string][]throughChoice, keyboard *terminal.Keyboard, painter *terminal.Painter) ([]menu.PageRow, bool) {
+// waiting rule until one answer is read, ■ each model the config runs, Space ticking it and then
+// calling `ticked`, and a provider logged in to asking it again, its models listed now; else a line
+// saying why none is.
+func modelChoices(harness string, ticks *config.ModelTicks, ticked func(), catalogs map[string][]throughChoice, keyboard *terminal.Keyboard, painter *terminal.Painter) ([]menu.PageRow, bool) {
 	if _, read := catalogs[harness]; !read {
 		choices, err := modelsList(harness, keyboard, painter)
 		switch {
@@ -64,6 +71,7 @@ func modelChoices(harness string, ticks *config.ModelTicks, catalogs map[string]
 	for _, chosen := range catalogs[harness] {
 		if model := chosen.model; model != nil {
 			choices = append(choices, menu.PageRow{Value: model.Label, On: len(ticks.Names(harness, model.ID)) > 0, Flip: func() string {
+				defer ticked()
 				if err := ticks.Tick(harness, model.ID, model.Label, model.Efforts, chosen.under(), seat.KeepConfigEfforts); err != nil {
 					return err.Error()
 				}
