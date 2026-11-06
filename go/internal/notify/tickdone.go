@@ -15,9 +15,6 @@ func planCard(name string, card *run.Object, word string, since any, outcomes fu
 		}
 		return true, writeCard(name, episode(card, word, since, since))
 	}
-	if !run.Historyless() {
-		return false, nil
-	}
 	work, err := outcomes(name)
 	if err != nil {
 		return false, nil
@@ -42,16 +39,25 @@ func planCard(name string, card *run.Object, word string, since any, outcomes fu
 	if _, dated := finite(since); !dated {
 		since = run.Float(clock())
 	}
+	ended := card
 	if newWord {
-		if card.Str("word") == "needs you" {
-			if err := retire(card); err != nil {
-				return false, err
-			}
-		}
 		card = episode(card, "done", since, since)
 	}
 	seat, _ := run.ReadJSON(seatFile("seat", name, "json"))
-	if cardHistory(card) || seat != nil && seat.Truthy("closed_by_owner") {
+	past := cardHistory(card) || seat != nil && seat.Truthy("closed_by_owner")
+	covered = covered || run.Equal(card.Get("completed"), completion)
+	var done *intent
+	if !past && (completion == nil || !covered) {
+		if done, err = intentOf(name, work); err != nil {
+			return false, nil
+		}
+	}
+	if newWord && ended.Str("word") == "needs you" {
+		if err := retire(ended); err != nil {
+			return false, err
+		}
+	}
+	if past {
 		if newWord {
 			return true, writeCard(name, card)
 		}
@@ -59,11 +65,13 @@ func planCard(name string, card *run.Object, word string, since any, outcomes fu
 	}
 	card.Set("closed", "Done")
 	if completion == nil {
+		done.record()
 		return true, writeCard(name, card)
 	}
-	if covered || run.Equal(card.Get("completed"), completion) {
+	if covered {
 		run.SetAll(card, "sent", true, "completed", completion)
 		return true, writeCard(name, card)
 	}
+	done.record()
 	return true, sendDone(name, card, completion)
 }
