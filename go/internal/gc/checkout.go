@@ -196,13 +196,13 @@ func gitDirs(dir string) (common string, linked, ok bool) {
 // else, or one already gone (gc.collectible_worktree).
 func collectible(dir string, record *run.Object) bool {
 	repo, wt := record.Str("repo"), record.Str("worktree")
-	if repo == "" || wt == "" || pure(wt) != filepath.Join(wtDir(), filepath.Base(dir)) || !safe(repo) || !safe(wtDir()) {
+	if repo == "" || wt == "" || config.Pure(wt) != filepath.Join(wtDir(), filepath.Base(dir)) || !safe(repo) || !safe(wtDir()) {
 		return false
 	}
-	if wt = pure(wt); !present(wt) {
+	if wt = config.Pure(wt); !present(wt) {
 		return true
 	}
-	return cleanWorktree(pure(repo), wt, record)
+	return cleanWorktree(config.Pure(repo), wt, record)
 }
 
 // sha40 is a full commit id.
@@ -384,7 +384,7 @@ func commonDirectory(repo string) (string, error) {
 
 // gitRef is a branch's commit, loose or packed, "" for none (retention.git_ref).
 func gitRef(common, ref string) (string, error) {
-	if !strings.HasPrefix(ref, "refs/heads/") || climbs(pure(ref)) {
+	if !strings.HasPrefix(ref, "refs/heads/") || climbs(config.Pure(ref)) {
 		return "", nil
 	}
 	if loose := filepath.Join(common, ref); present(loose) {

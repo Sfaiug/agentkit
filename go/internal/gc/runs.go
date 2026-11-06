@@ -44,10 +44,10 @@ func (r *reads) sweep() []Item {
 		}
 		repo, worktree := record.Str("repo"), record.Get("worktree")
 		wt, ok := worktree.(string)
-		if repo == "" || !ok || pure(wt) != filepath.Join(wtDir(), filepath.Base(dir)) || pure(repo) == pure(wt) {
+		if repo == "" || !ok || config.Pure(wt) != filepath.Join(wtDir(), filepath.Base(dir)) || config.Pure(repo) == config.Pure(wt) {
 			continue
 		}
-		wt = pure(wt)
+		wt = config.Pure(wt)
 		if config.UnderCode(wt) || !present(wt) || !safe(wt) || busy(wt, r.paths) || r.left[wt] {
 			continue
 		}
@@ -185,15 +185,15 @@ func (r *reads) runs() []Item {
 		if (run.Failed(record) || record.Str("state") == "stopped") && provablyFinal(record) && quiet &&
 			(expired(record.Get("finished_at"), r.now, gcAge) ||
 				handedBack(record) && !record.Truthy("checkout_kept") && !resumeHoldsTree(record, dir)) &&
-			disposable(dir, record) && !r.left[worktree] && !busy(pure(worktree), r.paths) {
-			found = append(found, Item{"remove", "ended-worktree", worktree, "", takeCheckout(dir, pure(worktree), true)})
+			disposable(dir, record) && !r.left[worktree] && !busy(config.Pure(worktree), r.paths) {
+			found = append(found, Item{"remove", "ended-worktree", worktree, "", takeCheckout(dir, config.Pure(worktree), true)})
 		}
 		if record.Truthy("scratch") || record.Str("state") != "pass" || !record.Truthy("merged") || !provablyFinal(record) ||
 			record.Truthy("notification_pending") || record.Truthy("pending_inbox") || record.Truthy("handback_pending") ||
 			!quiet || !collectible(dir, record) {
 			continue
 		}
-		wt := pure(worktree)
+		wt := config.Pure(worktree)
 		if busy(wt, r.paths) {
 			continue
 		}
@@ -256,7 +256,7 @@ func mtime(info fs.FileInfo) float64 {
 // throwaway is a repo under ~/.agentkit/tmp: the smoke suite's, made for one suite.
 func throwaway(repo any) bool {
 	path, ok := repo.(string)
-	return ok && path != "" && (pure(path) == tmpDir() || below(path, tmpDir()))
+	return ok && path != "" && (config.Pure(path) == tmpDir() || below(path, tmpDir()))
 }
 
 // idleInterrupted is when a run interrupted longer than a run directory's age, its loop gone, was
@@ -373,8 +373,8 @@ func judged(record *run.Object, dir string) bool {
 func disposable(dir string, record *run.Object) bool {
 	wt, _ := record.Get("worktree").(string)
 	repo := record.Str("repo")
-	if wt == "" || config.UnderCode(wt) || isLink(wt) || !present(wt) || repo == "" || pure(repo) == pure(wt) {
+	if wt == "" || config.UnderCode(wt) || isLink(wt) || !present(wt) || repo == "" || config.Pure(repo) == config.Pure(wt) {
 		return false
 	}
-	return pure(wt) == filepath.Join(wtDir(), filepath.Base(dir)) && safe(wt) && safe(repo)
+	return config.Pure(wt) == filepath.Join(wtDir(), filepath.Base(dir)) && safe(wt) && safe(repo)
 }
