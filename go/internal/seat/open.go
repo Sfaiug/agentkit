@@ -22,13 +22,6 @@ import (
 	"agentkit/internal/tmux"
 )
 
-// serverWide is what Python's tmux.conf sets on ak's server, but its pane-died hook and Ctrl-b
-// m, which run Python's ak: a touch scrolls a seat's output, 50000 lines of it; a harness that
-// ends keeps its pane; a link it prints, and each repaint, reaches the owner's terminal whole.
-var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", "-g", "history-limit", "50000", ";",
-	"set-option", "-g", "remain-on-exit", "on", ";", "set-option", "-g", "allow-passthrough", "on", ";",
-	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks:sync", ";"}
-
 // Open is the shared new-seat launch used by the menu and ak orch. Its rulebook precedes
 // the adapter's command, and its record uses Python's locks and format. False leaves
 // unsupported harness launches, provider accounts and leftover seat files to Python.
@@ -193,10 +186,10 @@ func sayWhere(name string, out io.Writer) error {
 	return nil
 }
 
-// start is the seat's session on ak's server, as Python's orch.start opens it: its harness run
-// by a launch file that removes itself, which no limit of tmux's on a command's length meets;
-// the seat's name and its opener's state in its pane's environment, then its session's; marked
-// ak's, its pane named the harness's, and kept when the harness ends.
+// start is the seat's session on ak's server, under ak's tmux config, as Python's orch.start opens
+// it: its harness run by a launch file that removes itself, which no limit of tmux's on a command's
+// length meets; the seat's name and its opener's state in its pane's environment, then its
+// session's; marked ak's, its pane named the harness's, and kept when the harness ends.
 func start(state, name, cwd string, cmd []string) error {
 	server := tmux.Own()
 	values, err := environment(name, server)
@@ -207,12 +200,19 @@ func start(state, name, cwd string, cmd []string) error {
 	if err != nil {
 		return err
 	}
+	// first into a server already up, as only the command starting one reads -f, and remain-on-exit
+	// holds before the seat exists; one not up says so, and Spawn starts it on the file
+	conf, err := tmux.Conf()
+	if err != nil {
+		return err
+	}
+	tmux.Ask(server, "source-file", conf)
 	command, launch, err := launchFile(state, name, values, cmd)
 	if err != nil {
 		return err
 	}
 	target := "=" + name + ":"
-	args := slices.Concat(serverWide, []string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
+	args := slices.Concat([]string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
 	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
 		os.Remove(launch)
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
