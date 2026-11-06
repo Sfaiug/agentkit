@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import aside_editor, command_help, config, gitcall, guard, host, look, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage, versions
 from . import record as run_record
-from .harness import LAUNCHER, load as harness_plugin
+from .harness import LAUNCH_KEYS, LAUNCHER, entries, load as harness_plugin
 
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
@@ -2433,11 +2433,12 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     held = config.at_efforts(cfg, record)      # at the seat's own efforts
     with scratch(dry_run):
         if recorded:
-            cmd = resume_command(held, orchestrator, recorded, ran_in, seat=name, account=account,
-                                 line=line)
+            cmd, line = resume_command(held, orchestrator, recorded, ran_in, seat=name,
+                                       account=account, line=line)
             conversation = recorded
         else:
             cmd, conversation = fresh_command(held, orchestrator, seat=name, account=account, cwd=cwd)
+            line = None
     where = "in the same window" if session else f"in {cwd}"
     log(f"orch: resuming {name} on {orchestrator} {where}"
         + (f" (conversation {recorded})" if recorded
@@ -2445,7 +2446,7 @@ def resume(cfg, name, log=print, dry_run=False, wait=False, detached=False, hand
     if dry_run:
         print(shlex.join(cmd))
         return 0
-    launch(name, orchestrator, cwd, cmd, conversation, session, still)
+    launch(name, orchestrator, cwd, cmd, conversation, session, still, line=line)
     config.update_session(name, account=account)
     if hand_over:
         return 0           # detached: restarting is neither attaching nor reading the seat
@@ -2538,7 +2539,8 @@ def seat_conversation(record, harness=None):
 
 
 def resume_command(cfg, model, conversation, cwd, seat=None, account=None, line=None):
-    """The TUI command for a seat coming back on the conversation it owns, opening on `line`.
+    """(command, line): the TUI command for a seat coming back on the conversation it owns, and
+    the line it opens on, `line`.
 
     Its harness may never have opened one under that id, and then the id is handed over as one
     to open instead of one to resume, with no line: it has no turn to go on with.  The seat
@@ -2552,25 +2554,33 @@ def resume_command(cfg, model, conversation, cwd, seat=None, account=None, line=
             fresh = command(cfg, model, conversation, fresh=True, account=account,
                             rulebook=rulebook, cwd=launch_cwd)
             if fresh:
-                return fresh
+                return fresh, None
         return command(cfg, model, conversation, account=account, rulebook=rulebook, line=line,
-                       cwd=launch_cwd)
+                       cwd=launch_cwd), line
 
 
-# What a launch writes about the conversation it owns: the launcher's own id, each
-# harness's receipt, and the title that launch takes. A restart that fails puts these
-# back from the record as it was, so the seat keeps its own conversation.
-LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
-               "codex_history", "opencode_launch", "muse_launch", "antigravity_launch",
-               "antigravity_open", "session_title", "title_sync")
+def name_receipts(name):
+    """Write into each of that seat's typing receipts the conversation its launch's evidence
+    names now (`Harness.went_into`), before a launch replaces that evidence."""
+    path = config.seat_file("input", name)
+    kept = list(entries(path))
+    named = [{**sent, "conversation": harness_plugin(sent.get("harness")).went_into(sent)}
+             for sent in kept]
+    if named != kept:
+        replace_file(path, "".join(json.dumps(sent, ensure_ascii=False) + "\n"
+                                   for sent in named).encode())
 
 
-def launch(name, model, cwd, cmd, conversation, session=None, still=None):
+def launch(name, model, cwd, cmd, conversation, session=None, still=None, line=None):
     """Put the harness in the seat, and write down the conversation it was launched with.
 
     `session` is an exited pane to respawn.  What a launch owns is the harness's to write
     down -- a launcher-issued id by default -- and whatever else its plugin needs for that,
     Codex's per-invocation receipt among them, is carried into the command as environment.
+    `line`, the one `cmd` opens on, gets the seat's typing receipt before the harness is up,
+    where its harness takes it as its first prompt (`takes_line`), as a line ak types does
+    (`watch._send_line`): the owner's messages leave it out.  A launch that then fails leaves
+    the receipt, which can only ever match that line of ak's.
     """
     repository = git_dirs(cwd)
     plugin = seat_plugin({"orchestrator": model})
@@ -2586,6 +2596,7 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
         if repository:
             gitcall.no_auto_gc(cwd)
         before = config.session_records().get(current) or {}
+        name_receipts(current)
         env = plugin.launched(current, cwd, conversation)
         if env:
             cmd = ["env", *(f"{key}={value}" for key, value in env.items()), *cmd]
@@ -2593,6 +2604,11 @@ def launch(name, model, cwd, cmd, conversation, session=None, still=None):
         last = facts.with_name(f"{facts.name}.last")
         up = []     # holds True once the new harness runs: what fails after leaves it be
         try:
+            if line and takes_line(plugin.name):
+                sent = plugin.receipt(config.session_records().get(current) or {}, conversation,
+                                      line)
+                with config.seat_file("input", current).open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(sent, ensure_ascii=False) + "\n")
             try:
                 handed = config.rulebook_digest(config.rulebook_path(name).read_bytes())
             except OSError:
@@ -4521,10 +4537,13 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
         at = time.time()
         held = config.at_efforts(cfg, record if effort is None   # at the seat's own efforts
                                  else {"efforts": at_effort(record)})
-        cmd, conversation = ((resume_command(held, model, kept, ran_in, seat=name,
-                                             account=account, line=line), kept) if kept
-                             else fresh_command(held, model, seat=name, account=account,
-                                                line=line, cwd=cwd))
+        if kept:
+            (cmd, opens_on), conversation = resume_command(held, model, kept, ran_in, seat=name,
+                                                           account=account, line=line), kept
+        else:
+            cmd, conversation = fresh_command(held, model, seat=name, account=account, line=line,
+                                              cwd=cwd)
+            opens_on = line
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
@@ -4548,7 +4567,7 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
                 unhanded(handed, before)
                 return f"session: {_one_line(exc)}"
             try:
-                launch(name, model, cwd, cmd, conversation, session)
+                launch(name, model, cwd, cmd, conversation, session, line=opens_on)
                 failed = None
             except (config.Error, OSError) as exc:
                 failed = exc
