@@ -6,7 +6,8 @@ asked through the question card or `ak notify needs`, has its Stop sent back onc
 reason, as Claude's block decision on stdout; the next Stop of that turn stands.  It stands at
 once where the mark is only inside the message, where `ak notify needs` recorded the question,
 where an AskUserQuestion card is left unanswered, and where the seat's plan is done with nothing
-from the owner since, so a question would hold only the owner.  A sub-agent's Stop decides
+from the owner since, so a question would hold only the owner, the done check a finished plan
+owes (tests/test_key_done_waits_for_the_check.py) being off.  A sub-agent's Stop decides
 nothing.  Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py,
 before seats of tests/fixtures/akseat.py whose hooks fire as Claude fires them
 (tests/fixtures/hookdrive.py).
@@ -44,6 +45,8 @@ class UnaskedQuestion(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        config = cls.home.path / ".agentkit" / "config.toml"
+        config.write_text(config.read_text() + "\n[done_check]\non = false\n")
         cls.hooks = hookdrive.Hooks(cls.home)
 
     def seat(self, name, asked=None):

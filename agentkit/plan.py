@@ -7,8 +7,9 @@ live host, one that passes is written done, the work being done there.  `ak plan
 puts another check in a line's place -- the seat's own test where a review follow-up came
 checked by the reviewer's probe -- when it fails on the commit the line's check was proven
 failing on, which the line names (a line from before lines named one takes it unproven).  `ak plan` ticks each check line whose check now passes on
-its project's default branch, then lists the lines, numbered; with none open the seat's work is
-done (`finished`).  The plan is the seat's `plan-<seat>.md`, the
+its project's default branch, then lists the lines, numbered; with none open it makes the done
+check they owe (`done_check.owed`), and with that finding no gap the seat's work is done
+(`finished`).  The plan is the seat's `plan-<seat>.md`, the
 file the menu's bar counts, and a line names its outcome, its check, the project, when it was written and, for a check, the commit it failed on then:
 
     - [ ] each session sees its project · check: `python3 tests/test_x.py` · agentkit · written 2026-10-02 12:40 on 0123456789ab
@@ -435,8 +436,10 @@ def served_line(name, commands):
 
 def finished(name):
     """The words of the plan's last done line where the plan holds done work and owes none
-    (`owed`): the seat's work is done, which ak reads here and nobody declares.  None for no
-    plan, one with nothing done, one still owing a line, or one nothing can read."""
+    (`owed`), nor the done check a plan with every line done owes (`done_check.owed`): the
+    seat's work is done, which ak reads here and nobody declares.  None for no plan, one with
+    nothing done, one still owing a line or its check, or one nothing can read."""
+    from . import done_check    # here, not at the top: it reads the plan through this module
     try:
         text = lines(name)
     except config.Error:
@@ -444,7 +447,7 @@ def finished(name):
     if any(owed(name, line) for line in text):
         return None
     done = _done(text)
-    return done[-1] if done else None
+    return done[-1] if done and not done_check.owed(name, text) else None
 
 
 def first_done(name):
@@ -745,7 +748,8 @@ def main(argv):
     name = seat()
     if not argv:
         verify(name)
-        listed = [line.strip() for line in lines(name) if line.lstrip().startswith("- [")]
+        text = lines(name)
+        listed = [line.strip() for line in text if line.lstrip().startswith("- [")]
         number_width = max(2, len(str(len(listed))))
         room = max(1, terminal.width() - number_width - 2)
         for number, line in enumerate(listed, 1):
@@ -753,6 +757,9 @@ def main(argv):
             print(terminal.table_row([str(number), wrapped[0]], [number_width, room], right=(0,)))
             for continuation in wrapped[1:]:
                 print(" " * (number_width + 2) + continuation)
+        from . import done_check    # here, not at the top: it reads the plan through this module
+        if done_check.owed(name, text) and done_check.main([name]):
+            print("Build what is missing, or ask your owner whether to drop it.")
         return 0
     if argv[0] == "add" and len(argv) == 4 and argv[2] == "--check":
         print(add(name, argv[1], argv[3]))

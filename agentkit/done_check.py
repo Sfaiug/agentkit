@@ -10,8 +10,15 @@ hands in each gap as a finding quoting the owner.  A quote that is not word for 
 message or answer of the owner's is no gap, whatever the model wrote in its workspace, the seat's
 replies, questions and choices included: that is decided here, not by the model.  Exit 1 with a
 gap, 0 with none, and 2 (an Error) where nothing could be checked.
+
+A check that finds no gap keeps what it read (`keep`), and one that finds a gap forgets it: a
+seat whose plan has every line done owes a check (`owed`) until one read what its owner has said
+and its plan holds now.
 """
 
+import hashlib
+import json
+import os
 import sys
 import tempfile
 from pathlib import Path
@@ -41,6 +48,69 @@ answer. Here the quote is what makes a finding a gap, never a note: ak keeps eac
 own words hold and drops every other. Then `ak hand-in done`, with gaps or with none.
 """
 
+# what a seat owes while its plan's every line is done and no check found that it holds
+# everything its owner said, as `stop.owed_line` names it
+OWED = "a check of its finished plan against what its owner said"
+
+
+def on(cfg):
+    """`[done_check] on`, true unless written false: off, a finished plan owes no check."""
+    table = cfg.get("done_check")
+    return not (isinstance(table, dict) and table.get("on") is False)
+
+
+def owed(name, text):
+    """Whether the seat, its plan `text` holding lines and every one done, owes a done check:
+    one is on, the owner wrote a message in its conversation, and no check that found no gap
+    read what they have said and what the plan holds now (`fingerprint`).  A record ak cannot
+    read holds the seat.  Their words are read only for such a plan; nothing here makes a check."""
+    if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
+        return False
+    try:
+        if not on(config.load()):
+            return False
+        seat = notify.conversation_of(name)
+        messages = notify.owner_messages(name, seat, strict=True)    # none with no conversation
+        if not messages:
+            return False
+        try:
+            kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
+        except FileNotFoundError:
+            kept = None
+        return fingerprint(owner_words(seat, messages), text) != kept
+    except (OSError, ValueError, config.Error):
+        return True
+
+
+def owner_words(seat, messages):
+    """The owner's words to the seat, oldest first, as (when, the words, the file showing them):
+    each of its `messages` and each answer they gave on its question cards."""
+    return sorted([*((message["at"], message["text"], message["text"]) for message in messages),
+                   *((answer["at"], answer["answer"], card(answer))
+                     for answer in seat[0].answers(*seat[1:]))], key=lambda said: said[0])
+
+
+def fingerprint(owner, text):
+    """What a check of the owner's words against a plan of `text` read, for a later one to be
+    compared with: each word of theirs with when it was said, and the plan's lines without the
+    proof stamp a renewed one changes."""
+    lines = [plan.undone(line.strip(), found) if (found := plan.LINE.match(line.strip()))
+             else line.strip() for line in text if plan.BOX.match(line)]
+    read = [[[at, words] for at, words, _ in owner], lines]
+    return hashlib.sha256(json.dumps(read).encode()).hexdigest()
+
+
+def keep(name, read):
+    """Keep what a check that found no gap `read`, or, None, forget it for one that found one:
+    of two checks of a seat at once, the one that ends last stands."""
+    path = config.seat_file("checked", name)
+    if read is None:
+        path.unlink(missing_ok=True)
+        return
+    fresh = path.with_name(f"{path.name}.{os.getpid()}")
+    fresh.write_text(read + "\n", encoding="utf-8")
+    fresh.replace(path)
+
 
 def checker(cfg, name):
     """`[done_check] model`, else the reviewer a run of that seat's would draw now."""
@@ -65,18 +135,16 @@ def card(answer):
 
 
 def gaps(cfg, name):
-    """The findings of the checking turn that quote one of the owner's messages or answers."""
+    """The findings of the checking turn that quote one of the owner's messages or answers;
+    what it read is kept where it found none, and forgotten where it found one (`keep`)."""
     seat = notify.conversation_of(name)
     if seat is None or not seat[3]:
         raise config.Error(f"no seat named {name} whose conversation ak can read")
-    # (when, the owner's words, the file showing them), oldest first
-    owner = sorted([*((message["at"], message["text"], message["text"])
-                      for message in notify.owner_messages(name, seat, strict=True)),
-                    *((answer["at"], answer["answer"], card(answer))
-                      for answer in seat[0].answers(*seat[1:]))], key=lambda said: said[0])
+    owner = owner_words(seat, notify.owner_messages(name, seat, strict=True))
     said = [words for _, words, _ in owner]
     if not said:
         return []       # asked nothing, so nothing is missing
+    planned = plan.lines(name)
     model = checker(cfg, name)
     print(f"ak orch check: {model} reads what {name} was asked and did", file=sys.stderr)
     config.ensure_dirs()
@@ -85,7 +153,7 @@ def gaps(cfg, name):
         files = {f"owner/{n}.md": shown for n, (_, _, shown) in enumerate(owner, 1)}
         files["conversation.md"] = "".join(f"**{turn['who']}:** {turn['text']}\n\n"
                                            for turn in seat[0].said(*seat[1:]) or [])
-        files["plan.md"] = "".join(line + "\n" for line in plan.lines(name))
+        files["plan.md"] = "".join(line + "\n" for line in planned)
         for directory, state in record.runs():
             if transitions.launched_session(state) == name:
                 task = directory / "task.md"
@@ -108,9 +176,11 @@ def gaps(cfg, name):
     if not review or not review.done:
         raise config.Error(f"{model} could not check {name}: its turn did not end in "
                            "`ak hand-in done`")
-    return [row for row in review.findings
-            if (quote := row["evidence"].get("quote", "")).strip()
-            and any(quote in text for text in said)]
+    found = [row for row in review.findings
+             if (quote := row["evidence"].get("quote", "")).strip()
+             and any(quote in text for text in said)]
+    keep(name, None if found else fingerprint(owner, planned))
+    return found
 
 
 def main(argv):

@@ -4,7 +4,8 @@ Before Claude draws an AskUserQuestion card it runs its PreToolUse hooks.  Where
 is done, every line ticked, and the owner has written nothing in its conversation since the
 plan's last write, the question would hold only the owner: the hook prints Claude's deny, its
 reason telling the seat to say it in its last message instead.  A line still open, no plan, or a
-word from the owner since, and the hook prints nothing: the card goes up.
+word from the owner since, and the hook prints nothing: the card goes up.  The done check a
+finished plan owes (tests/test_key_done_waits_for_the_check.py) is off, so ticking is done.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, writing
 and ticking the plan of a seat of tests/fixtures/akseat.py in a project of gitrig.py, whose hooks
 fire as their harness fires them (tests/fixtures/hookdrive.py).
@@ -36,6 +37,8 @@ class DoneSeatQuestionRefused(unittest.TestCase):
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
+        config = cls.home.path / ".agentkit" / "config.toml"
+        config.write_text(config.read_text() + "\n[done_check]\non = false\n")
         cls.hooks = hookdrive.Hooks(cls.home)
 
     def seat(self, name, planned=("parser.py",)):

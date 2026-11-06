@@ -992,6 +992,9 @@ console.log(JSON.stringify(refused));
         with closing(sqlite3.connect(db)) as conn, conn:
             conn.executescript((FIXTURES / "said-opencode.sql").read_text())
         plan = state / "plan-fakesession.md"
+        # with the done check off: on, a finished plan the owner wrote for owes it first, so it
+        # is not done (tests/test_key_done_waits_for_the_check.py)
+        (self.home / ".agentkit/config.toml").write_text("[done_check]\non = false\n")
         # the third: the owner wrote in the seat's session after its plan was done
         for lines, wrote, refused in (("- [x] the parser parses\n", False, [stop.DONE_ASKING, None]),
                                       ("- [ ] the parser parses\n", False, [None, None]),
