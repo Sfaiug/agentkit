@@ -77,7 +77,7 @@ func Check() error {
 func Owns(name string) bool { return name == "machines.json" || name == "machines.tmp" }
 
 // ask is what each machine printed of the probe, all asked at once, here or over ssh: "" where it
-// failed or had not answered by the timeout, which ends what it started.
+// failed or had not answered whole by the timeout, which ends everything it started.
 func ask(names []string) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout*time.Second)
 	defer cancel()
@@ -90,12 +90,26 @@ func ask(names []string) []string {
 				"--", name, commandhelp.ShellJoin(command)}
 		}
 		cmd := exec.CommandContext(ctx, command[0], command[1:]...)
-		host.Group(cmd)
+		stop := host.Group(cmd)
+		var out strings.Builder
+		cmd.Stdout = &out
+		if cmd.Start() != nil {
+			continue
+		}
+		waited := make(chan error, 1)
+		go func() { waited <- cmd.Wait() }()
 		asking.Add(1)
 		go func() {
 			defer asking.Done()
-			if out, err := cmd.Output(); err == nil {
-				answers[i] = string(out)
+			select {
+			case err := <-waited:
+				if err == nil {
+					answers[i] = out.String()
+				}
+			// exec stops watching the deadline once the first process is gone, and a child it
+			// left holding the output would hold Wait for as long as it lives
+			case <-ctx.Done():
+				stop()
 			}
 		}()
 	}
