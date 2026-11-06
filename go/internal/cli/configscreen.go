@@ -121,6 +121,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
 		}
+		if key.Name == "enter" && view.Row == len(c.Names)+3 {
+			if !menuAudit(keyboard, painter) {
+				return false
+			}
+			continue
+		}
 		if key.Name == "enter" && view.Row == len(c.Names)+5 {
 			if !menuMachines(keyboard, painter) {
 				return false
@@ -208,17 +214,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	if err != nil {
 		audit = err.Error()
 	} else {
-		named := func(names []string) string {
-			labels := []string{}
-			for _, name := range names {
-				labels = append(labels, config.ModelName(name, c.Models))
-			}
-			if len(labels) == 0 {
-				return "nobody"
-			}
-			return strings.Join(labels, ", ")
-		}
-		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + named(setting.Workers) + " · " + menu.RoleHead(2) + " " + named(setting.Reviewers)
+		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + auditNames(setting.Workers, c.Models) + " · " + menu.RoleHead(2) + " " + auditNames(setting.Reviewers, c.Models)
 	}
 	checker, on, err := config.DoneCheck()
 	check := ""

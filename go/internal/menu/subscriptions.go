@@ -2,7 +2,6 @@ package menu
 
 import (
 	"cmp"
-	"math"
 	"slices"
 	"strings"
 
@@ -208,10 +207,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 	frame.spots = append(frame.spots, body[top:shown]...)
 	frame.Lines = Panel(s, "config · subscriptions", view.Clock, append(slices.Clone(texts[top:shown]), under...), keys)
 	risen := clock.Risen()
-	frame.Lines[0] = written(frame.Lines[0], "config · subscriptions", risen)
-	for i := 2; i < len(frame.Lines); i++ {
-		frame.Lines[i] = s.Fade(frame.Lines[i], 1-risen)
-	}
+	frame.Lines = comeUp(s, frame.Lines, "config · subscriptions", risen)
 	for _, each := range moving {
 		if line := at[each.cell]; line >= top && line < shown {
 			frame.Over = append(frame.Over, terminal.Span{Row: 3 + line - top, Column: each.column, Text: s.Fade(each.text, 1-risen)})
@@ -264,16 +260,4 @@ func openedLines(s terminal.Screen, told, kind string, acts []string, on string,
 		used += gap + wide
 	}
 	return lines
-}
-
-// written is a page's header with its name written out to x of it, 0 to 1, as the page opens: the
-// cells after it blank (motion.titled).
-func written(header, name string, x float64) string {
-	rest, whole := strings.CutPrefix(header, "agentkit · "+name)
-	if !whole || x >= 1 {
-		return header
-	}
-	all := []rune(" · " + name)
-	shown := string(all[:int(math.RoundToEven(float64(len(all))*max(0, x)))])
-	return "agentkit" + shown + strings.Repeat(" ", terminal.Cells(string(all))-terminal.Cells(shown)) + rest
 }
