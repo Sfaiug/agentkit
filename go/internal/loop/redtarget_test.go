@@ -6,6 +6,7 @@ import (
 	"cmp"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -110,5 +111,57 @@ func TestARepairsRedIsItsOwn(t *testing.T) {
 	}
 	if evidence(turn, "red").Has(target.tree) {
 		t.Fatalf("the tip was probed for a repair: %s", run.Encode(evidence(turn, "red")))
+	}
+}
+
+// A probe that proves nothing of the target leaves its red as it found it, due, for the next pass:
+// a piece the kernel killed for memory on the tip is the host's red, and a checkout that cannot be
+// put on the tip is the pass's error.
+func TestAProbeWithNoVerdictLeavesTheRedAsItWas(t *testing.T) {
+	_, turn, target, dir, _ := redLine(t)
+	record, _ := run.Read(dir)
+	cgroup := filepath.Join(record.Str("repo"), ".git", "cgroups")
+	membership := filepath.Join(t.TempDir(), "membership")
+	if err := os.MkdirAll(filepath.Join(cgroup, "acme"), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	for path, text := range map[string]string{filepath.Join(cgroup, "acme", "memory.events"): "oom_kill 0\n", membership: "0::/acme\n"} {
+		if err := os.WriteFile(path, []byte(text), 0o666); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("AK_CGROUP_ROOT", cgroup)
+	t.Setenv("AK_CGROUP_FILE", membership)
+	starved := `: AK_SHARD; events="$(git rev-parse --git-common-dir)/cgroups/acme/memory.events"; n=$(sed -n 's/^oom_kill //p' "$events"); echo "oom_kill $((n + 1))" >"$events"; kill -9 $$`
+	probe := func(command string) error {
+		t.Helper()
+		note(turn, func(_, red, _ *run.Object) {
+			red.Set(target.tree, run.Fields("at", 0, "probes", 1, "probe",
+				run.Fields("command", command, "piece", "1/2", "check", command+"  # once", "sha", target.tip, "text", "red")))
+		})
+		before := run.Encode(evidence(turn, "red"))
+		pass := *target
+		pass.green = map[string]bool{}
+		err := narrowLine(turn, "", record.Str("repo"), &pass, []member{{dir, record}}, io.Discard)
+		if after := run.Encode(evidence(turn, "red")); after != before {
+			t.Errorf("a probe of %q changed the target's red: %s", command, after)
+		}
+		return err
+	}
+	if err := probe(starved); err != nil {
+		t.Fatal(err)
+	}
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	bin := t.TempDir()
+	refusing := "#!/bin/sh\ncase \"$*\" in *'checkout --force --detach'*) exit 1;; esac\nexec " + git + " \"$@\"\n"
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(refusing), 0o777); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := probe("false"); err == nil {
+		t.Error("a checkout refused on the tip was no error")
 	}
 }

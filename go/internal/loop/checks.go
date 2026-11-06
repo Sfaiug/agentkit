@@ -125,11 +125,13 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 			shard, only := selection.request()
 			row := history.Check(rows, cmd, asked, "", l.say)
+			kills := host.MemoryEvent("oom_kill")
 			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, at.holds(), only)
 			row.End(exitOf(outcome, err))
 			if err != nil {
 				return false, "", nil, err
 			}
+			outcome.starved = shard != "" && starved(outcome, kills) // a piece run alone runs out of memory as one among its siblings does
 			if busy, err := l.again(at, cmd, outcome, &deadline); err != nil {
 				return false, "", nil, err
 			} else if busy {

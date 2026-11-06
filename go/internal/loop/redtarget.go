@@ -95,32 +95,35 @@ func (t *lineTarget) meet(turn, code, repo string, m member, said io.Writer) (re
 // then the member's own and the piece the target's green.  Where the stack's red was its tests
 // failing again alone, those alone run there first: passing, the member's change is what fails them;
 // failing again, they are a red that repeats, which no step of the ladder would clear, and the piece
-// need not run.  Anything else proves nothing, and the piece decides.
+// need not run.  Anything else proves nothing, and the piece decides.  A piece with no verdict there,
+// handed on or out of memory, holds the line as it found it, for the next pass to probe again.
 func (s *narrowingStack) probeTip(turn, code string, target *lineTarget, suite, piece string, tests []string) (bool, error) {
-	probe := func(selection *checkSelection) (*run.Object, bool, error) {
+	probe := func(selection *checkSelection) (*run.Object, error) {
 		if err := s.putBack(target.tip); err != nil {
-			return nil, false, err
+			return nil, err
 		}
-		answer, err := s.check([]string{suite}, suite, "tip", selection)
-		return cmp.Or(answer, run.NewObject()), err != nil || selection.handoff, err
+		return s.check([]string{suite}, suite, "tip", selection)
 	}
 	tip := target.tip[:min(12, len(target.tip))]
 	var again []string
 	if len(tests) > 0 {
-		answer, stop, err := probe(&checkSelection{shard: piece, tests: tests})
-		if stop {
+		selection := &checkSelection{shard: piece, tests: tests}
+		answer, err := probe(selection)
+		switch {
+		case err != nil || selection.handoff:
 			return false, err
-		}
-		if answer.Has("land") {
+		case answer == nil: // proves nothing: the piece decides
+		case answer.Has("land"):
 			s.l.say(fmt.Sprintf("%s at %s passes the tests that failed %s's piece AK_SHARD=%s, run alone: the red is the member's own",
 				target.upstream, tip, s.l.id, piece))
 			return true, nil
+		default:
+			again = names(answer.Dict("fix").List("tests"))
 		}
-		again = names(cmp.Or(answer.Dict("fix"), run.NewObject()).List("tests"))
 	}
 	if len(again) == 0 {
-		answer, stop, err := probe(&checkSelection{shard: piece})
-		if stop {
+		answer, err := probe(&checkSelection{shard: piece})
+		if err != nil || answer == nil {
 			return false, err
 		}
 		if answer.Has("land") {
