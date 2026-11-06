@@ -80,7 +80,7 @@ func TestAnOlderDatabaseIsBroughtUpToTodaysTables(t *testing.T) {
 		tables = append(tables, row.Text("name"))
 	}
 	if want := []string{"checks", "conflicts", "done_runs", "dones", "findings", "kept", "meter_readings",
-		"owner", "phases", "reviews", "runs", "test_reds"}; !slices.Equal(tables, want) {
+		"owner", "phases", "reviews", "runs", "test_reds", "turn_usage"}; !slices.Equal(tables, want) {
 		t.Fatalf("tables %v, want %v", tables, want)
 	}
 	columns, _ := db.columns("runs")

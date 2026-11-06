@@ -4,10 +4,11 @@
 brings no Python at all works: the adapter script runs it, the adapter manifest says what its
 screen, its quota, its update and its conversation are, and the defaults here answer the rest.
 A harness that needs Python puts it in `agentkit/harness/<name>.py` and implements only the
-hooks it has something to say about -- `claude.py` the transcript it writes, `codex.py` the
-launch receipt its thread is proven by, `grokbuild.py` the session directory it opens,
-`muse.py` its launcher build, the snapshot an upgrade is put back from, its own usage probe,
-the receipt its SessionStart hook writes its session into and its registry moves on `/new`,
+hooks it has something to say about -- `claude.py` the transcript it writes and the counts by
+model its results report, `codex.py` the launch receipt its thread is proven by,
+`grokbuild.py` the session directory it opens, `muse.py` its launcher build, the snapshot an
+upgrade is put back from, its own usage probe, the receipt its SessionStart hook writes its
+session into and its registry moves on `/new`,
 the session store its tokens and messages are in and the sessions gc ends,
 `opencode.py` the receipt its seat plugin writes its session into, the endpoint that says
 how a model is paid and the sessions gc ends,
@@ -791,6 +792,14 @@ class Harness:
             return hook(Path(out))
         from .. import history   # here, not at the top: history is what reads this
         return history.event_tokens(Path(out) / "events.jsonl")
+
+    def turn_usage(self, out):
+        """(the session its counts total, None where they count this turn alone, {model: (input,
+        cache write, cache read, output)}) the turn written to `out` reported, the model None
+        where it named none; None where it reported none, as by default.
+        """
+        hook = self._hook("turn_usage")
+        return hook(Path(out)) if hook else None
 
     def turn_meters(self, out):
         """The meters the turn in `out` reported about its own account, or [].

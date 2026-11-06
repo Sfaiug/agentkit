@@ -251,6 +251,28 @@ CREATE TABLE IF NOT EXISTS meter_readings (
 READINGS_KEPT_FOR = 35 * 86400     # five weeks
 
 
+# One row per model a worker turn's harness reported its tokens by (`Harness.turn_usage`),
+# written with the turn's sum in `runs`: `turn` its directory as `counted_turns` names it,
+# `account` the login it ran on, `model` NULL where it named none, `began` and `at` when it
+# started and ended.  Where its harness totals a session, each count is the growth over the
+# latest earlier turn of that session in the run, never below 0.
+TURN_USAGE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS turn_usage (
+    turn TEXT,
+    run_id TEXT,
+    role TEXT,
+    account TEXT,
+    model TEXT,
+    began REAL,
+    at REAL,
+    input INTEGER,
+    cache_write INTEGER,
+    cache_read INTEGER,
+    output INTEGER
+)
+"""
+
+
 def path():
     """The history database follows the configured HOME, including test homes."""
     return config.HOME / "history.db"
@@ -281,6 +303,7 @@ def _connect(*, readonly=False):
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
     connection.execute(METER_READINGS_SCHEMA)
+    connection.execute(TURN_USAGE_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
                               ("reviews", REVIEW_MIGRATIONS), ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS)):
@@ -710,21 +733,59 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
     if row is None:
         return
     counted = set(json.loads(row[0] or "[]"))
-    values = []
+    plugin = harness_plugin(harness)
+    values, rows = [], []
     for out in paths:
         out = Path(out)
         turn = str(out.resolve())
         if turn not in counted:
-            value = harness_plugin(harness).tokens(out)
+            value = plugin.tokens(out)
             if value is not None:
                 values.append(value)
                 counted.add(turn)
+                rows += [(turn, run_id, role, *usage) for usage in _turn_usage(plugin, run_id, out)]
     if not values:
         return
-    # The total and the turns it includes survive or roll back together, even after a kill.
+    # The total, its rows by model and the turns they include survive or roll back together,
+    # even after a kill.
     connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+?, counted_turns=? WHERE run_id=?",
         (int(sum(values)), json.dumps(sorted(counted)), run_id))
+    connection.executemany(
+        "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, input, "
+        "cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+
+
+def _turn_usage(plugin, run_id, out):
+    """(account, model, began, at, input, cache write, cache read, output) for each model the
+    turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them.
+
+    It began when its `harness` receipt was written and ended at its last event."""
+    reported = plugin.turn_usage(out)
+    if reported is None:
+        return []
+    session, counts = reported
+    began = _moment(out / "harness")
+    if session is not None and began is not None:
+        earlier = [(when, found[1]) for receipt in (config.RUNS / run_id).glob("round-*/*/harness")
+                   if (when := _moment(receipt)) is not None and when < began
+                   and (found := plugin.turn_usage(receipt.parent)) and found[0] == session]
+        before = max(earlier, key=lambda pair: pair[0])[1] if earlier else {}
+        counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, before.get(
+            model, (0,) * len(numbers)))) for model, numbers in counts.items()}
+    try:
+        account = (out / "account").read_text()
+    except OSError:
+        account = None
+    at = _moment(out / "events.jsonl")
+    return [(account, model, began, at, *numbers) for model, numbers in counts.items()]
+
+
+def _moment(path):
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
 
 
 def record_review(run_id, review_id, *, harness, model, blocking, followup, note, round, verdict,
