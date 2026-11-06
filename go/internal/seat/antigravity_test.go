@@ -12,8 +12,7 @@ func TestAntigravityStoreIsReadAtTheListingBoundary(t *testing.T) {
 	for name, learned := range map[string]bool{"launcher": false, "learned": true} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)
-			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+
-				"[models.gemini]\nharness='antigravity'\nmodel='gemini-flash'\neffort='low'\nprovider='test'\n")
+			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+gemini)
 			token := strings.Repeat("a", 32)
 			fields := map[string]any{"orchestrator": "gemini", "workers": []string{"gemini"},
 				"antigravity_launch": token, "antigravity_open": nil}

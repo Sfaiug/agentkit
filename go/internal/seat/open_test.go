@@ -7,7 +7,7 @@ import (
 	"agentkit/internal/harness"
 )
 
-// A gone seat's files and a harness's launch receipts remain Python's.
+// A gone seat's files remain Python's, and a launch writing down more than Go writes.
 func TestOpensLeftToPython(t *testing.T) {
 	home := sandbox(t)
 	state := filepath.Join(home, ".agentkit", "state")
@@ -22,8 +22,8 @@ func TestOpensLeftToPython(t *testing.T) {
 	if _, known := harness.Opens("claude"); !known {
 		t.Error("Go does not open a Claude seat")
 	}
-	if _, known := harness.Opens("codex"); known {
-		t.Error("Go opens a Codex seat, whose launch writes down its receipt")
+	if _, known := harness.Opens("codex"); !known {
+		t.Error("Go does not open a Codex seat")
 	}
 	if _, known := harness.Opens("antigravity"); known {
 		t.Error("Go opens an Antigravity seat, whose launch writes down more than its id")

@@ -32,6 +32,9 @@ provider='test'
 mode='subscription'
 `
 
+// gemini is a model whose seats Go does not open.
+const gemini = "[models.gemini]\nharness='antigravity'\nmodel='gemini-flash'\neffort='low'\nprovider='test'\n"
+
 var moment = time.Unix(1_800_000_000, 0)
 
 func sandbox(t *testing.T) string {
