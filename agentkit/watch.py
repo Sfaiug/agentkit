@@ -5064,6 +5064,15 @@ def _resume_on(cfg, name, log, account, continuing, still=None):
         relaunched(name, seat_model(cfg, name)[0], line, at, account=True)
 
 
+def field_empty(harness, pane):
+    """Whether that screen's input field, read whole, holds nothing: the only one a subscription
+    move respawns a live harness over, as the respawn ends whatever it holds."""
+    # The owner, 5 Nov 2026: "the text in the input field should never be deleted ... Have the
+    # change happen as soon as the input field is empty again, then we never risk that the
+    # input gets lost."  A screen's rules can read a tall draft as an empty prompt.
+    return composer_draft(harness, pane) == ""
+
+
 def between_turns(name, harness, record, opened_at, pane=None):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
     closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
@@ -5087,7 +5096,7 @@ def between_turns(name, harness, record, opened_at, pane=None):
         return False
     pane = pane_text(seat)
     fresh = observed(name, harness, pane, seat_read(name), time.time())
-    return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+    return (quiet and fresh["state"] == "at_prompt" and field_empty(harness, pane)
             and not fresh.get("holds")
             and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
@@ -5291,11 +5300,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     # the owner's text lifted and the harness respawned in one hold, as a switch does;
                     # a move nobody asked for waits while no editor of ak's lifts it, or none could
                     with notify.session_lock(name):
-                        if live.get("state") == "draft" and not (
-                                seat_editor(session, cfg)
-                                and carry_draft(session, harness, pane, harness, cfg)):
+                        if not carry_draft(session, harness, pane, harness, cfg):
                             return True     # a respawn would lose the text
-                        _resume_on(cfg, name, log, target, continuing)
+                        _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
+                            harness, pane_text(dict(session, pane=at))))
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True
