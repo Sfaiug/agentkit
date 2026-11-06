@@ -116,6 +116,7 @@ test_key_hook_fact_order
 test_key_hook_outside_seat
 test_key_hook_words
 test_key_install_cron
+test_key_incoming_prs_one_search
 test_key_install_home
 test_key_install_links_shims
 test_key_landing_offline
@@ -252,6 +253,7 @@ test_key_result_opens_with_its_decision
 test_key_resume_interrupted
 test_key_review_others_prs
 test_key_review_pr
+test_key_review_retry
 test_key_reviewer_edits_undone
 test_key_review_off ReviewOff.test_invalid_round_counts_name_the_zero_floor
 test_key_reviewer_fail_rounds

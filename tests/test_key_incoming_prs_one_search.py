@@ -1,7 +1,9 @@
 """Incoming PR discovery asks GitHub once, across all local checkouts.
 
-AK_BIN runs `watch` in a throwaway HOME against fakegh. Unrelated local passes are stilled
-by the tick fixture; review subprocesses are recorded and answered without starting a run.
+Black-box: the program `AK_BIN` names runs `ak watch` from outside, in the box `home.tick()` of
+tests/fixtures/akbin.py builds, against the bare origins of gitrig.py and the GitHub of
+fakegh.py, with a scripted reviewer from fakeadapter.py.  A review the tick launched is read off
+the run it leaves; this test fails against `/bin/false`.
 """
 
 import json
@@ -10,43 +12,23 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures import akconfig
-from fixtures.akbin import AK, Home, REPO
+from fixtures import akconfig, fakeadapter, taskfile
+from fixtures.akbin import REAL_TMUX, Home, boxable
+from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-QUIET = """
-import json, pathlib, subprocess, sys
-if sys.argv[0] == {ak!r}:
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.tick import only_passes
-    held = only_passes(pathlib.Path.home())
-    held.__enter__()
-    actual = subprocess.run
-    def run(argv, **kwargs):
-        if list(argv[2:4]) == ["run", "--review-pr"]:
-            with pathlib.Path({launches!r}).open("a") as out:
-                out.write(json.dumps(argv[2:]) + "\\n")
-            return subprocess.CompletedProcess(argv, 0, {result!r} + "\\n", "")
-        return actual(argv, **kwargs)
-    subprocess.run = run
-"""
 
-
+@unittest.skipUnless(REAL_TMUX and boxable(), "needs tmux and a bwrap able to box a tick")
 class IncomingSearch(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
         self.addCleanup(home.close)
         akconfig.write(home, ["opus", "astra"])
+        fakeadapter.install(home, claude="pass", codex="pass")
+        Seat(home, "inbox")      # a pass is offered there: one ak opened would keep the box up
         self.gh = GitHub(home)
         self.rigs = {name: Rig(home, name) for name in ("api", "web", "docs")}
-        self.launches = home.path / "launches.jsonl"
-        home.write("fakes/sitecustomize.py", QUIET.format(
-            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
-            launches=str(self.launches), result=str(home.path / "runs/review/result.md")))
-        home.env["PYTHONPATH"] = str(home.path / "fakes")
-        home.fake("ps", "#!/bin/sh\nexit 0\n")
-        home.fake("tmux", "#!/bin/sh\nexit 1\n")
 
     def open_pr(self, name="web", *, author="someone-else", draft=False):
         rig = self.rigs[name]
@@ -56,10 +38,10 @@ class IncomingSearch(unittest.TestCase):
         return url
 
     def tick(self):
-        done = self.home.ak("watch")
+        done = self.home.tick()
         self.assertEqual((done.code, done.err), (0, ""), done.out)
-        launched = ([json.loads(line) for line in self.launches.read_text().splitlines()]
-                    if self.launches.exists() else [])
+        launched = [json.loads((run / "run.json").read_text())["review_pr"]
+                    for run in taskfile.runs(self.home)]
         # Identity and the separate outgoing-PR pass are outside incoming discovery.
         calls = [call for call in self.home.calls("gh") if call != ["api", "user"]
                  and not any("author:@me" in word for word in call)]
@@ -79,7 +61,7 @@ class IncomingSearch(unittest.TestCase):
                              ("docs", "ssh://git@github.com/acme/docs.git")):
             self.rigs[name].git("remote", "set-url", "origin", remote)
         launched, calls = self.tick()
-        self.assertEqual(launched, [["run", "--review-pr", url, "--bg"]])
+        self.assertEqual(launched, [url])
         self.assertFalse(any(call[:2] == ["repo", "view"] for call in calls))
         noted = json.loads((self.home.path / ".agentkit/state/watch.json").read_text())
         self.assertEqual(noted["reviewed"][url]["sha"], self.rigs["web"].head("fix-api"))
@@ -94,7 +76,7 @@ class IncomingSearch(unittest.TestCase):
         expected = []
         for name, origin in (("api", "ssh://git@ssh.github.com:443/acme/api.git"),
                              ("docs", "https://www.github.com/acme/docs.git")):
-            expected.append(["run", "--review-pr", self.open_pr(name), "--bg"])
+            expected.append(self.open_pr(name))
             self.rigs[name].git("remote", "set-url", "origin", origin)
         self.assertCountEqual(self.tick()[0], expected)
 
@@ -119,7 +101,7 @@ class IncomingSearch(unittest.TestCase):
         self.gh.reply("api --paginate search/issues -X GET", out=
                       json.dumps({"items": [other]}) + "\n" + json.dumps({"items": [found]}))
         launched, calls = self.tick()
-        self.assertEqual(launched, [["run", "--review-pr", url, "--bg"]])
+        self.assertEqual(launched, [url])
         self.assertFalse(any("uncloned" in word for call in calls for word in call))
 
     def test_unavailable_pr_details_do_not_launch_a_review(self):
