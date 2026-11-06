@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"agentkit/internal/run"
 )
 
 func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
