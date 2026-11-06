@@ -22,9 +22,9 @@ import (
 // adapter is told.  No line where none opens: Python's launch says why where no adapter runs or it
 // prints no line, and the error does, after the model's name, where a file the harness reads on
 // its own, which nothing on the line can stop, is there.
-func Fresh(model config.Model, env []string) ([]string, string, error) {
+func Fresh(model config.Model, env []string, dir string) ([]string, string, error) {
 	conversation := uuid()
-	line, told, err := command(model, env, []string{conversation, "new"}, nil)
+	line, told, err := command(model, env, dir, []string{conversation, "new"}, nil)
 	if !told {
 		conversation = ""
 	}
@@ -34,12 +34,12 @@ func Fresh(model config.Model, env []string) ([]string, string, error) {
 // Resumed is the command a seat of model comes back on with the conversation it owns, as Python's
 // orch.resume_command builds it: resumed where its harness has opened it, else handed over as one
 // to open, or resumed after all where its TUI cannot be told one.
-func Resumed(model config.Model, conversation string, opened bool, env []string) ([]string, error) {
+func Resumed(model config.Model, conversation string, opened bool, env []string, dir string) ([]string, error) {
 	if opened {
-		line, _, err := command(model, env, []string{conversation}, nil)
+		line, _, err := command(model, env, dir, []string{conversation}, nil)
 		return line, err
 	}
-	line, _, err := command(model, env, []string{conversation, "new"}, []string{conversation})
+	line, _, err := command(model, env, dir, []string{conversation, "new"}, []string{conversation})
 	return line, err
 }
 
@@ -64,10 +64,10 @@ func answering(name string) ([]string, error) {
 	return []string{self, "adapter", filepath.Dir(filepath.Dir(self)), name}, err
 }
 
-// command is the seat's line from the adapter's answer to `interactive` with first, whether that
-// answered, or with then where first, naming a conversation to open, exits 3: none is told one.
-// No line and no error where the adapter gives none.
-func command(model config.Model, env []string, first, then []string) ([]string, bool, error) {
+// command is the seat's line from the adapter's answer to `interactive` with first, asked in the
+// seat's folder dir, whether that answered, or with then where first, naming a conversation to
+// open, exits 3: none is told one.  No line and no error where the adapter gives none.
+func command(model config.Model, env []string, dir string, first, then []string) ([]string, bool, error) {
 	argv, err := answering(model.Harness)
 	if err != nil {
 		return nil, false, nil
@@ -77,7 +77,7 @@ func command(model config.Model, env []string, first, then []string) ([]string, 
 	args := []string{"interactive", model.ID, model.Efforts["effort"]}
 	ask := func(words []string) ([]byte, error) {
 		run := exec.Command(argv[0], slices.Concat(argv[1:], args, words)...)
-		run.Env = env
+		run.Env, run.Dir = env, dir
 		return run.Output()
 	}
 	out, err := ask(first)

@@ -118,7 +118,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	}
 	// a preview refused too is Python's to print
 	cmd, _, _ := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
-		"AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)))
+		"AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)), cwd)
 	if cmd == nil {
 		return notImplemented(errOut, "orch")
 	}

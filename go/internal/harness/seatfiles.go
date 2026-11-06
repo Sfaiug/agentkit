@@ -39,6 +39,6 @@ func RecordKeys(name string) []string { return plugins[name].keys }
 // KeptInState is whether some harness keeps that state/ entry beside its seats' records.
 func KeptInState(entry string) bool {
 	return slices.ContainsFunc(slices.Collect(maps.Values(plugins)), func(own plugin) bool {
-		return own.kept != nil && own.kept.MatchString(entry)
+		return own.kept != nil && own.kept.MatchString(entry) || own.report != nil && reportFile.MatchString(entry)
 	})
 }

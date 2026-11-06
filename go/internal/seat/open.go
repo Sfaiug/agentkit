@@ -66,7 +66,7 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	}
 	created := seconds(time.Now())
 	cmd, conversation, err := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
-		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)))
+		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)), cwd)
 	if cmd == nil {
 		os.Remove(rulebook)
 		if err != nil {
