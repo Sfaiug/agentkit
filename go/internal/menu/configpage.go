@@ -143,6 +143,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			if row.On {
 				mark = part{string(glyphs[0]), "accent"}
 			}
+			// keyed by the list too: one opened again is drawn as it is, as Python's look forgets it
 			mark.text = clock.Mark(fmt.Sprint("mark ", entry.row, " ", entry.choice, " ", view.Lists), mark.text)
 			parts = append([]part{mark}, parts...)
 		} else if row.Act != nil {
