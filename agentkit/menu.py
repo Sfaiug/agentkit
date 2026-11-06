@@ -4996,11 +4996,11 @@ def page_body(rows, at=None, moves=None):
 def config_page(name, page):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
     or with a note of the row's own after, said instead of the page's while the row is pointed,
-    and lines drawn as they are under it after that -- and the note under them, asked again for
-    every draw, drawn as page_body draws them and read with `c`'s keys until Esc.  It comes up
-    as `c` does as it opens, its name writing itself out in the header (motion.Clock), and a
-    mark leading a value fills or empties as it flips (motion.toggled); one gone back to from a
-    list or a field is drawn as it is.
+    and lines drawn as they are under it, where the page fits whole with them, after that -- and
+    the note under them, asked again for every draw, drawn as page_body draws them and read with
+    `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing itself out in
+    the header (motion.Clock), and a mark leading a value fills or empties as it flips
+    (motion.toggled); one gone back to from a list or a field is drawn as it is.
 
     A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
     flipping it, optionally a third item, a field Enter opens; a list, (choices, several),
@@ -5053,10 +5053,13 @@ def config_page(name, page):
                   for line, (row, _) in places.items()}
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter)
+        below = note_lines("\n".join(filter(None, (said, note))))
+        # a row's lines only where the page fits whole with them: they never page its rows, the
+        # highlight among them, off the screen
+        if matrix_page(body, places, here, 0, [*below, *under], keys)[1] >= len(body):
+            below += under
         act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
-                                        clock=clock, moves=moves, under=[
-                                            *note_lines("\n".join(filter(None, (said, note)))),
-                                            *under])
+                                        clock=clock, moves=moves, under=below)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
         here = moved if moved in ids or act in ("enter", "space") else here
         opened = opened if len(here) == 3 else None
@@ -5504,14 +5507,15 @@ def limits_value(cfg):
 def rounds_chart(runs):
     """How `runs` (history.round_endings) ended, drawn under `Review rounds`' note: the evidence
     its number is set from (the owner's design of 5 Nov 2026).  Under a heading, a bar of each
-    ending -- each round up to the last a run merged in, then `failed` -- its share of the runs
-    (terminal.share_line) taking the room the columns after it leave: its count, that share as a
-    whole percent and its median hours from start to finish.  Below 60 columns each bar folds
-    under its ending."""
+    ending -- each round from round 1, or a merge with review off, up to the last a run merged
+    in, then `failed` -- its share of the runs (terminal.share_line) taking the room the columns
+    after it leave: its count, that share as a whole percent and its median hours from start to
+    finish.  Below 60 columns each bar folds under its ending."""
     if not runs:
         return ["", "  no finished runs yet"]
-    room, last = terminal.layout_width(), max(ending or 0 for *_, ending in runs)
-    endings = [*((f"merged in round {n}", n, "done") for n in range(1, last + 1)),
+    room, merged = terminal.layout_width(), [ending for *_, ending in runs if ending is not None]
+    endings = [*((f"merged in round {n}" if n else "merged with no review", n, "done")
+                 for n in range(min([*merged, 1]), max([*merged, 0]) + 1)),
                ("failed", None, "FAIL")]
     hours = [[(end - start) / 3600 for start, end, ending in runs if ending == at]
              for _, at, _ in endings]

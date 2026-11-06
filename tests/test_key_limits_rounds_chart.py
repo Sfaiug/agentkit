@@ -1,11 +1,12 @@
 """While the pointer is on `Review rounds` on `config · limits`, how your runs ended shows under its
-note: `how your N runs ended, since D`, then a bar each ending -- each round up to the last a
-run merged in, then `failed` -- its share of N, its count, that share as a whole percent and its
-median hours from start to finish.
+note: `how your N runs ended, since D`, then a bar each ending -- `merged with no review` where
+one did, each round from 1 up to the last a run merged in, then `failed` -- its share of N, its
+count, that share as a whole percent and its median hours from start to finish.  It never pushes
+the page's rows off a short terminal.
 
 Counted are the finished runs that are not stopped, from the first that carries changed_lines on:
-merged in the round rounds_used names when changed_lines is set, failed when final_state is
-`fail`, nothing else.  With none, the chart's place says `no finished runs yet`.
+merged in the round rounds_used names (0, review off) when changed_lines is set, failed when
+final_state is `fail`, nothing else.  With none, the chart's place says `no finished runs yet`.
 
 The owner's design of 5 Nov 2026: each limit shows what your runs did.  Black-box: history.db's
 `runs` rows written into the Home as any program writes them, then the program `AK_BIN` names
@@ -37,7 +38,8 @@ COUNTED = [("pass", 2, 40, FIRST + 3 * DAY, 5.0), ("fail", 3, None, FIRST + 4 * 
            ("pass", 1, 20, FIRST + 1 * DAY, 1.0), ("pass", 1, 30, FIRST, 2.0),
            ("pass", 3, 90, FIRST + 9 * DAY, 6.3), ("pass", 1, 10, FIRST + 2 * DAY, 3.0),
            ("fail", 3, None, FIRST + 5 * DAY, 0.9), ("pass", 2, 60, FIRST + 6 * DAY, 4.0),
-           ("pass", 1, 80, FIRST + 7 * DAY, 1.5), ("pass", 1, 50, FIRST + 8 * DAY, 2.5)]
+           ("pass", 1, 80, FIRST + 7 * DAY, 1.5), ("pass", 1, 50, FIRST + 8 * DAY, 2.5),
+           ("pass", 0, 15, FIRST + 10 * DAY, 0.4)]
 LEFT_OUT = {"stopped": ("stopped", 1, 40, FIRST + 2 * DAY, 1.0),
             "unfinished": ("running", 2, 30, FIRST + 3 * DAY, None),
             "passed unmerged": ("pass", 1, None, FIRST + 4 * DAY, 2.0),
@@ -45,10 +47,12 @@ LEFT_OUT = {"stopped": ("stopped", 1, 40, FIRST + 2 * DAY, 1.0),
             "failed before the first merge": ("fail", 3, None, FIRST - 6 * DAY, 1.0),
             "passed before the first merge": ("pass", 1, None, FIRST - 11 * DAY, 1.0)}
 # (ending, count, percent, median hours) in the order drawn
-ENDINGS = [("merged in round 1", 5, 50, "2.0"), ("merged in round 2", 2, 20, "4.5"),
-           ("merged in round 3", 1, 10, "6.3"), ("failed", 2, 20, "0.7")]
-HEADING = "how your 10 runs ended, since 1 Oct"
-BAR = re.compile(r"^  (merged in round \d+|failed) +([━╸─]+)  +(\d+) +(\d+)% +median (\S+) h$")
+ENDINGS = [("merged with no review", 1, 9, "0.4"), ("merged in round 1", 5, 45, "2.0"),
+           ("merged in round 2", 2, 18, "4.5"), ("merged in round 3", 1, 9, "6.3"),
+           ("failed", 2, 18, "0.7")]
+HEADING = "how your 11 runs ended, since 1 Oct"
+BAR = re.compile(r"^  (merged in round \d+|merged with no review|failed) +([━╸─]+)  +(\d+) +(\d+)% "
+                 r"+median (\S+) h$")
 SHOWN = r"\n  {}\s+[━╸─]+ +{} +{}%"     # an ending's count and share, its bar under it or not
 
 
@@ -126,6 +130,11 @@ class RoundsChart(unittest.TestCase):
         for ending, count, share, _ in ENDINGS:
             with self.subTest(ending=ending):
                 self.assertRegex(shown, SHOWN.format(ending, count, share), shown)
+
+    def test_on_a_short_terminal_an_open_list_keeps_its_highlight_on_screen(self):
+        term = opened(self, (40, 20))
+        term.keys("Enter")
+        self.assertRegex(term.wait("⏎ pick"), r"(?m)^› +● 3$")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
