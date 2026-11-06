@@ -3,6 +3,7 @@ package doctor
 import (
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -22,11 +23,14 @@ func gateLine() (string, bool) {
 	if !read {
 		return "", false
 	}
-	holding := map[string]bool{}
-	behind := run.SlotQueue()
+	behind, read := run.SlotQueue()
+	if !read {
+		return "", false
+	}
 	if len(behind) > 0 {
 		behind = behind[1:]
 	}
+	holding := map[string]bool{}
 	if !run.Every(func(_ string, record *run.Object) bool {
 		if !run.ProcessActive(record) {
 			return true
@@ -49,9 +53,11 @@ func gateLine() (string, bool) {
 		return "", false
 	}
 	// a line's checker marks no run record: its wait file is locked only while it waits
-	waits, _ := filepath.Glob(filepath.Join(run.Runs(), ".landing-wait-*"))
-	if slices.ContainsFunc(waits, lock.Held) {
-		holding["suite turns"] = true
+	entries, _ := os.ReadDir(run.Runs())
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".landing-wait-") && lock.Held(filepath.Join(run.Runs(), entry.Name())) {
+			holding["suite turns"] = true
+		}
 	}
 	var parts []string
 	for _, name := range []string{"admission", "suite turns", "memory"} {
