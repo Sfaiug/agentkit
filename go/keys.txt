@@ -138,6 +138,7 @@ test_key_idle_seat_holds_no_memory
 test_key_install_cron
 test_key_incoming_prs_one_search
 test_key_install_home
+test_key_install_keys
 test_key_install_links_shims
 test_key_landing_offline
 test_key_landing_suite_red
