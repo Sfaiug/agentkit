@@ -78,7 +78,7 @@ func table(t *ticking) []pass {
 		{"typed answers", false, every(unasked), nil},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
 		{"notification retry", true, nil, t.retryNotifications},
-		{"end hook", false, nil, hookOptions},
+		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},

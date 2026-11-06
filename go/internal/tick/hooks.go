@@ -14,7 +14,7 @@ import (
 // wayBack is what a seat's pane left dead says, where tmux would say `Pane is dead` (orch.WAY_BACK).
 const wayBack = "The harness ended. To open it again: Ctrl-b m, then this seat's number."
 
-// hookOptions is the end hook row (orch.set_hook_options): on ak's own server, which one started
+// hookOptions is the server hooks row (orch.set_hook_options): on ak's own server, which one started
 // before them lacks, the options that run ak: what brings back a seat whose harness ended without
 // ak ending it, and what puts the seat a client is in first.  Those verbs are Python's, so they run
 // its bin/ak under the python3 this tick's PATH finds, the one bin/ak's `#!/usr/bin/env python3`
