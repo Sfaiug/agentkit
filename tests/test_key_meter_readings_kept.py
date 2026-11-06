@@ -59,9 +59,9 @@ def readings(home):
 
 
 def rows(meters, account="default", source="probe"):
-    """The rows a reading of `meters` keeps, less its moment."""
+    """The rows a reading of `meters` keeps, less its moment: the fake names no plan."""
     return [{"provider": "anthropic", "account": account, "meter": name, "used": used,
-             "resets_at": resets, "window_secs": window, "source": source}
+             "resets_at": resets, "window_secs": window, "source": source, "plan": None}
             for name, (used, resets, window) in meters.items()]
 
 

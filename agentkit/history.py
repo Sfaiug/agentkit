@@ -233,8 +233,10 @@ CREATE TABLE IF NOT EXISTS done_runs (
 # Each meter of every fresh reading a probe or a worker turn took (`usage._keep`), as read and
 # at the moment it was measured: state/usage.json keeps only the latest reading, and setting a
 # plan's meter against the tokens spent on it takes the readings over time.  `account` is
-# `default` for the usual login; `source` is `probe` or `turn`.  A reading kept already, the same
-# meter at the same moment, adds nothing.
+# `default` for the usual login; `source` is `probe` or `turn`; `plan` is the login's as
+# state/logins.json named it then (`logins.whose`), so a changed plan starts readings of its own,
+# NULL where it named none or on a row from before it.  A reading kept already, the same meter at
+# the same moment, adds nothing.
 METER_READINGS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS meter_readings (
     provider TEXT,
@@ -248,6 +250,7 @@ CREATE TABLE IF NOT EXISTS meter_readings (
     PRIMARY KEY (provider, account, meter, at)
 )
 """
+METER_READING_MIGRATIONS = (("plan", "TEXT"),)
 READINGS_KEPT_FOR = 35 * 86400     # five weeks
 
 
@@ -306,7 +309,8 @@ def _connect(*, readonly=False):
     connection.execute(TURN_USAGE_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
                               ("reviews", REVIEW_MIGRATIONS), ("owner", OWNER_MIGRATIONS),
-                              ("dones", DONE_MIGRATIONS)):
+                              ("dones", DONE_MIGRATIONS),
+                              ("meter_readings", METER_READING_MIGRATIONS)):
         have = {row[1] for row in connection.execute(f"PRAGMA table_info({table})")}
         for name, kind in migrations:
             if name not in have:
@@ -414,7 +418,7 @@ def keep_readings(rows):
 
     def keep(connection):
         if connection.executemany("INSERT OR IGNORE INTO meter_readings VALUES "
-                                  "(?, ?, ?, ?, ?, ?, ?, ?)", rows).rowcount > 0:
+                                  "(?, ?, ?, ?, ?, ?, ?, ?, ?)", rows).rowcount > 0:
             connection.execute("DELETE FROM meter_readings WHERE at < ?",
                                (time.time() - READINGS_KEPT_FOR,))
     _write(keep)
