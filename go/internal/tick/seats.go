@@ -2,15 +2,15 @@ package tick
 
 import (
 	"cmp"
-	"math"
-	"math/big"
-	"os"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/notify"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -74,19 +74,46 @@ func stays(live seat.Live) bool {
 }
 
 // health is the seat health row (watch.health): each seat looked at and its word published, as the
-// later rows read it, while the look is all the row does there; the first it would do more at ends
-// the tick there, before its publish.
+// later rows read it, while the look is all the row does there, or keeps the stall its screen
+// shows in its first minutes; the first it would do more at ends the tick there, before its
+// publish.  A stall held of a seat whose record is gone is Python's to forget.
 func (t *ticking) health() error {
 	names, known := seat.Seats(time.Now())
-	if !known {
+	stalls := t.state.Dict("stalls")
+	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := seat.Health(name, func(live seat.Live) bool { return healthReady(live) || refused(live) }, t.log.line); err != nil || !carried {
+		var kept *run.Object
+		owner, line := "", ""
+		carried, err := seat.Health(name, func(live seat.Live) bool {
+			held, _ := stalls.Get(live.Name).(*run.Object)
+			if !stalling(live) {
+				return held == nil && (healthReady(live) || refused(live))
+			}
+			var keeps bool
+			kept, line, keeps = seat.KeepStall(live, held, epoch(time.Now()))
+			owner = live.Name
+			return keeps
+		}, t.log.line)
+		if err != nil || !carried {
 			return cmp.Or(err, errLeft)
+		}
+		if kept != nil {
+			stalls.Set(owner, kept)
+			t.log.line(line)
 		}
 	}
 	return nil
+}
+
+// stalling is whether the health row's look at the seat finds a stall it keeps without typing
+// (watch.health): one on a screen it reads, its own login fine and no notice standing, on the
+// account it stays on, its plan not done, where the row's catch-all takes it.
+func stalling(live seat.Live) bool {
+	finished, err := plan.Finished(live.Name)
+	return live.Stall != nil && live.Login == nil && looked(live) && notify.Last(live.Name) == nil && live.Refused == "" &&
+		stays(live) && strings.TrimFunc(live.Pane, config.Space) != "" && err == nil && !finished
 }
 
 // stamp is the exit clocks row where every seat is up (orch.stamp): a record not seen within
@@ -112,27 +139,4 @@ func (t *ticking) stamp() error {
 		}
 	}
 	return stampGone(t.clock())
-}
-
-// awake is whether idle sleep leaves the seat be (sleep.tick): it does not rest at its prompt, with
-// nobody in it, past its harness's prompt cache, nor while memory may be tight, which Go does not
-// read and the tests' `AK_MAX_RUNS=0` turns off as it turns off Python's.
-func awake(live seat.Live) bool {
-	began, dated := run.Num(live.Began)
-	if live.State != "at_prompt" || live.Attached || !dated || began == 0 {
-		return true
-	}
-	if os.Getenv("AK_MAX_RUNS") != "0" {
-		return false
-	}
-	launched, _ := run.Num(live.Record.Get("launched"))
-	cache := math.Inf(1)
-	block, err := config.Section(live.Own, "sleep")
-	switch seconds := block["cache"].(type) {
-	case *big.Int:
-		cache, _ = new(big.Float).SetInt(seconds).Float64()
-	case float64:
-		cache = seconds
-	}
-	return err == nil && !(epoch(time.Now())-max(began, launched) > cache)
 }

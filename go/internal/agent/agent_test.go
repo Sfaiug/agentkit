@@ -15,8 +15,8 @@ func TestProgramReadsEachInterpretersGrammar(t *testing.T) {
 		"python3 -m claude":                               "python3",
 		"ssh claude sleep 600":                            "ssh",
 	} {
-		if got := program(strings.Fields(words)); got != want {
-			t.Errorf("program(%q) = %q, want %q", words, got, want)
+		if got := Program(strings.Fields(words), false); got != want {
+			t.Errorf("Program(%q) = %q, want %q", words, got, want)
 		}
 	}
 }

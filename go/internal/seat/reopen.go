@@ -46,7 +46,8 @@ var (
 // How is what the caller of Reopen has: DryRun only says what would be done, and Terminal is one
 // to hand over, without which the seat's way in is said instead.  Detached is a waking with nobody
 // at it (orch.resume's): a seat tmux still holds is left as it is, and one whose recorded directory
-// is gone refused.
+// is gone refused.  Its dry run says nothing to anyone, only whether Go carries the waking, so it
+// leaves Python what the launch would.
 type How struct{ DryRun, Terminal, Detached bool }
 
 // A reopening is what a seat comes back as, read from its record.
@@ -105,7 +106,7 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	if record == nil {
 		return true, Refusal(fmt.Sprintf("%s does not say which model held %s", path, commandhelp.Quote(name)))
 	}
-	seat, known := comingBack(state, name, record, held, how.DryRun)
+	seat, known := comingBack(state, name, record, held, how.DryRun && !how.Detached)
 	if !known {
 		return false, nil
 	}

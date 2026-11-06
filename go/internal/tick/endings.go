@@ -6,7 +6,6 @@ import (
 	"agentkit/internal/handback"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
-	"agentkit/internal/seat"
 )
 
 func (t *ticking) endingsIdle() bool { return true } // this real row reads at its step
@@ -28,6 +27,9 @@ func (t *ticking) endings() error {
 			// Python finishes an existing line's Enter; Go must not leave it blocking the composer.
 			return false
 		}
+		if record.Str("state") == "stalled" {
+			return true // parked by the tick: handback.reap leaves it be, and only a resume moves it
+		}
 		if !run.Ended(record) && run.NeedsRecovery(record) && (record.Str("state") != "interrupted" || run.ProcessActive(record)) {
 			return false
 		}
@@ -40,7 +42,7 @@ func (t *ticking) endings() error {
 		}
 		// launched from no seat, a run has nobody to hand its ending back to (handback.announce)
 		told := handback.Awaiting(record, t.clock()) && (run.Seat(record) != "" || !run.Ended(record))
-		if told && !seat.Watching(run.Seat(record)) && !handback.Orphaned(record) {
+		if told && !handback.Reaches(record) {
 			return false
 		}
 		if told || run.Ended(record) && record.Truthy("pending_inbox") {
