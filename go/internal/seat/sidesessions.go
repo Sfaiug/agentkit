@@ -28,10 +28,9 @@ var (
 // closeSideSessions is Python's orch.sweep_finished: a session a seat started for a build, a server
 // or a long test, which nothing else ever ends, has each pane's screen saved to ~/.agentkit/tmp and
 // is closed once every pane has been dead a day, or at once, panes running, once ak holds nothing
-// of that seat (forgotten).  A session ak opened, one a record names, Control and one no seat
-// tagged stay, and a listing that is not whole proves no pane dead.  Run on a home Looking reads,
-// where every session tmux holds that is a seat has a record.
-func closeSideSessions(now time.Time, log func(string)) {
+// of that seat (forgotten).  A session ak opened, one a record names, a seat of the home's, Control
+// and one no seat tagged stay, and a listing that is not whole proves no pane dead.
+func (home Home) closeSideSessions(now time.Time, log func(string)) {
 	out, err := tmux.Ask(tmux.Own(), "list-panes", "-a", "-F",
 		"#{session_id}\t#{session_name}\t#{"+tmux.Mark+"}\t#{pane_id}\t#{pane_dead}\t#{pane_dead_time}\t.")
 	if err != nil {
@@ -53,7 +52,7 @@ func closeSideSessions(now time.Time, log func(string)) {
 	for _, sid := range order {
 		panes := grouped[sid]
 		name := panes[0][0]
-		if panes[0][1] == "1" || name == config.Control || named(name) ||
+		if panes[0][1] == "1" || name == config.Control || named(name) || slices.ContainsFunc(home.Seats, func(seat Seat) bool { return seat.Name == name }) ||
 			slices.ContainsFunc(panes, func(pane []string) bool { return !paneID.MatchString(pane[2]) }) {
 			continue
 		}
