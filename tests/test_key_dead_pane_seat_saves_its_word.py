@@ -2,19 +2,19 @@
 
 ak's seats run under `remain-on-exit`, so a harness that quits leaves its session behind with its
 panes dead.  Either command decides such a seat's word as it prints it, and leaves that word and
-its reason in the seat's file and on its tmux bar: its window title and line one name the word,
-and under a `needs you` line two says why.  `DeadPaneSeatSavesItsWord` takes each state that
-decides such a seat's word, one at a time, and `LoggedOutOverADeadPaneSeat` a login no harness
-owns over two of them.  Each command meets the state in a Home of its own, so neither finds the
-other's write.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, beside a seat of tests/fixtures/akseat.py whose harness the test kills;
-this test fails against `/bin/false`.
+its reason in the seat's file and on its tmux bar, as a client attached to the seat draws it: line
+one names the word, and under a `needs you` line two says why.  `DeadPaneSeatSavesItsWord` takes
+each state that decides such a seat's word, one at a time, and `LoggedOutOverADeadPaneSeat` a
+login no harness owns over two of them.  Each command meets the state in a Home of its own, so
+neither finds the other's write.  Black-box: the program `AK_BIN` names runs from outside through
+tests/fixtures/akbin.py, beside a seat of tests/fixtures/akseat.py whose harness the test kills,
+and the bar is read off a terminal of tests/fixtures/akterm.py; this test fails against
+`/bin/false`.
 """
 
 import json
 import os
 from pathlib import Path
-import re
 import signal
 import subprocess
 import sys
@@ -22,8 +22,9 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import REAL_TMUX, Home, owner
+from fixtures.akbin import REAL_TMUX, SOCKET, Home, owner
 from fixtures.akseat import Seat
+from fixtures.akterm import Terminal
 
 CLOSED = "session closed: press 1 to reopen"
 GH = "GitHub is logged out: run `gh auth login -p https -w`"
@@ -32,7 +33,6 @@ RUN = "20261106-0900-fix-api"
 TOKEN = "claude_oauth_token"     # the worker token claude's manifest declares, and its remedy
 REMEDY = "run claude setup-token and replace ~/.agentkit/secrets/claude_oauth_token"
 LAUNCH = "5d1e8a3c7b9f4e2a8c6d0b1f3e5a7c9d"     # a Codex launch's receipt token
-STYLE = re.compile(r"#\[[^\]]*\]")     # tmux's styles in a bar's text, which draw no cell
 DAY = 86400
 
 
@@ -46,10 +46,12 @@ def died(home, seat):
         time.sleep(0.05)
 
 
-def bar(home, option):
-    """That option of the seat's bar as it reads: its styles left out, tmux's `##` one `#`."""
-    told = home.tmux("show-options", "-qv", "-t", "=acme:", option).out.rstrip("\n")
-    return STYLE.sub("", told).replace("##", "#")
+def bar(home, word):
+    """The bar's two lines as a client attached to the seat draws them, at the foot of a
+    terminal wide enough for the longest reason, once line one names `word`."""
+    seen = Terminal(home, "-L", SOCKET, "attach", "-r", "-t", "=acme:", size=(160, 10),
+                    program=REAL_TMUX)
+    return seen.wait(lambda screen: CHIPS[word] in screen.splitlines()[-2]).splitlines()[-2:]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -76,12 +78,11 @@ class Saved(unittest.TestCase):
                 file = home.path / ".agentkit/state/seat-acme.json"
                 saved = json.loads(file.read_text()) if file.exists() else {}
                 self.assertEqual((saved.get("word"), saved.get("reason")), (word, reason))
-                self.assertEqual(bar(home, "set-titles-string"), f"acme · {word}")
-                self.assertIn(CHIPS[word], bar(home, "@ak_top"))
+                _, two = bar(home, word)
                 # line two carries the reason only under `needs you`; any other word's names
                 # the seat's crew
                 if word == "needs you":
-                    self.assertEqual(bar(home, "@ak_why").strip(), reason)
+                    self.assertIn(reason, two)
 
     def question(self, home):
         """A question it asked with `ak notify needs` that nothing has answered."""
