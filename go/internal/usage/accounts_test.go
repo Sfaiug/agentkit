@@ -74,12 +74,30 @@ accounts=['default','second']
 			}
 		})
 	}
-	stale := run.Line(fields("fetched_at", now-600, "providers", fields()))
+	// a stale snapshot ranks nothing: each account is asked again, as seat_account's collect asks,
+	// and its old reading of a low home would put the other account first
+	adapters := filepath.Join(home, "adapters")
+	if err := os.MkdirAll(adapters, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for account, used := range map[string]float64{"default": 10, "second": 50} {
+		answer := run.Line(fields("provider", "test", "meters", reading(used, 10, 0, 0).Get("meters")))
+		if err := os.WriteFile(filepath.Join(adapters, account+".json"), []byte(answer), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	script := "#!/bin/sh\n[ \"$1\" = usage ] && exec cat \"$(dirname \"$0\")/${AGENTKIT_ACCOUNT:-default}.json\"\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(adapters, "claude.sh"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	stale := run.Line(fields("fetched_at", now-600, "providers", fields("test", fields("accounts",
+		fields("default", reading(97, 10, 0, 0), "second", reading(10, 20, 0, 0))))))
 	if err := os.WriteFile(filepath.Join(state(), "usage.json"), []byte(stale), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SeatAccounts("opus", "default"); !errors.Is(err, ErrPython) {
-		t.Fatal("stale account meters were used", err)
+	if accounts, err := SeatAccounts("opus", "default"); err != nil || len(accounts) != 2 || accounts[0].Name != "default" {
+		t.Fatal("stale account meters were used", accounts, err)
 	}
 	missing := run.Line(fields("fetched_at", now, "providers", fields("test", fields("accounts", fields("default", reading(97, 10, 0, 0))))))
 	if err := os.WriteFile(filepath.Join(state(), "usage.json"), []byte(missing), 0o600); err != nil {

@@ -131,7 +131,7 @@ func open(name, orchestrator string, models map[string]config.Model, workers []s
 		var preparing error
 		// before the harness is up: its first prompt may be offered a newer rulebook already
 		err := update(state, current, func(data *run.Object) bool {
-			if issued, extra, preparing = harness.Launched(model.Harness, cwd, conversation, data.Copy()); preparing != nil {
+			if issued, extra, preparing = harness.Launched(model.Harness, current, cwd, conversation, data.Copy()); preparing != nil {
 				return false
 			}
 			for _, key := range issued.Keys() {

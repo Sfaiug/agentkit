@@ -30,6 +30,13 @@ func museHookEvent(event *run.Object) *run.Object {
 			}
 		}
 	}
+	// a Stop hands over the work its session's log has running, as Claude's does; a log it cannot
+	// read hands over nothing
+	if event.Str("hook_event_name") == "Stop" {
+		if held, read := museHeld(event.Str("session_id")); read {
+			event.Set("background_tasks", held)
+		}
+	}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" && event.Str("notification_type") == "question_prompt" {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

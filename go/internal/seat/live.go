@@ -224,6 +224,10 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if blank && found.authority != "hook" && !seat.hasActiveRun() {
 			return nil
 		}
+		// what it holds is down before the account decision reads it
+		if err := seat.keepHolds(state, found); err != nil {
+			return err
+		}
 		if wait == nil { // a refusal is waited on, never moved from at its prompt
 			if carried, err = MoveAccount(live, log); !carried || err != nil {
 				return err

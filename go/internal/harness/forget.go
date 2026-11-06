@@ -36,6 +36,16 @@ func receiptGone(harness string) func(*run.Object) (func(), bool) {
 	}
 }
 
+// receiptRetired drops that launch's receipt as its forget does: the receipt is all a seat's
+// launch keeps (opencode.py and muse.py `retire = forget`).
+func receiptRetired(harness string) func(*run.Object) error {
+	return func(record *run.Object) error {
+		drop, _ := receiptGone(harness)(record)
+		drop()
+		return nil
+	}
+}
+
 // codexForget retires the launch the record names (codex.py `forget`).  A remote enrollment, the
 // seat's or one an earlier forget could not delete, goes by a request to chatgpt.com that Go
 // does not make.

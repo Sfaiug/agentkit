@@ -20,7 +20,6 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/hookfact"
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -322,11 +321,11 @@ func cutOff(name, own string, file *run.Object) bool {
 	}
 	fact := harness.For(own).HookFact(name)
 	hooked, _, err := lifecycle.State(own, fact)
-	if err != nil || notify.Standing(name) || len(hookfact.Standing(name).Holds) > 0 || hooked == "asking" || hooked == "working" {
+	if err != nil || notify.Standing(name) || len(holding(name)) > 0 || hooked == "asking" || hooked == "working" {
 		return true
 	}
-	if file == nil || file.Truthy("holds") {
-		return file != nil
+	if file == nil {
+		return false
 	}
 	if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
 		return false
@@ -401,7 +400,7 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			// before the harness is up: its first prompt may be offered a newer rulebook already
 			started, err := false, update(state, current, func(data *run.Object) bool {
 				before = data.Copy()
-				issued, extra, preparing = harness.Launched(seat.model.Harness, seat.cwd, conversation, before)
+				issued, extra, preparing = harness.Launched(seat.model.Harness, current, seat.cwd, conversation, before)
 				if preparing != nil {
 					return false
 				}
@@ -455,13 +454,17 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 				return err
 			}
 			now := time.Now()
-			// the moment from which an answer is this harness's, and the seat's title as Python's
-			// launch keeps it: both harnesses Go opens take a title line
+			// the moment from which an answer is this harness's, and, where it takes a title line,
+			// the seat's title as Python's launch keeps it
 			if err := update(state, current, func(data *run.Object) bool {
-				fill(data, []field{{"launched", seconds(now)}, {"title_sync", nil}})
+				fill(data, []field{{"launched", seconds(now)}})
 				if seat.account != "" {
 					data.Set("account", seat.account)
 				}
+				if !harness.Titles(seat.model.Harness) {
+					return true
+				}
+				fill(data, []field{{"title_sync", nil}})
 				echo := before.Str("session_title")
 				if conversation == "" || before.Str("conversation") != conversation || echo == "" || echo == current {
 					title := any(nil)

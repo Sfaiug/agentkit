@@ -65,7 +65,7 @@ func TestMuseReceiptFollowsItsLaunchThroughNewIntoTheReopen(t *testing.T) {
 	}
 
 	// a fresh launch: a receipt of its own, named in its record and handed to its hooks
-	launched, words, err := Launched("muse", home, "", run.NewObject())
+	launched, words, err := Launched("muse", "acme", home, "", run.NewObject())
 	if err != nil || len(words) != 1 || !strings.HasPrefix(words[0], museReceiptEnv+"=") {
 		t.Fatalf("launch words %q: %v", words, err)
 	}
@@ -130,7 +130,7 @@ func TestMuseReceiptFollowsItsLaunchThroughNewIntoTheReopen(t *testing.T) {
 		!strings.Contains(out.String(), " muse resume after-new ") {
 		t.Fatalf("the reopen runs %q", out.String())
 	}
-	relaunched, words, err := Launched("muse", home, "after-new", launched)
+	relaunched, words, err := Launched("muse", "acme", home, "after-new", launched)
 	if err != nil || strings.TrimPrefix(words[0], museReceiptEnv+"=") == receipt {
 		t.Fatalf("the reopen shares its receipt %q: %v", words, err)
 	}

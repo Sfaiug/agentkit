@@ -21,7 +21,7 @@ const museReceiptEnv = "AGENTKIT_MUSE_RECEIPT"
 // named in its record and its environment, into which its SessionStart links the session Muse
 // reported and the processes the hook runs under (muse.py).  A resumed session is in it from the
 // start.
-func museLaunched(_, conversation string, _ *run.Object) (*run.Object, []string, error) {
+func museLaunched(_, _, conversation string, _ *run.Object) (*run.Object, []string, error) {
 	random := make([]byte, 16)
 	rand.Read(random)
 	token := hex.EncodeToString(random)
@@ -179,12 +179,4 @@ func museWrite(receipt, name, text string, place func(from, to string) error) {
 	if file.Close() == nil && err == nil {
 		place(file.Name(), filepath.Join(receipt, name))
 	}
-}
-
-// museRetire drops that launch's receipt as its forget does: the receipt is all a seat's launch
-// keeps (muse.py `retire = forget`).
-func museRetire(record *run.Object) error {
-	drop, _ := receiptGone("muse")(record)
-	drop()
-	return nil
 }

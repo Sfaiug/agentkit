@@ -41,8 +41,10 @@ func TestAccountRecoveryHandsOwnerInputTurnsAndWaitsBackWithoutWriting(t *testin
 			home := accountHome(t)
 			pane := prompting
 			switch kind {
-			case "usage_wait", "usage_refusal", "midturn":
+			case "usage_wait", "usage_refusal":
 				write(t, stateFile(home, "seat-acme.json"), run.Line(run.Fields(kind, run.Fields("since", 1))))
+			case "midturn": // the line a move to another account owes
+				write(t, stateFile(home, "seat-acme.json"), run.Line(run.Fields(kind, run.Fields("account", true, "since", 1))))
 			case "question":
 				pane = asked
 			case "flight":

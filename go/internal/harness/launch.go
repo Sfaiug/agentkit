@@ -9,11 +9,11 @@ func CanLaunch(name string) bool {
 	return known || plugins[name].launched != nil
 }
 
-// Launched is the record and environment Python's plugin.launched hands a launch.
+// Launched is the record and environment Python's plugin.launched hands a launch of that seat.
 // The caller writes the fields under the record lock before starting the harness.
-func Launched(name, cwd, conversation string, before *run.Object) (*run.Object, []string, error) {
+func Launched(name, seat, cwd, conversation string, before *run.Object) (*run.Object, []string, error) {
 	if hook := plugins[name].launched; hook != nil {
-		return hook(cwd, conversation, before)
+		return hook(seat, cwd, conversation, before)
 	}
 	var owned, source any
 	if conversation != "" {

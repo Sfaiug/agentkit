@@ -33,13 +33,6 @@ func lives() ([]seat.Live, error) {
 	return read, nil
 }
 
-// midturn is whether the seat holds a line its reopening owes it, for a move to another account or
-// for anything else (watch.continue_turns).
-func midturn(live seat.Live, account bool) bool {
-	mark := live.File.Dict("midturn")
-	return mark != nil && mark.Truthy("account") == account
-}
-
 // healthy is whether the health row's look at the seat is all it does (watch.health): nothing it
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.

@@ -77,6 +77,8 @@ type sight struct {
 	hookedAt                         any
 	interrupted                      bool // the owner stopped its last turn: until their next prompt it rests
 	typedByAk                        bool // its composer holds the line ak typed last, not the owner's
+	holds                            []string
+	heldRead                         bool // its screen said what it holds, none or some: else the last read stands
 }
 
 // observed is watch.observed: what a capture shows of a seat, against its files as they stand,
@@ -96,6 +98,7 @@ func observed(state, name string, reader harness.Reader, pane string, now float6
 	fact := reader.HookFact(name)
 	found = classify(own, seen.rules.Read(pane), fact, previous, now, endedAt(name, own, record, seen.rules, pane, fact, now))
 	found.typedByAk = found.state == "draft" && typedByAk(name, seen.rules, pane)
+	found.holds, found.heldRead = seen.rules.Held(tail)
 	switch {
 	case pane == "":
 		found.stall, found.login = previous.Get("stall"), previous.Get("login")
@@ -130,7 +133,21 @@ func (seat Seat) look(state string, now float64) (sight, error) {
 	}
 	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.reader, pane, now)
+	if err := seat.keepHolds(state, found); err != nil {
+		return found, err
+	}
 	return seat.keep(state, pane, exited, found, previous, now)
+}
+
+// keepHolds keeps the background work the capture shows running where it shows the list at all:
+// unread work is no evidence none runs, so the last read stands (watch.observed).  Kept before
+// anything acts on the look, as Python's look keeps it: a relaunch after clears it, and nothing
+// puts the ended process's work back.
+func (seat Seat) keepHolds(state string, found sight) error {
+	if !found.heldRead {
+		return nil
+	}
+	return writeSeat(state, seat.Name, []field{{"holds", modelList(found.holds)}})
 }
 
 // keep is what a capture found kept as watch.live_state keeps it.  A blank capture says nothing of

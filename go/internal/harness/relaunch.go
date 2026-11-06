@@ -3,10 +3,12 @@ package harness
 import "agentkit/internal/run"
 
 // Relaunches includes harnesses whose resumed launch Go carries, even where a fresh launch
-// needs evidence only Python learns.
+// needs evidence only Python learns: one whose launch writes a receipt Go reads its conversation
+// back from among them.
 func Relaunches(name string) bool {
 	_, opens := Opens(name)
-	return opens || plugins[name].launch != nil
+	own := plugins[name]
+	return opens || own.launch != nil || own.launched != nil && own.owned != nil
 }
 
 // LaunchExtras is what a harness records and tells its process beyond the conversation id.

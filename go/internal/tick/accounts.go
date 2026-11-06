@@ -20,3 +20,11 @@ func accountTurns() error {
 	}
 	return err
 }
+
+func rebootedTurns() error {
+	carried, err := seat.RebootedTurns()
+	if !carried {
+		return errLeft
+	}
+	return err
+}

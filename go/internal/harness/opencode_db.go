@@ -75,7 +75,9 @@ func opencodeRead(session string) (opencodeTurn, bool) {
 // reads it; nil where it answers none.
 func opencodeRow(conn *sqlite3.Conn, query, session string) ([]any, error) {
 	stmt, _, err := conn.Prepare(query)
-	if err != nil {
+	if errors.Is(err, sqlite3.ERROR) { // no such table: Python's sqlite3.Error reads none
+		return nil, nil
+	} else if err != nil {
 		return nil, err
 	}
 	defer stmt.Close()
