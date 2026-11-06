@@ -21,24 +21,28 @@ func MemoryTight(peak func() (float64, bool, error)) (bool, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" {
 		return false, nil
 	}
-	readings := Read()
-	total, _ := readings.Number("mem_total_mb", "total_mb", "mem_total")
+	return Read().tight(peak)
+}
+
+// tight is MemoryTight on these readings.
+func (r Readings) tight(peak func() (float64, bool, error)) (bool, error) {
+	total, _ := r.Number("mem_total_mb", "total_mb", "mem_total")
 	minimum, err := config.MinFreeMB(total)
 	if err != nil {
 		return false, err
 	}
-	if free, ok := readings.Number("free_mb", "mem_available_mb", "mem_available"); minimum > 0 && ok && free < minimum {
+	if free, ok := r.Number("free_mb", "mem_available_mb", "mem_available"); minimum > 0 && ok && free < minimum {
 		return true, nil
 	}
-	if pressure, ok := readings.Number("slice_memory_pressure"); ok && pressure > memoryPressureLimit {
+	if pressure, ok := r.Number("slice_memory_pressure"); ok && pressure > memoryPressureLimit {
 		return true, nil
 	}
-	unit, ok := readings.sliceOrUnitMemory()
+	unit, ok := r.sliceOrUnitMemory()
 	if !ok {
 		return false, nil
 	}
 	// the runs' swap past the slice's allowance, a quarter of its cap, takes room too
-	swap, _ := readings.Number("runs_memory_swap_mb")
+	swap, _ := r.Number("runs_memory_swap_mb")
 	used := unit.used + math.Max(0, swap-math.Floor(unit.high/4))
 	most, measured, err := peak()
 	if err != nil {

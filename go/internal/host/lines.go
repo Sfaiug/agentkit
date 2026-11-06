@@ -1,7 +1,6 @@
 package host
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -322,19 +321,24 @@ func SeedLandingWait(dir string, since float64) {
 }
 
 // LineCheckWaiting is a line's own check seen waiting for a heavy suite turn until the file closes,
-// Python's landing_wait: a share of the lock LineCheckWaits reads, nil where it cannot be had.
+// Python's landing_wait: a share of the lock LineCheckWaits reads, nil where it cannot be had.  It
+// makes the lookers' turn file first, which they never make themselves.
 func LineCheckWaiting() *os.File {
-	shared, _ := lock.Shared(filepath.Join(config.Home(), "runs", ".heavy-landing.wait"))
+	runs := filepath.Join(config.Home(), "runs")
+	if turn, err := lock.Try(filepath.Join(runs, ".heavy-landing.probe")); err == nil {
+		turn.Close()
+	}
+	shared, _ := lock.Shared(filepath.Join(runs, ".heavy-landing.wait"))
 	return shared
 }
 
 // LineCheckWaits is whether a line's own check waits for a heavy suite turn now, Python's
-// landing_waits.  Lookers take turns on a file of their own, so one never reads another as a waiter.
+// landing_waits.  Lookers take turns on a file of their own, so one never reads another as a waiter,
+// and make no file: a launch Go hands over to Python leaves runs/ as it found it.
 func LineCheckWaits() bool {
-	probe, err := lock.Wait(context.Background(), filepath.Join(config.Home(), "runs", ".heavy-landing.probe"))
-	if err != nil {
-		return false
+	runs := filepath.Join(config.Home(), "runs")
+	if turn, err := lock.Edit(filepath.Join(runs, ".heavy-landing.probe")); err == nil {
+		defer turn.Close()
 	}
-	defer probe.Close()
-	return lock.Held(filepath.Join(config.Home(), "runs", ".heavy-landing.wait"))
+	return lock.Held(filepath.Join(runs, ".heavy-landing.wait"))
 }
