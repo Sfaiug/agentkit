@@ -3,10 +3,10 @@
 package whose test binary died, or that failed with no test of its own failing, by its import
 path and none of its tests; a step by what it checks, the vet of the caller's own platform among
 them.  Given parts it runs just those after the toolchain check, a step on its platform, a named
-test with no event failing as not there; without, every part in its order.  The caller's GOFLAGS
-hold in every run it makes; a vet fails by what it finds, shown, in text or as the JSON they may
-ask, never by the `{}` of a package it finds nothing in, and a build by its exit code alone,
-whatever it prints.
+test with no event failing as not there, yet named as no failing part, as it ran nowhere;
+without, every part in its order.  The caller's GOFLAGS hold in every run it makes; a vet fails by
+what it finds, shown, in text or as the JSON they may ask, never by the `{}` of a package it finds
+nothing in, and a build by its exit code alone, whatever it prints.
 
 Offline: the real test_go.py runs with a fake `go` first on PATH, on the platform ACME_HOST
 names, noting each call and its GOFLAGS, whose `test -json` prints the events a test hands it,
@@ -175,9 +175,9 @@ class GoNamesItsFailingTests(unittest.TestCase):
                                  f"go test -json -timeout 0 -run ^TestFixApi$ {ACME}",
                                  f"go test -json -timeout 0 {WIDGET}", "go build windows/amd64"])
 
-    def test_a_given_test_that_runs_nowhere_fails_saying_it_is_not_there(self):
+    def test_a_given_test_that_runs_nowhere_fails_saying_it_is_not_there_naming_no_part(self):
         code, out, parts, _ = self.checked(f"{ACME}.TestGone")
-        self.assertEqual((code, parts), (1, [f"{ACME}.TestGone"]), out)
+        self.assertEqual((code, parts), (1, []), out)
         self.assertIn(f"{ACME}.TestGone is not there", out)
 
     def test_the_callers_goflags_hold_in_every_run(self):
