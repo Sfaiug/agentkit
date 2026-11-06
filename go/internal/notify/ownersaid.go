@@ -38,14 +38,18 @@ func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 	if record == nil {
 		return "", nil, nil
 	}
-	kind := config.SeatHarness(current)
+	return ownerIn(current, config.SeatHarness(current), record)
+}
+
+// ownerIn is OwnerMessages of the conversation the seat's record names, as that harness keeps it.
+func ownerIn(current, kind string, record map[string]any) (string, []transcript.Prompt, error) {
 	owned, messages, known := transcript.Typed(kind, record)
 	if !known {
 		return "", nil, ErrUnread
 	}
 	conversation, _ := owned.(string)
 	matched, ours := make([]bool, len(messages)), make([]bool, len(messages))
-	err = harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"]), func(sent *run.Object) {
+	err := harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"]), func(sent *run.Object) {
 		after, dated := sent.Num("after")
 		if !dated || sent.Str("harness") != kind || sent.Str("conversation") != conversation {
 			return

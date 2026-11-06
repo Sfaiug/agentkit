@@ -4,6 +4,7 @@ package cli
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -11,9 +12,9 @@ import (
 	"testing"
 )
 
-// A record `ak orch check` cannot read leaves the seat unchecked, exit 2, and a case Python
-// carries is handed over, exit 3: either before any model's turn, the pick's meters or the turn's
-// folders are written.
+// A record `ak orch check` cannot read leaves the seat unchecked, exit 2, forgetting what an
+// earlier check kept, and a case Python carries is handed over, exit 3, writing nothing: either
+// before any model's turn, the pick's meters or the turn's folders are written.
 func TestOrchCheckReadsEveryRecordBeforeItWritesAnything(t *testing.T) {
 	config := func(extra string) string {
 		return "[defaults]\norchestrator = \"opus\"\n" +
@@ -69,6 +70,8 @@ func TestOrchCheckReadsEveryRecordBeforeItWritesAnything(t *testing.T) {
 				`{"orchestrator": "opus", "cwd": "/code/acme", "conversation": "c-review", "reviewers": ["astra"]}`)
 			write(t, filepath.Join(home, ".claude", "projects", "-code-acme", "c-review.jsonl"),
 				`{"type": "user", "timestamp": "2026-11-05T10:00:00Z", "message": {"role": "user", "content": "Add a retry button."}}`+"\n")
+			checked := filepath.Join(home, ".agentkit", "state", "checked-acme.txt")
+			write(t, checked, "an earlier check's\n")
 			hidden := each.make(t, home)
 			before := tree(t, home)
 			if hidden != "" {
@@ -89,7 +92,16 @@ func TestOrchCheckReadsEveryRecordBeforeItWritesAnything(t *testing.T) {
 			if code != each.code || out.Len() != 0 || !strings.HasPrefix(errOut.String(), said) {
 				t.Fatalf("got (%d, %q, %q), want (%d, \"\", %q...)", code, out.String(), errOut.String(), each.code, said)
 			}
-			if !reflect.DeepEqual(before, tree(t, home)) {
+			after, want := tree(t, home), maps.Clone(before)
+			if each.code == 2 { // under the seat's lock, in ak's folders
+				delete(want, checked)
+				for path, text := range after {
+					if _, had := before[path]; !had && (text == "directory" || strings.HasSuffix(path, ".lock")) {
+						delete(after, path)
+					}
+				}
+			}
+			if !reflect.DeepEqual(want, after) {
 				t.Fatal("it wrote into HOME")
 			}
 		})

@@ -2,9 +2,13 @@ package cli
 
 import (
 	"cmp"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,8 +38,9 @@ var checkAsk = strings.Join([]string{
 	"{workspace} holds the seat's record:",
 	"- owner/: each message its owner wrote to it, and each answer they gave on its question",
 	"  cards after the question and choices it wrote, a file each, oldest first from 1.md.",
-	"- conversation.md: its whole conversation as its harness keeps it, oldest first. The user side",
-	"  holds ak's lines as well as the owner's: only owner/ says which words are the owner's.",
+	"- conversation.md: each conversation it had as its harness keeps it, oldest first, a `---`",
+	"  line where one was left for the next. The user side holds ak's lines as well as the owner's:",
+	"  only owner/ says which words are the owner's.",
 	"- plan.md: its plan, `- [x]` a line done and `- [ ]` one open.",
 	"- runs/: each run it launched: its title, state, whether it merged, its PR and its task.",
 	"",
@@ -101,59 +106,84 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	conversation, messages, err := notify.OwnerMessages(name)
+	found, read, err := gaps(name, record, errOut)
+	// what the check read is kept where it found no gap, and forgotten however else it ended, as
+	// Python's `finally` does; a case Python carries writes nothing
+	if !errors.Is(err, errLeft) {
+		if kept := keep(name, read); kept != nil {
+			err = fmt.Errorf("could not check %s: %w", name, kept)
+		}
+	}
+	return name, found, err
+}
+
+// gaps is ownerGaps of a seat resolved, with the fingerprint of what a check that found no gap
+// read ("" for any other end).
+func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
+	had, err := notify.Conversations(name)
 	if errors.Is(err, notify.ErrUnread) {
-		return "", nil, errLeft
+		return nil, "", errLeft
 	} else if err != nil {
-		return "", nil, fmt.Errorf("could not check %s: %w", name, err)
+		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
-	if conversation == "" {
-		return "", nil, fmt.Errorf("no seat named %s whose conversation ak can read", name)
+	if len(had) == 0 || had[len(had)-1].Name == "" {
+		return nil, "", fmt.Errorf("no seat named %s whose conversation ak can read", name)
 	}
-	said, cards, known, err := harness.Answered(config.SeatHarness(name), record)
-	if !known {
-		return "", nil, errLeft
-	} else if err != nil {
-		return "", nil, fmt.Errorf("could not check %s: %w", name, err)
-	}
+	// the owner's messages in each conversation, then their answers in each, oldest first
 	var owner []ownerWords
-	for _, message := range messages {
-		owner = append(owner, ownerWords{message.At, message.Text, message.Text})
+	for _, each := range had {
+		for _, message := range each.Messages {
+			owner = append(owner, ownerWords{message.At, message.Text, message.Text})
+		}
 	}
-	for _, card := range cards {
-		owner = append(owner, ownerWords{card.At, card.Answer, cardShown(card)})
+	said := make([][]harness.Turn, len(had))
+	for i, each := range had {
+		turns, cards, known, err := harness.Answered(each.Harness, each.Record)
+		if !known {
+			return nil, "", errLeft
+		} else if err != nil {
+			return nil, "", fmt.Errorf("could not check %s: %w", name, err)
+		}
+		said[i] = turns
+		for _, card := range cards {
+			owner = append(owner, ownerWords{card.At, card.Answer, cardShown(card)})
+		}
 	}
 	slices.SortStableFunc(owner, func(a, b ownerWords) int { return cmp.Compare(a.at, b.at) })
 	if len(owner) == 0 {
-		return name, nil, nil // asked nothing, so nothing is missing
+		return nil, "", nil // asked nothing, so nothing is missing
+	}
+	lines, err := plan.Lines(name)
+	if err != nil {
+		return nil, "", err
 	}
 	// every record read, and every case Python carries settled, before the pick's meters or the
 	// turn's folders are written
-	files, err := checkFiles(name, owner, said)
+	files, err := checkFiles(name, owner, said, lines)
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
 	model, err := checker(name, record)
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
 	fmt.Fprintf(errOut, "ak orch check: %s reads what %s was asked and did\n", model, name)
 	if err := config.EnsureDirs(); err != nil {
-		return "", nil, fmt.Errorf("could not check %s: %w", name, err)
+		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
 	tmp, err := os.MkdirTemp(filepath.Join(config.Home(), "tmp"), "check-"+name+"-")
 	if err != nil {
-		return "", nil, err
+		return nil, "", err
 	}
 	defer os.RemoveAll(tmp)
 	workspace, into := filepath.Join(tmp, "workspace"), filepath.Join(tmp, "out")
 	for relative, text := range files {
 		path := filepath.Join(workspace, filepath.FromSlash(relative))
 		if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
-			return "", nil, err
+			return nil, "", err
 		}
 		if err := os.WriteFile(path, []byte(text), 0o666); err != nil {
-			return "", nil, err
+			return nil, "", err
 		}
 	}
 	// an existing role, the reviewer's of a workspace, whose hand-in takes findings and refuses a
@@ -162,13 +192,13 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 	var expired *worker.LoginExpired
 	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{}, errOut); {
 	case errors.Is(err, worker.ErrInterrupted), errors.As(err, &expired):
-		return "", nil, err
+		return nil, "", err
 	case err != nil && !errors.Is(err, worker.ErrSilent):
-		return "", nil, fmt.Errorf("could not check %s: %w", name, err)
+		return nil, "", fmt.Errorf("could not check %s: %w", name, err)
 	}
 	review, _ := handin.Read(filepath.Join(into, handin.File))
 	if review == nil || !review.Done() {
-		return "", nil, fmt.Errorf("%s could not check %s: its turn did not end in `ak hand-in done`", model, name)
+		return nil, "", fmt.Errorf("%s could not check %s: its turn did not end in `ak hand-in done`", model, name)
 	}
 	var found []*run.Object
 	for _, row := range review.Of("finding") {
@@ -179,29 +209,71 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 			found = append(found, row)
 		}
 	}
-	return name, found, nil
+	if len(found) > 0 {
+		return found, "", nil
+	}
+	return nil, fingerprint(owner, lines), nil
+}
+
+// fingerprint is what a check of the owner's words against the plan's lines read, for a later
+// one to be compared with (done_check.fingerprint): each word of theirs with when it was said,
+// and the plan's box lines as plan.Checked holds them, hashed as Python's json.dumps writes them.
+func fingerprint(owner []ownerWords, lines []string) string {
+	said, checked := []any{}, []any{}
+	for _, each := range owner {
+		said = append(said, []any{run.Float(each.at), each.words})
+	}
+	for _, line := range plan.Checked(lines) {
+		checked = append(checked, line)
+	}
+	sum := sha256.Sum256([]byte(run.Line([]any{said, checked})))
+	return hex.EncodeToString(sum[:])
+}
+
+// keep keeps what a check that found no gap read, or with "" forgets what one kept
+// (done_check.keep): under the seat's lock, which a rename takes too, so under the name the seat
+// goes by now.  Of two checks of a seat at once, the one that ends last stands.
+func keep(name, read string) error {
+	if err := config.EnsureDirs(); err != nil {
+		return err // as Python's session_lock makes them first
+	}
+	return notify.Held(context.Background(), name, func(current string) error {
+		path := filepath.Join(config.Home(), "state", config.SeatFileNames(current)["checked"])
+		if read == "" {
+			if err := os.Remove(path); !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			return nil
+		}
+		fresh := path + ".new"
+		if err := os.WriteFile(fresh, []byte(read+"\n"), 0o666); err != nil {
+			return err
+		}
+		return os.Rename(fresh, path)
+	})
 }
 
 // checkFiles is the checking turn's workspace, each file by its path there: the owner's words a
-// file each, the seat's conversation, its plan and each run it launched, read without writing
-// anything.  errLeft where Go does not read the runs as Python does.
-func checkFiles(name string, owner []ownerWords, said []harness.Turn) (map[string]string, error) {
+// file each, each conversation of the seat's, its plan's lines and each run it launched, read
+// without writing anything.  errLeft where Go does not read the runs as Python does.
+func checkFiles(name string, owner []ownerWords, said [][]harness.Turn, lines []string) (map[string]string, error) {
 	files := map[string]string{}
 	for n, each := range owner {
 		files[fmt.Sprintf("owner/%d.md", n+1)] = each.shown
 	}
-	var conversation, planned strings.Builder
-	for _, turn := range said {
-		fmt.Fprintf(&conversation, "**%s:** %s\n\n", turn.Who, turn.Text)
+	var conversations []string
+	for _, turns := range said {
+		var conversation strings.Builder
+		for _, turn := range turns {
+			fmt.Fprintf(&conversation, "**%s:** %s\n\n", turn.Who, turn.Text)
+		}
+		conversations = append(conversations, conversation.String())
 	}
-	lines, err := plan.Lines(name)
-	if err != nil {
-		return nil, err
-	}
+	var planned strings.Builder
 	for _, line := range lines {
 		planned.WriteString(line + "\n")
 	}
-	files["conversation.md"], files["plan.md"] = conversation.String(), planned.String()
+	files["conversation.md"], files["plan.md"] = strings.Join(conversations, "---\n\n"), planned.String()
 	var unread error
 	if !run.Every(func(dir string, state *run.Object) bool {
 		// the seat it was launched from by its name now, as transitions.launched_session follows it
@@ -259,7 +331,7 @@ func runTask(path string) (string, error) {
 // run of that seat's would draw now.  errLeft where Python draws it or runs its turn, settled
 // before the draw writes the meters it reads.
 func checker(name string, record map[string]any) (string, error) {
-	model, err := config.DoneCheckModel()
+	model, _, err := config.DoneCheck()
 	if err != nil {
 		return "", err
 	} else if model != "" {
