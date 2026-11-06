@@ -296,6 +296,7 @@ test_key_reviewer_verdict_only
 test_key_revive_seat
 test_key_revived_seat_told_when_ready
 test_key_role_picks
+test_key_round_checks_on_helper
 test_key_rounds_is_a_setting
 test_key_rulebook_news
 test_key_rulebook_news_too_long

@@ -47,9 +47,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 		return false, "", err
 	}
 	clean := code == 0
-	// a host with a helper is Python's: launch leaves it there
-	l.say("done-when runs here: no suite helper set up")
-	ok, text, err := r.checks(l, l.every, path)
+	ok, text, err := r.roundChecks(l, l.every, path)
 	if err != nil {
 		return false, "", err
 	}
