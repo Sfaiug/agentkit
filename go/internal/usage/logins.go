@@ -59,10 +59,11 @@ func laidOut(prov, mine *run.Object, listed []string, now float64) *run.Object {
 }
 
 // A login is one subscription as `ak usage` shows it, Python's usage._accounts: a provider of one
-// login, or each account of one listing several, labelled as a person reads it.
+// login, or each account of one listing several, labelled as a person reads it, under the
+// account it is listed as, "" for a provider's one login.
 type login struct {
-	label, provider string
-	prov            *run.Object
+	label, provider, account string
+	prov                     *run.Object
 }
 
 func (r *Readings) logins() []login {
@@ -71,12 +72,12 @@ func (r *Readings) logins() []login {
 		prov := object(r.providers.Get(name))
 		accounts, ok := prov.Get("accounts").(*run.Object)
 		if !ok || len(accounts.Keys()) == 0 {
-			found = append(found, login{name, name, prov})
+			found = append(found, login{name, name, "", prov})
 			continue
 		}
 		listed, _ := config.Accounts(name)
 		for _, account := range accounts.Keys() {
-			found = append(found, login{config.AccountLabel(listed, account, name), name, object(accounts.Get(account))})
+			found = append(found, login{config.AccountLabel(listed, account, name), name, account, object(accounts.Get(account))})
 		}
 	}
 	return found
