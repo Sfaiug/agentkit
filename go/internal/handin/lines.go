@@ -6,11 +6,6 @@ import (
 	"agentkit/internal/size"
 )
 
-// stamp is ak's own temporary commits' author and date: identical trees and parents give every
-// attempt the same commit.
-var stamp = []string{"GIT_AUTHOR_NAME=ak", "GIT_AUTHOR_EMAIL=ak@localhost", "GIT_COMMITTER_NAME=ak",
-	"GIT_COMMITTER_EMAIL=ak@localhost", "GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z"}
-
 // oversize is the refusal of a first build adding more lines than the turn's checks allow, "" for
 // none, Python's hand_in.oversize: the commit the loop will make of the workspace's tree, counted
 // as the gate after the turn counts it, so the builder learns it with its work in front of it.
@@ -19,7 +14,7 @@ func (t *turn) oversize(g gitcall.Git, base, tree string) (string, error) {
 	if !limited {
 		return "", nil
 	}
-	head, err := gitcall.Git{Repo: g.Repo, Env: stamp}.Must("commit-tree", tree, "-p", "HEAD", "-m", "hand-in")
+	head, err := gitcall.Git{Repo: g.Repo, Env: gitcall.Stamp}.Must("commit-tree", tree, "-p", "HEAD", "-m", "hand-in")
 	if err != nil {
 		return "", err
 	}
