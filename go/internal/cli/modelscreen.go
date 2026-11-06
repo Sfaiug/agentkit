@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"strings"
 	"sync"
 
@@ -20,6 +21,11 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		found *matrix.Matrix
 		err   error
 	}
+	found := matrix.Stored()
+	compared, err := matrix.Compared(found.Rows)
+	if priced, failed := matrix.Priced(found.Rows); err != nil || failed != nil || priced {
+		return false
+	}
 	read := make(chan reading, 1)
 	go func() {
 		readingModels.Lock()
@@ -28,11 +34,6 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		read <- reading{found, err}
 		keyboard.Wake()
 	}()
-	found := matrix.Stored()
-	compared, err := matrix.Compared(found.Rows)
-	if err != nil {
-		return false
-	}
 	answer := quality.Answer(found.Rows, compared)
 	var rows []*quality.Rating
 	var roles []string
@@ -61,7 +62,9 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		select {
 		case fresh := <-read:
 			read = nil
-			if fresh.err != nil {
+			if errors.Is(fresh.err, matrix.ErrPriced) {
+				return false
+			} else if fresh.err != nil {
 				note = "the boards were not read: " + fresh.err.Error()
 			} else {
 				found = fresh.found

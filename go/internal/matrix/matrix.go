@@ -155,12 +155,8 @@ func found(index map[string][]hit, model string) []hit {
 	return nil
 }
 
-// lineup is a row per current release and effort, with its values as the catalog joins them and
-// `yours`: each model of offers that found matches to this release alone, as {"harness", "model"},
-// at each effort it lists and at a row naming no effort, which is the model however it is run, or
-// at the release's default where it lists none but `none`.
-func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model) []any {
-	releases := boards.Current(held)
+// indexOf is the hits found reads, each release under every name it goes by.
+func indexOf(releases []*boards.Release) map[string][]hit {
 	index := map[string][]hit{}
 	for _, release := range releases {
 		// the name first: found reads the first hit's for a bracketed qualifier; either may lack
@@ -171,6 +167,16 @@ func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model
 			}
 		}
 	}
+	return index
+}
+
+// lineup is a row per current release and effort, with its values as the catalog joins them and
+// `yours`: each model of offers that found matches to this release alone, as {"harness", "model"},
+// at each effort it lists and at a row naming no effort, which is the model however it is run, or
+// at the release's default where it lists none but `none`.
+func lineup(held *run.Object, harnesses []any, offers map[string][]listing.Model) []any {
+	releases := boards.Current(held)
+	index := indexOf(releases)
 	type place struct{ slug, effort string }
 	yours := map[place][]any{}
 	for _, each := range harnesses {
@@ -233,6 +239,8 @@ type Matrix struct {
 // changed, the harnesses installed are not the ones it rowed or ak's own build is not the one that
 // computed it, since the harness catalogs it asks take time.  Asked by `ak models`, never the
 // tick: the owner wants the assessment as a feature opened, not a process running all day.
+// ErrPriced, with nothing written, where the boards as asked give a lineup Go's answer does not
+// carry (Priced).
 func Refresh(refresh bool) (*Matrix, error) {
 	now := float64(time.Now().UnixNano()) / 1e9
 	harnesses, err := present()
@@ -240,7 +248,7 @@ func Refresh(refresh bool) (*Matrix, error) {
 		return nil, err
 	}
 	build := update.Build()
-	held, err := boards.Collect(refresh, now, build)
+	held, err := boards.Collect(refresh, now, build, unpriced)
 	if err != nil {
 		return nil, err
 	}

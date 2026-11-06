@@ -12,8 +12,8 @@ import (
 // precision is enough bits that rounding the result to a float64 rounds the exact answer.
 const precision = 1024
 
-// sum is Python's sum over floats, compensated since 3.12.
-func sum(values []float64) float64 {
+// Sum is Python's sum over floats, compensated since 3.12.
+func Sum(values []float64) float64 {
 	total, lost := 0.0, 0.0
 	for _, value := range values {
 		next := total + value

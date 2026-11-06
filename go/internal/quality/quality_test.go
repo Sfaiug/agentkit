@@ -164,7 +164,7 @@ func TestExactMathIsPythons(t *testing.T) {
 	if got := pow10(0.123456789); got != 1.3287913397912978 {
 		t.Errorf("pow10 %v", run.Float(got))
 	}
-	if got := sum([]float64{0.1, 0.2, 0.3, 1e16, -1e16}); got != 0.6 {
+	if got := Sum([]float64{0.1, 0.2, 0.3, 1e16, -1e16}); got != 0.6 {
 		t.Errorf("sum %v", run.Float(got))
 	}
 	if got := stdev([]float64{0.1, 0.25, 0.7}); got != 0.31224989991991986 {

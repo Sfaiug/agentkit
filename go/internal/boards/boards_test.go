@@ -137,6 +137,7 @@ func sandbox(t *testing.T) string {
 
 func TestABoardIsAskedDailyAndAFailureKeepsItsRows(t *testing.T) {
 	file := sandbox(t)
+	keepAll := func(*run.Object) error { return nil }
 	asked := map[string]int{}
 	real := asks
 	defer func() { asks = real }()
@@ -147,7 +148,7 @@ func TestABoardIsAskedDailyAndAFailureKeepsItsRows(t *testing.T) {
 	if err := os.WriteFile(file, []byte(`{"artificialanalysis.ai": {"asked_at": 1000, "fetched_at": 1000, "rows": [{"model": "Kept", "values": {}}], "error": null, "build": "b"}, "retired.example": {}}`), 0o666); err != nil {
 		t.Fatal(err)
 	}
-	cache, err := Collect(false, 1000+freshFor, "b")
+	cache, err := Collect(false, 1000+freshFor, "b", keepAll)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,17 +167,26 @@ func TestABoardIsAskedDailyAndAFailureKeepsItsRows(t *testing.T) {
 		t.Fatalf("file %s", data)
 	}
 	// the day counts from asked_at, answered or not
-	if _, err := Collect(false, 1000+freshFor+5, "b"); err != nil {
+	if _, err := Collect(false, 1000+freshFor+5, "b", keepAll); err != nil {
 		t.Fatal(err)
 	}
 	if asked["aa"] != 1 || asked["arena"] != 1 {
 		t.Fatalf("asked within the day: %v", asked)
 	}
-	if _, err := Collect(true, 1000+freshFor+5, "b"); err != nil {
+	if _, err := Collect(true, 1000+freshFor+5, "b", keepAll); err != nil {
 		t.Fatal(err)
 	}
 	if asked["aa"] != 2 || asked["arena"] != 2 {
 		t.Fatalf("--refresh: %v", asked)
+	}
+	// a refused answer leaves the file as it was
+	kept, _ := os.ReadFile(file)
+	refused := errors.New("refused")
+	if _, err := Collect(true, 1000+freshFor+10, "b", func(*run.Object) error { return refused }); err != refused {
+		t.Fatalf("refused: %v", err)
+	}
+	if data, _ := os.ReadFile(file); string(data) != string(kept) {
+		t.Fatalf("a refused answer was written: %s", data)
 	}
 }
 
