@@ -37,18 +37,6 @@ func InLine(record *Object) bool {
 	return wait.Has("land") && !wait.Has("fix") && line && joined
 }
 
-// Member is whether a record holds a place in its landing line, Python's land.member: parked
-// there, or a green delivery its own process carries on.
-func Member(record *Object) bool {
-	wait := record.Dict("waiting_on")
-	if wait == nil || record.Truthy("merged") {
-		return false
-	}
-	_, joined := wait.Get("joined").(Number)
-	_, line := wait.Get("line").(string)
-	return line && joined && (record.Str("state") == "waiting" || InLine(record) && ProcessActive(record))
-}
-
 // NeedsRecovery is work a resume could still carry on; `blocked` never is, as the task itself
 // is wrong, and a stop is a deliberate end.
 func NeedsRecovery(record *Object) bool {

@@ -242,15 +242,11 @@ func startLine(turn string, said io.Writer) {
 		}
 		return
 	}
-	var waiting *run.Object
-	for _, member := range lineMembers(filepath.Base(turn)) {
-		if member.record.Str("state") == "waiting" {
-			waiting = member.record
-			break
-		}
-	}
+	ready := slices.ContainsFunc(lineMembers(filepath.Base(turn)), func(m member) bool {
+		return m.record.Str("state") == "waiting" && !run.ProcessActive(m.record)
+	})
 	held.Close()
-	if waiting == nil || run.ProcessActive(waiting) {
+	if !ready {
 		return // the joining attempt finishes its cleanup before a wake
 	}
 	env, err := config.ChildEnv()
@@ -305,35 +301,38 @@ type member struct {
 	record *run.Object
 }
 
-// lineMembers is every run the line may hold: more than Python's land.member counts, as one in
-// doubt leaves the line to Python's lander.
+// lineMembers is Python's land.line: the runs holding a place in the line (run.Member), in its order.
 func lineMembers(name string) (found []member) {
 	for _, dir := range run.Dirs() {
-		if record, _ := run.Read(dir); record != nil && landingLine(record) == name && !record.Truthy("merged") && !run.Ended(record) {
+		if record, _ := run.Read(dir); record != nil && run.Member(record) && landingLine(record) == name {
 			found = append(found, member{dir, record})
 		}
 	}
 	return orderMembers(found)
 }
 
-// wake starts the member's own `ak run resume` on the verdict written to it, Python's
-// launch_resume: into its log, at the depth its record holds.
+// wake starts the member's own `ak run resume` on the verdict written to it, under its lock.
 func wake(dir string, said io.Writer) {
-	id := filepath.Base(dir)
 	err := run.Change(dir, func(record *run.Object) error {
 		if record.Str("state") == "stopped" {
 			return nil
 		}
-		env, err := config.ChildEnv()
-		if err != nil {
-			return err
-		}
-		depth, _ := record.Int("run_depth")
-		return detach(filepath.Join(dir, "log.txt"), append(env, fmt.Sprintf("AK_RUN_DEPTH=%d", depth)), "run", "resume", id)
+		return resume(dir, record)
 	})
 	if err != nil {
-		fmt.Fprintf(said, "WARN could not resume %s: %v\n", id, err)
+		fmt.Fprintf(said, "WARN could not resume %s: %v\n", filepath.Base(dir), err)
 	}
+}
+
+// resume starts the run's own `ak run resume`, Python's launch_resume: into its log, at the depth
+// its record holds.
+func resume(dir string, record *run.Object) error {
+	env, err := config.ChildEnv()
+	if err != nil {
+		return err
+	}
+	depth, _ := record.Int("run_depth")
+	return detach(filepath.Join(dir, "log.txt"), append(env, fmt.Sprintf("AK_RUN_DEPTH=%d", depth)), "run", "resume", filepath.Base(dir))
 }
 
 // CheckLine is `ak run --lander LINE`, Python's check_line: under the line's own lock, which a
@@ -403,9 +402,10 @@ func unchanged(dir string, saved *run.Object) bool {
 	return same
 }
 
-// publish writes the verdict onto the member and wakes it, Python's publish: only a record still
-// the one this pass read, with no process of its own, takes it.
-func publish(dir string, saved, verdict *run.Object, said io.Writer, deferred ...bool) bool {
+// publish writes the verdict onto the member, Python's publish: only a record still the one this
+// pass read, with no process of its own, takes it.  A green wakes at once; a red is the pass's
+// wake's (wakes.go), told of it.
+func publish(dir string, saved, verdict *run.Object, said io.Writer) bool {
 	err := run.Change(dir, func(current *run.Object) error {
 		if !run.Equal(current, saved) || run.ProcessActive(current) {
 			return errStale
@@ -420,7 +420,9 @@ func publish(dir string, saved, verdict *run.Object, said io.Writer, deferred ..
 	if err != nil {
 		return false
 	}
-	if len(deferred) == 0 || !deferred[0] {
+	if verdict.Has("fix") {
+		redGiven()
+	} else {
 		wake(dir, said)
 	}
 	return true

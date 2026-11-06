@@ -71,6 +71,9 @@ func TestLocalPieceRedReachesTheLandingFixerAfterItsPrefixLeaves(t *testing.T) {
 		t.Fatal(road)
 	}
 	wait.Set("after", run.Fields("first", "tree"))
+	if road := landingFixHandoff(wait); road != "" {
+		t.Fatal("a stack red is Go's fixer's once its prefix leaves: " + road)
+	}
 	if !redBehind(wait, []member{{dir: filepath.Join(home, "first")}}) || redBehind(wait, nil) {
 		t.Fatal("the fix must wait for exactly its prefix's deliveries")
 	}
