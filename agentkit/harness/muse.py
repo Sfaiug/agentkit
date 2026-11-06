@@ -601,6 +601,38 @@ def user_messages(record, cwd, conversation):
             yield kept
 
 
+def answers(record, cwd, conversation):
+    """Each label the owner picked on a card that settled `answered`, beside the question and
+    options its request asked with, dated when Muse recorded the settling: a `request_user_input`
+    card named by its prompt and tool call, as `card` names one.  An Esc's settling picks none."""
+    from . import entries
+    asked = {}
+    for entry in entries(session_log(conversation)):
+        request = run_event(entry, "user_input_prompt_requested")
+        done = run_event(entry, "user_input_prompt_settled")
+        at, said = entry.get("recorded_at"), []
+        try:    # a line of any other shape answers nothing
+            named = request.get("prompt_id"), request.get("tool_call_id")
+            if (request.get("tool_name") == "request_user_input"
+                    and all(isinstance(name, str) for name in named)):
+                asked[named] = {question["id"]: question for question in request["questions"]
+                                if isinstance(question["id"], str)
+                                and isinstance(question["options"], list)}
+            if done.get("outcome") != "answered" or type(at) is not int:
+                continue
+            questions = asked[done["prompt_id"], done["tool_call_id"]]
+            for picked in done["answers"]:
+                question = questions[picked["id"]]
+                said.append({"at": at / 1_000_000, "question": question["question"],
+                             "answer": picked["selected_label"], "choices": [
+                                 {"label": option["label"],
+                                  "description": option.get("description", "")}
+                                 for option in question["options"]]})
+        except (AttributeError, KeyError, TypeError):
+            continue
+        yield from said
+
+
 def card(record, cwd, conversation):
     """Muse's own question card in that session, as the fact its hooks write for it (adapters/
     muse.toml), dated when Muse recorded it; or None where it asked none.  Muse logs each card
