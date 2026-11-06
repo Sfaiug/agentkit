@@ -21,8 +21,8 @@ var pythonRoads = []string{"job_id", "review_pr", "from_pass", "waiting_on", "pi
 	"resume_after", "lease_wait", "waiting_for"}
 
 // Pickup is whether Go carries that dead run on from where it was cut off: at the review, at the
-// executor or the fixer, or at the next round's start.  Decided before anything is written, as
-// Python's resume takes any other point.
+// executor or the fixer, at the checks after their answer, or at the next round's start.  Decided
+// before anything is written, as Python's resume takes any other point.
 func Pickup(dir string, record *run.Object) bool {
 	if record.Str("state") == "waiting" {
 		return waitingPickup(dir, record)
@@ -76,7 +76,7 @@ func unitless(record *run.Object) bool {
 }
 
 // point is whether the run was cut off where Go goes on from, Python's rounds and continuation: a
-// retry directory, an answer with no closing and checks cut off are Python's roads.
+// retry directory and an answer with no closing are Python's roads.
 func point(dir string, record *run.Object) bool {
 	rounds, known := record.Int("rounds")
 	spent := len(record.List("round_summaries"))
@@ -105,7 +105,7 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	name, _, _ := openWorker(round)
-	return name != "" && !exists(filepath.Join(latestTurn(round, name), "final.md"))
+	return name != "" && !exists(filepath.Join(latestTurn(round, name), "final.md")) || answered(round) != ""
 }
 
 // retried is whether Python's retries wrote in that round, which Go does not read on.

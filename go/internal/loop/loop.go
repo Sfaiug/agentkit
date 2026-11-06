@@ -272,6 +272,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 		}
 	}()
 	host.Lower()
+	oneThreadAtATime()
 	for _, name := range []string{"AK_HAND_IN", "AK_HAND_IN_CONTINUE", "AK_HAND_IN_FINDINGS"} {
 		os.Unsetenv(name)
 	}
@@ -623,6 +624,7 @@ func (l *loop) finish(err error) int {
 	case err != nil:
 		said, park, stands := parked(err)
 		if !stands {
+			endNoRoom(l.dir, err)
 			return End(l.dir, err.Error())
 		}
 		l.say(said)
