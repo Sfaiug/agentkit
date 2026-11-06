@@ -171,8 +171,13 @@ class WeekFromItsOwnSpend(unittest.TestCase):
         self.turn(22, 18, rows=[(2, 22, 18)])   # half before the highest: $1
         self.read("default", 30, 20)
         self.read("default", 25, 10)
+        # a rise no spend is known for: a row beginning at its highest spent none of it
+        self.read("second", 10, 40)
+        self.read("second", 40, 30)
+        self.turn(30, 25, account="second", rows=[(5, 30, 25)])
         weeks = self.weeks()
         self.assertWeek(weeks["default"], "Max", 30, 20, 6)
+        self.assertWeek(weeks["second"], "Pro", None, 0, 0)
 
 
 if __name__ == "__main__":

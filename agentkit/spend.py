@@ -160,7 +160,9 @@ def _rows(account, since, until):
             f"SELECT turn, model, COALESCE(began, at), at, {columns} FROM turn_usage "
             "WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until):
         share = (min(at, until) - max(began, since)) / (at - began) if at > began else 1
-        counts = [None if count is None else count * share for count in counts]
+        if not share:   # it only touches the time at an end: none of it was spent then
+            continue
+        counts =[None if count is None else count * share for count in counts]
         yield _receipt(turn, "harness"), model, sum(count or 0 for count in counts), counts
 
 
