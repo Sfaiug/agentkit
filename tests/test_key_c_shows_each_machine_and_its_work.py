@@ -79,7 +79,7 @@ class MachinesOnC(unittest.TestCase):
         self.term.keys("c")
         self.config_screen = self.term.wait(lambda screen: "agentkit · config " in screen
                                            and "Machines" in screen and "esc back" in screen)
-        self.term.keys(*(["Down"] * 5))       # one model, then the fifth config row
+        self.term.keys(*(["Down"] * 6))       # one model, then the sixth config row
         self.term.wait("› Machines")
         self.term.keys("Enter")
         # A new title can still have the preceding config body beneath it.

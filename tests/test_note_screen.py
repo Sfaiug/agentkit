@@ -122,7 +122,8 @@ class NoteScreen(unittest.TestCase):
         screen.send(b"c")
         screen.screen("config")
         mark = len(screen.text())
-        screen.send(DOWN * 30 + b"\x1b[A" * 3)   # Discord, above Weekly audit, Machines and Limits
+        screen.send(DOWN * 30 + b"\x1b[A" * 4)   # Discord, above Weekly audit, Done check,
+                                                  # Machines and Limits
         before = screen.screen("config", after=mark,
                                where=lambda lines: any(line.startswith("›") and "Discord" in line
                                                        for line in lines))

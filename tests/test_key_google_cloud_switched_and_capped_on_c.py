@@ -43,7 +43,7 @@ class CloudSettings(unittest.TestCase):
         term.wait("esc leave")
         term.keys("c")
         term.wait("Machines")
-        term.keys(*(["Down"] * 5))
+        term.keys(*(["Down"] * 6))
         term.wait("› Machines")
         term.keys("Enter")
         term.wait("config · machines")

@@ -69,6 +69,38 @@ func Audit() (Selection, bool, error) {
 	return held, on, nil
 }
 
+// DoneCheck reads `[done_check]` as `c`'s row says it (done_check.setting): the model that makes
+// the check, "" for the seat's reviewer, and whether it is on, true until written false.
+func DoneCheck() (string, bool, error) {
+	root, err := load()
+	if err != nil {
+		return "", false, err
+	}
+	value := root.get("done_check")
+	if value == nil {
+		return "", true, nil
+	}
+	check, ok := value.(*table)
+	if !ok {
+		return "", true, fmt.Errorf("~/.agentkit/config.toml: [done_check] must be a table")
+	}
+	named, on := "", true
+	if value := check.get("on"); value != nil {
+		if on, ok = value.(bool); !ok {
+			return "", true, fmt.Errorf("~/.agentkit/config.toml: [done_check].on must be true or false (got %s)", valueRepr(value))
+		}
+	}
+	if value := check.get("model"); value != nil {
+		if named, ok = value.(string); !ok {
+			return "", on, fmt.Errorf("~/.agentkit/config.toml: [done_check].model must be a model name (got %s)", valueRepr(value))
+		}
+		if _, err := resolve(root, named); err != nil {
+			return named, on, err
+		}
+	}
+	return named, on, nil
+}
+
 // HarnessLook is the name and colour declared by a plugin, never a screen's own list.
 func HarnessLook(harness string) (name, colour string) {
 	found, _ := manifests()

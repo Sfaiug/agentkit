@@ -120,7 +120,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			}
 			continue
 		}
-		if key.Name == "enter" && view.Row == len(c.Names)+4 {
+		if key.Name == "enter" && view.Row == len(c.Names)+5 {
 			if !menuMachines(keyboard, painter) {
 				return false
 			}
@@ -212,11 +212,16 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 			}
 			return strings.Join(labels, ", ")
 		}
-		word := "off"
-		if on {
-			word = "on"
-		}
-		audit = word + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + named(setting.Workers) + " · " + menu.RoleHead(2) + " " + named(setting.Reviewers)
+		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + named(setting.Workers) + " · " + menu.RoleHead(2) + " " + named(setting.Reviewers)
+	}
+	checker, on, err := config.DoneCheck()
+	check := ""
+	if err != nil {
+		check = err.Error()
+	} else if checker == "" {
+		check = onOff(on) + " · the seat's reviewer"
+	} else {
+		check = onOff(on) + " · " + config.ModelName(checker, c.Models)
 	}
 	numbers, err := config.HostNumbers()
 	if err != nil {
@@ -224,6 +229,15 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	}
 	limits := limitsSaid(numbers)
 	return []menu.ConfigOption{{Name: "Models"}, {Name: "Subscriptions"}, {Name: "Discord", Value: discord},
-		{Name: "Weekly audit", Value: audit}, {Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Known()), cloud)},
+		{Name: "Weekly audit", Value: audit}, {Name: "Done check", Value: check},
+		{Name: "Machines", Value: fmt.Sprintf("%d machines · Google Cloud %s", len(machines.Known()), cloud)},
 		{Name: "Limits", Value: limits}}, true
+}
+
+// onOff is how a row says a setting's `on`, as `Weekly audit` and `Done check` do.
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
 }

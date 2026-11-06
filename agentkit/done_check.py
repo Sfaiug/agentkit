@@ -53,9 +53,30 @@ OWED = "a check of its finished plan against what its owner said"
 
 
 def on(cfg):
-    """`[done_check] on`, true unless written false: off, a finished plan owes no check."""
+    """`[done_check] on`, true unless written false: off, a finished plan owes no check.  It
+    reads `on` alone, so a `model` the config no longer has never holds a seat the check is off
+    for."""
     table = cfg.get("done_check")
     return not (isinstance(table, dict) and table.get("on") is False)
+
+
+def setting(cfg):
+    """`[done_check]` as `c`'s `Done check` page and `checker` read it: `on` (on) and `model`,
+    the model that makes the check, None for the seat's reviewer.  A value config.toml holds that
+    neither can take is an Error naming it, so the page and `ak orch check` say the same."""
+    table = cfg.get("done_check", {})
+    if not isinstance(table, dict):
+        raise config.Error(f"~/.agentkit/{config.CONFIG_NAME}: [done_check] must be a table")
+    if not isinstance(table.get("on", True), bool):
+        raise config.Error(f"~/.agentkit/{config.CONFIG_NAME}: [done_check].on must be true or "
+                           f"false (got {table['on']!r})")
+    named = table.get("model")
+    if named is not None:
+        if not isinstance(named, str):
+            raise config.Error(f"~/.agentkit/{config.CONFIG_NAME}: [done_check].model must be a "
+                               f"model name (got {named!r})")
+        config.model(cfg, named)
+    return {"on": on(cfg), "model": named}
 
 
 def owed(name, text):
@@ -116,11 +137,9 @@ def keep(name, read):
 
 
 def checker(cfg, name):
-    """`[done_check] model`, else the reviewer a run of that seat's would draw now."""
-    table = cfg.get("done_check")
-    named = table.get("model") if isinstance(table, dict) else None
+    """`[done_check] model` (setting), else the reviewer a run of that seat's would draw now."""
+    named = setting(cfg)["model"]
     if named:
-        config.model(cfg, named)
         return named
     order = staffing.ready_order(cfg, staffing.collect_usage(cfg),
                                  config.reviewers(cfg, name), role="reviewer", quiet=True)

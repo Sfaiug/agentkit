@@ -119,6 +119,7 @@ class PageComesUp(Sandbox):
         return (("models", lambda: menu.models_page(self.cfg, None)),
                 ("discord", menu.config_discord),
                 ("weekly audit", lambda: menu.config_audit(self.cfg)),
+                ("done check", lambda: menu.config_done_check(self.cfg)),
                 ("machines", lambda: menu.config_machines(self.cfg)),
                 ("subscriptions", lambda: menu.config_subscriptions(self.cfg, None)))
 

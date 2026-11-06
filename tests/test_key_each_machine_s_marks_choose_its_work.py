@@ -44,7 +44,7 @@ class EachMachinesMarks(unittest.TestCase):
         term.wait("esc leave")
         term.keys("c")
         term.wait("Machines")
-        term.keys(*(["Down"] * 6), "Enter")
+        term.keys(*(["Down"] * 7), "Enter")
         term.wait("config · machines")
         term.keys("Down", *(["Down"] if cloud else []), "Enter")
         term.wait("builds and reviews")
