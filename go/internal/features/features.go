@@ -32,7 +32,8 @@ var wait = 20 * time.Second
 type Switch struct {
 	ID, Name      string
 	You, Everyone bool
-	Fixed         bool // the project does not let you switch it for yourself
+	Fixed         bool   // the project does not let you switch it for yourself
+	Since         string // when it last went on for everyone, as `everyone_since` writes it; "" for none
 }
 
 // A Reading is a project's switches as they stand: the rows its `list` last answered, nil before
@@ -86,12 +87,18 @@ func Read(checkout string, every time.Duration) Reading {
 	return found.Reading
 }
 
+// List is the checkout's switches as its `list` answers now; false for no list.
+func List(ctx context.Context, checkout string) ([]Switch, bool) {
+	answer, _ := run(ctx, checkout, "list")
+	return switches(answer)
+}
+
 // Landed is told once a list has landed since it was last read from: what draws the switches
 // draws again.
 func Landed() <-chan struct{} { return landed }
 
 func list(checkout string, found *entry) {
-	answer, why := run(checkout, "list")
+	answer, why := run(context.Background(), checkout, "list")
 	rows, listed := switches(answer)
 	held.Lock()
 	found.Asking = time.Time{}
@@ -123,8 +130,9 @@ func switches(answer any) ([]Switch, bool) {
 		name, _ := row["name"].(string)
 		you, _ := row["you"].(bool)
 		everyone, _ := row["everyone"].(bool)
+		since, _ := row["everyone_since"].(string)
 		rows = append(rows, Switch{ID: fmt.Sprint(id), Name: cmp.Or(name, fmt.Sprint(id)), You: you, Everyone: everyone,
-			Fixed: row["you_switchable"] == false})
+			Fixed: row["you_switchable"] == false, Since: since})
 	}
 	return rows, true
 }
@@ -133,8 +141,9 @@ func switches(answer any) ([]Switch, bool) {
 // runs a project's own command: its JSON answer, or nil and the one line saying why.  It runs in
 // the checkout, reading nothing, in a session of its own, without the seat's name (owner_env): an
 // ssh in it never reads the keys, nor is it a seat reaching the live host.  One past the wait is
-// killed with everything it started, so a `set` said to have failed never lands after.
-func run(checkout string, words ...string) (any, string) {
+// killed with everything it started, so a `set` said to have failed never lands after, as is one
+// running when ctx ends.
+func run(ctx context.Context, checkout string, words ...string) (any, string) {
 	what, command := words[0], gitcall.Declared(checkout, "features")
 	if command == "" {
 		return nil, "AGENTS.md names no features command"
@@ -143,7 +152,7 @@ func run(checkout string, words ...string) (any, string) {
 	if err != nil {
 		return nil, what + ": " + config.PyError(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command+" "+commandhelp.ShellJoin(words))
 	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then

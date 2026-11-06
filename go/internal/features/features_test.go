@@ -3,6 +3,7 @@
 package features
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -65,7 +66,7 @@ func TestPastTheWaitWhatTheCommandStartedGoesToo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(checkout, "AGENTS.md"), []byte("---\nfeatures: sh features.sh\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, why := run(checkout, "list")
+	_, why := run(context.Background(), checkout, "list")
 	data, err := os.ReadFile(filepath.Join(checkout, "child.pid"))
 	pid, unread := strconv.Atoi(strings.TrimSpace(string(data)))
 	if err != nil || unread != nil {
@@ -93,7 +94,7 @@ func TestAWaitOverBeforeTheCommandStartsIsNoAnswer(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(checkout, "AGENTS.md"), []byte("---\nfeatures: echo '[]'\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, why := run(checkout, "list"); !strings.HasPrefix(why, "list: no answer in ") {
+	if _, why := run(context.Background(), checkout, "list"); !strings.HasPrefix(why, "list: no answer in ") {
 		t.Errorf("said %q", why)
 	}
 	time.Sleep(10 * time.Millisecond) // for a stop the deadline set off to have run
