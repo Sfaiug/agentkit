@@ -35,7 +35,7 @@ func TestAPageWaitsForItsCallerToAskAgain(t *testing.T) {
 	if err := writeEvent(event); err != nil {
 		t.Fatal(err)
 	}
-	if carried, err := RetryPending(func(string) (string, any) { return "", nil }, io.Discard); !carried || err != nil || hits.Load() != 1 {
+	if carried, err := RetryPending(func(string) (string, any) { return "", nil }, false, nil, io.Discard); !carried || err != nil || hits.Load() != 1 {
 		t.Fatal(carried, err, hits.Load())
 	}
 	if waiting, err := Page("down:acme", "acme is down", true, io.Discard); waiting || err != nil || hits.Load() != 2 {
