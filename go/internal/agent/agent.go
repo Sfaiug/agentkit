@@ -43,7 +43,7 @@ func runsAgent(pids []int, commands map[int][]string, children map[int][]int, ha
 			continue
 		}
 		seen[pid] = true
-		if !harness.MatchString(program(words)) {
+		if !harness.MatchString(Program(words, false)) {
 			stack = append(stack, children[pid]...)
 		} else if !worker(pid) {
 			return true
@@ -115,24 +115,31 @@ type grammar struct {
 	longTakes, longModes []string
 }
 
-// program is what a process is running: its own program, or the script file an interpreter was
-// handed. `bash -e /opt/bin/claude` runs claude; `bash -c 'claude || sleep 600'` outlives the
-// claude it started, and is bash; `ssh claude sleep 600` runs ssh, whatever its host is called.
-func program(words []string) string {
+// Program is what a process is running: its own program, or the script file an interpreter was
+// handed (orch.program). `bash -e /opt/bin/claude` runs claude; `bash -c 'claude || sleep 600'`
+// outlives the claude it started, and is bash; `ssh claude sleep 600` runs ssh, whatever its host
+// is called.  full keeps the path it is named by, so a client can tell npm's entry point.
+func Program(words []string, full bool) string {
 	if len(words) == 0 {
 		return ""
+	}
+	named := func(word string) string {
+		if full {
+			return word
+		}
+		return path.Base(word)
 	}
 	name := path.Base(words[0])
 	at := slices.IndexFunc(interpreters, func(g grammar) bool { return g.name.MatchString(name) })
 	if at < 0 {
-		return name
+		return named(words[0])
 	}
 	g := interpreters[at]
 	for i := 1; i < len(words); i++ {
 		word := words[i]
 		switch {
 		case word == "--" && i+1 < len(words):
-			return path.Base(words[i+1])
+			return named(words[i+1])
 		case word == "--", word == "-":
 			return name // the script is stdin, or there is none
 		case strings.HasPrefix(word, "--"):
@@ -156,7 +163,7 @@ func program(words []string) string {
 				}
 			}
 		default:
-			return path.Base(word)
+			return named(word)
 		}
 	}
 	return name

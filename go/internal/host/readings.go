@@ -91,6 +91,8 @@ func Read() Readings {
 		readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = held, high
 		readings["slice_memory_swap_mb"] = swapMB(slice)
 	}
+	share, ok := pressure(filepath.Join(slice, "memory.pressure"))
+	readings.set("slice_memory_pressure", share, ok)
 	readings["runs_memory_swap_mb"] = swapMB(runs)
 	return readings
 }

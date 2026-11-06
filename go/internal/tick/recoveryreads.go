@@ -44,7 +44,8 @@ func noDeadLoops() bool {
 	})
 }
 
-// Silent running loops need Python's stall clocks; a parked run only needs its refused notice.
+// Silent running loops need Python's stall clocks, and a slot waiter that died its restart; a
+// parked run's notice is tellParked's.
 func noStallRecovery() bool {
 	return run.Every(func(dir string, record *run.Object) bool {
 		switch record.Str("state") {
@@ -52,8 +53,6 @@ func noStallRecovery() bool {
 			return notSilent(dir, record) || run.ResumeOrdered(record, epoch(time.Now())) && !run.ProcessActive(record)
 		case "queued":
 			return !record.Truthy("slot_waiting") || run.ProcessActive(record) || run.ResumeOrdered(record, epoch(time.Now()))
-		case "stalled":
-			return record.Truthy("stalled_notified")
 		}
 		return true
 	})

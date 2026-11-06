@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 func recoveryEnding(record *run.Object) bool { return record.Str("state") == "interrupted" }
@@ -14,6 +15,16 @@ func recoveryEnding(record *run.Object) bool { return record.Str("state") == "in
 func Awaiting(record *run.Object, now time.Time) bool {
 	return Owed(record, now) || recoveryEnding(record) && run.Launched(record) != "" && !record.Truthy("handed_back") &&
 		!record.Truthy("reported") && !record.Truthy("recovery_notified") && !record.Truthy("recovery_acknowledged_at")
+}
+
+// Reaches is whether Give reaches the seat that launched the run, or the owner in its stead: up
+// on ak's own server, nothing left of it (Orphaned), or asleep where Go wakes it, for an ending
+// typed into it (handback.announce): one that merged or was not needed may be recorded or ride on
+// its next prompt, which wakes nothing.
+func Reaches(record *run.Object) bool {
+	session := run.Seat(record)
+	return seat.Watching(session) || Orphaned(record) ||
+		run.Ended(record) && !record.Truthy("merged") && record.Str("state") != "not_needed" && seat.Wakes(session)
 }
 
 // Announce offers an ending through the run's own hand-back, keeping its pending mark

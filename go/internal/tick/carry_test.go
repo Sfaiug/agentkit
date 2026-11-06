@@ -179,7 +179,7 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
 		"state/watch.json":                 `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
-		"state/watch.json#stalls":          `{"stalls": {"acme": {}}}`,
+		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "nudged_at": 2}}}`,
 		"runs/fix-api/run.json#probe": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {"command": "true"}, "deployed": null}`,
 			time.Now().Unix()),
 		"state/watch.json#auth":      `{"auth_out": {"claude": {"ok": false}}}`,

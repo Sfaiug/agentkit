@@ -50,7 +50,7 @@ func table(t *ticking) []pass {
 		{"switched turns", false, configured, accountTurns},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
-		{"stall recovery", true, all(configured, noStallRecovery), nil},
+		{"stall recovery", true, all(configured, noStallRecovery, t.dryly(noneParked)), t.wet(t.tellParked)},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads
@@ -81,7 +81,7 @@ func table(t *ticking) []pass {
 		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
 		{"seat weights", false, nil, func() error { host.Front(); return nil }},
-		{"idle sleep", false, all(configured, every(awake)), nil},
+		{"idle sleep", false, configured, t.sleep},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
 		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
@@ -89,7 +89,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
-		{"seat sweep", false, noRunSweep, t.sweep},
+		{"seat sweep", false, nil, t.sweep},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, nil, func() error {
 			if !leftover.Sweep(t.log.line) {

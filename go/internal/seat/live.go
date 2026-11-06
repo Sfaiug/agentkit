@@ -34,6 +34,7 @@ type Live struct {
 	Bound        bool     // its session names the pane its launch created (orch.bind_pane has done its work)
 	Attached     bool     // a client is in it
 	Path         string   // where tmux says its session works
+	Pane         string   // the capture itself, whose changes age a stall (watch.observe)
 	Draft        string   // what its composer holds, whitespace aside: "" for nothing, or no composer found
 	Typed        []string // the lines ak typed there last, whitespace aside, that its draft is all of
 	Title        any      // its conversation's custom title: "" for none, nil where none is read
@@ -126,7 +127,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	return Live{Name: seat.Name, Own: seat.own, State: found.state, Began: found.began,
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line), Refused: refused,
-		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2],
+		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2], Pane: pane,
 		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: script.Moment(wrapped) != 0, Record: record, File: file}, true
 }
 

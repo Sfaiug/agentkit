@@ -6,23 +6,32 @@ import (
 	"agentkit/internal/run"
 )
 
-// TurnedNeed cards a published need at a quiet prompt with no question standing. Its clock is
-// the word's, and its text the reason already decided by the seat's ladder.
-func TurnedNeed(name string, said func(string) (string, any), errOut io.Writer) (bool, error) {
-	return turnedNeed(name, said, clock, errOut)
+// TurnedNeed cards a need at a quiet prompt with no question standing, as the seat's ladder words
+// it now (needs_transition's answer): its clock is the word's, and its text the reason the climb
+// gives, which a row since the look may have changed, a line typed in that ended the wait it read.
+func TurnedNeed(name string, answer func(string) (word, reason string, since any), errOut io.Writer) (bool, error) {
+	return turnedNeed(name, answer, clock, errOut)
 }
 
-func turnedNeed(name string, said func(string) (string, any), clock func() float64, errOut io.Writer) (bool, error) {
-	return questionTransition(name, said, clock, cardWait, errOut, false, quietNeed, func(string) error { return nil })
+func turnedNeed(name string, answer func(string) (string, string, any), clock func() float64, errOut io.Writer) (bool, error) {
+	var reason string
+	var since any
+	said := func(current string) (string, any) {
+		var word string
+		word, reason, since = answer(current)
+		return word, since
+	}
+	return questionTransition(name, said, clock, cardWait, errOut, false, func(current string, file *run.Object) *run.Object {
+		return quietNeed(current, file, reason, since)
+	}, func(string) error { return nil })
 }
 
-func quietNeed(name string, file *run.Object) *run.Object {
-	if file == nil || file.Str("word") != "needs you" || Last(name) != nil || file.Truthy("unasked") ||
-		file.Str("state") != "at_prompt" && file.Str("state") != "draft" {
+func quietNeed(name string, file *run.Object, reason string, since any) *run.Object {
+	if Last(name) != nil || file.Truthy("unasked") || file.Str("state") != "at_prompt" && file.Str("state") != "draft" {
 		return nil
 	}
-	if _, dated := finite(file.Get("word_since")); !dated {
+	if _, dated := finite(since); !dated {
 		return nil
 	}
-	return run.Fields("text", file.Str("reason"), "time", file.Get("word_since"))
+	return run.Fields("text", reason, "time", since)
 }

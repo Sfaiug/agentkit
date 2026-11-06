@@ -25,13 +25,14 @@ type climbing struct {
 }
 
 // An answer is a rung's: the seat's word, why and since when, whether that why is the question
-// the seat's screen or notice asks, which its bar does not repeat, and when one out of usage comes
-// back (`resumes_at`), which its bar says.
+// the seat's screen or notice asks, which its bar does not repeat, when one out of usage comes
+// back (`resumes_at`), which its bar says, and whether only what the seat waits on gives it.
 type answer struct {
 	word, reason string
 	since        any
 	question     bool
 	back         any
+	waits        bool
 }
 
 // A rung decides the seat, nil where it passes the seat on, or says with ErrUnread that Go does not
@@ -149,8 +150,8 @@ func aRunOfItsOwn(facts climbing) (*answer, error) {
 }
 
 func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
-func runsGoing(facts climbing) (*answer, error)   { return goneRuns(facts) }
-func liveCheck(facts climbing) (*answer, error)   { return runsAwaitingLive(facts) }
+func runsGoing(facts climbing) (*answer, error)   { return waitedOn(goneRuns(facts)) }
+func liveCheck(facts climbing) (*answer, error)   { return waitedOn(runsAwaitingLive(facts)) }
 
 // everySeatsNews: the login no harness owns, or a worker token, dead.
 func everySeatsNews(facts climbing) (*answer, error) {
@@ -165,7 +166,7 @@ func onItsScreen(facts climbing) (*answer, error) {
 	if facts.found.state != "asking" {
 		return nil, nil
 	}
-	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil}, nil
+	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil, false}, nil
 }
 
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it
@@ -180,7 +181,7 @@ func ownQuestion(facts climbing) (*answer, error) {
 			return nil, err
 		}
 	}
-	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil}, nil
+	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil, false}, nil
 }
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is
@@ -239,7 +240,7 @@ func waitGoing(facts climbing) (*answer, error) {
 	if _, dated := wait.Num("at"); dated {
 		since = wait.Get("at")
 	}
-	return &answer{word: "working", reason: "waiting on " + on, since: since}, nil
+	return waitedOn(&answer{word: "working", reason: "waiting on " + on, since: since}, nil)
 }
 
 // turnRunning: a turn in flight, past three hours saying so and keeping the word.

@@ -36,7 +36,8 @@ func questionTransition(name string, said func(string) (string, any), clock func
 		}
 		present, last, gone, known := questionActivity(current)
 		present = present && isQuestion
-		if !known || !gone && config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
+		// a question is the one its seat's look published; a need is what the ladder says now
+		if !known || isQuestion && !gone && config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
 			return nil
 		}
 		card, err := readObject(seatFile("card", current, "json"))
@@ -84,7 +85,7 @@ func questionTransition(name string, said func(string) (string, any), clock func
 		if cardHistory(card) || present || now-number(card, "left") < cardWait || now-max(number(card, "since"), asked, last) < wait {
 			return nil
 		}
-		if gone {
+		if gone && isQuestion {
 			notice = notice.Copy()
 			notice.Set("text", file.Str("reason"))
 		}

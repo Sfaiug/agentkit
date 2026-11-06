@@ -23,7 +23,7 @@ func cards(errOut io.Writer, log func(string)) error {
 	for _, name := range names {
 		carried, err := notify.TurnedQuestion(name, seat.CardWord, errOut)
 		if !carried && err == nil {
-			carried, err = notify.TurnedNeed(name, seat.CardWord, errOut)
+			carried, err = notify.TurnedNeed(name, seat.CardAnswer, errOut)
 		}
 		if !carried && err == nil {
 			carried, err = notify.TurnedGoneNeed(name, seat.CardWord, errOut)
