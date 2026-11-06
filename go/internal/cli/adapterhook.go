@@ -20,7 +20,7 @@ func adapterHook(name string, stems []string, out io.Writer) (code int) {
 	payload, _ := io.ReadAll(os.Stdin)
 	read, _ := run.Decode(payload)
 	event, _ := read.(*run.Object)
-	if event, code = harness.HookEvent(name, event, out, seat.QuestionRefused, seat.Update); event == nil {
+	if event, code = harness.HookEvent(name, event, out, seat.QuestionRefused, seat.Reconciled); event == nil {
 		return code
 	}
 	if len(stems) == 0 {

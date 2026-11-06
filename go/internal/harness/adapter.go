@@ -31,12 +31,12 @@ func Serve(name string, words, env []string, errOut io.Writer, terminal func(wor
 
 // HookEvent reads an adapter's payload into the shape the shared seat hook takes; nil is silent,
 // with the hook's exit code where the harness answered the event itself, on out.  refused is why
-// that seat may not ask a question now, "" where it may, and update changes that seat's record
-// under its lock, only where change says it changed it.
+// that seat may not ask a question now, "" where it may, and reconciled writes Reconcile into that
+// seat's record.
 func HookEvent(name string, event *run.Object, out io.Writer, refused func(seat string) (string, error),
-	update func(seat string, change func(*run.Object) bool) error) (*run.Object, int) {
+	reconciled func(seat string)) (*run.Object, int) {
 	if hook := plugins[name].hookEvent; hook != nil && event != nil {
-		return hook(event, out, refused, update)
+		return hook(event, out, refused, reconciled)
 	}
 	return nil, 0
 }

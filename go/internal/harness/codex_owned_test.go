@@ -32,8 +32,7 @@ func TestCodexSettingsAppliedSinceTheAnswerComeFirst(t *testing.T) {
 }
 
 // TestCodexReopensOnItsReceipt: a launch resuming the thread its receipt proves carries that
-// receipt's evidence and remote home on and binds the thread, as codex.py `prepare` does; a
-// SessionStart's binding writes what codex.py `reconcile` would, once.
+// receipt's evidence and remote home on and binds the thread, as codex.py `prepare` does.
 func TestCodexReopensOnItsReceipt(t *testing.T) {
 	token, write := codexSeat(t)
 	write("")
@@ -47,9 +46,8 @@ func TestCodexReopensOnItsReceipt(t *testing.T) {
 	os.WriteFile(path, []byte(run.Encode(previous)), 0o600)
 
 	record := run.Fields("codex_launch", token, "codex_history", []any{"earlier"})
-	if !codexReconciled(record) || record.Get("conversation") != "t1" || record.Get("id_source") != codexSource ||
-		record.Get("resumable") != true || codexReconciled(record) {
-		t.Fatalf("bound: %s", run.Encode(record))
+	if owned := codexOwned(map[string]any{codexLaunch: token}); owned != "t1" {
+		t.Fatalf("owned: %q", owned)
 	}
 	if _, _, err := codexLaunched("acme", t.TempDir(), "t2", record); err == nil {
 		t.Error("a thread the receipt does not prove was resumed")

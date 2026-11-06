@@ -24,7 +24,7 @@ type plugin struct {
 	interactive func(root string, args []string, out, errOut io.Writer) int
 	seatWords   func(words, env []string) []string
 	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
-	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), update func(seat string, change func(*run.Object) bool) error) (*run.Object, int)
+	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), reconciled func(seat string)) (*run.Object, int)
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
