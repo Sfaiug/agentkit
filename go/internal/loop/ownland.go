@@ -142,13 +142,17 @@ func LineToPython(name string) bool {
 
 // pin makes what the checkout holds the commit a review run judges, Python's pin_checkout: what its
 // own rebase, merge or fixer left, until the PR head moves (pinnedHead).  A git still stopped has
-// made nothing yet, and a task run judges its HEAD.
+// made nothing yet, and a task run judges its HEAD.  What a fixer left uncommitted is committed
+// first: the review's restore would otherwise put it away as the tests' and judge the commit it fixed.
 func (r *repoPlace) pin(l *loop) error {
 	record, err := read(l)
 	if err != nil || !record.Truthy("review_pr") {
 		return err
 	}
 	if stopped, err := inProgress(r.git()); err != nil || stopped {
+		return err
+	}
+	if err := r.commitLeftovers(l); err != nil {
 		return err
 	}
 	head, err := r.git().Must("rev-parse", "HEAD")

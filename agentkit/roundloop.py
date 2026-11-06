@@ -816,8 +816,11 @@ def set_base(lp, tip):
 
 def pin_checkout(lp):
     """A review run reviews the commit its own rebase, merge or landing fixer left, until the
-    PR head moves (`pinned_head`); a rebase or merge still stopped has made nothing yet."""
+    PR head moves (`pinned_head`); a rebase or merge still stopped has made nothing yet.  What a
+    fixer left uncommitted is committed first: the review's `restore_review_checkout` would
+    otherwise put it away as the tests' and judge the commit it fixed again."""
     if lp.state.get("review_pr") and not gitcall.in_progress(lp.wt, "rebase", "merge"):
+        gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
         lp.state["integrated"] = {"from": lp.state["head_sha"],
                                   "to": gitcall.git(lp.wt, "rev-parse", "HEAD")}
         lp.write()
