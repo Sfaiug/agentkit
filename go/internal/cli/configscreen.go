@@ -110,6 +110,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
 		}
+		if key.Name == "enter" && view.Row == len(c.Names)+1 {
+			if !menuSubscriptions(keyboard, painter) {
+				return false
+			}
+			continue
+		}
 		if key.Name == "enter" && view.Row >= len(c.Names) {
 			if view.Row != len(c.Names) || !menuConfigModels(keyboard, painter) {
 				return false
