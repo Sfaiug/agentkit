@@ -88,10 +88,10 @@ func Read() Readings {
 		high, ok = megabytes(filepath.Join(slice, "memory.max"))
 	}
 	if held, known := heldMB(slice); ok && known {
-		swap := swapMB(slice)
-		readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = held+swap, high
-		readings["slice_memory_swap_mb"] = swap
+		readings["slice_memory_used_mb"], readings["slice_memory_high_mb"] = held, high
+		readings["slice_memory_swap_mb"] = swapMB(slice)
 	}
+	readings["runs_memory_swap_mb"] = swapMB(runs)
 	return readings
 }
 
@@ -362,8 +362,11 @@ func reclaimableMB(path string) (float64, bool) {
 	return total / (1024 * 1024), found
 }
 
-// swapMB is what the cgroup swapped out, 0 where none is accounted: a page in swap is still in
-// use, and a slice at its cap swaps rather than reclaims.
+// swapMB is what the cgroup swapped out, 0 where none is accounted. Named beside RAM, never added
+// to it: a cap bounds RAM alone, the kernel moves cold pages to swap to make room, and what paging
+// them back costs shows as memory pressure. Counted as RAM, seats' cold swap kept every run out of
+// a calm slice for a day (25 Oct 2026); only the runs slice's swap past their allowance takes a
+// run's room.
 func swapMB(cgroup string) float64 {
 	swap, _ := megabytes(filepath.Join(cgroup, "memory.swap.current"))
 	return swap
@@ -376,8 +379,7 @@ func heldMB(cgroup string) (float64, bool) {
 }
 
 // unitLimit is the nearest enclosing cgroup with a finite memory.high, as
-// [used, high, raw, name, swap] with used excluding reclaimable cache, used and raw with swap,
-// or nil.
+// [used, high, raw, name, swap] with used excluding reclaimable cache, neither with swap, or nil.
 func unitLimit() []any {
 	own, ok := ownCgroup()
 	if !ok {
@@ -395,8 +397,7 @@ func unitLimit() []any {
 			if current == root {
 				name = "/"
 			}
-			swap := swapMB(current)
-			return []any{math.Max(0, raw-cache) + swap, high, raw + swap, name, swap}
+			return []any{math.Max(0, raw-cache), high, raw, name, swapMB(current)}
 		}
 		if current == root {
 			break
