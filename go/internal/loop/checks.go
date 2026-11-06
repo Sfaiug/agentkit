@@ -314,24 +314,26 @@ func (l *loop) flakyRecord(cmd string, failed, again []byte, path string, most i
 
 // cutFrom is a binary file's bytes from start to its end as a model is handed them, Python's
 // turns.cut_file: whole up to most bytes, else its end under a line naming a file holding all of
-// it, never read whole, as a check can print more than the run's memory holds.
+// it, never read whole, as a check can print more than the run's memory holds.  Replacement
+// characters can grow the end past most: it is cut there again, at a whole character.
 func cutFrom(file *os.File, start int64, where, name string, most int64) (string, error) {
 	size, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return "", err
-	}
-	line := ""
-	if size-start > most {
-		if line, err = kept(io.NewSectionReader(file, start, size-start), where, name); err != nil {
-			return "", err
-		}
 	}
 	from := max(start, size-most)
 	part := make([]byte, size-from)
 	if _, err := file.ReadAt(part, from); err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
-	return line + decoded(part), nil
+	end := decoded(part)
+	line := ""
+	if size-start > most || int64(len(end)) > most {
+		if line, err = kept(io.NewSectionReader(file, start, size-start), where, name); err != nil {
+			return "", err
+		}
+	}
+	return line + strings.ToValidUTF8(end[max(0, int64(len(end))-most):], ""), nil
 }
 
 // kept saves output whole in a new file under where, the line naming it heading any part of it a
