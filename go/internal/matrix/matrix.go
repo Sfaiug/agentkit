@@ -231,16 +231,30 @@ type Matrix struct {
 // changed, the harnesses installed are not the ones it rowed or ak's own build is not the one that
 // computed it, since the harness catalogs it asks take time.  Asked by `ak models`, never the
 // tick: the owner wants the assessment as a feature opened, not a process running all day.
-// ErrPriced, with nothing written, where the boards as asked give a lineup Go's answer does not
-// carry (Priced).
-func Refresh(refresh bool) (*Matrix, error) {
+// Where drawn, ErrPriced, with nothing written, for boards as asked whose lineup's answer Go does
+// not draw (Drawn).
+func Refresh(refresh, drawn bool) (*Matrix, error) {
 	now := float64(time.Now().UnixNano()) / 1e9
 	harnesses, err := present()
 	if err != nil {
 		return nil, err
 	}
 	build := update.Build()
-	held, err := boards.Collect(refresh, now, build, unpriced)
+	held, err := boards.Collect(refresh, now, build, func(held *run.Object) error {
+		if !drawn {
+			return nil
+		}
+		// pricing reads the rows' releases, efforts and makers alone, so no harness catalog is asked
+		measured, err := shares(held)
+		if err != nil {
+			return err
+		}
+		answer, err := Answer(rowsOf(lineup(held, nil, nil)), nil, measured)
+		if err != nil {
+			return err
+		}
+		return Drawn(answer)
+	})
 	if err != nil {
 		return nil, err
 	}

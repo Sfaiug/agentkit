@@ -153,7 +153,7 @@ func TestTheLineupIsReusedUntilSomethingItWasComputedFromChanges(t *testing.T) {
 	state, listings := home(t)
 	refresh := func() *Matrix {
 		t.Helper()
-		found, err := Refresh(false)
+		found, err := Refresh(false, true)
 		if err != nil {
 			t.Fatal(err)
 		}

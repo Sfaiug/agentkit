@@ -22,19 +22,33 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		err   error
 	}
 	found := matrix.Stored()
-	compared, err := matrix.Compared(found.Rows)
-	if priced, failed := matrix.Priced(found.Rows); err != nil || failed != nil || priced {
+	var compared map[string]bool
+	var answer map[string]*quality.Said
+	// each role's answer over the lineup found, an error where Go does not draw it
+	answered := func() (err error) {
+		if compared, err = matrix.Compared(found.Rows); err != nil {
+			return err
+		}
+		shares, err := matrix.Shares()
+		if err != nil {
+			return err
+		}
+		if answer, err = matrix.Answer(found.Rows, compared, shares); err != nil {
+			return err
+		}
+		return matrix.Drawn(answer)
+	}
+	if answered() != nil {
 		return false
 	}
 	read := make(chan reading, 1)
 	go func() {
 		readingModels.Lock()
 		defer readingModels.Unlock()
-		found, err := matrix.Refresh(false)
+		found, err := matrix.Refresh(false, true)
 		read <- reading{found, err}
 		keyboard.Wake()
 	}()
-	answer := quality.Answer(found.Rows, compared)
 	var rows []*quality.Rating
 	var roles []string
 	var colours map[string]string
@@ -88,10 +102,9 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				note = "the boards were not read: " + fresh.err.Error()
 			} else {
 				found = fresh.found
-				if compared, err = matrix.Compared(found.Rows); err != nil {
+				if answered() != nil {
 					return false
 				}
-				answer = quality.Answer(found.Rows, compared)
 				lineup()
 			}
 		default:
@@ -139,10 +152,9 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			if !modelsPick(title, found.Rows, keyboard, painter) {
 				return false
 			}
-			if compared, err = matrix.Compared(found.Rows); err != nil {
+			if answered() != nil {
 				return false
 			}
-			answer = quality.Answer(found.Rows, compared)
 			lineup()
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))

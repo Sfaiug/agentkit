@@ -11,7 +11,7 @@ import (
 )
 
 func answerOf(rows []quality.Row) map[string]*quality.Said {
-	return quality.Answer(rows, nil)
+	return quality.Answer(rows, nil, nil)
 }
 
 func screenAt(t *testing.T, columns string) terminal.Screen {
