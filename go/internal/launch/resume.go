@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
+	"agentkit/internal/helper"
 	"agentkit/internal/host"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
@@ -22,7 +23,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if expected != nil && !run.Equal(record, expected) {
 		return 2, loop.ErrChanged.Error(), nil
 	}
-	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) {
+	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) || !run.Carries(record) {
 		return 0, "", ErrPython
 	}
 	switch state := record.Str("state"); {
@@ -36,7 +37,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil || box.Check() != nil {
 		return 0, "", ErrPython
 	}
-	if !driverHere() || record.Truthy("repo") && helped() || !loop.Pickup(dir, record) && !loop.Woken(record) {
+	if !driverHere() || record.Truthy("repo") && helper.May() || !loop.Pickup(dir, record) && !loop.Woken(record) {
 		return 0, "", ErrPython
 	}
 	if loop.Logging(dir) {
@@ -80,9 +81,4 @@ func driverHere() bool {
 // placed is whether this host can hold a driver: a box, and no user manager to place the run under.
 func placed() bool {
 	return box.Supported && !host.UserManager()
-}
-
-// helped is whether a helper may take a repository's checks, which Python does and Go does not.
-func helped() bool {
-	return len(config.MachineNames()) > 0 || config.MayRent()
 }

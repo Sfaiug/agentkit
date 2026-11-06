@@ -239,6 +239,10 @@ folds_over = 800
 # That fold as its composer shows it, read without whitespace (2.1.291).  After a line ak typed
 # past `folds_over`, a composer holding one fold and nothing beside it is taken for that line.
 folded = '\[Pasted\s*text\s*#\d+\]'
+# A draft taller than its box scrolls inside it, the box's top row drawn with the prompt mark
+# (2.1.291 at ten rows on a pane 30 tall, 2.1.318 at seventeen on one 45 tall): its prompt row
+# is on the screen however tall the draft, above the rows the rules read where the box is taller.
+scrolls = true
 # 2.1.292 lists the agents running in the background under its footer, at the screen's foot:
 # `● main` and a row per agent, `◯ general-purpose  <what it does>  <time> · ↓ <tokens>`,
 # the one on view filled.

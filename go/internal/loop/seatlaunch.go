@@ -2,6 +2,7 @@ package loop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -35,6 +36,10 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	if err != nil {
 		return nil, err
 	}
+	if !run.Carried(policy) {
+		// no receipt: the line stays the seat's own to build, as where a launch fails
+		return nil, errors.New("review off or no limit is Python's to carry")
+	}
 	held, err := HoldSlots(context.Background())
 	if err != nil {
 		return nil, err
@@ -52,7 +57,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	run.SetAll(record, "title", task.Title(string(text), "task"), "state", "queued", "slot_waiting", true,
 		"run_depth", 0, "parent_run", nil, "unattended", false, "slot_started_at", nil,
 		"project", seat.CheckoutOf(record.Str("repo")), "notify_sink", state.Get("notify_sink"),
-		"policy", run.Fields("rounds", policy.Rounds, "review_lines", policy.ReviewLines, "seat_lines", policy.SeatLines))
+		"policy", run.Fields("rounds", policy.Rounds, "review_lines", policy.ReviewLines.Said(), "seat_lines", policy.SeatLines.Said()))
 	if err := run.Create(dir, record); err != nil {
 		return nil, err
 	}

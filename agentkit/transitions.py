@@ -223,8 +223,9 @@ def _generated(repo, source, names):
     """Which of `names` Git marks linguist-generated in `source`'s tree."""
     if not names:
         return set()
-    # Older Git has no check-attr --source; a private index reads the same tree.
-    with tempfile.TemporaryDirectory(dir=config.TMP) as tmp:
+    # Older Git has no check-attr --source; a private index reads the same tree, in the process's
+    # own temporary directory: a worker's box, where `ak hand-in` counts too, writes nowhere else.
+    with tempfile.TemporaryDirectory() as tmp:
         index = {"GIT_INDEX_FILE": str(Path(tmp) / "index")}
         gitcall.git(repo, "read-tree", source, env=index)
         attrs = gitcall.git(repo, "check-attr", "--cached", "-z", "linguist-generated",
@@ -258,6 +259,17 @@ def carried_lines(repo, base, head="HEAD"):
     module split across files adds what its new lines come to.  Generated files are left out,
     as `diff_lines` leaves them out."""
     return reviewed_lines(repo, base, head)[1]
+
+
+def seat_lines(repo, target, head, limit):
+    """(the added lines a seat's change has its first review read, whether they are more than
+    `limit`, `config.policy`'s `orchestrator_lines`: at most that many, or "no limit"), counted
+    from where `head` left `target`, the tip it lands on: `diff_lines`' added lines less
+    `carried_lines`.  0 is a seat that builds nothing, so a change adding no line is too much
+    there as well.  The review gate (`run.own_pr_first_review`) and the gh shim's word at
+    `gh pr create` (`guard.pr_create_refusal`) both ask here, so the two never disagree."""
+    read = diff_lines(repo, target, head, added_only=True) - carried_lines(repo, target, head)
+    return read, limit == 0 or (limit != "no limit" and read > limit)
 
 
 def reviewed_lines(repo, base, head="HEAD"):

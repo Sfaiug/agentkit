@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/terminal"
 )
 
 // Keep the launch path, including its symlink, before the menu can change directories.
@@ -35,11 +36,16 @@ func menuOutdated() bool {
 	return err == nil && stamp > float64(menuStarted.UnixNano())/1e9
 }
 
-func restartMenu(cursor string, errOut io.Writer) int {
+// restartMenu starts the menu again on new code, handing on its last read and the frame up, which
+// the terminal goes on showing until the new program writes it again.
+func restartMenu(cursor string, last reading, keyboard *terminal.Keyboard, painter *terminal.Painter, errOut io.Writer) int {
 	err := menuProgramError
 	if err == nil {
-		err = execMenu(menuProgram, os.Args, append(os.Environ(), "AK_MENU_CURSOR="+cursor))
+		env := append(os.Environ(), "AK_MENU_CURSOR="+cursor)
+		env = append(append(env, cross(menuRead, handOn(last))...), cross(menuFrame, painter.Up())...)
+		err = keyboard.GiveHeld(func() error { return execMenu(menuProgram, os.Args, env) })
 	}
+	keyboard.Give() // where the program was never found, so nothing gave it
 	fmt.Fprintf(errOut, "ak attach: cannot restart: %s\n", err)
 	return 2
 }

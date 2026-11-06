@@ -1,24 +1,20 @@
 package cli
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestConfigRestartHandoffsLeaveRecordAndConfigBytesAlone(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
 	binary := filepath.Join(t.TempDir(), "ak")
-	build := exec.CommandContext(ctx, "go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
+	build := exec.Command("go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import os, sys
 from pathlib import Path
 os.environ["AK_BIN"] = sys.argv[1]
@@ -31,7 +27,10 @@ from fixtures.akterm import Terminal
 for edit in ("move", "effort"):
     with Home() as home:
         config = akconfig.write(home, {"fable": "claude", "astra": "codex"})
-        fakeadapter.install(home, claude="pass", codex="pass")
+        adapters = fakeadapter.install(home, claude="pass", codex="pass")
+        if edit == "move":
+            # Runnable moves now ask in Go; a login refusal still hands over.
+            adapters["codex"].answer("auth", "fixture login missing", 1)
         Seat(home, "acme", model="fable", record={"workers": ["astra"], "repo": None})
         record = home.path / ".agentkit/state/session-acme.json"
         # Deliberate whitespace catches even a rewrite of an otherwise equal record.

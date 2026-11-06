@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/helper"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -22,26 +23,42 @@ import (
 // does: the suite has failed, and what they would say no longer decides anything.
 var errSibling = errors.New("a sibling piece was stopped")
 
-// A piece is one share of a suite as it ran: its output, how it ended, and the output of a first
-// go its re-run decided, nil for none.
+// A piece is one share of a suite as it ran: its output, how it ended, the output of a first go its
+// re-run decided, nil for none, and where it ran.
 type piece struct {
 	shard  string
 	out    *os.File
 	ended  ran
 	failed []byte
+	there  *helper.Away // the helper it ran on, nil for here
 }
 
-// pieces runs cmd, which names AK_SHARD, in as many pieces as this host fits at once, Python's
-// gate.run_suite with no turn held and no helper: each with its share `AK_SHARD=k/N`, its own
-// silence window and the list's deadline, its output added to progress under its own header as it
-// ends.  A red piece goes once more alone after the others, which decides it, a pass then said by a
-// `flaky:` record; one stopped at its limit stops the rest.  The suite ends as its first red piece
-// did, and hands on what handedOn says.
+// pieces runs cmd, which names AK_SHARD, in pieces, Python's gate.run_suite with no turn held: on
+// the suite helper that takes it, cut in twice the VMs that machine fits empty and run on the VMs it
+// has room for now, more as room frees, else here, in as many as this host fits at once.  Each has
+// its share `AK_SHARD=k/N`, its own silence window and the list's deadline, its output added to
+// progress under its own header as it ends.  A red piece here goes once more alone after the
+// others, which decides it, a pass then said by a `flaky:` record; one stopped at its limit stops
+// the rest, as a piece that does not pass on the helper does, which is Python's (helper.ErrPython).
+// The suite ends as its first red piece did, and hands on what handedOn says.
 //
-// What Python does beyond that is not Go's yet and differs here: a heavy-suite turn and the suite
-// helper, and the suite's pace and cost measured for its next run.
+// What Python does beyond that is not Go's yet and differs here: a heavy-suite turn, and the
+// suite's pace and cost measured for its next run.
 func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, path string) (ran, string, error) {
-	count := host.Pieces(suiteCost(l.dir, cwd, cmd))
+	cpus, memory := suiteCost(l.dir, cwd, cmd)
+	away, here, err := helper.Start(cwd, cpus, memory, cmd, l.say)
+	if err != nil {
+		return ran{}, "", err
+	}
+	count := host.Pieces(cpus, memory)
+	places := count
+	if away != nil {
+		defer away.Finish()
+		// cut for the whole machine, not the room it has now, so the suite grows into what frees
+		count, places = cmp.Or(2*away.Most, count), away.Count
+	} else {
+		l.say("suite runs here: " + here)
+	}
 	ctx, cancel := context.WithCancelCause(l.ctx)
 	defer cancel(nil)
 	alone := *l
@@ -66,12 +83,22 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 			os.Remove(at.out.Name())
 		}
 		at.out = out
-		l.say(fmt.Sprintf("AK_SHARD=%s runs here: %s", at.shard, why))
+		where := "runs here: " + why
+		if at.there != nil {
+			where = "on " + at.there.Alias
+		}
+		l.say(fmt.Sprintf("AK_SHARD=%s %s", at.shard, where))
 		if left := time.Until(deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
-		} else if at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, only); errors.Is(err, errSibling) {
+		} else if at.there != nil {
+			at.ended, err = alone.there(at.there, at.shard, left, out)
+		} else {
+			at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, only)
+		}
+		if errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
 		} else if err != nil {
+			cancel(errSibling)
 			return err
 		}
 		if at.ended.stopped != "" && at.ended.stopped != "sibling" {
@@ -83,17 +110,44 @@ func (l *loop) pieces(cwd, cmd string, deadline time.Time, progress *os.File, pa
 		_, err = io.Copy(progress, io.NewSectionReader(out, 0, 1<<62))
 		return err
 	}
-	var started sync.WaitGroup
-	errs := make([]error, count)
+	// each place, a VM there or a place here, takes the next waiting piece as it frees
+	waiting := make(chan *piece, count)
 	for index := range all {
 		all[index] = &piece{shard: fmt.Sprintf("%d/%d", index+1, count)}
+		waiting <- all[index]
+	}
+	close(waiting)
+	var started sync.WaitGroup
+	var errs []error
+	place := func(there *helper.Away) {
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			errs[index] = attempt(all[index], "command is not sent to the suite helper (no suite helper set up)", nil)
+			for at := range waiting {
+				at.there = there
+				if err := attempt(at, here, nil); err != nil {
+					held.Lock()
+					errs = append(errs, err)
+					held.Unlock()
+				}
+			}
+		}()
+	}
+	for range places {
+		place(away)
+	}
+	var joined []*helper.Away
+	if away != nil {
+		started.Add(1)
+		go func() {
+			defer started.Done()
+			joined = alone.grow(cwd, cpus, memory, cmd, waiting, place)
 		}()
 	}
 	started.Wait()
+	for _, there := range joined {
+		there.Finish()
+	}
 	if err := cmp.Or(context.Cause(l.ctx), errors.Join(errs...)); err != nil {
 		return ran{}, "", err
 	}
@@ -170,8 +224,8 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 }
 
 // suiteCost is one piece's cores and memory as a finished run of the suite measured them, Python's
-// gate.suite_cost, zero for what none measured: keyed on the repository's main checkout and the
-// command.
+// gate.suite_cost, a heavy suite's first estimate for what none measured: keyed on the repository's
+// main checkout and the command.
 func suiteCost(dir, cwd, cmd string) (float64, float64) {
 	repo := cwd
 	if record, _ := run.Read(dir); record != nil {
@@ -180,9 +234,9 @@ func suiteCost(dir, cwd, cmd string) (float64, float64) {
 	key := sha256.Sum256([]byte(config.Resolve(repo) + "\n" + cmd))
 	kept, _ := run.ReadJSON(filepath.Join(config.Home(), "state", fmt.Sprintf("suite-%x.json", key)))
 	if kept == nil {
-		return 0, 0
+		kept = run.NewObject()
 	}
 	cpus, _ := kept.Num("cpus")
 	memory, _ := kept.Num("mem_mb")
-	return cpus, memory
+	return host.Cost(cpus, memory)
 }

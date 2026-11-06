@@ -76,7 +76,7 @@ func (home Home) Seatless() bool { return len(home.records) == 0 }
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
 // file's, its typing lock, and the plan of a seat the owner stopped, whose word no plan decides.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "verify": {"lock"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
@@ -244,7 +244,7 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 		return Seat{}, false
 	}
 	seat, known := recorded(state, name, record, models, readers)
-	if !known || !only(record, slices.Concat(recordFields, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
+	if !known || !only(record, slices.Concat(recordFields, launchKeys, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
 		return Seat{}, false
 	}
 	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))

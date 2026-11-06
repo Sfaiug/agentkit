@@ -38,6 +38,9 @@ func (t *ticking) endings() error {
 			return false
 		}
 		if handback.Awaiting(record, t.clock()) {
+			if run.Ended(record) && run.Seat(record) == "" {
+				return true // launched from no seat, it has nobody to hand back to (handback.announce)
+			}
 			if !seat.Watching(run.Seat(record)) {
 				return false
 			}

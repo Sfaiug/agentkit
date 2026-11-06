@@ -23,8 +23,8 @@ JOB_PICKER_INTERVAL = 60  # the executor picker is re-run on every job tick, at 
 JOB_TICK = 2              # seconds between scheduler passes over the job receipt
 JOB_TERMINAL = ("merged", "passed", "failed", "blocked", "skipped", "stopped")
 # A task whose work never landed: the job ends nonzero. A blocked or stopped one keeps its own
-# word on the log and the status block.
-JOB_UNDELIVERED = ("failed", "blocked", "stopped")
+# word on the log and the status block; a skipped one never started.
+JOB_UNDELIVERED = ("failed", "blocked", "stopped", "skipped")
 _JOB_MUTE = threading.local()  # per-thread job quiet: announce/notify_recovery read it, never swap it
 
 
@@ -95,6 +95,13 @@ def job_logger(job_dir):
             with (Path(job_dir) / "log.txt").open("a") as fh:
                 fh.write(line + "\n")
     return log
+
+
+def in_order(state):
+    """Whether that run is a task of an ordered job, whose one line says its endings and its
+    going live for it: none of its tasks wakes its seat on its own."""
+    job = state.get("job_id") and read_job(config.JOBS / state["job_id"])
+    return bool(job and (job.get("opts") or {}).get("--in-order"))
 
 
 def job_task_by_name(job, name):
@@ -199,6 +206,9 @@ def job_create(cfg, task_paths, opts, parallel):
         raise config.Error("--no-worktree runs in the repo's current branch: one checkout cannot "
                            "hold a job of concurrent tasks; drop the flag so each task gets its "
                            "own worktree")
+    if opts.get("--in-order") and opts.get("--no-merge"):
+        raise config.Error("--in-order starts each task once the one before it merged, and "
+                           "--no-merge merges none; drop one of them")
     infos = []
     for raw in task_paths:
         path = Path(raw).expanduser().resolve()
@@ -220,8 +230,7 @@ def job_create(cfg, task_paths, opts, parallel):
                                "and threads on that basename, so rename one")
         seen[info["name"]] = info["path"]
     for info in infos:
-        refusal = taskfile.launch_refusal(info["meta"], info["cmds"],
-                                          run.launch_policy(info["path"])["review_rounds"])
+        refusal = job_refusal(info["meta"], info["cmds"], info["path"], opts)
         if refusal:
             raise config.Error(f"{info['path']}: {refusal}")
         gitcall.repo_line(info["meta"], info["path"])
@@ -244,7 +253,8 @@ def job_create(cfg, task_paths, opts, parallel):
                     f"{info['path']}: this looks already under way: {first['id']} ({seat}, "
                     f"started {started}, \"{first['title']}\") shares {detail}; "
                     f"{run.rival_advice()}")
-    run.check_seat_queue(len(infos))
+    # an ordered job holds one run at a time
+    run.check_seat_queue(1 if opts.get("--in-order") else len(infos))
     seat = config.current_session()
     seat = config.resolve_session(seat) if seat else seat
     job_dir = job_make_id(infos[0]["title"])
@@ -254,7 +264,7 @@ def job_create(cfg, task_paths, opts, parallel):
            "parallel": parallel, "executor_history": [], **record.process_owner(), "cwd": os.getcwd(),
            "opts": {key: opts.get(key) for key in ("--rounds", "--exec", "--review",
                                                    "--no-merge", "--no-worktree", "--anyway",
-                                                   "--first")},
+                                                   "--first", "--in-order")},
            "tasks": [{"name": info["name"], "title": info["title"], "state": "queued",
                       "run_id": None, "executor": None, "reviewer": None,
                       "started_at": None, "finished_at": None, "task_file": str(info["path"])}
@@ -310,8 +320,8 @@ def job_verdict_line(task, run_state=None):
     """The one per-task line for the job log and `ak run status`."""
     name = task["name"]
     if task["state"] == "skipped":
-        # only receipts from before `after:` went have skipped tasks
-        return task.get("verdict_line") or f"{name}: skipped"
+        # a task an ordered job never started; a receipt from before `after:` went says its own
+        return task.get("verdict_line") or f"{name}: not started"
     if task["state"] == "stopped":
         return f"{name}: stopped"
     if task["state"] == "blocked":
@@ -636,6 +646,16 @@ class RefusedTask(config.Error):
     would lack what it waited for, or one whose file now asks for what a launch refuses."""
 
 
+def job_refusal(meta, cmds, path, opts):
+    """Why a job cannot start this task as written, or None: asked at launch and again at its
+    start, of the file as it reads then.  A task of an ordered job is cut from its repository's
+    default branch, where the one before it merged, so it names no branch of its own."""
+    if opts.get("--in-order") and {"base", "target", "from"} & meta.keys():
+        return ("an ordered job cuts each task from its repository's default branch, where the "
+                "one before it merged: drop base:, target: and from:")
+    return taskfile.launch_refusal(meta, cmds, run.launch_policy(path)["review_rounds"])
+
+
 def job_block_refused(task, exc):
     """Hand a task no fresh run may start back to its seat: blocked, why its findings."""
     task.update(state="blocked", finished_at=time.time(), findings=str(exc),
@@ -685,11 +705,17 @@ def job_start_task(cfg, job_dir, task, opts, log):
     task_path = Path(task["task_file"])
     meta, body, title = taskfile.parse_task(task_path)
     # the file as it reads now, which may have changed since the job began
-    refusal = taskfile.launch_refusal(meta, taskfile.done_when(body, task_path),
-                                      run.launch_policy(task_path)["review_rounds"])
+    refusal = job_refusal(meta, taskfile.done_when(body, task_path), task_path, opts)
     if refusal:
         raise RefusedTask(refusal)
-    run.require_project_contract(run.launch_checkout(task_path))
+    checkout = run.launch_checkout(task_path)
+    run.require_project_contract(checkout)
+    code, out = run.fetch_branches(checkout) if checkout and opts.get("--in-order") else (0, "")
+    if code != 0:
+        # an ordered task is cut where the one before it merged, which only origin's tip holds:
+        # fetched here, before any run, the tracking ref its run falls back to is that tip
+        raise config.Error(f"could not fetch origin, and an ordered job's task starts only on "
+                           f"origin's tip: {out.partition(chr(10))[0]}")
     run_dir = job_allocate_run_dir(title)
     extra = task.get("starting_branch")
     text = task_path.read_text()
@@ -1283,9 +1309,18 @@ def run_job_loop(cfg, job_dir, job):
             save()
             log(task["verdict_line"])
         running = sum(1 for task in job["tasks"] if task["state"] == "running")
-        # queued tasks with no brake start at once; provider budgets only
-        for task in job["tasks"]:
+        # queued tasks with no brake start at once; provider budgets only.  An ordered job's
+        # task waits until the one before it merged, and never starts once that one ended unmerged.
+        for index, task in enumerate(job["tasks"]):
             if task["state"] != "queued" or task["name"] in threads:
+                continue
+            before = job["tasks"][index - 1]["state"] if index else "merged"
+            if opts.get("--in-order") and before != "merged":
+                if before in JOB_TERMINAL:
+                    task.update(state="skipped", finished_at=time.time())
+                    task["verdict_line"] = job_verdict_line(task)
+                    save()
+                    log(task["verdict_line"])
                 continue
             if parallel is not None and running >= parallel:
                 break
@@ -1409,6 +1444,13 @@ def run_job_loop(cfg, job_dir, job):
         text = (f"job {job['job_id']}: {stopped} task(s) stopped, nobody is needed" if stopped
                 else f"job {job['job_id']}: all {len(job['tasks'])} tasks finished")
         log(f"job {job['job_id']}: Done")
+    # an ordered job ends at its first task that did not merge: that task's line is the job's
+    ender = opts.get("--in-order") and next(
+        (task for task in job["tasks"] if task["state"] != "merged"), None)
+    if ender:
+        unstarted = ", ".join(task["name"] for task in job["tasks"] if task["state"] == "skipped")
+        text = (f"job {job['job_id']}: {ender['verdict_line']}"
+                + (f"; not started: {unstarted}" if unstarted else ""))
     line = (f"{text}. Result: {job_dir / 'log.txt'}. Decide the next step.")
     # the seat that launched the job is there, so its end is the seat's to act on -- its
     # failures, and the done it says itself once the whole of its work is -- and the owner is

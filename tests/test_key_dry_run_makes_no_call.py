@@ -1,7 +1,9 @@
 """A quota refusal during a landing fix waits for its executor, despite a pending review.
 
 Black-box through AK_BIN: main moves while the reviewer runs, its rebase fixer refuses for an
-hour, and neither an explicit resume nor ticks may spend another turn before that reset.
+hour, and neither an explicit resume nor ticks may spend another turn before that reset.  Time
+passes by the records, not by the program's clock: between ticks each stamp a tick compares
+with now is set back by the time passed.
 """
 
 import json
@@ -12,28 +14,31 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter, taskfile
-from fixtures.akbin import AK, REPO, Home, boxable
+from fixtures.akbin import AK, Home, boxable
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 from test_key_exhausted_resume import OFFLINE, record, tick, wait_for
 
-CLOCK = """
-import sys, time
-if sys.argv[:1] == [{ak!r}]:
-    found = sys.path[:]
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.clock import Clock
-    from agentkit import run, staffing, usage, watch
-    sys.path[:] = found
-    clock = Clock(time.sleep)
-    clock.time = lambda: time.time() + float(open({ahead!r}).read())
-    for module in (run, staffing, usage, watch):
-        module.time = clock
-"""
 REFUSED = {"final": "You've hit your 5-hour limit · resets {in 3600}", "exit": 1}
 RESOLVE = {"sh": "printf 'main\\nhello\\n' > retry.txt && git add retry.txt && "
                  "GIT_EDITOR=true git rebase --continue",
            "final": "Resolved.", "hand_in": [["done"]]}
+
+
+def reaching_ak(fakes):
+    """Each fake's turns reach the program they hand in through: a worker's box empties the
+    temporary directories, where a copy of the checkout and its AK_BIN may sit, and shows a
+    turn its harness's state."""
+    for fake in fakes.values():
+        alone = f"state = {json.dumps([str(fake.dir)])}"
+        fake.manifest.write_text(fake.manifest.read_text().replace(
+            alone, f"state = {json.dumps([str(fake.dir), str(Path(AK).parent)])}"))
+
+
+def back(stamps, key, seconds):
+    """`stamps[key]`, where there is one, `seconds` earlier."""
+    if key in stamps:
+        stamps[key] -= seconds
 
 
 @unittest.skipUnless(boxable(), "no bwrap able to box a tick here")
@@ -42,14 +47,11 @@ class DryRunMakesNoCall(unittest.TestCase):
         self.home = home = Home()
         self.addCleanup(home.close)
         home.env.update(OFFLINE)
-        self.ahead = home.write("clock/ahead", "0")
-        home.write("clock/sitecustomize.py", CLOCK.format(
-            ak=AK, repo=str(REPO), tests=str(REPO / "tests"), ahead=str(self.ahead)))
-        home.env["PYTHONPATH"] = str(home.path / "clock")
         self.rig = rig = Rig(home, "widgets")
         GitHub(home).grant(rig.slug, "WRITE")
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"])
         self.fakes = fakeadapter.install(home, claude="work", codex="pass")
+        reaching_ak(self.fakes)
         worker = self.fakes["claude"]
         held, go = worker.dir / "held", worker.dir / "go"
         worker.behave("work", REFUSED, RESOLVE)
@@ -95,12 +97,24 @@ class DryRunMakesNoCall(unittest.TestCase):
     def test_ticks_alone_wait_for_the_executor_even_with_a_pending_review(self):
         self.check_ticks_and_reset(self.snapshot())
 
+    def later(self, seconds):
+        """`seconds` pass for the stamps a tick compares with now: each is set back by them."""
+        cache = self.home.path / ".agentkit/state/usage.json"
+        usage = json.loads(cache.read_text())
+        for provider in usage["providers"].values():
+            back(provider, "exhausted_until", seconds)
+        cache.write_text(json.dumps(usage))
+        state = record(self.directory)
+        back(state, "exhausted_resume_at", seconds)
+        back(state.get("refusal_retry") or {}, "at", seconds)
+        (self.directory / "run.json").write_text(json.dumps(state))
+
     def check_ticks_and_reset(self, before):
-        for ahead in (601, 1202, 1803):
-            self.ahead.write_text(str(ahead))
+        for _ in range(3):      # ten, twenty and thirty minutes on, each past a resume's wait
+            self.later(601)
             tick(self.home)
             self.assertEqual(self.snapshot(), before)
-        self.ahead.write_text("3601")
+        self.later(3601 - 3 * 601)  # a second past the hour to the reset
         tick(self.home)
         state = record(self.directory)
         self.assertEqual(state["state"], "pass", (self.directory / "log.txt").read_text())

@@ -51,7 +51,8 @@ func (r *repoPlace) firstReviewCeiling(l *loop) error {
 	if err != nil {
 		return err
 	}
-	if lines-carried <= l.reviewLines {
+	most, limited := l.reviewLines.Most()
+	if !limited || lines-carried <= most {
 		return nil
 	}
 	moved := ""
@@ -62,7 +63,7 @@ func (r *repoPlace) firstReviewCeiling(l *loop) error {
 	if branch == "" {
 		branch = "its branch"
 	}
-	why := fmt.Sprintf("The change on %s adds %d lines%s (generated files aside; deletions never count): a first review takes at most %d; split it", branch, lines, moved, l.reviewLines)
+	why := fmt.Sprintf("The change on %s adds %d lines%s (generated files aside; deletions never count): a first review takes at most %d; split it", branch, lines, moved, most)
 	return &blocked{why, "## Blocked\n\n" + why}
 }
 
@@ -283,17 +284,12 @@ func (r *repoPlace) carriedLines() (int, error) {
 	return carried, nil
 }
 
-// numbersOf is the first review's ceiling the run holds to: read as its directory was made, else
-// the host's.
-func numbersOf(record *run.Object) int {
-	if policy := record.Dict("policy"); policy != nil {
-		if lines, ok := policy.Int("review_lines"); ok {
-			return lines
-		}
-	}
-	numbers, err := config.HostNumbers()
+// numbersOf is the first review's ceiling the run holds to (run.Policy), ak's default where that
+// does not read.
+func numbersOf(record *run.Object) config.Lines {
+	numbers, err := run.Policy(record)
 	if err != nil {
-		return config.DefaultReviewLines
+		return config.AtMost(config.DefaultReviewLines)
 	}
 	return numbers.ReviewLines
 }

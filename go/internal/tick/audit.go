@@ -73,7 +73,11 @@ func (t *ticking) audit() error {
 	if mark != nil && mark.Truthy("closed_by_owner") {
 		if !state.Truthy("held") {
 			state.Set("held", true)
-			return write()
+			if err := write(); err != nil {
+				return err
+			}
+			t.log.line("audit: the " + name + " seat was closed by the owner; its line about week " +
+				state.Str("week") + " waits for them to open it")
 		}
 		return nil
 	}

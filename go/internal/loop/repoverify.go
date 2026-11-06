@@ -25,7 +25,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 	if err := r.commitLeftovers(l); err != nil {
 		return false, "", err
 	}
-	if err := r.followTarget(l); err != nil {
+	if err := r.meetTarget(l); err != nil {
 		return false, "", err
 	}
 	head, tree, err := r.identity()
@@ -140,11 +140,7 @@ func (r *repoPlace) followTarget(l *loop) error {
 		return err
 	}
 	l.say(fmt.Sprintf("base: the branch took in %s up to %s", r.upstream(), fork[:min(len(fork), 12)]))
-	if r.baseSHA, err = g.Must("rev-parse", fork+"^{commit}"); err != nil {
-		return err
-	}
-	l.usersAt = r.baseSHA
-	return l.save(func(record *run.Object) { run.SetAll(record, "base_sha", r.baseSHA, "target_sha", r.baseSHA) })
+	return r.setBase(l, fork)
 }
 
 // filesScope is the failure for paths outside the task's `files:` pathspecs, "" for none.

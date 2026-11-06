@@ -5,9 +5,11 @@ Owner decision, 29 Oct 2026: this one, read here, and each `[machines.<ssh alias
 ssh timeout.  A battery is sometimes on at once, under a day of checks new, 95% of the last three
 days' answered always on.  Black-box: `AK_BIN` runs `ak doctor`, and `ak watch` in the box of
 `home.tick()` (tests/fixtures/akbin.py), which fails a tick leaving a process; ssh is a fake
-running the probe on a Mac's tools' output, the clock tests/fixtures/clock.py's, days ahead.
+running the probe on a Mac's tools' output.  Every tick runs at the real time; the days between
+them are seeded: ak's record of the checks before it, state/machines.json, set back.
 """
 
+import json
 from pathlib import Path
 import re
 import shlex
@@ -16,21 +18,9 @@ import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from fixtures.akbin import AK, REPO, Home, boxable
+from fixtures.akbin import Home, boxable
 
 DAY = 86400
-# Every `bin/ak` gives `machines` the test clock, as far ahead as the file it names says.
-CLOCK = """
-import sys, time
-if sys.argv[:1] == [{ak!r}]:
-    found = sys.path[:]
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.clock import Clock
-    from agentkit import machines
-    sys.path[:] = found
-    clock = machines.time = Clock(time.sleep)
-    clock.time = lambda: time.time() + float(open({ahead!r}).read())
-"""
 # Of the test's files in ~/fakes: the alias goes in `asked`; one named in `away` is away, one in
 # `hang` never answers, one in `garbled` answers bytes that are no text, and any other runs the
 # command with the tools of machines/<alias> first.
@@ -71,26 +61,31 @@ class MachinesMeasured(unittest.TestCase):
         for alias, power in (("mac", LAPTOP), ("mini", MINI), ("helper", MINI)):
             for name, body in {**MAC, "pmset": f"cat <<'EOF'\n{power}\nEOF"}.items():
                 home.write(f"fakes/machines/{alias}/{name}", f"#!/bin/sh\n{body}\n").chmod(0o755)
-        home.write("fakes/sitecustomize.py", CLOCK.format(
-            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
-            ahead=str(home.path / "fakes" / "ahead")))
-        cls.env = {"PYTHONPATH": str(home.path / "fakes")}
-        cls.ticks = [cls.tick(0, away="helper", hang="stuck"), cls.tick(2 * DAY, garbled="stuck"),
-                     cls.tick(3.5 * DAY, away="mini", garbled="stuck")]
+        cls.ticks = [cls.tick(3.5 * DAY, away="helper", hang="stuck"),
+                     cls.tick(1.5 * DAY, garbled="stuck"),
+                     cls.tick(0, away="mini", garbled="stuck")]
 
     @classmethod
-    def tick(cls, ahead, away="", hang="", garbled=""):
-        """One tick `ahead` seconds on: the aliases ssh was given, the minutes it ran in as
-        doctor writes them, and doctor's line of each machine by name."""
-        for name, text in (("ahead", str(ahead)), ("away", away), ("hang", hang),
-                           ("garbled", garbled), ("asked", "")):
+    def tick(cls, ago, away="", hang="", garbled=""):
+        """One tick `ago` seconds before the last, the checks before it set back as far as it
+        comes after them: the aliases ssh was given, when it began and ended by the real clock,
+        and doctor's line of each machine by name."""
+        record = cls.home.path / ".agentkit" / "state" / "machines.json"
+        if record.exists():
+            machines, back = json.loads(record.read_text()), cls.ago - ago
+            for machine in machines.values():
+                machine["checks"] = [[at - back, answered] for at, answered in machine["checks"]]
+                if machine["said"]:
+                    machine["said"]["at"] -= back
+            record.write_text(json.dumps(machines))
+        cls.ago = ago
+        for name, text in (("away", away), ("hang", hang), ("garbled", garbled), ("asked", "")):
             cls.home.write(f"fakes/{name}", text)
-        start = time.time() + ahead
-        done = cls.home.tick(env=cls.env)
+        start = time.time()
+        done = cls.home.tick()
         assert done.code == 0, done.out + done.err
-        ran = {time.strftime("%-d %b %H:%M", time.gmtime(at))
-               for at in (start, time.time() + ahead)}
-        doctor = cls.home.ak("doctor", env=cls.env)
+        ran = (start, time.time())
+        doctor = cls.home.ak("doctor")
         assert doctor.code == 0, doctor.out + doctor.err
         return (sorted((cls.home.path / "fakes" / "asked").read_text().split()), ran,
                 dict(re.findall(r"^machine  ([^:]+): (.*)$", doctor.out, re.M)))
@@ -123,8 +118,11 @@ class MachinesMeasured(unittest.TestCase):
 
     def test_doctor_says_when_each_last_answered(self):
         (_, first, lines), (_, second, _), (_, _, last) = self.ticks
-        self.assertIn(lines["mac"].rsplit("last answered ", 1)[1], {at[-5:] for at in first})
-        self.assertIn(last["mini"].rsplit("last answered ", 1)[1], second)
+        self.assertIn(lines["mac"].rsplit("last answered ", 1)[1],
+                      {time.strftime("%H:%M", time.gmtime(at)) for at in first})
+        # the second tick's answer, set back the day and a half the last comes after it
+        self.assertIn(last["mini"].rsplit("last answered ", 1)[1],
+                      {time.strftime("%-d %b %H:%M", time.gmtime(at - 1.5 * DAY)) for at in second})
 
     def test_machines_are_the_owner_s_in_a_config_naming_no_models(self):
         with Home() as home:
