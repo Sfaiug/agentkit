@@ -1,7 +1,9 @@
-"""The leftover sweep leaves run locks and dependency trees out of real commits. Offline."""
+"""The leftover sweep leaves run locks, dependency trees and Go build caches out of real commits.
+Offline."""
 
 import os
 from pathlib import Path
+import signal
 import sys
 import tempfile
 import unittest
@@ -10,6 +12,10 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import run
+
+# What Go writes at a build cache's root, whatever GOCACHE names it.
+GO_README = ("This directory holds cached build artifacts from the Go build system.\n"
+             'Run "go clean -cache" if the directory is getting too large.\n')
 
 
 class LeftoverJunk(unittest.TestCase):
@@ -44,6 +50,34 @@ class LeftoverJunk(unittest.TestCase):
         lines = [line for line in logs if "untracked sandbox files uncommitted" in line]
         self.assertEqual(lines, [f"left {len(junk)} untracked sandbox files uncommitted: "
                                  + ", ".join(sorted(junk)[:3])])
+
+    def go_cache(self, repo, root):
+        """The files of a Go build cache at `root`, laid out as Go lays one out."""
+        names = [f"{root}3f/3f9a0c-a", f"{root}README", f"{root}trim.txt"]
+        for name in names:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(GO_README if name.endswith("README") else "cached\n")
+        return names
+
+    def test_a_go_build_cache_stays_out_and_a_fifo_readme_never_holds_the_sweep(self):
+        signal.alarm(60)                # a sweep waiting for the FIFO's writer fails, never hangs
+        self.addCleanup(signal.alarm, 0)
+        repo = self.repo()
+        cache = self.go_cache(repo, "tools/warm/")
+        os.mkfifo(repo / "tools" / "README")        # no writer ever opens it
+        (repo / "app.py").write_text("value = 2\n")
+        self.assert_swept(repo, cache)
+        self.assertEqual((repo / cache[1]).read_text(), GO_README)
+
+    def test_a_go_build_cache_at_the_checkout_root_stays_out(self):
+        # GOCACHE may name the checkout itself
+        repo = self.repo()
+        before = run.git(repo, "rev-parse", "HEAD")
+        cache = self.go_cache(repo, "")
+        logs = []
+        run.commit_leftovers(repo, logs.append, set(), {"title": "fix api"})
+        self.assertEqual(run.git(repo, "rev-parse", "HEAD"), before)
+        self.assertEqual(logs, ["left 3 untracked sandbox files uncommitted: " + ", ".join(cache)])
 
     def test_locks_and_dependency_trees_ignore_git_rules_and_staging(self):
         cases = [(name, "file") for name in ("recovery.lock", "delivery.lock")]

@@ -808,11 +808,13 @@ GO_CACHE_README = b"This directory holds cached build artifacts from the Go buil
 
 def go_build_cache(wt, path):
     """Whether `path` is in a Go build cache in `wt`: below a directory holding the README Go
-    writes at a cache's root, that README included."""
+    writes at a cache's root, that README included, the checkout's own root among them."""
     parts = path.split("/")
-    for depth in range(1, len(parts)):
+    for depth in range(len(parts)):
         try:
-            with open(Path(wt, *parts[:depth], "README"), "rb") as readme:
+            # nonblocking: a FIFO named README would otherwise hold the run until a writer came
+            with open(Path(wt, *parts[:depth], "README"), "rb",
+                      opener=lambda name, flags: os.open(name, flags | os.O_NONBLOCK)) as readme:
                 if readme.read(len(GO_CACHE_README)) == GO_CACHE_README:
                     return True
         except OSError:
