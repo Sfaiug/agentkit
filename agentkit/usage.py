@@ -447,10 +447,14 @@ def _keep_probed(provider, account, cached, fresh):
 
 
 def _keep(provider, account, meters, at, source):
-    """One fresh reading's meters, each a row of history.db's `meter_readings`."""
-    history.keep_readings([(provider, account or config.DEFAULT_ACCOUNT, meter["name"],
-                            meter["used"], _number(meter.get("resets_at")),
-                            _number(meter.get("window_secs")), at, source) for meter in meters])
+    """One fresh reading's meters, each a row of history.db's `meter_readings`, with the plan
+    its login is on as state/logins.json names it now."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    account = account or config.DEFAULT_ACCOUNT
+    plan = logins.whose(provider, account)[1]
+    history.keep_readings([(provider, account, meter["name"], meter["used"],
+                            _number(meter.get("resets_at")), _number(meter.get("window_secs")),
+                            at, source, plan) for meter in meters])
 
 
 def _adapter_json(harness, verb, timeout, account=None):
