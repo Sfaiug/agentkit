@@ -42,15 +42,8 @@ func (t *ticking) reviveRuns(going map[string]string) error {
 			return errLeft
 		}
 		for _, each := range home.Revivals() {
-			if each.Live {
-				if each.File.Truthy("reopened_at") {
-					if err := seat.Write(each.Name, "reopened_at", nil); err != nil {
-						return err
-					}
-				}
-				continue
-			}
-			if each.Closed {
+			// a live seat's deaths are ReviveTurns' to clear, read before it reopened any
+			if each.Live || each.Closed {
 				continue
 			}
 			id := going[each.Name]

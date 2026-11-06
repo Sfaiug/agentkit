@@ -112,6 +112,8 @@ type plugin struct {
 	// rulebook Rulebook's, under HOME: "" where no older install linked ak's rules over its own.
 	yolo     func(out io.Writer) error
 	rulebook string
+	// holds is AsksHolds'.
+	holds bool
 }
 
 var plugins = map[string]plugin{}

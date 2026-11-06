@@ -64,5 +64,6 @@ func WaitAlert(name string, wait *run.Object) string {
 func (seat Seat) waitsGone() bool {
 	alert := notify.Last(seat.Name)
 	paged := alert != nil && strings.HasPrefix(alert.Str("source"), "wait:"+seat.Name+":")
-	return (seat.Word == "working" && Waiting(seat.Name) || paged) && seat.cutNothing()
+	cut, known := seat.owing()
+	return (seat.Word == "working" && Waiting(seat.Name) || paged) && known && cut.line == ""
 }
