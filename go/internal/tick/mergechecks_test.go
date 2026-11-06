@@ -4,6 +4,7 @@ package tick
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -44,24 +45,75 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 	}
 }
 
-// A deployment, a declaration to read at the merge's commit, a probe due and a pass still to tell
-// are Python's, left before anything is written.
+// A deployment, on the run or declared at its merge's commit, a home keeping history, and a pass
+// its seat may be owed, known before or probed now, are Python's, left before anything is written.
 func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
-	for name, fields := range map[string]string{
-		"deployment":  `"health": {}, "deployed": "true"`,
-		"declaration": `"repo": "/srv/acme"`,
-		"probe":       `"health": {"command": "true"}, "deployed": null`,
-		"untold pass": `"live_at": 1, "health": {}, "deployed": null`,
+	deployed := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\ndeployed: true\n---\n"))
+	for name, each := range map[string]struct {
+		fields  string
+		history bool
+	}{
+		"deployment":          {fields: `"merge_sha": "abc", "health": {}, "deployed": "true"`},
+		"declared deployment": {fields: `"repo": "/srv/acme"`},
+		"history":             {fields: `"merge_sha": "abc", "health": {"command": "true"}, "deployed": null`, history: true},
+		"owed pass":           {fields: `"live_at": 1, "health": {}, "deployed": null, "launched_session": "acme"`},
+		"owed probe pass":     {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`},
+		"typed probe pass":    {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "live_typed": {"line": "run fix-api is live."}`},
 	} {
 		t.Run(name, func(t *testing.T) {
-			ak, _ := idleHome(t, answers)
+			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';;
+				*contents/AGENTS.md?ref=abc*) echo '{"encoding": "base64", "content": "`+deployed+`"}';; esac`)
+			put(t, filepath.Join(ak, "state", "plan-acme.md"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
+			if each.history {
+				put(t, filepath.Join(ak, "history.db"), "")
+			}
 			path := filepath.Join(ak, "runs", "fix-api", "run.json")
-			before := fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "merge_sha": "abc", %s}`, time.Now().Unix(), fields)
+			before := fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", %s}`, time.Now().Unix(), each.fields)
 			put(t, path, before)
 			if err := checking(t, io.Discard).mergeChecks(); !errors.Is(err, errLeft) || read(t, path) != before {
 				t.Fatalf("%v: %s", err, read(t, path))
 			}
 		})
+	}
+}
+
+// What a merge's commit declares is read on GitHub where its checkout lacks the commit, and kept;
+// its `health:` passing there, given the commit, makes the run live, recorded and never typed.
+func TestMergeHealthFoundOnGitHubGoesLive(t *testing.T) {
+	agents := base64.StdEncoding.EncodeToString([]byte("---\nhealth: test \"$AK_MERGE_SHA\" = abc\n---\n"))
+	ak, _ := idleHome(t, `case "$*" in *contents/AGENTS.md?ref=abc*) echo '{"encoding": "base64", "content": "`+agents+`"}';; esac`)
+	path := filepath.Join(ak, "runs", "fix-api", "run.json")
+	put(t, path, fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "merge_sha": "abc", "repo": %q}`,
+		time.Now().Unix(), t.TempDir()))
+	var said bytes.Buffer
+	if err := checking(t, &said).mergeChecks(); err != nil {
+		t.Fatal(err)
+	}
+	record, _ := run.ReadJSON(path)
+	if record.Has("health") || !record.Has("deployed") || record.Get("deployed") != nil || !record.Truthy("live_at") ||
+		!record.Truthy("live_notified") || record.Str("live_note") != "routine ending: recorded, not typed" {
+		t.Fatalf("recorded %s", run.Line(record))
+	}
+	if said.String() != "run fix-api is live: https://github.com/acme/api/pull/1. Recorded, not typed\n" {
+		t.Errorf("said %q", said.String())
+	}
+}
+
+// A live notice whose mark cannot be written is not said to be: the next tick tells it again.
+func TestALiveNoticeNotWrittenIsNotSaid(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	dir := filepath.Join(ak, "runs", "fix-api")
+	put(t, filepath.Join(dir, "run.json"), fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "merge_sha": "abc", "live_at": 1, "health": {}, "deployed": null}`,
+		time.Now().Unix()))
+	if err := os.Mkdir(filepath.Join(dir, "delivery.tmp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var said bytes.Buffer
+	if err := checking(t, &said).mergeChecks(); err != nil {
+		t.Fatal(err)
+	}
+	if record, _ := run.Read(dir); record.Truthy("live_notified") || strings.Contains(said.String(), "Recorded") {
+		t.Fatalf("said %q of %s", said.String(), run.Line(record))
 	}
 }
 

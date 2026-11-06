@@ -43,7 +43,13 @@ func LoggedOut(why string) bool {
 // JSON is the JSON value `gh args...` prints, a list of its pages with --paginate, run from dir,
 // else from ak's checkout; or, where gh fails, why, in at most 300 characters.
 func JSON(dir string, args ...string) (any, string, error) {
-	code, out, said, why, err := call(dir, args)
+	return JSONWithin(limit, dir, args...)
+}
+
+// JSONWithin is JSON with gh given bound in place of two minutes, as Python's gh_json given a
+// timeout.
+func JSONWithin(bound time.Duration, dir string, args ...string) (any, string, error) {
+	code, out, said, why, err := call(dir, args, bound)
 	if why != "" || err != nil {
 		return nil, why, err
 	}
@@ -65,15 +71,15 @@ func JSON(dir string, args ...string) (any, string, error) {
 // Call is `gh args...` for what it did, not what it printed, as Python's gitcall.gh: its exit code
 // and its output, or -1 and why it never answered.
 func Call(dir string, args ...string) (int, string, error) {
-	code, out, said, why, err := call(dir, args)
+	code, out, said, why, err := call(dir, args, limit)
 	if why != "" {
 		return -1, why, err
 	}
 	return code, strings.TrimFunc(out+said, config.Space), err
 }
 
-// ask runs gh once: its exit code and both its outputs, or why it never answered.
-func ask(dir string, args []string) (int, string, string, string, error) {
+// ask runs gh once, for bound at most: its exit code and both its outputs, or why it never answered.
+func ask(dir string, args []string, bound time.Duration) (int, string, string, string, error) {
 	env, err := config.ChildEnv()
 	if err != nil {
 		return 0, "", "", "", ErrPython
@@ -85,13 +91,13 @@ func ask(dir string, args []string) (int, string, string, string, error) {
 	if program == "" {
 		return 0, "", "", missing, err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
 	defer cancel()
 	command := exec.CommandContext(ctx, program, args...)
 	var stdout, stderr bytes.Buffer
 	command.Dir, command.Stdout, command.Stderr = dir, &stdout, &stderr
 	command.Env = append(env, "GIT_TERMINAL_PROMPT=0", "GH_PROMPT_DISABLED=1")
-	command.WaitDelay = limit // a program gh left holding its output open is waited for no longer
+	command.WaitDelay = bound // a program gh left holding its output open is waited for no longer
 	err = command.Run()
 	var exited *exec.ExitError
 	switch {

@@ -25,6 +25,7 @@ import (
 const (
 	maxAge       = 3600 // an ending older than this when first seen is history (watch.HANDBACK_MAX_AGE)
 	preexisting  = "pre-existing ending; not replayed"
+	routine      = "routine ending: recorded, not typed"
 	decisionMost = 399 // one read tells a seat what it decides (handback.DECISION_MOST)
 )
 
@@ -79,7 +80,7 @@ func Give(dir string, say func(string)) bool {
 	}
 	recordOnly, pending := seat.EndingDelivery(said, session)
 	if recordOnly {
-		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", "routine ending: recorded, not typed",
+		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", routine,
 			"handback_pending", nil, "handback_typed", nil, "handback_wait_reason", nil, "notification_pending", nil) {
 			return false
 		}
