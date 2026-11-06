@@ -21,10 +21,13 @@ from fixtures.akterm import Terminal
 SERVICE = f"user.slice/user-{os.getuid()}.slice/user@{os.getuid()}.service"
 ACME, TWO = "agentkit-seat-acme-89abcdef.scope", "agentkit-seat-acme-two-4567cdef.scope"
 DECOY = "agentkit-seat-acme-0123abcd.scope"
-# systemd's way: only a set-property is answered, and the unit's directory takes the weight.
+# systemd's way: only a set-property is answered, and the unit's directory takes the weight,
+# whole, as the kernel's file reads: a reader polling it never finds it empty mid-write.
 WRITES = """for a do :; done
 case $a in CPUWeight=*)
-  find "$AK_CGROUP_ROOT" -type d -name "$4" | while read -r d; do echo "${a#*=}" >"$d/cpu.weight"; done
+  find "$AK_CGROUP_ROOT" -type d -name "$4" | while read -r d; do
+    echo "${a#*=}" >"$d/.weight.$$" && mv "$d/.weight.$$" "$d/cpu.weight"
+  done
 esac
 """
 

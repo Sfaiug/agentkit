@@ -139,7 +139,7 @@ func (t *ticking) resumeErrored(id string, each errored, now time.Time) bool {
 		loop.ClimbErrorRetry(current, now)
 		decided = current.Copy()
 	}
-	code, said, err := launch.ResumeExpected(id, each.record, climb)
+	code, said, err := launch.ResumeExpected(id, each.record, climb, nil)
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return false

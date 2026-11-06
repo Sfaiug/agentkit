@@ -17,7 +17,7 @@ import (
 	"agentkit/internal/usage"
 )
 
-func resume(id string, bg bool, expected *run.Object, order func(*run.Object), out, errOut io.Writer) (int, string, error) {
+func resume(id string, bg bool, expected *run.Object, order func(*run.Object), noted func(), out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
 	if expected != nil && !run.Equal(record, expected) {
@@ -59,6 +59,9 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), o
 	}
 	err = loop.Reopen(dir, read, order)
 	if err == nil {
+		if noted != nil {
+			noted()
+		}
 		err = loop.Start(dir, out, bg)
 	}
 	slots.Close()

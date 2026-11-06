@@ -91,9 +91,11 @@ func (t *ticking) deadLoops() error {
 			}
 			line = fmt.Sprintf("resumed %s: loop died (%s); continuing %s of round %d", id, reason, role, rnd)
 		}
+		note := func() { run.Note(dir, line, t.clock()) }
 		if action == "resume" {
-			// the order lands with the resume's own write, so one Go leaves to Python leaves nothing
-			code, why, err := launch.ResumeExpected(id, record, edit)
+			// the order lands with the resume's own write, so one Go leaves to Python leaves nothing,
+			// and its note before the driver starts, so the driver's own lines follow it
+			code, why, err := launch.ResumeExpected(id, record, edit, note)
 			switch {
 			case errors.Is(err, launch.ErrPython):
 				return false
@@ -103,8 +105,9 @@ func (t *ticking) deadLoops() error {
 			}
 		} else if !change(edit) {
 			return false
+		} else {
+			note()
 		}
-		run.Note(dir, line, t.clock())
 		t.log.line(line)
 		if action == "park" {
 			failed = loop.OfferEnding(dir, t.log.line)
