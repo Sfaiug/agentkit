@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -88,11 +89,10 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		keyboard.Take() // stays up however long a read takes
 		painter.Restore(left, keyboard.Screen())
 	}
-	// a restart's first frame waits on no read, nor on a sweep: the tick's next one runs it
-	first, handed := handedRead()
-	known, said := handed, []string(nil)
+	first, handed := handedRead() // a restart's first frame waits on no read
+	known := handed
 	if !handed {
-		keyboard.While(func() { first, said, known = openedFrame(dry || overlay) })
+		keyboard.While(func() { first, known = readFrame(time.Now()) })
 	}
 	if !known || first.handoff {
 		keyboard.Give()
@@ -102,10 +102,13 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	keyboard.Sense()
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)
+	var sweeping sync.RWMutex // a read while the opening's sweep forgets a seat meets it half gone
 	reread := func() {
+		sweeping.RLock()
 		if found, known := readFrame(time.Now()); known {
 			latest.Store(&found)
 		}
+		sweeping.RUnlock()
 		keyboard.Wake()
 	}
 	go func() {
@@ -122,11 +125,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			time.Sleep(usage.RefreshEvery)
 		}
 	}()
-	if handed {
+	heard := func() []string { return nil }
+	if handed { // its sweep is the tick's next one
 		go reread()
-	}
-	if len(said) > 0 && !showMenuNotices(said, keyboard, painter) {
-		return 0
+	} else if !dry && !overlay {
+		heard = sweepBehind(&latest, &sweeping, keyboard.Wake)
 	}
 	clock, model := &motion.Clock{}, menu.Model{}
 	if overlay {
@@ -144,7 +147,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	framed := false // the last wait read no key: its frame is still up
 	for {
 		if model.New == nil {
-			if messages := menuNotices(); len(messages) > 0 {
+			if messages := append(heard(), menuNotices()...); len(messages) > 0 {
 				frame.Stop()
 				if !showMenuNotices(messages, keyboard, painter) {
 					return 0

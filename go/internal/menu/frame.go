@@ -213,7 +213,7 @@ func Draw(view View, width, height int) Frame {
 		for i, blocks := range blocks(room - 1) {
 			cut = append(cut, pageProject{row{line: heading(s, projects[i], width)}, blocks})
 		}
-		pages = projectPages(cut, room+opens, kept)
+		pages = projectPages(cut, room+opens, true, kept)
 	}
 	page := max(0, slices.IndexFunc(pages, func(lines []row) bool {
 		return slices.ContainsFunc(lines, func(each row) bool { return each.seat == cursor && cursor != "" })
@@ -553,10 +553,11 @@ type pageProject struct {
 	blocks  [][]row
 }
 
-// projectPages packs seat blocks whole under their heading, in pages of room lines, a blank line
-// between two projects on a page.  A page keeps free the most lines a seat on it opens.  A block
-// taller than a page under its heading is split, so tiny screens still fit.
-func projectPages(projects []pageProject, room int, opens map[string]int) [][]row {
+// projectPages packs seat blocks whole under their heading, in pages of room lines, the main
+// screen's and the past screen's alike: a blank line between two headings on a page where apart, as
+// on the screen that holds the projects.  A page keeps free the most lines a seat on it opens.  A
+// block taller than a page under its heading is split, so tiny screens still fit.
+func projectPages(projects []pageProject, room int, apart bool, opens map[string]int) [][]row {
 	var pages [][]row
 	var current []row
 	currentHead, kept := -1, 0
@@ -565,7 +566,7 @@ func projectPages(projects []pageProject, room int, opens map[string]int) [][]ro
 			need := block
 			if len(current) == 0 || currentHead != at {
 				need = []row{}
-				if len(current) > 0 {
+				if len(current) > 0 && apart {
 					need = append(need, row{})
 				}
 				need = append(append(need, each.heading), block...)
