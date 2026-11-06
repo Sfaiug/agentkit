@@ -10,6 +10,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/uncommitted"
 )
 
 // inCopy runs a reviewer's turn in a mirror of its own, Python's reviewer_checkout: it keeps the
@@ -88,7 +89,7 @@ func copyFiles(l *loop, source, destination string, top bool) {
 		return
 	}
 	for _, entry := range entries {
-		if top && (entry.Name() == ".git" || strings.HasPrefix(entry.Name(), sandboxPrefix)) {
+		if top && (entry.Name() == ".git" || strings.HasPrefix(entry.Name(), uncommitted.SandboxPrefix)) {
 			continue
 		}
 		from, to := filepath.Join(source, entry.Name()), filepath.Join(destination, entry.Name())
@@ -163,7 +164,7 @@ func reviewerChanges(l *loop, checkout, out string, turn func() error) error {
 	if err != nil {
 		return err
 	}
-	before, err := dirtyPaths(g)
+	before, err := uncommitted.Paths(g)
 	if err != nil {
 		return err
 	}
@@ -242,7 +243,7 @@ func saveChanges(l *loop, g gitcall.Git, snapshot func() (string, error), out, h
 	if branchAfter != branch {
 		fmt.Fprintf(saved, "# checkout: %s -> %s\n", detached(branch), detached(branchAfter))
 	}
-	dirty, err := dirtyPaths(g)
+	dirty, err := uncommitted.Paths(g)
 	if err != nil {
 		return err
 	}

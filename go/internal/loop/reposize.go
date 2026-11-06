@@ -1,40 +1,31 @@
 package loop
 
 import (
-	"fmt"
-	"maps"
-	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
-	"strconv"
-	"strings"
-	"unicode"
+	"cmp"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
+	"agentkit/internal/size"
 )
-
-// movedBlock is the alphanumeric characters a moved block holds at least, as git's own moved-line
-// detection asks before it calls lines moved.
-const movedBlock = 20
-
-var patchName = map[string]*regexp.Regexp{
-	"---": regexp.MustCompile(`(?m)^--- (.*?)\t?$`),
-	"+++": regexp.MustCompile(`(?m)^\+\+\+ (.*?)\t?$`),
-}
 
 // worked refuses a change past the first review's ceiling before its checks.
 func (r *repoPlace) worked(l *loop) error { return r.firstReviewCeiling(l) }
 
 func (r *repoPlace) beforeReview(l *loop) error { return r.firstReviewCeiling(l) }
 
+// firstReviewDue is whether the change still waits for its first review, the one review its size
+// is counted for: once a review of it handed in a verdict, in this run or one it was launched
+// `from:`, a later one reviews whatever the fix left.
+func (r *repoPlace) firstReviewDue(l *loop) bool {
+	record, _ := run.Read(l.dir)
+	return record == nil || !run.ChangeReviewed(record)
+}
+
 // firstReviewCeiling ends the run blocked with `split it` where its first review would read more
 // than `review_lines` added lines, before the reviewer reads a line; the branch it keeps holds the
-// work for the pieces.  Only a change's first review: once a review of it handed in a verdict, in
-// this run or one it was launched `from:`, a later one reviews whatever the fix left.
+// work for the pieces.
 func (r *repoPlace) firstReviewCeiling(l *loop) error {
-	if record, _ := run.Read(l.dir); record != nil && run.ChangeReviewed(record) {
+	if !r.firstReviewDue(l) {
 		return nil
 	}
 	if err := r.commitLeftovers(l); err != nil {
@@ -43,247 +34,11 @@ func (r *repoPlace) firstReviewCeiling(l *loop) error {
 	if err := r.followTarget(l); err != nil {
 		return err
 	}
-	lines, err := r.addedLines(r.baseSHA, "HEAD")
-	if err != nil {
+	why, err := size.Refusal(r.git(), "The change on "+cmp.Or(r.branch, "its branch"), r.baseSHA, "HEAD", l.reviewLines)
+	if why == "" || err != nil {
 		return err
 	}
-	_, carried, err := r.reviewedLines(r.baseSHA, "HEAD")
-	if err != nil {
-		return err
-	}
-	most, limited := l.reviewLines.Most()
-	if !limited || lines-carried <= most {
-		return nil
-	}
-	moved := ""
-	if carried > 0 {
-		moved = fmt.Sprintf(", %d of them moved unchanged from lines it deletes", carried)
-	}
-	branch := r.branch
-	if branch == "" {
-		branch = "its branch"
-	}
-	why := fmt.Sprintf("The change on %s adds %d lines%s (generated files aside; deletions never count): a first review takes at most %d; split it", branch, lines, moved, most)
 	return &blocked{why, "## Blocked\n\n" + why}
-}
-
-// generated is which of names git marks linguist-generated in the base's tree, read from there so
-// a change cannot leave its own lines out by marking them generated.
-func (r *repoPlace) generated(base string, names []string) (map[string]bool, error) {
-	found := map[string]bool{}
-	if len(names) == 0 {
-		return found, nil
-	}
-	tmp, err := os.MkdirTemp("", "ak-index-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(tmp)
-	// older Git has no check-attr --source; a private index reads the same tree
-	private := r.git("GIT_INDEX_FILE=" + filepath.Join(tmp, "index"))
-	if _, err := private.Must("read-tree", base); err != nil {
-		return nil, err
-	}
-	said, err := private.Must(append([]string{"check-attr", "--cached", "-z", "linguist-generated", "--"}, names...)...)
-	if err != nil {
-		return nil, err
-	}
-	fields := strings.Split(said, "\x00")
-	if len(fields) < 3*len(names) {
-		return nil, fmt.Errorf("git did not report generated attributes for the diff")
-	}
-	for i, name := range names {
-		if value := strings.ToLower(fields[3*i+2]); value == "set" || value == "true" {
-			found[name] = true
-		}
-	}
-	return found, nil
-}
-
-// addedLines is the text lines the diff from where tip left base adds, generated files aside:
-// nothing deleted counts, Python's diff_lines with added_only.
-func (r *repoPlace) addedLines(base, tip string) (int, error) {
-	said, err := r.git().Must("diff", "--numstat", "-z", "--find-renames", "--diff-filter=d", base+"..."+tip)
-	if err != nil {
-		return 0, err
-	}
-	fields := strings.Split(said, "\x00")
-	added := map[string]int{}
-	var names []string
-	for i := 0; i < len(fields); i++ {
-		parts := strings.SplitN(fields[i], "\t", 3)
-		if len(parts) < 3 {
-			continue
-		}
-		name := parts[2]
-		if name == "" && i+2 < len(fields) {
-			name = fields[i+2] // the old name; a renamed file counts under its new one
-			i += 2
-		}
-		if count, err := strconv.Atoi(parts[0]); err == nil {
-			added[name] = count
-			names = append(names, name)
-		}
-	}
-	skip, err := r.generated(base, names)
-	if err != nil {
-		return 0, err
-	}
-	total := 0
-	for name, count := range added {
-		if !skip[name] {
-			total += count
-		}
-	}
-	return total, nil
-}
-
-// sideName is the path a patch's file header gives the side mark names, "" for /dev/null.
-func sideName(header, mark, prefix string) string {
-	found := patchName[mark].FindStringSubmatch(header)
-	if found == nil {
-		return ""
-	}
-	name := found[1]
-	if strings.HasPrefix(name, `"`) {
-		if unquoted, err := strconv.Unquote(name); err == nil {
-			name = unquoted
-		}
-	}
-	if !strings.HasPrefix(name, prefix) {
-		return ""
-	}
-	return name[len(prefix):]
-}
-
-// windows is, for each position of a file's lines, the run of lines from it that first holds
-// movedBlock alphanumerics, "" where the lines end first or the line itself holds none: a run of
-// punctuation-only lines builds no window of its own.
-func windows(lines []string) ([]string, []int) {
-	keys, lengths := make([]string, len(lines)), make([]int, len(lines))
-	counts := make([]int, len(lines))
-	for at, line := range lines {
-		for _, c := range line {
-			if unicode.IsLetter(c) || unicode.IsNumber(c) {
-				counts[at]++
-			}
-		}
-	}
-	end, held := 0, 0
-	for start := range lines {
-		for end < len(lines) && held < movedBlock {
-			held += counts[end]
-			end++
-		}
-		if counts[start] > 0 && held >= movedBlock {
-			keys[start] = strings.Join(lines[start:end], "\n")
-			lengths[start] = end - start
-		}
-		held -= counts[start]
-	}
-	return keys, lengths
-}
-
-// reviewedLines is the added lines from where tip left base that a reviewer reads, each as its text
-// with whitespace collapsed, counted, and how many it need not read, Python's reviewed_lines: the
-// blocks moved unchanged, whitespace aside, from lines the same diff deletes, each deleted line
-// paired once, each key's positions consumed in order, so the walk grows with the diff's size.
-func (r *repoPlace) reviewedLines(base, tip string) (map[string]int, int, error) {
-	diff, err := r.git().Try("-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color", "--no-ext-diff", "--no-textconv",
-		"--src-prefix=a/", "--dst-prefix=b/", "--submodule=short", base+"..."+tip)
-	if err != nil {
-		return nil, 0, err
-	}
-	added, deleted := map[string][]string{}, map[string][]string{}
-	for _, chunk := range strings.Split("\n"+diff, "\ndiff --git ")[1:] {
-		header, body, _ := strings.Cut(chunk, "\n@@")
-		lines := strings.Split(body, "\n")
-		pick := func(mark byte) []string {
-			kept := []string{}
-			for _, line := range lines {
-				if len(line) > 0 && line[0] == mark {
-					kept = append(kept, strings.Join(strings.FieldsFunc(line[1:], config.Space), " "))
-				}
-			}
-			return kept
-		}
-		if name := sideName(header, "+++", "b/"); name != "" {
-			added[name] = pick('+')
-		}
-		if name := sideName(header, "---", "a/"); name != "" {
-			deleted[name] = pick('-')
-		}
-	}
-	skipNew, err := r.generated(base, slices.Sorted(maps.Keys(added)))
-	if err != nil {
-		return nil, 0, err
-	}
-	skipOld, err := r.generated(base, slices.Sorted(maps.Keys(deleted)))
-	if err != nil {
-		return nil, 0, err
-	}
-	type position struct {
-		file string
-		at   int
-	}
-	where := map[string][]position{}
-	used := map[string]map[int]bool{}
-	for _, name := range slices.Sorted(maps.Keys(deleted)) {
-		if skipOld[name] {
-			continue
-		}
-		used[name] = map[int]bool{}
-		keys, _ := windows(deleted[name])
-		for at, key := range keys {
-			if key != "" {
-				where[key] = append(where[key], position{name, at})
-			}
-		}
-	}
-	cursor, read := map[string]int{}, map[string]int{}
-	carried := 0
-	for _, name := range slices.Sorted(maps.Keys(added)) {
-		if skipNew[name] {
-			continue
-		}
-		lines := added[name]
-		keys, sizes := windows(lines)
-		for i := 0; i < len(lines); {
-			key, length := keys[i], 0
-			var candidates []position
-			if key != "" {
-				candidates = where[key]
-			}
-			at := cursor[key]
-			for at < len(candidates) {
-				place := candidates[at]
-				source, held := deleted[place.file], used[place.file]
-				length = 0
-				for i+length < len(lines) && place.at+length < len(source) && !held[place.at+length] && source[place.at+length] == lines[i+length] {
-					length++
-				}
-				at++
-				if length >= sizes[i] {
-					for n := place.at; n < place.at+length; n++ {
-						held[n] = true
-					}
-					break
-				}
-				length = 0 // a deleted block paired already, or cut by one: never again
-			}
-			if key != "" {
-				cursor[key] = at
-			}
-			if length > 0 {
-				carried += length
-				i += length
-			} else {
-				read[lines[i]]++
-				i++
-			}
-		}
-	}
-	return read, carried, nil
 }
 
 // numbersOf is the first review's ceiling the run holds to (run.Policy), ak's default where that

@@ -84,7 +84,7 @@ func (l *loop) execute(word, name, body, findings string) (string, error) {
 			return "", err
 		}
 		c := &call{l: l, name: l.executor, role: l.place.role(word), model: model, body: told, fresh: fresh, out: out, session: l.execSession,
-			findings: findings, previous: previous, notice: shown, handover: handover}
+			findings: findings, previous: previous, notice: shown, handover: handover, checks: l.place.doneChecks(l, word)}
 		done, err := c.run()
 		var broken *cannotRun
 		var refused *ranDry

@@ -19,6 +19,7 @@ import (
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
+	"agentkit/internal/size"
 	"agentkit/internal/task"
 )
 
@@ -136,11 +137,11 @@ func ownFirstReview(dir, repo, url, number, target, head string) (string, error)
 		return "", cmp.Or(err, errors.New("run.json cannot be read"))
 	}
 	at := &repoPlace{wt: repo}
-	lines, err := at.addedLines(target, head)
+	lines, err := size.Added(at.git(), target, head)
 	if err != nil {
 		return "", err
 	}
-	read, carried, err := at.reviewedLines(target, head)
+	read, carried, err := size.Reviewed(at.git(), target, head)
 	if err != nil {
 		return "", err
 	}
@@ -175,7 +176,7 @@ func (r *repoPlace) replacement(dir, base, head, number string, counted, budget 
 			mine[text], written = n, written+n
 		}
 	}
-	worst, shared, size := "", 0, 0
+	worst, shared, worstLines := "", 0, 0
 	for _, failed := range run.BudgetFailed(r.wt, budget, dir, time.Now()) {
 		if written == 0 {
 			break
@@ -191,7 +192,7 @@ func (r *repoPlace) replacement(dir, base, head, number string, counted, budget 
 		if !held {
 			continue
 		}
-		theirs, _, err := r.reviewedLines(failed[1], failed[2])
+		theirs, _, err := size.Reviewed(r.git(), failed[1], failed[2])
 		if err != nil {
 			return "", err
 		}
@@ -200,14 +201,14 @@ func (r *repoPlace) replacement(dir, base, head, number string, counted, budget 
 			common, total = common+min(n, mine[text]), total+n
 		}
 		if common*2 > written && counted*2 > total && (worst == "" || common > shared) {
-			worst, shared, size = failed[0], common, total
+			worst, shared, worstLines = failed[0], common, total
 		}
 	}
 	if worst == "" {
 		return "", nil
 	}
 	return fmt.Sprintf("PR #%s re-adds %d of its %d lines holding a letter or digit from %s, whose review failed after %d rounds; a replacement inherits them: split it into parts under %d lines, or redesign it",
-		number, shared, written, worst, budget, size/2+1), nil
+		number, shared, written, worst, budget, worstLines/2+1), nil
 }
 
 // reviewOwn is a seat's own pull request reviewed to its end, Python's review_pr for `is_own`: a

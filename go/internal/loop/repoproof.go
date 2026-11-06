@@ -13,6 +13,7 @@ import (
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
+	"agentkit/internal/uncommitted"
 )
 
 var (
@@ -26,7 +27,7 @@ func resetCheckout(g gitcall.Git, head string, before []string) error {
 	if _, err := g.Try("reset", "--quiet", "--hard", head); err != nil {
 		return err
 	}
-	dirty, err := dirtyPaths(g)
+	dirty, err := uncommitted.Paths(g)
 	if err != nil {
 		return err
 	}
@@ -59,7 +60,7 @@ func (r *repoPlace) proofOn(l *loop, command, path, revision, from string) (*run
 	if err != nil {
 		return nil, err
 	}
-	before, err := dirtyPaths(g)
+	before, err := uncommitted.Paths(g)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func (r *repoPlace) restoreProbe(l *loop, head, branch string, before []string, 
 	if now, err = g.Try("rev-parse", "HEAD"); err != nil {
 		return err
 	}
-	dirty, err := dirtyPaths(g)
+	dirty, err := uncommitted.Paths(g)
 	if err != nil {
 		return err
 	}

@@ -7,7 +7,7 @@ import (
 	"regexp"
 )
 
-// DefaultReviewLines is ak's own first-review ceiling, which the rules Go carries say.
+// DefaultReviewLines is ak's own first-review ceiling.
 const DefaultReviewLines = 300
 
 var wholeNumber = regexp.MustCompile(`^[0-9]+$`)
