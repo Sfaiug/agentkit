@@ -29,6 +29,7 @@ class PartTimesKept(unittest.TestCase):
             done = home.ak("run", str(task), "--no-merge", timeout=300)
             self.assertEqual(done.code, 0, done.out + done.err)
             listed = home.ak("run", "status", "--tests", cwd=rig.path, env={"COLUMNS": "120"})
+            self.assertEqual(listed.code, 0, listed.err)
             rows = {cells[0]: cells[1] for line in listed.out.splitlines()
                     if (cells := line.split()) and cells[0].startswith("tests/")}
             # test_gone.py is no file of the checkout: its part leaves the record.

@@ -1,7 +1,6 @@
 """A test file that names its failing parts is named `<file>::<part>` by tests/every_file.py, its
-re-run runs just those parts, a part it timed keeps its own seconds whatever the others did, and
-AK_ONLY listing one runs the file for that part alone; the Go keys check given a claim's name
-runs that claim alone and names it when it fails.
+re-run runs just those parts, each with the seconds it timed, and AK_ONLY listing one runs the file
+for that part alone; the Go keys check given a claim's name runs it alone, and names it failing.
 
 Offline: the real every_file.py runs on a temporary checkout of a stand-in noting each run's
 parts, with injected host readings; the real Go key files judge stand-in keys with AK_BIN set.

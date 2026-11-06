@@ -52,8 +52,8 @@ class Claims(unittest.TestCase):
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
             program = REPO / named if named else Path(tree, "go/bin/ak")
             if not named:
-                # Never a skip: the landing suite counts a skipped case as passed.  Trimmed, a
-                # build in this piece's own tree finds what the others cached (every_file.py).
+                # Never a skip: the landing suite counts a skipped case as passed.
+                # Trimmed, a build in this piece's own tree finds what others cached (every_file).
                 built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"],
                                        env=ENV, cwd=Path(tree, "go"), capture_output=True,
                                        text=True)

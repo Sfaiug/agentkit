@@ -85,7 +85,9 @@ class GoKeysPieces(unittest.TestCase):
         return shares
 
     def test_every_claim_runs_in_exactly_one_piece_and_its_seconds_are_kept(self):
-        self.land(8)
+        shares = self.land(8)
+        self.assertTrue(any({"test_key_acme_00 Acme", "test_key_acme_00 Acme.test_it"} <= set(
+            piece) for pieces in shares for piece in pieces.values()), "a key's claims split")
         kept = suite_times.read(suite_times.handed(self.root))
         self.assertLessEqual({f"tests/test_go_keys.py::{key}" for key in list(SECONDS)[:8]},
                              kept.keys())
@@ -94,6 +96,7 @@ class GoKeysPieces(unittest.TestCase):
 
     def test_no_piece_nears_the_silence_and_more_claims_make_more_pieces(self):
         silence = 60 * record.SILENCE_MINUTES
+        self.assertGreater(sum(list(SECONDS.values())[:24]), 2 * silence)
         made = []
         for count in (24, 36):
             printed = self.sandbox / "printed.log"

@@ -38,14 +38,12 @@ def name_failed(tests, file="AK_FAILED"):
 
 
 def claims(root):
-    """go/keys.txt's claims in the checkout at `root`, one a line: its key file's name, then the
-    parts of that file Go passes as unittest names them, where not all."""
+    """go/keys.txt's claims at `root`, a line each: a key file's name, then the parts Go passes."""
     return [line.split() for line in (Path(root) / "go/keys.txt").read_text().splitlines()]
 
 
 def parts_of(root, name):
-    """The parts the test file `name` is cut into, `<file>::<part>` each: the Go keys check's
-    claims, by their key files' names as its arguments take them; any other file runs whole."""
+    """The parts the test file `name` is cut into: the Go keys check's claims, any other none."""
     return (list(dict.fromkeys(claim[0] for claim in claims(root)))
             if name == "tests/test_go_keys.py" else [])
 
