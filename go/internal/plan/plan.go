@@ -317,6 +317,9 @@ func Add(ctx context.Context, name, repo, what, check string) (string, error) {
 	if err := holdsCheckout(check, repo); err != nil {
 		return "", err
 	}
+	if err := unproven(ctx, repo, check); err != nil {
+		return "", err
+	}
 	env, err := environ()
 	if err != nil {
 		return "", err
