@@ -24,3 +24,25 @@ func (l *loop) landAgain(r *repoPlace) (bool, error) {
 	}
 	return run.ReviewPass(record, run.Models()), nil
 }
+
+// landingReview is whether the review pending is a landing's, which spends no round.
+func landingReview(record *run.Object) bool {
+	pending := record.Dict("review_pending")
+	return pending != nil && pending.Get("record") == false
+}
+
+// reviewLanding finishes a landing's review on the commit a clean integration made, Python's
+// integrate on one: no review saved before it stands for that commit, so the checks run again in
+// the pending review's round and that review judges it there.  Whether it passed.
+func (r *repoPlace) reviewLanding(l *loop, upstream, how string) (bool, error) {
+	pending, err := l.pendingRound()
+	if pending == nil {
+		return false, cmp.Or(err, errors.New("the landing's pending review is gone"))
+	}
+	text, err := l.checkedAgain(upstream, how)
+	if err != nil {
+		return false, err
+	}
+	passed, err := l.reviewPending(pending, true, text)
+	return r.afterReview(l, "the "+how+" of "+upstream, passed, err)
+}

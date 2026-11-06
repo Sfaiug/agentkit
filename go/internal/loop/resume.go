@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -230,27 +231,36 @@ func (r *repoPlace) reopen(l *loop, _ *run.Object) error {
 // passed, false with none pending.  What came before it ran in another process, so its checks run
 // again and their failure is recorded, never compared.
 func (l *loop) resumeReview() (bool, error) {
-	record, err := run.Read(l.dir)
-	if record == nil {
-		return false, err
-	}
-	pending := record.Dict("review_pending")
+	pending, err := l.pendingRound()
 	if pending == nil {
-		return false, nil
-	}
-	l.rnd, _ = pending.Int("round")
-	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return false, err
 	}
 	ok, text, err := l.verify()
 	if err != nil {
 		return false, err
 	}
+	return l.reviewPending(pending, ok, text)
+}
+
+// pendingRound is the review left pending, its round the one under way; nil with none.
+func (l *loop) pendingRound() (*run.Object, error) {
+	record, err := run.Read(l.dir)
+	if record == nil || record.Dict("review_pending") == nil {
+		return nil, err
+	}
+	pending := record.Dict("review_pending")
+	l.rnd, _ = pending.Int("round")
+	return pending, os.MkdirAll(l.roundDir(), 0o777)
+}
+
+// reviewPending is the pending review on checks run for it, Python's resume_review on verified
+// ones: whether it passed.
+func (l *loop) reviewPending(pending *run.Object, ok bool, text string) (bool, error) {
 	if err := l.sameFailure(ok, text, false); err != nil {
 		return false, err
 	}
 	if err := l.place.beforeReview(l); err != nil {
 		return false, err
 	}
-	return l.review(pending.Str("summary"), ok, text, "Resume the unfinished review.")
+	return l.review(pending.Str("summary"), ok, text, cmp.Or(pending.Str("reason"), "Resume the unfinished review."))
 }

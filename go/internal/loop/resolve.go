@@ -73,6 +73,12 @@ func (r *repoPlace) resolve(l *loop, upstream, how, tip, out string, recheck boo
 		}
 	}
 	passed, err := l.review(summary, ok, text, again)
+	return r.afterReview(l, what, passed, err)
+}
+
+// afterReview ends a landing's review, Python's fix_after_failed_review after it: a failed one has its
+// findings fixed in the task's own rounds, and one that never passes leaves the work unmerged.
+func (r *repoPlace) afterReview(l *loop, what string, passed bool, err error) (bool, error) {
 	if err == nil && !passed {
 		passed, err = r.fixReview(l, what)
 	}
