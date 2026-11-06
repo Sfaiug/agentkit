@@ -141,8 +141,9 @@ func (t *ModelTicks) Tick(harness, id, label string, levels []string, under *Lis
 					delete(entry.values, "usage_model")
 				}
 			}
-			// a free provider is nothing but its models (config.drop_bare_free)
-			if entry.get("mode") == "free" && !slices.ContainsFunc(offered(root), func(name string) bool {
+			// a free provider is nothing but its models (config.drop_bare_free); one another page put
+			// in, which this page keeps no copy of to put back, stays, as every load drops it anyway
+			if _, kept := t.tables[provider]; kept && entry.get("mode") == "free" && !slices.ContainsFunc(offered(root), func(name string) bool {
 				return models.get(name).(*table).get("provider") == provider
 			}) {
 				delete(providers.values, provider)

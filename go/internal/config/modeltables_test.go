@@ -85,4 +85,15 @@ usage_model = 'zen'
 		}
 		changed("name = \"Nova Cloud\"", "name = \"Nova\"")
 	}
+
+	// a free provider and its model another open page put in: the table this page keeps no copy of
+	// stays, so the model comes back with it as it was
+	changed("[providers.fuel]", "[models.vega]\nharness = 'acme'\nmodel = 'vega/v1'\neffort = 'high'\nprovider = 'vega'\n\n"+
+		"[providers.vega]\nmode = 'free'\nusage_model = 'vega'\nmetadata = {nested = [{values = [1, 2]}]}\n\n[providers.fuel]")
+	other := provider("vega")
+	tick("vega/v1", "Vega", nil)
+	tick("vega/v1", "Vega", nil)
+	if got := provider("vega"); !reflect.DeepEqual(got, other) {
+		t.Fatalf("vega came back as %v, want %v", got, other)
+	}
 }
