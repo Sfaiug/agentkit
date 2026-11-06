@@ -289,3 +289,27 @@ func TestTaskRoundsBeforeCheckoutRefusal(t *testing.T) {
 	write(t, task, "---\nrepo: "+filepath.Join(home, "gone")+"\nrounds: 4\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
 	assertCall(t, []string{"run", task}, 2, "", "ak run: task rounds 4 is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope\n")
 }
+
+// Only a queued launch's own child holds what its launch read: a run variable inherited from any
+// other run, or naming none, refuses a budget over the one in force as no variable does.
+func TestOnlyAQueuedChildSkipsTheBudget(t *testing.T) {
+	home := sandbox(t)
+	t.Setenv("AK_MAX_RUNS", "0")
+	t.Setenv("AK_NOTIFY_SINK", "dry-run")
+	task := filepath.Join(home, "task.md")
+	write(t, task, "---\nrepo: none\nrounds: 4\n---\n# Fix api\n\n## Done when\n```bash\ntrue\n```\n")
+	receipt := filepath.Join(home, "acme-1")
+	t.Setenv("AGENTKIT_RUN_DIR", receipt)
+	over := " is over the budget: 3 rounds, then a run goes back to its orchestrator to split or re-scope\n"
+	for _, state := range []string{"", `{"state":"fail"}`, `{"state":"queued"}`} {
+		if state != "" {
+			write(t, filepath.Join(receipt, "run.json"), state)
+		}
+		flag, rounds, code := "ak run: --rounds 4"+over, "ak run: task rounds 4"+over, 2
+		if state == `{"state":"queued"}` {
+			flag, rounds, code = "ak run: not implemented in Go yet\n", "ak run: not implemented in Go yet\n", 3
+		}
+		assertCall(t, []string{"run", task, "--rounds", "4"}, code, "", flag)
+		assertCall(t, []string{"run", task}, code, "", rounds)
+	}
+}
