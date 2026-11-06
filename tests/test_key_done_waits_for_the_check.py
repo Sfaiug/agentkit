@@ -41,6 +41,22 @@ NONE = {"final": "Checked.", "hand_in": [["done"]]}
 TOKEN = "a" * 32    # an OpenCode or Codex seat's launch receipt
 
 
+def codex_seat(home):
+    """(launch receipt, transcript) of a Codex seat `acme` whose thread the owner asked of, as
+    Codex's SessionStart hook and its rollout write them."""
+    cwd = str(home.path / "code" / "acme")
+    rollout = home.write("rollout.jsonl", "".join(json.dumps(row) + "\n" for row in (
+        {"type": "session_meta", "payload": {"id": "thread-acme", "cwd": cwd}},
+        {"type": "event_msg", "timestamp": "2026-11-05T10:00:00Z", "payload": {
+            "type": "item_completed", "item": {"type": "UserMessage", "content": [
+                {"type": "text", "text": FIRST}]}}})))
+    receipt = home.write(f".agentkit/state/codex-launch-{TOKEN}.json", {
+        "launch": TOKEN, "cwd": cwd, "event": {
+            "session_id": "thread-acme", "transcript_path": str(rollout),
+            "hook_event_name": "SessionStart", "source": "startup", "cwd": cwd}})
+    return receipt, rollout
+
+
 class DoneWaitsForTheCheck(unittest.TestCase):
     def setUp(self):
         self.home = home = Home()
@@ -149,39 +165,59 @@ class DoneWaitsForTheCheck(unittest.TestCase):
         self.assertEqual(checking.returncode, 1)
         self.assertNotEqual(self.why("acme-renamed"), "acme-renamed  done")
 
+    def test_a_check_failing_as_it_looks_for_the_conversation_counts_for_nothing(self):
+        with Home() as home:
+            fake = fakeadapter.install(home, codex="pass", claude="pass")["claude"]
+            Seat(home, "acme", model="astra", alive=False, record={"codex_launch": TOKEN})
+            transcript = codex_seat(home)[1]
+            home.write(".agentkit/state/plan-acme.md", f"- [x] {PLANNED}\n")
+            akconfig.write(home, ["astra", "opus"], extra='[done_check]\nmodel = "opus"')
+            self.assertEqual(home.ak("orch", "check", "acme").code, 0)
+            kept = transcript.read_text()
+            transcript.unlink()
+            transcript.mkdir()      # Codex names its thread only once it reads the transcript
+            self.assertEqual(home.ak("orch", "check", "acme").code, 2)
+            transcript.rmdir()
+            transcript.write_text(kept)
+            fake.behave(NONE)
+            done = home.ak("plan", env={"AGENTKIT_SESSION": "acme"})
+            self.assertEqual(done.code, 0, done.out + done.err)
+            self.assertEqual(fake.n, 2)
+
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_a_record_ak_cannot_read_holds_the_seat(self):
         self.configure()
         self.transcript.unlink()
         self.transcript.mkdir()
         self.assertNotEqual(self.why(), DONE)
-        for kind, (model, harness) in {"an OpenCode database": ("mimo", "opencode"),
-                                       "an OpenCode launch receipt": ("mimo", "opencode"),
-                                       "an Antigravity database": ("gemini", "antigravity"),
-                                       "a Codex transcript": ("astra", "codex")}.items():
+
+        def directory(path):
+            path.unlink()
+            path.mkdir()
+
+        opencode = ".agentkit/state/opencode-launch-" + TOKEN + "/session"
+        for kind, (model, harness, unreadable) in {
+                "an OpenCode database": ("mimo", "opencode", lambda home: home.write(
+                    ".local/share/opencode/opencode.db", "not a SQLite database")),
+                "an OpenCode launch receipt": ("mimo", "opencode", lambda home: directory(
+                    home.path / opencode)),
+                "an Antigravity database": ("gemini", "antigravity", lambda home: home.write(
+                    ".gemini/antigravity-cli/conversations/conv-acme.db", "not a SQLite database")),
+                "a Codex launch receipt": ("astra", "codex", lambda home: directory(
+                    codex_seat(home)[0])),
+                "a Codex launch receipt's JSON": ("astra", "codex", lambda home: codex_seat(
+                    home)[0].write_text("{")),
+                "a Codex transcript": ("astra", "codex", lambda home: directory(
+                    codex_seat(home)[1])),
+                "a Codex transcript's header": ("astra", "codex", lambda home: (
+                    lambda rollout: rollout.write_text("{\n" + rollout.read_text().split(
+                        "\n", 1)[1]))(codex_seat(home)[1]))}.items():
             with self.subTest(kind), Home() as home:
                 fakeadapter.install(home, **{harness: "pass", "claude": "pass"})
-                seat = Seat(home, "acme", model=model, screen=f"{harness}-prompt-pane.txt",
-                            record={"opencode_launch": TOKEN, "codex_launch": TOKEN})
-                if harness == "opencode":
-                    receipt = home.write(f".agentkit/state/opencode-launch-{TOKEN}/session",
-                                         "ses_acme")
-                    if kind.endswith("receipt"):
-                        receipt.unlink()
-                        receipt.mkdir()
-                    else:
-                        home.write(".local/share/opencode/opencode.db", "not a SQLite database")
-                elif harness == "antigravity":
-                    home.write(".gemini/antigravity-cli/conversations/conv-acme.db",
-                               "not a SQLite database")
-                else:
-                    rollout = home.path / "rollout.jsonl"
-                    rollout.mkdir()
-                    home.write(f".agentkit/state/codex-launch-{TOKEN}.json", {
-                        "launch": TOKEN, "cwd": str(seat.cwd), "event": {
-                            "session_id": "thread-acme", "transcript_path": str(rollout),
-                            "hook_event_name": "SessionStart", "source": "startup",
-                            "cwd": str(seat.cwd)}})
+                Seat(home, "acme", model=model, screen=f"{harness}-prompt-pane.txt",
+                     record={"opencode_launch": TOKEN, "codex_launch": TOKEN})
+                home.write(opencode, "ses_acme")
+                unreadable(home)
                 home.write(".agentkit/state/plan-acme.md", f"- [x] {PLANNED}\n")
                 akconfig.write(home, [model, "opus"], extra='[done_check]\nmodel = "opus"')
                 self.assertNotEqual(self.why(home=home), DONE)

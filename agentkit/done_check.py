@@ -139,15 +139,14 @@ def card(answer):
 
 def gaps(cfg, name):
     """The findings of the checking turn that quote one of the owner's messages or answers.
-    What it read is kept where it found none (`keep`); once it has the seat's conversation, one
-    that found a gap or could not check forgets what an earlier one kept, counting for nothing."""
-    with harness.strictly():
-        seat = notify.conversation_of(name)
-    if seat is None or not seat[3]:
-        raise config.Error(f"no seat named {name} whose conversation ak can read")
+    What it read is kept where it found none (`keep`); one that found a gap or could not check
+    forgets what an earlier one kept, counting for nothing."""
     read = None
     try:
         with harness.strictly():
+            seat = notify.conversation_of(name)
+            if seat is None or not seat[3]:
+                raise config.Error(f"no seat named {name} whose conversation ak can read")
             owner = owner_words(seat, notify.owner_messages(name, seat))
         said = [words for _, words, _ in owner]
         if not said:
