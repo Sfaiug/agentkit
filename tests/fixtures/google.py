@@ -11,7 +11,7 @@ answered by the next of `answers`, `(body, code, bytes promised that never come)
 `preferences` are Cloud Quotas' quota preferences, `asks` each `(method, path, body)` asked of it,
 refused as Google refuses; `refusing`, {method: code}, answers a method with that code, None silence.
 `key` writes a service-account key ak can sign with, `rented` runs `ak doctor` and gives its
-rented-machines lines, `at` a tick on the test clock, `close` stops it:
+rented-machines lines, `at` a tick on the test clock (`AK_GOOGLE_CLOCK`), `close` stops it:
 
     from fixtures.akbin import Home
     from fixtures.google import Google, kind
@@ -33,23 +33,12 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from fixtures import akconfig
-from fixtures.akbin import AK, REPO
+from fixtures.akbin import REPO
 
 SPOT, NL, IOWA = "Spot Preemptible", ["europe-west4"], ["us-central1"]
 PROJECT = "/compute/v1/projects/acme-build"
 QUOTAS = "/v1/projects/acme-build/locations/global/quotaPreferences"
 ECHO = {"AGENTKIT_ADAPTER_DIR": str(REPO / "tests/fixtures/adapters")}
-# Every `bin/ak` gives `google_cloud` the test clock, at the time in the file it names.
-CLOCK = """
-import sys, time
-if sys.argv[:1] == [{ak!r}]:
-    sys.path[:0] = [{repo!r}, {tests!r}]
-    from fixtures.clock import Clock
-    from agentkit import google_cloud
-    del sys.path[:2]
-    google_cloud.time = Clock(time.sleep)
-    google_cloud.time.time = lambda: float(open({now!r}).read())
-"""
 
 
 def sku(description, regions, nanos, unit="h"):
@@ -113,11 +102,7 @@ class Google(http.server.ThreadingHTTPServer):
         home, toml = self.home, self.home.path / ".agentkit/config.toml"
         toml.write_text(toml.read_text().split("\n[google_cloud]")[0] + "\n[google_cloud]\n"
                         f"active = {'true' if cap else 'false'}\nmax_month = {cap}\n")
-        home.write("clock/sitecustomize.py", CLOCK.format(
-            ak=AK, repo=str(Path(AK).resolve().parents[1]), tests=str(REPO / "tests"),
-            now=str(home.path / "clock" / "now")))
-        self.env["PYTHONPATH"] = str(home.path / "clock")
-        home.write("clock/now", str(when))
+        self.env["AK_GOOGLE_CLOCK"] = str(home.write("clock/now", str(when)))
         start, done = len(self.asked), home.tick(env=self.env)
         assert done.code == 0, done.out + done.err
         asked = self.asked[start:]

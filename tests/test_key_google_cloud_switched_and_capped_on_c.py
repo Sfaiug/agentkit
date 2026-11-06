@@ -12,10 +12,10 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import AK, REPO, REAL_TMUX, Home, boxable
+from fixtures.akbin import REAL_TMUX, Home, boxable
 from fixtures.akline import Line
 from fixtures.akterm import Terminal
-from fixtures.google import CLOCK, Google
+from fixtures.google import Google
 
 NOW = datetime(2031, 5, 15, 18, 40, tzinfo=UTC).timestamp()
 ROUTE = f'Host acme-busy\n  # until {int(NOW + 3600)}\n  HostName "192.0.2.1"\n'
@@ -28,10 +28,7 @@ class CloudSettings(unittest.TestCase):
         fakeadapter.install(home, claude="pass")
         self.config = akconfig.write(home, ["fable"], extra=(
             "[google_cloud]\nactive = true\nmax_month = 200\nx_custom = 7\n"))
-        self.now = home.write("clock/now", str(NOW))
-        home.write("clock/sitecustomize.py", CLOCK.format(
-            ak=AK, repo=str(REPO), tests=str(REPO / "tests"), now=str(self.now)))
-        home.env["PYTHONPATH"] = str(self.now.parent)
+        home.env["AK_GOOGLE_CLOCK"] = str(home.write("clock/now", str(NOW)))
 
     @unittest.skipUnless(REAL_TMUX, "no tmux installed")
     def test_space_switches_and_enter_saves_only_whole_nonnegative_euros(self):
