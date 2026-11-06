@@ -26,8 +26,8 @@ import (
 // into a scratch folder gone once that is printed, and saves and starts nothing; an open, from a
 // person's terminal, opens the seat and hands it that terminal; a seat on a provider's accounts
 // opens on the one its login and usage pick (seat.OpeningAccount).  The rest is Python's: a seat
-// tmux or a record holds under the name, an open on a provider's accounts, and an open with no
-// tmux, whose harness runs in the terminal itself.
+// tmux or a record holds under the name, and an open with no tmux, whose harness runs in the
+// terminal itself.
 func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
 	if name != "" && held(name) {
 		return notImplemented(errOut, "orch")
@@ -78,9 +78,6 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		if err != nil {
 			return notImplemented(errOut, "orch")
 		}
-	}
-	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 && !dryRun {
-		return notImplemented(errOut, "orch")
 	}
 	if crew == nil {
 		asked, ok, err := askWorkers(out)

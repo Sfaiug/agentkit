@@ -26,8 +26,3 @@ func (names Names) Reservations() (map[string]bool, bool) {
 	}
 	return taken, true
 }
-
-func opensAt(model config.Model) bool {
-	accounts, err := config.Accounts(model.Provider)
-	return err == nil && len(accounts) == 0
-}
