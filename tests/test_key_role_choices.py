@@ -4,11 +4,12 @@ each better than every cheaper one, the best last.  `choices`: its rows within 1
 best, cheapest first, each a point or more above the last kept, the best taking the place of
 one less than a point below it; the costliest five.  `others`: the best row of each release
 with no choice, best first, `beaten` by a choice, else a row of the front, as good and no
-dearer; `close` to a choice less than a point from it; else `far below` the choices, by null.
+dearer; on the front, `close` to the nearest choice within 10 points of the best, else `far
+below`, by null.  Qualities exactly 10 or 1 apart are so, whatever a rating's roundoff.
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
-one maker, its one harness a fake running Acme Mid 1 alone; only `ak models --json` is
-observed.  Fails against /bin/false.
+one maker, its one harness a fake running one of them; only `ak models --json` is observed.
+Fails against /bin/false.
 """
 
 import json
@@ -21,6 +22,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, EVALUATIONS, aa, boards
 
+ROLES = ("orchestrate", "execute", "review")
 # Release, name, effort, quality in every role (every measure the share quality / 100 - 0.1,
 # the best's 0.9) and cost a task, cheapest first
 ROWS = [("acme-step-1", "Acme Step 1", "low", 70, 0.5),     # a choice's release: no other
@@ -41,38 +43,47 @@ CHOICES = [("Acme Mid 1", "high"), ("Acme Step 1", "high"), ("Acme Wide 1", "hig
 OTHERS = [("Acme Edge 1", "high", "close", {"name": "Acme Best 1", "effort": "high"}),
           ("Acme Dear 1", "high", "beaten", {"name": "Acme Wide 1", "effort": "high"}),
           ("Acme Near 1", "high", "close", {"name": "Acme Mid 1", "effort": "high"}),
-          # within 10 points, but a point and more under every choice: the five leave it out
-          ("Acme Cut 1", "high", "far below", None),
+          # within 10 points, under the five: close to the cheapest of them
+          ("Acme Cut 1", "high", "close", {"name": "Acme Mid 1", "effort": "high"}),
           ("Acme Low 1", "high", "far below", None),
           ("Acme Lite 1", "high", "beaten", {"name": "Acme Low 1", "effort": "high"})]
+# Shares whose qualities lie exactly 10, 1 and 1 apart, which a rating's floats put a hair
+# across: the lower row 10.00000000000001 under the best, 0.99999999999999 under the next
+EXACT = ((.57, .67), (.804, .814, .90), (.56, .57))
+
+
+def answer(rows, runs):
+    """`ak models --json` over the boards holding `rows`, each (release, name, effort, share
+    of every measure, cost a task), its one harness running release `runs` at `high`."""
+    with Home() as home:
+        fake = fakeadapter.install(home, claude="pass")["claude"]
+        fake.answer("models", f"{runs}\t{runs}\thigh\n")
+        akconfig.write(home, {"mine": {"harness": "claude", "model": runs}})
+        held = boards()
+        for board in held.values():
+            board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]
+        for release, name, effort, share, cost in rows:
+            held["artificialanalysis.ai"]["rows"].append(aa(release, name, effort, {
+                "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
+                "aa.terminalBench40": share, "aa.omniscience": 100 * share,
+                "aa.automationBenchPartialScore": share,
+                **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
+                   for slug in EVALUATIONS}}))
+            held["arena.ai"]["rows"].append({"model": name, "effort": effort,
+                                            "values": {"arena.agent": share}})
+        home.write(".agentkit/state/boards.json", held)
+        done = home.ak("models", "--json", env=ENV)
+        assert done.code == 0, done.out + done.err
+        return json.loads(done.out)
 
 
 class RoleChoices(unittest.TestCase):
     def test_each_role_holds_choices_a_point_apart_and_the_best_of_each_other_model(self):
-        with Home() as home:
-            fake = fakeadapter.install(home, claude="pass")["claude"]
-            fake.answer("models", "acme-mid-1\tAcme Mid 1\thigh\n")
-            akconfig.write(home, {"mid": {"harness": "claude", "model": "acme-mid-1"}})
-            held = boards()
-            for board in held.values():
-                board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]
-            for release, name, effort, quality, cost in ROWS:
-                share = quality / 100 - 0.1
-                held["artificialanalysis.ai"]["rows"].append(aa(release, name, effort, {
-                    "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
-                    "aa.terminalBench40": share, "aa.omniscience": 100 * share,
-                    "aa.automationBenchPartialScore": share,
-                    **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
-                       for slug in EVALUATIONS}}))
-                held["arena.ai"]["rows"].append({"model": name, "effort": effort,
-                                                "values": {"arena.agent": share}})
-            home.write(".agentkit/state/boards.json", held)
-            done = home.ak("models", "--json", env=ENV)
-            self.assertEqual(done.code, 0, done.out + done.err)
-            answer = json.loads(done.out)
-        for role in ("orchestrate", "execute", "review"):
+        found = answer([(release, name, effort, quality / 100 - 0.1, cost)
+                        for release, name, effort, quality, cost in ROWS], "acme-mid-1")
+        for role in ROLES:
             with self.subTest(role=role):
-                said = answer[role]
+                said = found[role]
                 self.assertEqual([(row["name"], row["effort"]) for row in said["choices"]],
                                  CHOICES)
                 notes = {row["name"]: row["notes"] for row in said["choices"]}
@@ -80,6 +91,17 @@ class RoleChoices(unittest.TestCase):
                 self.assertNotIn("no harness", notes["Acme Mid 1"])
                 self.assertEqual([(row["name"], row["effort"], row["why"], row["by"])
                                   for row in said["others"]], OTHERS)
+
+    def test_qualities_exactly_10_or_1_apart_are_all_choices(self):
+        for shares in EXACT:
+            rows = [(f"acme-{n}-1", f"Acme {n} 1", "high", share, n + 1)
+                    for n, share in enumerate(shares)]
+            found = answer(rows, "acme-0-1")
+            for role in ROLES:
+                with self.subTest(shares=shares, role=role):
+                    self.assertEqual([row["release"] for row in found[role]["choices"]],
+                                     [release for release, *_ in rows])
+                    self.assertEqual(found[role]["others"], [])
 
 
 if __name__ == "__main__":

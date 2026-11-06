@@ -239,6 +239,12 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
 WINDOW, APART, PLACES = 10, 1, 5
 
 
+def _above(row, other):
+    """The quality points `row` is above `other`, to a millionth: a rating's roundoff never
+    moves a row across a line, as 90 is 10 under 100, never 10.00000000000001."""
+    return round(row["quality"] - other["quality"], 6)
+
+
 def _choices(priced):
     """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`).  Its
     front holds each row better than every cheaper one, the best last.  `choices`: the front's
@@ -246,18 +252,18 @@ def _choices(priced):
     the best taking the place of one less than that below it; the costliest `PLACES` of them.
     `others`: of each release with no choice its best row, a cheaper one on a tie, best first,
     each with its `why` and `by`: `beaten` by the cheapest choice, else row of the front, as
-    good and no dearer; `close` to the nearest choice, one less than `APART` from it, within
-    `WINDOW` of the best; else `far below` the choices, by None: more than `WINDOW` under the
-    best, or `APART` or more under every choice, as a row the costliest `PLACES` leave is."""
+    good and no dearer; on the front, `close` within `WINDOW` of the best, by the nearest
+    choice: less than `APART` from it, or the cheapest, over a row the costliest `PLACES` left
+    under it; else `far below`, by None."""
     front = []
     for row in priced:
-        if not front or row["quality"] > front[-1]["quality"]:
+        if not front or _above(row, front[-1]) > 0:
             front.append(row)
     kept = []
     for row in front:
-        if front[-1]["quality"] - row["quality"] > WINDOW:
+        if _above(front[-1], row) > WINDOW:
             continue
-        if kept and row["quality"] - kept[-1]["quality"] < APART:
+        if kept and _above(row, kept[-1]) < APART:
             if row is front[-1]:
                 kept[-1] = row
         else:
@@ -266,18 +272,17 @@ def _choices(priced):
     chosen, tops = {row["release"] for row in choices}, {}
     for row in priced:
         top = tops.get(row["release"])
-        if row["release"] not in chosen and (top is None or row["quality"] > top["quality"]):
+        if row["release"] not in chosen and (top is None or _above(row, top) > 0):
             tops[row["release"]] = row
-    others = sorted(tops.values(), key=lambda row: (-row["quality"], row["cost"]))
+    others = sorted(tops.values(), key=functools.cmp_to_key(
+        lambda one, other: _above(other, one) or one["cost"] - other["cost"]))
     for row in others:
-        near = min(choices, key=lambda one: abs(one["quality"] - row["quality"]))
         if not any(one is row for one in front):
             row["why"], row["by"] = "beaten", next(
                 one for one in (*choices, *front)
-                if one["quality"] >= row["quality"] and one["cost"] <= row["cost"])
-        elif (front[-1]["quality"] - row["quality"] <= WINDOW
-              and abs(near["quality"] - row["quality"]) < APART):
-            row["why"], row["by"] = "close", near
+                if _above(one, row) >= 0 and one["cost"] <= row["cost"])
+        elif _above(front[-1], row) <= WINDOW:
+            row["why"], row["by"] = "close", min(choices, key=lambda one: abs(_above(one, row)))
         else:
             row["why"], row["by"] = "far below", None
     return choices, others
