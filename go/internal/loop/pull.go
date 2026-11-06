@@ -437,8 +437,7 @@ func githubBody(text, id string) string {
 }
 
 // offer is a posted PASS put to the inbox, once its required checks are green on the same open head.
-// Asking needs a seat, so the question goes on the record as Python's ask leaves one to retry, and
-// Python's tick asks it (`offer_endings`).
+// A question that did not go out stays on the record for the tick to ask again (`offer_endings`).
 func (p *pullPlace) offer(l *loop, pull *gh.Pull) error {
 	green, why, err := requiredChecks(l, pull, p.target, p.sha, false)
 	if err != nil {
@@ -457,9 +456,14 @@ func (p *pullPlace) offer(l *loop, pull *gh.Pull) error {
 		return l.save(func(record *run.Object) { record.Set("merge_note", note) })
 	}
 	question := fmt.Sprintf("PR #%s by %s: %s. Merge? yes/no", pull.Number, pull.Author, pull.Title)
+	pending := run.Fields("question", question, "url", p.url, "sha", p.sha, "asked", false)
+	if sent, _ := seat.AskInbox(question, p.url, p.sha, false, func() { pending.Set("asked", true) }, l.say, stampedLog{l.dir}); sent {
+		return l.save(func(record *run.Object) {
+			record.Set("merge_note", "offered to the "+config.Inbox()+" session at "+p.sha[:12])
+		})
+	}
 	return l.save(func(record *run.Object) {
-		run.SetAll(record, "merge_note", "merge question requires retry",
-			"pending_inbox", run.Fields("question", question, "url", p.url, "sha", p.sha, "asked", false))
+		run.SetAll(record, "merge_note", "merge question requires retry", "pending_inbox", pending)
 	})
 }
 

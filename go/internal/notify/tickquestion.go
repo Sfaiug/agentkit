@@ -7,8 +7,9 @@ import (
 )
 
 // UnansweredQuestion leaves a question with a newer owner message to Python's answer pass.
-func UnansweredQuestion(name string) bool {
-	notice := Last(name)
+func UnansweredQuestion(name string) bool { return unanswered(name, Last(name)) }
+
+func unanswered(name string, notice *run.Object) bool {
 	if !OwnerQuestion(notice) {
 		return false
 	}
@@ -33,5 +34,5 @@ func turnedQuestion(name string, said func(string) (string, any), clock func() f
 			return nil
 		}
 		return notice
-	})
+	}, func(string) error { return nil })
 }

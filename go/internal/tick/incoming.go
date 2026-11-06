@@ -11,8 +11,8 @@ import (
 	"agentkit/internal/seat"
 )
 
-// Incoming uses Python's one paginated search, then reads only PRs on owned checkouts.
-// Drafts, this account's own PRs and PRs outside those repositories owe no review here.
+// Incoming uses Python's one paginated search, then reads only PRs on owned checkouts and reviews
+// each open head. Drafts, this account's own PRs and PRs outside those repositories owe no review.
 func (t *ticking) incoming(me string) bool {
 	checkouts, known := seat.Checkouts()
 	if !known {
@@ -86,7 +86,7 @@ func (t *ticking) incoming(me string) bool {
 			}
 			if pr.Str("state") == "open" && !pr.Truthy("draft") && pr.Truthy("html_url") &&
 				pr.Dict("head") != nil && pr.Dict("head").Truthy("sha") &&
-				(pr.Dict("user") == nil || pr.Dict("user").Str("login") != me) {
+				(pr.Dict("user") == nil || pr.Dict("user").Str("login") != me) && !t.review(pr, me) {
 				return false
 			}
 		}
