@@ -240,8 +240,9 @@ WINDOW, APART, PLACES = 10, 1, 5
 
 
 def _above(row, other):
-    """The quality points `row` is above `other`, to a millionth: a rating's roundoff never
-    moves a row across a line, as 90 is 10 under 100, never 10.00000000000001."""
+    """The quality points `row` is above `other`, to a millionth, for the `WINDOW` and `APART`
+    lines only: a rating's roundoff never moves a row across one, as 90 is 10 under 100, never
+    10.00000000000001, while a row a millionth better still ranks above."""
     return round(row["quality"] - other["quality"], 6)
 
 
@@ -257,7 +258,7 @@ def _choices(priced):
     `APART` or more under every choice, as the costliest `PLACES` leave it."""
     front = []
     for row in priced:
-        if not front or _above(row, front[-1]) > 0:
+        if not front or row["quality"] > front[-1]["quality"]:
             front.append(row)
     kept = []
     for row in front:
@@ -272,15 +273,14 @@ def _choices(priced):
     chosen, tops = {row["release"] for row in choices}, {}
     for row in priced:
         top = tops.get(row["release"])
-        if row["release"] not in chosen and (top is None or _above(row, top) > 0):
+        if row["release"] not in chosen and (top is None or row["quality"] > top["quality"]):
             tops[row["release"]] = row
-    others = sorted(tops.values(), key=functools.cmp_to_key(
-        lambda one, other: _above(other, one) or one["cost"] - other["cost"]))
+    others = sorted(tops.values(), key=lambda row: (-row["quality"], row["cost"]))
     for row in others:
         if not any(one is row for one in front):
             row["why"], row["by"] = "beaten", next(
                 one for one in (*choices, *front)
-                if _above(one, row) >= 0 and one["cost"] <= row["cost"])
+                if one["quality"] >= row["quality"] and one["cost"] <= row["cost"])
         elif _above(front[-1], row) > WINDOW:
             row["why"], row["by"] = "far below", None
         else:
