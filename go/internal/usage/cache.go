@@ -112,9 +112,14 @@ func current(prov *run.Object, now float64) *run.Object {
 }
 
 // patch puts one freshly read provider, or account of one, into the snapshot as it stands now, the
-// others and its age left alone, and is the record as written, Python's usage._patch.
+// others and its age left alone, and is the record as written, Python's usage._patch.  A login
+// config.toml no longer lists is written nowhere: read before an account was added or removed, it
+// would replace the readings of those listed now.
 func patch(src source, prov *run.Object) *run.Object {
 	change := func(providers *run.Object, now float64) *run.Object {
+		if src.gone() { // under the lock, so it sees the config of every write before it
+			providers = run.NewObject() // the file is written back as it stands
+		}
 		old := object(providers.Get(src.Name))
 		if src.account == "" {
 			record := onto(old, prov, now)
