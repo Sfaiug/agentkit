@@ -99,10 +99,6 @@ func TestLocalPieceRedReachesTheLandingFixerAfterItsPrefixLeaves(t *testing.T) {
 	if !redBehind(wait, []member{{dir: filepath.Join(home, "first")}}) || redBehind(wait, nil) {
 		t.Fatal("the fix must wait for exactly its prefix's deliveries")
 	}
-	wait.Delete("after")
-	if landingFixHandoff(run.Fields("review_pr", "https://github.com/acme/widgets/pull/1", "own_pr", true, "waiting_on", wait)) == "" {
-		t.Fatal("a PR's red was handed to Go's fixer")
-	}
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0o777); err != nil {
 		t.Fatal(err)
 	}

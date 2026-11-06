@@ -15,11 +15,18 @@ import (
 )
 
 // A seat's own pull request lands as a task's work does, Python's merge_own_pr: once its review
-// passed it joins the landing line, the line's lander checks the reviewed head on the target's tip,
-// and the run, woken on green, puts the very commit checked on the PR branch and merges the PR at
-// it.  A red, and a PR moved or closed since its review, go back to its writer, Python's
-// fail_pr_landing, which Go does not carry yet: its resume refuses the red (Woken), and its lander
-// leaves the line's pass to Python's, whose wake takes the run to it (LineToPython).
+// passed it joins the landing line, a conflict as it does going to its writer, the line's lander
+// checks the reviewed head on the target's tip, and the run, woken on green, puts the very commit
+// checked on the PR branch and merges the PR at it.
+
+// ownLands is whether Go carries a seat's own PR's landing as its record stands, the one place
+// Go's resume (Woken), its wake (LineToPython) and its landing fix (landingFixHandoff) ask.  A red,
+// the line's check, a required check or a head moved past its review, goes back to its writer,
+// Python's fail_pr_landing, which Go does not carry yet.
+func ownLands(record *run.Object) bool {
+	wait := record.Dict("waiting_on")
+	return record.Truthy("own_pr") && (wait == nil || !wait.Has("fix"))
+}
 
 // land joins the line or lands from it, Python's merge_own_pr as settle_pr_round and review_pr
 // leave it: a run no longer waiting is out of the line and owes no round.
@@ -40,7 +47,7 @@ func (p *ownPull) land(l *loop) error {
 // deliverPull is the delivery of what the line checked, Python's merge_own_pr deliver: only a PR
 // still open on a head this run reviewed or pushed, aimed at the target, takes the checked commit
 // on its branch, and merges at it once its required checks are green.  One GitHub merged already
-// is recorded so.
+// is recorded so; any other waits on its red, as a red required check does.
 func (p *ownPull) deliverPull(l *loop, upstream string) error {
 	current, err := prHead(l.dir, p.url)
 	if err != nil {
@@ -58,7 +65,17 @@ func (p *ownPull) deliverPull(l *loop, upstream string) error {
 	case current.Truthy("merged") && ours:
 		return p.mergedAt(l, sha)
 	case current.Str("state") != "open" || !ours:
-		return notYet("the PR head or target changed, or the PR closed, since review", "a PR's landing fix")
+		// a stale review, `moved` as the lander's verdict on a pushed head: Python's land_from_line
+		// reviews it as a round, never counting a landing red
+		const changed = "The PR head or target changed, or the PR closed, since review."
+		path := filepath.Join(l.dir, "pr-changed.log")
+		if err := os.WriteFile(path, []byte(changed+"\n"), 0o666); err != nil {
+			return err
+		}
+		return l.save(func(record *run.Object) {
+			record.Set("review_stale", true)
+			record.Dict("waiting_on").Set("fix", run.Fields("line", changed, "log", path, "moved", true))
+		})
 	}
 	pinned, err := p.git().Must("rev-parse", "HEAD")
 	if err != nil {
@@ -116,10 +133,10 @@ func (l *loop) handToWriter() error {
 }
 
 // LineToPython is whether a pass of the line is Python's lander's, decided before anything is
-// written: a seat's own PR waits in it on a red, which only Python's wake takes to its writer.
+// written: a seat's own PR waits in it on a landing Go does not carry, which Python's wake takes.
 func LineToPython(name string) bool {
 	return slices.ContainsFunc(lineMembers(name), func(m member) bool {
-		return m.record.Truthy("own_pr") && m.record.Str("state") == "waiting" && m.record.Dict("waiting_on").Has("fix")
+		return m.record.Truthy("own_pr") && m.record.Str("state") == "waiting" && !ownLands(m.record)
 	})
 }
 
