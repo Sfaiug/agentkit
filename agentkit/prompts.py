@@ -514,8 +514,10 @@ def earlier_sites(lp, head, since):
 
 def replay_findings(lp, rows, head):
     """Each earlier `--run` finding proven again on `head`: (the row, its evidence now, whether
-    it blocks).  A failing proof blocks whatever the reviewer hands in; one that cannot run or
-    finish is a note, as in the first round."""
+    it blocks).  A proof failing as it was proven, with the same exit code, blocks whatever the
+    reviewer hands in; one that cannot run or finish is a note, as in the first round, and so
+    is one failing otherwise: its own `timeout` on a loaded host ends a proof of exit 1 with
+    124, which shows no defect, while a hang proven with 124 still blocks as it hangs."""
     replayed = []
     if rows:
         lp.round_dir.mkdir(parents=True, exist_ok=True)   # the replay logs come before the turn
@@ -523,23 +525,30 @@ def replay_findings(lp, rows, head):
         command = row["evidence"]["run"]
         now = {"run": command, "commit": head,
                **proof_on(lp, command, lp.round_dir / f"replay-{index}.log", head)}
-        replayed.append((row, now, hand_in.proof_failed(now)))
+        replayed.append((row, now, hand_in.proof_failed(now)
+                         and now["returncode"] == row["evidence"]["returncode"]))
     return replayed
 
 
-def replay_word(now, failing):
-    """How a replayed proof went, for the reviewer and the record."""
-    if now.get("killed") or now["returncode"] < 0:
+def replay_word(row, now, failing):
+    """How `row`'s replayed proof went, for the reviewer and the record."""
+    code = now["returncode"]
+    if now.get("killed") or code < 0:
         return "did not finish; kept as a note"
-    if now["returncode"] in (126, 127):
-        return f"could not run (exit {now['returncode']}); kept as a note"
-    return f"still fails (exit {now['returncode']})" if failing else "fixed (the proof passes now)"
+    if code in (126, 127):
+        return f"could not run (exit {code}); kept as a note"
+    if failing:
+        return f"still fails (exit {code})"
+    if code:
+        proven = row["evidence"]["returncode"]
+        return f"fails with exit {code}, not the exit {proven} it was proven with; kept as a note"
+    return "fixed (the proof passes now)"
 
 
 def replay_section(replayed, left, since):
     """What the reviewer is told of the earlier findings: ak's own replay of the proven ones,
     and the ones it leaves to the reviewer (`left`: each with why), never a question."""
-    lines = [f"- {row['path']}:{row['line']} - {row['what']} - {replay_word(now, failing)}"
+    lines = [f"- {row['path']}:{row['line']} - {row['what']} - {replay_word(row, now, failing)}"
              for row, now, failing in replayed]
     yours = [f"- {row['path']}:{row['line']} - {row['what']} - {why}" for row, why in left]
     return (f"## Earlier findings, re-proven by ak on this commit\n"
@@ -559,8 +568,9 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
     only inside the fix delta, or with a proof that passes on `since`; one handed in again at
     an earlier finding's site upholds it (a dispute the reviewer rejects) and is weighed as
     ever.  ak's own replay of the earlier findings (`replayed`) is weighed with the
-    reviewer's, each where the fix left its line (`placed`): one still failing blocks
-    whether or not the reviewer handed it in again; one fixed or unable to run is a note.
+    reviewer's, each where the fix left its line (`placed`): one still failing as proven blocks
+    whether or not the reviewer handed it in again; one fixed, failing otherwise or unable to
+    run is a note.
     A finding handed in with a quote is a note, in every round and at every line.  A record
     whose kind this changes keeps the one handed in as `handed`."""
     if not any(row["kind"] in ("finding", "follow-up") for row in submitted.records) and not replayed:
@@ -648,7 +658,7 @@ def weigh_review(lp, submitted, head=None, since=None, replayed=()):
                 extra.append({**row, "handed": row["kind"], "kind": "note", "evidence": now,
                               "replayed": "fixed; its proof passes now"
                               if now["returncode"] == 0 and not now.get("killed")
-                              else replay_word(now, failing)})
+                              else replay_word(row, now, failing)})
                 continue
             # the reviewer's own hand-in carrying this finding's very proof at its site, and
             # weighed to block, is this finding upheld, and ak adds no copy beside it;
