@@ -36,9 +36,11 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	}
 	// cron's own PATH holds neither ak nor a harness
 	home := config.UserHome()
-	line := fmt.Sprintf("*/3 * * * * PATH=%s:%s:/usr/local/bin:/usr/bin:/bin %s watch >>%s 2>&1 %s",
-		filepath.Join(home, ".local", "bin"), filepath.Join(home, ".npm-global", "bin"),
-		config.Resolve(executable), filepath.Join(config.Home(), "tmp", "watch.log"), cronTag)
+	path := filepath.Join(home, ".local", "bin") + ":" + filepath.Join(home, ".npm-global", "bin") +
+		":/usr/local/bin:/usr/bin:/bin"
+	line := fmt.Sprintf("*/3 * * * * PATH=%s %s watch >>%s 2>&1 %s", cronWord(path),
+		cronWord(config.Resolve(executable)), cronWord(filepath.Join(config.Home(), "tmp", "watch.log")),
+		cronTag)
 	// what a failing `crontab -l` printed counts too: an account with no table yet has none
 	listed, err := exec.Command("crontab", "-l").Output()
 	if errors.Is(err, exec.ErrNotFound) {
@@ -64,4 +66,11 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 		fmt.Fprintln(out, "server: ak watch runs every three minutes from cron")
 	}
 	return nil
+}
+
+// cronWord is text as one single-quoted word to the sh cron hands the line to, each % stepping
+// out of the quotes as \%: cron reads a backslash and the next character as a pair, makes \% a %
+// and ends the command at any other %, so no backslash of the text's comes right before it.
+func cronWord(text string) string {
+	return "'" + strings.NewReplacer("'", `'\''`, "%", `'\%'`).Replace(text) + "'"
 }
