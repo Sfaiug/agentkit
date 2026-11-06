@@ -58,6 +58,18 @@ func TestOwnerSaidIsTheOwnersWordsInTheSeatsConversation(t *testing.T) {
 	if err != nil || !slices.Equal(said, want) {
 		t.Fatalf("%v, %v, want %v", said, err, want)
 	}
+	// receipts that cannot be read say nothing of whose a line is: an error where it is asked
+	// strictly, none of the owner's otherwise
+	receipts := filepath.Join(state, "input-acme.jsonl")
+	if os.Remove(receipts) != nil || os.Mkdir(receipts, 0o700) != nil {
+		t.Fatal(receipts)
+	}
+	if _, messages, err := OwnerMessages("acme"); err == nil || errors.Is(err, ErrUnread) || messages != nil {
+		t.Errorf("unreadable receipts: %v, %v", messages, err)
+	}
+	if said, err := OwnerSaid("acme"); said != nil || err != nil {
+		t.Errorf("unreadable receipts: %v, %v", said, err)
+	}
 
 	if said, err := OwnerSaid("nobody"); said != nil || err != nil {
 		t.Errorf("a seat with no record: %v, %v", said, err)

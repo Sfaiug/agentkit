@@ -1,10 +1,7 @@
 package harness
 
 import (
-	"bufio"
 	"fmt"
-	"io"
-	"os"
 	"slices"
 	"strings"
 
@@ -38,32 +35,16 @@ func Handover(name string, record map[string]any) (string, bool) {
 }
 
 func handedMessages(path, model string, read func(*run.Object) (string, string)) (string, bool) {
-	file, err := os.Open(path)
-	if os.IsNotExist(err) {
-		return "", true
-	}
-	if err != nil {
-		return "", false
-	}
-	defer file.Close()
 	var text strings.Builder
-	reader := bufio.NewReader(file)
-	for {
-		line, err := reader.ReadBytes('\n')
-		value, _ := run.DecodeShown(line)
-		if entry, ok := value.(*run.Object); ok {
-			who, said := read(entry)
-			if said != "" {
-				if who != "user" {
-					who = model
-				}
-				fmt.Fprintf(&text, "**%s:** %s\n\n", who, said)
+	err := Entries(path, func(entry *run.Object) {
+		if who, said := read(entry); said != "" {
+			if who != "user" {
+				who = model
 			}
+			fmt.Fprintf(&text, "**%s:** %s\n\n", who, said)
 		}
-		if err != nil {
-			return text.String(), err == io.EOF
-		}
-	}
+	})
+	return text.String(), err == nil
 }
 
 func handedText(content any, kinds ...string) string {

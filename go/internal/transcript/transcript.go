@@ -12,7 +12,6 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -210,20 +209,6 @@ func words(item *run.Object, paths []string) string {
 		}
 	}
 	return strings.Join(said, "\n")
-}
-
-// moment is a time in Unix seconds, a number or an RFC 3339 time with its zone (harness.moment);
-// 0 for anything else.
-func moment(value any) float64 {
-	if text, ok := value.(string); ok {
-		stamp, err := time.Parse(time.RFC3339Nano, text)
-		if err != nil {
-			return 0
-		}
-		return float64(stamp.UnixNano()) / 1e9
-	}
-	seconds, _ := run.Num(value)
-	return seconds
 }
 
 // newest is each JSON object the file holds a line, its last line first, read back in growing
