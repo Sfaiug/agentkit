@@ -15,7 +15,8 @@ import (
 
 var readingModels sync.Mutex // closing and reopening the page shares the boards' reader
 
-// title is the name `c` gives this page; a row's why, which it opens, carries it too.
+// title is the name `c` gives this page; a row's why, which it opens, carries it too.  False
+// where Python ak takes the page over, having written nothing.
 func menuModels(session, title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	type reading struct {
 		found *matrix.Matrix
@@ -145,6 +146,8 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			} else {
 				pointing = false
 			}
+		case key.Name == "char" && key.Char == "p":
+			return false // your companies' model list, Python's to draw
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {
