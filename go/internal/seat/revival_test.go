@@ -229,6 +229,7 @@ func TestOwedLinesHandOverLiveForeignOrPartlyTypedLinesAtTheirOwnTurn(t *testing
 
 func TestRevivalLeavesLaterDeathsAndUnsupportedHarnessesToPython(t *testing.T) {
 	home := sandbox(t)
+	write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+gemini)
 	cwd := filepath.Join(home, "work", "acme")
 	if err := os.MkdirAll(cwd, 0o700); err != nil {
 		t.Fatal(err)
@@ -253,7 +254,7 @@ esac
 		{"opus", "claude", "1005", true, true},
 		{"opus", "claude", "1010", false, true},
 		{"opus", "claude", "unreadable", false, true},
-		{"astra", "codex", "1005", false, false},
+		{"gemini", "antigravity", "1005", false, false},
 	} {
 		t.Run(each.own+"/"+each.death, func(t *testing.T) {
 			t.Setenv("DIED", each.death)

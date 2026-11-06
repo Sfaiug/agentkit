@@ -19,10 +19,22 @@ func SeatWords(name string, words, env []string) []string {
 	return words
 }
 
-// HookEvent reads an adapter's payload into the shape the shared seat hook takes; nil is silent.
-func HookEvent(name string, event *run.Object) *run.Object {
-	if hook := plugins[name].hookEvent; hook != nil && event != nil {
-		return hook(event)
+// Serve runs the seat's words on terminal, the seat's own, as its harness runs a seat: those words
+// alone, unless what it runs beside them is the harness's to start and end.  It answers the seat's
+// exit code.
+func Serve(name string, words, env []string, errOut io.Writer, terminal func(words, env []string) int) int {
+	if hook := plugins[name].serve; hook != nil {
+		return hook(words, env, errOut, terminal)
 	}
-	return nil
+	return terminal(words, env)
+}
+
+// HookEvent reads an adapter's payload into the shape the shared seat hook takes; nil is silent,
+// with the hook's exit code where the harness answered the event itself, on out.  refused is why
+// that seat may not ask a question now, "" where it may.
+func HookEvent(name string, event *run.Object, out io.Writer, refused func(seat string) (string, error)) (*run.Object, int) {
+	if hook := plugins[name].hookEvent; hook != nil && event != nil {
+		return hook(event, out, refused)
+	}
+	return nil, 0
 }
