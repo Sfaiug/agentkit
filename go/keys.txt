@@ -192,6 +192,7 @@ test_key_new_code_leaves_the_screen_up
 test_key_new_session_enter_starts
 test_key_no_compaction
 test_key_no_model_screen
+test_key_no_run_is_parked
 test_key_nothing_cut
 test_key_notice_hook
 test_key_notify_dry_run
