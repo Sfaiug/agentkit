@@ -7,7 +7,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/plan"
-	"agentkit/internal/tmux"
 )
 
 // Menu reads a frame's seats and runs once, filing projectless records before numbering them:
@@ -39,14 +38,13 @@ func Menu(now time.Time) (Home, bool) {
 		if !each.looked() {
 			continue
 		}
-		pane, exited := harnessScreen(each.Name)
-		found, _ := observed(state, each.Name, each.reader, pane, seconds(now))
-		if exited {
+		taken := each.shot() // the frame's one capture, which Announce publishes from
+		found, _ := observed(state, each.Name, each.reader, taken.pane, seconds(now))
+		if taken.exited {
 			found.stall, found.login = nil, nil
 		}
-		attached, _ := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+each.Name+":", "#{session_attached}")
 		// when one out of usage comes back, and the model it could go on with, are Python's to draw
-		if each.decided(state, found, seconds(now), attached != "" && attached != "0") != nil || each.Word == "out of usage" {
+		if each.decided(state, found, seconds(now), taken.attached) != nil || each.Word == "out of usage" {
 			return Home{}, false
 		}
 	}
