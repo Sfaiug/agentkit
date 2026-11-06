@@ -72,8 +72,8 @@ func Call(dir string, args ...string) (int, string, error) {
 	return code, strings.TrimFunc(out+said, config.Space), err
 }
 
-// call runs gh: its exit code and both its outputs, or why it never answered.
-func call(dir string, args []string) (int, string, string, string, error) {
+// ask runs gh once: its exit code and both its outputs, or why it never answered.
+func ask(dir string, args []string) (int, string, string, string, error) {
 	env, err := config.ChildEnv()
 	if err != nil {
 		return 0, "", "", "", ErrPython
