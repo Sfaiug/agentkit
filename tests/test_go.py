@@ -64,21 +64,28 @@ def failing(events):
 
 
 def step(part, gofmt, out, **judge):
-    """The run of the step `part` names, `fmt`, `vet <platform>` or `build <platform>`, None
-    where it names none: on that platform wherever this runs, as a narrowing step may give a
-    part on another host than the one that named it."""
+    """As tested() a test's, the failing parts of the step `part` names, `fmt`, `vet <platform>`
+    or `build <platform>`, and what it printed; None where it names none: on that platform
+    wherever this runs, as a narrowing step may give a part on another host than the one that
+    named it."""
     if part == "fmt":
         # the module's own files, as `go fmt ./...` reads them: never a vendored module's
         own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
                if path.relative_to(GO).parts[0] != "vendor"]
-        return run(gofmt, "-l", *own)
-    named = re.fullmatch(r"(vet|build) (\w+)/(\w+)", part)
-    if not named:
+        done = run(gofmt, "-l", *own)
+        # exiting 0, it names the files `go fmt ./...` would format
+        found = done.stdout
+    elif named := re.fullmatch(r"(vet|build) (\w+)/(\w+)", part):
+        what, system, arch = named.groups()
+        # Vetted tests and all; built as the one program Go's ak ships.
+        target = ("./...",) if what == "vet" else ("-o", os.path.join(out, system), "./cmd/ak")
+        done = run("go", what, *target, GOOS=system, GOARCH=arch, **judge)
+        # vet's `-json`, a caller's GOFLAGS may ask, exits 0 printing an object a package, `{}`
+        # where it finds nothing; what a build prints passing only informs (`-gcflags=-m`).
+        found = what == "vet" and set(done.stdout.split()) - {"{}"}
+    else:
         return None
-    what, system, arch = named.groups()
-    # Vetted tests and all; built as the one program Go's ak ships.
-    target = ("./...",) if what == "vet" else ("-o", os.path.join(out, system), "./cmd/ak")
-    return run("go", what, *target, GOOS=system, GOARCH=arch, **judge)
+    return [part] if done.returncode or found else [], done.stdout + done.stderr
 
 
 def tested(part, **env):
@@ -114,10 +121,12 @@ class Go(unittest.TestCase):
         release = re.search(r"^toolchain (\S+)$", (GO / "go.mod").read_text(), re.M)
         self.assertTrue(release, "go/go.mod names no toolchain: the Go release that judges go/")
         judge = {"GOTOOLCHAIN": release[1]}
-        found = run("go", "env", "GOROOT", "GOOS", "GOARCH", **judge)
+        # JSON, the one format go env keeps whatever the caller's GOFLAGS (`-json`) ask.
+        found = run("go", "env", "-json", "GOROOT", "GOOS", "GOARCH", **judge)
         self.assertEqual(found.returncode, 0, f"go env {judge}\n{found.stdout}{found.stderr}")
-        root, system, arch = found.stdout.splitlines()
-        gofmt = Path(root, "bin", "gofmt")
+        goenv = json.loads(found.stdout)
+        gofmt = Path(goenv["GOROOT"], "bin", "gofmt")
+        host = f"{goenv['GOOS']}/{goenv['GOARCH']}"
         failed, shown = [], []
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
             # Vetted for each platform, tests and all, before any test runs: a test file calling
@@ -126,16 +135,9 @@ class Go(unittest.TestCase):
             # it.  Every part runs whatever one before it did: a re-run of the failing ones alone
             # passes this file only where every other part has passed.
             for part in sys.argv[1:] or dict.fromkeys(
-                    ["fmt", f"vet {system}/{arch}", *(f"vet {name}" for name in PLATFORMS),
+                    ["fmt", f"vet {host}", *(f"vet {name}" for name in PLATFORMS),
                      "./...", *(f"build {name}" for name in PLATFORMS)]):
-                done = step(part, gofmt, out, **judge)
-                if done:
-                    # A step passes exiting 0 with nothing on its stdout, where `gofmt -l` names
-                    # the files `go fmt ./...` would format.
-                    names = [part] if done.returncode or done.stdout else []
-                    printed = done.stdout + done.stderr
-                else:
-                    names, printed = tested(part, **judge)
+                names, printed = step(part, gofmt, out, **judge) or tested(part, **judge)
                 if names:
                     failed += names
                     shown.append(f"--- {' '.join(names)}\n{printed}")
