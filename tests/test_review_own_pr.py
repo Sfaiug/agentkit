@@ -205,7 +205,7 @@ class OwnPr(unittest.TestCase):
                 self.assertEqual(state["own_pr"], own)
                 self.assertEqual(len(told), 1)
                 self.assertEqual("by another author" in told[0], not own)
-                self.assertEqual("suite once at landing" in told[0], own)
+                self.assertEqual("checks marked deferred" in told[0], own)
 
     def test_own_pr_pass_joins_the_line_without_inbox(self):
         run_dir = self.launch_dir("20260927-0002-own-merge")

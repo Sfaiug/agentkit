@@ -15,91 +15,53 @@ from pathlib import Path
 from . import box, command_help, config, gitcall, hand_in, host, machine_turn, record
 from .harness import load as harness_plugin
 
-# A worker session is not a seat: `ak notify` is suppressed there.
-NO_NOTIFY = ("[checked by ak: tests/test_notify_rule.py] ak suppresses `ak notify` in worker sessions.\n"
-             "[worker judgement] Anything you would report or ask goes into your `## Summary`.")
-FIX_OR_DISPUTE = ('[worker judgement] You may dispute a finding instead of changing code: use '
-                  '`ak hand-in dispute path:line "why it is wrong" --run COMMAND` or `--quote LINES`.\n'
-                  "[checked by ak: tests/test_dispute_hand_in.py] ak refuses disputes outside the "
-                  "handed blocking findings, commands that do not exit 0 and absent quotes.\n"
-                  "[checked by ak: tests/test_fixer_done_waits_for_its_proofs.py] ak refuses done "
-                  "while an undisputed earlier proof still fails; proofs unable to run or finish are notes.\n"
-                  "[worker judgement] Fix every undisputed finding in {work}, and list the sites "
-                  "you changed in your summary.")
+# Each role's rules hold only what a worker cannot learn as it acts: a rule ak enforces with a
+# refusal that names the fix teaches itself when it bites, and has no line.  A judgement says
+# why no check holds it, which names the check to build next.
 ONE_PASS = ("[worker judgement] Report every finding you can establish in this one pass, grouped by "
-            "pattern with every site listed.\n"
-            "[checked by ak: tests/test_dispute_hand_in.py] ak supplies each dispute beside its finding "
-            "with ak's proof output; findings handed in again are weighed normally.\n"
-            "[checked by ak: tests/test_key_disputes_are_answered.py] ak requires an answer to every dispute: uphold with "
-            '`ak hand-in finding`, or concede with `ak hand-in concede path:line "why"`; done waits for every answer.\n'
-            "[checked by ak: tests/test_blocking_gate.py] ak re-proves each earlier --run finding on the "
-            "commit a later round reviews and lists the disputed ones for you: one still "
-            "failing blocks whatever is handed in, and a new finding blocks only inside the fix delta, "
-            "or with a proof that passes on the commit the last review judged.")
+            "pattern with every site listed, because no check can know what a review left out.")
 # A task that cannot be done as written is the task's defect, not the worker's: handing it in ends
 # the run there, and the orchestrator that wrote the task gets the sentence back instead of a
-# reviewer's verdict on work nobody could do.
-BLOCKED = ('[worker judgement] Close every turn with `ak hand-in done`, or `ak hand-in blocked "<why>"` if the task '
-           'cannot be completed as written, or `ak hand-in not-needed "<why>"` if a fix run\'s '
-           "first turn finds the defect gone or already being fixed.\n"
-           "[worker judgement] `blocked` is only for a task that cannot be completed as written; never for a "
-           "transient provider failure, a capacity refusal, or a check the loop runs later such "
-           "as the `# once` suite.\n"
-           "[checked by ak: tests/test_hand_in.py] ak refuses malformed or wrong-role closings "
-           "and records after a closing.\n"
-           "[checked by ak: tests/test_executor_text_ignored.py] ak sends an answer without a closing "
-           "straight to checks and review.")
+# reviewer's verdict on work nobody could do.  A question goes the same way, as the summary
+# reaches nobody who answers it.
+BLOCKED = ("[checked by ak: tests/test_executor_text_ignored.py] ak sends a turn ending without "
+           "`ak hand-in done` straight to checks and review.\n"
+           '[worker judgement] Use `ak hand-in blocked "<why>"` only for a task that cannot be done as '
+           "written or a question only its author can answer, because no check tells a defective "
+           "task from a hard one.")
 # The reviewer supplies evidence; the loop weighs it outside the reviewer's editable copy.
 GATE = ("[worker judgement] Hand in a **blocking** finding only for what a command can show "
         "fails: a correctness defect in the task's outcome, asked-for work missing among them, a "
-        "safety or data-loss risk, or a check the executor weakened or skipped. A check line the "
-        "change removed or weakened is proven like any defect, at its changed line: "
-        "`grep -qF '<the line>' tests/x.py` fails while the line is gone and passes on base. "
-        "Complexity the diff adds (a second home for a piece of knowledge, a special case inside "
-        "general code, work pushed onto callers that the module could do), scope and naming are "
-        "what a note is for. Use "
-        "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` "
-        "for a blocking finding and `--quote 'lines from that file'` for a note; use only files on the branch.\n"
-        "[checked by ak: tests/test_key_a_quote_never_blocks.py] ak weighs a finding handed in "
-        "with `--quote` as a note, in every round and at every line: it never blocks.\n"
-        "[checked by ak: tests/test_hand_in.py] ak refuses malformed or evidence-free findings, "
-        "absent quotes, missing files, invalid lines, finding commands that exit 0, "
-        "follow-ups without `--before` that quote or whose command exits 0, and follow-up commands "
-        "of more than one line, with backticks or naming this checkout's path.\n"
-        "[checked by ak: tests/test_blocking_gate.py] ak keeps a site an earlier finding is listed "
-        "at as its own after a fix deleted its line or file: hand in again there with `--run`; a "
-        "quote there is refused.\n"
-        "[checked by ak: tests/test_proof_weighed.py] ak replays finding commands on a clean "
-        "checkout of the commit and on the base with changed tests overlaid (scratch: workspace only). "
-        "Passing or unfinished proofs and exits 126/127 become notes; proven changed-line defects or regressions "
-        "that pass on base block; pre-existing defects elsewhere become follow-ups only if the proof runs and fails on base.\n"
-        "[worker judgement] **Follow-ups** never block and are fixed after the merge, by a run of "
-        "their own where one takes them: a defect of a kind that would fail a round, with that same "
-        "evidence, that existed before this task (prove that with `--before 'base or "
-        "ancestor commit, or verbatim lines from the named file at base'`), or a smaller defect of "
-        "this change that need not hold it (no `--before`; its command must fail now). Hand them in with "
-        "`ak hand-in follow-up path:line \"what\" \"why it matters\" --run 'command'` (the command "
-        "becomes the check of a line in the owning session's plan and the done-when of the run that "
-        "fixes it). Omit everything else everywhere.\n"
-        "[checked by ak: tests/test_followup_runs.py] ak re-runs the command on base and checks --before there; "
-        "a proof that cannot run or does not fail, or a --before absent from base, drops the follow-up into Notes.\n"
-        "[checked by ak: tests/test_followups_never_block.py] ak re-runs a follow-up without --before "
-        "on this commit, where it must fail, and on base, where failing makes it one from before the task.\n"
-        "[checked by ak: tests/test_followup_rule.py] ak keeps every round's follow-ups, a failed round's included.\n"
-        "[checked by ak: tests/test_followup_lines.py] ak holds back no done or turn of the owning "
-        "session for a follow-up's line in its plan that a run takes after the merge.\n"
-        "[checked by ak: tests/test_followup_runs.py] ak starts a fix run for each follow-up after the "
-        "merge where the session marks an executor, its command the run's check, and defers the line only "
-        "once a run has it; a line no run takes is the session's own and holds its done.\n"
-        "[worker judgement] Finish with `ak hand-in done`.\n"
-        "[checked by ak: tests/test_hand_in.py] ak derives FAIL from any finding that stays blocking, "
-        "otherwise PASS, however long the follow-ups list is; follow-ups are never a reason to fail.")
+        "safety or data-loss risk, or a check the executor weakened or skipped that the task did "
+        "not ask for. A check line the change removed or weakened is proven like any defect, at "
+        "its changed line: `grep -qF '<the line>' tests/x.py` fails while the line is gone and "
+        "passes on base. Complexity the diff adds (a second home for a piece of knowledge, a "
+        "special case inside general code, work pushed onto callers that the module could do), "
+        "scope and naming are what a note is for, because only judgement weighs what a defect costs.\n"
+        "[checked by ak: tests/test_key_a_quote_never_blocks.py] ak weighs "
+        "`ak hand-in finding path:line \"what\" \"why it matters\" --run 'command'` for a blocking "
+        "finding and `--quote 'lines from that file'` for a note: a quote never blocks.\n"
+        "[checked by ak: tests/test_proof_weighed.py] ak replays each finding's command on a clean "
+        "checkout of the commit and on the base with changed tests overlaid (scratch: workspace "
+        "only): one that passes, hangs or cannot run is a note, and one failing on base too blocks "
+        "only at a changed line and is a follow-up elsewhere.\n"
+        "[worker judgement] **Follow-ups** never block and are fixed after the merge: a defect of a "
+        "kind that would fail a round, with that same evidence, that existed before this task "
+        "(prove that with `--before 'base or ancestor commit, or verbatim lines from the named file "
+        "at base'`), or a smaller defect of this change that need not hold it. Hand them in with "
+        "`ak hand-in follow-up path:line \"what\" \"why it matters\" --run 'command'`, because no "
+        "check can tell a defect that need not hold the change from one that must.\n"
+        "[checked by ak: tests/test_followup_runs.py] ak re-runs each `--before` proof on base and "
+        "drops into Notes a follow-up it does not prove.\n"
+        "[checked by ak: tests/test_hand_in.py] ak derives the verdict at `ak hand-in done`: FAIL "
+        "from any finding that stays blocking, otherwise PASS, however long the follow-ups list is.")
 # A repository whose AGENTS.md says `users: real` ships a new feature hidden until the owner
 # turns it on for everyone, so its reviewer holds one more finding blocking.
 REAL_USERS = ("[worker judgement] This repository has real users: new user-visible behaviour (something a user can "
               "do that they could not before; an improvement to an existing feature is not) that "
               "is not behind the project's feature switch, or is on for anyone but the owner by "
-              "default, is also a blocking finding.")
+              "default, is also a blocking finding, because no check can tell new behaviour from "
+              "an improvement.")
 # The commit a turn's `users:` line is read at, handed in the turn's env like the findings
 # path and taken out of it before the harness starts.
 BASE_ENV = "AK_USERS_BASE"
@@ -128,21 +90,14 @@ LEAST = ("[worker judgement] Minimum change that solves the task completely; the
          "scratch when that is best. Make it beautifully simple, intuitive and natural, so nobody "
          "needs a manual. Make it as if the system had been designed for it: each piece of knowledge "
          "in one home, in code, tests and comments rather than prose; no special case inside general "
-         "code; nothing callers must do that a module could; and what the change makes dead deleted.")
-COMMITS = ("[checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.")
-PROCESSES = ("[checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running "
-             "when your turn ends.")
-CHECKS = ("[checked by ak: tests/test_key_done_waits_for_the_checks.py] ak refuses done while "
-          "per-round done-when fails; rechecks after turns.")
+         "code; nothing callers must do that a module could; and what the change makes dead deleted, "
+         "because no check sees a simpler change.")
 # 24 Oct 2026: an ATLAS builder ran its repository's whole suite, 7,417 tests, in one 3-hour
 # command on a host already swapping; the gate runs that suite once, at landing.
-SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it: "
-         "ak runs it at landing. Run the tests your change touches; if you need suite-wide data, "
-         "say so in your summary.")
-
-
-LINES = ("[checked by ak: tests/test_key_done_counts_the_lines.py] ak refuses done while the "
-         "change adds more lines than its first review takes.")
+SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a large share of it, "
+         "because no check knows which tests a change needs.")
+SUMMARY = ("[worker judgement] Finish with a `## Summary`: what changed, how you verified it, "
+           "open issues, because no check yet asks again for one.")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -306,63 +261,25 @@ def said_nothing(out_dir):
 PREAMBLES = {
     "executor": (
         "You are the executor.\n"
-        "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"
-        f"{COMMITS}\n{CHECKS}\n{SUITE}\n{LINES}\n{PROCESSES}\n{LEAST}\n"
-        "[worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.\n"
-        f"{NO_NOTIFY}\n{BLOCKED}"),
+        "[checked by ak: tests/test_key_worker_box_credentials.py] ak hides every credential "
+        f"from a turn: only ak pushes.\n{SUITE}\n{LEAST}\n{SUMMARY}\n{BLOCKED}"),
     "reviewer": (
-        f"You are the reviewer.\n{REVIEW_COPY}\n{PROCESSES}\n"
-        "[checked by ak: tests/test_reviewer_judges_the_diff.py] ak ran every done-when "
-        "command on exactly the commit under review; the complete output is below under "
-        "`## Done-when output`, except the commands marked deferred, which run once "
-        "at landing on the commit to be merged.\n"
+        f"You are the reviewer.\n{REVIEW_COPY}\n"
         "[worker judgement] Run whatever is needed to prove or dismiss a finding, except "
-        "done-when commands, the repository's `tests:` suite, and checks marked deferred; probes "
-        "must leave nothing behind outside a temporary directory.\n"
-        "[worker judgement] Judge the diff against the task and its done-when criteria. "
-        "A check the executor weakened, skipped or deleted is a FAIL unless the task asked for "
-        "exactly that.\n"
-        "[checked by ak: tests/test_suite_in_round.py] ak runs the full `tests:` suite once at landing.\n"
-        "[worker judgement] A task whose done-when leaves the suite out has weakened no check. "
-        "The deferred checks' absence from your input is by design and is never a finding.\n"
+        "done-when commands, the repository's `tests:` suite, and checks marked deferred, "
+        "because no check yet stops a review that runs them.\n"
         f"{GATE}\n{ONE_PASS}"),
-    "fixer": (
-        "You are the executor, continuing.\n"
-        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SUITE}\n{PROCESSES}\n{LEAST}\n"
-        "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
-        f"{NO_NOTIFY}\n{BLOCKED}"),
-    # somebody else's PR: no executor ran, so the diff is judged against the repository itself
-    "reviewer-pr": (
-        f"You are the reviewer of a pull request by another author.\n{REVIEW_COPY}\n{PROCESSES}\n"
-        "[worker judgement] Run tests/commands as needed; probes must leave nothing behind "
-        "outside a temporary directory. Judge the diff against what the repository itself says "
-        "-- its AGENTS.md, README, tests and conventions -- and against the intent the PR states. "
-        f"\n{GATE}\n{ONE_PASS}"),
-    # the same three roles for a run with no repository: nothing to commit, and the reviewer is
-    # given the workspace rather than a diff
-    "executor-scratch": (
-        "You are the executor.\n"
-        "[worker judgement] Work only inside {workspace}. It is a scratch workspace, not a git "
-        "repository: there is nothing to commit and nothing to push, and every deliverable is a "
-        f"file you leave there.\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
-        "[worker judgement] Finish with a `## Summary` section: what you produced, "
-        f"how you verified it, open issues.\n{NO_NOTIFY}\n{BLOCKED}"),
-    "fixer-scratch": (
-        "You are the executor, continuing.\n"
-        "[worker judgement] Work only inside {workspace}; its files are the deliverable.\n"
-        f"{FIX_OR_DISPUTE.format(work='the workspace')}\n{CHECKS}\n{PROCESSES}\n{LEAST}\n"
-        "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
-        f"{NO_NOTIFY}\n{BLOCKED}"),
+    "fixer": f"You are the executor, continuing.\n{SUITE}\n{LEAST}\n{SUMMARY}\n{BLOCKED}",
+    "reviewer-pr": f"You are the reviewer of a pull request by another author.\n{REVIEW_COPY}\n{GATE}\n{ONE_PASS}",
+    # the same three roles for a run with no repository, which the turn's context describes
+    "executor-scratch": f"You are the executor.\n{LEAST}\n{SUMMARY}\n{BLOCKED}",
+    "fixer-scratch": f"You are the executor, continuing.\n{LEAST}\n{SUMMARY}\n{BLOCKED}",
     "reviewer-scratch": (
-        f"You are the reviewer.\n{PROCESSES}\n"
-        "[worker judgement] Read-only: do not edit files under review.\n"
-        "[checked by ak: tests/test_reviewer_judges_the_diff.py] ak ran every done-when "
-        "command on exactly the workspace under review; the complete output is below under "
-        "`## Done-when output`.\n"
+        "You are the reviewer.\n"
+        "[worker judgement] Read-only: do not edit files under review, because no box yet holds "
+        "a scratch workspace read-only for its review.\n"
         "[worker judgement] Run whatever is needed to prove or dismiss a finding, except "
-        "done-when commands; probes "
-        "must leave nothing behind outside a temporary directory.\n"
-        "[worker judgement] Judge the contents of {workspace} against the task and its done-when criteria.\n"
+        "done-when commands, because no check yet stops a review that runs them.\n"
         f"{GATE}\n{ONE_PASS}"),
 }
 
@@ -879,7 +796,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None),
                                        checks=json.loads(turn_env.pop(hand_in.CHECKS_ENV, "null")))
     base = turn_env.pop(BASE_ENV, None)
-    preamble = PREAMBLES[role].format(workspace=workspace)
+    preamble = PREAMBLES[role]
     if GATE in preamble:
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")

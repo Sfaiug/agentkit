@@ -102,7 +102,7 @@ class DeferredChecks(unittest.TestCase):
         self.assertNotIn("Their absence here is by design", prompt)
 
     def test_reviewer_preambles_explain_deferred_commands(self):
-        clause = "except the commands marked deferred, which run once at landing"
+        clause = "the repository's `tests:` suite, and checks marked deferred"
         self.assertIn(clause, worker.PREAMBLES["reviewer"])
         self.assertNotIn("landing", worker.PREAMBLES["reviewer-scratch"])
         self.assertNotIn("deferred", worker.PREAMBLES["reviewer-scratch"])

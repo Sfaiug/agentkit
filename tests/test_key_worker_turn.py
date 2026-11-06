@@ -66,7 +66,6 @@ class WorkerTurn(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         prompt = (out / "prompt.md").read_text()
         self.assertTrue(prompt.startswith("You are the executor.\n"), prompt)
-        self.assertIn(f"Work only inside {self.ws}", prompt.splitlines()[1])
         self.assertTrue(prompt.endswith(f"\n\n{TASK}"), prompt)
 
     def test_the_turn_hands_in_to_its_out_directory_as_nobody_s_seat(self):
