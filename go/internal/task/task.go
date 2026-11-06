@@ -36,7 +36,8 @@ var taskKeys = []string{"after", "base", "done_when_minutes", "files", "from", "
 
 // Read is a task's front matter, each key as it last says it, and its done-when commands, or
 // the sentence ak refuses the file with: a key it does not read, a line that is no
-// `key: value`, front matter left open, or no command in a bash block under `## Done when`.
+// `key: value`, front matter left open, `## Decided` lines it cannot launch with (Decided), or
+// no command in a bash block under `## Done when`.
 func Read(path string) (map[string]string, []string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -44,6 +45,9 @@ func Read(path string) (map[string]string, []string, error) {
 	}
 	meta, body, err := frontMatter(path, Text(data))
 	if err != nil {
+		return nil, nil, err
+	}
+	if _, err := Decided(body); err != nil {
 		return nil, nil, err
 	}
 	section := doneWhen.FindStringSubmatch(body)

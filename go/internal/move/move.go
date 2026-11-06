@@ -51,7 +51,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	// a Ctrl-C still takes the token back
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	code, err := copyHome(ctx, args[0], pure(config.UserHome()), out, errOut)
+	code, err := copyHome(ctx, args[0], config.Pure(config.UserHome()), out, errOut)
 	if ctx.Err() != nil {
 		fmt.Fprintln(errOut, "\nak move: interrupted")
 		return 130
@@ -180,7 +180,7 @@ func links(facts []string) []string {
 func parts(home string) []string {
 	var found []string
 	for _, path := range asked {
-		path = pure(home + "/" + path)
+		path = config.Pure(strings.TrimSuffix(home, "/") + "/" + path) // Path.home() / path, the root's too
 		found = append(found, path)
 		for i, char := range path {
 			if char == '/' {
@@ -190,14 +190,4 @@ func parts(home string) []string {
 	}
 	slices.Sort(found)
 	return slices.Compact(found)
-}
-
-// pure is a path as pathlib prints it: nothing resolved and `..` kept, so the home here is named
-// as HOME names it; only empty names and `.` go.
-func pure(path string) string {
-	names := slices.DeleteFunc(strings.Split(path, "/"), func(name string) bool { return name == "" || name == "." })
-	if strings.HasPrefix(path, "/") {
-		return "/" + strings.Join(names, "/")
-	}
-	return strings.Join(names, "/")
 }

@@ -15,8 +15,16 @@ var (
 // Section is the text under a task body's first `## <heading>`, Python's goal_text: its
 // indentation and examples kept, as a heading inside a fenced block is the section's text.
 func Section(body, heading string) string {
+	if found := sections(body, heading); len(found) > 0 {
+		return found[0]
+	}
+	return ""
+}
+
+// sections is the text under each `## <heading>` of a task body, in order, Python's _sections.
+func sections(body, heading string) []string {
 	named := regexp.MustCompile(`(?i)^##[ \t]+` + regexp.QuoteMeta(heading) + `[ \t]*$`)
-	var lines []string
+	var all, lines []string
 	found, fence := false, ""
 	for _, line := range config.SplitLines(body) {
 		marker := fenceMark.FindStringSubmatch(line)
@@ -29,7 +37,7 @@ func Section(body, heading string) string {
 			fence = marker[1]
 		case anySecond.MatchString(line):
 			if found {
-				return strings.Trim(strings.Join(lines, "\n"), "\n")
+				all = append(all, strings.Trim(strings.Join(lines, "\n"), "\n"))
 			}
 			found, lines = named.MatchString(line), nil
 			continue
@@ -38,5 +46,8 @@ func Section(body, heading string) string {
 			lines = append(lines, line)
 		}
 	}
-	return strings.Trim(strings.Join(lines, "\n"), "\n")
+	if found {
+		all = append(all, strings.Trim(strings.Join(lines, "\n"), "\n"))
+	}
+	return all
 }

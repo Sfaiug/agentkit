@@ -188,7 +188,7 @@ func keptAsked(name string, kept []*run.Object) error {
 // lookKinds are what a seat its panes run on may hold beside `kinds`: what the ladder and its hooks
 // read, or its look writes through a temporary beside it, or what no word hangs on.
 var lookKinds = map[string][]string{"session": {"tmp"}, "seat": {"tmp"}, "hook": {"json", "tmp"}, ".hook": {"lock"}, "notify": {"json", "tmp"},
-	"card": {"json", "tmp"}, "stop": {"json"}, "input": {"jsonl"}, "rulebook": {"md"}, "held": {"md"}, "change": {"md"}, "rules": {"md"},
+	"card": {"json", "tmp"}, "input": {"jsonl"}, "rulebook": {"md"}, "held": {"md"}, "change": {"md"}, "rules": {"md"},
 	"title": {"json"}, "live": {"txt"}}
 
 // looksKind is whether a live seat's file of that kind is one lookKinds names, or its prompt hook's

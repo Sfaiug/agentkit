@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"agentkit/internal/config"
 )
@@ -28,7 +29,9 @@ func RepositoryID(cwd string) string {
 		common = config.Resolve(common)
 		main = filepath.Dir(common)
 		if common == config.Resolve(filepath.Join(config.Home(), "agentkit.git")) {
-			main = filepath.Join(config.UserHome(), "agentkit")
+			// Python's Path.home() / "agentkit": ~ as spelled, a `..` in it kept, where Join drops it
+			sep := string(filepath.Separator)
+			main = config.Pure(strings.TrimRight(config.UserHome(), sep) + sep + "agentkit")
 		}
 	}
 	sum := sha256.Sum256([]byte(main))

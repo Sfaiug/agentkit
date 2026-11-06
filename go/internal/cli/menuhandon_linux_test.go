@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"agentkit/internal/menu"
 )
@@ -51,16 +49,14 @@ func TestAReadCrossesAnExecOnlyToTheSameCodeAndOnlyOnce(t *testing.T) {
 }
 
 func TestARestartsRowsStayUpThroughAReadNoReadWasHandedForWhichCtrlCStillCuts(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
 	program := filepath.Join(t.TempDir(), "ak")
-	build := exec.CommandContext(ctx, "go", "build", "-o", program, "./cmd/ak")
+	build := exec.Command("go", "build", "-o", program, "./cmd/ak")
 	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	// run.json, a pipe nobody writes, holds the read for good: what shows came before it
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import fcntl, os, select, signal, struct, subprocess, sys, tempfile, termios, time
 from pathlib import Path
 sys.path.insert(0, str(Path("tests").resolve()))

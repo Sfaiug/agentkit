@@ -7,7 +7,6 @@ import (
 	"os"
 
 	"agentkit/internal/config"
-	"agentkit/internal/host"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -126,24 +125,4 @@ func syncSeen(state, current *run.Object) {
 			stalls.Set(name, entry)
 		}
 	}
-}
-
-// bootBaseline records this boot, written at once as Python's resume_after_boot does: with no
-// seat there is nobody to resume.
-func bootBaseline() error {
-	boot := host.BootID()
-	if boot == "" {
-		return nil
-	}
-	return locked(func() error {
-		state, ok := loadState()
-		if !ok {
-			return errUnwritable
-		}
-		if state.Get("boot_id") == boot {
-			return nil
-		}
-		state.Set("boot_id", boot)
-		return writeState(state)
-	})
 }

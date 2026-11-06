@@ -143,6 +143,16 @@ func TestSchemaRefusals(t *testing.T) {
 	}
 }
 
+// Pure spells a path as PurePosixPath does: empty and `.` names go, `..` stays, and only a
+// leading `//` of exactly two is kept.
+func TestPureKeepsWhatPathlibKeeps(t *testing.T) {
+	for path, want := range map[string]string{"/a/./b/../c//": "/a/b/../c", "//a/b": "//a/b", "///a": "/a", "./": "."} {
+		if got := Pure(path); got != want {
+			t.Errorf("Pure(%q) = %q, want %q", path, got, want)
+		}
+	}
+}
+
 // Resolve follows links name by name as Python's Path.resolve() does: a `..` leaves the link's
 // target, and a link that loops is kept.
 func TestRoundsReadsWhatLoadLeaves(t *testing.T) {
