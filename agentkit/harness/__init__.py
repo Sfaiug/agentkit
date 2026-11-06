@@ -684,9 +684,13 @@ class Harness:
         """Each question the owner answered on its own question card, oldest first, as {at,
         question, choices: [{label, description}], answer}: the answer in the owner's words as
         the harness recorded it, the question and choices in the seat's.  Unless its module
-        reads them, none."""
+        reads them, none; nor one with no answer, or with any part of it not text."""
         hook = self._hook("answers")
-        return list(hook(record, cwd, conversation)) if hook else []
+        return [answer for answer in hook(record, cwd, conversation) if all(
+            isinstance(text, str) for text in (answer["question"], answer["answer"], *(
+                text for choice in answer["choices"]
+                for text in (choice["label"], choice["description"]))))
+            and answer["answer"].strip()] if hook else []
 
     def error(self, record, cwd, conversation):
         """The error the harness recorded as that conversation's last event: the text it showed,

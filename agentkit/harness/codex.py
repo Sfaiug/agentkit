@@ -337,14 +337,14 @@ def user_messages(record, cwd, conversation):
 
 
 def answers(record, cwd, conversation):
-    """Each card reply's answer, beside the title and options its call asked with."""
+    """Each card reply's answer, beside the title and options its call asked with: a call that
+    Codex 0.163 names, and whose options it lists."""
     for kept, replies in messages(record, cwd, conversation):
-        for _, _, asked, answer in replies or ():
-            options = asked.get("options")
-            if (isinstance(asked.get("title"), str) and isinstance(options, list)
-                    and all(isinstance(option, str) for option in options)):
-                yield {"at": kept["at"], "question": asked["title"], "answer": answer,
-                       "choices": [{"label": option, "description": ""} for option in options]}
+        for call, _, asked, answer in replies or ():
+            if isinstance(call, str) and isinstance(asked.get("options"), list):
+                yield {"at": kept["at"], "question": asked.get("title"), "answer": answer,
+                       "choices": [{"label": option, "description": ""}
+                                   for option in asked["options"]]}
 
 
 def messages(record, cwd, conversation):
