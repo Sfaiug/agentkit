@@ -40,12 +40,15 @@ func runClean(args []string, out, errOut io.Writer) int {
 // preflight refuses, recorded as a run in error, or a run preflight passes, which it follows unless
 // told --bg.  Any other launch
 // it leaves to Python before it writes anything.  `--drive` is that run's own process, and
-// `--lander` a landing line's.
+// `--lander` a landing line's, but for a pass that is Python's (loop.LineToPython).
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {
 		return loop.Drive(args[1])
 	}
 	if len(args) == 2 && args[0] == "--lander" {
+		if loop.LineToPython(args[1]) {
+			return notImplemented(errOut, "run")
+		}
 		return loop.CheckLine(args[1], out)
 	}
 	parsed, problem := parse(args, launch.Values, launch.Switches, runFlagsUsage)

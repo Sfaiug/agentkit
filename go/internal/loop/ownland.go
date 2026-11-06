@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"agentkit/internal/gh"
@@ -17,7 +18,8 @@ import (
 // passed it joins the landing line, the line's lander checks the reviewed head on the target's tip,
 // and the run, woken on green, puts the very commit checked on the PR branch and merges the PR at
 // it.  A red, and a PR moved or closed since its review, go back to its writer, Python's
-// fail_pr_landing, where Go's woken run ends: that road is not Go's yet.
+// fail_pr_landing, which Go does not carry yet: its resume refuses the red (Woken), and its lander
+// leaves the line's pass to Python's, whose wake takes the run to it (LineToPython).
 
 // land joins the line or lands from it, Python's merge_own_pr as settle_pr_round and review_pr
 // leave it: a run no longer waiting is out of the line and owes no round.
@@ -111,6 +113,14 @@ func (l *loop) handToWriter() error {
 	}
 	l.executor = record.Str("own_orchestrator")
 	return l.save(func(record *run.Object) { record.Set("executor", l.executor) })
+}
+
+// LineToPython is whether a pass of the line is Python's lander's, decided before anything is
+// written: a seat's own PR waits in it on a red, which only Python's wake takes to its writer.
+func LineToPython(name string) bool {
+	return slices.ContainsFunc(lineMembers(name), func(m member) bool {
+		return m.record.Truthy("own_pr") && m.record.Str("state") == "waiting" && m.record.Dict("waiting_on").Has("fix")
+	})
 }
 
 // pin makes what the checkout holds the commit a review run judges, Python's pin_checkout: what its

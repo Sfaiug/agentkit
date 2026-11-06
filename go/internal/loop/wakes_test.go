@@ -12,10 +12,10 @@ import (
 	"agentkit/internal/run"
 )
 
-// The wake takes each red Go's woken run carries, a seat's own PR's among them, once no run it
-// waits on holds a place in the line, once a pass, and leaves another PR review's and a repair's
-// to Python.  A run whose lock is held, which may be a run started since the line was read, waits
-// for the next wake, never on that lock.
+// The wake takes each red Go's woken run carries once no run it waits on holds a place in the
+// line, once a pass, and leaves a PR review's, a seat's own PR's among them, and a repair's to Python.  A run
+// whose lock is held, which may be a run started since the line was read, waits for the next
+// wake, never on that lock.
 func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -57,7 +57,7 @@ func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 		slices.Sort(names)
 		return names
 	}
-	if got := tried(); !slices.Equal(got, []string{"fix-3", "fix-6"}) {
+	if got := tried(); !slices.Equal(got, []string{"fix-3"}) {
 		t.Fatalf("woke %v, want only the red waiting on no run in the line", got)
 	}
 	held.Close()

@@ -232,6 +232,9 @@ func (l *loop) reviewOwn() (err error) {
 	if landingLine(record) != "" {
 		place := placeOf(record).(*ownPull)
 		l.place, l.workspace = place, place.wt
+		if err := place.settle(l); err != nil {
+			return err
+		}
 		return place.land(l)
 	}
 	for {
