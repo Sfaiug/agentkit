@@ -5,6 +5,8 @@ and sleeps on."""
 from contextlib import redirect_stdout
 import io
 import os
+import resource
+import signal
 import threading
 import time
 import unittest
@@ -95,22 +97,35 @@ class LiveFollower(Sandbox):
         live = record.read_state(config.RUNS / "live")
         self.assertEqual((live["live_at"], live["deployed_at"]), (T0 + 40, T0 + 5))
 
-    def test_a_probe_has_its_own_projects_settings_whichever_merge_started_the_follower(self):
+    def test_each_probe_has_its_own_projects_settings_and_no_other_projects(self):
         config.ENV.mkdir(parents=True, exist_ok=True)
-        (config.ENV / "web.env").write_text("PROBE_CREDENTIAL=web\n")
-        (self.root / "web").mkdir()
-        with patch.dict(os.environ, PROBE_CREDENTIAL="api"):    # as api's merge started it
-            self.assertEqual(PROBE(self.root / "web", "a" * 40, 'printf %s "$PROBE_CREDENTIAL"'),
-                             (True, "web"))
+        (config.ENV / "api.env").write_text("ONLY_API=api\nCREDENTIAL=api\n")
+        (config.ENV / "web.env").write_text("CREDENTIAL=web\n")
+        seen = 'printf %s "${ONLY_API-unset},$CREDENTIAL" > seen'
+        for name in ("api", "web"):
+            (self.root / name).mkdir()
+        # as api's merge, which starts the follower, has its project's settings
+        with patch.dict(os.environ, ONLY_API="api", CREDENTIAL="api"), \
+                patch.object(watch, "health_command", PROBE):
+            self.follow({name: {"repo": str(self.root / name), "health": {"command": seen}}
+                         for name in ("api", "web")})
+        self.assertEqual([(self.root / name / "seen").read_text() for name in ("api", "web")],
+                         ["api,api", "unset,web"])
 
-    def test_a_run_handed_over_by_a_merge_stopped_at_its_write_leaves_the_follower_named(self):
+    def test_a_merge_whose_write_is_cut_short_leaves_the_follower_named(self):
         watch.start_live_probe(config.RUNS / "api")     # names this process the follower
-        with patch.object(os, "pwrite", side_effect=OSError("stopped")):
+        limit, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
+        ignored = signal.signal(signal.SIGXFSZ, signal.SIG_IGN)     # a short write, not death
+        resource.setrlimit(resource.RLIMIT_FSIZE,
+                           ((config.RUNS / ".live.json").stat().st_size + 1, hard))
+        try:
             watch.start_live_probe(config.RUNS / "web")
+        finally:
+            resource.setrlimit(resource.RLIMIT_FSIZE, (limit, hard))
+            signal.signal(signal.SIGXFSZ, ignored)
         lock, held = watch.live_lock()
         os.close(lock)
         self.assertEqual(held["pid"], os.getpid())
-
 
 if __name__ == "__main__":
     unittest.main()

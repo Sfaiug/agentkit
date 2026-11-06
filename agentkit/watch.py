@@ -7437,26 +7437,24 @@ def awaiting_live(state, now=None):
 
 
 def live_lock():
-    """The home's live follower lock, held till closed or its process ends, and what its file
-    says (`live_handed`)."""
+    """The home's live follower lock, held till closed or its process ends, and the follower it
+    names (`live_handed`)."""
     lock = os.open(config.RUNS / ".live.lock", os.O_RDWR | os.O_CREAT, 0o600)
     fcntl.flock(lock, fcntl.LOCK_EX)
-    return lock, live_handed(lock)
+    return lock, live_handed()
 
 
-def live_handed(lock, held=None):
-    """What the held `lock`'s file says, after writing `held` where given: the home's one live
-    follower (`record.process_owner`) and the runs handed to it that it has yet to take
-    ("runs"); {} where it names no process alive."""
+def live_handed(held=None):
+    """What the home's live follower record says, written as `held` first where given and only
+    under `live_lock`: the one follower (`record.process_owner`) and the runs handed to it that
+    it has yet to take ("runs"); {} where it names no process alive.  Written whole
+    (`orch.replace_file`): a writer stopped anywhere leaves it naming the follower it named."""
+    path = config.RUNS / ".live.json"
     if held is not None:
-        # Written over what was there, then cut to it: a writer stopped at any point leaves
-        # the follower named, as handing a run over only lengthens what names it.
-        text = json.dumps(held).encode()
-        os.pwrite(lock, text, 0)
-        os.ftruncate(lock, len(text))
+        orch.replace_file(path, json.dumps(held).encode())
     try:
-        named = json.loads(os.pread(lock, os.fstat(lock).st_size, 0) or b"{}")
-    except ValueError:
+        named = json.loads(path.read_bytes())
+    except (OSError, ValueError):
         return {}
     return named if isinstance(named, dict) and run_record.process_active(named) else {}
 
@@ -7473,10 +7471,10 @@ def start_live_probe(run_dir):
         lock, held = live_lock()
         try:
             if held:
-                live_handed(lock, {**held, "runs": [*held.get("runs", []), run_dir.name]})
+                live_handed({**held, "runs": [*held.get("runs", []), run_dir.name]})
                 return
             # named before another merge looks: a follower still starting is the follower
-            live_handed(lock, run_record.process_owner(orch.start_in_slice(
+            live_handed(run_record.process_owner(orch.start_in_slice(
                 [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
                 f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
                 target_slice=orch.run_slice_name())))
@@ -7491,25 +7489,33 @@ def live_follower(run):
     is where no other runs: a process per merge held 6.4 GB of a 15 GB host (6 Nov 2026).  Each
     run is followed on a thread of its own (`follow_live`), so a slow probe moves no other run's
     times; the follower ends once none is followed and none is handed to it."""
+    # One process probes every project's runs, each probe with its own project's settings
+    # (`health_command`), so none of those the merge that started it had stay in its environment.
+    if repo := (run_record.read_state(config.RUNS / run) or {}).get("repo"):
+        for key in config.repo_env(repo):
+            os.environ.pop(key, None)
     following, handed = [], [run]
     while True:
         lock, held = live_lock()
         if held and held["pid"] != os.getpid():
             # another follower runs: an older run process started this one for its merge
-            live_handed(lock, {**held, "runs": [*held.get("runs", []), *handed]})
+            live_handed({**held, "runs": [*held.get("runs", []), *handed]})
             os.close(lock)
             return 0
         if handed := handed + held.get("runs", []):
-            live_handed(lock, run_record.process_owner())     # named, with each run taken
+            live_handed(run_record.process_owner())     # named, with each run taken
         following = [thread for thread in following if thread.is_alive()]
         if not (handed or following):
             # Unnamed, so a merge waiting on the lock starts the next follower even while this
             # process still reads as alive, and the lock held until it is gone, so not before.
-            live_handed(lock, {})
+            live_handed({})
             return 0
         os.close(lock)
         for name in handed:
-            following.append(threading.Thread(target=follow_live, args=(config.RUNS / name,)))
+            # A daemon: should this loop fail, the process ends with it, and the next merge
+            # starts a follower, where its threads would keep it named with nothing taking runs.
+            following.append(threading.Thread(target=follow_live, args=(config.RUNS / name,),
+                                              daemon=True))
             following[-1].start()
         handed = []
         time.sleep(1)   # what a run handed over waits at most for its follow to start
