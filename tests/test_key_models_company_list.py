@@ -126,6 +126,13 @@ class CompanyList(unittest.TestCase):
                                       "  + add a company"])
         self.assertEqual(self.saved(), (["Acme", "Crux", "Dyne"], None))
 
+    def test_a_company_written_twice_is_one_row_and_down_goes_on_past_it(self):
+        term, shown = self.open(companies=["Acme", "Acme", "Crux"])
+        self.assertEqual(shown[5:8], ["›[Acme] ● Acme Max 5  ● Acme Mid 5", "  Crux  ● Crux 2",
+                                      "  + add a company"])
+        term.keys("Down")
+        self.whole(term, "esc done", "›[Crux] ● Crux 2")
+
     def test_on_40_cells_a_companys_models_go_on_under_the_column_where_they_began(self):
         _, shown = self.open(width=40, companies=["Acme", "Dyne"])
         at = shown.index("  Dyne  ● Dyne Ultra 4")
