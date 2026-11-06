@@ -176,6 +176,27 @@ func TestRoundsReadsWhatLoadLeaves(t *testing.T) {
 	}
 }
 
+// A HOME of a link and `..` names the link target's parent, as for Python, in a path joined under Home.
+func TestHomeFollowsLinksBeforeTheirParents(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Python takes each .. away first on Windows")
+	}
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(dir+"/real/inner", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("real/inner", dir+"/link"); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", dir+"/link/..")
+	if got, want := filepath.Join(Home(), "state"), dir+"/real/.agentkit/state"; got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
 func TestResolveFollowsLinksBeforeTheirParents(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Python takes each .. away first on Windows")
