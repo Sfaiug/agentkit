@@ -216,16 +216,21 @@ def holds(repo, commit, history=None):
 
 
 @contextmanager
-def verifying(name):
+def verifying(name, wait=True):
     """One verification of the seat's plan at a time, from its read to its write-back, so a
     later one starts from the plan the last one left and on main as it is by then -- an older
     listing's result never lands over a newer one's.  The lock is a seat file a rename moves;
-    one moved meanwhile is taken again where it is now."""
+    one moved meanwhile is taken again where it is now.  Yields whether this process holds it:
+    without `wait`, False at once where another does."""
     while True:
         path = config.seat_file("verify", config.resolve_session(name))
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a") as fh:
-            fcntl.flock(fh, fcntl.LOCK_EX)
+            try:
+                fcntl.flock(fh, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+            except BlockingIOError:
+                yield False
+                return
             # checked under the seat's lock, which a rename holds from its new name to its
             # last move: the file held is the one the seat's name reaches, never one a rename
             # is about to replace
@@ -237,7 +242,7 @@ def verifying(name):
                 except OSError:
                     same = False
             if same:
-                yield
+                yield True
                 return
 
 
@@ -388,12 +393,17 @@ def taken(name, line, delivered=False):
 
 def delivery(name, check):
     """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: that
-    line's check runs (`verify`), ticking it where its fix is on the default branch.  Where
-    its check still fails, or could not run, no run has it and the seat owes it, which the
-    line then says too, its deferred mark dropped as `recheck` drops it: built by the seat,
-    the done lists it (`outcomes`), never taking it for that delivery's work (`taken`)."""
+    line's check runs (`verify_delivered`), ticking it where its fix is on the default branch.
+    Where its check still fails, or could not run, no run has it and the seat owes it, which
+    the line then says too, its deferred mark dropped as `recheck` drops it: built by the seat,
+    the done lists it (`outcomes`), never taking it for that delivery's work (`taken`).
+    Where another process verifies, the line waits, deferred still, for the verification that
+    one then owes this delivery: ticked there, it is the run's work; a fix that failed leaves
+    it marked, though the seat owes it all the same (`owed`)."""
     try:
-        verify(name, check=check)       # that line's check alone: the seat's others are its own
+        # that line's check alone: the seat's others are its own
+        if not verify_delivered(name, check):
+            return
     except config.Error:
         pass        # unchecked: the line stays open
     mine = {line.strip() for line in lines(name) if deferred(line)
@@ -489,58 +499,59 @@ def outcomes(name, runs=True):
     return sorted(set(result))
 
 
-def verify(name, check=None):
-    """Run the open check lines -- only those holding `check`, where one is given -- on their
-    project's default branch now: each that passes is ticked, naming that commit, each check
-    from a clean checkout of it.  The results are written onto the plan as it reads after the
-    checks, each onto its own line however another listing ticked it meanwhile, so a line
-    added meanwhile stays and these results are the ones the open lines are counted from.
-    Returns the plan's open lines left."""
+def verify(name):
+    """Run the open check lines on their project's default branch now: each that passes is
+    ticked, naming that commit, each check from a clean checkout of it.  The results are
+    written onto the plan as it reads after the checks, each onto its own line however another
+    listing ticked it meanwhile, so a line added meanwhile stays and these results are the ones
+    the open lines are counted from.  Then what deliveries left owed meanwhile (`settle`).
+    Returns the plan's open lines its own verification left."""
     with verifying(name):
-        return _verify_held(name, check)
+        left = _verify_held(name)
+    settle(name)
+    return left
 
 
-def verify_delivered(name):
-    """`verify` for a run that just delivered, unless each line open by its turn was checked by
-    a verification begun after it delivered: that one fetched main with this delivery on it.
-    Delivered runs each ran every open line behind the last, 21 runs behind 29 lines, the
-    seat's `ak plan` behind them all (30 Oct 2026)."""
-    with held(name) as current:
-        since = _verified(current)[0]
-    with verifying(name):
+def verify_delivered(name, check=None):
+    """`verify` -- of the lines holding `check` alone, where one is given -- for a run that just
+    delivered, never waiting for another process's: where one verifies, this delivery is owed
+    a verification begun after it (`settle`), which that one runs once it ends, every open line
+    on main as it is by then.  Whether it verified here.  Delivered runs once waited for the
+    lock in their endings, their follow-ups not handed on and their memory held: 14 behind one
+    verification of 81 lines, the oldest for 81 minutes (6 Nov 2026)."""
+    with verifying(name, wait=False) as mine:
+        if mine:
+            _verify_held(name, check)
+        else:
+            with held(name) as current:
+                config.seat_file("unverified", current).touch()
+    settle(name)
+    return mine
+
+
+def settle(name):
+    """Verify every open line again while a delivery is owed a verification begun after it,
+    unless another process verifies: that one settles once it ends.  Asked again after each
+    release, so a delivery that found the lock held is never left owed with nobody verifying.
+    A verifier that dies leaves it to the next delivery or `ak plan`, either verifying every
+    line on main as it is by then."""
+    while True:
         with held(name) as current:
-            checked = _verified(current)[1]
-            owed = {identity(line) for line in lines(current) if is_open(line)} - {None}
-            if all(checked.get(bare, 0) > since for bare in owed):
+            if not config.seat_file("unverified", current).exists():
                 return
-        _verify_held(name)
-
-
-def _verified(name):
-    """(verifications begun, {each open line: the number of the last that checked it}): one
-    numbers itself as it begins and its lines only as it finishes, so one that dies, or a line
-    put in while it checked, has none."""
-    try:
-        head, *rest = config.seat_file("verified", name).read_text(encoding="utf-8").splitlines()
-        return int(head), {bare: int(number) for number, _, bare in (line.partition(" ") for line in rest)}
-    except (OSError, ValueError):
-        return 0, {}
-
-
-def _record(name, begun, checked):
-    path = config.seat_file("verified", name)
-    fresh = path.with_name(path.name + ".new")
-    fresh.write_text("".join([f"{begun}\n", *(f"{number} {bare}\n" for bare, number in checked.items())]),
-                     encoding="utf-8")
-    fresh.replace(path)
+        with verifying(name, wait=False) as mine:
+            if not mine:
+                return
+            _verify_held(name)
 
 
 def _verify_held(name, check=None):
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
-        begun, checked = _verified(current)
-        _record(current, begun + 1, checked)    # numbered before it fetches
+        if check is None:
+            # before it fetches: main then holds every delivery owed so far (`settle`)
+            config.seat_file("unverified", current).unlink(missing_ok=True)
     for line in snapshot:
         found = LINE.match(line.strip())
         if (found and found["check"] and is_open(line)
@@ -575,9 +586,6 @@ def _verify_held(name, check=None):
             write(current, text)
         # only lines ticked here: one replaced while its check ran was never ticked
         ticks = [passing[bare] for bare in map(identity, present) if bare in passing]
-        left = {identity(line) for line in text if is_open(line)}
-        _record(current, begun + 1, {bare: number for bare, number in
-                                     {**checked, **dict.fromkeys(results, begun + 1)}.items() if bare in left})
     for repo, found, commit in ticks:
         retire(repo, found, commit)
     return [line.strip() for line in text if is_open(line)]
