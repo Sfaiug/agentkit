@@ -31,6 +31,11 @@ type plugin struct {
 	fresh   string
 	receipt string
 	answer  func(record *run.Object) (model, effort, at any, found bool)
+	// report is how the model its seats' status line reports reads as the one its answers name
+	// (Reported), nil where its seats have no status line of ak's, and status the settings files
+	// it reads the owner's own status command from where Go prints the line (StatusFiles).
+	report func(model string) (string, error)
+	status []string
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and

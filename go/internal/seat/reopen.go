@@ -344,10 +344,10 @@ func (seat reopening) command(told []string) ([]string, string, bool) {
 		env = append(env, "AGENTKIT_FIRST_PROMPT="+seat.moving.line)
 	}
 	if seat.conversation == "" {
-		cmd, conversation, _ := adapters.Fresh(seat.model, env)
+		cmd, conversation, _ := adapters.Fresh(seat.model, env, seat.cwd)
 		return cmd, conversation, cmd != nil
 	}
-	cmd, _ := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
+	cmd, _ := adapters.Resumed(seat.model, seat.conversation, seat.opened, env, seat.cwd)
 	return cmd, seat.conversation, cmd != nil
 }
 

@@ -72,6 +72,9 @@ func Interactive(root, name string, args []string, out, errOut io.Writer) int {
 	}
 	seat, env := []string(nil), []string(nil)
 	if err == nil {
+		err = statusLine(name, root, login, call)
+	}
+	if err == nil {
 		seat, _, err = config.Launch(name, "seat", call)
 	}
 	if err == nil {

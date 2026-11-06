@@ -8,33 +8,37 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/run"
-	script "agentkit/internal/transcript"
 )
 
 // audit is the weekly audit's seat (audit.NAME), whose models run at their entries' efforts.
 const audit = "audit"
 
-// A move is what a seat's last answer moves in its record (watch.follow_model): the
-// configured model the answer ran on, the seat's own first, and that model's orchestrator effort
-// where the answer ran at another it takes; "" for none. It is the answer made `at` of the
-// conversation in the directory it was read from: Python decides under the seat's announce
-// lock, so a record naming another by then, or one that answer no longer counts for, is not
-// this move's.
+// A move is what a seat's last answer, or its status line's newer report, moves in its record
+// (watch.follow_model): the configured model the answer ran on, the seat's own first, and that
+// model's orchestrator effort where the answer ran at another it takes; "" for none. It is the
+// answer made `at` of the conversation in the directory it was read from: Python decides under the
+// seat's announce lock, so a record naming another by then, or one that answer no longer counts
+// for, is not this move's.
 type move struct {
 	chosen, effort, conversation, cwd string
 	at                                float64
 }
 
-// follows is the move of a record's last answer: `/model` or `/effort` typed in the seat moves
-// it as a move on `c` would, where that answer counts. The models run at the efforts the
-// record holds for them. False where Python's answer hangs on a configured model or a manifest
-// this reading cannot read.
+// follows is the move of what a record's conversation last says it runs on (running): `/model`
+// or `/effort` typed in the seat moves it as a move on `c` would, where that answer counts. The
+// models run at the efforts the record holds for them. False where Python's answer hangs on a
+// configured model or a manifest this reading cannot read.
 func follows(record, file *run.Object, models map[string]config.Model, offered []string, reader harness.Reader) (move, bool) {
 	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, answeredAt, answered := reader.LastAnswer(record)
-	at := script.Moment(answeredAt)
-	if own.ID == "" || own.ID == "default" || !answered || !counts(at, record, file) {
+	if own.ID == "" || own.ID == "default" {
+		return move{}, true
+	}
+	model, effort, at, answered, err := running(record, reader)
+	if err != nil {
+		return move{}, false
+	}
+	if !answered || !counts(at, record, file) {
 		return move{}, true
 	}
 	models = atEfforts(models, record)
