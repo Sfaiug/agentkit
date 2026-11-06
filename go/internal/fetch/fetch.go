@@ -103,7 +103,13 @@ func normalize(value string) (string, string) {
 	}
 	value = strings.TrimSpace(value)
 	if len(value) > 1 && value[0] == value[len(value)-1] && (value[0] == '\'' || value[0] == '"') {
-		value = value[1 : len(value)-1]
+		// one quoted word as a shell reads it, so a word quoted in pieces (the `ak fetch` a
+		// prompt's Pasted leaves) arrives whole
+		if words, ok := commandhelp.ShellSplit(value); ok && len(words) == 1 {
+			value = words[0]
+		} else {
+			value = value[1 : len(value)-1]
+		}
 	}
 	// Terminal and Finder escape punctuation when a path is dropped into a shell.
 	runes := []rune(value)
@@ -114,17 +120,21 @@ func normalize(value string) (string, string) {
 		}
 		out.WriteRune(runes[i])
 	}
-	value = out.String()
-	if value == "" || strings.ContainsAny(value, "\x00\r\n\t") {
-		return "", invalidPath
-	}
-	return value, ""
+	return out.String(), ""
 }
 
 func one(value string, wait float64) (string, error) {
 	typed, problem := normalize(value)
 	if problem != "" {
 		return "", errors.New(problem)
+	}
+	return here(typed, wait)
+}
+
+// here is where the file a path names can be read on this host (macbridge.fetch_one).
+func here(typed string, wait float64) (string, error) {
+	if typed == "" || strings.ContainsAny(typed, "\x00\r\n\t") {
+		return "", errors.New(invalidPath)
 	}
 	if local := config.Expand(typed); exists(local) {
 		return filepath.Abs(local)

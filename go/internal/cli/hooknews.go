@@ -34,7 +34,7 @@ func ownersWords(event *run.Object) *string {
 			continue
 		}
 		opening := strings.TrimLeftFunc(text, config.Space)
-		if strings.Contains(text, "<task-notification") || strings.HasPrefix(opening, "/") || strings.HasPrefix(opening, "<system-reminder>") {
+		if strings.Contains(text, "<task-notification") || slashCommand(opening) || strings.HasPrefix(opening, "<system-reminder>") {
 			return nil
 		}
 		if !spoken {
@@ -46,6 +46,16 @@ func ownersWords(event *run.Object) *string {
 		return nil
 	}
 	return &words
+}
+
+// slashCommand is whether words open on a slash command: a slash, then a word holding no other,
+// where a path pasted at the start holds more.
+func slashCommand(opening string) bool {
+	word, slash := strings.CutPrefix(opening, "/")
+	if end := strings.IndexFunc(word, config.Space); end >= 0 {
+		word = word[:end]
+	}
+	return slash && word != "" && !strings.Contains(word, "/")
 }
 
 // compacted tells the seat's record a compaction dropped what its conversation read since it

@@ -8,9 +8,29 @@ import "strings"
 // backslash ending it.
 func ShellSplit(line string) ([]string, bool) {
 	var words []string
+	ok := shellWords(line, func(word string, _ int) bool {
+		words = append(words, word)
+		return true
+	})
+	return words, ok
+}
+
+// ShellWord is text's first word as ShellSplit reads it, and how much of text it takes: through
+// the whitespace that ends it, as shlex's stream stands once it has read the word.  False where
+// shlex refuses that word; "" and 0 where text holds none.
+func ShellWord(text string) (word string, took int, ok bool) {
+	ok = shellWords(text, func(first string, end int) bool {
+		word, took = first, end
+		return false
+	})
+	return word, took, ok
+}
+
+// shellWords hands take each word and where it ends, until take says to stop.
+func shellWords(line string, take func(word string, end int) bool) bool {
 	var word strings.Builder
 	quote, escaped, in := rune(0), false, false
-	for _, r := range line {
+	for at, r := range line {
 		switch {
 		case escaped:
 			if quote == '"' && r != '"' && r != '\\' {
@@ -28,7 +48,10 @@ func ShellSplit(line string) ([]string, bool) {
 			quote, in = r, true
 		case strings.ContainsRune(" \t\r\n", r):
 			if in {
-				words, in = append(words, word.String()), false
+				if !take(word.String(), at+1) {
+					return true
+				}
+				in = false
 				word.Reset()
 			}
 		default:
@@ -37,7 +60,7 @@ func ShellSplit(line string) ([]string, bool) {
 		}
 	}
 	if in {
-		words = append(words, word.String())
+		take(word.String(), len(line))
 	}
-	return words, !escaped && quote == 0
+	return !escaped && quote == 0
 }
