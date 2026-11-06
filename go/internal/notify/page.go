@@ -15,6 +15,13 @@ func Page(key, line string, mention bool, errOut io.Writer) (waiting bool, err e
 	if err != nil {
 		return false, err
 	}
+	return queuePage(key, line, page, nil, errOut)
+}
+
+// queuePage is the page asked for under key, posting page and saying text in the outbox, put out
+// once however often it is asked; one not out yet that stale, where given, drops unsent instead
+// is not waiting.
+func queuePage(key, text string, page *run.Object, stale func(*run.Object) (bool, error), errOut io.Writer) (waiting bool, err error) {
 	held, err := holdOutbox()
 	if err != nil {
 		return false, err
@@ -26,14 +33,19 @@ func Page(key, line string, mention bool, errOut io.Writer) (waiting bool, err e
 	}
 	settled := func() bool { return event.Str("status") == "delivered" || event.Str("status") == "disabled" }
 	if event == nil {
-		event = run.Fields("id", pageKey(key), "session", nil, "kind", "needs", "text", line, "payload", page,
-			"message", line, "created_at", run.Float(clock()), "sink", sink() != "", "status", "pending",
+		event = run.Fields("id", pageKey(key), "session", nil, "kind", "needs", "text", text, "payload", page,
+			"message", text, "created_at", run.Float(clock()), "sink", sink() != "", "status", "pending",
 			"attempts", 0, "next_attempt", 0)
 		if err := writeEvent(event); err != nil {
 			return false, err
 		}
 	} else if !settled() {
-		run.SetAll(event, "text", line, "payload", page, "message", line) // what is true now, until out
+		if stale != nil {
+			if dropped, err := stale(event); dropped || err != nil {
+				return false, err
+			}
+		}
+		run.SetAll(event, "text", text, "payload", page, "message", text) // what is true now, until out
 	}
 	if _, err := attempt(event, errOut); err != nil {
 		return false, err

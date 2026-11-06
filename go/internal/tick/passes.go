@@ -43,19 +43,19 @@ func table(t *ticking) []pass {
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
 		{"login resume", true, noLoginResume, nil},
-		// worker tokens are in secrets, and a run's parked login is on its run
+		// a declared worker token is asked of its harness, and a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
-		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
+		{"seat health", true, all(configured, tokenless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
 		{"switched turns", false, configured, accountTurns},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
-		{"stall recovery", true, all(configured, noStallRecovery), nil},
+		{"stall recovery", true, all(configured, noStallRecovery, t.dryly(noneParked)), t.wet(t.tellParked)},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads
 		{"usage refresh", true, configured, t.wet(refreshUsage)},
-		{"login reminder", false, nil, loginReminder},
+		{"login reminder", false, nil, t.remindLogins},
 		{"token reminder", false, nil, nil},
 		{"exhausted resume", true, noExhaustedResume, nil},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
@@ -81,7 +81,7 @@ func table(t *ticking) []pass {
 		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
 		{"seat weights", false, nil, func() error { host.Front(); return nil }},
-		{"idle sleep", false, all(configured, every(awake)), nil},
+		{"idle sleep", false, configured, t.sleep},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
 		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
@@ -89,7 +89,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
-		{"seat sweep", false, noRunSweep, t.sweep},
+		{"seat sweep", false, nil, t.sweep},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, nil, func() error {
 			if !leftover.Sweep(t.log.line) {
@@ -142,10 +142,17 @@ func all(reads ...func() bool) func() bool {
 // configured is whether the config loads; Python's passes that load it warn where it does not.
 func configured() bool { return config.Check() == nil }
 
-func secretless() bool { return empty(filepath.Join(config.Home(), "secrets")) }
-
-// empty is whether the folder holds nothing, or is not there.
-func empty(dir string) bool {
-	entries, err := os.ReadDir(dir)
-	return errors.Is(err, fs.ErrNotExist) || err == nil && len(entries) == 0
+// tokenless is whether secrets holds no declared worker token, the one secret seat health reads
+// (watch.poll_worker_token).
+func tokenless() bool {
+	tokens, err := config.WorkerTokens()
+	if err != nil {
+		return false
+	}
+	for _, token := range tokens {
+		if _, err := os.Stat(filepath.Join(config.Home(), "secrets", token[1])); !errors.Is(err, fs.ErrNotExist) {
+			return false
+		}
+	}
+	return true
 }

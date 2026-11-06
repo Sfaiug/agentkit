@@ -33,6 +33,7 @@ import (
 	"agentkit/internal/helper"
 	"agentkit/internal/history"
 	"agentkit/internal/lock"
+	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/task"
@@ -412,8 +413,9 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 		if err := drivable(values, bound); err != nil {
 			return refuse("", "", err)
 		}
-		// a repository run on a host with a helper is Python's: its rounds' checks and turns go there
-		if at.repo != "" && helper.May() {
+		// a repository run is Python's where its landing, a rented machine or a model turn may go to
+		// a machine: Go sends only a round's checks there
+		if at.repo != "" && (landing && helper.May() || config.MayRent() || machines.TakesTurns()) {
 			return refuse("", "", ErrPython)
 		}
 	}

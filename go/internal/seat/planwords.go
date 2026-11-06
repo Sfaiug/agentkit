@@ -40,11 +40,11 @@ func stopEpisode(own string, file *run.Object) (any, error) {
 	return []any{began, said}, nil
 }
 
-// goesBack is watch.goes_back. A draft or an unread screen takes no continuation, and a question
-// or usage recovery has its own rule. The listing already leaves held stalls to Python.
+// goesBack is watch.goes_back. A draft or an unread screen takes no continuation, and a question,
+// usage recovery or a stall the tick holds has its own rule.
 func (facts climbing) goesBack() (bool, error) {
 	if facts.own == "" || facts.file.Str("stop_said") == "" || facts.found.state != "at_prompt" ||
-		facts.found.authority == "" || facts.file.Truthy("unasked") || facts.file.Truthy("usage_refusal") {
+		facts.found.authority == "" || facts.file.Truthy("unasked") || facts.file.Truthy("usage_refusal") || stallHeld(facts.name) {
 		return false, nil
 	}
 	episode, err := stopEpisode(facts.own, facts.file)

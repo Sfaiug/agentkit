@@ -9,6 +9,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 // What ticks remember between them is Python's watch.json, in Python's format, under its lock.
@@ -52,13 +53,14 @@ func generation(value any) any {
 	return run.Number("0")
 }
 
-// quiet is whether watch.json holds only what a home with nothing to act on holds: no PR
-// followed, stall, login or worker token kept. Alert generations are bookkeeping, kept even after
-// an open; the heads reviewed are the incoming pass's own, and a merge's break the merge checks',
-// both of which Go carries.
+// quiet is whether watch.json holds only what a home Go carries holds: no PR followed, login or
+// worker token kept, and no stall but one nothing is typed past yet, which the health row keeps.
+// Alert generations are bookkeeping, kept even after an open; the heads reviewed are the incoming
+// pass's own, and a merge's break the merge checks', both of which Go carries.
 func quiet(state *run.Object) bool {
 	for _, key := range kept {
-		if key != "seen_at" && key != "reviewed" && key != "after_merge" && len(state.Dict(key).Keys()) > 0 {
+		if key != "seen_at" && key != "reviewed" && key != "after_merge" && len(state.Dict(key).Keys()) > 0 &&
+			!(key == "stalls" && seat.PlainStalls(state.Dict(key))) {
 			return false
 		}
 	}

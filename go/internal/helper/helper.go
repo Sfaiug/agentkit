@@ -138,7 +138,7 @@ func Start(cwd string, cpus, memoryMB float64, command string, say func(string))
 			return &there, "", nil
 		}
 		there.Finish()
-		why[i] = failure(sent) // its room is gone
+		why[i] = Failure(sent) // its room is gone
 	}
 	for i, alias := range aliases {
 		why[i] = "helper " + alias + " " + why[i]
@@ -226,7 +226,7 @@ type fit struct{ count, cpus, mb, most int }
 func room(alias string, cpus, memoryMB float64, least int) (fit, string) {
 	code, said := ask(alias, 30*time.Second, nil, "probe")
 	if code != 0 {
-		return fit{}, failure(code)
+		return fit{}, Failure(code)
 	}
 	readings := map[string]float64{}
 	for _, line := range config.SplitLines(said) {
@@ -258,8 +258,8 @@ func room(alias string, cpus, memoryMB float64, least int) (fit, string) {
 	return fit{count, int(math.Floor(spare / float64(count))), mb, int(math.Floor(machine / each))}, ""
 }
 
-// failure is the machine's reason, decided from its exit, never its diagnostic output.
-func failure(code int) string {
+// Failure is the machine's reason, decided from its exit, never its diagnostic output.
+func Failure(code int) string {
 	switch code {
 	case lost:
 		return asleep

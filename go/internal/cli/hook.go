@@ -13,10 +13,11 @@ import (
 	"agentkit/internal/run"
 )
 
-// hook carries out what a hook stub under go/hooks hands over: `ak hook <stem>`, the event's
-// JSON on stdin.  A hook that fails loudly is a harness that stops, so it reads all its stdin,
-// prints nothing but its harness's answer on out and exits 0, whatever it was handed and
-// whatever fails; only a decision it leaves to Python exits 3.
+// hook carries out what a hook stub under go/hooks hands over, `ak hook <stem>`, and a seat's
+// status line, `ak hook status`: the event's JSON on stdin.  A hook that fails loudly is a
+// harness that stops, so it reads all its stdin, prints nothing but its harness's answer on out
+// and exits 0, whatever it was handed and whatever fails; only a decision it leaves to Python
+// exits 3.
 func hook(args []string, out io.Writer) (code int) {
 	defer func() { recover() }()
 	payload, err := io.ReadAll(os.Stdin)
@@ -26,6 +27,8 @@ func hook(args []string, out io.Writer) (code int) {
 		return seatState(payload, out)
 	case args[0] == "orchestrator-stop" && err == nil:
 		return orchestratorStop(payload, out)
+	case args[0] == "status" && err == nil:
+		return status(payload, out)
 	}
 	return 0
 }

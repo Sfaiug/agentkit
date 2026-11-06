@@ -19,10 +19,17 @@ import (
 // so its own question is its word (watch.session_state of a name no listing holds).  "" where Go
 // does not read the seat.
 func CardWord(name string) (string, any) {
+	word, _, since := CardAnswer(name)
+	return word, since
+}
+
+// CardAnswer is CardWord with the reason the ladder gives that word, the text a need's card goes
+// out with (notify.needs_transition's answer).
+func CardAnswer(name string) (word, reason string, since any) {
 	now := time.Now()
 	home, known := seated(now)
 	if !known {
-		return "", nil
+		return "", "", nil
 	}
 	state := filepath.Join(config.Home(), "state")
 	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
@@ -37,17 +44,17 @@ func CardWord(name string) (string, any) {
 	case Unheld(name):
 		mine, read := lookRuns(nil, time.Now()) // judged as they are read, as the reading judges its own
 		if !read {
-			return "", nil
+			return "", "", nil
 		}
 		seat = Seat{Name: name, mine: mine[name]}
 	default:
-		return "", nil
+		return "", "", nil
 	}
 	// a seat nobody is in, or one no harness is read for, was worded by the reading itself
 	if (at < 0 || seat.looked()) && seat.decided(state, keptSight(file), seconds(now), false) != nil {
-		return "", nil
+		return "", "", nil
 	}
-	return seat.Word, begun(file, seat.Word, seat.since, now)
+	return seat.Word, seat.reason, begun(file, seat.Word, seat.since, now)
 }
 
 // Unheld is whether nothing of that seat is left on the host but what it said (watch.seat_closed of

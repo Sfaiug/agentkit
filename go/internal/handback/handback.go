@@ -4,9 +4,9 @@
 // `handback_typed`, as mark_delivery writes them), the one line the seat is told in, and the send
 // that types it at the seat's quiet prompt (seat.TypeAtPrompt).
 //
-// Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
-// does not type is marked pending, which the tick offers at the next quiet
-// prompt: a seat that takes no line now, or a line whose compact form cannot fit.
+// Go hands back as Python's hand_back does, to a seat up on ak's own server, a sleeping one woken
+// for an ending typed into it; an ending it does not type is marked pending, which the tick offers
+// at the next quiet prompt: a seat that takes no line now, or a line whose compact form cannot fit.
 // A seat nothing is left of has its ending reported to the owner (Orphaned); any other seat not
 // up there is still Python's to wake, reopen or wait for.
 package handback
@@ -37,12 +37,19 @@ func Give(dir string, say func(string)) bool {
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
 	if session == "" || !run.Ended(record) && !recoveryEnding(record) || record.Str("state") == "stopped" ||
-		record.Str("state") == "error" && run.Going(record, time.Now()) {
+		record.Str("state") == "error" && run.Going(record, time.Now()) || !Reaches(record) {
 		return false
 	}
 	gone := !seat.Watching(session)
 	if gone && !Orphaned(record) {
-		return false
+		awake, carried := seat.Wake(session, say)
+		if carried && !awake {
+			mark(dir, record, "handback_pending", true) // owed: what next wakes it hands it back
+		}
+		if !awake {
+			return false
+		}
+		gone = false
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
