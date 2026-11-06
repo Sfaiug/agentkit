@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
@@ -378,7 +379,20 @@ func stem(path string) string {
 	return strings.TrimSuffix(name, filepath.Ext(name))
 }
 
-// decoded is bytes as Python decodes them with errors="replace".
+// decoded is bytes as Python decodes them with errors="replace": one replacement character for
+// each lone bad byte or character cut short, where strings.ToValidUTF8 makes a run of them one.
 func decoded(data []byte) string {
-	return strings.ToValidUTF8(string(data), "\uFFFD")
+	var text strings.Builder
+	text.Grow(len(data))
+	for len(data) > 0 {
+		r, size := utf8.DecodeRune(data)
+		if r == utf8.RuneError && size == 1 {
+			for size < len(data) && !utf8.FullRune(data[:size+1]) {
+				size++
+			}
+		}
+		text.WriteRune(r)
+		data = data[size:]
+	}
+	return text.String()
 }
