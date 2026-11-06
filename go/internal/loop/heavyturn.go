@@ -66,7 +66,7 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 		at.ask.Pieces, at.ask.CPUs, at.ask.MemoryMB = true, cpus, memory
 		ask = at.ask
 		var err error
-		if at.away, at.here, err = helper.Start(cwd, cpus, memory, cmd, l.say); err != nil || at.away != nil {
+		if at.away, at.here, err = helper.Start(cwd, cpus, memory, cmd, nil, l.say); err != nil || at.away != nil {
 			return at, err
 		}
 		l.say("suite runs here: " + at.here)
@@ -76,7 +76,7 @@ func (l *loop) placed(cwd, cmd string, selection *checkSelection, path string) (
 			}
 			// what a look says is said once the suite goes there, not at each look
 			var said []string
-			away, _, err := helper.Start(cwd, cpus, memory, cmd, func(line string) { said = append(said, line) })
+			away, _, err := helper.Start(cwd, cpus, memory, cmd, nil, func(line string) { said = append(said, line) })
 			if away != nil {
 				for _, line := range said {
 					l.say(line)

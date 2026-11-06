@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -28,8 +29,8 @@ func TestAMachineTakesSuitesAsPythonReadsItsMarks(t *testing.T) {
 		if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(each.toml), 0o666); err != nil {
 			t.Fatal(err)
 		}
-		if got := TakesTests("acme"); got != each.want {
-			t.Errorf("%q: takes suites %v, want %v", each.toml, got, each.want)
+		if work, known := MachineWork("acme"); (known && slices.Contains(work, "tests")) != each.want {
+			t.Errorf("%q: work %v (known %v), want suites %v", each.toml, work, known, each.want)
 		}
 	}
 }
