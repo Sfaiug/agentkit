@@ -3,15 +3,18 @@ package seat
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"slices"
 	"strings"
 
 	"agentkit/internal/commandhelp"
+	"agentkit/internal/tmux"
 )
 
 // What a bar shows is named on the bar, as statusbar.py names it: each write sets a digest of what
 // it told, of the session's own options and of its right end, which the listing reads back, so a
 // look that would tell a bar the same sets no option, and a session made again, holding neither,
-// is told whole.  The digest is Python's own, so neither program tells again what the other did.
+// is told whole.  The digest is Python's own, so neither program tells again what the other did
+// (barShows where their Unicode tables differ).
 const (
 	barTold    = "@ak_told"
 	barToldEnd = "@ak_told_end"
@@ -31,23 +34,40 @@ func barEnd(found []barRow, row barRow) []string {
 }
 
 // barOwn is the command lists that tell each listed session its own of those options, none for one
-// whose digest says it shows them already (statusbar._own).  The digest is emptied first and set
-// last: tmux stops a list at the command that fails, and one stopped part way leaves no digest a
-// later write could match.
+// whose digest says it shows them already (statusbar._own), or that shows them under another's.
+// The digest is emptied first and set last: tmux stops a list at the command that fails, and one
+// stopped part way leaves no digest a later write could match.
 func barOwn(own [][3]string, listed []barRow) (lists [][]string) {
 	for _, row := range listed {
 		target := "=" + row.name + ":"
-		options, tuples := [][3]string{{target, barTold, ""}}, []string{}
+		var options [][3]string
+		var tuples []string
 		for _, option := range own {
 			if option[0] == target {
 				options, tuples = append(options, option), append(tuples, barTuple(option[:]...))
 			}
 		}
-		if digest := barDigest("[" + strings.Join(tuples, ", ") + "]"); len(tuples) > 0 && digest != row.told {
-			lists = append(lists, barList(append(options, [3]string{target, barTold, digest})))
+		digest := barDigest("[" + strings.Join(tuples, ", ") + "]")
+		if len(options) > 0 && digest != row.told && (row.told == "" || !barShows(target, row.told, options)) {
+			lists = append(lists, barList(slices.Concat([][3]string{{target, barTold, ""}}, options, [][3]string{{target, barTold, digest}})))
 		}
 	}
 	return lists
+}
+
+// barShows is whether that bar holds those options' texts already, read back, under a digest not
+// Go's: Python's repr, which names a character its own Unicode tables do not know otherwise, gives
+// the same texts another one.  The digest around them keeps tmux's trimmed answer whole.
+func barShows(target, told string, options [][3]string) bool {
+	asked, want := []string{"-u"}, told
+	for _, option := range slices.Concat([][3]string{{target, barTold, ""}}, options, [][3]string{{target, barTold, ""}}) {
+		asked = append(asked, "show-options", "-qv", "-t", target, option[1], ";")
+	}
+	for _, option := range options {
+		want += "\n" + option[2]
+	}
+	shown, err := tmux.Ask(tmux.Own(), asked[:len(asked)-1]...)
+	return err == nil && shown == want+"\n"+told
 }
 
 // barList is those options set as one command list, which tmux runs whole.
