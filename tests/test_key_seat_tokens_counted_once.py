@@ -7,8 +7,9 @@ A Claude seat's conversation and its subagents' are where Claude Code keeps them
 Claude Code wrote for it.  A Codex seat's rollout is in the seat's own store under
 ~/.codex/agentkit-seats/, which its launch receipt names; each step of its running total counts
 once.  A line still being written counts only once it ends; a conversation replaced at its
-path, or one that shrank, is read again from its start; one whose seat went keeps being read.  A
-home that never had a seat gets no tables for them.
+path, or one that shrank, is read again from its start; one whose seat went keeps being read,
+the last seat's too.  Nothing is counted under any other project.  A home that never had a seat
+gets no tables for them.
 
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, each
 tick in the box `home.tick()` builds, on seats of tests/fixtures/akseat.py whose conversations
@@ -58,9 +59,8 @@ def said(message, at, *counts):
 
 
 def counted(*lines):
-    """The rows Claude lines come to, the Claude seat's: a message's four counts summed, at its
-    moment."""
-    return sorted(("acme", moment(line), sum(line["message"]["usage"][key] for key in COUNTS))
+    """The rows Claude lines come to: a message's four counts summed, at its moment."""
+    return sorted((moment(line), sum(line["message"]["usage"][key] for key in COUNTS))
                   for line in lines)
 
 
@@ -85,10 +85,11 @@ WRITING = said("msg_03acme", T0 + 14.125, 1, 75, 0, 6500)
 CHILD = [said("msg_11acme", T0 + 7.75, 900, 60, 0, 0), said("msg_12acme", T0 + 8.5, 4, 30, 50, 900)]
 BEFORE = said("msg_00acme", T0 + 2.5, 5, 10, 20, 30)
 SHRUNK = said("msg_13acme", T0 + 20, 1, 2, 3, 4)
+LAST = said("msg_21acme", T0 + 40, 6, 7, 8, 9)
 # Codex counts before its first turn with no usage yet, and may count one total twice.
 STEPS = [total(T0 + 1, None), total(T0 + 6, 12_000), total(T0 + 7, 12_000),
          total(T0 + 11, 20_500)]
-STEPPED = [("beta", moment(STEPS[1]), 12_000), ("beta", moment(STEPS[3]), 8_500)]
+STEPPED = [(moment(STEPS[1]), 12_000), (moment(STEPS[3]), 8_500)]
 LATER = total(T0 + 30, 23_000)
 
 
@@ -103,13 +104,16 @@ def tick(home):
     assert done.code == 0, done.out + done.err
 
 
-def rows(home, project):
-    """What history.db holds of a project's seat usage, as (project, moment, tokens) rows; a
-    row of no tokens, a step of no growth, adds nothing to the measure."""
+def rows(home):
+    """Each project's seat usage in history.db, as (moment, tokens) rows; a row of no tokens, a
+    step of no growth, adds nothing to the measure."""
+    found = {}
     with closing(sqlite3.connect((home.path / ".agentkit/history.db").as_uri() + "?mode=ro",
                                  uri=True)) as db:
-        return sorted((repo, round(at, 3), tokens) for repo, at, tokens in db.execute(
-            "SELECT repo, at, tokens FROM seat_usage WHERE repo = ? AND tokens > 0", (project,)))
+        for repo, at, tokens in sorted(db.execute(
+                "SELECT repo, at, tokens FROM seat_usage WHERE tokens != 0")):
+            found.setdefault(repo, []).append((round(at, 3), tokens))
+    return found
 
 
 def tables(home):
@@ -134,48 +138,56 @@ class SeatTokensCountedOnce(unittest.TestCase):
         # Claude Code's folder for a working directory: each character not an ASCII letter or
         # digit a hyphen, for a path as short as a Home's.
         folder = home.path / ".claude/projects" / re.sub(r"[^A-Za-z0-9]", "-", str(claude.cwd))
-        cls.main = folder / f"{CONVERSATION}.jsonl"
-        cls.child = folder / CONVERSATION / "subagents/agent-a1b2c3d4e5f6a7b8c.jsonl"
-        append(cls.main, ASKED, FIRST, FIRST_AGAIN, SECOND)
-        append(cls.main, WRITING, end="")
-        append(cls.child, *CHILD)
+        main = folder / f"{CONVERSATION}.jsonl"
+        child = folder / CONVERSATION / "subagents/agent-a1b2c3d4e5f6a7b8c.jsonl"
+        append(main, ASKED, FIRST, FIRST_AGAIN, SECOND)
+        append(main, WRITING, end="")
+        append(child, *CHILD)
         codex = Seat(home, "beta", model="astra", screen="codex-prompt-pane.txt",
                      record={"conversation": THREAD, "codex_launch": LAUNCH,
                              "repo": str(home.path / "code/beta")})
-        cls.rollout = (home.path / ".codex/agentkit-seats" / REMOTE
-                       / f"sessions/2026/11/05/rollout-2026-11-05T09-00-00-{THREAD}.jsonl")
-        append(cls.rollout, {"timestamp": stamp(T0), "type": "session_meta", "payload": {
+        rollout = (home.path / ".codex/agentkit-seats" / REMOTE
+                   / f"sessions/2026/11/05/rollout-2026-11-05T09-00-00-{THREAD}.jsonl")
+        append(rollout, {"timestamp": stamp(T0), "type": "session_meta", "payload": {
             "id": THREAD, "timestamp": stamp(T0), "cwd": str(codex.cwd), "source": "cli",
             "originator": "codex_cli_rs", "cli_version": "0.163.0", "model_provider": "openai"}},
                *STEPS)
-        cls.receipt = home.write(f".agentkit/state/codex-launch-{LAUNCH}.json", {
+        receipt = home.write(f".agentkit/state/codex-launch-{LAUNCH}.json", {
             "launch": LAUNCH, "cwd": str(codex.cwd), "expected": None, "remote": REMOTE,
             "event": {"hook_event_name": "SessionStart", "source": "startup",
                       "session_id": THREAD, "cwd": str(codex.cwd),
-                      "transcript_path": str(cls.rollout)}})
+                      "transcript_path": str(rollout)}})
         cls.seen = [cls.ticked()]
         cls.seen.append(cls.ticked())
-        with cls.main.open("a") as out:
+        with main.open("a") as out:
             out.write("\n")
         cls.seen.append(cls.ticked())
         # A new file at the path, a message ahead of where the last tick stopped reading.
-        replacement = cls.main.with_suffix(".tmp")
-        replacement.write_text(json.dumps(BEFORE) + "\n" + cls.main.read_text())
-        os.replace(replacement, cls.main)
-        cls.child.write_text(json.dumps(SHRUNK) + "\n")       # in place, shorter
-        # The seat goes as ak takes one away: its record and its launch receipt; its store stays.
-        (home.path / ".agentkit/state/session-beta.json").unlink()
-        cls.receipt.unlink()
-        append(cls.rollout, LATER)
+        replacement = main.with_suffix(".tmp")
+        replacement.write_text(json.dumps(BEFORE) + "\n" + main.read_text())
+        os.replace(replacement, main)
+        child.write_text(json.dumps(SHRUNK) + "\n")       # in place, shorter
+        cls.remove("beta", receipt)
+        append(rollout, LATER)
+        cls.seen.append(cls.ticked())
+        cls.remove("acme")
+        append(main, LAST)
         cls.seen.append(cls.ticked())
         tick(bare)
         cls.bare_tables = tables(bare)
 
     @classmethod
     def ticked(cls):
-        """Each project's rows after a tick."""
         tick(cls.home)
-        return {project: rows(cls.home, project) for project in ("acme", "beta")}
+        return rows(cls.home)
+
+    @classmethod
+    def remove(cls, name, *files):
+        """Take a seat away as ak does: its session and its files; its conversations stay."""
+        done = cls.home.tmux("kill-session", "-t", f"={name}")
+        assert done.code == 0, done.err
+        for path in (cls.home.path / f".agentkit/state/session-{name}.json", *files):
+            path.unlink()
 
     def test_a_claude_seat_counts_each_message_of_its_own_and_subagents_conversations_once(self):
         self.assertEqual(self.seen[0]["acme"], counted(FIRST, SECOND, *CHILD))
@@ -192,8 +204,14 @@ class SeatTokensCountedOnce(unittest.TestCase):
         self.assertEqual(self.seen[3]["acme"],
                          counted(BEFORE, FIRST, SECOND, *CHILD, WRITING, SHRUNK))
 
-    def test_a_removed_seats_conversation_is_still_counted(self):
-        self.assertEqual(self.seen[3]["beta"], STEPPED + [("beta", moment(LATER), 2_500)])
+    def test_a_removed_seats_conversation_is_still_counted_after_the_last_seat_went(self):
+        self.assertEqual(self.seen[3]["beta"], STEPPED + [(moment(LATER), 2_500)])
+        self.assertEqual(self.seen[4], {
+            "acme": counted(BEFORE, FIRST, SECOND, *CHILD, WRITING, SHRUNK, LAST),
+            "beta": STEPPED + [(moment(LATER), 2_500)]})
+
+    def test_nothing_is_counted_under_another_project(self):
+        self.assertEqual([sorted(seen) for seen in self.seen], [["acme", "beta"]] * len(self.seen))
 
     def test_a_home_with_no_seats_gets_no_seat_tables(self):
         self.assertFalse(self.bare_tables & {"seat_sources", "seat_usage"}, self.bare_tables)
