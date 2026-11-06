@@ -20,6 +20,7 @@ import (
 	"agentkit/internal/box"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -58,15 +59,18 @@ type ran struct {
 // checks runs the commands while they produce output, with a ceiling on the whole list, Python's
 // gate.run_done_when: each has its own silence window; one that exits non-zero runs once more at
 // once, which decides, a pass that took the re-run said by a `flaky:` record; a stop ends the list.
-// The log holds their output as they run and their records once they ended.
+// The log holds their output as they run and their records once they ended.  In the workspace,
+// each go leaves its row in history as the round's done-when.
 func (l *loop) checks(cmds []string, path string) (bool, string, error) {
-	ok, text, _, err := l.checksIn(l.workspace, cmds, path)
+	ok, text, _, err := l.checksIn(l.workspace, cmds, path, l.rows("done-when", ""))
 	return ok, text, err
 }
 
 // checksIn is that in cwd, with each command's exit as the runner saw it, nil for one killed at the
-// limit or never run, and none for those after a kill: what decides a proof, never the text.
-func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*checkSelection) (bool, string, []*int, error) {
+// limit or never run, and none for those after a kill: what decides a proof, never the text.  Each
+// go of a command, or of a piece of a suite, leaves its row in history under rows (nil for none),
+// and the tests a command named red or flaky once its re-run ended.
+func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Checked, selections ...*checkSelection) (bool, string, []*int, error) {
 	selection := selectedCheck(selections)
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return false, "", nil, err
@@ -83,6 +87,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*c
 	var left []string
 	var marks []*int
 	unstarted := false
+	asked := clock() // a later go is asked for as the one before it ends
 	for _, cmd := range cmds {
 		var first *[2]int64
 		var outcome ran
@@ -104,15 +109,19 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*c
 			if namesShard.MatchString(cmd) && !selection.pinned() {
 				// its pieces each went once more alone where red: the command is not run again
 				text := ""
-				if outcome, text, err = l.pieces(cwd, cmd, deadline, progress, path); err != nil {
+				if outcome, text, err = l.pieces(cwd, cmd, deadline, progress, path, rows); err != nil {
 					return false, "", nil, err
 				}
-				pieced = &text
+				pieced, asked = &text, clock()
 				break
 			}
 			l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 			shard, only := selection.request()
-			if outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, only); err != nil {
+			row := history.Check(rows, cmd, asked, "", l.say)
+			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, only)
+			row.End(exitOf(outcome, err))
+			asked = clock()
+			if err != nil {
 				return false, "", nil, err
 			}
 			flaky = append(flaky, outcome.flaky...)
@@ -164,6 +173,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, selections ...*c
 			}
 			chunks = append(chunks, record)
 		}
+		history.TestReds(rows, outcome.reds, outcome.flaky, l.say)
 		if outcome.stopped != "" {
 			spent, stopReason, left = cmd, outcome.stopped, outcome.left
 			lines := config.SplitLines(strings.TrimFunc(said, config.Space))
@@ -371,10 +381,11 @@ func kept(output io.Reader, where, name string) (string, error) {
 // proof runs a finding's command on the workspace, Python's prompts.proof_on on a scratch run, its
 // evidence as a record holds it.
 func (l *loop) proof(command, path string) (*run.Object, error) {
+	asked := clock()
 	if err := l.stopCheck(); err != nil {
 		return nil, err
 	}
-	code, output, killed, err := l.proved(l.workspace, command, path, "workspace")
+	code, output, killed, err := l.proved(l.workspace, command, path, "", asked)
 	if err != nil {
 		return nil, err
 	}

@@ -154,7 +154,7 @@ func (l *loop) suite(cwd, cmd, path, label string) (int, string, bool, error) {
 	start, _ := progress.Seek(0, io.SeekEnd)
 	var outcome ran
 	if namesShard.MatchString(cmd) {
-		outcome, _, err = l.pieces(cwd, cmd, time.Now().Add(l.ceiling), progress, path)
+		outcome, _, err = l.pieces(cwd, cmd, time.Now().Add(l.ceiling), progress, path, nil)
 	} else {
 		l.say("suite runs here: command is not sent to the suite helper (does not name AK_SHARD)")
 		outcome, err = l.boxed(cwd, cmd, "", l.ceiling, progress, path, false)

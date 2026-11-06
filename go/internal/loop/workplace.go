@@ -108,7 +108,11 @@ func (scratch) beforeTurn(*loop) {}
 
 func (scratch) worked(*loop) error { return nil }
 
+// verify is the round's checks in the workspace, beside the rules a workspace has none of.
 func (scratch) verify(l *loop, path string) (bool, string, error) {
+	if _, err := l.rulesOn(""); err != nil {
+		return false, "", err
+	}
 	return l.checks(l.every, path)
 }
 
