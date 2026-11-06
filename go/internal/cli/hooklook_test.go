@@ -10,35 +10,32 @@ import (
 	"agentkit/internal/seat"
 )
 
-// The owner's answer on a card is Go's where it answers what the seat kept back, and Python's,
-// with nothing written, where a notice stands for it or Go cannot name the seat's conversation.
-func TestACardsAnswerIsLeftToPythonOnlyWhereGoCannotRecordIt(t *testing.T) {
+// The owner's answer on a card heard outside the seat's own pane is its fact and answers nothing,
+// as Python's look answers nothing there.
+func TestACardsAnswerHeardOutsideItsPaneAnswersNothing(t *testing.T) {
 	home := sandbox(t)
 	t.Setenv("AGENTKIT_SESSION", "acme")
+	t.Setenv("TMUX", "")
 	state := filepath.Join(home, ".agentkit", "state")
-	answer := []byte(`{"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion", ` +
-		`"tool_response": {"answers": {"Which port?": "8080"}}}`)
-	fact := filepath.Join(state, "hook-acme.json")
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
+	write(t, filepath.Join(state, "session-acme.json"), `{"orchestrator": "opus"}`)
 	if err := seat.Keep("acme", "Which port?"); err != nil {
 		t.Fatal(err)
 	}
-	for _, step := range []struct {
-		why, file, data string
-		code            int
-	}{
-		{"a question kept back", "session-acme.json", `{"orchestrator": "opus"}`, 0},
-		{"a seat of no harness Go knows", "session-acme.json", `{"orchestrator": "nobody"}`, leftToPython},
-		{"a notice standing", "notify-acme.json", `{"session": "acme", "kind": "needs", "text": "Which port?", "time": 1}`, leftToPython},
-	} {
-		write(t, filepath.Join(state, step.file), step.data)
-		os.Remove(fact)
-		if code := seatState(answer, new(bytes.Buffer)); code != step.code {
-			t.Fatalf("%s: exit %d", step.why, code)
-		}
-		if _, err := os.Stat(fact); (err == nil) != (step.code == 0) {
-			t.Fatalf("%s: its fact written %v", step.why, err == nil)
-		}
+	kept, _ := os.ReadFile(filepath.Join(state, "seat-acme.json"))
+	answer := []byte(`{"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion", ` +
+		`"tool_response": {"answers": {"Which port?": "8080"}}}`)
+	if code := seatState(answer, new(bytes.Buffer)); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	if _, err := os.Stat(filepath.Join(state, "hook-acme.json")); err != nil {
+		t.Fatal("its fact is not written")
+	}
+	if now, _ := os.ReadFile(filepath.Join(state, "seat-acme.json")); !bytes.Equal(now, kept) {
+		t.Fatalf("it answered %s", now)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agentkit", "history.db")); err == nil {
+		t.Fatal("it wrote the owner's time")
 	}
 }
 

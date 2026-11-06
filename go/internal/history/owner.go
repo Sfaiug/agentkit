@@ -9,12 +9,14 @@ type Moment struct {
 }
 
 // OwnerTime writes those moments, in that order and in one commit, each naming the seat's
-// conversation as `<harness>:<id>`, nil where its harness says it holds none.
-func OwnerTime(conversation any, moments []Moment, log func(string)) {
+// conversation as `<harness>:<id>`, nil where its harness says it holds none.  An error, with
+// nothing written, where it cannot: among them a history whose tokens wait for Python's one-time
+// repair.
+func OwnerTime(conversation any, moments []Moment) error {
 	if len(moments) == 0 {
-		return
+		return nil
 	}
-	apply(log, func(db *DB) error {
+	return commit(func(db *DB) error {
 		for _, moment := range moments {
 			if err := db.exec("INSERT INTO owner (at, kind, waited, conversation) VALUES (?, ?, ?, ?)",
 				moment.At, moment.Kind, moment.Waited, conversation); err != nil {

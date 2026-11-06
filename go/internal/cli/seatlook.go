@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"io"
 	"os"
 	"strconv"
@@ -12,11 +11,10 @@ import (
 
 // seatLook is the look a seat's wrapper starts, `ak seat-look <seat> <pane's pid>` as it ends and
 // with no pid when the screen shows news, and its prompt hook with the moment it heard the owner's
-// words after them, those words on its stdin, or `card` after that moment, its replies' JSON on
-// stdin in their place; and with the seat alone, a run's redress of its bar (seat.Redress).
-// Unlisted as `adapter` and `hook` are: nothing reads what it says.
+// words after them, those words on its stdin; and with the seat alone, a run's redress of its bar
+// (seat.Redress).  Unlisted as `adapter` and `hook` are: nothing reads what it says.
 func seatLook(args []string) int {
-	if len(args) < 1 || len(args) > 4 || len(args) == 4 && args[3] != "card" {
+	if len(args) < 1 || len(args) > 3 {
 		return 0
 	}
 	host.Mark("seat look")
@@ -25,19 +23,13 @@ func seatLook(args []string) int {
 		return 0
 	}
 	var heard *seat.Prompt
-	if len(args) >= 3 {
+	if len(args) == 3 {
 		at, err := strconv.ParseFloat(args[2], 64)
 		said, read := io.ReadAll(os.Stdin)
 		if err != nil || read != nil {
 			return 0
 		}
 		heard = &seat.Prompt{At: at, Said: string(said)}
-		if len(args) == 4 {
-			heard.Said = ""
-			if json.Unmarshal(said, &heard.Replies) != nil || heard.Replies == nil {
-				return 0
-			}
-		}
 	}
 	seat.Look(args[0], args[1], heard)
 	return 0

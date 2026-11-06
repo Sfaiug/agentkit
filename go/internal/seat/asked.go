@@ -2,7 +2,6 @@ package seat
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"slices"
@@ -20,13 +19,10 @@ import (
 // harness may write it only after its prompt hook returns (notify.PROMPT_WRITTEN).
 const promptWritten = 2 * time.Second
 
-// A Prompt is what a seat's hook heard that may answer its question: when, and the owner's words,
-// or, their answer on the harness's own question card, its Replies, each the words of a question it
-// answers and the choices the card showed with them.
+// A Prompt is what a seat's prompt hook heard: when, and the words.
 type Prompt struct {
-	At      float64
-	Said    string
-	Replies [][]string
+	At   float64
+	Said string
 }
 
 // LookSoon has the seat this hook runs in looked at again, off the harness's path, as
@@ -49,12 +45,7 @@ func LookSoon(heard *Prompt) {
 	}
 	defer read.Close()
 	defer write.Close()
-	args, said := []string{seat, "", strconv.FormatFloat(heard.At, 'f', -1, 64)}, heard.Said
-	if heard.Replies != nil {
-		replies, _ := json.Marshal(heard.Replies)
-		args, said = append(args, "card"), string(replies)
-	}
-	look, err := lookCommand(args...)
+	look, err := lookCommand(seat, "", strconv.FormatFloat(heard.At, 'f', -1, 64))
 	if err != nil {
 		return
 	}
@@ -62,18 +53,14 @@ func LookSoon(heard *Prompt) {
 	if look.Start() != nil {
 		return
 	}
-	write.WriteString(said)
+	write.WriteString(heard.Said)
 	look.Process.Release()
 }
 
 // answering is the part of watch.hook_look that records the owner's answer, before its word is told:
-// an answer on the harness's card answers only what it names; a prompt that is no line ak typed
-// answers by the seat's conversation, or by itself where its harness cannot say whose its messages
-// are; any other look asks that conversation too.
+// a prompt that is no line ak typed answers by the seat's conversation, or by itself where its
+// harness cannot say whose its messages are; any other look asks that conversation too.
 func answering(state, name string, heard *Prompt) error {
-	if heard != nil && heard.Replies != nil {
-		return cardAnswered(name, heard.At, heard.Replies)
-	}
 	if heard == nil || notify.AkPrompt(name, heard.Said, notify.Last(name)) {
 		_, _, err := answerWritten(state, name, seconds(time.Now()), 0)
 		return err
