@@ -208,8 +208,11 @@ func ranked(models map[string]config.Model) bool {
 	if !held.Truthy("matrix") || isObject && !matrix.Truthy("lineup") {
 		return false
 	}
+	if !isObject {
+		return true
+	}
 	lineup, listed := matrix.Get("lineup").([]any)
-	if !isObject || !listed {
+	if !listed {
 		return true
 	}
 	for _, row := range lineup {
