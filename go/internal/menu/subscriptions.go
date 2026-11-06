@@ -20,10 +20,11 @@ const LogInAgain = "log in again"
 var actTexts = map[string][2]string{LogInAgain: {"↻ log in again", "log in again"},
 	"spend a reset": {"↻ spend a reset", "spend a reset"}, "remove": {"− remove", "- remove"}}
 
-// Acts is what a subscription offers on Subscriptions, by the word the key line names each by,
-// where it applies (menu.subscription_acts): `log in again` while its login ends soon or has ended,
-// where its harness signs that account in afresh; `spend a reset` while it holds one; `remove`.
-func (c Cell) Acts() []string {
+// Acts is what a subscription offers, its meter and its row on Subscriptions alike, by the word the
+// key line names each by, where it applies (menu.subscription_acts): `log in again` while its login
+// ends soon or has ended, where its harness signs that account in afresh; `spend a reset` while it
+// holds one; and with remove, as its row has it, `remove`.
+func (c Cell) Acts(remove bool) []string {
 	var acts []string
 	if c.Ends != "" && c.Harness != "" && config.SignsInAgain(c.Harness, c.Account) {
 		acts = append(acts, LogInAgain)
@@ -31,7 +32,10 @@ func (c Cell) Acts() []string {
 	if c.Held != "" {
 		acts = append(acts, "spend a reset")
 	}
-	return append(acts, "remove")
+	if remove {
+		acts = append(acts, "remove")
+	}
+	return acts
 }
 
 // Subscriptions is the page `c` opens on its `Subscriptions` row, as one draw has it.
@@ -144,7 +148,7 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 			continue
 		}
 		put(s.Highlight(line, true), pageSpot{row: i})
-		if acts = each.Acts(); !slices.Contains(acts, on) {
+		if acts = each.Acts(true); !slices.Contains(acts, on) {
 			on = ""
 		}
 		held := each.Held
@@ -172,19 +176,13 @@ func SubscriptionsPage(s terminal.Screen, view Subscriptions) SubscriptionsFrame
 	}
 	put(add, pageSpot{row: len(view.Cells)})
 
-	keys, enter := "↑↓←→ move   ", ""
+	enter := ""
 	if view.At == len(view.Cells) {
 		enter = "open"
 	} else if slices.Contains(acts, on) {
 		enter = on
 	}
-	if enter != "" {
-		keys += "⏎ " + enter + "   "
-	}
-	keys += "esc back"
-	if s.ASCII() {
-		keys = strings.NewReplacer("↑↓←→", "arrows", "⏎", "enter").Replace(keys)
-	}
+	keys := pageKeys(s, enter)
 	var under []string
 	if view.Note != "" {
 		under = append(under, "")
@@ -242,10 +240,7 @@ func openedLines(s terminal.Screen, told, kind string, acts []string, on string,
 		}
 	}
 	for i, act := range acts {
-		text := actTexts[act][0]
-		if s.ASCII() {
-			text = actTexts[act][1]
-		}
+		text := actText(s, act)
 		if act == on {
 			text = s.Lit(text)
 		}

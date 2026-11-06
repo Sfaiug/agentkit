@@ -7,18 +7,21 @@ import (
 )
 
 // Highlight keeps the seat by name across readings. Moving by row opens its line; a page turn
-// closes it, and pointing away hides the highlight without losing its place.
+// closes it, and pointing away hides the highlight without losing its place.  Pointer is where the
+// pointer was read last, the zero Mouse once a key moves the highlight or before it moved.
 type Highlight struct {
 	Cursor       string
 	Open, Hidden bool
+	Pointer      terminal.Mouse
 }
 
-// Frame holds the drawing and where its rows and pages take the highlight.
+// Frame holds the drawing and where its rows, pages and meters take the highlight.
 type Frame struct {
 	Lines               []string
 	spots, order, turns []string
 	cursor              string
 	page, width, height int
+	meters              []meterSpot
 }
 
 // Move answers navigation against the frame the owner saw, without reading any record.
@@ -35,6 +38,9 @@ func (h *Highlight) Move(key terminal.Key, frame Frame) bool {
 		turn = 1
 	case key.Name == "pointer":
 		mouse := key.Mouse
+		if mouse.Button&64 == 0 {
+			h.Pointer = mouse
+		}
 		switch {
 		case mouse.Released:
 			return true
@@ -60,7 +66,7 @@ func (h *Highlight) Move(key terminal.Key, frame Frame) bool {
 	default:
 		return false
 	}
-	h.Cursor, h.Hidden = frame.cursor, false
+	h.Cursor, h.Hidden, h.Pointer = frame.cursor, false, terminal.Mouse{}
 	if step != 0 {
 		if len(frame.order) > 0 {
 			at := max(0, slices.Index(frame.order, frame.cursor))
