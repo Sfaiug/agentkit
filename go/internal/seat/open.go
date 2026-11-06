@@ -26,21 +26,23 @@ import (
 
 // Open is the shared new-seat launch used by the menu and ak orch, on the login OpeningAccount
 // picks. Its rulebook precedes the adapter's command, and its record uses Python's locks and
-// format. False leaves unsupported harness launches, a usage reading Python's and leftover seat
-// files to Python.
-func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
+// format. Models are the seat's at the efforts it runs them, which its record holds and its
+// orchestrator launches at. False leaves unsupported harness launches, a usage reading Python's
+// and leftover seat files to Python.
+func Open(name, orchestrator string, models map[string]config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	repo := Project(cwd)
 	if repo != "" {
 		cwd = repo
 	}
-	return open(name, orchestrator, model, workers, cwd, unnamed, repo, true, reviews...)
+	return open(name, orchestrator, models, workers, cwd, unnamed, repo, true, reviews...)
 }
 
-func open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, repo string, remember bool, reviews ...[]string) (bool, error) {
+func open(name, orchestrator string, models map[string]config.Model, workers []string, cwd string, unnamed bool, repo string, remember bool, reviews ...[]string) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
+	model := models[orchestrator]
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
-	models, err := config.Models()
+	configured, err := config.Models()
 	if !known || !unclaimed(state, name) || unbound != nil || err != nil {
 		return false, nil
 	}
@@ -109,7 +111,7 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 			if err != nil {
 				return err
 			}
-			return keepEfforts(state, bound.Models, models, offered)
+			return keepEfforts(state, bound.Models, configured, offered)
 		})
 	}
 	if err := forgetSeen(state, name, time.Now()); err != nil {

@@ -56,7 +56,7 @@ mode = "subscription"
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, key := range []string{"tab", "right", "space", "esc"} {
+	for _, key := range []string{"tab", "right", "right", "space", "esc"} { // past the effort beside its orchestrator mark
 		d.Key(terminal.Key{Name: key})
 	}
 	if len(d.Workers) != 0 || !reflect.DeepEqual(d.Reviewers, []string{"alpha"}) {

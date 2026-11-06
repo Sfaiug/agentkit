@@ -84,6 +84,7 @@ func (d *Draft) Key(key terminal.Key) string {
 		return key.Name
 	case "tab":
 		d.Picker, d.Find = true, ""
+		return "models"
 	case "enter":
 		return "start"
 	case "backspace":
@@ -226,11 +227,15 @@ func (d *Draft) pickerKey(key terminal.Key) string {
 		d.At = max(0, min(len(d.Names)-1, d.At+by))
 		d.Find = ""
 	case "left":
-		d.Column = max(0, d.Column-1)
+		d.move(-1)
 	case "right":
-		d.Column = min(2, d.Column+1)
+		d.move(1)
 	case "space":
-		d.mark()
+		if d.Column >= 3 {
+			d.step()
+		} else {
+			d.mark()
+		}
 	case "backspace":
 		d.Find = d.Find[:max(0, len(d.Find)-1)]
 	case "char":
@@ -242,5 +247,6 @@ func (d *Draft) pickerKey(key terminal.Key) string {
 			}
 		}
 	}
+	d.keepColumn()
 	return ""
 }

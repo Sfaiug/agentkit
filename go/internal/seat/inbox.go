@@ -87,7 +87,7 @@ func openInbox(name string, log func(string)) (own string, opened bool) {
 	if err := os.MkdirAll(code, 0o777); err != nil {
 		return "", false
 	}
-	started, err := Open(name, picked.Orchestrator, models[picked.Orchestrator], picked.Workers, code, false)
+	started, err := Open(name, picked.Orchestrator, models, picked.Workers, code, false)
 	if err != nil {
 		log(fmt.Sprintf("WARN could not open the %s seat: %v", name, err))
 		return own, false // the question fails at the seat and is asked again

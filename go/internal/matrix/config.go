@@ -63,9 +63,12 @@ func (c *Configuration) Marks(name string) [3]bool {
 	return [3]bool{orch, slices.Contains(workers, any(name)) || len(workers) == 0 && orch, slices.Contains(reviewers, any(name))}
 }
 
-// Columns stops on each role's mark, then on the effort beside a marked role.
-func (c *Configuration) Columns(name string) []int {
-	marks, columns := c.Marks(name), []int{}
+func (c *Configuration) Columns(name string) []int { return Stops(c.Marks(name)) }
+
+// Stops is where the keys stop along a model's row: each role's mark, then the effort beside a
+// marked role, on c and on a new seat's models screen alike.
+func Stops(marks [3]bool) []int {
+	columns := []int{}
 	for role, marked := range marks {
 		columns = append(columns, role)
 		if marked {

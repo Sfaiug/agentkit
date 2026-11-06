@@ -86,6 +86,9 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 					cells := strings.Join(s.EffortCells(len(levels), slices.Index(levels, effort)+1), "")
 					text = padded(cells, tall+2)
 				}
+				if at == d.At && column+3 == d.Column {
+					effort = s.Reverse(effort)
+				}
 				text += effort
 			}
 			part := padded(mark, 4) + padded(text, effortWidth)
@@ -104,9 +107,13 @@ func (d *Draft) PickerLines(s terminal.Screen, clock string) []string {
 			lines = append(lines, part)
 		}
 	}
-	keys := "↑↓←→ move   ␣ mark   ⏎ start   esc back"
+	act := "mark"
+	if d.Column >= 3 {
+		act = "step"
+	}
+	keys := "↑↓←→ move   ␣ " + act + "   ⏎ start   esc back"
 	if s.ASCII() {
-		keys = "arrows move   space mark   enter start   esc back"
+		keys = "arrows move   space " + act + "   enter start   esc back"
 	}
 	keysLines := keyLine(s, keys, s.Width(), "")
 	// Keep the highlighted model in view on a short terminal, retaining the frame and keys.

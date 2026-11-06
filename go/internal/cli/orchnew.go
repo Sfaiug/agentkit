@@ -90,7 +90,8 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		crew = asked
 	}
 	if !dryRun {
-		opened, err := seat.Open(name, orchestrator, model, crew, cwd, unnamed)
+		models, _ := config.Models() // the config's: Open hands over one that does not read
+		opened, err := seat.Open(name, orchestrator, models, crew, cwd, unnamed)
 		if !opened {
 			return notImplemented(errOut, "orch")
 		}
