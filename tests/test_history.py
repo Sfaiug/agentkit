@@ -536,6 +536,13 @@ class HistoryTests(unittest.TestCase):
         )))
         self.assertEqual(history.event_tokens(events), 460)
 
+    def test_event_tokens_counts_a_killed_turns_repeated_message_once(self):
+        events = self.home / "events.jsonl"
+        events.write_text("\n".join(json.dumps({"type": "assistant", "message": {
+            "id": message, "usage": {"input_tokens": 100, "output_tokens": output}}})
+            for message, output in (("msg_a", 1), ("msg_a", 20), ("msg_b", 5))))
+        self.assertEqual(history.event_tokens(events), 225)
+
     def test_history_role_tokens_sums_retry_event_logs(self):
         history.start_run("r1")
         first = self.home / "executor"
