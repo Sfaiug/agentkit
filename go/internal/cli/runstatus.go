@@ -38,8 +38,12 @@ func (l listed) name() string { return filepath.Base(l.dir) }
 
 // runStatus is `ak run status`: the host lines, then the runs of the last seven days, or
 // every run and the scoreboard with --history, or the one run an id names, whose ending the
-// look marks looked at, and whose waiting ending its own seat reads as handed back.
+// look marks looked at, and whose waiting ending its own seat reads as handed back; or, with
+// --tests alone, the test audit.
 func runStatus(args []string, out, errOut io.Writer) int {
+	if contains(args, "--tests") {
+		return testAudit(out, errOut)
+	}
 	showHistory, machine := contains(args, "--history"), contains(args, "--json")
 	plain, why, pending := contains(args, "--plain"), contains(args, "--why"), contains(args, "--pending")
 	wanted := strings.Join(without(args, "--history", "--json", "--plain", "--why", "--pending"), "")
