@@ -355,14 +355,14 @@ func rated(rows []Row, role string) []*Rating {
 			shares = append(shares, weights[one.Column])
 			behinds = append(behinds, float64(weights[one.Column]*one.Points))
 		}
-		total := sum(shares)
+		total := Sum(shares)
 		parts := map[source]float64{}
 		for _, one := range scored {
 			for _, each := range one.parts {
 				parts[each.source] += weights[one.Column] * each.error / total
 			}
 		}
-		rating := &Rating{Row: row, Measures: scored, Quality: 100 - sum(behinds)/total}
+		rating := &Rating{Row: row, Measures: scored, Quality: 100 - Sum(behinds)/total}
 		rating.SE = hypot(parts)
 		if cost, ok := row.Values.Num(Costs[role]); ok {
 			rating.Cost = &cost

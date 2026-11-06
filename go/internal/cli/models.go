@@ -22,8 +22,8 @@ func init() { commands["models"] = modelsAnswer }
 
 // modelsAnswer answers `ak models` as Python's matrix.main does: the boards, the lineup, each role's
 // answer and ak's own run numbers, as JSON with --json beside what a million tokens of each model
-// cost of its week, else drawn.  Its own numbers are the one part that reads SQLite: a home with
-// a history.db is left to Python before anything is asked.
+// cost of its week and a run of it in each role, else drawn.  Its own numbers are the one part
+// that reads SQLite: a home with a history.db is left to Python before anything is asked.
 func modelsAnswer(args []string, out, errOut io.Writer) int {
 	if _, err := os.Stat(filepath.Join(config.Home(), "history.db")); !errors.Is(err, fs.ErrNotExist) {
 		return notImplemented(errOut, "models")
@@ -56,6 +56,7 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 		}
 		whole := modelsJSON(answer, names)
 		whole.Set("usage", rates)
+		whole.Set("task_usage", usage.TaskUsage(rates))
 		fmt.Fprintln(out, run.Encode(whole))
 		return 0
 	}
