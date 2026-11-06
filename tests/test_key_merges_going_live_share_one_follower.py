@@ -26,18 +26,20 @@ SEAT = {"AGENTKIT_SESSION": "acme"}
 
 
 def followers(home):
-    """The pids of the processes following that Home's merges to live."""
+    """The pids of the processes following that Home's merges to live: not those whose parent is
+    one, the commands a follower runs, which read as it from their fork until they exec."""
     mark = f"HOME={home.path}".encode()
-    found = set()
+    found = {}
     for entry in Path("/proc").glob("[0-9]*"):
         try:
             argv = (entry / "cmdline").read_bytes().split(b"\0")
             env = (entry / "environ").read_bytes().split(b"\0")
-        except OSError:     # gone meanwhile, or not ours to read
+            parent = int((entry / "stat").read_bytes().rsplit(b")", 1)[1].split()[1])
+        except (OSError, IndexError, ValueError):     # gone meanwhile, or not ours to read
             continue
         if mark in env and any(argv[at:at + 2] == [b"watch", b"--live"] for at in range(len(argv))):
-            found.add(int(entry.name))
-    return found
+            found[int(entry.name)] = parent
+    return {pid for pid, parent in found.items() if parent not in found}
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
