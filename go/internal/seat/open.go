@@ -186,10 +186,10 @@ func sayWhere(name string, out io.Writer) error {
 	return nil
 }
 
-// start is the seat's session on ak's server, under ak's tmux config, as Python's orch.start opens
-// it: its harness run by a launch file that removes itself, which no limit of tmux's on a command's
-// length meets; the seat's name and its opener's state in its pane's environment, then its
-// session's; marked ak's, its pane named the harness's, and kept when the harness ends.
+// start is the seat's session on ak's server, as Python's orch.start opens it: its harness run
+// by a launch file that removes itself, which no limit of tmux's on a command's length meets;
+// the seat's name and its opener's state in its pane's environment, then its session's; marked
+// ak's, its pane named the harness's, and kept when the harness ends.
 func start(state, name, cwd string, cmd []string) error {
 	server := tmux.Own()
 	values, err := environment(name, server)
@@ -200,13 +200,6 @@ func start(state, name, cwd string, cmd []string) error {
 	if err != nil {
 		return err
 	}
-	// first into a server already up, as only the command starting one reads -f, and remain-on-exit
-	// holds before the seat exists; one not up says so, and Spawn starts it on the file
-	conf, err := tmux.Conf()
-	if err != nil {
-		return err
-	}
-	tmux.Ask(server, "source-file", conf)
 	command, launch, err := launchFile(state, name, values, cmd)
 	if err != nil {
 		return err
