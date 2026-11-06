@@ -256,8 +256,9 @@ func barSet(option [3]string) []string {
 }
 
 // barTell writes line one's right end on that seat's bar, or every seat's for none, then the
-// caller's own options on a session tmux lists, and binds its click, under one lock across every
-// bar's reading and writing, so whoever writes last has read last (statusbar._tell).
+// caller's own options on a session tmux lists, each only where it would change what the bar
+// shows (bartold.go), and binds its click with any write, under one lock across every bar's
+// reading and writing, so whoever writes last has read last (statusbar._tell).
 func barTell(state, only string, own [][3]string) {
 	if config.EnsureDirs() != nil {
 		return
@@ -280,32 +281,25 @@ func barTell(state, only string, own [][3]string) {
 		if only != "" && only != each.name {
 			continue
 		}
-		needing, folded, hit := barOthers(found, each.name)
-		target := "=" + each.name + ":"
-		var list []string
-		for _, option := range [][3]string{{target, barHit, ""}, {target, barNeed, needing}, {target, barFold, folded}, {target, barHit, hit}} {
-			list = append(append(list, barSet(option)...), ";")
-		}
-		lists = append(lists, list[:len(list)-1])
-	}
-	for _, option := range own {
-		if slices.ContainsFunc(listed, func(row barRow) bool { return "="+row.name+":" == option[0] }) {
-			lists = append(lists, barSet(option))
+		if list := barEnd(found, each); list != nil {
+			lists = append(lists, list)
 		}
 	}
+	lists = append(lists, barOwn(own, listed)...)
 	if len(lists) > 0 {
 		tmux.Lists(tmux.Own(), append(lists, barClick))
 	}
 }
 
-// A barRow is one session a bar may count: its tmux id, its name, its mark, and once read its word.
-type barRow struct{ id, name, mark, word string }
+// A barRow is one session a bar may count: its tmux id, its name, its mark, the digests of what it
+// was told, and once read its word.
+type barRow struct{ id, name, mark, told, toldEnd, word string }
 
 // barSessions are the sessions this HOME started on ak's own server (statusbar.sessions); false
 // where tmux does not answer or none of them is this HOME's: the socket is the user's, and a scratch
 // HOME's ak would write its records over real bars.
 func barSessions() ([]barRow, bool) {
-	out, err := tmux.Ask(tmux.Own(), "-u", "list-sessions", "-F", "#{session_id}:#{session_name}:#{"+tmux.Mark+"}:#{HOME}")
+	out, err := tmux.Ask(tmux.Own(), "-u", "list-sessions", "-F", "#{session_id}:#{session_name}:#{"+tmux.Mark+"}:#{"+barTold+"}:#{"+barToldEnd+"}:#{HOME}")
 	if err != nil {
 		return nil, false
 	}
@@ -313,13 +307,13 @@ func barSessions() ([]barRow, bool) {
 	var rows []barRow
 	answered := false
 	for _, line := range strings.Split(out, "\n") {
-		parts := strings.SplitN(line, ":", 4)
-		if len(parts) < 3 {
+		parts := strings.SplitN(line, ":", 6)
+		if len(parts) < 5 {
 			continue
 		}
 		answered = true
-		if (len(parts) == 3 || parts[3] == "" || resolved(parts[3]) == home) && parts[1] != config.Control {
-			rows = append(rows, barRow{id: parts[0], name: parts[1], mark: parts[2]})
+		if (len(parts) == 5 || parts[5] == "" || resolved(parts[5]) == home) && parts[1] != config.Control {
+			rows = append(rows, barRow{id: parts[0], name: parts[1], mark: parts[2], told: parts[3], toldEnd: parts[4]})
 		}
 	}
 	return rows, !answered || len(rows) > 0
