@@ -4,10 +4,11 @@ a gap may quote the pick or the note added to it, never the question.  Codex kee
 the call's output, not as a message of the owner's.
 
 The seat's rollout holds the card as a real Codex 0.167 rollout held it on 6 Nov 2026, answered
-with a pick and a note, and a second card whose call has no output.  The model's turn hands in
-its gaps only where its workspace holds the answered question, both choices with their
-descriptions and the pick with its note, and not the other card's question: one quoting the
-note, one quoting the question.  Black-box: the program `AK_BIN` names runs from outside through
+with a pick and a note, and a second card whose call has no output; the pick's label begins as
+Codex begins a note, and stays whole.  The model's turn hands in its gaps only where its
+workspace holds the answered question, both choices with their descriptions and the pick with
+its note, and not the other card's question: one quoting the whole pick, one the note, one the
+question.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a seat of tests/fixtures/akseat.py whose launch receipt names the
 rollout, with a fake harness of fakeadapter.py for the model, as
 tests/test_key_card_answers_codex_muse.py has it for an async card.
@@ -25,8 +26,8 @@ from fixtures.akbin import AK, Home
 from fixtures.akseat import Seat
 
 QUESTION = "Which colour should the acme banner be?"
-CHOICES = {"Red": "Make the acme banner red.", "Blue": "Make the acme banner blue."}
-PICK, NOTE = "Blue", "and make the text bold"
+CHOICES = {"Red": "Make the acme banner red.", "user_note: Blue": "Make the acme banner blue."}
+PICK, NOTE = "user_note: Blue", "and make the text bold"
 UNANSWERED = "Which size should the acme banner be?"
 TOKEN = "a" * 32    # the seat's launch receipt
 
@@ -64,15 +65,16 @@ class CardAnswersCodexPlan(unittest.TestCase):
             # whose call has no output
             sh = [f"grep -rqF -- {shlex.quote(given)} . || exit 1"
                   for given in (QUESTION, *CHOICES, *CHOICES.values(), NOTE)]
-            sh += [f"grep -rqxF -- {PICK} . || exit 1",
+            sh += [f"grep -rqxF -- {shlex.quote(PICK)} . || exit 1",
                    f"! grep -rqF -- {shlex.quote(UNANSWERED)} . || exit 1"]
             sh += [f"grep -rlF -- {shlex.quote(quote)} . | head -n 1 | while read -r file; do "
                    f"{shlex.quote(AK)} hand-in finding \"$file:1\" 'not in the work' "
                    f"'the owner asked for it' --quote {shlex.quote(quote)}; done"
-                   for quote in (NOTE, QUESTION)]
+                   for quote in (PICK, NOTE, QUESTION)]
             fake.behave({"sh": "; ".join(sh), "final": "Checked.", "hand_in": [["done"]]})
             done = home.ak("orch", "check", "acme")
             self.assertEqual(done.code, 1, done.out + done.err)
+            self.assertIn(f'the owner: "{PICK}"', done.out)
             self.assertIn(f'the owner: "{NOTE}"', done.out)
             self.assertNotIn(QUESTION, done.out + done.err)
             self.assertEqual(fake.n, 1)

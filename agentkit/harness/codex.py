@@ -371,11 +371,14 @@ def picked(entry, calls):
         try:    # a question with no answer under its id, or of any other shape, answers nothing
             words = given[question["id"]]["answers"]
             if isinstance(words, list):
+                choices = [{"label": option["label"], "description": option.get("description", "")}
+                           for option in question.get("options") or ()]
+                # A choice's label may itself begin like a note: a pick keeps every word of it.
+                labels = {choice["label"] for choice in choices}
                 yield {"at": at, "question": question["question"],
-                       "answer": "\n".join(text.removeprefix(NOTE) for text in words),
-                       "choices": [{"label": option["label"],
-                                    "description": option.get("description", "")}
-                                   for option in question.get("options") or ()]}
+                       "answer": "\n".join(text if text in labels else text.removeprefix(NOTE)
+                                           for text in words),
+                       "choices": choices}
         except (AttributeError, KeyError, TypeError):
             continue
 
