@@ -82,3 +82,19 @@ func TestPastTheWaitWhatTheCommandStartedGoesToo(t *testing.T) {
 	}
 	t.Fatal("what the command started still runs past the wait")
 }
+
+// A wait over before the command starts is no answer, and stops nothing it never started.
+func TestAWaitOverBeforeTheCommandStartsIsNoAnswer(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	before := wait
+	wait = time.Nanosecond
+	t.Cleanup(func() { wait = before })
+	checkout := t.TempDir()
+	if err := os.WriteFile(filepath.Join(checkout, "AGENTS.md"), []byte("---\nfeatures: echo '[]'\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, why := run(checkout, "list"); !strings.HasPrefix(why, "list: no answer in ") {
+		t.Errorf("said %q", why)
+	}
+	time.Sleep(10 * time.Millisecond) // for a stop the deadline set off to have run
+}

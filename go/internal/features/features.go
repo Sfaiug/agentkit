@@ -150,10 +150,13 @@ func run(checkout string, words ...string) (any, string) {
 	cmd.Env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	var out, said bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &said
-	// past the wait its session goes, even once the shell is gone: what it started may still hold
-	// the output open, and exec stops watching the deadline when the shell exits
-	defer context.AfterFunc(ctx, host.Group(cmd))()
-	err = cmd.Run()
+	stop := host.Group(cmd)
+	if err = cmd.Start(); err == nil {
+		// past the wait its session goes, even once the shell is gone: what it started may still
+		// hold the output open, and exec stops watching the deadline when the shell exits
+		defer context.AfterFunc(ctx, stop)()
+		err = cmd.Wait()
+	}
 	var exit *exec.ExitError
 	switch {
 	case ctx.Err() != nil:
