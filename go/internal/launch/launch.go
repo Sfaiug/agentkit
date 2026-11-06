@@ -328,9 +328,6 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 	} else if err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
-	if why := gitcall.ContractRefusal(repo); why != "" {
-		return refuse("", "", &refusedOutright{why})
-	}
 	// a change under way is refused next, as Python's already_under_way is
 	found, err := rivals(repo, path, title, cmds)
 	owner, _, _ := Seat()
@@ -340,6 +337,10 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 		return refuse("", "", &refusedOutright{underWayRefusal(found, owner != "")})
 	} else if len(found) > 0 {
 		at.alongside = found[0].id
+	}
+	// then the contract, which a task cannot supply, as Python's require_project_contract is
+	if why := gitcall.ContractRefusal(repo); why != "" {
+		return refuse("", "", &refusedOutright{why})
 	}
 	// a seat's launch is judged up to its queue, asked last before anything is created
 	if owner != "" {
