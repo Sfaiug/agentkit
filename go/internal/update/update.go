@@ -54,9 +54,9 @@ type plan struct {
 // Main is `ak update` from the checkout at repo where Go carries it out, in Python's update.main
 // order: what it prints, and its exit code or a refusal in Python's words.
 func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
-	live := filepath.Join(repo, "tests", "live.sh")
-	if !regular(live) {
-		return refuse(fmt.Errorf("no acceptance gate at %s; an unverified upgrade is not one", live))
+	live, err := liveGate(repo)
+	if err != nil {
+		return refuse(err)
 	}
 	plans, err := harnesses()
 	if err == nil && len(plans) == 0 {
@@ -145,6 +145,16 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	fmt.Fprintln(out, agentkit)
 	return 0, nil
+}
+
+// liveGate is the checkout's tests/live.sh, the gate a harness upgrade passes before its fresh
+// install, as Python's update.live_gate: or why there is none, as an unverified upgrade is not one.
+func liveGate(repo string) (string, error) {
+	live := filepath.Join(repo, "tests", "live.sh")
+	if !regular(live) {
+		return "", fmt.Errorf("no acceptance gate at %s; an unverified upgrade is not one", live)
+	}
+	return live, nil
 }
 
 // refuse is a refusal once ak's own folders are made, as Python makes them first.

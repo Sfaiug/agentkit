@@ -35,7 +35,8 @@ const (
 // again once retryAfter has passed since its last start, a newer one at once.  A checkout that is
 // somebody's work holds the upgrade unstarted, saying so, and a login its gates would not outlast
 // holds it with no ask until the first tick that one lasts.  ErrPython, before anything is
-// written, while a red's hand-back is owed to a seat, and at a harness's start where Go moves none.
+// written, while a red's hand-back is owed to a seat, and before the ask of an installed harness
+// Go could not start: one movable says Go moves none of, or any with no live gate.
 func KeepCurrent(repo string, say func(string)) error {
 	if !liveHere(repo) {
 		return nil
@@ -96,6 +97,11 @@ func KeepCurrent(repo string, say func(string)) error {
 		if err != nil {
 			return err
 		}
+		// one installed that Go could not start is Python's to ask: an ask handed over unrecorded
+		// is asked twice
+		if _, gone := liveGate(repo); installed != "" && (gone != nil || !movable([]plan{each})) {
+			return ErrPython
+		}
 		newest := entry.Str("waits")
 		if newest == "" {
 			newest = latest(each, env)
@@ -108,9 +114,6 @@ func KeepCurrent(repo string, say func(string)) error {
 			left = leftAsIs(env, checkout)
 		}
 		begins := behind && left == ""
-		if begins && (!movable([]plan{each}) || !regular(filepath.Join(repo, "tests", "live.sh"))) {
-			return ErrPython
-		}
 		waits := begins && waitsForLogin("upgrade", each.name+"'s upgrade",
 			margin("live", liveCap)+margin("fresh", freshCap.Seconds()), at, say)
 		entry.Set("asked", at)
@@ -188,12 +191,12 @@ func start(repo string, env []string, name string) error {
 	return child.Process.Release()
 }
 
-// Background is `ak harness-update <harness>`, the tick's upgrade of one harness, Python's
-// update.background: the upgrade `ak update` makes, of that harness alone, whether sessions work
-// or not, as it replaces files and never a process; the exit code.  What it said is left in
-// saidPath for the next tick to say, once.  With another upgrade running, or the harness no
-// longer saying how it moves, it does nothing.
-func Background(name string) int {
+// Background is `ak harness-update <harness>` from the checkout at repo, the tick's upgrade of
+// one harness, Python's update.background: the upgrade `ak update` makes, of that harness alone,
+// whether sessions work or not, as it replaces files and never a process; the exit code.  What it
+// said is left in saidPath for the next tick to say, once.  With another upgrade running, or the
+// harness no longer saying how it moves, it does nothing.
+func Background(repo, name string) int {
 	host.Mark("harness update")
 	if config.EnsureDirs() != nil {
 		return 1
@@ -214,7 +217,7 @@ func Background(name string) int {
 	var out bytes.Buffer
 	code := 1
 	if err == nil {
-		code, err = upgradeAlone(plans[at], &out)
+		code, err = upgradeAlone(repo, plans[at], &out)
 	}
 	if err != nil { // detached, it is heard only through what it said
 		fmt.Fprintf(&out, "update: %s\n", config.PyError(err))
@@ -229,7 +232,7 @@ func Background(name string) int {
 
 // upgradeAlone is the upgrade of that harness from the release it is on, its output and its
 // errors both to out: the exit code.
-func upgradeAlone(each plan, out io.Writer) (int, error) {
+func upgradeAlone(repo string, each plan, out io.Writer) (int, error) {
 	env, err := config.ChildEnv()
 	if err != nil {
 		return 1, err
@@ -239,5 +242,5 @@ func upgradeAlone(each plan, out io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	return upgradeHeld(env, config.Repo(), []plan{each}, map[string]string{each.name: before}, out, out), nil
+	return upgradeHeld(env, repo, []plan{each}, map[string]string{each.name: before}, out, out), nil
 }

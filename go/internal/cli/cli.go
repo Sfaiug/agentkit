@@ -47,7 +47,7 @@ func Main(args []string, out, errOut io.Writer) int {
 		return collect()
 	}
 	if command == update.KeepVerb && len(rest) == 1 { // unlisted too: it marks itself
-		return update.Background(rest[0])
+		return update.Background(config.Repo(), rest[0])
 	}
 	if !contains(commandhelp.Verbs, command) {
 		fmt.Fprintf(errOut, "ak: unknown subcommand %s; expected one of %s\n", commandhelp.Quote(command), strings.Join(commandhelp.Verbs, ", "))

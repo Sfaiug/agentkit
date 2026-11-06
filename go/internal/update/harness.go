@@ -95,6 +95,10 @@ func upgradeHeld(env []string, repo string, plans []plan, before map[string]stri
 		return 1
 	}
 	move.Close()
+	if _, err := liveGate(repo); err != nil {
+		fmt.Fprintf(errOut, "update: %s\n", err)
+		return 1
+	}
 	log, err := os.CreateTemp(tmp, "update-"+time.Now().Format("20060102-150405")+"-*.log")
 	if err != nil {
 		fmt.Fprintf(errOut, "update: %s\n", config.PyError(err))
