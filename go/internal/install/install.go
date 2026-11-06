@@ -1,8 +1,8 @@
 // Package install makes a home ready for Go's ak as install.sh does for Python's.  go/install.sh
 // runs it as `ak install`, unlisted, so each step has one home here, the same on every system.
-// So far it holds install.sh's options, its step (1), the seat guards, the role's record and the
-// install stamp; what writes outside the home (packages, harnesses, the tick's crontab line) is
-// still to come.
+// So far it holds install.sh's options, its step (1), the seat guards, the role's record, the
+// tick's crontab line and the install stamp; what else writes outside the home (packages,
+// harnesses, a Mac's Linux machine) is still to come.
 package install
 
 import (
@@ -44,7 +44,13 @@ func Main(args []string, out, errOut io.Writer) int {
 	if role == "client" && alias == "" {
 		alias = serverName
 	}
-	if err := install(role, alias, out, errOut); err != nil {
+	sandboxed := sandbox()
+	if role == "server" && runtime.GOOS == "darwin" && !sandboxed {
+		// install.sh makes a Mac the client of a Linux machine of its own, the server
+		fmt.Fprintln(errOut, "ak install: a Mac's server, a Linux machine of its own, is not set up in Go yet")
+		return 3
+	}
+	if err := install(role, alias, sandboxed, out, errOut); err != nil {
 		fmt.Fprintln(errOut, "install.sh:", err)
 		return 1
 	}
@@ -77,7 +83,7 @@ func options(args []string) (role, alias, refused string) {
 	return role, alias, ""
 }
 
-func install(role, alias string, out, errOut io.Writer) error {
+func install(role, alias string, sandboxed bool, out, errOut io.Writer) error {
 	if role == "server" {
 		fmt.Fprintln(out, "install mode: server")
 	} else {
@@ -141,6 +147,9 @@ func install(role, alias string, out, errOut io.Writer) error {
 		return os.WriteFile(record, []byte(alias+"\n"), 0o600)
 	}
 	if err := os.Remove(record); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := cron(sandboxed, out, errOut); err != nil {
 		return err
 	}
 	stamp := filepath.Join(ak, "state", "installed-at")
