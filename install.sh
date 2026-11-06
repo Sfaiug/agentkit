@@ -696,10 +696,13 @@ case "$ROLE" in
       echo "server: sandbox HOME, so the ak watch cron is not installed"
     elif ! have crontab; then
       note "no crontab here; run \`ak watch\` every three minutes some other way"
+    # every crontab exits 1 for an account with no table yet; any other failure is a table it
+    # could not read, and writing would replace the owner's jobs with ak's line alone
+    elif ! { current=$(crontab -l 2>/dev/null) || [ $? = 1 ]; }; then
+      note "the crontab could not be read, so the ak watch cron is not installed; \`crontab -l\` says why"
     else
       cron_line="*/3 * * * * PATH=$(cron_word "$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin")"
       cron_line+=" $(cron_word "$REPO/bin/ak") watch >>$(cron_word "$AK/tmp/watch.log") 2>&1 $CRON_TAG"
-      current=$(crontab -l 2>/dev/null || true)
       wanted=$({ [ -z "$current" ] || printf '%s\n' "$current" | grep -vE -- "$CRON_MATCH" || true
                  printf '%s\n' "$cron_line"; })
       if [ "$current" = "$wanted" ]; then

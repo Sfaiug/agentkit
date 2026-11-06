@@ -2,12 +2,15 @@
 
 The tick is what moves every run, landing and stalled seat on the server, so each server
 install owns the one live line: every line carrying the tag goes first, a copy the owner
-commented out to pause the tick too, and the owner's other lines stay.  Black-box: install.sh
+commented out to pause the tick too, and the owner's other lines stay.  Every crontab exits 1
+for an account with no table yet, which then gets one; any other failure is a table that could
+not be read, and it stays as it is.  Black-box: install.sh
 of the checkout `AK_BIN` names runs from outside in a Home of tests/fixtures/akbin.py made the
 account's own by tests/fixtures/installer.py, so the install does what it does on a real host,
 every tool it calls a fake and the crontab a table on disk.
 """
 
+import shlex
 import sys
 from pathlib import Path
 import unittest
@@ -18,17 +21,32 @@ from fixtures.akbin import Home
 
 MINE = "0 4 * * * /usr/bin/true # the owner's nightly job"
 PAUSED = "# */3 * * * * /srv/old/bin/ak watch # agentkit watch"
-
+# a crontab that cannot read the table it keeps
+UNREADABLE = """#!/bin/sh
+case "$1" in
+  -l) echo "crontab: cannot read the table" >&2; exit 2 ;;
+  -) exec cat >{table} ;;
+esac
+"""
 
 # A Mac install also loads a launch agent into the account's own launchd.
-@unittest.skipUnless(sys.platform.startswith("linux"), "a Linux host's install")
+linux = unittest.skipUnless(sys.platform.startswith("linux"), "a Linux host's install")
+
+
+def account(case):
+    """A Home that is the account's own until `case`'s tests are done."""
+    home = Home()
+    case.addClassCleanup(home.close)
+    installer.prepare(home)
+    installer.own_home(home)
+    return home
+
+
+@linux
 class WatchCron(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home()
-        cls.addClassCleanup(home.close)
-        installer.prepare(home)
-        installer.own_home(home)
+        cls.home = home = account(cls)
         cls.table = home.root / "crontab"
         cls.table.write_text(f"{MINE}\n{PAUSED}\n")
         cls.first = installer.run(home, "--server")
@@ -55,6 +73,27 @@ class WatchCron(unittest.TestCase):
 
     def test_a_second_install_leaves_the_table_as_it_was(self):
         self.assertEqual(self.table.read_text(), self.installed)
+
+
+@linux
+class Listing(unittest.TestCase):
+    def test_an_exit_1_is_an_account_with_no_table_yet_which_gets_the_tick(self):
+        home = account(self)
+        done = installer.run(home, "--server")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        lines = (home.root / "crontab").read_text().splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertTrue(lines[0].endswith(" # agentkit watch"), lines)
+
+    def test_an_exit_2_leaves_the_owner_s_table_as_it_is_and_installs_nothing(self):
+        home = account(self)
+        table = home.root / "crontab"
+        table.write_text(f"{MINE}\n")
+        home.fake("crontab", UNREADABLE.format(table=shlex.quote(str(table))))
+        done = installer.run(home, "--server")
+        self.assertEqual(done.code, 0, done.out + done.err)
+        self.assertEqual(table.read_text(), f"{MINE}\n")
+        self.assertIn("the ak watch cron is not installed", done.err)
 
 
 if __name__ == "__main__":
