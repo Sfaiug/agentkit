@@ -5,6 +5,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/lifecycle"
+	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
 )
@@ -26,7 +27,7 @@ func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sig
 	if _, _, err := answerWritten(state, seat.Name, seconds(time.Now()), 0); err != nil {
 		return found, err
 	}
-	reminder, err := questionUnseen(seat.Name, seat.own, found)
+	reminder, err := questionUnseen(seat.Name, seat.own, found, notify.Last(seat.Name))
 	if err != nil || reminder == "" {
 		return found, err
 	}

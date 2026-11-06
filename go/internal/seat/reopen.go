@@ -76,8 +76,8 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	}
 	state := filepath.Join(config.Home(), "state")
 	held, exited, known := find(name, record)
-	// the first open of a notice records its pane as a baseline (notify.opened)
-	notice, _ := run.ReadJSON(filepath.Join(state, "notify-"+name+".json"))
+	// the first open of a question standing records its pane as a baseline (notify.opened)
+	notice := notify.Last(name)
 	if !known {
 		return false, nil
 	}

@@ -15,22 +15,22 @@ import (
 )
 
 // standing is whether a client is attached to the seat, and whether Go knows its word, which
-// Python's session_state decides: `needs you`, the question asked now standing, for a name no
-// tmux session holds, with or without a record, and for a seat ak's server holds alive with no look, run or
-// outstanding watch work, whose word no hook fact or turn's latch decides, on a harness whose chat Python
-// does not read for the question (none `nudge`s).
+// Python's session_state decides with no run or outstanding watch work: the ladder's, for a seat
+// with a seat file (`once`); else `needs you`, the question asked now standing, for a name no
+// tmux session holds, with or without a record, and for a seat ak's server holds alive on a harness
+// whose chat Python does not read for the question (none `nudge`s).
 func standing(name string, record map[string]any) (attached, known bool) {
 	exists := func(path string) bool { _, err := os.Lstat(path); return !errors.Is(err, fs.ErrNotExist) }
 	if path, _ := config.SessionPath(name); record == nil && exists(path) {
 		return false, false // a record that is no object
 	}
-	if exists(seatFile("seat", name, "json")) || exists(filepath.Join(state(), "watch.json")) && (record == nil || !quietWatch()) {
+	if exists(filepath.Join(state(), "watch.json")) && (record == nil || !quietWatch()) {
 		return false, false
 	}
 	if runs, err := os.ReadDir(run.Runs()); len(runs) > 0 || err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return false, false
 	}
-	if record != nil {
+	if record != nil && !exists(seatFile("seat", name, "json")) {
 		orchestrator, _ := record["orchestrator"].(string)
 		model, err := config.ModelNamed(orchestrator)
 		if err != nil {

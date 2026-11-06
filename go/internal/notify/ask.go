@@ -34,11 +34,12 @@ type field struct {
 }
 
 // Ask asks the owner a seat's question for it, by name, as Python's shaped does: kept as the
-// seat's notice, joined to the questions still standing there, and paged at once, the card of
-// its episode going out once.  It answers the exit code and whether Go decided it at all: where
+// seat's notice, joined to the questions still standing there, and its card following the word
+// the seat says with it, which asked reads (`once`), a needs you paged at once, the card of its
+// episode going out once.  It answers the exit code and whether Go decided it at all: where
 // the seat's word hangs on a record Go does not read yet, or a file it reads is one Go cannot
 // read as Python does, it records nothing and leaves the ask to Python.
-func Ask(name string, record map[string]any, question string, out, errOut io.Writer) (int, bool) {
+func Ask(name string, record map[string]any, question string, asked Asked, out, errOut io.Writer) (int, bool) {
 	_, ownerErr := secret("AGENTKIT_DISCORD_USER_ID", "discord_user_id")
 	if _, webhookErr := webhook(false, io.Discard); ownerErr != nil || webhookErr != nil {
 		return 0, false
@@ -86,19 +87,20 @@ func Ask(name string, record map[string]any, question string, out, errOut io.Wri
 		card = run.NewObject()
 	}
 	_, eventErr := readEvent(cardKey(card.Get("episode")))
-	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil {
+	now := time.Now() // the command's moment, which its word and its episode begin at
+	word, since, asking := once(name, notice, asked, now)
+	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil || word == "" {
 		return 0, false
 	}
 	if err := writeNotice(name, notice); err != nil {
 		fmt.Fprintf(errOut, "notify: record could not be persisted (%s); retry required\n", failed(err))
 		return 1, true
 	}
-	// Python ends the seat's `ak wait` under this lock: a seat Go knows, with no seat state,
-	// waits on nothing
+	// Python ends the seat's `ak wait` under this lock: a seat Go asks for waits on nothing
 	if wait, err := lock.Wait(context.Background(), seatFile("seat", name, "lock")); err == nil {
 		wait.Close()
 	}
-	code, err := page(name, card, notice, attached, errOut)
+	code, err := worded(name, card, notice, word, since, asking && attached, float64(now.UnixNano())/1e9, errOut)
 	if err != nil {
 		fmt.Fprintf(out, "WARN card transition for %s failed (%s); retry required\n", name, failed(err))
 		return 1, true

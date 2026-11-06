@@ -31,7 +31,7 @@ func TestASavedGoneSeatCanAskBeforeAndAfterAQuietTick(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			code, known := Ask("acme", record, "Which database?", io.Discard, io.Discard)
+			code, known := Ask("acme", record, "Which database?", nil, io.Discard, io.Discard) // no seat file: its word is the question
 			if code != 0 || known != each.known {
 				t.Fatal(code, known)
 			}
