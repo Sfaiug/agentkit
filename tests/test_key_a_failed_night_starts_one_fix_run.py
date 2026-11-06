@@ -184,6 +184,9 @@ class FailedNights(unittest.TestCase):
         self.assertEqual(self.under_way["api"], (2, 0))
         self.assertEqual(self.after_it["api"], (2, 0))
 
+    def test_each_night_s_fix_has_a_branch_of_its_own(self):
+        self.assertEqual(len({record_of(run)["branch"] for run in self.api.runs()}), 2)
+
     def test_a_later_night_leaves_the_running_fix_its_own_failures(self):
         self.assertEqual(self.kept, ["tests/a.py::first"])
         self.assertEqual(self.api.check(self.api.runs()[1]), ["tests/b.py::second"])
