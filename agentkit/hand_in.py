@@ -399,7 +399,10 @@ def oversize(wt, base, tree, limit):
     why = transitions.first_review_refusal("this change", transitions.diff_lines(wt, base, head, added_only=True),
                                            limit, transitions.carried_lines(wt, base, head))
     # A cut that drops asked-for behaviour fails review or the checks later, at more cost than a split.
-    return why and (why + "\nMake the same change in fewer lines, every asked-for behaviour kept, "
+    # So does packing code denser: a real executor told its limit (5 Nov 2026) wrote each function
+    # on one line to fit, which a reviewer reads no faster than the lines it saved.
+    return why and (why + "\nMake the same change in fewer lines, every asked-for behaviour kept and "
+                    "every line formatted as the project formats code (a denser line is no smaller a change), "
                     'or hand in `ak hand-in blocked "why"` naming the pieces it splits into.')
 
 

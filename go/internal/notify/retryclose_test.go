@@ -31,7 +31,7 @@ func TestRetryRetiresAPageClosedAfterTheCardRow(t *testing.T) {
 		"status", "pending", "attempts", 1, "next_attempt", 0, "webhook", digest(server.URL),
 		"payload", run.Fields("content", "🙋 Needs you · acme"), "message", "Needs you · acme: Which database?")
 	write(filepath.Join(outbox(), key+".json"), run.Line(event))
-	if carried, err := RetryPending(func(string) (string, any) { return "needs you", nil }, io.Discard); !carried || err != nil {
+	if carried, err := RetryPending(func(string) (string, any) { return "needs you", nil }, false, nil, io.Discard); !carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	event, err := readEvent(key)

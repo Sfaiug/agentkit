@@ -39,6 +39,7 @@ RENAME_EXCHANGE = 2             # renameat2's flag on Linux
 RENAME_SWAP = 2                 # renamex_np's flag on macOS
 LOCKED = "a version of ak's"   # why each version's record is locked, kept from any prune
 NOT_RUN = (":!go", ":!tests", ":!docs", ":!*.md")   # what no running process holds
+CODE_ENV = "AK_RUN_CODE"        # the checkout a run's processes run: `enter`'s
 
 
 def repository():
@@ -88,12 +89,30 @@ def checkout(code=None):
 
 def enter(path):
     """All imports and child commands come from the same checkout after this exec."""
-    os.environ["AK_RUN_CODE"] = str(path)
+    os.environ[CODE_ENV] = str(path)
     os.environ["PATH"] = os.pathsep.join((str(path / "bin"), os.environ.get("PATH", os.defpath)))
     if path != config.REPO:
         sys.stdout.flush()
         sys.stderr.flush()
         os.execv(sys.executable, [sys.executable, str(path / "bin" / "ak"), *sys.argv[1:]])
+
+
+def live():
+    """The checkout a seat runs, and what its server runs for it: ~/agentkit, whichever process
+    starts it -- a run on a version under `VERSIONS`, a worktree, another clone -- as a seat
+    outlives them all; this one where there is no ~/agentkit."""
+    from . import update     # here, not at the top: it imports this module
+    return update.agentkit_dir() if update.agentkit_dir().is_dir() else config.REPO
+
+
+def unpinned(env):
+    """`env` without what `enter` put in it, for what outlives this process: no version's `bin`
+    on its PATH, whose `ak` would run that version, and no `CODE_ENV`."""
+    kept = {key: value for key, value in env.items() if key != CODE_ENV}
+    if "PATH" in kept:
+        kept["PATH"] = os.pathsep.join(entry for entry in kept["PATH"].split(os.pathsep)
+                                       if Path(entry).parent.parent != config.HOME / VERSIONS)
+    return kept
 
 
 def dispatch(argv):
@@ -102,7 +121,7 @@ def dispatch(argv):
         with checkout(config.REPO) as path:
             enter(path)
     elif (argv[:1] == ["hand-in"] and os.environ.get(worker.RUN_MARKER)
-            and (path := os.environ.get("AK_RUN_CODE"))):
+            and (path := os.environ.get(CODE_ENV))):
         enter(Path(path))
     elif len(argv) >= 3 and argv[:2] in (["run", "resume"], ["run", "merge"]):
         state = record.read_state(config.RUNS / argv[2]) or {}

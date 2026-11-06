@@ -24,6 +24,9 @@ from agentkit.worker import auth_ok
 
 NAME = "fix-api"
 CONVERSATION = "d6fae368-678c-444e-8032-9c5c5338c84e"
+# Refusals over the empty input field their harness keeps drawn: a move waits for one empty.
+LIMIT = "Usage limit reached\n❯"
+CODEX_LIMIT = "You've hit your usage limit\n›"
 
 
 class SeatAccount(unittest.TestCase):
@@ -169,7 +172,7 @@ class SeatAccount(unittest.TestCase):
             "acme-new out of usage until "))
 
     def test_spent_account_reopens_same_conversation_and_keeps_everything_owned(self):
-        self.pane = "Usage limit reached"
+        self.pane = LIMIT
         before = config.session_records()[NAME]
         plan = config.plan_path(NAME).read_bytes()
         card = config.card_path(NAME).read_bytes()
@@ -358,7 +361,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 
     def test_screen_refusal_marks_only_its_account_despite_meters_with_room(self):
         self.meters(20, 40)
-        self.pane = "Usage limit reached"
+        self.pane = LIMIT
         self.refusal_tick()
         providers = usage.collect(self.cfg)
         self.assertTrue(providers["anthropic"]["accounts"]["default"]["exhausted"])
@@ -429,7 +432,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
             "session_id": CONVERSATION, "transcript_path": str(transcript), "cwd": str(self.root)})
         until = self.now + 240
         self.pane = ("You've hit your usage limit. Try again at " +
-                     time.strftime("%Y-%m-%d %H:%M", time.localtime(until)))
+                     time.strftime("%Y-%m-%d %H:%M", time.localtime(until)) + "\n›")
         self.refusal_tick()
         self.assertEqual(usage.collect(self.cfg)["openai"]["exhausted_until"], until)
         self.assertIn("openai out of usage until", self.answer()["reason"])
@@ -567,7 +570,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                         "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
         readings = {"default": reading(95), "second": reading(95), account: reading(100)}
         self.cached(lambda p: p.update(openai={**readings["default"], "accounts": readings}))
-        self.pane = "You've hit your usage limit"
+        self.pane = CODEX_LIMIT
         with patch.object(usage, "_probe", side_effect=lambda _cfg, _provider, _now, account=None:
                           json.loads(json.dumps(readings[account]))), \
                 patch.object(usage, "_adapter_json") as adapter:
@@ -595,7 +598,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                         "resets_at": self.now + 86400, "window_secs": 604800}, self.now)]}
         readings = {"default": reading(95, 0), "second": reading(100, 2)}
         self.cached(lambda p: p.update(openai={**readings["default"], "accounts": readings}))
-        self.pane = "You've hit your usage limit"
+        self.pane = CODEX_LIMIT
         with patch.object(usage, "_probe", side_effect=lambda _cfg, _provider, _now, account=None:
                           json.loads(json.dumps(readings[account]))), \
                 patch.object(usage, "_adapter_json", return_value={
@@ -701,9 +704,9 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.assertFalse(usage.collect(self.cfg)["anthropic"]["accounts"]["default"]["exhausted"])
 
     def test_pending_continue_does_not_spend_the_new_account_on_old_transcript_text(self):
-        self.pane = "Usage limit reached"
+        self.pane = LIMIT
         self.tick()
-        self.pane = "Usage limit reached"
+        self.pane = LIMIT
         with patch.object(watch, "type_into", return_value=False):
             watch.continue_turns(self.cfg, self.logs.append, accounts=True)
         self.now += watch.STALL_WAIT
@@ -748,7 +751,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
         self.meters(100, 0)
         self.pane = "❯ the owner is typing"
         with patch.object(watch, "seat_editor", return_value={"id": "%1"}), \
-                patch.object(watch, "carry_draft") as carried:
+                patch.object(watch, "carry_draft",     # lifted out of the composer
+                             side_effect=lambda *_a: setattr(self, "pane", "❯") or True) as carried:
             self.tick()
         carried.assert_called_once()        # into the composer the resumed harness opens
         self.assertEqual(len(self.commands), 1)
@@ -764,6 +768,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
                 if deadline:
                     self.pane += " Try again at " + time.strftime(
                         "%Y-%m-%d %H:%M", time.localtime(deadline))
+                self.pane += "\n❯"
                 old = self.pane
                 self.tick()
                 watch.opened_now(NAME)
@@ -820,7 +825,7 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
     def test_account_continue_waits_for_a_draft_and_never_claims_a_fresh_resume(self):
         # a harness that takes no first prompt has its line typed
         self.stack.enter_context(patch.object(orch, "takes_line", return_value=False))
-        self.pane = "Usage limit reached"
+        self.pane = LIMIT
         with patch.object(orch, "resume", return_value="fresh"):
             self.tick()
         self.assertFalse(watch.seat_read(NAME).get("midturn"))

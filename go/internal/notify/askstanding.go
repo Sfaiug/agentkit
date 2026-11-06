@@ -45,7 +45,7 @@ func standing(name string, record map[string]any) (attached, known bool) {
 	for _, line := range config.SplitLines(panes) {
 		clients, rest, _ := strings.Cut(line, "\t")
 		dead, session, _ := strings.Cut(rest, "\t")
-		if session != tmux.Control && config.Fold(session) == name {
+		if session != config.Control && config.Fold(session) == name {
 			found, alive, attached = true, alive || dead != "1", clients != "" && clients != "0"
 		}
 	}

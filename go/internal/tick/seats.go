@@ -43,8 +43,12 @@ func midturn(live seat.Live, account bool) bool {
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.
 func healthy(live seat.Live) bool {
-	return healthReady(live) && stays(live)
+	return healthReady(live) && live.Refused == "" && stays(live)
 }
+
+// refused is whether the health row's look, and the wait on its usage the refusal its record ends
+// on puts it in, are all the row does there (watch.seat_account), which a dry tick says it would.
+func refused(live seat.Live) bool { return live.Refused != "" && looked(live) }
 
 // titleKept is whether the seat's title is the name it has, which the owner has not retitled
 // (watch.follow_title) and sync_title has nothing to send for: a title it superseded is one it
@@ -73,7 +77,7 @@ func (t *ticking) health() error {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := seat.Health(name, healthReady, t.log.line); err != nil || !carried {
+		if carried, err := seat.Health(name, func(live seat.Live) bool { return healthReady(live) || refused(live) }, t.log.line); err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
 	}

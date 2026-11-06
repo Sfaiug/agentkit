@@ -84,13 +84,15 @@ class SeatTransport(unittest.TestCase):
         self.addCleanup(self.home.close)
 
     def transport(self):
-        """The seat's launch line up to its harness, `claude` for opus."""
+        """The seat's launch line up to its harness, `claude` for opus: the first word of that name a
+        `--` hands the rest of the line to, since a launch line may name its harness earlier."""
         checkout = self.home.path / "code" / "acme"
         checkout.mkdir(parents=True)
         done = self.home.ak("orch", "acme", "--model", "opus", "--dry-run", cwd=checkout)
         self.assertEqual(done.code, 0, done.err)
         words = shlex.split(done.out.strip().splitlines()[-1])
-        at = next((i for i, word in enumerate(words) if Path(word).name == "claude"), None)
+        at = next((i for i, word in enumerate(words)
+                   if Path(word).name == "claude" and i and words[i - 1] == "--"), None)
         self.assertIsNotNone(at, done.out)
         # `env` first: a launch line may begin with a variable it sets
         return ["env", *words[:at]]

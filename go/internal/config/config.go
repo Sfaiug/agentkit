@@ -217,17 +217,9 @@ func Check() error {
 
 func load() (*table, error) {
 	path := filepath.Join(Home(), "config.toml")
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("cannot read %s: %w", path, err)
-	}
-	root, err := parseDocument(string(data))
+	root, _, err := homeFile()
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	renamePolicy(root)
-	if err := checkPolicy(root); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, err
 	}
 	if !hasTables(root) {
 		shipped, err := parseDocument(defaultConfig)

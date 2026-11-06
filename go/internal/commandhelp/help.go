@@ -17,7 +17,8 @@ var public = []string{"run", "plan", "notify", "wait", "usage", "models", "brows
 // when Go takes over: until then the listing stays Python's, and cli.Main runs them unlisted.
 var internal = []string{"orch", "worker", "hand-in", "watch", "update", "macbridge", "attach", "doctor", "move"}
 
-// Keep the shadow command's text in step with agentkit/command_help.py until the switch.
+// Keep the shadow command's text in step with agentkit/command_help.py until the switch; its
+// placeholders say the numbers in force once config.InForce reads them, as Python's render does.
 var entries = map[string]entry{
 	"models": {
 		"usage: ak models [--json] [--refresh]",
@@ -71,7 +72,7 @@ var entries = map[string]entry{
 	},
 	"run": {
 		"usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]\n              [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]\n       ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]\n       ak run status [ID] [--history] [--why] [--plain] [--json]\n       ak run resume ID [--rounds N] [--bg]\n       ak run stop ID [--keep]\n       ak run merge ID | ak run clean ID | ak run gc [--dry-run]",
-		"Execute, verify, review, push, open a PR and merge.\n--rounds sets the round limit, at most 3 (default: task rounds or 3).\n--anyway starts even when a run in the same repository looks already under way;\na task over 3 rounds is refused regardless.\n--no-worktree uses the repo's current branch; --no-merge keeps work local.\n--bg detaches and prints a launch receipt, run ID and result path.\n--first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.\nFrom a seat, --exec, --review, --anyway and --first are refused: ak picks the models,\ndecides what goes first and refuses a second run of a change under way.\nSeveral task files run as one job of independent pieces; --parallel caps it.\nmax_runs caps the count when positive; 0 leaves host memory as the gate\n(config.toml or AK_MAX_RUNS).\n--review-pr reviews a GitHub PR, without an executor: the seat's own merges on\nPASS with green checks, anyone else's asks the inbox.\nTask fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.",
+		"Execute, verify, review, push, open a PR and merge.\n$run_budget\n--anyway starts even when a run in the same repository looks already under way;\n$rounds_refusal\n--no-worktree uses the repo's current branch; --no-merge keeps work local.\n--bg detaches and prints a launch receipt, run ID and result path.\n--first admits the run ahead of every queued run without it, skipping the count cap and a pinned load gate; a heavy suite turn still goes by wait.\nFrom a seat, --exec, --review, --anyway and --first are refused: ak picks the models,\ndecides what goes first and refuses a second run of a change under way.\nSeveral task files run as one job of independent pieces; --parallel caps it.\nmax_runs caps the count when positive; 0 leaves host memory as the gate\n(config.toml or AK_MAX_RUNS).\n$pr_delivery\nTask size: $executor_size.\nSeat's work: $orchestrator_size.\nTask fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.",
 		"ak run task.md --bg",
 	},
 	"run status": {
@@ -81,8 +82,8 @@ var entries = map[string]entry{
 	},
 	"run resume": {
 		"usage: ak run resume ID [--rounds N] [--bg]",
-		"Resume interrupted or exhausted work; --rounds raises the round limit, at most 3.",
-		"ak run resume RUN_ID --rounds 3 --bg",
+		"Resume interrupted or exhausted work; $resume_budget",
+		"ak run resume RUN_ID$resume_example --bg",
 	},
 	"run merge": {
 		"usage: ak run merge ID",

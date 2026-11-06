@@ -15,6 +15,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/hooks"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
@@ -22,10 +23,10 @@ import (
 
 // serverWide is what Python's tmux.conf sets on ak's server, but its pane-died hook and Ctrl-b
 // m, which run Python's ak: a touch scrolls a seat's output, 50000 lines of it; a harness that
-// ends keeps its pane; a link it prints reaches the owner's terminal whole.
+// ends keeps its pane; a link it prints, and each repaint, reaches the owner's terminal whole.
 var serverWide = []string{"set-option", "-g", "mouse", "on", ";", "set-option", "-g", "history-limit", "50000", ";",
 	"set-option", "-g", "remain-on-exit", "on", ";", "set-option", "-g", "allow-passthrough", "on", ";",
-	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks", ";"}
+	"set-option", "-as", "terminal-features", ",*:RGB:hyperlinks:sync", ";"}
 
 // Open is the shared new-seat launch used by the menu and ak orch. Its rulebook precedes
 // the adapter's command, and its record uses Python's locks and format. False leaves
@@ -114,6 +115,7 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		return true, err
 	}
 	defer release()
+	hooks.HandTaskTemplate()
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
 		// before the harness is up: its first prompt may be offered a newer rulebook already
@@ -174,10 +176,11 @@ func sayWhere(name string, out io.Writer) error {
 
 // start is the seat's session on ak's server, as Python's orch.start opens it: its harness run
 // by a launch file that removes itself, which no limit of tmux's on a command's length meets;
-// the seat's name and its opener's state in its pane's environment and its session's; marked
+// the seat's name and its opener's state in its pane's environment, then its session's; marked
 // ak's, its pane named the harness's, and kept when the harness ends.
 func start(state, name, cwd string, cmd []string) error {
-	values, err := environment(name, tmux.Own())
+	server := tmux.Own()
+	values, err := environment(name, server)
 	if err != nil {
 		return err
 	}
@@ -190,13 +193,15 @@ func start(state, name, cwd string, cmd []string) error {
 		return err
 	}
 	target := "=" + name + ":"
-	args := slices.Concat(serverWide, []string{"new-session", "-d", "-s", name, "-c", cwd})
-	args = append(append(append(args, paneEnvironment(values)...), command), keptEnvironment(target, values)...)
-	args = append(args, ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, tmux.HarnessPane, "#{pane_id}",
-		";", "set-option", "-t", target, "remain-on-exit", "on")
-	if err := tmux.Spawn(tmux.Own(), shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
+	args := slices.Concat(serverWide, []string{"new-session", "-d", "-s", name, "-c", cwd}, paneEnvironment(values), []string{command})
+	if err := tmux.Spawn(server, shims+string(os.PathListSeparator)+os.Getenv("PATH"), args...); err != nil {
 		os.Remove(launch)
 		return fmt.Errorf("tmux could not start the session %s in %s: %v", name, cwd, err)
+	}
+	kept := append(keptEnvironment(target, values), ";", "set-option", "-t", target, tmux.Mark, "1", ";", "set-option", "-F", "-t", target, tmux.HarnessPane, "#{pane_id}",
+		";", "set-option", "-t", target, "remain-on-exit", "on")
+	if _, err := tmux.Ask(server, kept[1:]...); err != nil {
+		return fmt.Errorf("cannot set up the session %s: %v", name, err)
 	}
 	return nil
 }
@@ -226,10 +231,16 @@ func keptEnvironment(target string, values []field) []string {
 }
 
 // environment is what a seat takes from whoever opens it, as Python's orch.seat_env: its home,
-// its name and server, where its harnesses keep their state and where its pages go; and not the
-// mark of the ak that opened it, which it outlives.  A nil value is one it goes without.
+// its name, where its harnesses keep their state and where its pages go; and not the mark of the
+// ak that opened it, which it outlives.  A nil value is one it goes without.  It names its server
+// only where its HOME would not: an ak opened in it under another HOME then reaches that HOME's
+// own, never the seats'.
 func environment(name, server string) ([]field, error) {
-	values := []field{{"HOME", config.UserHome()}, {"AGENTKIT_SESSION", name}, {"AGENTKIT_TMUX_SOCKET", server}, {"AK_OWNER", nil}}
+	var socket any
+	if server != tmux.HomeServer() {
+		socket = server
+	}
+	values := []field{{"HOME", config.UserHome()}, {"AGENTKIT_SESSION", name}, {"AGENTKIT_TMUX_SOCKET", socket}, {"AK_OWNER", nil}}
 	names, err := config.StateEnv()
 	for _, key := range slices.Compact(slices.Sorted(slices.Values(append(names, notify.EnvNames...)))) {
 		if !slices.ContainsFunc(values, func(f field) bool { return f.key == key }) {

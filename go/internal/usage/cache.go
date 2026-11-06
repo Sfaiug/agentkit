@@ -61,7 +61,15 @@ func collect(sources []source, models map[string]config.Model, refresh bool) (*r
 	}
 	providers := run.NewObject()
 	for _, src := range sources {
-		providers.Set(src.Name, withoutPast(gently(src), now, "the adapter"))
+		record := withoutPast(gently(src), now, "the adapter")
+		if src.account == "" {
+			providers.Set(src.Name, record)
+			continue
+		}
+		if providers.Dict(src.Name) == nil { // the snapshot's record stands where it holds one
+			providers.Set(src.Name, fields("provider", src.Name, "accounts", run.NewObject()))
+		}
+		providers.Dict(src.Name).Dict("accounts").Set(src.account, record)
 	}
 	providers, err := store(sources, providers, models, now, &now, nil)
 	return gateFlags(providers, now, models), err
@@ -103,12 +111,21 @@ func store(sources []source, providers *run.Object, models map[string]config.Mod
 	}, fetchedAt)
 }
 
-// patch puts one freshly read provider into the snapshot as it stands now, the others and its
-// age left alone, and is the record as written, Python's usage._patch.
-func patch(name string, prov *run.Object) *run.Object {
+// patch puts one freshly read provider, or account of one, into the snapshot as it stands now, the
+// others and its age left alone, and is the record as written, Python's usage._patch.
+func patch(src source, prov *run.Object) *run.Object {
 	change := func(providers *run.Object, now float64) *run.Object {
-		record := onto(object(providers.Get(name)), prov, now)
-		providers.Set(name, record)
+		old := object(providers.Get(src.Name))
+		if src.account == "" {
+			record := onto(old, prov, now)
+			providers.Set(src.Name, record)
+			return record
+		}
+		old, accounts := old.Copy(), object(old.Get("accounts")).Copy()
+		record := onto(object(accounts.Get(src.account)), prov, now)
+		accounts.Set(src.account, record)
+		old.Set("accounts", accounts)
+		providers.Set(src.Name, old)
 		return record
 	}
 	record, err := write(change, nil)
@@ -164,6 +181,14 @@ func read() any {
 // what another process wrote while this one waited for its lock.
 func cachedProvider(name string) *run.Object {
 	return object(object(object(read()).Get("providers")).Get(name))
+}
+
+// cached is what the snapshot holds for the source's login now, as cachedProvider reads it.
+func (src source) cached() *run.Object {
+	if src.account == "" {
+		return cachedProvider(src.Name)
+	}
+	return object(object(cachedProvider(src.Name).Get("accounts")).Get(src.account))
 }
 
 // lockFile is path's lock under state/, once it is free.

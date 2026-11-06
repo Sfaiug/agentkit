@@ -66,11 +66,13 @@ RULES = [
      "home": ("agentkit/host.py", "go/internal/host/readings.go", "tools/machine.sh"),
      "max": 0},
     # A suite piece in the helper's VM or container has no host.py either: it counts its own
-    # cgroup's kills for memory, and reads nothing else of the host.
+    # cgroup's kills for memory, and reads nothing else of the host.  Go carries a copy in the
+    # program, so a copied binary needs no checkout; TestTheCarriedScriptsAreToolsHelpers refuses
+    # any difference from tools/helper/piece.sh.
     {"name": "a suite piece's kills for memory",
      "flags": (),
      "pattern": r"/sys/fs/cgroup/memory\.events",
-     "home": ("tools/helper/piece.sh",),
+     "home": ("tools/helper/piece.sh", "go/internal/helper/piece.sh"),
      "max": 0},
     # A process's stat and statm fields have one reader: host.proc_stat names them, and
     # host.resident_bytes counts pages. box.py runs as its own script inside the worker's
@@ -110,18 +112,19 @@ RULES = [
     # Every provider word counts, in code or comment, but none of ak's own names: the
     # `quota_dry` mark and its `QuotaDry` stop, the tests' `.run-quota-` dirs, the cgroup CPU
     # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), the
-    # usage-limit reset and its credits as the name of a feature, and what a subscription's
+    # usage-limit reset and its credits as the name of a feature, what a subscription's
     # week holds in tokens (`capacity.json`, `ak usage --json`'s `capacity_tokens` and
-    # `capacity_pairs`).  Google Compute's refusal codes are agentkit/google_cloud.py's, the one
-    # module that knows Google.
+    # `capacity_pairs`), and GitHub's hourly API allowance (gh's `api rate_limit` endpoint and
+    # the `github_rate_limit` key that waits on it).  Google Compute's refusal codes are
+    # agentkit/google_cloud.py's, the one module that knows Google.
     {"name": "provider failure words",
      "flags": ("-i",),
      "pattern": "rate[ _-]?limit|quota|capacity|overload|usage[ _-]?limit",
      "names": r"quota[_-]?dry|run-quota|(cpu|unit)[ _]?quota|usage[ -]limit (reset|credit)"
-              r"|capacity[._](json|tokens|pairs)",
+              r"|capacity[._](json|tokens|pairs)|(\"api\", \"|github_)rate_limit",
      "home": ("adapters/", "agentkit/harness/", "go/internal/config/adapters/",
               "agentkit/google_cloud.py"),
-     "max": 59},
+     "max": 58},
     # The run loop, admission and a stop write run.json through its one writer.
     # Called through the module (`record.save_state`); watch.py's own `save_state` writes the
     # watcher's state, not a run record.

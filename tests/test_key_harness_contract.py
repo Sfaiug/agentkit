@@ -1,4 +1,8 @@
-"""The same contract reaches every adapter, including one added after discovery."""
+"""The same contract reaches every adapter, including one added after discovery.
+
+Black-box: smoke.sh's step 3 and tests/check_harness_contract.py run from outside, on
+adapters of this test's own; only their exit codes and the verdict lines they print count.
+"""
 
 import os
 import json
@@ -122,6 +126,26 @@ esac
         result = self.standalone()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("FAIL  3 echo: resume", result.stdout)
+
+    def failing(self, stderr):
+        # a turn that exits 1 with nothing answered, its harness saying `stderr` on the way out
+        fixture = (REPO / "tests/fixtures/adapters/echo.sh").read_text()
+        quit = f'    printf "%s\\n" {stderr!r} >"$out/stderr.log"; : >"$out/final.md"; exit 1\n'
+        self.adapter("echo", fixture.replace('    mkdir -p -- "$out"\n',
+                                             '    mkdir -p -- "$out"\n' + quit, 1))
+        return self.standalone("echo")
+
+    def test_a_provider_down_in_its_own_words_skips_and_any_other_exit_fails(self):
+        # xAI answered every try with a 500 for six minutes on 5 Nov 2026 and held the install:
+        # an outage proves nothing about ak, so the check skips it like a spent window
+        down = self.failing("API error (status 500 Internal Server Error): Service temporarily "
+                            "unavailable")
+        self.assertEqual(down.returncode, 0, down.stdout + down.stderr)
+        self.assertIn("SKIP  3 echo: was refused: the provider was down (Internal server error)",
+                      down.stdout)
+        broken = self.failing("error: unknown flag: --frobnicate")
+        self.assertEqual(broken.returncode, 1, broken.stdout + broken.stderr)
+        self.assertIn("FAIL  3 echo: adapter exited 1", broken.stdout)
 
     def leaky(self, read='"$HOME/.echo/AGENTS.md"'):
         # an echo that says what its manifest's unswitched file holds, as no box stops it here

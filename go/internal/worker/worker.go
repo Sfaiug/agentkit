@@ -56,6 +56,10 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if given.Efforts != nil {
 		model.Efforts = given.Efforts
 	}
+	lines, err := ceiling(given.ReviewLines)
+	if err != nil {
+		return 0, "", err
+	}
 	adapter, err := config.Adapter(model.Harness)
 	if !box.Supported || errors.Is(err, config.ErrNoAdapterDir) || config.EnsureDirs() != nil {
 		return 0, "", ErrPython
@@ -91,7 +95,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		return 0, "", err
 	}
 	prompt := filepath.Join(out, "prompt.md")
-	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given)+"\n\n"+body), 0o666); err != nil {
+	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given, lines)+"\n\n"+body), 0o666); err != nil {
 		return 0, "", err
 	}
 	argv := []string{adapter, "run", model.ID, model.TurnEffort(strings.HasPrefix(role, "reviewer")), workspace, prompt, out}

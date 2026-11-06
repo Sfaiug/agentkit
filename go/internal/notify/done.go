@@ -2,9 +2,6 @@ package notify
 
 import (
 	"io"
-	"os"
-	"path/filepath"
-	"strings"
 
 	"agentkit/internal/run"
 )
@@ -31,25 +28,4 @@ func sendDone(name string, card *run.Object, completion any) error {
 	}
 	_, err = sendEpisode(name, "done", card, run.Fields("text", seat.Str("reason")), completion, io.Discard)
 	return err
-}
-
-// QuietOutbox leaves only unsettled events to Python's retry pass.
-func QuietOutbox() bool {
-	entries, err := os.ReadDir(outbox())
-	if os.IsNotExist(err) {
-		return true
-	}
-	if err != nil {
-		return false
-	}
-	for _, entry := range entries {
-		if !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		event, err := run.ReadJSON(filepath.Join(outbox(), entry.Name()))
-		if err != nil || event == nil || event.Str("status") != "delivered" && event.Str("status") != "disabled" {
-			return false
-		}
-	}
-	return true
 }

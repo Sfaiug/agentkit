@@ -95,25 +95,13 @@ func (t *ticking) reviveRuns(going map[string]string) error {
 			}
 			why := "it died again both times it was reopened within the hour"
 			if len(recent) < 2 {
-				opened, err := seat.Reopen(each.Name, seat.How{}, io.Discard, io.Discard)
-				if opened && err == nil {
-					line := "continue: your run " + id + " is still going; pick up where you left off"
-					if each.Fresh {
-						line += "; this seat was started fresh because its earlier conversation could not be resumed"
-					}
-					if err := seat.OweLine(each.Name, line); err != nil {
-						return err
-					}
-					time.Sleep(seat.Warmup)
-					if _, err := seat.TellOwed(each.Name, t.log.line); err != nil {
-						return err
-					}
+				var err error
+				if why, err = t.reopen(each, "continue: your run "+id+" is still going; pick up where you left off"); err != nil {
+					return err
+				}
+				if why == "" {
 					t.log.line("reopened " + each.Name + " and asked it to continue " + id)
 					continue
-				}
-				why = "its harness did not provide a command to reopen it"
-				if err != nil {
-					why = err.Error()
 				}
 			}
 			text := fmt.Sprintf("Its orchestrator session %s is gone while run %s is still going. agentkit tried to reopen the seat and could not: %s. Press its number in the menu, then say: continue %s.", each.Name, id, why, id)
@@ -123,6 +111,28 @@ func (t *ticking) reviveRuns(going map[string]string) error {
 		}
 		return nil
 	})
+}
+
+// reopen is watch.revive: the gone seat opened again as its number opens it, on its own
+// conversation, owing that line, which is typed once its harness has had its warm-up; why it did
+// not come back, else "".
+func (t *ticking) reopen(each seat.Revival, line string) (string, error) {
+	opened, err := seat.Reopen(each.Name, seat.How{}, io.Discard, io.Discard)
+	if err != nil {
+		return err.Error(), nil
+	}
+	if !opened {
+		return "its harness did not provide a command to reopen it", nil
+	}
+	if each.Fresh {
+		line += "; this seat was started fresh because its earlier conversation could not be resumed"
+	}
+	if err := seat.OweLine(each.Name, line); err != nil {
+		return "", err
+	}
+	time.Sleep(seat.Warmup)
+	_, err = seat.TellOwed(each.Name, t.log.line)
+	return "", err
 }
 
 func (t *ticking) owedLines() error {

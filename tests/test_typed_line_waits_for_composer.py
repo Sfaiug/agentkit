@@ -144,14 +144,12 @@ class V5p(unittest.TestCase):
                                               "claude"))
         self.assertEqual(len(self.sends("Enter")), 1)
 
-    def test_v5p_seat_with_no_composer_counts_a_delivered_send_as_sent(self):
+    def test_v5p_seat_showing_no_composer_gets_no_keys(self):
+        # the shell its harness left behind: a line typed there would run as a command
         with self.fake_tmux(["just a shell\n$ "] * 3):
-            self.assertTrue(watch.type_checked(self.session, "continue", self.logs.append,
-                                              "claude"))
-        self.assertEqual(len(self.sends("-l")), 1)
-        self.assertEqual(len(self.sends("Enter")), 1)
-        self.assertEqual([e[1] for e in self.events if e[0] == "sleep"], [watch.KEY_GAP])
-        self.assertFalse(any("unsent in its composer" in line for line in self.logs))
+            self.assertIsNone(watch.type_checked(self.session, "continue", self.logs.append,
+                                                 "claude"))
+        self.assertEqual(self.sends(), [])
 
     def test_v5p_lock_covers_text_gap_and_enters_not_confirmation_waits(self):
         class Rec:
