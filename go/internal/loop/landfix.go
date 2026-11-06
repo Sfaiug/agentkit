@@ -20,7 +20,7 @@ import (
 func (r *repoPlace) fixLanding(l *loop, upstream string, record, wait *run.Object) error {
 	fix := wait.Dict("fix")
 	failed := fmt.Sprintf("its landing failed: %s; see %s", fix.Str("line"), fix.Str("log"))
-	if road := landingFixHandoff(wait); road != "" {
+	if road := landingFixHandoff(record); road != "" {
 		return notYet(failed, road)
 	}
 	// a conflict with the target is the world moving: it never spends the budget of the work's own reds

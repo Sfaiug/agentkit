@@ -10,8 +10,8 @@ package loop
 // leaves), check (CheckLine, `ak run --lander`) and land (landFromLine, in the woken run).
 //
 // Stacks share the single member's checks and delivery; narrow.go searches a red by what failed.
-// Target repairs, reds with suite helpers and PR reviews remain Python's once this releases its
-// lock.
+// Target repairs, reds with suite helpers and reviews of PRs other than a seat's own remain
+// Python's once this releases its lock.
 
 import (
 	"cmp"
@@ -523,11 +523,15 @@ func (l *loop) checkTree(scratch string, checks []string, name, suite string, se
 
 // landingChecks are the member's own landing checks on the scratch checkout, Python's
 // _landing_checks: its `# once` commands and the target's suite, and a `tests:` line the change
-// rewrites, which every later change would land through.
-func landingChecks(dir, scratch, tip string) ([]string, error) {
-	_, cmds, err := task.Read(filepath.Join(dir, "task.md"))
-	if err != nil {
-		return nil, err
+// rewrites, which every later change would land through.  A PR review owes the target's suite,
+// never an earlier head's too.
+func landingChecks(m member, scratch, tip string) ([]string, error) {
+	var cmds []string
+	if !m.record.Truthy("review_pr") {
+		var err error
+		if _, cmds, err = task.Read(filepath.Join(m.dir, "task.md")); err != nil {
+			return nil, err
+		}
 	}
 	suite := gitcall.Suite(scratch, tip)
 	_, once := task.Group(task.RoundCommands(cmds, suite, true))

@@ -250,18 +250,20 @@ type loop struct {
 // nothing it runs hands in to one above it.
 func Drive(dir string) int {
 	return drive(dir, func(l *loop) error {
-		if l.pull != "" {
+		switch {
+		case l.prior:
+			l.say(fmt.Sprintf("resume %s: %s", l.id, filepath.Join(dir, "task.md")))
+		case l.pull != "":
 			l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
+		default:
+			l.say(fmt.Sprintf("run %s: %s", l.id, filepath.Join(dir, "task.md")))
+		}
+		if l.pull != "" {
 			if record, _ := run.Read(dir); record != nil && record.Truthy("own_pr") {
 				return l.reviewOwn()
 			}
 			return l.reviewPull()
 		}
-		word := "run"
-		if l.prior {
-			word = "resume"
-		}
-		l.say(fmt.Sprintf("%s %s: %s", word, l.id, filepath.Join(dir, "task.md")))
 		return l.work()
 	})
 }
