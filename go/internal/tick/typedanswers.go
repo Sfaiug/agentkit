@@ -1,6 +1,11 @@
 package tick
 
-import "agentkit/internal/seat"
+import (
+	"errors"
+
+	"agentkit/internal/notify"
+	"agentkit/internal/seat"
+)
 
 // typedAnswers is notify.answer_typed: a message the owner typed while a seat's turn ran went into
 // that turn, and no prompt hook heard it, so it answers by the conversation.
@@ -11,6 +16,9 @@ func (t *ticking) typedAnswers() error {
 	}
 	for _, name := range names {
 		done, err := seat.AnswerWritten(name)
+		if errors.Is(err, notify.ErrUnread) {
+			return errLeft
+		}
 		if err != nil {
 			return err
 		}

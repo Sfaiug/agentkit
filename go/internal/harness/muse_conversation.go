@@ -43,6 +43,7 @@ func museLog(session string) string {
 	return ""
 }
 
+// exists is whether a file is at that path, through links, as a glob finds one.
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
