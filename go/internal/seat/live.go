@@ -184,6 +184,16 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		}
 		var wait func() error
 		blank := strings.TrimFunc(pane, config.Space) == ""
+		// a capture that came back blank is no look to follow; the account decisions read the
+		// model followed, as watch.health's seat_model does
+		if !blank {
+			if err := seat.moved(state, home.models); err != nil {
+				return err
+			}
+			if record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json")); record != nil {
+				live.Record = record
+			}
+		}
 		if live.Refused != "" || refusing {
 			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's,
 			// as is one the look no longer reads, whose account move would take watch.lock again

@@ -33,7 +33,7 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 
 // waitOnUsage is what watch.seat_account does with a seat whose conversation's record ends on its
 // window refusing the turn, where Go reads all of it: its last answer ran on the model its record
-// names (else watch.follow_model moves it first, Python's here), its provider lists no accounts,
+// names once Health has followed it (watch.follow_model), its provider lists no accounts,
 // the refusal spends the window, not only limits it for now, the seat is neither asking nor done,
 // nor moving accounts, and no account can take it now -- it has room only where no wait began and
 // the refusal's own time to try again is still to come, and it is spent while one stands.  Then

@@ -2,6 +2,7 @@ package seat
 
 import (
 	"maps"
+	"path/filepath"
 	"slices"
 
 	"agentkit/internal/config"
@@ -15,25 +16,25 @@ const audit = "audit"
 
 // A move is what a seat's last answer moves in its record (watch.follow_model): the
 // configured model the answer ran on, the seat's own first, and that model's orchestrator effort
-// where the answer ran at another it takes; "" for none. It is the answer of the conversation in
-// the directory it was read from: Python decides under the seat's announce lock, so a record
-// naming another by then is not this move's.
-type move struct{ chosen, effort, conversation, cwd string }
+// where the answer ran at another it takes; "" for none. It is the answer made `at` of the
+// conversation in the directory it was read from: Python decides under the seat's announce
+// lock, so a record naming another by then, or one that answer no longer counts for, is not
+// this move's.
+type move struct {
+	chosen, effort, conversation, cwd string
+	at                                float64
+}
 
 // follows is the move of a record's last answer: `/model` or `/effort` typed in the seat moves
-// it as a move on `c` would. Only an answer made since the harness was launched (`launched`) or
-// a move in place went in (the seat file's `switched`) counts, so the old model's last answer
-// undoes no move. The models run at the efforts the record holds for them. False where Python's
-// answer hangs on a configured model or a manifest this reading cannot read.
+// it as a move on `c` would, where that answer counts. The models run at the efforts the
+// record holds for them. False where Python's answer hangs on a configured model or a manifest
+// this reading cannot read.
 func follows(record, file *run.Object, models map[string]config.Model, offered []string, reader harness.Reader) (move, bool) {
 	kept, conversation, cwd := record.Str("orchestrator"), record.Str("conversation"), record.Str("cwd")
 	own := models[kept]
-	model, effort, at, answered := reader.LastAnswer(record)
-	var switched any
-	if file != nil {
-		switched = file.Get("switched")
-	}
-	if own.ID == "" || own.ID == "default" || !answered || !since(script.Moment(at), record.Get("launched"), switched) {
+	model, effort, answeredAt, answered := reader.LastAnswer(record)
+	at := script.Moment(answeredAt)
+	if own.ID == "" || own.ID == "default" || !answered || !counts(at, record, file) {
 		return move{}, true
 	}
 	models = atEfforts(models, record)
@@ -54,17 +55,34 @@ func follows(record, file *run.Object, models map[string]config.Model, offered [
 	if at := slices.IndexFunc(runs, func(each string) bool { return effort == any(models[each].Efforts["effort"]) }); at >= 0 {
 		chosen = runs[at]
 	}
+	to := move{chosen: chosen, conversation: conversation, cwd: cwd, at: at}
 	if effort == any(models[chosen].Efforts["effort"]) {
-		return move{chosen, "", conversation, cwd}, true
+		return to, true
 	}
 	takes, err := config.Efforts(own.Harness, model.(string))
 	if err != nil {
 		return move{}, false
 	}
 	if word, named := effort.(string); named && slices.Contains(takes, word) {
-		return move{chosen, word, conversation, cwd}, true
+		to.effort = word
 	}
-	return move{chosen, "", conversation, cwd}, true
+	return to, true
+}
+
+// counts is whether an answer made at that moment moves the record: only one made since the
+// harness was launched (`launched`) or a move in place went in (the seat file's `switched`), and
+// none while a move is still owed (a `switch` among its owed lines), so the old model's last
+// answer undoes no move.
+func counts(at float64, record, file *run.Object) bool {
+	if file == nil {
+		return since(at, record.Get("launched"))
+	}
+	for _, line := range file.List("owed_lines") {
+		if owed, _ := line.(*run.Object); owed != nil && owed.Truthy("switch") {
+			return false
+		}
+	}
+	return since(at, record.Get("launched"), file.Get("switched"))
 }
 
 // since is whether a moment is later than each of those that are moments.
@@ -107,11 +125,16 @@ func atEfforts(models map[string]config.Model, record *run.Object) map[string]co
 // that model's orchestrator effort, through config.change_efforts.
 func (seat Seat) moved(state string, models map[string]config.Model) error {
 	to := seat.follow
-	// the record the answer was read from, run by that orchestrator by then
-	read := func(data *run.Object, orchestrator string) bool {
-		return data.Str("orchestrator") == orchestrator && data.Str("conversation") == to.conversation && data.Str("cwd") == to.cwd
+	if to.chosen == "" {
+		return nil
 	}
-	if to.chosen != "" && to.chosen != seat.Orchestrator {
+	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
+	// the record the answer was read from, run by that orchestrator by then, that it still counts for
+	read := func(data *run.Object, orchestrator string) bool {
+		return data.Str("orchestrator") == orchestrator && data.Str("conversation") == to.conversation && data.Str("cwd") == to.cwd &&
+			counts(to.at, data, file)
+	}
+	if to.chosen != seat.Orchestrator {
 		orchestrate := set([]field{{"orchestrator", to.chosen}})
 		if err := update(state, seat.Name, func(data *run.Object) bool {
 			if !read(data, seat.Orchestrator) || !orchestrate(data) {

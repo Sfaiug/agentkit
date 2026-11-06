@@ -1,6 +1,7 @@
 package seat
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -118,13 +119,26 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	hooks.HandTaskTemplate()
 	// under the seat's lock, as a rename going on keeps its record
 	err = notify.Held(context.Background(), name, func(current string) error {
+		var issued *run.Object
+		var extra []string
+		var preparing error
 		// before the harness is up: its first prompt may be offered a newer rulebook already
-		if err := update(state, current, func(data *run.Object) bool {
-			data.Set("resumable", conversation != "")
+		err := update(state, current, func(data *run.Object) bool {
+			if issued, extra, preparing = harness.Launched(model.Harness, cwd, conversation, data.Copy()); preparing != nil {
+				return false
+			}
+			for _, key := range issued.Keys() {
+				fill(data, []field{{key, issued.Get(key)}})
+			}
 			data.Set("rulebook_sha", digest([]byte(text)))
 			return true
-		}); err != nil {
+		})
+		if err = cmp.Or(err, preparing); err != nil {
+			harness.Retire(model.Harness, issued)
 			return err
+		}
+		if len(extra) > 0 {
+			cmd = slices.Concat([]string{"env"}, extra, cmd)
 		}
 		// A fresh launch has begun no turn. Publish before starting it, so a hook can supersede
 		// this baseline even when the caller opens a seat after the tick's health row.
@@ -133,9 +147,11 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		}
 		if err := start(state, current, cwd, cmd); err != nil {
 			// no harness read them
+			harness.Retire(model.Harness, issued)
 			update(state, current, func(data *run.Object) bool {
-				data.Delete("resumable")
-				data.Delete("rulebook_sha")
+				for _, key := range append([]string{"resumable", "rulebook_sha"}, harness.RecordKeys(model.Harness)...) {
+					data.Delete(key)
+				}
 				return true
 			})
 			return err

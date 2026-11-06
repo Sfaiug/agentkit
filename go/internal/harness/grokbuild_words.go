@@ -11,7 +11,7 @@ func grokRecord(name string, record *run.Object) (plugin, bool) {
 	own := plugins["grokbuild"]
 	fact := hookfact.Standing(name)
 	ready := (!record.Truthy("conversation") || record.Get("id_source") == "launcher") &&
-		fact.Event == "" && fact.At == 0 && len(fact.Holds) == 0 && !grokSettingsChanged(record)
+		fact.Event == "" && fact.At == 0 && len(fact.Holds) == 0
 	own.heard = func(string) hookfact.Fact { return fact }
 	return own, ready
 }

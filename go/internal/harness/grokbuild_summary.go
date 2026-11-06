@@ -1,6 +1,8 @@
 package harness
 
 import (
+	"cmp"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -10,34 +12,30 @@ import (
 	"agentkit/internal/run"
 )
 
-// grokSettingsChanged leaves a differing summary to Python's follow_model, including its
-// freshness and choice of configured model and supported effort. grokbuild.py's session_dir
+// grokAnswer is the model and effort Grok Build last recorded for the seat's conversation, and
+// when, as grokbuild.py's `running` reads them: 1.0.46 saves a `/model` or effort change in
+// summary.json at once, before any answer, so the file's write time says when. session_dir
 // reads GROK_HOME directly and quotes the whole working directory, with spaces as %20.
-func grokSettingsChanged(record *run.Object) bool {
+func grokAnswer(record *run.Object) (model, effort, at any, found bool) {
 	if !record.Truthy("conversation") || !record.Truthy("cwd") {
-		return false
+		return nil, nil, nil, false
 	}
-	home := os.Getenv("GROK_HOME")
-	if home == "" {
-		home = filepath.Join(config.UserHome(), ".grok")
-	}
+	home := cmp.Or(os.Getenv("GROK_HOME"), filepath.Join(config.UserHome(), ".grok"))
 	cwd := strings.ReplaceAll(url.QueryEscape(record.Str("cwd")), "+", "%20")
-	summary, _ := run.ReadJSON(filepath.Join(home, "sessions", cwd, record.Str("conversation"), "summary.json"))
-	if summary == nil || summary.Str("current_model_id") == "" {
-		return false
-	}
-	models, err := config.Models()
+	file, err := os.Open(filepath.Join(home, "sessions", cwd, record.Str("conversation"), "summary.json"))
 	if err != nil {
-		return true
+		return nil, nil, nil, false
 	}
-	name := record.Str("orchestrator")
-	entry := models[name]
-	effort := entry.Efforts["effort"]
-	if held := record.Dict("efforts"); held != nil {
-		if own := held.Dict(name); own != nil {
-			effort = own.Str("effort")
-		}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return nil, nil, nil, false
 	}
-	reported := summary.Str("reasoning_effort")
-	return summary.Str("current_model_id") != entry.ID || reported != "" && reported != effort
+	value, _ := run.Decode(data)
+	summary, _ := value.(*run.Object)
+	info, err := file.Stat()
+	if summary == nil || err != nil || summary.Str("current_model_id") == "" {
+		return nil, nil, nil, false
+	}
+	return summary.Get("current_model_id"), summary.Get("reasoning_effort"), run.Float(float64(info.ModTime().UnixNano()) / 1e9), true
 }
