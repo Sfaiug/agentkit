@@ -46,18 +46,9 @@ func (s Stat) Exited() bool {
 
 func ReadStat(pid int) (Stat, bool) { return ReadStatIn("/proc", pid) }
 
-// ReadStatIn is ReadStat of a /proc at proc, so a test can hand one of its own. It counts the
-// fields after the last `)`, as the command name may hold spaces or `)`.
+// ReadStatIn is ReadStat of a /proc at proc, so a test can hand one of its own.
 func ReadStatIn(proc string, pid int) (Stat, bool) {
-	data, err := os.ReadFile(proc + "/" + strconv.Itoa(pid) + "/stat")
-	if err != nil {
-		return Stat{}, false
-	}
-	at := bytes.LastIndexByte(data, ')')
-	if at < 0 {
-		return Stat{}, false
-	}
-	fields := strings.Fields(string(data[at+1:]))
+	fields := statFields(proc, pid)
 	if len(fields) < 20 {
 		return Stat{}, false
 	}
@@ -69,6 +60,17 @@ func ReadStatIn(proc string, pid int) (Stat, bool) {
 		return Stat{}, false
 	}
 	return Stat{State: fields[0], Parent: parent, Session: session, Flags: flags, Start: start}, true
+}
+
+// statFields is the fields of that process's /proc stat from its state on, counted after the last
+// `)`, as the command name may hold spaces or `)`; none where it cannot be read.
+func statFields(proc string, pid int) []string {
+	data, err := os.ReadFile(proc + "/" + strconv.Itoa(pid) + "/stat")
+	at := bytes.LastIndexByte(data, ')')
+	if err != nil || at < 0 {
+		return nil
+	}
+	return strings.Fields(string(data[at+1:]))
 }
 
 // An Identity is a process's birth, with the boot, so a reboot cannot recycle one.

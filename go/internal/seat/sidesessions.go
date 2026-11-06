@@ -28,7 +28,7 @@ var (
 // closeSideSessions is Python's orch.sweep_finished: a session a seat started for a build, a server
 // or a long test, which nothing else ever ends, has each pane's screen saved to ~/.agentkit/tmp and
 // is closed once every pane has been dead a day, or at once, panes running, once ak holds nothing
-// of that seat (forgotten).  A session ak opened, one a record names, a seat of the home's, Control
+// of that seat (Forgotten).  A session ak opened, one a record names, a seat of the home's, Control
 // and one no seat tagged stay, and a listing that is not whole proves no pane dead.
 func (home Home) closeSideSessions(now time.Time, log func(string)) {
 	out, err := tmux.Ask(tmux.Own(), "list-panes", "-a", "-F",
@@ -64,7 +64,7 @@ func (home Home) closeSideSessions(now time.Time, log func(string)) {
 		// tag whenever a process in a tagged pane started this server
 		tag, err := tmux.Ask(tmux.Own(), "show-environment", "-t", sid, ownerTag)
 		owner, tagged := strings.CutPrefix(tag, ownerTag+"=")
-		if err != nil || !tagged || owner == "" || !finished && !home.forgotten(owner) {
+		if err != nil || !tagged || owner == "" || !finished && !home.Forgotten(owner) {
 			continue
 		}
 		path, err := saveScreens(name, owner, panes)
@@ -83,7 +83,7 @@ func (home Home) closeSideSessions(now time.Time, log func(string)) {
 		condition := "#{&&:#{!=:#{" + tmux.Mark + "},1},#{==:#{" + ownerTag + "}/#{session_name}/" +
 			"#{W:#{P:#{pane_id}/#{pane_dead}/#{pane_dead_time};}}," + snapshot + "}}"
 		// a seat opened under the owner's name meanwhile takes its sessions back
-		if named(name) || !finished && !home.forgotten(owner) {
+		if named(name) || !finished && !home.Forgotten(owner) {
 			continue
 		}
 		tmux.Ask(tmux.Own(), "show-environment", "-t", sid, ownerTag, ";", "if-shell", "-F", "-t", sid, condition, "kill-session -t '"+sid+"'")
@@ -104,12 +104,12 @@ func (home Home) holds(name string) bool {
 	return slices.ContainsFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
 }
 
-// forgotten is whether ak holds nothing of the seat a side session's tag names (orch.forgotten): no
+// Forgotten is whether ak holds nothing of the seat a side session's tag names (orch.forgotten): no
 // seat of the home, a legacy one included, no record or rename's pointer and no session on ak's
 // server, under the tag or where its renames lead.  Asked afresh each time, as a seat may open
 // under the name meanwhile; a rename chain it cannot follow or a failed tmux probe is no proof the
 // seat is gone.
-func (home Home) forgotten(tag string) bool {
+func (home Home) Forgotten(tag string) bool {
 	current, _, err := config.ResolveSession(tag)
 	if err != nil {
 		return false

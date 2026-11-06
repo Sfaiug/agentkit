@@ -92,7 +92,12 @@ func table(t *ticking) []pass {
 		{"exit clocks", false, nil, t.stamp},
 		{"seat sweep", false, noRunSweep, t.sweep},
 		{"ended logins", false, noLoginsToEnd, nil},
-		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
+		{"leftover sweep", false, nil, func() error {
+			if !leftover.Sweep(t.log.line) {
+				return errLeft
+			}
+			return nil
+		}},
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"machine check", false, nil, machines.Check},
 		{"project rules", false, checkoutsSeen, t.fetchProjects},
