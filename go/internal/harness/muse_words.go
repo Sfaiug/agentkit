@@ -5,7 +5,6 @@ import (
 	"path/filepath"
 	"regexp"
 
-	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -17,10 +16,10 @@ var museKept = regexp.MustCompile(`^muse-launch-[0-9a-f]{32}(?:\.gone)?$`)
 // while the listing publishes belongs to the next listing, and no record is rewritten here.
 func museRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["muse"]
-	token := record.Str("muse_launch")
-	if !launchToken.MatchString(token) {
+	path := museReceipt(record.Str("muse_launch"))
+	if path == "" {
 		return own, true
 	}
-	session, err := os.ReadFile(filepath.Join(config.Home(), "state", "muse-launch-"+token, "session"))
+	session, err := os.ReadFile(filepath.Join(path, "session"))
 	return own, err != nil || !museSession.Match(session)
 }
