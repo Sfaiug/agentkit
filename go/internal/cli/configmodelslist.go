@@ -6,7 +6,6 @@ import (
 
 	"agentkit/internal/config"
 	modelListing "agentkit/internal/listing"
-	"agentkit/internal/menu"
 	"agentkit/internal/terminal"
 )
 
@@ -41,15 +40,6 @@ func modelsList(harness string, keyboard *terminal.Keyboard, painter *terminal.P
 	return slices.DeleteFunc(choices, func(choice throughChoice) bool {
 		return choice.model == nil && !slices.Contains(has, choice.provider.ID)
 	}), err
-}
-
-// modelRow is how a choice of modelsList reads under its harness: a model marked where the config
-// runs it, or a provider to log in to.
-func (choice throughChoice) modelRow(harness string, ticks *config.ModelTicks) menu.ModelRow {
-	if choice.model == nil {
-		return menu.ModelRow{Name: choice.provider.Name, Choice: true, Login: true}
-	}
-	return menu.ModelRow{Name: choice.model.Label, Choice: true, Marked: len(ticks.Names(harness, choice.model.ID)) > 0}
 }
 
 // under is the provider a host lists the choice's model under, nil off a host.
