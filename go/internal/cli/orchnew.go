@@ -15,6 +15,7 @@ import (
 	"agentkit/internal/adapters"
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/tmux"
 	"agentkit/internal/usage"
@@ -26,10 +27,11 @@ import (
 // (chosen) and the workers asked where not given.  A preview (`--dry-run`) prints what the seat
 // would take and the command it would run, its rulebook written into a scratch folder gone once
 // that is printed, and saves and starts nothing; an open, from a person's terminal, opens the seat
-// and hands it that terminal; a seat on a provider's accounts opens on the one its login and usage
-// pick (seat.OpeningAccount).  The rest is Python's, settled before usage is read: a seat tmux or
-// a record holds under the name, an open with no tmux, whose harness runs in the terminal itself,
-// and a seat on a model Go does not carry (seat.Carried), any the question may pick.  Past that
+// and hands it that terminal; either is filed under the project of the checkout it is made in.  A
+// seat on a provider's accounts opens on the one its login and usage pick (seat.OpeningAccount).
+// The rest is Python's, settled before usage is read: a name held (held), an open with no tmux,
+// whose harness runs in the terminal itself, and a seat on a model Go does not carry
+// (seat.Carried), any the question may pick, an open on a gone seat's name among them.  Past that
 // read, whatever fails is an error.
 func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
 	if name != "" && held(name) {
@@ -44,7 +46,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	}
 	cwd, err := os.Getwd()
 	cwd = config.Resolve(cwd)
-	if err != nil || dryRun && seat.Project(cwd) != "" {
+	if err != nil {
 		return notImplemented(errOut, "orch")
 	}
 	if _, err := exec.LookPath("tmux"); err != nil && !dryRun {
@@ -86,9 +88,12 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 			return notImplemented(errOut, "orch")
 		}
 	}
-	var text string // a preview's rulebook, as an open's is read where it is written
+	var text, repo string // a preview's rulebook and project, as an open's are read where it opens
 	if dryRun {
-		if text, err = seat.Rulebook(name); err != nil {
+		if repo = seat.Project(cwd); repo != "" {
+			cwd = repo // where seat.Open runs it
+		}
+		if text, err = seat.PreviewRulebook(name, repo); err != nil {
 			return notImplemented(errOut, "orch")
 		}
 	}
@@ -147,7 +152,7 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	if err := os.WriteFile(rulebook, []byte(text), 0o666); err != nil {
 		return failed(err)
 	}
-	cmd, _, err := adapters.Fresh(orchestrator, model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
+	cmd, _, err := adapters.Fresh(orchestrator, model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
 		"AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)), cwd)
 	if err != nil {
 		return failed(err)
@@ -160,11 +165,16 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	return 0
 }
 
-// held is whether Python attaches or reopens that name, whatever the flags: its seat tmux holds,
-// or a file a seat's record or a rename's pointer keeps under it.
+// held is whether the name is Python's to answer whatever the flags: its seat tmux holds, or a
+// file under it that is no gone seat's record, a rename's pointer or one that will not read.  A
+// gone seat's record is a name a seat opened with --model or --workers takes, as Python's create
+// takes it; orchAgain reopens it where neither is given.
 func held(name string) bool {
 	path, err := config.SessionPath(name)
-	if _, missing := os.Lstat(path); err != nil || !errors.Is(missing, fs.ErrNotExist) {
+	if err != nil {
+		return true
+	}
+	if record, err := run.ReadJSON(path); record == nil && !errors.Is(err, fs.ErrNotExist) || record != nil && record.Has(config.Renamed) {
 		return true
 	}
 	return seat.ReadNames().Seat(name)
