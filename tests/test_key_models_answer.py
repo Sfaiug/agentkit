@@ -71,7 +71,7 @@ def bar(full, half=0, size=36):
 
 
 HEAD = "quality  a task"    # over the numbers, past every row's mark, name, effort and line
-ORCH = ["  orch", " " * 73 + HEAD,
+ORCH = ["  orch".ljust(73) + HEAD,
         f"           Acme Max 5  ▰▰  max     {bar(36)}    100.0  $20.00  no harness",
         f"           Acme Mid 5      high    {bar(35)}     99.7  $15.00",
         f"  ★ pick   Bolt 3          medium  {bar(34)}     99.4   $3.00",
@@ -94,19 +94,7 @@ SEATS = ("acme-fix", "acme-ask")
 
 
 def lines(screen):
-    """The tables; the chart above each is judged by test_key_models_chart."""
-    shown, chart = [], False
-    for line in screen.split("\n"):
-        if line == "  quality ↑":
-            chart = True
-        if not chart:
-            if line.startswith("  orch ") and "quality" in line:
-                shown.append("  orch")
-                line = " " * len("  orch") + line[len("  orch"):]
-            shown.append(line.rstrip())
-        if line.startswith("  cost →"):
-            chart = False
-    return shown
+    return [line.rstrip() for line in screen.split("\n")]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -132,7 +120,7 @@ class ModelsAnswer(unittest.TestCase):
 
     def models(self, width=100, seat=None):
         """`r` on `c`, over `seat` or in a window of its own, once the answer is drawn."""
-        term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 100),
+        term = Terminal(self.home, *(("attach", "--overlay") if seat else ()), size=(width, 60),
                         env={**ENV, **({"AGENTKIT_SESSION": seat} if seat else {})})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -161,7 +149,7 @@ class ModelsAnswer(unittest.TestCase):
     def test_each_role_is_answered_and_left_right_change_nothing(self):
         term, shown = self.models()
         at = shown.index(ORCH[0])
-        pointed = ["›" + line[1:] if "★ pick" in line else line for line in ORCH]
+        pointed = [*ORCH[:3], "›" + ORCH[3][1:], *ORCH[4:]]    # the pointer starts on the pick
         answer = [*pointed, *BUILDS, *REVIEWS, "", *LEGEND]
         self.assertEqual(shown[at:at + len(answer)], answer)
         self.assertEqual(next(line for line in reversed(shown) if line), KEYS)

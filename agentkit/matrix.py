@@ -225,7 +225,7 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
-                     "front": front, "take": take, "compared": them}
+                     "front": front, "take": take}
     return out
 
 
