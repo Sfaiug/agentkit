@@ -37,7 +37,7 @@ def narrowed():
     files = [Path(test) for test in (*chosen, IMPORTS) if "#" not in test]
     number, total = shard()
     owners = smoke_owners(blocks, Path(), total, offline=offline)
-    return ([str(path) for path, owner in shares(costs(Path(), files), total).items()
+    return ([test for test, owner in shares(costs(Path(), files), total).items()
              if owner == number]
             + [f"{SMOKE}#{name}" for name, owner in owners.items() if owner == number])
 

@@ -1,4 +1,5 @@
-"""Each test file's last measured seconds, per repository on this host.
+"""Each test's last measured seconds, per repository on this host: a file's, or a part's as its
+file timed it (`<file>::<part>`, tests/every_file.py).
 
 A suite's box throws its HOME writes away, so the times live in ak's state instead: every check,
 the lander's among them, keeps those its pieces printed (`passed`, wherever each piece ran), and
@@ -34,7 +35,7 @@ def handed(cwd):
 
 
 def read(text):
-    """{checkout-relative path: seconds} from AK_TIMES' `text`; {} from anything else."""
+    """{test ID: seconds} from AK_TIMES' `text`; {} from anything else."""
     try:
         times = json.loads(text)
     except ValueError:
@@ -82,8 +83,8 @@ def refusal(cwd, base, command, timings):
 
 def keep(cwd, log):
     """Add the times the check whose whole output is the file `log` printed to the record of
-    `cwd`, the checkout it ran on, the latest of a file's winning; a file that checkout no
-    longer has leaves it."""
+    `cwd`, the checkout it ran on, the latest of a test's winning; a test whose file that
+    checkout no longer has leaves it."""
     found = measured(log)
     if not found:
         return
@@ -92,7 +93,7 @@ def keep(cwd, log):
     try:
         with watch.state_lock():
             times = {name: seconds for name, seconds in (read(handed(cwd)) | found).items()
-                     if (Path(cwd) / name).is_file()}
+                     if (Path(cwd) / name.partition("::")[0]).is_file()}
             path.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", delete=False) as saved:
                 json.dump(times, saved, sort_keys=True)
