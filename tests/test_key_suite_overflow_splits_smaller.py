@@ -16,9 +16,11 @@ cgroup's memory as a kernel does: a piece needs 600 MiB, RAM stops at the cap, w
 it goes to swap up to the swap cap, and past both the cgroup runs out.
 """
 
+import ctypes
 import json
 import os
 import socket
+import struct
 import sys
 import threading
 from pathlib import Path
@@ -33,20 +35,21 @@ from fixtures.gitrig import Rig
 MB = 1024 ** 2
 BASE, NEED, UNCAPPED = 100, 600, 1 << 20    # MiB
 READINGS = {"cpus": 64, "free_mb": 4100, "mem_total_mb": 16384, "slice_cpu_pressure": 0}
-SUITE = """import socket, time
+IN_CLOSE_NOWRITE, IN_Q_OVERFLOW = 0x10, 0x4000    # inotify(7)
+LIBC = ctypes.CDLL(None, use_errno=True)
+SUITE = """import os, socket, time
 def say(word):
     with socket.socket(socket.AF_UNIX) as kernel:
         kernel.connect({address!r})
-        kernel.sendall(word.encode())
+        kernel.sendall(f"{{word}} {{os.environ['AK_SHARD']}}".encode())
         return kernel.recv(1)
 say("start")
-time.sleep(4)
 while say("wait") == b"n":
     time.sleep(0.1)
 say("end")
 """
 # The Mac: on battery until a piece runs here, then room for two pieces, which it takes and
-# passes without running them here, telling the kernel when it takes a suite's last.
+# passes without running them here, telling the kernel of each.
 SSH = """import os, shlex, socket, sys
 words = shlex.split(" ".join(sys.argv[1:]))
 at = words.index("mac.sh")
@@ -58,12 +61,10 @@ elif verb == "probe":
 elif verb == "prepare":
     sys.stdin.buffer.read()
 elif verb == "run":
-    shard, total = words[at + 8].split("/")
-    if shard == total:
-        with socket.socket(socket.AF_UNIX) as kernel:
-            kernel.connect({address!r})
-            kernel.sendall(b"last")
-            kernel.recv(1)
+    with socket.socket(socket.AF_UNIX) as kernel:
+        kernel.connect({address!r})
+        kernel.sendall(f"took {{words[at + 8]}}".encode())
+        kernel.recv(1)
 """
 # The line's checker, started in a scope of its own: the cgroup holds it alone.
 LANDER = """import os, sys
@@ -75,18 +76,25 @@ os.execv({ak!r}, [{ak!r}, *sys.argv[1:]])
 
 class Kernel:
     """One cgroup's memory as its pieces start and end; `passes` holds the pieces of each
-    pass that ran on this host. Beside a helper, on `battery` until a piece runs here, a piece
-    here ends once the helper took its suite's last piece (`last`), so what waits goes there."""
+    pass that ran on this host. A piece ends only once each piece of its pass started here or
+    went to the helper (`took`) and ak then read the memory they hold: however late a box
+    starts or ak's sampler runs on a busy host, ak sees the pass's pieces at once, and none
+    waits for a place here. Beside a helper, on `battery` until a piece runs here."""
 
     def __init__(self, unit, cap, swap_cap, battery=None):
         self.unit, self.cap, self.swap_cap = unit, cap, swap_cap
         self.running, self.oom, self.passes = 0, 0, []
-        self.battery, self.taken = battery, 0    # the suites whose last piece the helper took
+        self.battery, self.placed = battery, set()    # the shards of the pass, here or there
         self.listener = socket.socket(socket.AF_UNIX)
         self.address = f"\0ak-kernel-{os.getpid()}-{id(self)}"
         self.listener.bind(self.address)
         self.listener.listen(64)
         self.held()
+        # A sample of ak's reads memory.current, then memory.swap.current: how many were done
+        self.reads = LIBC.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        assert LIBC.inotify_add_watch(self.reads, bytes(unit / "memory.swap.current"),
+                                      IN_CLOSE_NOWRITE) >= 0, os.strerror(ctypes.get_errno())
+        self.closed = self.owed = 0
         self.thread = threading.Thread(target=self.serve)
         self.thread.start()
 
@@ -94,6 +102,7 @@ class Kernel:
         self.listener.shutdown(socket.SHUT_RDWR)    # wakes its accept, as a close does not
         self.thread.join()
         self.listener.close()
+        os.close(self.reads)
 
     def serve(self):
         while True:
@@ -102,21 +111,42 @@ class Kernel:
             except OSError:
                 return
             with piece:
-                word = piece.recv(16)
-                if word == b"start":
+                word, shard = piece.recv(64).decode().split()
+                if word == "start":
                     if not self.running:
                         self.passes.append(0)
+                        self.placed = set()
                     self.passes[-1] += 1
                     self.running += 1
+                    self.held()
                     if self.battery:
                         self.battery.unlink(missing_ok=True)
-                elif word == b"end":
+                elif word == "end":
                     self.running -= 1
-                elif word == b"last":
-                    self.taken += 1
-                self.held()
-                piece.sendall(b"n" if word == b"wait" and self.battery and
-                              self.taken < len(self.passes) else b".")
+                    self.held()
+                self.count()
+                pieces = int(shard.split("/")[1])
+                if word in ("start", "took"):
+                    self.placed.add(shard)
+                    if len(self.placed) == pieces:
+                        # ak's watch over each piece samples one at a time, so at most `pieces`
+                        # samples begun before now end after it: one more is a sample begun
+                        # since, which saw every piece held
+                        self.owed = self.closed + pieces + 1
+                piece.sendall(b"n" if word == "wait" and (
+                    len(self.placed) < pieces or self.closed < self.owed) else b".")
+
+    def count(self):
+        while True:
+            try:
+                events = os.read(self.reads, 4096)
+            except BlockingIOError:
+                return
+            # a file's events carry no name; one repeating an unread one merges into it, so
+            # `closed` never counts more samples than ak took
+            for _, mask, _, _ in struct.iter_unpack("iIII", events):
+                assert not mask & IN_Q_OVERFLOW
+                self.closed += 1
 
     def held(self):
         need = BASE + self.running * NEED

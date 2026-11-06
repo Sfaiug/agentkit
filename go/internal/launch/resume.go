@@ -17,7 +17,7 @@ import (
 	"agentkit/internal/usage"
 )
 
-func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (int, string, error) {
+func resume(id string, bg bool, expected *run.Object, order func(*run.Object), out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
 	if expected != nil && !run.Equal(record, expected) {
@@ -25,6 +25,12 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	}
 	if !reached(record) {
 		return 0, "", ErrPython
+	}
+	read := record
+	if order != nil {
+		// decided on the record as the order leaves it, which lands only with the resume's own write
+		record = read.Copy()
+		order(record)
 	}
 	switch state := record.Str("state"); {
 	case run.Active(record) && run.ProcessActive(record):
@@ -51,7 +57,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if err != nil {
 		return 0, "", err
 	}
-	err = loop.Reopen(dir, record)
+	err = loop.Reopen(dir, read, order)
 	if err == nil {
 		err = loop.Start(dir, out, bg)
 	}
@@ -83,9 +89,10 @@ func goesOn(dir string, record *run.Object) bool {
 	return driverHere() && !(record.Truthy("repo") && helper.May()) && (loop.Pickup(dir, record) || loop.Woken(record))
 }
 
-// driverHere is whether a driver can run on this host: placed, with meters it can read.
+// driverHere is whether a driver can run on this host: placed, with meters it can read, its turns
+// on no provider's accounts.
 func driverHere() bool {
-	return placed() && usage.Check() == nil
+	return placed() && usage.Check() == nil && !accountTurns()
 }
 
 // placed is whether this host can hold a driver: a box, and no user manager to place the run under.

@@ -7,7 +7,8 @@
 // Go hands back as Python's hand_back does, to a seat up on ak's own server; an ending it
 // does not type is marked pending, which the tick offers at the next quiet
 // prompt: a seat that takes no line now, or a line whose compact form cannot fit.
-// A seat not up there is still Python's to wake or reopen, or to report as gone.
+// A seat nothing is left of has its ending reported to the owner (Orphaned); any other seat not
+// up there is still Python's to wake, reopen or wait for.
 package handback
 
 import (
@@ -36,7 +37,11 @@ func Give(dir string, say func(string)) bool {
 	}
 	session, id := run.Seat(record), filepath.Base(dir)
 	if session == "" || !run.Ended(record) && !recoveryEnding(record) || record.Str("state") == "stopped" ||
-		record.Str("state") == "error" && run.Going(record, time.Now()) || !seat.Watching(session) {
+		record.Str("state") == "error" && run.Going(record, time.Now()) {
+		return false
+	}
+	gone := !seat.Watching(session)
+	if gone && !Orphaned(record) {
 		return false
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
@@ -59,6 +64,12 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("run %s is a %s", id, preexisting))
 		return true
 	}
+	if gone {
+		if Orphaned(said) {
+			orphan(dir, said, session, id, say)
+		}
+		return false // the seat was told nothing
+	}
 	recordOnly, pending := seat.EndingDelivery(said, session)
 	if recordOnly {
 		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", "routine ending: recorded, not typed",
@@ -73,12 +84,11 @@ func Give(dir string, say func(string)) bool {
 	if !pending {
 		line = handbackLine(record, dir, true)
 	}
-	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, func(typed *run.Object) error {
+	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, nil, func(typed *run.Object) error {
 		mark(dir, record, "handback_typed", typed)
 		return nil
 	}, say) {
-		mark(dir, record, "handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
-			"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil)
+		Told(dir, record)
 		say(fmt.Sprintf("handed run %s back to the %s seat", id, session))
 		return true
 	}
@@ -91,6 +101,13 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("the %s seat is not at its prompt (%s); the tick hands run %s back", session, reading, id))
 	}
 	return false
+}
+
+// Told marks the run's ending told to the seat, as its hand-back and the NOT LIVE line of its
+// merge typed into the seat that launched it do; false where the record moved on.
+func Told(dir string, record *run.Object) bool {
+	return mark(dir, record, "handed_back", now(), "reported", true, "handback_pending", nil, "handback_typed", nil,
+		"handback_note", nil, "handback_wait_reason", nil, "notification_pending", nil)
 }
 
 // sameAttempt is whether two records are one attempt of the run, not either side of a resume.
@@ -124,27 +141,29 @@ func history(record *run.Object) bool {
 // mark writes delivery marks onto the record as it stands, nil removing one, only while it is
 // still the attempt `snapshot` is of, as Python's mark_delivery; the snapshot takes them too.
 func mark(dir string, snapshot *run.Object, pairs ...any) bool {
-	set := func(record *run.Object) {
-		for at := 0; at < len(pairs); at += 2 {
-			if key := pairs[at].(string); pairs[at+1] == nil {
-				record.Delete(key)
-			} else {
-				record.Set(key, pairs[at+1])
-			}
-		}
-	}
 	err := run.Deliver(dir, func(current *run.Object) error {
 		if !sameAttempt(snapshot, current) {
 			return errMoved
 		}
-		set(current)
+		marked(current, pairs)
 		return nil
 	})
 	if err != nil {
 		return false
 	}
-	set(snapshot)
+	marked(snapshot, pairs)
 	return true
+}
+
+// marked puts the marks on a record, nil removing one.
+func marked(record *run.Object, pairs []any) {
+	for at := 0; at < len(pairs); at += 2 {
+		if key := pairs[at].(string); pairs[at+1] == nil {
+			record.Delete(key)
+		} else {
+			record.Set(key, pairs[at+1])
+		}
+	}
 }
 
 var errMoved = fmt.Errorf("the run moved on")

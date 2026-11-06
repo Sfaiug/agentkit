@@ -37,6 +37,17 @@ def name_failed(tests, file="AK_FAILED"):
             fh.writelines(f"{test}\n" for test in tests)
 
 
+def claims(root):
+    """go/keys.txt's claims at `root`, a line each: a key file's name, then the parts Go passes."""
+    return [line.split() for line in (Path(root) / "go/keys.txt").read_text().splitlines()]
+
+
+def parts_of(root, name):
+    """The parts the test file `name` is cut into: the Go keys check's claims, any other none."""
+    return (list(dict.fromkeys(claim[0] for claim in claims(root)))
+            if name == "tests/test_go_keys.py" else [])
+
+
 def shares(costs, total):
     """Longest first keeps an expensive check or file from lining up with the others."""
     loads, owners = [0] * min(total, len(costs)), {}

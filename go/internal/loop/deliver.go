@@ -201,9 +201,9 @@ func (r *repoPlace) landingMark(l *loop, landing func() error) error {
 
 // integrate takes in the target's tip, Python's integrate: a branch that does not hold it yet is
 // rebased onto it, or merged with it, and checked again there, and its review stands when the
-// checks pass on the commit the integration made.  A conflict, a red, or checks that leave work to
-// review again are Python's; a branch with nothing left over the tip ends PASS as already on the
-// target.
+// checks pass on the commit the integration made; a conflict's fixer has its work reviewed again.
+// A red, or checks that leave work to review again, are Python's; a branch with nothing left over
+// the tip ends PASS as already on the target.
 func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	g := r.git()
 	// --prune: a merged PR's branch, deleted on origin, otherwise leaves its tracking ref behind,
@@ -252,13 +252,16 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	} else {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
-	if err := r.integrateTip(l, upstream, how, tip); err != nil {
+	carried, fixed, err := r.integrateTip(l, upstream, how, tip, true)
+	if err != nil || !carried {
 		return false, err
 	}
 	if held {
 		l.say("--- merge: unchanged commit; reusing done-when and review evidence")
-	} else if err := r.recheck(l, upstream, how, head, saved, verdict); err != nil {
-		return false, err
+	} else if !fixed {
+		if err := r.recheck(l, upstream, how, head, saved, verdict); err != nil {
+			return false, err
+		}
 	}
 	code, _, err = g.Out("diff", "--quiet", tip, "HEAD")
 	if err != nil || code != 0 {

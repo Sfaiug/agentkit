@@ -248,6 +248,35 @@ func load() (*table, error) {
 	return root, nil
 }
 
+// workIn refuses work marks no machine knows, even on a table placement never reads, as Python's
+// config._work_in does: a mistyped word would otherwise send no work there without a word.
+func workIn(root *table) error {
+	labels, tables := []string{"google_cloud"}, []any{root.values["google_cloud"]}
+	if named, ok := root.values["machines"].(*table); ok {
+		for _, name := range named.keys {
+			labels, tables = append(labels, "machines."+name), append(tables, named.values[name])
+		}
+	}
+	for i, value := range tables {
+		marks, ok := value.(*table)
+		if !ok {
+			continue
+		}
+		work, ok := marks.values["work"]
+		if !ok {
+			continue
+		}
+		words, known := work.([]any)
+		for _, word := range words {
+			known = known && (word == "turns" || word == "tests")
+		}
+		if !known {
+			return fmt.Errorf("[%s].work must list only turns and tests (got %s)", labels[i], valueRepr(work))
+		}
+	}
+	return nil
+}
+
 func hasTables(root *table) bool {
 	for _, name := range []string{"defaults", "tiers", "models", "providers"} {
 		if _, ok := root.values[name]; ok {
@@ -277,6 +306,9 @@ func stringList(value any, nonempty bool) bool {
 }
 
 func validate(root *table) error {
+	if err := workIn(root); err != nil {
+		return err
+	}
 	models, ok := root.values["models"].(*table)
 	if !ok {
 		return fmt.Errorf("missing [models] table")

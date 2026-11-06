@@ -16,8 +16,12 @@ import (
 )
 
 func checkTurn(turn, code string, said io.Writer) error {
+	said = &sharedOut{out: said}
+	defer waking(filepath.Base(turn), said)()
 	members := lineMembers(filepath.Base(turn))
-	index := slices.IndexFunc(members, func(m member) bool { return m.record.Str("state") == "waiting" })
+	index := slices.IndexFunc(members, func(m member) bool {
+		return m.record.Str("state") == "waiting" && !m.record.Dict("waiting_on").Has("fix") && !run.ProcessActive(m.record)
+	})
 	if index < 0 {
 		return nil
 	}
@@ -56,7 +60,7 @@ func checkTurn(turn, code string, said io.Writer) error {
 	return narrowLine(turn, code, repo, tip, upstream, members, said)
 }
 
-// A stack red waits for its predecessors, then narrowing rechecks it against the target.
+// landingFixHandoff is what of a red Go's woken run does not carry, "" for none.
 func landingFixHandoff(wait *run.Object) string {
 	fix := wait.Dict("fix")
 	if fix.Truthy("moved") {
@@ -64,9 +68,6 @@ func landingFixHandoff(wait *run.Object) string {
 	}
 	if helper.May() {
 		return "a landing red with suite helpers"
-	}
-	if after := wait.Dict("after"); after != nil && len(after.Keys()) > 0 {
-		return "a landing red on a stack"
 	}
 	return ""
 }
@@ -139,8 +140,7 @@ func sameDelivery(saved, current *run.Object) bool {
 	if current.Truthy("merged") || current.Truthy("on_target") {
 		return review.Str("tree_sha") == tree
 	}
-	return !run.Ended(current) && run.Equal(current.Get("waiting_on"), wait) &&
-		(current.Str("state") == "waiting" || run.ProcessActive(current)) &&
+	return run.Equal(current.Get("waiting_on"), wait) && run.Member(current) &&
 		(review.Str("tree_sha") == saved.Dict("review").Str("tree_sha") || review.Str("tree_sha") == tree)
 }
 

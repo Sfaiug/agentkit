@@ -14,20 +14,30 @@ type Account struct {
 	Budget                float64
 }
 
-// SeatAccounts reads a fresh snapshot without probing or writing. Refreshing account meters
-// remains Python's, at the seat_account point that needs them.
+// SeatAccounts is Accounts as a fresh snapshot reads them, nothing probed or written: refreshing
+// a seat's account meters remains Python's, at the seat_account point that needs them.
 func SeatAccounts(name, home string) ([]Account, error) {
 	models, err := config.Models()
-	model := models[name]
-	listed, listedErr := config.Accounts(model.Provider)
 	blob := object(read())
 	now := clock()
 	at, dated := number(blob.Get("fetched_at"))
-	if err != nil || listedErr != nil || len(listed) == 0 || !dated || now-at > cacheTTL {
+	if err != nil || !dated || now-at > cacheTTL {
 		return nil, ErrPython
 	}
-	prov := object(object(blob.Get("providers")).Get(model.Provider))
-	accounts := object(prov.Get("accounts"))
+	return (&Readings{providers: object(blob.Get("providers")), models: models, now: now}).Accounts(name, home)
+}
+
+// Accounts is each subscription of that model's provider ranked for this model alone, home first
+// while it has room for it, as orch.account_order ranks them; ErrPython where the reading lacks
+// one, or holds one past its reset.
+func (r *Readings) Accounts(name, home string) ([]Account, error) {
+	models, now := r.models, r.now
+	model := models[name]
+	listed, err := config.Accounts(model.Provider)
+	if err != nil || len(listed) == 0 {
+		return nil, ErrPython
+	}
+	accounts := object(object(r.providers.Get(model.Provider)).Get("accounts"))
 	if len(accounts.Keys()) != len(listed) {
 		return nil, ErrPython
 	}

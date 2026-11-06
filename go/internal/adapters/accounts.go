@@ -7,19 +7,7 @@ import (
 	"slices"
 	"strings"
 	"time"
-
-	"agentkit/internal/config"
 )
-
-// Fresh starts a conversation on the account supplied by the reopening seat.
-func Fresh(model config.Model, env []string) ([]string, string, bool) {
-	conversation := uuid()
-	line, told, ok := command(model, env, []string{conversation, "new"}, nil)
-	if !told {
-		conversation = ""
-	}
-	return line, conversation, ok
-}
 
 func commandAccount(env []string) string {
 	account := ""

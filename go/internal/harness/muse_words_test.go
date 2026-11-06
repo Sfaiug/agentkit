@@ -9,7 +9,7 @@ import (
 	"agentkit/internal/run"
 )
 
-func TestMuseScreenLeavesReportedSessionsToPython(t *testing.T) {
+func TestMuseRecordStaysPythonsAndOwnsOnlyASessionMuseNames(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
@@ -19,37 +19,39 @@ func TestMuseScreenLeavesReportedSessionsToPython(t *testing.T) {
 	record.Set("conversation", "legacy")
 	record.Set("id_source", "launcher")
 	record.Set("resumable", true)
-	check := func(ready bool) {
+	check := func(owned string) {
 		t.Helper()
 		before := run.Encode(record)
-		if _, known := For("muse").Reconciled("acme", record); known != ready || run.Encode(record) != before {
-			t.Fatalf("readiness differs or record changed: %s, ready=%v", run.Encode(record), known)
+		if _, known := For("muse").Reconciled("acme", record); !known || run.Encode(record) != before {
+			t.Fatalf("not read, or record changed: %s, ready=%v", run.Encode(record), known)
+		}
+		if got := museConversation(map[string]any{"muse_launch": record.Get("muse_launch")}); got != owned {
+			t.Fatalf("owns %q, want %q", got, owned)
 		}
 	}
-	check(true)
+	check("")
 	record.Set("muse_launch", token)
-	check(true) // no receipt yet
+	check("") // no receipt yet
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	check(true) // prepare has not reported a session
-	for session, ready := range map[string]bool{
-		"": true, "acme/session": true, "acme.session": true, " session": true,
-		"session\n": true, "session\r\n": true, "one two": true,
-		"session_1-abc": false, "séance_½中": false, "-": false,
+	check("") // prepare has not reported a session
+	for session, owned := range map[string]bool{
+		"": false, "acme/session": false, "acme.session": false, " session": false,
+		"session\n": false, "session\r\n": false, "one two": false,
+		"session_1-abc": true, "séance_½中": true, "-": true,
 	} {
 		if err := os.WriteFile(path, []byte(session), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		check(ready) // Muse's SESSION fullmatch, without OpenCode's whitespace stripping
+		want := ""
+		if owned {
+			want = session
+		}
+		check(want) // Muse's SESSION fullmatch, without OpenCode's whitespace stripping
 	}
-	if err := os.WriteFile(path, []byte("session_1"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	record.Set("conversation", "session_1")
-	check(false) // even a bound session can move in Muse's registry or hold a question card
 	record.Set("muse_launch", "../"+token)
-	check(true)
+	check("")
 	if !RecordReadOnly("muse") {
 		t.Fatal("Muse's record must remain Python's")
 	}

@@ -47,10 +47,11 @@ class WatchCron(unittest.TestCase):
         line = tagged[0]
         self.assertTrue(line.startswith("*/3 * * * * "), line)
         self.assertTrue(line.endswith(" # agentkit watch"), line)
-        self.assertIn(f" {installer.CHECKOUT / 'bin' / 'ak'} watch ", line)
-        self.assertIn(f">>{self.home.path / '.agentkit/tmp/watch.log'} 2>&1", line)
+        # each path one quoted word to sh, so a space in it splits nothing
+        self.assertIn(f" '{installer.CHECKOUT / 'bin' / 'ak'}' watch ", line)
+        self.assertIn(f">>'{self.home.path / '.agentkit/tmp/watch.log'}' 2>&1", line)
         # cron's own PATH holds neither ak nor a harness
-        self.assertIn(f"PATH={self.home.path / '.local/bin'}:", line)
+        self.assertIn(f"PATH='{self.home.path / '.local/bin'}:", line)
 
     def test_a_second_install_leaves_the_table_as_it_was(self):
         self.assertEqual(self.table.read_text(), self.installed)

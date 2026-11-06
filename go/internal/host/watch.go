@@ -21,14 +21,22 @@ func Written(path string) func() any {
 	}
 }
 
+// boxStart is how long a box may take to come up before silence counts regardless, Python's
+// BOX_START: a stuck box cannot hang its command.
+const boxStart = 300 * time.Second
+
 // A Watch stops a command that goes quiet or runs too long, Python's worker.limited: its Silence,
-// asked of Heard each second, and its Ceiling, none for a zero.  A command among the Marker's
-// processes inside the time it gave `timeout` holds the silence off, and it counts from then.
-// Before runs ahead of the stop, while the command's processes can still be read.
+// asked of Heard each second, and its Ceiling, none for a zero.  Silence is the command's: where
+// Began is given, it counts from when Began says the command's box is up, or boxStart after the
+// start.  A command Declared says is inside the time it gave `timeout` holds the silence off,
+// and once that bound ends silence counts from the first look that found it ended, never from an
+// earlier look, however long the bound outlasted it.  Before runs ahead of the stop, while the
+// command's processes can still be read.
 type Watch struct {
 	Silence, Ceiling time.Duration
 	Heard            func() any
-	Marker           string
+	Began            func() bool
+	Declared         func(now float64) bool
 	Before           func()
 }
 
@@ -43,7 +51,8 @@ func (w Watch) Stop(ctx context.Context) (context.Context, func() string) {
 	go func() {
 		defer close(ended)
 		started := time.Now()
-		last, seen := started, w.Heard()
+		last, held, seen := started, started, w.Heard()
+		starting, bound := w.Began != nil, false
 		tick := time.NewTicker(watchEvery)
 		defer tick.Stop()
 		for {
@@ -52,17 +61,25 @@ func (w Watch) Stop(ctx context.Context) (context.Context, func() string) {
 				return
 			case now := <-tick.C:
 				if current := w.Heard(); current != seen {
-					last, seen = now, current
+					last, seen, bound = now, current, false
+				}
+				if starting {
+					last = now
+					starting = !w.Began() && now.Sub(started) < boxStart
+				}
+				if w.Silence > 0 && now.Sub(last) >= w.Silence && w.Declared != nil {
+					// a bound ends between the look that found it and the next: silence counts from
+					// that next look's end, never from before the bound's
+					was := bound
+					if bound = w.Declared(float64(now.UnixNano()) / 1e9); was || bound {
+						held = time.Now()
+					}
 				}
 				switch {
 				case w.Ceiling > 0 && now.Sub(started) >= w.Ceiling:
 					reason = "ceiling"
-				case w.Silence > 0 && now.Sub(last) >= w.Silence:
-					if Declared(w.Marker, float64(now.UnixNano())/1e9) {
-						last = now
-					} else {
-						reason = "silence"
-					}
+				case w.Silence > 0 && now.Sub(last) >= w.Silence && now.Sub(held) >= w.Silence:
+					reason = "silence"
 				}
 				if reason != "" {
 					if w.Before != nil {

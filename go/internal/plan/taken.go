@@ -2,7 +2,6 @@ package plan
 
 import (
 	"cmp"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -58,7 +57,7 @@ func followupOpen(other *run.Object, now time.Time) (bool, error) {
 	case "waiting", "waiting_login", "error", "stopped":
 		return run.Going(other, now), nil
 	case "interrupted":
-		return other.Truthy("deaths") && tickResumes(other), nil
+		return other.Truthy("deaths") && run.TickResumes(other), nil
 	case "exhausted":
 		return false, ErrUnread // its wait is transitions.exhausted_wait's
 	case "fail":
@@ -67,17 +66,4 @@ func followupOpen(other *run.Object, now time.Time) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-// tickResumes is whether the tick carries a dead loop on itself (transitions.tick_resumes): one it
-// has not given up on, with its worktree still there.
-func tickResumes(other *run.Object) bool {
-	deaths := other.List("deaths")
-	if len(deaths) > 0 {
-		if last, _ := deaths[len(deaths)-1].(*run.Object); last != nil && last.Truthy("parked") {
-			return false
-		}
-	}
-	info, err := os.Stat(other.Str("worktree"))
-	return other.Truthy("worktree") && err == nil && info.IsDir()
 }

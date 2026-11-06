@@ -22,7 +22,7 @@ func TestSettledRunsLeaveEveryRowIdleAndTheirBytesAlone(t *testing.T) {
 	before := files(t, filepath.Join(ak, "runs"))
 	for range 2 {
 		var out bytes.Buffer
-		if !Carry(&out, io.Discard) {
+		if !carries(&out, io.Discard) {
 			t.Fatalf("left settled runs to Python: %s", &out)
 		}
 		for path, want := range before {
@@ -39,12 +39,12 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 	for row, due := range map[string]string{
 		"login resume":     `{"state":"waiting_login"}`,
 		"seat health":      `{"state":"waiting_login"}`,
-		"dead loops":       `{"state":"running"}`,
+		"dead loops":       `{"state":"running","scope":"acme.scope"}`,
 		"stall recovery":   `{"state":"stalled"}`,
 		"exhausted resume": `{"state":"exhausted","quota_dry":true}`,
 		"error retry":      `{"state":"error","error_retry_at":1,"title":"\ud800"}`,
 		"waiting resume":   `{"state":"fail","waiting_on":{"line":"older"}}`,
-		"endings":          `{"state":"pass","launched_session":"acme"}`,
+		"endings":          `{"state":"pass","launched_session":"acme","merged":true}`,
 		"seat sweep":       `{"state":"running"}`,
 	} {
 		t.Run(row, func(t *testing.T) {

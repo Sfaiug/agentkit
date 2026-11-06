@@ -33,7 +33,8 @@ import (
 )
 
 // ErrPython leaves a turn to Python ak: where ak's adapter scripts live, on a home naming no
-// $AGENTKIT_ADAPTER_DIR, and a box on any system but Linux, are not yet Go's.
+// $AGENTKIT_ADAPTER_DIR, a box on any system but Linux, and a turn on a provider listing accounts,
+// whose login Python's turn picks (usage.account), are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // ErrInterrupted is a turn ^C or its Given's context ended, once the box it ran in has.
@@ -56,12 +57,9 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if given.Efforts != nil {
 		model.Efforts = given.Efforts
 	}
-	lines, err := ceiling(given.ReviewLines)
-	if err != nil {
-		return 0, "", err
-	}
 	adapter, err := config.Adapter(model.Harness)
-	if !box.Supported || errors.Is(err, config.ErrNoAdapterDir) || config.EnsureDirs() != nil {
+	accounts, _ := config.Accounts(model.Provider)
+	if !box.Supported || errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 || config.EnsureDirs() != nil {
 		return 0, "", ErrPython
 	} else if err != nil {
 		return 0, "", err
@@ -90,12 +88,12 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if err := os.MkdirAll(out, 0o777); err != nil {
 		return 0, "", err
 	}
-	handIn, err := handin.Start(out, workspace, role, given.Findings, given.Previous)
+	handIn, err := handin.Start(out, workspace, role, given.Findings, given.Previous, given.Checks)
 	if err != nil {
 		return 0, "", err
 	}
 	prompt := filepath.Join(out, "prompt.md")
-	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given, lines)+"\n\n"+body), 0o666); err != nil {
+	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given)+"\n\n"+body), 0o666); err != nil {
 		return 0, "", err
 	}
 	argv := []string{adapter, "run", model.ID, model.TurnEffort(strings.HasPrefix(role, "reviewer")), workspace, prompt, out}
@@ -120,7 +118,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	interrupt, restore := signal.NotifyContext(cmp.Or(given.Context, context.Background()), os.Interrupt)
 	ctx, unwatch := words.watch(interrupt)
 	heartbeats, _ := config.Words(model.Harness, "worker", "heartbeats")
-	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Marker: env[host.Marker]}.Stop(ctx)
+	ctx, watched := host.Watch{Silence: given.Silence, Heard: Heard(filepath.Join(out, "events.jsonl"), heartbeats), Declared: host.Declared(env[host.Marker])}.Stop(ctx)
 	code, left, err := box.Run(ctx, argv, env, workspace, out, state, logins, config.Unswitched(model.Harness, env, workspace), said)
 	unwatch()
 	stopped := watched() != ""

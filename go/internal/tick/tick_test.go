@@ -83,22 +83,24 @@ func TestHolderPidReadsAsPythonsInt(t *testing.T) {
 	}
 }
 
-// How long the lock is held comes off the file's mtime; a clock behind it reads no time at all,
-// and a file gone reads nobody's pid and no time.
-func TestHolderAgeIsTheFilesMtime(t *testing.T) {
+// When the holder began is the file's mtime, a clock behind it as much as one ahead, and a file
+// gone reads nobody's pid, beginning now.
+func TestHolderBeganAtTheFilesMtime(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "watch.tick.lock")
-	if pid, holding := holder(path); pid.Sign() != 0 || holding != 0 {
-		t.Fatalf("a missing file: %s, %v", pid, holding)
+	before := time.Now()
+	if pid, began := holder(path); pid.Sign() != 0 || began.Before(before) || began.After(time.Now()) {
+		t.Fatalf("a missing file: %s, %v", pid, began)
 	}
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for ago, least := range map[time.Duration]time.Duration{time.Hour: time.Hour, -time.Hour: 0} {
-		if err := os.Chtimes(path, time.Time{}, time.Now().Add(-ago)); err != nil {
+	for _, ago := range []time.Duration{time.Hour, -time.Hour} {
+		mtime := time.Now().Add(-ago).Truncate(time.Second)
+		if err := os.Chtimes(path, time.Time{}, mtime); err != nil {
 			t.Fatal(err)
 		}
-		if _, holding := holder(path); holding < least || ago < 0 && holding != 0 {
-			t.Errorf("mtime %v ago: holding %v", ago, holding)
+		if _, began := holder(path); !began.Equal(mtime) {
+			t.Errorf("mtime %v ago: began %v", ago, began)
 		}
 	}
 }

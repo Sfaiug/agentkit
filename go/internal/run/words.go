@@ -37,18 +37,6 @@ func InLine(record *Object) bool {
 	return wait.Has("land") && !wait.Has("fix") && line && joined
 }
 
-// Member is whether a record holds a place in its landing line, Python's land.member: parked
-// there, or a green delivery its own process carries on.
-func Member(record *Object) bool {
-	wait := record.Dict("waiting_on")
-	if wait == nil || record.Truthy("merged") {
-		return false
-	}
-	_, joined := wait.Get("joined").(Number)
-	_, line := wait.Get("line").(string)
-	return line && joined && (record.Str("state") == "waiting" || InLine(record) && ProcessActive(record))
-}
-
 // NeedsRecovery is work a resume could still carry on; `blocked` never is, as the task itself
 // is wrong, and a stop is a deliberate end.
 func NeedsRecovery(record *Object) bool {
@@ -71,14 +59,20 @@ func RecoveryReason(record *Object) string {
 	return firstText(record, "The run stopped before recording completion.", "interruption_reason", "error")
 }
 
-// Seat is the seat the run was launched from, by its name now, or "".
-func Seat(record *Object) string {
+// Launched is the name of the seat the run was launched from as it recorded it, or "": from none.
+func Launched(record *Object) string {
 	// `session` is what a record written before the field was renamed calls the same thing
 	value := record.Get("launched_session")
 	if !record.Truthy("launched_session") {
 		value = record.Get("session")
 	}
 	name, _ := value.(string)
+	return name
+}
+
+// Seat is the seat the run was launched from, by its name now, or "".
+func Seat(record *Object) string {
+	name := Launched(record)
 	if name == "" {
 		return ""
 	}

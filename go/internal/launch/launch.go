@@ -2,8 +2,8 @@
 // its loop: the run's id and directory, the task's copy, the receipt, the gate's admission,
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
-// scratch task's or a repository's with --no-merge or --no-worktree, or a review of somebody else's
-// pull request from no seat, and that run goes on in package loop.  A seat's launch it judges as
+// scratch task's or a repository's with --no-merge or --no-worktree, a review of somebody else's
+// pull request from no seat, or of a seat's own with --no-merge, and that run goes on in package loop.  A seat's launch it judges as
 // Python's run.parse does, and one that passes is the seat's run: its receipt names the seat and
 // binds the seat's lists and efforts, and the seat's bar and project follow it (seat.go).  Any
 // other it leaves to Python (ErrPython), deciding so before it writes anything, so preflight is
@@ -31,6 +31,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/helper"
+	"agentkit/internal/history"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -200,22 +201,28 @@ func python(path string, values map[string]string, bound config.Binding) bool {
 		!readable(slices.Collect(maps.Values(values))...) || name != "" && !seat.Votes(name)
 }
 
-// elsewhere is whether this process's surroundings leave any launch or resume to Python: those
-// unread, a seat's, or a config Python refuses before its run.
+// elsewhere is whether this process's surroundings leave any launch or resume to Python: a seat's,
+// or surroundings that do.
 func elsewhere() bool {
+	return surroundings() || seated()
+}
+
+// surroundings is whether this process's surroundings leave a launch to Python: those unread, or a
+// config Python refuses before its run.
+func surroundings() bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	return capped != nil || memory != nil || unread() || seated()
+	return capped != nil || memory != nil || unread()
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
-// start, one a history.db that stands would record (no suite's sink marks it), one the
+// start, one a history of runs that stands would record (no suite's sink marks it), one the
 // gate does not admit outright, a home HOME does not name, or text Python would write with a lone
 // surrogate.
 func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !run.Historyless() ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !history.Runless() ||
 		os.Getenv("HOME") == "" || !known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
@@ -435,15 +442,17 @@ func asPython(err error) error {
 }
 
 // numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy), a
-// task's refused where executors are off; ErrPython for those Go does not carry (run.Carried), read
-// where Python's launch_policy is.
+// task's refused where executors are off (run.TaskPolicy); ErrPython for those Go does not carry
+// (run.Carried), read where Python's launch_policy is.
 func numbers(repo string, review bool) (config.Numbers, error) {
-	found, err := run.LaunchPolicy(repo)
+	read := run.TaskPolicy
+	if review {
+		read = run.LaunchPolicy
+	}
+	found, err := read(repo)
 	switch {
 	case err != nil:
 		return found, err
-	case !review && found.ReviewLines == config.AtMost(0):
-		return found, errors.New("executor_lines = 0: " + config.ExecutorsOff)
 	case !run.Carried(found):
 		return found, ErrPython
 	}

@@ -27,6 +27,12 @@ func resultOpening(dir string, record *run.Object, outcome string) string {
 	if move == "" {
 		return "# " + outcome + " — " + cmp.Or(record.Str("title"), filepath.Base(dir))
 	}
+	return decisionReport(dir, record, word, why, move+detail)
+}
+
+// decisionReport is a decision's opening in full, Python's decision(report=True): why with every
+// blocking claim and failing check, and their first diagnostics.
+func decisionReport(dir string, record *run.Object, word, why, move string) string {
 	review := &handin.Review{}
 	for _, each := range record.List("review_records") {
 		if row, ok := each.(*run.Object); ok {
@@ -99,7 +105,7 @@ func resultOpening(dir string, record *run.Object, outcome string) string {
 			parts = append(parts, checkLine([]any{pair[0], cmp.Or(firstDiagnostics(output, where), run.Text(pair[1]))}))
 		}
 	}
-	return run.Decision(record, dir, word, strings.Join(parts, "; "), move+detail, true)
+	return run.Decision(record, dir, word, strings.Join(parts, "; "), move, true)
 }
 
 // firstDiagnostics follows only a regular kept output in the runner's protected directory.

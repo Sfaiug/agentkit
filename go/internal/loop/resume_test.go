@@ -87,7 +87,7 @@ func TestAPointGoCannotPickUpFromIsPythons(t *testing.T) {
 		"an executor cut off":       {base(), map[string]map[string]string{"executor": {"session_id": "s"}}, true},
 		"a fixer cut off":           {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}, "fixer": {"session_id": "s"}}, true},
 		"an answer with no closing": {base(), map[string]map[string]string{"executor": {"final.md": "a"}}, false},
-		"the checks cut off":        {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}}, false},
+		"the checks cut off":        {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}}, true},
 		"a review with no pending":  {base(), map[string]map[string]string{"reviewer": {"session_id": "s"}}, false},
 		"a retry of Python's":       {base(), map[string]map[string]string{"executor": {"session_id": "s"}, "executor-retry-1": {}}, false},
 		"a review pending":          {base("review_pending", run.Fields("round", 1, "summary", "s", "failed", []any{})), nil, true},
@@ -120,10 +120,10 @@ func TestReopenRecordsTheDeathAndHandsTheRecordToANewDriver(t *testing.T) {
 	read, _ := run.Read(l.dir)
 	moved := read.Copy()
 	moved.Set("pid", 1)
-	if err := Reopen(l.dir, moved); !errors.Is(err, ErrChanged) {
+	if err := Reopen(l.dir, moved, nil); !errors.Is(err, ErrChanged) {
 		t.Fatalf("a record that moved: %v", err)
 	}
-	if err := Reopen(l.dir, read); err != nil {
+	if err := Reopen(l.dir, read, nil); err != nil {
 		t.Fatal(err)
 	}
 	record, _ := run.Read(l.dir)
@@ -179,7 +179,7 @@ func TestAStopRefusesAnEndingAndLeavesToPythonWhatIsNotGos(t *testing.T) {
 		"a review's":       {[]any{"state", "running", "review_pr", "https://github.com/acme/api/pull/1"}, "", "python"},
 		"under a unit":     {[]any{"state", "running", "scope", "agentkit-run-x.scope"}, "", "python"},
 		"history to close": {[]any{"state", "running"}, "history.db", "python"},
-		"a live program":   {[]any{"state", "running", "pid", os.Getpid(), "process_identity", identity(os.Getpid())}, "", "python"},
+		"a live program":   {[]any{"state", "running", "pid", os.Getpid(), "process_identity", Identity(os.Getpid())}, "", "python"},
 		"parked":           {[]any{"state", "stopped", "lease_wait", run.Fields("on", "x")}, "", "python"},
 	} {
 		t.Run(name, func(t *testing.T) {

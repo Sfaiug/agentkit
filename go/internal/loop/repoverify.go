@@ -10,6 +10,7 @@ import (
 
 	"agentkit/internal/gitcall"
 	"agentkit/internal/run"
+	"agentkit/internal/uncommitted"
 )
 
 const (
@@ -78,7 +79,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 // checks runs the commands in the checkout, keeping on the record what they newly dirty: the
 // loop's own droppings, never the executor's work, which a later commit of leftovers leaves out.
 func (r *repoPlace) checks(l *loop, cmds []string, path string) (bool, string, error) {
-	before, err := dirtyPaths(r.git())
+	before, err := uncommitted.Paths(r.git())
 	if err != nil {
 		return false, "", err
 	}
@@ -86,7 +87,7 @@ func (r *repoPlace) checks(l *loop, cmds []string, path string) (bool, string, e
 	if err != nil {
 		return false, "", err
 	}
-	after, err := dirtyPaths(r.git())
+	after, err := uncommitted.Paths(r.git())
 	if err != nil {
 		return false, "", err
 	}
@@ -130,13 +131,8 @@ func (r *repoPlace) changedSince(head, tree string) (bool, error) {
 // check reads the work: a worker that rebased onto a newer tip would otherwise hand in the
 // target's moves as its own lines.
 func (r *repoPlace) followTarget(l *loop) error {
-	g := r.git()
-	code, fork, err := g.Out("merge-base", "HEAD", r.upstream())
-	if err != nil || code != 0 || fork == "" || fork == r.baseSHA {
-		return err
-	}
-	code, _, err = g.Out("merge-base", "--is-ancestor", r.baseSHA, fork)
-	if err != nil || code != 0 {
+	fork, err := gitcall.IntegratedBase(r.git(), r.baseSHA, r.upstream())
+	if err != nil || fork == r.baseSHA {
 		return err
 	}
 	l.say(fmt.Sprintf("base: the branch took in %s up to %s", r.upstream(), fork[:min(len(fork), 12)]))

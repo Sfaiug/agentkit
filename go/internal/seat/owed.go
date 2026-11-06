@@ -123,8 +123,10 @@ func TellOwed(name string, log func(string)) (bool, error) {
 	return true, err
 }
 
-func TypeAtPrompt(name, line string, receipt func(*run.Object) error, log func(string)) bool {
-	return typeAtPrompt(name, line, nil, receipt, log, func(string) bool { return false })
+// TypeAtPrompt types a line into that seat at its quiet prompt, a line its mark `typed` says is
+// in the composer already getting only its Enter; `receipt` keeps the mark of one typed now.
+func TypeAtPrompt(name, line string, typed *run.Object, receipt func(*run.Object) error, log func(string)) bool {
+	return typeAtPrompt(name, line, typed, receipt, log, func(string) bool { return false })
 }
 
 // A receipt gets only its Enter, or confirmation of an empty composer, on later ticks.

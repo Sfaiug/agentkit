@@ -112,6 +112,7 @@ func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil
 func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
 func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders, pending ...bool) (Home, bool) {
+	began := time.Now()
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -133,11 +134,11 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
 		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
-		// lock, its log's and the hourly stamps of its reads, what the collection keeps and what
-		// each machine is say nothing a word hangs on: a seat's own wait on its usage is in its
-		// seat file
+		// lock, its log's, its page that ticks stopped ending and the hourly stamps of its reads, the
+		// outages of the seats' products, what the collection keeps, what each machine is and ak's tmux
+		// config say nothing a word hangs on: a seat's own wait on its usage is in its seat file
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock"}, entry.Name()) ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
 			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
@@ -147,9 +148,10 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		name, suffix, _ := strings.Cut(rest, ".")
 		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
 		// no listing reads (forget); one tmux no longer holds leaves its announce lock, its word and
-		// its card, which the tick closes (notify.tick_cards)
+		// its card, which the tick closes (notify.tick_cards), and what it asked the owner last, an
+		// orphan ending's question among them (handback.announce)
 		if !slices.Contains(names, name) && entry.Type().IsRegular() &&
-			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || kind == "card" && suffix == "json") {
+			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
@@ -160,7 +162,9 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	}
 	models, err := config.Models()
 	offered, unread := config.Offered()
-	runs, known := readRuns(names, now)
+	// the runs are judged as they are read: one that ended while this reading asked tmux would
+	// otherwise have ended in its clock's future, which no admission takes
+	runs, known := readRuns(names, now.Add(time.Since(began)))
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
@@ -405,9 +409,8 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 		if err != nil || len(inside) != 1 || inside[0].Name() != "run.json" {
 			return nil, false
 		}
-		info, err := os.Stat(filepath.Join(dir, "run.json"))
-		record, readErr := run.Read(dir)
-		if err != nil || readErr != nil || record == nil || !only(record, runFields) {
+		record, err := run.Read(dir)
+		if err != nil || record == nil || !only(record, runFields) {
 			return nil, false
 		}
 		state, seat := record.Str("state"), record.Str("launched_session")
@@ -419,7 +422,7 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 		}
 		running[seat] = running[seat] || state == "running"
 		if !run.SmokeRun(record) {
-			mine[seat] = append(mine[seat], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds()})
+			mine[seat] = append(mine[seat], ran{name: entry.Name(), record: record, quiet: silence(dir, record, now)})
 		}
 	}
 	for _, going := range running {
@@ -520,14 +523,7 @@ func (seat *Seat) published(state string, now time.Time, models map[string]confi
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	since := seat.since
-	if run.Equal(previous.Get("word"), seat.Word) {
-		if previous.Has("word_since") {
-			since = previous.Get("word_since")
-		}
-	} else if previous.Get("word") != nil {
-		since = run.Float(seconds(now))
-	}
+	since := begun(previous, seat.Word, seat.since, now)
 	seat.since = since
 	wordFrom := seat.wordFrom
 	if wordFrom == nil {

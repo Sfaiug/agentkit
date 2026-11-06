@@ -11,12 +11,8 @@ import (
 	"strings"
 
 	"agentkit/internal/gitcall"
-	"agentkit/internal/run"
+	"agentkit/internal/uncommitted"
 )
-
-// sandboxPrefix is what the suites name every sandbox they leave inside a checkout when a test is
-// killed mid-way: never committed, and removed before the next turn.
-const sandboxPrefix = ".ak-test-"
 
 // excludeJunk hides the usual build junk from git in the checkout, Python's exclude_junk: the
 // executor's own __pycache__ is there when the leftover sweep looks.  `--git-path` names the
@@ -86,7 +82,7 @@ func (r *repoPlace) sweepSandboxes(l *loop) {
 	}
 	var removed []string
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), sandboxPrefix) {
+		if !strings.HasPrefix(entry.Name(), uncommitted.SandboxPrefix) {
 			continue
 		}
 		if err := os.RemoveAll(filepath.Join(r.wt, entry.Name())); err != nil {
@@ -113,81 +109,8 @@ func paths(listed ...string) []string {
 	return found
 }
 
-// dirtyPaths is every uncommitted path, no ignored one, Python's dirty_paths: `--no-renames` keeps
-// both paths, so a selected commit takes a rename's deletion too.
-func dirtyPaths(g gitcall.Git) ([]string, error) {
-	tracked, err := g.Try("diff", "--no-renames", "--name-only", "-z", "HEAD")
-	if err != nil {
-		return nil, err
-	}
-	untracked, err := g.Try("ls-files", "--others", "--exclude-standard", "-z")
-	if err != nil {
-		return nil, err
-	}
-	return paths(tracked, untracked), nil
-}
-
-// leftoverJunk matches names, not targets: a dependency symlink is junk even when git ignores only
-// directories.
-func leftoverJunk(path string) bool {
-	parts := strings.Split(strings.TrimRight(path, "/"), "/")
-	return strings.HasPrefix(parts[0], sandboxPrefix) || slices.ContainsFunc(parts, func(part string) bool {
-		return part == run.RecoveryLock || part == "delivery.lock" || part == "node_modules" || part == "venv" || part == ".venv"
-	})
-}
-
-// committablePaths is the dirty paths a commit of the checkout would take and the leftover junk it
-// leaves, Python's committable_paths, the one rule of what a run's uncommitted work is.
-func committablePaths(g gitcall.Git, artifacts map[string]bool) (real, left []string, err error) {
-	dirty, err := dirtyPaths(g)
-	if err != nil {
-		return nil, nil, err
-	}
-	for _, path := range dirty {
-		if artifacts[path] {
-			continue
-		}
-		ignored := leftoverJunk(path)
-		if !ignored {
-			code, _, err := g.Out("check-ignore", "-q", "--", path)
-			if err != nil {
-				return nil, nil, err
-			}
-			ignored = code == 0
-		}
-		if ignored {
-			left = append(left, path)
-		} else {
-			real = append(real, path)
-		}
-	}
-	return real, left, nil
-}
-
-// addPaths stages selected work that still has a file or an entry in this index: a staged rename
-// already removed its old entry, so add cannot match that path.
-func addPaths(g gitcall.Git, wt string, selected []string) error {
-	listed, err := g.Must("ls-files", "-z")
-	if err != nil {
-		return err
-	}
-	indexed := paths(listed)
-	var args []string
-	for _, path := range selected {
-		_, statErr := os.Lstat(filepath.Join(wt, path))
-		if slices.Contains(indexed, path) || statErr == nil {
-			args = append(args, ":(literal)"+path)
-		}
-	}
-	if len(args) == 0 {
-		return nil
-	}
-	_, err = g.Must(append([]string{"add", "--"}, args...)...)
-	return err
-}
-
-// ignoredSandboxes is ignored sandbox files, run locks and dependencies, invisible to dirtyPaths,
-// each collapsed directory listed by its files, for the line that counts them.
+// ignoredSandboxes is ignored sandbox files, run locks and dependencies, invisible to
+// uncommitted.Paths, each collapsed directory listed by its files, for the line that counts them.
 func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 	listed, err := r.git().Try("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
 	if err != nil {
@@ -195,7 +118,7 @@ func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 	}
 	var found []string
 	for _, entry := range paths(listed) {
-		if r.artifacts[entry] || !leftoverJunk(entry) {
+		if r.artifacts[entry] || !uncommitted.Junk(entry) {
 			continue
 		}
 		if !strings.HasSuffix(entry, "/") {
@@ -221,7 +144,7 @@ func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 // the worktree and the real index keeps whatever else the executor staged.
 func (r *repoPlace) commitLeftovers(l *loop) error {
 	g := r.git()
-	real, left, err := committablePaths(g, r.artifacts)
+	real, left, err := uncommitted.Committable(g, r.artifacts)
 	if err != nil {
 		return err
 	}
@@ -275,7 +198,7 @@ func (r *repoPlace) commitPaths(l *loop, real, gone, unstage []string) error {
 		return nil
 	}
 	if len(real) > 0 {
-		if err := addPaths(g, r.wt, real); err != nil {
+		if err := uncommitted.Add(g, real); err != nil {
 			return err
 		}
 	}
@@ -289,7 +212,7 @@ func (r *repoPlace) commitPaths(l *loop, real, gone, unstage []string) error {
 		return err
 	}
 	if len(real) > 0 {
-		if err := addPaths(private, r.wt, real); err != nil {
+		if err := uncommitted.Add(private, real); err != nil {
 			return err
 		}
 	}

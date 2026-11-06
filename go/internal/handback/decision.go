@@ -11,6 +11,9 @@ import (
 	"agentkit/internal/run"
 )
 
+// ResultNames is the move of an ending whose result names the fix to launch.
+const ResultNames = "launch the fix the result names"
+
 // Decision is the ending's word, reason and next move, shared by its result and hand-back.
 // An empty move leaves nothing to decide. Detail is dropped first when a typed line needs room.
 func Decision(record *run.Object, dir, delivery string) (word, why, move, detail string) {
@@ -74,7 +77,7 @@ func Decision(record *run.Object, dir, delivery string) (word, why, move, detail
 	case provider:
 		move = "wait for the provider"
 	case named != "":
-		move, detail = "launch the fix the result names", ", `"+named+"`"
+		move, detail = ResultNames, ", `"+named+"`"
 	case state == "fail" && review.Verdict() == "FAIL" && run.FirstNumber(record, "rounds") > 0 &&
 		float64(len(record.List("round_summaries"))) >= run.FirstNumber(record, "rounds"):
 		move = "split the task"

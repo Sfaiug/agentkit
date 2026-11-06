@@ -9,11 +9,12 @@ import (
 // RetiredQuestion leaves a sent card's retirement to the card row once its notice is over.
 func RetiredQuestion(name string) bool {
 	card, err := readObject(seatFile("card", name, "json"))
-	return err == nil && retiredQuestion(name, card)
+	return err == nil && card != nil && card.Truthy("sent") && retiredQuestion(name, card)
 }
 
+// retiredQuestion is a question's card, sent or not, whose notice is over.
 func retiredQuestion(name string, card *run.Object) bool {
-	if card == nil || card.Str("word") != "needs you" || !card.Truthy("sent") || Last(name) != nil {
+	if card == nil || card.Str("word") != "needs you" || Last(name) != nil {
 		return false
 	}
 	began := card.Get("began")

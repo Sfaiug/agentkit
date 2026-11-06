@@ -23,7 +23,8 @@ func RetryPending(said func(string) (string, any), dry bool, log func(string), e
 		if err != nil || event == nil {
 			return false, nil
 		}
-		if retrySettled(event) {
+		// a page about no seat is tried again by asking for it again (Page)
+		if retrySettled(event) || event.Has("session") && !event.Truthy("session") {
 			continue
 		}
 		if !retryCard(event) && !retryHistory(event) {

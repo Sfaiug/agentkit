@@ -49,8 +49,13 @@ func (s *checkSelection) observe(command string, result ran, flaky bool) {
 	if s == nil {
 		return
 	}
-	s.handoff = s.handoff || flaky || result.flaky || result.stopped != ""
-	if s.red != nil || result.code == 0 {
+	s.handoff = s.handoff || flaky || result.flaky
+	if s.red != nil || result.code == 0 && result.stopped == "" {
+		return
+	}
+	if result.stopped != "" {
+		// killed at the limit, its sibling pieces with it: no one piece is red, Python's red_part
+		s.red = run.Fields("command", command, "piece", "")
 		return
 	}
 	share := result.piece

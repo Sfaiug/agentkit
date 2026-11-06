@@ -108,18 +108,13 @@ func validateRun(args []string) string {
 			return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
 		}
 		// every task's numbers are read before `--parallel` is judged, `--rounds` given or not, as
-		// Python's main reads them; a launch from inside a run is Python's (launch.elsewhere)
+		// Python's main reads them, except by a queued launch's own child
 		for _, word := range parsed.words {
-			if flag != "--rounds" || os.Getenv("AGENTKIT_RUN_DIR") != "" {
+			if flag != "--rounds" || launch.Queued() {
 				break
 			}
 			budget, err := launch.Budget(config.Absolute(word))
-			if errors.Is(err, launch.ErrPython) {
-				continue // Python finds its checkout or carries its numbers, and judges it at the launch
-			} else if err != nil {
-				return err.Error()
-			}
-			if problem := task.RoundsOver(parsed.values["--rounds"], "--rounds", budget); problem != "" {
+			if problem := launch.RoundsRefusal(parsed.values["--rounds"], budget, err); problem != "" {
 				return problem
 			}
 		}
@@ -193,6 +188,12 @@ func validateRunSubcommand(verb string, args []string) string {
 	asked := ""
 	switch verb {
 	case "status", "show":
+		if contains(args, "--tests") {
+			if len(args) > 1 {
+				return "usage: ak run status --tests"
+			}
+			return ""
+		}
 		usage = commandhelp.Usage("run status") + " [--pending]"
 		args = without(args, "--history", "--json", "--plain", "--why", "--pending")
 		if len(args) > 1 || (len(args) == 1 && strings.HasPrefix(args[0], "-")) {
@@ -215,26 +216,15 @@ func validateRunSubcommand(verb string, args []string) string {
 	if len(args) != 1 || (verb != "status" && verb != "show" && !runID(args[0])) {
 		return usage
 	}
-	runs := filepath.Join(config.Home(), "runs")
-	if verb == "resume" && isFile(job.ReceiptPath(args[0])) {
-		return "" // a job's, which Python resumes and judges (runResume)
-	}
 	if asked != "" {
-		// what the run holds to, the host's with no such run, as Python's policy_of
-		held, _ := run.Read(filepath.Join(runs, args[0]))
-		if held == nil { // missing, unreadable or no object
-			held = run.Fields()
-		}
-		numbers, err := run.Policy(held)
-		if err != nil {
-			return err.Error()
-		}
-		if !run.Carried(numbers) {
-			return "" // Python judges a run Go does not carry, which its resume hands over
-		}
-		if problem := task.RoundsOver(asked, "--rounds", numbers.Rounds); problem != "" {
+		budget, err := launch.ResumeBudget(args[0])
+		if problem := launch.RoundsRefusal(asked, budget, err); problem != "" {
 			return problem
 		}
+	}
+	runs := filepath.Join(config.Home(), "runs")
+	if verb == "resume" && isFile(job.ReceiptPath(args[0])) {
+		return "" // a job's, which Python resumes (runResume)
 	}
 	if !runID(args[0]) {
 		return fmt.Sprintf("no such run: %s (looked in %s)", args[0], runs)

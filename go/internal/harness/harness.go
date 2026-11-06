@@ -23,7 +23,8 @@ type plugin struct {
 	identity    func(text string, argv []string) (string, bool)
 	interactive func(root string, args []string, out, errOut io.Writer) int
 	seatWords   func(words, env []string) []string
-	hookEvent   func(event *run.Object) *run.Object
+	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int) int
+	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error)) (*run.Object, int)
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
@@ -60,8 +61,13 @@ type plugin struct {
 	// last is the last message of the conversation, its owner's or its model's, nil for none, and
 	// notices above say which of them only record the owner interrupting.
 	last func(conversation, cwd, account string) *run.Object
-	// opens is whether Go opens this harness's seats: Python's launch writes down the launcher's
-	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
+	// card is the question card its harness keeps in the conversation the seat owns, said that
+	// conversation as its harness shows it, and typed what the user side typed in it (Python's
+	// plugin `card`, `said` and `user_messages`).
+	card  func(conversation string) (hookfact.Fact, bool)
+	said  func(conversation string) []Turn
+	typed func(conversation string) []Prompt
+	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
 	launch        func() (*run.Object, []string)
@@ -69,9 +75,8 @@ type plugin struct {
 	retire        func(*run.Object) error
 	handed        func(*run.Object) (string, bool)
 	moveReady     func() bool
-	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
-	// `mode`, as Python's plugin `mode` reads it.
-	paysItsOwnWay bool
+	// mode is Mode's: nil where its own config says nothing of how a model of it is paid.
+	mode func(model config.Model) string
 	// usageTaken and usageRecorded are UsageTaken's and UsageRecorded's: nil where a usage read
 	// says when it measured and the harness writes no refusal's meters down.
 	usageTaken    func(data *run.Object, state string) any
@@ -137,10 +142,13 @@ func (reader Reader) LastAnswer(record *run.Object) (model, effort, at any, foun
 	return nil, nil, nil, false
 }
 
-// PaysItsOwnWay is whether that harness's own config says how a model of it is paid, which Go
-// does not read yet.
-func PaysItsOwnWay(name string) bool {
-	return plugins[name].paysItsOwnWay
+// Mode is how that model is paid as its harness's own config says, Python's plugin `mode`:
+// "subscription" or "payg", over config.toml's `mode`; "" where it says nothing.
+func Mode(model config.Model) string {
+	if hook := plugins[model.Harness].mode; hook != nil {
+		return hook(model)
+	}
+	return ""
 }
 
 // TurnEnv is what a worker turn of that harness is told beyond what every turn is, none by

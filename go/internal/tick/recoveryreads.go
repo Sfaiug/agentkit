@@ -28,11 +28,6 @@ func dated(record *run.Object, key string) (float64, bool) {
 	return record.Num(key)
 }
 
-func resumeOrdered(record *run.Object, now float64) bool {
-	at, ok := dated(record, "stall_resume_at")
-	return ok && 0 <= now-at && now-at < 600
-}
-
 func launchGrace(record *run.Object, now float64) bool {
 	if record.Str("state") != "queued" || !record.Truthy("launch_pending") && record.Truthy("process_identity") {
 		return false
@@ -41,20 +36,11 @@ func launchGrace(record *run.Object, now float64) bool {
 	return now-at < 30
 }
 
-// Dead loops leave live processes, launches in flight, and a death already parked alone.
+// A dry tick reads whether the dead-loop pass would say anything, which Python's says.
 func noDeadLoops() bool {
 	now := epoch(time.Now())
 	return run.Every(func(_ string, record *run.Object) bool {
-		deaths := record.List("deaths")
-		if !run.Active(record) && !(record.Str("state") == "interrupted" && len(deaths) > 0) {
-			return true
-		}
-		if len(deaths) > 0 {
-			if last, ok := deaths[len(deaths)-1].(*run.Object); ok && last.Truthy("parked") {
-				return true
-			}
-		}
-		return launchGrace(record, now) || resumeOrdered(record, now) || run.ProcessActive(record)
+		return !deadLoop(record, now) || run.ResumeOrdered(record, now)
 	})
 }
 
@@ -63,9 +49,9 @@ func noStallRecovery() bool {
 	return run.Every(func(dir string, record *run.Object) bool {
 		switch record.Str("state") {
 		case "running":
-			return notSilent(dir, record) || resumeOrdered(record, epoch(time.Now())) && !run.ProcessActive(record)
+			return notSilent(dir, record) || run.ResumeOrdered(record, epoch(time.Now())) && !run.ProcessActive(record)
 		case "queued":
-			return !record.Truthy("slot_waiting") || run.ProcessActive(record) || resumeOrdered(record, epoch(time.Now()))
+			return !record.Truthy("slot_waiting") || run.ProcessActive(record) || run.ResumeOrdered(record, epoch(time.Now()))
 		case "stalled":
 			return record.Truthy("stalled_notified")
 		}

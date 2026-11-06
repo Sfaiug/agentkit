@@ -230,7 +230,11 @@ func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 				return err
 			}
 		} else if live.sameRecord() { // A relaunch consumed the old Stop; it cannot nudge the replacement harness.
-			found, err = seat.nudgeOpenWork(state, found, log)
+			// an unanswered owner decision is never a reason to type a resume
+			asked := notify.OwnerQuestion(notify.Last(seat.Name))
+			if found, err = seat.nudgeQuestion(state, found, log); err == nil && !asked {
+				found, err = seat.nudgeOpenWork(state, found, log)
+			}
 			if err != nil {
 				return err
 			}

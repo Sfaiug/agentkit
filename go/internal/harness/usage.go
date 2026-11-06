@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"agentkit/internal/config"
 	"agentkit/internal/config/adapters"
 	"agentkit/internal/run"
 )
@@ -83,8 +84,13 @@ func museUsageTaken(data *run.Object, state string) any {
 }
 
 // museUsageRecorded is the meters imported from a refused turn's adapter report: each meter is trusted
-// for at most its own window, as the adapter's `usage` verb trusts it.
+// for at most its own window, as the adapter's `usage` verb trusts it.  Where `[providers.meta]`
+// lists accounts each login keeps a record of its own and nothing here says which is being read:
+// none is applied, and each reaches its own reading through that account's `usage` verb.
 func museUsageRecorded(state string, now float64) []*run.Object {
+	if accounts, _ := config.Accounts("meta"); len(accounts) > 0 {
+		return nil
+	}
 	path := filepath.Join(state, museStem("")+".json")
 	info, err := os.Stat(path)
 	if err != nil {

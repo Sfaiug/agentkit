@@ -19,7 +19,7 @@ func TestPastAdmissionKeepsStopAndHarnessBoundaries(t *testing.T) {
 		{name: "retained checkout", file: "runs/api/run.json", data: `{"state":"pass","launched_session":"acme","worktree":"/wt/api"}`},
 		{name: "owned tab", file: "state/browser-tabs.json", data: `{"T1":{"opener":{"session":"acme"}}}`},
 		{name: "sent card", file: "state/card-acme.json", data: `{"sent":true}`},
-		{name: "unopened harness", fields: map[string]any{"orchestrator": "astra", "workers": []string{"astra"}}},
+		{name: "unopened harness", file: "config.toml", data: testConfig + gemini, fields: map[string]any{"orchestrator": "gemini", "workers": []string{"gemini"}}},
 		{name: "account login", fields: map[string]any{"account": "work"}},
 		{name: "unowned conversation", fields: map[string]any{"id_source": "guess"}},
 	} {

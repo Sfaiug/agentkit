@@ -34,12 +34,14 @@ func (r refusing) Spent(name string) string {
 	return r.Room.Spent(name)
 }
 
-// unmetered is a read nobody could take: meters nobody could read withhold no reviewer.
+// unmetered is a read nobody could take: meters nobody could read withhold no reviewer, and
+// report no pace, which keeps a payg one out.
 type unmetered struct{}
 
 func (unmetered) Spent(string) string             { return "" }
 func (unmetered) Budget(string) (float64, string) { return 0, "unknown: unread" }
 func (unmetered) OnCredits(string) bool           { return false }
+func (unmetered) Pace(string) (float64, bool)     { return 0, false }
 
 // handExecutor gives this round's work to a model on a provider that refused nothing yet, Python's
 // hand_executor: the same worktree, branch, round and budget, only the model changes, and the record
@@ -103,9 +105,13 @@ func noteHandover(record *run.Object, before, next, why string, round int) {
 		"model", before, "rounds", rounds, "why", why)))
 }
 
-// headWriters is every model that wrote part of the head a review judges, Python's head_writers.
+// headWriters is every model that wrote part of the head a review judges, Python's head_writers: a
+// seat's own PR's orchestrator among them.
 func headWriters(record *run.Object) []string {
 	writers := []string{record.Str("executor")}
+	if record.Truthy("own_pr") {
+		writers = append(writers, record.Str("own_orchestrator"))
+	}
 	for _, each := range record.List("executor_history") {
 		if entry, _ := each.(*run.Object); entry != nil {
 			writers = append(writers, entry.Str("from"), entry.Str("to"))
@@ -133,7 +139,7 @@ func (l *loop) readyReviewers(failed []any) (all, independent []string, err erro
 		room = ready{readings, unable()}
 	}
 	writers := headWriters(record)
-	for _, name := range rules.Beside(room, writers) {
+	for _, name := range rules.Beside(room, writers, nil) {
 		if slices.Contains(failed, any(name)) {
 			continue
 		}

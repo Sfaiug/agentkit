@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"agentkit/internal/box"
 	"agentkit/internal/config"
@@ -209,10 +210,8 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 		env["PYTHONPYCACHEPREFIX"] = filepath.Join(out, "pycache")
 	}
 	var left []string
-	ctx, watched := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Marker: l.dir,
-		Before: func() { left = stillRunning(l.dir) }}.Stop(l.ctx)
-	code, err := box.RunCheck(ctx, []string{"bash", "-c", cmd}, env, cwd, out, progress)
-	stopped := watched()
+	watch := host.Watch{Silence: l.silence, Ceiling: limit, Heard: host.Written(activity), Before: func() { left = stillRunning(l.dir) }}
+	code, stopped, err := box.RunCheck(l.ctx, watch, []string{"bash", "-c", cmd}, env, cwd, out, progress)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return ran{}, notYet("the host has no box for a check", "a check here")
 	}
@@ -314,24 +313,26 @@ func (l *loop) flakyRecord(cmd string, failed, again []byte, path string, most i
 
 // cutFrom is a binary file's bytes from start to its end as a model is handed them, Python's
 // turns.cut_file: whole up to most bytes, else its end under a line naming a file holding all of
-// it, never read whole, as a check can print more than the run's memory holds.
+// it, never read whole, as a check can print more than the run's memory holds.  Replacement
+// characters can grow the end past most: it is cut there again, at a whole character.
 func cutFrom(file *os.File, start int64, where, name string, most int64) (string, error) {
 	size, err := file.Seek(0, io.SeekEnd)
 	if err != nil {
 		return "", err
-	}
-	line := ""
-	if size-start > most {
-		if line, err = kept(io.NewSectionReader(file, start, size-start), where, name); err != nil {
-			return "", err
-		}
 	}
 	from := max(start, size-most)
 	part := make([]byte, size-from)
 	if _, err := file.ReadAt(part, from); err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
-	return line + decoded(part), nil
+	end := decoded(part)
+	line := ""
+	if size-start > most || int64(len(end)) > most {
+		if line, err = kept(io.NewSectionReader(file, start, size-start), where, name); err != nil {
+			return "", err
+		}
+	}
+	return line + strings.ToValidUTF8(end[max(0, int64(len(end))-most):], ""), nil
 }
 
 // kept saves output whole in a new file under where, the line naming it heading any part of it a
@@ -376,7 +377,20 @@ func stem(path string) string {
 	return strings.TrimSuffix(name, filepath.Ext(name))
 }
 
-// decoded is bytes as Python decodes them with errors="replace".
+// decoded is bytes as Python decodes them with errors="replace": one replacement character for
+// each lone bad byte or character cut short, where strings.ToValidUTF8 makes a run of them one.
 func decoded(data []byte) string {
-	return strings.ToValidUTF8(string(data), "\uFFFD")
+	var text strings.Builder
+	text.Grow(len(data))
+	for len(data) > 0 {
+		r, size := utf8.DecodeRune(data)
+		if r == utf8.RuneError && size == 1 {
+			for size < len(data) && !utf8.FullRune(data[:size+1]) {
+				size++
+			}
+		}
+		text.WriteRune(r)
+		data = data[size:]
+	}
+	return text.String()
 }

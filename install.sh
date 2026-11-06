@@ -682,6 +682,10 @@ CRON_TAG="# agentkit watch"
 # the tag with its `#`s and spacing loose, so a retyped or re-commented pause is still ours.
 # `ak move` reads this line to see a tick on the machine it would copy to.
 CRON_MATCH='#+[[:space:]]*agentkit[[:space:]]+watch([[:space:]]|$)'
+# cron reads a backslash and the next character as a pair, makes \% a % and ends the command at
+# any other %, then hands it to sh: a path goes in as one single-quoted word, each % stepping out
+# of the quotes as \%, where no backslash of the path's comes right before it
+cron_word() { local word=${1//\'/\'\\\'\'}; word=${word//%/\'\\%\'}; printf "'%s'" "$word"; }
 case "$ROLE" in
   client)
     printf '%s\n' "$ALIAS" >"$AK/state/server"
@@ -693,7 +697,8 @@ case "$ROLE" in
     elif ! have crontab; then
       note "no crontab here; run \`ak watch\` every three minutes some other way"
     else
-      cron_line="*/3 * * * * PATH=$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin $REPO/bin/ak watch >>$AK/tmp/watch.log 2>&1 $CRON_TAG"
+      cron_line="*/3 * * * * PATH=$(cron_word "$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin")"
+      cron_line+=" $(cron_word "$REPO/bin/ak") watch >>$(cron_word "$AK/tmp/watch.log") 2>&1 $CRON_TAG"
       current=$(crontab -l 2>/dev/null || true)
       wanted=$({ [ -z "$current" ] || printf '%s\n' "$current" | grep -vE -- "$CRON_MATCH" || true
                  printf '%s\n' "$cron_line"; })

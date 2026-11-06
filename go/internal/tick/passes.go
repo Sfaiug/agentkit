@@ -6,11 +6,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"agentkit/internal/browser"
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
 	"agentkit/internal/handback"
 	"agentkit/internal/host"
-	"agentkit/internal/job"
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
 	"agentkit/internal/run"
@@ -32,10 +32,9 @@ var errLeft = errors.New("left to Python")
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
-// that act whatever the home holds: usage refresh, login reminder, browser tidy and harness
-// upgrade.  Each row reads the seats at its own turn, and a home holding a seat Go does not read
-// leaves the tick to Python at the first row that reads one. A step a dry tick runs checks t.dry
-// where it would act; until it does, it is wet.
+// that act whatever the home holds: harness upgrade.  Each row reads the seats at its own turn,
+// and a home holding a seat Go does not read leaves the tick to Python at the first row that
+// reads one. A step a dry tick runs checks t.dry where it would act; until it does, it is wet.
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
@@ -51,11 +50,13 @@ func table(t *ticking) []pass {
 		// publishes nothing, reads them here
 		{"seat health", true, all(configured, secretless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
 		{"switched turns", false, configured, accountTurns},
-		{"dead loops", true, all(configured, noDeadLoops), nil},
-		{"dead jobs", true, jobless, nil},
+		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
+		{"dead jobs", true, noDeadJobs, nil},
 		{"stall recovery", true, all(configured, noStallRecovery), nil},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
+		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads
+		{"usage refresh", true, configured, t.wet(refreshUsage)},
 		{"login reminder", false, nil, loginReminder},
 		{"token reminder", false, nil, nil},
 		{"exhausted resume", true, noExhaustedResume, nil},
@@ -68,7 +69,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"endings", false, t.endingsIdle, t.endings},
-		{"job handbacks", false, jobless, nil},
+		{"job handbacks", false, nil, t.jobHandbacks},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
@@ -76,8 +77,8 @@ func table(t *ticking) []pass {
 		{"history sync", false, run.Historyless, nil},
 		{"history checkpoint", false, run.Historyless, nil},
 		{"weekly audit", false, configured, t.audit},
-		{"typed answers", false, every(unasked), nil},
-		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
+		{"typed answers", false, every(answerable), t.typedAnswers},
+		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut, t.log.line) }},
 		{"notification retry", true, nil, t.retryNotifications},
 		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
@@ -92,12 +93,23 @@ func table(t *ticking) []pass {
 		{"exit clocks", false, nil, t.stamp},
 		{"seat sweep", false, noRunSweep, t.sweep},
 		{"ended logins", false, noLoginsToEnd, nil},
-		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
+		{"leftover sweep", false, nil, func() error {
+			if !leftover.Sweep(t.log.line) {
+				return errLeft
+			}
+			return nil
+		}},
+		{"browser tidy", false, nil, func() error {
+			if !browser.Tidy(epoch(t.clock()), t.log.line) {
+				return errLeft
+			}
+			return nil
+		}},
 		{"rented machines", false, all(configured, noRenting), nil},
 		{"machine check", false, nil, machines.Check},
-		{"project rules", false, checkoutsSeen, fetchProjects},
+		{"project rules", false, checkoutsSeen, t.fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
-		{"alive checks", false, all(noSeatAlive, outageless), nil},
+		{"alive checks", false, nil, t.alive},
 		{"night reads", false, noNights, t.nights},
 		{"live update", false, liveUpdateIdle, t.liveUpdate},
 	}
@@ -130,8 +142,6 @@ func all(reads ...func() bool) func() bool {
 
 // configured is whether the config loads; Python's passes that load it warn where it does not.
 func configured() bool { return config.Check() == nil }
-
-func jobless() bool { return empty(job.Jobs()) }
 
 func secretless() bool { return empty(filepath.Join(config.Home(), "secrets")) }
 
