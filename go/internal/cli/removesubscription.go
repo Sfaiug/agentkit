@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"cmp"
 	"fmt"
 	"os/exec"
 	"slices"
@@ -67,14 +66,11 @@ func menuRemoveSubscription(cell menu.Cell, keyboard *terminal.Keyboard, painter
 // adapter said and the command that signs it out by hand, which names its account even when empty,
 // as a seat's shell has one of its own.
 func signedOut(cell menu.Cell) string {
-	told := []string{config.AccountEnv(cell.Account), "AGENTKIT_PROVIDER=" + cell.Provider}
-	adapter, err := config.LoginAdapter(cell.Harness)
-	env, envErr := config.ChildEnv()
+	logout, err := adapterCall(cell.Harness, cell.Account, cell.Provider, "logout")
 	said := ""
-	if err = cmp.Or(err, envErr); err == nil {
+	if err == nil {
 		var stderr bytes.Buffer
-		logout := exec.Command(adapter, "logout")
-		logout.Env, logout.Stderr = append(env, told...), &stderr
+		logout.Stderr = &stderr
 		if err = logout.Run(); err == nil {
 			return ""
 		}
@@ -89,7 +85,7 @@ func signedOut(cell menu.Cell) string {
 		said = " (" + said + ")"
 	}
 	var byHand []string
-	for _, pair := range told {
+	for _, pair := range adapterTold(cell.Account, cell.Provider) {
 		key, value, _ := strings.Cut(pair, "=")
 		byHand = append(byHand, key+"="+commandhelp.ShellJoin([]string{value}))
 	}
