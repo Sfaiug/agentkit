@@ -108,10 +108,9 @@ func validateRun(args []string) string {
 			return fmt.Sprintf("%s must be a positive integer (got %s)", flag, commandhelp.Quote(value))
 		}
 		// every task's numbers are read before `--parallel` is judged, `--rounds` given or not, as
-		// Python's main reads them; a queued run's own launch holds what its launch read, which Python
-		// judges: an AGENTKIT_RUN_DIR naming no directory names no queued run (Python's queued)
+		// Python's main reads them, except by a queued launch's own child
 		for _, word := range parsed.words {
-			if flag != "--rounds" || isDir(os.Getenv("AGENTKIT_RUN_DIR")) {
+			if flag != "--rounds" || launch.Queued() {
 				break
 			}
 			budget, err := launch.Budget(config.Absolute(word))
