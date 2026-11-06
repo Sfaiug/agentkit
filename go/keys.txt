@@ -38,6 +38,7 @@ test_key_add_subscription_esc_back_one_list
 test_key_agents_md_bad_key
 test_key_agents_md_cleanup
 test_key_answer_context
+test_key_audit_line_delivered
 test_key_audit_off
 test_key_audit_owner_closed
 test_key_antigravity_holds_background_work
