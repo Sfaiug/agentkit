@@ -21,15 +21,16 @@ import (
 )
 
 // ownReview launches a review from a session, Python's review_pr_main where the run has a session
-// name: Go's where it is the seat's own pull request, by this host's GitHub login, launched with
-// --no-merge.  One it lands, or of somebody else's pull request, it leaves to Python, deciding so
-// before it writes anything.  A refusal is printed where the seat typed it, so it is handed back.
+// name: Go's where it is the seat's own pull request, by this host's GitHub login, landed on PASS
+// unless launched with --no-merge.  One of somebody else's pull request it leaves to Python,
+// deciding so before it writes anything.  A refusal is printed where the seat typed it, so it is
+// handed back.
 func ownReview(url string, numbersIn config.Numbers, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	session, record, unnamed := config.CurrentSession()
 	_, pointer := record[config.Renamed]
 	bound, unbound := bind()
 	_, rules := pick.Within(names(bound.Workers), names(bound.Reviewers))
-	if unnamed != nil || pointer || unbound != nil || surroundings("") || !flags["--no-merge"] || len(bound.Workers) == 0 ||
+	if unnamed != nil || pointer || unbound != nil || surroundings("") || len(bound.Workers) == 0 ||
 		!readable(slices.Collect(maps.Values(values))...) || values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}

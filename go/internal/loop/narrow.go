@@ -4,8 +4,8 @@ package loop
 // Whole checks, evidence, publication and delivery remain the line's own steps. Named tests
 // passing alone are search evidence only: below each culprit a whole check must cover the
 // surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
-// (flakes.go). Reds with suite helpers, PR reviews, changed-file suites and target repairs stay
-// with Python, as do integration or rules refusals on a stack.
+// (flakes.go). Reds with suite helpers, reviews of PRs other than a seat's own, changed-file suites
+// and target repairs stay with Python, as do integration or rules refusals on a stack.
 
 import (
 	"context"
@@ -106,6 +106,7 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 		}
 		break
 	}
+	pending = unmoved(prefix, pending, said)
 	below := -1
 	for len(pending) > 0 {
 		if !withCandidates(prefix, pending, func() bool { return true }) {
@@ -174,7 +175,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 		if err != nil {
 			return stacks, err
 		}
-		stack.checks, err = landingChecks(m.dir, checkout.path, tip)
+		stack.checks, err = landingChecks(m, checkout.path, tip)
 		if err != nil || slices.ContainsFunc(stack.checks, namesChanged.MatchString) {
 			checkout.close()
 			return stacks[:len(stacks)-1], err

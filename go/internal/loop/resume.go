@@ -51,14 +51,14 @@ func Pickup(dir string, record *run.Object) bool {
 
 // Woken is whether the run waits in its landing line on a verdict its lander wrote, which Go
 // carries on into its landing: one it holds no verdict for is the lander's, as Python's resume
-// refuses it.
+// refuses it.  A seat's own PR goes on where Go carries its landing (ownLands).
 func Woken(record *run.Object) bool {
 	wait := record.Dict("waiting_on")
 	if !parkedInLine(record) || !wait.Has("land") && !wait.Has("fix") || run.ProcessActive(record) || !unitless(record) {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && record.Truthy(key) {
+		if key != "waiting_on" && record.Truthy(key) && !(key == "review_pr" && ownLands(record)) {
 			return false
 		}
 	}

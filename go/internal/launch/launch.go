@@ -3,7 +3,7 @@
 // preflight, and how a refused launch ends.  It hides which launches Go makes today: one on a
 // path of Python's launch that Go has, which preflight refuses or whose run preflight passes, a
 // scratch task's or a repository's with --no-merge or --no-worktree, a review of somebody else's
-// pull request from no seat, or of a seat's own with --no-merge, and that run goes on in package loop.  A seat's launch it judges as
+// pull request from no seat, or of a seat's own, and that run goes on in package loop.  A seat's launch it judges as
 // Python's run.parse does, and one that passes is the seat's run: its receipt names the seat and
 // binds the seat's lists and efforts, and the seat's bar and project follow it (seat.go).  Any
 // other it leaves to Python (ErrPython), deciding so before it writes anything, so preflight is

@@ -211,7 +211,8 @@ func (r *repoPlace) replacement(dir, base, head, number string, counted, budget 
 }
 
 // reviewOwn is a seat's own pull request reviewed to its end, Python's review_pr for `is_own`: a
-// round, and while one fails with rounds left, the fixer turn its findings get before the next.
+// round, and while one fails with rounds left, the fixer turn its findings get before the next.  A
+// run woken in its landing line lands what its lander checked.
 func (l *loop) reviewOwn() (err error) {
 	defer func() {
 		// an ending of its own leaves no fix to wait for and no round pending
@@ -224,6 +225,18 @@ func (l *loop) reviewOwn() (err error) {
 			}
 		}
 	}()
+	record, err := read(l)
+	if err != nil {
+		return err
+	}
+	if landingLine(record) != "" {
+		place := placeOf(record).(*ownPull)
+		l.place, l.workspace = place, place.wt
+		if err := place.settle(l); err != nil {
+			return err
+		}
+		return place.land(l)
+	}
 	for {
 		if err := l.ownRound(); err != nil {
 			return err
@@ -359,7 +372,7 @@ func (l *loop) ownRound() error {
 		run.SetAll(record, "title", title, "task", path, "repo", repo, "scratch", false, "pr", l.pull, "head_sha", pull.Head, "author", pull.Author,
 			"base", "origin/"+pull.Base, "target", pull.Base, "base_sha", baseSHA, "target_sha", targetSHA, "branch", branch, "worktree", wt,
 			"executor", prior.Get("executor"), "reviewer", nil, "rounds", budget, "verdict", nil, "finished_at", nil, "round_summaries", summaries,
-			"findings", l.findings, "merge_method", "squash", "no_merge", true, "merged", false, "merge_note", nil, "reported", false,
+			"findings", l.findings, "merge_method", "squash", "no_merge", repoFrom(prior).noMerge, "merged", false, "merge_note", nil, "reported", false,
 			"task_words", words, "task_points", points, "task_checks", len(declared), "own_pr_round_pending", rnd)
 		for _, key := range []string{"own_pr_wait", "delivery_sha", "review"} {
 			record.Delete(key) // this head is checked out and recorded; its review comes with this round
@@ -391,6 +404,7 @@ func (l *loop) ownRound() error {
 	l.cmds = cmds
 	l.every, l.once = task.Group(cmds)
 	l.body = body + place.rules()
+	l.prompt = place.context(pull.Number, l.body) // what landing's fixers are told first
 	if err := l.pickReviewer(fmt.Sprintf("own PR of the %s seat; picked against orchestrator %s", owner, writer)); err != nil {
 		return err
 	}
@@ -418,9 +432,9 @@ func (l *loop) ownRound() error {
 	return place.settled(l, pull)
 }
 
-// settled posts the round's verdict and decides what follows, Python's settle_pr_round for `is_own`
-// launched with --no-merge: a PASS is the whole delivery; a FAIL, or a verdict GitHub never took for
-// the head moved, waits for its fix while rounds are left.
+// settled posts the round's verdict and decides what follows, Python's settle_pr_round for `is_own`:
+// a PASS lands (land), or is the whole delivery of one launched with --no-merge; a FAIL, or a
+// verdict GitHub never took for the head moved, waits for its fix while rounds are left.
 func (p *ownPull) settled(l *loop, pull *gh.Pull) error {
 	if err := p.restore(l, "reviewer"); err != nil {
 		return err
@@ -442,9 +456,12 @@ func (p *ownPull) settled(l *loop, pull *gh.Pull) error {
 		return errors.New(reason)
 	}
 	passed := record.Str("verdict") == "PASS" && posted
+	if passed && !p.noMerge {
+		return p.land(l)
+	}
 	again := !passed && l.rnd < l.budget
 	if err := l.save(func(record *run.Object) {
-		if passed {
+		if passed && p.noMerge {
 			record.Set("merge_note", "not merged: the review was launched with --no-merge")
 		}
 		if again {
@@ -502,9 +519,9 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if said == "" {
 		said = "(no description)"
 	}
-	fix := fmt.Sprintf("Repo checkout: %s\nBranch: %s (PR #%s head, based on origin/%s)\n\n# Fix PR #%s: %s\n\n## Goal\nThe pull request passes its review: "+
+	fix := place.context(number, fmt.Sprintf("# Fix PR #%s: %s\n\n## Goal\nThe pull request passes its review: "+
 		"fix each finding below with the least change, on this branch, and keep its checks passing.\n\n## The PR says\n%s\n\n%s%s\n\n## Reviewer findings to fix\n%s",
-		place.wt, place.branch, number, place.target, number, named, strings.TrimFunc(said, config.Space), doneWhenBlock(l.cmds), place.rules(), withoutAsides(l.findings))
+		number, named, strings.TrimFunc(said, config.Space), doneWhenBlock(l.cmds), place.rules(), withoutAsides(l.findings)))
 	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return err
 	}
@@ -514,12 +531,11 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if err := place.commitLeftovers(l); err != nil {
 		return err
 	}
-	head, err := place.git().Must("rev-parse", "HEAD")
-	if err != nil {
+	if err := place.pin(l); err != nil { // what the next round judges
 		return err
 	}
-	// what the next round judges, Python's pin_checkout
-	if err := l.save(func(record *run.Object) { record.Set("integrated", run.Fields("from", reviewed, "to", head)) }); err != nil {
+	head, err := place.git().Must("rev-parse", "HEAD")
+	if err != nil {
 		return err
 	}
 	// the PR as it stands after the fix: a closed PR or a head pushed meanwhile ends the run, never
@@ -539,23 +555,17 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if err := l.save(func(record *run.Object) { record.Set("delivery_sha", head) }); err != nil {
 		return err
 	}
-	branch, source := remote.Str("ref"), ""
-	if repo := remote.Dict("repo"); repo != nil {
-		source = repo.Str("clone_url")
-	}
-	if branch == "" || source == "" {
-		return errors.New("cannot locate the PR branch to push to")
-	}
-	// over the reviewed head and nothing else: a push made by hand meanwhile is never overwritten
-	code, out, err := place.gitPush(l, "--force-with-lease=refs/heads/"+branch+":"+reviewed, "--", source, "HEAD:refs/heads/"+branch)
-	if err != nil {
+	if err := place.pushPull(l, remote, reviewed); err != nil {
 		return err
 	}
-	if code != 0 {
-		return errors.New("pushing to the PR branch failed: " + tail(out, 400))
-	}
-	l.say(fmt.Sprintf("--- pushed the fix %s to %s", head[:12], branch))
+	l.say(fmt.Sprintf("--- pushed the fix %s to %s", head[:12], remote.Str("ref")))
 	return nil
+}
+
+// context is what a worker on the review's checkout is told first, Python's pr_context: where it
+// is and on what branch.
+func (p *ownPull) context(number, body string) string {
+	return fmt.Sprintf("Repo checkout: %s\nBranch: %s (PR #%s head, based on origin/%s)\n\n%s", p.wt, p.branch, number, p.target, body)
 }
 
 // openPull is the pull request as GitHub has it now, its head as git has it, while it is open.

@@ -13,9 +13,9 @@ import (
 )
 
 // The wake takes each red Go's woken run carries once no run it waits on holds a place in the
-// line, once a pass, and leaves a PR review's, a repair's and a moved head's to Python.  A run
-// whose lock is held, which may be a run started since the line was read, waits for the next
-// wake, never on that lock.
+// line, once a pass, and leaves a PR review's, a seat's own PR's among them, and a repair's to
+// Python.  A run whose lock is held, which may be a run started since the line was read, waits for
+// the next wake, never on that lock.
 func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -30,7 +30,7 @@ func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 		"fix-3": run.Fields("waiting_on", red(run.Fields("departed", "tree"))),
 		"fix-4": run.Fields("waiting_on", red(run.NewObject()), "review_pr", "https://github.com/acme/api/pull/1"),
 		"fix-5": run.Fields("waiting_on", red(run.NewObject()), "repair", true),
-		"fix-6": run.Fields("waiting_on", run.Fields("line", line, "joined", 1, "fix", run.Fields("moved", true))),
+		"fix-6": run.Fields("waiting_on", red(run.NewObject()), "review_pr", "https://github.com/acme/api/pull/2", "own_pr", true),
 		"fix-7": run.Fields("waiting_on", red(run.NewObject())),
 	} {
 		dir := filepath.Join(run.Runs(), name)
