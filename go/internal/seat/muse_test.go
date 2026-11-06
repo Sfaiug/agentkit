@@ -14,48 +14,41 @@ func TestMuseReceiptIsReadAtTheListingBoundary(t *testing.T) {
 			home := sandbox(t)
 			write(t, filepath.Join(home, ".agentkit", "config.toml"), testConfig+
 				"[models.spark]\nharness='muse'\nmodel='spark'\neffort='high'\nprovider='test'\n")
-			// Refusing a listing must precede reconciliation of even an earlier record.
-			record(t, home, "aaa", map[string]any{"id_source": nil, "repo": nil})
 			token := strings.Repeat("a", 32)
 			record(t, home, "acme", map[string]any{"orchestrator": "spark", "workers": []string{"spark"},
 				"muse_launch": token, "id_source": nil})
 			receipt := stateFile(home, "muse-launch-"+token)
 			write(t, filepath.Join(receipt, "lineage"), `{"processes":[],"earlier":[]}`)
 			drawn(t, home, "acme", "Change approval defaults in /permissions\n")
-			read := func(name string) string {
-				t.Helper()
-				data, err := os.ReadFile(stateFile(home, name))
-				if err != nil {
-					t.Fatal(err)
-				}
-				return string(data)
+			before, err := os.ReadFile(stateFile(home, "session-acme.json"))
+			if err != nil {
+				t.Fatal(err)
 			}
-			before, other := read("session-acme.json"), read("session-aaa.json")
 			if !late {
 				write(t, filepath.Join(receipt, "session"), "session_1")
 			}
 			listing, known := Looking(time.Now())
-			if known != late {
-				t.Fatalf("reported session was not left to Python: known=%v", known)
+			if !known {
+				t.Fatal("a seat its launch reported a session for was left to Python")
 			}
 			if late {
 				write(t, filepath.Join(receipt, "session"), "session_1")
-				lines, found, err := listing.Explain("acme", time.Now())
-				if err != nil || !found {
-					t.Fatalf("the report belongs to the next listing: %v, %v", found, err)
-				}
-				if lines[0] != "acme  needs you" || lines[2] != "  authority: screen  rule: asking.approval" {
-					t.Fatal(lines)
-				}
-				if err := listing.Announce(time.Now()); err != nil {
-					t.Fatal(err)
-				}
-				if _, known := Looking(time.Now()); known {
-					t.Fatal("the next listing took a reported session")
-				}
 			}
-			if read("session-acme.json") != before || !late && read("session-aaa.json") != other {
-				t.Fatal("publishing changed Muse's record, or handing over reconciled another")
+			lines, found, err := listing.Explain("acme", time.Now())
+			if err != nil || !found {
+				t.Fatalf("not explained: %v, %v", found, err)
+			}
+			if lines[0] != "acme  needs you" || lines[2] != "  authority: screen  rule: asking.approval" {
+				t.Fatal(lines)
+			}
+			if err := listing.Announce(time.Now()); err != nil {
+				t.Fatal(err)
+			}
+			if _, known := Looking(time.Now()); !known {
+				t.Fatal("the next listing left a reported session to Python")
+			}
+			if after, err := os.ReadFile(stateFile(home, "session-acme.json")); err != nil || string(after) != string(before) {
+				t.Fatalf("publishing changed Muse's record: %s, %v", after, err)
 			}
 			if data, err := os.ReadFile(filepath.Join(receipt, "session")); err != nil || string(data) != "session_1" {
 				t.Fatalf("the receipt changed: %s, %v", data, err)

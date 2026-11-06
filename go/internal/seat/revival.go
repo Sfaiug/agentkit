@@ -79,12 +79,14 @@ func revivalKind(kind, suffix string) bool {
 
 // restingGone is whether the revival leaves a seat gone (watch.revive_seats): one its end cut off
 // nothing of, where its own question standing is a turn cut off that a conversation of its own
-// reopens on (watch.cut_off), and any other needs you is no turn of its.
+// reopens on (watch.cut_off), as one its revival was paged as failing stays the revival's; any
+// other needs you is no turn of its.
 func (seat Seat) restingGone() bool {
 	if seat.live || seat.closed {
 		return true
 	}
-	if seat.Word == "working" || !seat.unowned && notify.OwnerQuestion(notify.Last(seat.Name)) {
+	notice := notify.Last(seat.Name)
+	if seat.Word == "working" || !seat.unowned && notify.OwnerQuestion(notice) || revivalFailure(notice) {
 		return false
 	}
 	return seat.cutNothing()
