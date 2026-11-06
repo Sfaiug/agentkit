@@ -599,11 +599,14 @@ def load():
 
     def held(key):      # a top-level setting's error sends the owner to the file that holds it
         return HOME / CONFIG_NAME if key in (home or ()) else path
-    marks = cfg.get("compare")
-    if marks is not None and (not isinstance(marks, list)
-                              or any(not isinstance(slug, str) for slug in marks)):
-        raise Error(f"{held('compare')}: compare must list release slugs "
-                    f"(compare = [\"acme-pro-5\"]) (got {marks!r})")
+    # the model list (matrix.compared): the makers you have, and the releases of theirs turned off
+    for key, what, example in (("companies", "makers as the boards name them", '"Acme", "Bolt"'),
+                               ("models_off", "release slugs", '"acme-pro-5"')):
+        named = cfg.get(key)
+        if named is not None and (not isinstance(named, list)
+                                  or any(not isinstance(one, str) for one in named)):
+            raise Error(f"{held(key)}: {key} must list {what} ({key} = [{example}]) "
+                        f"(got {named!r})")
     if not isinstance(defaults.setdefault("orchestrator", names[0]), str):
         raise Error(f"{path}: [defaults].orchestrator must be a model name "
                     f"(got {defaults['orchestrator']!r})")

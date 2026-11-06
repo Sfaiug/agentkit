@@ -104,8 +104,11 @@ class RoleCostFromRuns(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         meter = meters.install(self.home)
+        # the echo harness lists no models, so no [defaults] model names its company: Acme,
+        # the boards' maker, is named, or no row would be compared
         akconfig.write(self.home, {name: {"harness": "echo", "model": f"{name}-1"}
                                    for name in ("anvil", "bloom", "crown")},
+                       settings={"companies": ["Acme"]},
                        providers={"acme": {"mode": "subscription",
                                            "accounts": ["default", "second"]}})
         self.home.write(".agentkit/state/boards.json", board())

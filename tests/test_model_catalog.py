@@ -2,10 +2,10 @@
 
 Each of the board's rows keeps its record's identity beside its numbers; `catalog.current` gives
 the releases none of whose rows is deprecated, strongest first, each with its efforts, the
-default one and each one's numbers, and `catalog.successor` follows a release's `deprecatedTo` chain to the current
-release it ends at.  A series, one maker's releases of one release name, whose deprecated releases
-name a successor takes its current variants along.  A reading an older build stored, its rows
-carrying no identity, is asked again once by this build, and until then nothing is current.
+default one and each one's numbers.  A series, one maker's releases of one release name, whose
+deprecated releases name a successor takes its current variants along.  A reading an older
+build stored, its rows carrying no identity, is asked again once by this build, and until
+then nothing is current.
 
 Offline: the board's page is handed in through `boards.fetch_bytes`, the other boards refuse,
 and a throwaway HOME holds the cache.  The models are invented.
@@ -100,18 +100,6 @@ class Catalog(Sandbox):
             {"slug": "gamma-1", "name": "Gamma 1", "maker": "Gamma",
              "efforts": [{"effort": None, "slug": "gamma-1", "default": True, "values": {}}]}])
 
-    # Each series' newest only: catalog.successor follows deprecatedTo to the current
-    # release its chain ends at; missing or cyclic chains yield None. [18 Sep - 26 Oct 2026]
-    def test_a_release_s_successor_is_the_current_release_its_chain_ends_at(self):
-        held = boards.collect(now=10000)
-        successor = lambda slug: (catalog.successor(held, slug) or {}).get("slug")
-        self.assertEqual(successor("acme-6"), "acme-7")              # through Acme 6.5
-        self.assertEqual(successor("acme-7"), "acme-7")              # current: itself
-        self.assertEqual(successor("beta-2"), "beta-3")              # one row deprecated is enough
-        self.assertEqual(catalog.successor(held, "beta-2"), catalog.current(held)[0])
-        for slug in ("omega-1", "omega-0", "loop-a", "nowhere", "acme-7-low"):
-            self.assertIsNone(successor(slug), slug)
-
     def test_a_series_goes_for_the_successor_a_deprecated_release_of_it_names(self):
         series = [      # a series: one maker's releases of one release name
             # Acme 6.5's chain leaves it for Acme 7, and takes its variant along, with the
@@ -154,16 +142,6 @@ class Catalog(Sandbox):
             self.assertEqual([release["slug"] for release in catalog.current(held)], [
                 "beta-3", "acme-7", "kappa-7", "acme-nova-2", "beta-nova-1", "nu-7", "zeta-1",
                 "omega-0-fast", "xi-3", "xi-2", "delta-1", "gamma-1"])
-            successors = {slug: (catalog.successor(held, slug) or {}).get("slug") for slug in (
-                "acme-6-5-fast", "acme-5", "acme-7-preview", "kappa-6", "kappa-6-blue",
-                "zeta-1-old", "zeta-1-fast", "nu-6-early", "nu-6-fast", "omega-1-fast",
-                "loop-a-fast", "xi-1-fast", "omega-0-fast", "beta-nova-1")}
-            self.assertEqual(successors, {
-                "acme-6-5-fast": "acme-7", "acme-5": "acme-7", "acme-7-preview": None,
-                "kappa-6": "kappa-7", "kappa-6-blue": "kappa-7", "zeta-1-old": "zeta-1",
-                "zeta-1-fast": "zeta-1", "nu-6-early": "nu-7", "nu-6-fast": "nu-7",
-                "omega-1-fast": None, "loop-a-fast": None, "xi-1-fast": None,
-                "omega-0-fast": "omega-0-fast", "beta-nova-1": "beta-nova-1"})
 
     def test_a_reading_an_older_build_stored_is_asked_again_once(self):
         boards.collect(now=10000, build="abc1234")

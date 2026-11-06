@@ -97,7 +97,7 @@ class ConfigHome(unittest.TestCase):
         self.assertEqual(saved["models"], tomllib.loads(DEFAULT.read_text())["models"])
 
     def test_a_bad_setting_in_a_home_file_without_models_is_refused_naming_that_file(self):
-        for text in ("compare = 3\n",):
+        for text in ("companies = 3\n", "models_off = ['acme-pro-5', 3]\n"):
             self.path.write_text(text)
             with self.assertRaises(config.Error) as raised:
                 config.load()

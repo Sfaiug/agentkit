@@ -1,6 +1,7 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
 models that are it (`lineup`), answered per role on quality and cost (`answer`), using
-`quality.pick`; `rank` places each configured model off it.  ak's
+`quality.pick`; `rank` places each configured model off it.  Only the models of your
+companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
 their count, and never rank (tests/test_matrix_live_column.py).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
@@ -15,7 +16,7 @@ import sys
 import time
 
 from . import catalog, command_help, config, quality, record, terminal
-from .boards import PREFIX, cached, collect, effort_rank
+from .boards import PREFIX, collect, effort_rank
 
 # the config's word for each role ak answers: `config.ROLE_EFFORTS` keys its efforts by these
 CONFIG_ROLES = {"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
@@ -231,15 +232,77 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     return out
 
 
-def compared(cfg, current):
-    """The releases of `current` (slugs) that `compare` in the config marks, one replaced since
-    as its successor (catalog.successor), so a mark never holds a replaced model, and one that
-    is neither as nothing; None, every one, where nothing is marked."""
-    marked = cfg.get("compare") or []
-    boards = cached() if set(marked) - current else {}    # the boards only for a replaced one
-    found = {slug if slug in current else (catalog.successor(boards, slug) or {}).get("slug")
-             for slug in marked} & current
-    return found or None
+def companies(cfg, lineup):
+    """The makers you have, as the boards name them: `companies` in the config, else the makers
+    of the releases the `[defaults]` orchestrator, workers and reviewers run, the rows of
+    `lineup` whose `yours` holds that model's harness and model."""
+    if cfg.get("companies") is not None:
+        return set(cfg["companies"])
+    defaults = cfg["defaults"]
+    runs = {(cfg["models"][name]["harness"], cfg["models"][name]["model"])
+            for name in (defaults["orchestrator"], *defaults["workers"],
+                         *defaults.get("reviewers", ())) if name in cfg["models"]}
+    return {row["maker"] for row in lineup for one in row["yours"]
+            if (one["harness"], one["model"]) in runs}
+
+
+@functools.lru_cache(maxsize=1)
+def _listed(text):
+    lineup = (json.loads(text).get("matrix") or {}).get("lineup") or []
+    return lineup, {row["release"]: row["maker"] for role in quality.ROLES
+                    for row in quality.rated(lineup, role)}
+
+
+def listed():
+    """The lineup last stored and its listed releases, {slug: maker}: each a role rates a row of
+    (`answer`'s `rated`), rated once per stored lineup, so a release without scores is never
+    listed; ([], {}) where nobody stored one."""
+    try:
+        return _listed(cache_path().read_text())
+    except (OSError, ValueError):
+        return [], {}
+
+
+def ours(cfg):
+    """The listed releases of your companies (`companies`): what the models screen counts."""
+    lineup, found = listed()
+    makers = companies(cfg, lineup)
+    return {slug for slug, maker in found.items() if maker in makers}
+
+
+def compared(cfg):
+    """The releases on, the only ones the models screen and `ak models` compare: those of
+    `ours` whose slug `models_off` in the config does not hold.  A company's next release is
+    on by itself."""
+    return ours(cfg) - set(cfg.get("models_off") or ())
+
+
+def off(cfg):
+    """The configured models ak never uses: each running a listed release that is not on, the
+    one whose rows of the lineup last stored, as `rank` reads it, hold its harness and model in
+    their `yours`.  A model running an unlisted release, or none, is not the list's to turn
+    off.  The picks leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn
+    or a seat named on one outright is refused (`refuse_off`)."""
+    lineup, found = listed()
+    if not found:
+        return set()
+    gone = set(found) - compared(cfg)
+    runs = {(one["harness"], one["model"]): row["release"]
+            for row in lineup for one in row["yours"]}
+    return {name for name in config.offered(cfg)
+            if runs.get((cfg["models"][name]["harness"], cfg["models"][name]["model"])) in gone}
+
+
+OFF = "off in the model list"     # why a pick leaves out a model of `off`
+
+
+def refuse_off(cfg, name):
+    """Refuse a turn or a seat on `name` while it is off: every turn (worker.call) and every
+    seat's command (orch.command) ask this first, so no named, saved or configured model gets
+    around the picks."""
+    if name in off(cfg):
+        raise config.Error(f"{name} is {OFF}: turn it on with `companies` or `models_off` "
+                           "in config.toml")
 
 
 LIVE_HEADERS = ("model", "orch", "exec", "review")
@@ -403,8 +466,7 @@ def main(argv):
     from . import menu      # here, not at the top: the menu reaches this module as it loads
     cfg = config.load()
     _, rows = refresh(cfg, refresh="--refresh" in flags)
-    current = {row["release"] for row in rows}
-    marked = compared(cfg, current)
+    marked = compared(cfg)
     shares = _task_usage(cfg)
     found, own = answer(rows, marked, cfg=cfg, task_usage=shares), live(cfg)
     if "--json" in flags:
@@ -417,6 +479,6 @@ def main(argv):
         print()
         return 0
     body, _ = menu.models_body(menu.models_said(found, rows), marked,
-                               len(current), stored().get("fetched_at"))
+                               len(ours(cfg)), stored().get("fetched_at"))
     print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
     return 0
