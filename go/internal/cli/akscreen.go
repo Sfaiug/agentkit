@@ -79,7 +79,7 @@ func readFrame(now time.Time, announce bool) (reading, bool) {
 func akScreen(args []string, out, errOut io.Writer) int {
 	dry, overlay := contains(args, "--dry-run"), contains(args, "--overlay")
 	if !terminal.Attachable() && !onLiveCheckout() {
-		return pipeMenu(dry || overlay, out, errOut)
+		return pipeMenu(dry, overlay, out, errOut)
 	}
 	// a Mac's menu starts its bridge first, and Windows leaves the terminal to a later slice
 	drawable := runtime.GOOS == "linux" && terminal.Attachable() && os.Getenv("TERM") != "" && os.Getenv("TERM") != "dumb" && !onLiveCheckout()
@@ -180,7 +180,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		model.Highlight.Cursor = menu.Step(shown.seats, shown.switches, model.Highlight.Cursor, 0)
 		clock.Draw(time.Now())
 		drawn := menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, len(shown.past) > 0, overlay), Highlight: model.Highlight, New: model.New, Motion: clock,
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, shown, overlay), Highlight: model.Highlight, New: model.New, Motion: clock,
 			Switches: shown.switches}, screen.Width(), screen.Height())
 		if model.New != nil && model.New.Picker {
 			drawn.Lines = model.New.PickerLines(screen, time.Now().Format("15:04"))

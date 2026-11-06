@@ -22,10 +22,14 @@ func menuChoice(key terminal.Key, frame menu.Frame, seats []menu.Seat, keyboard 
 	return frame.Open(key)
 }
 
-func menuKeys(screen terminal.Screen, past, overlay bool) string {
-	keys := menu.Keys(screen, past)
-	if overlay && os.Getenv("AGENTKIT_SESSION") != "" {
-		keys = strings.Replace(keys, "n new   ", "n new   x stop   ", 1)
+func menuKeys(screen terminal.Screen, shown *reading, overlay bool) string {
+	keys := menu.Keys(screen, len(shown.past) > 0)
+	if found, done := ownSeat(shown.seats, os.Getenv("AGENTKIT_SESSION")); overlay && found {
+		x := "x stop   "
+		if done {
+			x = "x close   "
+		}
+		keys = strings.Replace(keys, "n new   ", "n new   "+x, 1)
 	}
 	return keys
 }

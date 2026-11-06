@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"slices"
 	"time"
 
 	"agentkit/internal/config"
@@ -18,7 +17,8 @@ import (
 func menuStop(shown *reading, dry bool, keyboard *terminal.Keyboard, painter *terminal.Painter, highlight *menu.Highlight, errOut io.Writer) (bool, int) {
 	name, _, err := config.CurrentSession()
 	count, known := seat.StopCount(name, time.Now())
-	if err != nil || !known || !slices.ContainsFunc(shown.seats, func(each menu.Seat) bool { return each.Name == name }) {
+	found, done := ownSeat(shown.seats, name)
+	if err != nil || !known || !found {
 		keyboard.Give()
 		return true, notImplemented(errOut, "attach")
 	}
@@ -30,10 +30,13 @@ func menuStop(shown *reading, dry bool, keyboard *terminal.Keyboard, painter *te
 		what = fmt.Sprintf("%d runs stop", count)
 	}
 	meaning := what + " with it; the session moves to past sessions, p, where it reopens where it stopped."
-	accepted, known := confirmMenu(keyboard, painter, name, "Stop "+name+" and everything it runs?", meaning, "Stop", func(screen terminal.Screen) menu.Frame {
-		return menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
-			Clock: time.Now().Format("15:04"), Highlight: menu.Highlight{Cursor: name, Hidden: true}, Switches: shown.switches}, screen.Width(), screen.Height())
-	})
+	accepted := done
+	if !done {
+		accepted, known = confirmMenu(keyboard, painter, name, "Stop "+name+" and everything it runs?", meaning, "Stop", func(screen terminal.Screen) menu.Frame {
+			return menu.Draw(menu.View{Screen: screen, Seats: shown.seats, Cells: shown.cells, Standing: shown.standing,
+				Clock: time.Now().Format("15:04"), Highlight: menu.Highlight{Cursor: name, Hidden: true}, Switches: shown.switches}, screen.Width(), screen.Height())
+		})
+	}
 	if !known {
 		keyboard.Give()
 		return true, notImplemented(errOut, "attach")
