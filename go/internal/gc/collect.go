@@ -14,7 +14,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
-	"agentkit/internal/job"
 	"agentkit/internal/run"
 )
 
@@ -156,31 +155,16 @@ func Due() bool {
 }
 
 // goTakes is ErrPython where the collection is Python's, decided before anything goes: a plan
-// Python makes, an item Go plans and does not take, or the owner's words a record still saves,
-// which Python's jobs.forget_owner_words takes out as it rewrites the record.
+// Python makes, an item Go plans and does not take, or a seat record whose cursor Go cannot take out.
 func goTakes() error {
 	plan, err := DryRun()
 	if err != nil {
 		return err
 	}
-	if slices.ContainsFunc(plan, func(item Item) bool { return item.take == nil }) || ownerWords() {
+	if slices.ContainsFunc(plan, func(item Item) bool { return item.take == nil }) || cursorsPython() {
 		return ErrPython
 	}
 	return nil
-}
-
-func ownerWords() bool {
-	r := &reads{}
-	for _, dir := range children(job.Jobs()) {
-		if receipt := r.json(job.ReceiptPath(filepath.Base(dir))); receipt != nil &&
-			(receipt.Has("owner_words") || receipt.Has("owner_words_cursor")) {
-			return true
-		}
-	}
-	return slices.ContainsFunc(config.SeatFiles(), func(path string) bool {
-		seat := r.json(path)
-		return seat != nil && seat.Has("owner_words_cursor")
-	})
 }
 
 // locked runs the pass under the collector's lock, the home folder's own flock, taken without
@@ -196,9 +180,11 @@ func (c *collection) locked(pass func()) {
 	}
 }
 
-// pass takes the collector's plan family by family in the table's order, each family read just
-// before its items go, as Python's plan is read while it is taken: how many went.
+// pass takes the owner's saved words out, then the collector's plan family by family in the
+// table's order, each family read just before its items go, as Python's plan is read while it is
+// taken: how many items went.
 func (c *collection) pass() int {
+	c.forgetOwnerWords()
 	r, removed := newReads(), 0
 	for _, family := range families {
 		for _, item := range family(r) {
