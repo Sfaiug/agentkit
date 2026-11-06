@@ -10,21 +10,33 @@ import (
 	"agentkit/internal/tmux"
 )
 
-// Menu reads a frame's seats and runs once, filing projectless records before numbering them.
-// Looking and commands that publish a word use the same run interpretation without filing.
+// Menu reads a frame's seats and runs once, filing projectless records before numbering them:
+// read first, so a home Go leaves to Python is left before filing writes into it, and again once
+// filing wrote.  Looking and commands that publish a word use the same run interpretation without
+// filing.
 func Menu(now time.Time) (Home, bool) {
 	runs, projects, known := menuRuns(now)
-	if !known || !menuProjects(runs, projects) {
+	if !known {
 		return Home{}, false
 	}
-	home, known := reading(now, true, func([]string, time.Time) (map[string][]ran, bool) { return runs, true }, nil)
+	read := func() (Home, bool) {
+		return reading(now, true, func([]string, time.Time) (map[string][]ran, bool) { return runs, true }, nil)
+	}
+	home, known := read()
+	if !known {
+		return Home{}, false
+	}
+	wrote, known := menuProjects(runs, projects)
+	if wrote && known {
+		home, known = read()
+	}
 	if !known {
 		return Home{}, false
 	}
 	state := filepath.Join(config.Home(), "state")
 	for i := range home.Seats {
 		each := &home.Seats[i]
-		if !each.live {
+		if !each.looked() {
 			continue
 		}
 		pane, exited := harnessScreen(each.Name)

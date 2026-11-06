@@ -1,5 +1,5 @@
-// Package machines says what each machine ak may use is, as Python's agentkit/machines.py reads
-// the ticks' checks of them from state/machines.json. Go asks no machine yet.
+// Package machines is what each machine ak may use is, as Python's agentkit/machines.py: each tick
+// asks them all, and state/machines.json keeps their last three days' checks for `ak doctor`.
 package machines
 
 import (
@@ -22,23 +22,35 @@ const (
 // Lines is a line for every machine ak may use, this one first, as the ticks found it. A machine
 // ak rents is no name here: Report reads none while ak may rent.
 func Lines() []string {
+	names, record := known()
+	lines := make([]string, len(names))
+	for i, name := range names {
+		lines[i] = line(name, record.Dict(name))
+	}
+	return lines
+}
+
+// known is every machine ak may use, this one first, and the ticks' record of them, empty where
+// it cannot be read.
+func known() ([]string, *run.Object) {
 	record := run.NewObject()
-	if data, err := os.ReadFile(filepath.Join(config.Home(), "state", "machines.json")); err == nil {
+	if data, err := os.ReadFile(path()); err == nil {
 		if value, err := run.Decode(data); err == nil {
 			if read, ok := value.(*run.Object); ok {
 				record = read
 			}
 		}
 	}
-	var names, lines []string
+	var names []string
 	for _, name := range append([]string{here}, config.MachineNames()...) {
 		if !slices.Contains(names, name) {
 			names = append(names, name)
-			lines = append(lines, line(name, record.Dict(name)))
 		}
 	}
-	return lines
+	return names, record
 }
+
+func path() string { return filepath.Join(config.Home(), "state", "machines.json") }
 
 // line is what one machine is, off its checks and what it said when it last answered.
 func line(name string, machine *run.Object) string {

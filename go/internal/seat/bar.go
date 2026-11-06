@@ -205,7 +205,11 @@ func barSelection(state, name string, models map[string]config.Model) (model str
 
 // publish writes the seat's bar and window title from its row's own values, and with a changed word
 // has every seat's bar count it again (statusbar.redress, retell); it never fails what it dresses.
+// A legacy seat lives on the person's own server, where nothing is written.
 func (seat Seat) publish(state string, models map[string]config.Model, changed bool) {
+	if seat.legacy {
+		return
+	}
 	model, builds, reviews := barSelection(state, seat.Name, models)
 	done, total := plan.Progress(seat.Name)
 	barTell(state, seat.Name, seat.barOptions(terminal.For(os.Stderr), model, builds, reviews, done, total))

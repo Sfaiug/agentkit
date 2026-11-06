@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -20,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"agentkit/internal/agent"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/lock"
+	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 	"agentkit/internal/tmux"
@@ -44,6 +45,7 @@ type Seat struct {
 	closed                                            bool     // its seat file holds the owner's stop mark
 	held                                              bool     // tmux still holds its session, all its panes dead
 	live                                              bool     // a pane of its session still runs: its screen says what it is
+	legacy                                            bool     // tmux holds it on the person's default server, from before ak had its own
 	own                                               string   // the harness its screen is read as
 	question                                          bool     // its reason is the question its screen shows, not for the bar to repeat
 	back                                              any      // when it comes back, out of usage
@@ -121,27 +123,33 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 			names = append(names, name)
 		}
 	}
-	if len(names) == 0 {
-		return Home{}, seatless()
+	held, live, bare, gone := onServer(state, names)
+	if len(names) == 0 && len(bare) == 0 {
+		return Home{}, gone
 	}
-	held, live, gone := onServer(names)
+	for _, name := range slices.Sorted(maps.Keys(bare)) {
+		names = append(names, name)
+	}
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
 		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
-		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
-		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
+		// lock, its log's and the hourly stamps of its reads, what the collection keeps and what
+		// each machine is say nothing a word hangs on: a seat's own wait on its usage is in its
+		// seat file
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || recommendationState(entry.Name()) ||
+			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
 		name, suffix, _ := strings.Cut(rest, ".")
 		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
-		// no listing reads (forget)
-		if !slices.Contains(names, name) && entry.Type().IsRegular() && (suffix == "lock" || kind == "seat" && suffix == "json") {
+		// no listing reads (forget); one tmux no longer holds leaves its announce lock, its word and
+		// its card, which the tick closes (notify.tick_cards)
+		if !slices.Contains(names, name) && entry.Type().IsRegular() &&
+			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || kind == "card" && suffix == "json") {
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
@@ -153,12 +161,21 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	models, err := config.Models()
 	offered, unread := config.Offered()
 	runs, known := readRuns(names, now)
-	if err != nil || unread != nil || !known || !gone || !looking && len(live) > 0 {
+	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
 	home := Home{models: models, readers: recordReaders{}}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
+		if server, ok := bare[name]; ok {
+			seat, ok := bareSeat(state, name, server, runs[name], now)
+			if !ok {
+				return Home{}, false
+			}
+			seat.home = homeKey("", stands)
+			home.Seats = append(home.Seats, seat)
+			continue
+		}
 		isLive := slices.Contains(live, name)
 		deferred := isLive && len(pending) > 0 && pending[0]
 		seat, ok := read(state, name, models, offered, runs[name], now, isLive, readers, deferred)
@@ -218,23 +235,33 @@ func order(seats []Seat) {
 }
 
 // onServer is the seats of those names tmux holds, the ones whose panes have all died and the rest,
-// and whether Go knows the rest: ordinary sessions run no harness, and no seat is on the default server.
-func onServer(names []string) (held, live []string, known bool) {
-	own := tmux.Sessions(tmux.Own())
-	dead := tmux.Dead(tmux.Own())
-	for _, session := range own {
+// the bare seats it holds under names no record keeps, each by its server, and whether Go knows
+// them all: a record's seat on the default server, whose screen Go does not read there, and a
+// bare one whose panes have all died or under a name no seat can have are Python's.
+func onServer(state string, names []string) (held, live []string, bare map[string]string, known bool) {
+	_, seats := holdings(state)
+	bare = map[string]string{}
+	dead := map[string][]string{}
+	for name, server := range seats {
+		if _, asked := dead[server]; !asked {
+			dead[server] = tmux.Dead(server)
+		}
+		exited := slices.Contains(dead[server], name)
 		switch {
-		case !slices.Contains(names, session.Name):
-			if !unrecorded(session) {
-				return nil, nil, false
+		case !slices.Contains(names, name):
+			if exited || config.SessionName(name) != name {
+				return nil, nil, nil, false
 			}
-		case slices.Contains(dead, session.Name):
-			held = append(held, session.Name)
+			bare[name] = server
+		case server == tmux.Default:
+			return nil, nil, nil, false
+		case exited:
+			held = append(held, name)
 		default:
-			live = append(live, session.Name)
+			live = append(live, name)
 		}
 	}
-	return held, live, !marked(tmux.Default)
+	return held, live, bare, true
 }
 
 // read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its
@@ -582,25 +609,6 @@ func set(fields []field, stamps ...field) func(*run.Object) bool {
 		}
 		return true
 	}
-}
-
-// OnNoServer is whether tmux holds no seat at all: no session on ak's server but its control
-// one, and none ak opened on the default server.
-func OnNoServer() bool {
-	return len(tmux.Sessions(tmux.Own())) == 0 && !marked(tmux.Default)
-}
-
-// seatless is milestone 6b's no seat: no record, on ak's own server only sessions it did not
-// open running no agent, and no marked session on the default server.
-func seatless() bool {
-	var strangers []string
-	for _, session := range tmux.Sessions(tmux.Own()) {
-		if session.Mark == "1" {
-			return false
-		}
-		strangers = append(strangers, session.Name)
-	}
-	return !marked(tmux.Default) && agent.Agentless(tmux.Own(), strangers)
 }
 
 func marked(server string) bool {

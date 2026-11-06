@@ -48,13 +48,21 @@ func Seats(screen terminal.Screen, seats []seat.Seat, now time.Time, why bool) [
 	indent := strings.Repeat(" ", widths[0]+widths[1]+widths[2]+widths[3]+widths[4]+2*5)
 	for i, row := range rows {
 		row[5] = wrapped[i][0]
-		lines = append(lines, screen.TableRow(row, widths, []string{"", "", seats[i].Word, "", "", "", "dim"}))
+		lines = append(lines, screen.TableRow(row, widths, []string{"", "", seats[i].Word, "", "", "", "dim"})+note(seats[i]))
 		for _, extra := range wrapped[i][1:] {
 			lines = append(lines, indent+extra)
 		}
 		lines = append(lines, explanation(seats[i], now, why)...)
 	}
 	return lines
+}
+
+// note is what a row says after its columns: `legacy` for a seat on the person's own tmux server.
+func note(each seat.Seat) string {
+	if each.Legacy() {
+		return "  legacy"
+	}
+	return ""
 }
 
 func explanation(each seat.Seat, now time.Time, why bool) []string {
@@ -84,6 +92,9 @@ func narrowSeats(screen terminal.Screen, seats []seat.Seat, rows [][]string, wid
 		}
 		for _, chunk := range wrapWorkers(row[5], max(1, screen.ContentWidth()-2)) {
 			lines = append(lines, "  "+chunk)
+		}
+		if note := note(seats[i]); note != "" {
+			lines = append(lines, note)
 		}
 		lines = append(lines, explanation(seats[i], now, why)...)
 	}

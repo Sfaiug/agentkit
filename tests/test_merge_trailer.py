@@ -304,7 +304,7 @@ class MergeTrailer(unittest.TestCase):
                                 ("checkout_for", self.repo),
                                 ("fetch", (0, "")), ("make_worktree", (self.repo, "ak/fix-api")),
                                 ("collect_usage", {}), ("post_review", True),
-                                ("join_session_project", None)):
+                                ("join_session_project", None), ("unanswered_head", None)):
                 mocks.enter_context(patch.object(run, name, return_value=value))
             mocks.enter_context(patch.object(gitcall, "fetch", return_value=(0, "")))
             mocks.enter_context(patch.object(deliver, "checks", return_value=(True, "")))

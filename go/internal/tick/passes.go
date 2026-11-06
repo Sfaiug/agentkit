@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
+	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -31,10 +32,10 @@ var errLeft = errors.New("left to Python")
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
 // their names and order. A later milestone fills a pass's step, and puts in its row each of those
-// that act whatever the home holds: usage refresh, login reminder, browser tidy, machine check
-// and harness upgrade.  Each row reads the seats at its own turn, and a home holding a seat
-// Go does not read leaves the tick to Python at the first row that reads one. A step a dry tick
-// runs checks t.dry where it would act; until it does, it is wet.
+// that act whatever the home holds: usage refresh, login reminder, browser tidy and harness
+// upgrade.  Each row reads the seats at its own turn, and a home holding a seat Go does not read
+// leaves the tick to Python at the first row that reads one. A step a dry tick runs checks t.dry
+// where it would act; until it does, it is wet.
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
@@ -80,6 +81,7 @@ func table(t *ticking) []pass {
 		{"notification retry", true, nil, t.retryNotifications},
 		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
+		{"seat weights", false, nil, func() error { host.Front(); return nil }},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
@@ -92,6 +94,7 @@ func table(t *ticking) []pass {
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},
+		{"machine check", false, nil, machines.Check},
 		{"project rules", false, checkoutsSeen, fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
 		{"alive checks", false, all(noSeatAlive, outageless), nil},

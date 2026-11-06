@@ -196,7 +196,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			}
 			continue
 		}
-		choice := menuChoice(key, drawn, shown.seats, keyboard)
+		choice, meter := menuChoice(key, drawn, shown.seats, keyboard), drawn.Meter(key)
 		switch {
 		case choice != "":
 			settle()
@@ -204,6 +204,13 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				return code
 			}
 			model.Highlight, clock = menu.Highlight{Cursor: choice}, &motion.Clock{}
+		case meter >= 0:
+			frame.Stop()
+			if !menuMeter(shown.cells[meter], &model.Highlight, keyboard, painter) {
+				keyboard.Give()
+				return notImplemented(errOut, "attach")
+			}
+			go reread() // a login made again greys its meter
 		case key.Name == "char" && (key.Char == "n" || key.Char == "N"):
 			var known bool
 			if model.New, known = newMenuRow(); !known {

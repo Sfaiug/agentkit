@@ -15,8 +15,9 @@ import (
 // AuditReport gives the tick a report and its loss from the CLI's one scoreboard reader.
 type AuditReport func(time.Time) (lines []string, loss string)
 
-// audit carries a weekly report with no history database. Existing audit deliveries and
-// saved conversations remain Python's; a fresh seat uses the same launch as an owner's.
+// audit carries a weekly report with no history database. Existing audit deliveries remain
+// Python's; a fresh seat uses the same launch as an owner's, and a gone one comes back as its
+// number opens it.
 func (t *ticking) audit() error {
 	roles, on, err := config.Audit()
 	if err != nil || !on {
@@ -88,5 +89,5 @@ func (t *ticking) audit() error {
 		}
 		return errLeft
 	}
-	return errLeft
+	return reopenAudit(name)
 }

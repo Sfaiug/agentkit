@@ -64,7 +64,7 @@ def shipped_rules():
     own is handed them: bin/ak's is one directory up, go/bin/ak's two."""
     written = next(found for found in (folder / "orchestrator.md" for folder in Path(AK).resolve().parents)
                    if found.is_file()).read_text()
-    return Template(written).safe_substitute(review_rounds=3, Review_rounds="Three", s="s", one_over="a fourth",
+    return Template(written).safe_substitute(
         executor_size="at most 300 added lines with its tests; ak refuses more with `split it`",
         orchestrator_size="you build at most 50 added lines; anything bigger you write as a task "
                           "and an executor builds it while you write the next. "

@@ -49,16 +49,13 @@ var (
 // types past, it puts nothing in and the line is the tick's.
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
 	own, record := seatHarness(name)
-	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
+	if !typable(own) {
 		return false
 	}
-	if chrome, err := config.Section(own, "screen"); err != nil || chrome["cursor"] == true {
-		return false
-	}
-	path, known := harness.Conversation(own, record)
+	path, _ := harness.Conversation(own, record)
 	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{pane_id}\t#{session_created}")
 	pane, born, _ := strings.Cut(said, "\t")
-	if !known || err != nil || !paneID.MatchString(pane) {
+	if err != nil || !paneID.MatchString(pane) {
 		return false
 	}
 	text := keyed(line)
@@ -124,6 +121,17 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 		}
 	}
 	return at.holds(text) == "empty" && !at.unread()
+}
+
+// typable is a harness Go types into: one whose screen it reads as Python does, whose composer
+// keeps no cursor of its own, and whose conversation it finds to count the prompts before a line.
+func typable(own string) bool {
+	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
+		return false
+	}
+	chrome, err := config.Section(own, "screen")
+	_, known := harness.Conversation(own, nil)
+	return err == nil && chrome["cursor"] != true && known
 }
 
 // Watching is whether that seat is up for a line to go into, Python's orch.watching of a seat on

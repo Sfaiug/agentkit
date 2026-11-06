@@ -34,7 +34,7 @@ func Sweep(now time.Time, log func(string)) (bool, error) {
 	if !known || !read {
 		return false, nil
 	}
-	closeSideSessions(now, log)
+	home.closeSideSessions(now, log)
 	state := filepath.Join(config.Home(), "state")
 	for _, seat := range home.records {
 		went := seat.wentAt(state)
@@ -48,8 +48,8 @@ func Sweep(now time.Time, log func(string)) (bool, error) {
 		if err != nil || record == nil {
 			continue
 		}
-		drop, carried := harness.Forgetting(seat.own, record)
-		if !carried {
+		// what its harness kept goes with the seat, in forget
+		if _, carried := harness.Forgetting(seat.own, record); !carried {
 			return false, nil
 		}
 		word := "gone"
@@ -63,7 +63,6 @@ func Sweep(now time.Time, log func(string)) (bool, error) {
 		if err := forget(state, seat.Name, log); err != nil {
 			return true, err
 		}
-		drop()
 	}
 	return true, nil
 }

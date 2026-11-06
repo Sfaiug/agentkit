@@ -3,8 +3,9 @@ package loop
 // A test piece the kernel killed for memory, Python's gate._SuiteMeasure.starved and the rerun in
 // gate._run_suite: one that died by SIGKILL while its cgroup's `oom_kill` count rose meanwhile ran
 // out of memory, which says nothing of its tests.  It runs once more after its siblings; out of
-// memory again there, it is red only where no other piece is, and then the host's red, nobody's,
-// Python's land.red_part `short`: the landing pass ends with no verdict.
+// memory again there, or where a red piece's failed tests run again alone, it is red only where
+// no other piece is, and then the host's red, nobody's, Python's land.red_part `short`: the
+// landing pass ends with no verdict.
 
 import (
 	"fmt"

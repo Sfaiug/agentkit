@@ -1,7 +1,8 @@
 // Package install makes a home ready for Go's ak as install.sh does for Python's.  go/install.sh
 // runs it as `ak install`, unlisted, so each step has one home here, the same on every system.
-// So far it holds install.sh's options, its step (1), the role's record and the install stamp;
-// what writes outside the home (packages, harnesses, the tick's crontab line) is still to come.
+// So far it holds install.sh's options, its step (1), the seat guards, the role's record and the
+// install stamp; what writes outside the home (packages, harnesses, the tick's crontab line) is
+// still to come.
 package install
 
 import (
@@ -130,6 +131,9 @@ func install(role, alias string, out, errOut io.Writer) error {
 	}
 	if err := onPath(role, home, out); err != nil {
 		return err
+	}
+	if err := guards(); err != nil {
+		fmt.Fprintf(errOut, "note: the seat guards in %s were not linked (%v); the next seat started links them\n", filepath.Join(ak, "bin"), err)
 	}
 	record := filepath.Join(ak, "state", "server")
 	if role == "client" {

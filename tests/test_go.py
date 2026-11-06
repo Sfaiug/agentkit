@@ -34,12 +34,17 @@ class Go(unittest.TestCase):
         own = [str(path.relative_to(GO)) for path in GO.rglob("*.go")
                if path.relative_to(GO).parts[0] != "vendor"]
         self.assertEqual(self.check(gofmt, "-l", *own), "", "`go fmt ./...` formats these files")
+        platforms = (("linux", "amd64"), ("darwin", "arm64"), ("windows", "amd64"))
         self.check("go", "vet", "./...", **judge)
+        # Vetted for each platform, tests and all, before any test runs: a test file calling a
+        # helper behind a build tag of its own compiles here and fails another platform's `go test`.
+        for system, arch in platforms:
+            self.check("go", "vet", "./...", GOOS=system, GOARCH=arch, **judge)
         # No deadline: a busy host only slows a package, and the landing's silence watch ends a
         # hung one and names it.
         self.check("go", "test", "-timeout", "0", "./...", **judge)
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
-            for system, arch in (("linux", "amd64"), ("darwin", "arm64"), ("windows", "amd64")):
+            for system, arch in platforms:
                 self.check("go", "build", "-o", os.path.join(out, system), "./cmd/ak",
                            GOOS=system, GOARCH=arch, **judge)
 

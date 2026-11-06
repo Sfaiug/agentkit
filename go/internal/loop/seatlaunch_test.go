@@ -107,7 +107,7 @@ func TestAFixCapturesTheCurrentDefaultBranchPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	rounds, _, err := budget(nil, path, child)
-	if err != nil || rounds != 1 || numbersOf(record) != config.AtMost(60) || record.Dict("policy") == nil || record.Dict("policy").Get("seat_lines") != run.Number("0") {
+	if err != nil || rounds != 1 || numbersOf(record) != config.AtMost(60) || record.Dict("policy") == nil || record.Dict("policy").Get("orchestrator_lines") != run.Number("0") {
 		t.Fatalf("fix policy = %s, budget = %d: %v", run.Line(record.Get("policy")), rounds, err)
 	}
 }

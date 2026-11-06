@@ -297,7 +297,7 @@ func Budget(path string) (int, error) {
 			repo = found
 		}
 	}
-	numbers, err := numbers(repo)
+	numbers, err := numbers(repo, false)
 	return numbers.Rounds, err
 }
 
@@ -315,7 +315,7 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 		return refuse("", "", err)
 	}
 	// a refused checkout is none (repo ""), so the host's numbers are in force, as in Budget
-	if at.numbers, err = numbers(repo); errors.Is(err, ErrPython) {
+	if at.numbers, err = numbers(repo, false); errors.Is(err, ErrPython) {
 		return refuse("", "", err)
 	} else if err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
@@ -434,14 +434,20 @@ func asPython(err error) error {
 	return nil
 }
 
-// numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy);
-// ErrPython for those Go does not carry (run.Carried), read where Python's launch_policy is.
-func numbers(repo string) (config.Numbers, error) {
+// numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy), a
+// task's refused where executors are off; ErrPython for those Go does not carry (run.Carried), read
+// where Python's launch_policy is.
+func numbers(repo string, review bool) (config.Numbers, error) {
 	found, err := run.LaunchPolicy(repo)
-	if err == nil && !run.Carried(found) {
+	switch {
+	case err != nil:
+		return found, err
+	case !review && found.ReviewLines == config.AtMost(0):
+		return found, errors.New("executor_lines = 0: " + config.ExecutorsOff)
+	case !run.Carried(found):
 		return found, ErrPython
 	}
-	return found, err
+	return found, nil
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it

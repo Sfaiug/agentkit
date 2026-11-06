@@ -88,7 +88,7 @@ class SeatPr(unittest.TestCase):
     def test_a_review_learns_its_seat_s_ownership_after_the_row_started(self):
         with Home() as home:
             home.env.pop("AK_NOTIFY_SINK")
-            rig = Rig(home, "widgets", files={"AGENTS.md": "---\ntests: test -f contrib.txt\n---\n"})
+            rig = Rig(home, "widgets", files={"AGENTS.md": "---\ntests: test -f contrib.txt\nusers: none\n---\n"})
             gh = GitHub(home)
             akconfig.write(home, ["opus", "astra"])
             fakeadapter.install(home, claude="pass", codex="pass")

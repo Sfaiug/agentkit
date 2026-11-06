@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/motion"
 	"agentkit/internal/terminal"
+	"agentkit/internal/usage"
 )
 
 const (
@@ -43,12 +44,13 @@ type Seat struct {
 // Ends is what is said of a login about to end, its meter amber meanwhile.  The rest is what
 // Subscriptions says of it: its provider and account ("" for a provider's one login), the company
 // it sits under and that company's colour, the harness that signs it in, the resets it holds and
-// whose login it is.
+// whose login it is; Notes, what the line under the grid says of its reading while pointed at.
 type Cell struct {
 	Label, Said, Ends                           string
 	Left                                        int
 	Provider, Account, Company, Colour, Harness string
 	Held, Email, Plan                           string
+	Notes                                       []usage.Note
 }
 
 // A View is everything the frame is drawn from.
@@ -152,9 +154,9 @@ func Draw(view View, width, height int) Frame {
 	if len(block) == 0 {
 		block = summary
 	}
-	meters, compact := summary, true
+	meters, compact, grid := summary, true, false
 	if spare(block, true, false, opensAll) >= keep {
-		meters, compact = block, false
+		meters, compact, grid = block, false, len(full) > 0
 	} else if spare(summary, true, false, opensAll) >= keep {
 		compact = false
 	} else {
@@ -229,6 +231,18 @@ func Draw(view View, width, height int) Frame {
 	var out []string
 	if !compact {
 		out = append(out, headerLine(view.Clock, layout), s.Styled(strings.Repeat("─", layout), "dim"))
+	}
+	if grid {
+		per := usageColumns(layout)
+		for at := range view.Cells {
+			n := at % per
+			frame.meters = append(frame.meters, meterSpot{len(out) + 1 + at/per, 3 + n*(cellSize+2), 2 + n*(cellSize+2) + cellSize, at})
+		}
+		// the one the pointer is on in its colour, and what its cell has no room for under the grid
+		if pointed := frame.meterAt(view.Highlight.Pointer); pointed >= 0 {
+			meters = meterLines(s, view.Cells, layout, per, pointed, nil)
+			standing = "  " + usageDetail(s, view.Cells[pointed], layout)
+		}
 	}
 	out = append(out, meters...)
 	if !compact {
@@ -599,8 +613,11 @@ func projectPages(projects []pageProject, room int, apart bool, opens map[string
 // label, a meter (`▰` left, `▱` spent) and what it says.  What a cell says is whole: the labels give
 // way to the longest, and a width with no room for a label beside it has no grid.
 func usageLines(s terminal.Screen, cells []Cell, width int) []string {
-	return meterLines(s, cells, width, max(1, min(3, width/(cellSize+2))), -1, nil)
+	return meterLines(s, cells, width, usageColumns(width), -1, nil)
 }
+
+// usageColumns is how many cells a line of the grid holds in width: one to three, two apart.
+func usageColumns(width int) int { return max(1, min(3, width/(cellSize+2))) }
 
 // meterLines is usageLines per cell to a line, cell lit (from 0; -1 for none) with its label and its
 // meter's filled cells in its company's colour and its login's amber left to the line under it, and

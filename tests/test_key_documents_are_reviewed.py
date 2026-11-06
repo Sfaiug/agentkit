@@ -27,7 +27,7 @@ class DocumentsAreReviewed(unittest.TestCase):
         alone, with astra reviewing."""
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        cls.rig = Rig(cls.home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\n---\n# widgets\n",
+        cls.rig = Rig(cls.home, "widgets", files={"AGENTS.md": "---\nhealth: none\ntests: true\nusers: none\n---\n# widgets\n",
                                                    "README.md": "# widgets\n"})
         cls.gh = GitHub(cls.home)
         akconfig.write(cls.home, ["opus", "astra"])

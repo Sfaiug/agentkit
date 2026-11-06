@@ -23,8 +23,7 @@ ECHO = {"one": {"harness": "echo", "model": "echo-1", "provider": "test"},
 OWN = "Acme's own rule: a seat costs $5, and $rounds, $Rounds and $s mean nothing here.\n"
 DRAFT = "# Acme's own draft\n"
 DEFAULTS = ("at most 300 added lines with its tests", "you build at most 50 added lines",
-            "ak refuses your own PR above 50 lines", "Three review rounds per change is the budget",
-            "ak refuses a fourth.")
+            "ak refuses your own PR above 50 lines")
 
 
 def said(home, *args):
@@ -109,18 +108,15 @@ class Rulebook(unittest.TestCase):
         self.assertIn("at most 150 added lines with its tests", template)
         self.assertIn("Four rounds is the budget (`rounds` defaults to 4).", template)
         for words in ("at most 150 added lines with its tests", "you build at most 20 added lines",
-                      "ak refuses your own PR above 20 lines",
-                      "Four review rounds per change is the budget", "ak refuses a fifth."):
+                      "ak refuses your own PR above 20 lines"):
             self.assertIn(words, book)
         for words in DEFAULTS:
             self.assertNotIn(words, book)
 
     def test_reads_right_at_either_end_of_the_budget(self):
-        one, many = self.book(review_rounds=1)[0], self.book(review_rounds=7)[0]
-        self.assertIn("One review round per change is the budget", one)
-        self.assertIn("ak refuses a second.", one)
-        self.assertIn("7 review rounds per change is the budget", many)
-        self.assertIn("ak refuses round 8.", many)
+        one, many = self.book(review_rounds=1)[1], self.book(review_rounds=7)[1]
+        self.assertIn("One round is the budget (`rounds` defaults to 1).", one)
+        self.assertIn("7 rounds is the budget (`rounds` defaults to 7).", many)
 
     def test_reads_right_with_no_line_limits(self):
         book, template = self.book(executor_lines="no limit", orchestrator_lines="no limit")
@@ -131,8 +127,9 @@ class Rulebook(unittest.TestCase):
         self.assertIn("you build with no line limit", book)
 
     def test_review_off_reads_right_in_the_rulebook_and_task_template(self):
-        for text in self.book(review_rounds=0):
-            self.assertIn("No review: a change lands on its checks; no reviewer.", text)
+        book, template = self.book(review_rounds=0)
+        self.assertIn("No review: a change lands on its checks; no reviewer.", template)
+        for text in (book, template):
             self.assertNotIn("0 rounds", text)
 
     def test_executor_off_replaces_the_task_instructions(self):

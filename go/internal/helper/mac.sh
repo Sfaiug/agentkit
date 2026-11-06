@@ -247,8 +247,8 @@ run)       # KEY IMAGE NAME CPUS MEMORY_MB REPO, then piece.sh's arguments
   out="$D/$name.out"
   [ -d "$D" ] && [ -d "$M" ] && rm -rf "$out" && mkdir -m 777 "$out" || exit 253
   admitted start "$@" ;;
-failed)    # KEY NAME [flaky]: the tests piece NAME named as failed (or flaky); never through a
-           # link it left there
+failed)    # KEY NAME [flaky|ran]: the tests piece NAME named as failed (or flaky, or run); never
+           # through a link it left there
   f="$ROOT/$2/$3.out/${4:-failed}"
   [ ! -f "$f" ] || [ -L "$f" ] || cat "$f"; exit 0 ;;
 turn)      # KEY IMAGE MEMORY_MB REPO, volumes PART:PATH[:ro] of its parcel, `home` first, `--`,

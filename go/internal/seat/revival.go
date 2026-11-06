@@ -241,7 +241,7 @@ func (seat Seat) reviveQuestion(now time.Time, log func(string), errOut io.Write
 func (seat Seat) revivalFailed(died float64, why string, log func(string), errOut io.Writer) (bool, error) {
 	text := fmt.Sprintf("Its orchestrator session %s is gone in the middle of a turn or a question to you. agentkit tried to reopen the seat and could not: %s. Press its number in the menu, then say: continue.", seat.Name, why)
 	source := "revive:" + seat.Name + ":turn:" + strconv.FormatInt(int64(died), 10)
-	carried, err := notify.RevivalFailed(seat.Name, text, source, Published, errOut)
+	carried, err := notify.Needs(seat.Name, text, source, true, Published, errOut)
 	if err == nil && carried {
 		log("could not reopen " + seat.Name + "; asked the user to go on with its turn")
 	}

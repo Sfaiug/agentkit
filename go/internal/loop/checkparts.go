@@ -109,8 +109,9 @@ func reportedTests(result ran, out string, only [][]string, output io.Writer) ra
 
 const pieceRetry = "command is not sent to the suite helper (piece retry)"
 
-// A named retry confirms only tests both run and failed. An inconclusive retry needs the piece
-// again; passing alone is flaky even if the piece fails again, and landing leaves that to Python.
+// A named retry confirms only tests both run and failed; one the kernel killed for memory is the
+// host's red (starved.go). An inconclusive retry needs the piece again; passing alone is flaky
+// even if the piece fails again, and landing leaves that to Python.
 func retryTests(at *piece, attempt func(*piece, string, []string) error) error {
 	flaky := at.ended.flaky
 	if tests := at.ended.failed; len(tests) > 0 {
@@ -118,7 +119,7 @@ func retryTests(at *piece, attempt func(*piece, string, []string) error) error {
 			return err
 		}
 		flaky = flaky || at.ended.flaky || at.ended.code == 0
-		if at.ended.stopped != "" || len(at.ended.confirmed) > 0 {
+		if at.ended.stopped != "" || at.ended.starved || len(at.ended.confirmed) > 0 {
 			at.ended.flaky = flaky
 			return nil
 		}
