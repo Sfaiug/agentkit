@@ -31,17 +31,15 @@ type Span struct {
 func NewPainter(out io.Writer) *Painter { return &Painter{out: out} }
 
 // Write puts lines up on that screen, then each span over them.  Only the rows that differ from those
-// up go out, with the rows spans were or are on where they moved, and what is below is cleared after
-// any; every row, the screen below cleared, where what is up is unknown or on another screen, where
-// lines could scroll, or once a Tick has passed.  A span goes out where its text or the row under it
-// changed.
+// up go out, with the rows a span left or came to, and what is below is cleared after any; every
+// row, the screen below cleared, where what is up is unknown or on another screen, where lines could
+// scroll, or once a Tick has passed.  A span goes out where it is not up as it is, or the row under
+// it went out.
 func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	whole := !p.known || screen != p.of || len(lines) >= screen.Height() || time.Since(p.whole) >= Tick
-	moved := !slices.EqualFunc(over, p.over, func(a, b Span) bool { return a.Row == b.Row && a.Column == b.Column })
+	left := moved(p.over, over)
 	held := func(at int) bool {
-		under := func(span Span) bool { return span.Row == at+1 }
-		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] &&
-			!(moved && (slices.ContainsFunc(over, under) || slices.ContainsFunc(p.over, under)))
+		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] && !left[at+1]
 	}
 	var frame strings.Builder
 	if whole {
@@ -53,8 +51,8 @@ func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
 	} else if rows := differing(lines, held, screen); rows != "" || len(lines) < len(p.up) {
 		frame.WriteString(rows + "\x1b[" + strconv.Itoa(len(lines)+1) + ";1H\x1b[J")
 	}
-	for i, span := range over {
-		if !held(span.Row-1) || span.Text != p.over[i].Text {
+	for _, span := range over {
+		if !held(span.Row-1) || !slices.Contains(p.over, span) {
 			frame.WriteString("\x1b[" + strconv.Itoa(span.Row) + ";" + strconv.Itoa(span.Column) + "H" + span.Text)
 		}
 	}

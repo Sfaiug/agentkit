@@ -1,6 +1,7 @@
 package terminal
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -30,3 +31,18 @@ func cleared(line string, screen Screen) string {
 	}
 	return line + "\x1b[K"
 }
+
+// moved is each row, from 1, a span left or came to between was and now: what is under a span is
+// only known where one starts on the same cell after as before.
+func moved(was, now []Span) map[int]bool {
+	rows := map[int]bool{}
+	for _, pair := range [][2][]Span{{was, now}, {now, was}} {
+		for _, span := range pair[0] {
+			rows[span.Row] = rows[span.Row] || !slices.ContainsFunc(pair[1], span.on)
+		}
+	}
+	return rows
+}
+
+// on is whether two spans start on the same cell.
+func (s Span) on(other Span) bool { return s.Row == other.Row && s.Column == other.Column }

@@ -32,14 +32,15 @@ func TestOnlyTheRowsThatDifferGoOutAndEveryRowOnceATick(t *testing.T) {
 	}
 }
 
-// Spans that move write only the rows they were and are on again, then every span over them.
+// A span that moves writes only the rows it left and came to again, then itself over them; a span
+// that stays where it was, as it was, is left alone.
 func TestSpansThatMoveWriteOnlyTheirRows(t *testing.T) {
 	var out strings.Builder
 	painter, screen := NewPainter(&out), Screen{width: 20, height: 5}
 	lines := []string{"agentkit", "  acme", "  fix-api"}
-	painter.Write(lines, screen, Span{2, 3, "acme"})
+	painter.Write(lines, screen, Span{1, 1, "agentkit"}, Span{2, 3, "acme"})
 	out.Reset()
-	painter.Write(lines, screen, Span{3, 3, "fix-api"})
+	painter.Write(lines, screen, Span{1, 1, "agentkit"}, Span{3, 3, "fix-api"})
 	if want := hold("\x1b[2;1H  acme\x1b[K\x1b[3;1H  fix-api\x1b[K\x1b[4;1H\x1b[J\x1b[3;3Hfix-api"); out.String() != want {
 		t.Fatalf("a moved span wrote %q, want %q", out.String(), want)
 	}
