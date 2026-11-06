@@ -2,7 +2,8 @@
 off: at first the `[defaults]` models' companies, all on.  Space turns a model, or on a name its
 company's, on or off, saved at once; Esc drops a company left with none on, and the answer
 compares only what is on.  `a` lists the other companies with scores, strongest first, and ⏎
-adds one all on.  On 40 cells a company's models go on under the column where they began.
+adds one all on.  On 40 cells a company's models go on under the column where they began, and
+a count too long for its line goes on at its words.
 
 Black-box: the program `AK_BIN` names in a terminal (tests/fixtures/akterm.py), over the
 invented boards and harnesses of tests/test_key_models_on.py and Dyne's two releases, the
@@ -130,6 +131,12 @@ class CompanyList(unittest.TestCase):
         at = shown.index("  Dyne  ● Dyne Ultra 4")
         self.assertEqual(shown[at:at + 3], ["  Dyne  ● Dyne Ultra 4", "        ● Dyne Lite 4 Mini",
                                             "  + add a company"])
+
+    def test_a_count_too_long_for_its_line_goes_on_at_its_words(self):
+        # a 38-cell count in a 32-cell line: on 40 cells a longer one once broke as `score` / `s`
+        _, shown = self.open(width=34, companies=["Acme"])
+        at = shown.index("  2 models on, from 1 company")
+        self.assertEqual(shown[at + 1:at + 3], ["  3 more companies have benchmark", "  scores"])
 
 
 if __name__ == "__main__":

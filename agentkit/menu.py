@@ -3421,13 +3421,15 @@ def named(row, room):
 
 
 def packed(parts, gap, room):
-    """`parts` on as few lines of `room` cells as hold them, `gap` between two on one line."""
+    """`parts` on as few lines of `room` cells as hold them, `gap` between two on one line; a
+    part too long for a line of its own goes on at its words (terminal.wrap), never past `room`,
+    where the terminal would break it mid-word."""
     lines = []
     for part in parts:
         if lines and terminal.cells(lines[-1] + gap + part) <= room:
             lines[-1] += gap + part
         else:
-            lines.append(part)
+            lines += terminal.wrap(part, room) if terminal.cells(part) > room else [part]
     return lines
 
 
