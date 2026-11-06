@@ -409,9 +409,8 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 		if err != nil || len(inside) != 1 || inside[0].Name() != "run.json" {
 			return nil, false
 		}
-		info, err := os.Stat(filepath.Join(dir, "run.json"))
-		record, readErr := run.Read(dir)
-		if err != nil || readErr != nil || record == nil || !only(record, runFields) {
+		record, err := run.Read(dir)
+		if err != nil || record == nil || !only(record, runFields) {
 			return nil, false
 		}
 		state, seat := record.Str("state"), record.Str("launched_session")
@@ -423,7 +422,7 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 		}
 		running[seat] = running[seat] || state == "running"
 		if !run.SmokeRun(record) {
-			mine[seat] = append(mine[seat], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds()})
+			mine[seat] = append(mine[seat], ran{name: entry.Name(), record: record, quiet: silence(dir, record, now)})
 		}
 	}
 	for _, going := range running {
