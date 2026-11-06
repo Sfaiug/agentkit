@@ -3,6 +3,7 @@ package loop
 import (
 	"maps"
 	"slices"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
@@ -11,8 +12,9 @@ import (
 // doneChecks is what a builder's `ak hand-in done` holds a turn of that word to, the part of Python's
 // turn checks Go's hand-in reads: the task's own checks each round, a suite split into shards left
 // out as the repository's, the base its count starts from and the target it follows, the artifacts
-// the loop's commit leaves out, and as `lines` the first review's ceiling for an executor whose
-// change waits for that review, the count the gate after the turn makes, else no limit.
+// the loop's commit leaves out, as `lines` the first review's ceiling for an executor whose change
+// waits for that review, the count the gate after the turn makes, else no limit, and the run's
+// ceiling and silence the checks run under.
 func (r *repoPlace) doneChecks(l *loop, word string) *run.Object {
 	lines := config.NoLimit
 	if word == "executor" && r.firstReviewDue(l) {
@@ -28,7 +30,17 @@ func (r *repoPlace) doneChecks(l *loop, word string) *run.Object {
 	for _, name := range slices.Sorted(maps.Keys(r.artifacts)) {
 		artifacts = append(artifacts, name)
 	}
-	return run.Fields("commands", commands, "base", r.baseSHA, "upstream", r.upstream(), "artifacts", artifacts, "lines", lines.Said())
+	return run.Fields("commands", commands, "base", r.baseSHA, "upstream", r.upstream(), "artifacts", artifacts, "lines", lines.Said(),
+		"limit", seconds(l.ceiling), "silence", seconds(l.silence))
+}
+
+// seconds is a bound as Python's record writes it, 3600 * ceiling_hours or 60 * silence_minutes:
+// a whole number of seconds as an int.
+func seconds(bound time.Duration) any {
+	if bound%time.Second == 0 {
+		return int(bound / time.Second)
+	}
+	return bound.Seconds()
 }
 
 // A scratch run has no base to count its change from.
