@@ -52,7 +52,7 @@ def claims(root):
 
 def parts_of(root, name):
     """The parts the test file `name` is cut into: the Go keys check's claims, any other none."""
-    return (list(dict.fromkeys(claim[0] for claim in claims(root)))
+    return ([claim[0] for claim in claims(root)]
             if name == "tests/test_go_keys.py" else [])
 
 
