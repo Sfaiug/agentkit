@@ -64,7 +64,7 @@ func Committable(g gitcall.Git, artifacts map[string]bool) (real, left []string,
 		if artifacts[path] {
 			continue
 		}
-		ignored := Junk(path)
+		ignored := Junk(path) || goBuildCache(g.Repo, path)
 		if !ignored {
 			code, _, err := g.Out("check-ignore", "-q", "--", path)
 			if err != nil {

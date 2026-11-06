@@ -139,7 +139,8 @@ func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 
 // commitLeftovers commits what the executor left uncommitted, Python's commit_leftovers: the
 // reviewer reads only `base...HEAD`, and a review of nothing is worse than no review.  What the
-// done-when generated, sandboxes, run locks and dependency trees stay out, nothing of them staged.
+// done-when generated, sandboxes, run locks, dependency trees and Go build caches stay out, nothing
+// of them staged.
 // The commit is built in an index of its own, as `git commit -- venv` would add the link back from
 // the worktree and the real index keeps whatever else the executor staged.
 func (r *repoPlace) commitLeftovers(l *loop) error {
