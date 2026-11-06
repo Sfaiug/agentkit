@@ -18,11 +18,11 @@ import (
 var codexWants = [][2]string{{"approval_policy", `"never"`}, {"sandbox_mode", `"danger-full-access"`},
 	{"check_for_update_on_startup", "false"}}
 
-// codexYolo sets codexWants at config.toml's top level, the region above its first [table]
-// header, the only one a bare key may live in, every other line kept as it is.  A key that is
-// missing goes after the last one replaced, else after model_reasoning_effort, else first.  The
-// lines are read one by one, so the new file must parse to the old one with only these keys set,
-// or nothing is written: a multi-line string can hold what reads as a key or a header.
+// codexYolo sets codexWants in config.toml's own table, above its first [table] header, every
+// other byte kept.  A key set there is rewritten on the lines its statement fills, the comment
+// beside it kept; one missing goes after the last such statement or model_reasoning_effort's,
+// else first.  The new file must read as the old one with only these keys set, or nothing is
+// written: an approval_policy table of the owner's would meet ak's string.
 func codexYolo(out io.Writer) error {
 	path := filepath.Join(config.UserHome(), ".codex", "config.toml")
 	read, _, err := settings(path)
@@ -30,79 +30,68 @@ func codexYolo(out io.Writer) error {
 		return err
 	}
 	before, err := config.ReadTOML(read)
+	var top []config.TOMLSet
+	if err == nil {
+		top, err = config.TOMLTop(read)
+	}
 	if err != nil {
 		return fmt.Errorf("%s is not valid TOML (%v)", path, err)
 	}
-	var lines, missing []string
-	seen, anchor, top := map[string]bool{}, 0, true
-	for _, line := range strings.SplitAfter(read, "\n") {
-		if line == "" {
-			continue
+	var text, wanted strings.Builder
+	seen, done, anchor := map[string]bool{}, 0, 0
+	for _, set := range top {
+		// the statement's last line, its newline included: no other statement shares it
+		end := len(read)
+		if i := strings.IndexByte(read[set.End:], '\n'); i >= 0 {
+			end = set.End + i + 1
 		}
-		stripped := strings.TrimLeftFunc(line, config.Space)
-		top = top && !strings.HasPrefix(stripped, "[")
-		key, value, assigned := strings.Cut(stripped, "=")
-		key = strings.Trim(strings.TrimFunc(key, config.Space), `"'`)
-		at := slices.IndexFunc(codexWants, func(want [2]string) bool { return assigned && want[0] == key })
-		if top && at >= 0 {
-			lines = append(lines, key+" = "+codexWants[at][1]+trailingComment(value)+"\n")
-			seen[key] = true
-			anchor = len(lines)
-			continue
+		key := strings.Join(set.Key, ".")
+		at := slices.IndexFunc(codexWants, func(want [2]string) bool { return len(set.Key) == 1 && want[0] == key })
+		if at >= 0 {
+			text.WriteString(read[done : strings.LastIndexByte(read[:set.Start], '\n')+1])
+			text.WriteString(key + " = " + codexWants[at][1] + trailingComment(read[set.End:end]) + "\n")
+			done, seen[key] = end, true
 		}
-		if top && assigned && key == "model_reasoning_effort" {
-			anchor = len(lines) + 1
+		if at >= 0 || key == "model_reasoning_effort" {
+			anchor = end
 		}
-		lines = append(lines, line)
 	}
-	var wanted strings.Builder
+	text.WriteString(read[done:anchor])
 	for _, want := range codexWants {
 		wanted.WriteString(want[0] + " = " + want[1] + "\n")
-		if !seen[want[0]] {
-			missing = append(missing, want[0]+" = "+want[1]+"\n")
+		if seen[want[0]] {
+			continue
 		}
-	}
-	if missing != nil {
 		// only a file's last line can lack its newline, and a key put straight after it would
 		// be glued on: `model_reasoning_effort = "xhigh"approval_policy = "never"`
-		if anchor > 0 && !strings.HasSuffix(lines[anchor-1], "\n") {
-			lines[anchor-1] += "\n"
+		if anchor > 0 && !strings.HasSuffix(text.String(), "\n") {
+			text.WriteString("\n")
 		}
-		lines = slices.Insert(lines, anchor, missing...)
+		text.WriteString(want[0] + " = " + want[1] + "\n")
 	}
-	text := strings.Join(lines, "")
-	set, _ := config.ReadTOML(wanted.String())
-	maps.Copy(before, set)
-	if after, err := config.ReadTOML(text); err != nil || !reflect.DeepEqual(after, before) {
-		return fmt.Errorf("%s: setting its top-level keys line by line would change more, so nothing was changed", path)
+	text.WriteString(read[anchor:])
+	ours, _ := config.ReadTOML(wanted.String())
+	maps.Copy(before, ours)
+	if after, err := config.ReadTOML(text.String()); err != nil || !reflect.DeepEqual(after, before) {
+		return fmt.Errorf("merging ak's keys would change more of %s than them, so nothing was changed", path)
 	}
-	if text == read {
+	if text.String() == read {
 		fmt.Fprintf(out, "yolo: %s already approval_policy=never, sandbox_mode=danger-full-access\n", path)
 		return nil
 	}
-	if err := writeConfig(path, text); err != nil {
+	if err := writeConfig(path, text.String()); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "yolo: %s approval_policy=never, sandbox_mode=danger-full-access\n", path)
 	return nil
 }
 
-// trailingComment is the `# ...` a TOML value ends with, with the spacing before it, or "": a
-// key rewritten keeps what the owner wrote beside it, and a `#` in a quoted value is the value's.
-func trailingComment(value string) string {
-	var quote byte
-	for i := 0; i < len(value); i++ {
-		switch c := value[i]; {
-		case quote != 0:
-			if c == quote {
-				quote = 0
-			}
-		case c == '"' || c == '\'':
-			quote = c
-		case c == '#':
-			head := value[:i]
-			return cmp.Or(head[len(strings.TrimRightFunc(head, config.Space)):], "  ") + strings.TrimRight(value[i:], "\n")
-		}
+// trailingComment is the comment on the rest of a value's line, with the space before it, or "":
+// a key rewritten keeps what the owner wrote beside it.
+func trailingComment(rest string) string {
+	at := strings.IndexByte(rest, '#')
+	if at < 0 {
+		return ""
 	}
-	return ""
+	return cmp.Or(rest[:at], "  ") + strings.TrimRight(rest[at:], "\n")
 }
