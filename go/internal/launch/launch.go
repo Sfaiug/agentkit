@@ -20,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -499,6 +500,20 @@ func holdSlots() (*os.File, error) {
 
 func holdAdmission(ctx context.Context) (*os.File, error) {
 	return lock.Wait(ctx, filepath.Join(run.Runs(), ".slots.lock"))
+}
+
+// plainDecimal is a poll both Python's float() and Go read alike.
+var plainDecimal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
+
+// slotPoll is the seconds between a waiting run's polls, AK_SLOT_POLL as Python's gate reads it,
+// 30 where unset; false where it holds what Python's float() might read otherwise than Go.
+func slotPoll() (float64, bool) {
+	text, set := os.LookupEnv("AK_SLOT_POLL")
+	if !set {
+		return 30, true
+	}
+	poll, err := strconv.ParseFloat(text, 64)
+	return poll, err == nil && plainDecimal.MatchString(text)
 }
 
 // receive writes the launch's receipt under the slots lock: in the hold its admission took, claiming

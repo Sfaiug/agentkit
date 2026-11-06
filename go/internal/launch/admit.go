@@ -4,13 +4,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
-	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
 
@@ -71,7 +69,7 @@ func letIn(first bool) (*admission, bool) {
 		return nil, false
 	}
 	// finished work goes first: a line's check waiting for a heavy-suite turn holds a new run
-	if !first && landingWaits() {
+	if !first && host.LineCheckWaits() {
 		return nil, false
 	}
 	// with no peak measured, a run waits a poll after the last one let in, for steady readings
@@ -82,16 +80,6 @@ func letIn(first bool) (*admission, bool) {
 		return len(slices.DeleteFunc(slices.Clone(holders), func(pid int) bool { return !host.Frozen(pid) }))
 	})
 	return &admission{running: len(holders), took: took}, admits && err == nil
-}
-
-// landingWaits is Python's gate.landing_waits without making its files: whether a line's check
-// holds .heavy-landing.wait, asked in the probes' own turn where Python's probes have one, so no
-// round check reads this probe as a waiter.
-func landingWaits() bool {
-	if turn, err := lock.Edit(filepath.Join(run.Runs(), ".heavy-landing.probe")); err == nil {
-		defer turn.Close()
-	}
-	return lock.Held(filepath.Join(run.Runs(), ".heavy-landing.wait"))
 }
 
 // holding is the pids of the other top-level runs holding a slot, as Python's slot_counts counts
@@ -174,20 +162,6 @@ func malformedTurn(turn any) bool {
 		}
 		return true
 	})
-}
-
-// plainDecimal is a poll both Python's float() and Go read alike.
-var plainDecimal = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
-
-// slotPoll is the seconds between a waiting run's polls, AK_SLOT_POLL as Python's gate reads it,
-// 30 where unset; false where it holds what Python's float() might read otherwise than Go.
-func slotPoll() (float64, bool) {
-	text, set := os.LookupEnv("AK_SLOT_POLL")
-	if !set {
-		return 30, true
-	}
-	poll, err := strconv.ParseFloat(text, 64)
-	return poll, err == nil && plainDecimal.MatchString(text)
 }
 
 // claim writes the queue as Python's claim_slot leaves it on letting the run in, nobody waiting and
