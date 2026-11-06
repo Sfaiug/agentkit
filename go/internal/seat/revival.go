@@ -77,12 +77,6 @@ func revivalKind(kind, suffix string) bool {
 		suffix == "txt" && slices.Contains([]string{"live", "refused"}, kind) || kind == "notify" && suffix == "json"
 }
 
-// cutNothing is whether the seat's end cut off nothing it owes (watch.cut_off).
-func (seat Seat) cutNothing() bool {
-	cut, known := seat.owing()
-	return known && cut.line == "" && !revivalFile(seat.Name).Truthy("reopened_at")
-}
-
 // lastSeen is what the seat was doing when its process went (watch._cut_line): its last look,
 // unless its hook has spoken since.
 func (seat Seat) lastSeen() (sight, error) {
@@ -109,9 +103,9 @@ func (seat Seat) hasActiveRun() bool {
 }
 
 // revivalLine is what a gone seat whose conversation is its own owes once reopened (watch.revive_seats'
-// cut): no line where it rests.  False where it is Python's: a question its owner has written
-// since, a run of its own, and, where nothing cut it off, a run working for it, its own question
-// standing, a failed revival or a death on record; any other needs you is no turn of its.
+// cut): no line where it rests, a death on record or not.  False where it is Python's: a question
+// its owner has written since, a run of its own, and, where nothing cut it off, a run working for
+// it, its own question standing or a failed revival; any other needs you is no turn of its.
 func (seat Seat) revivalLine() (owed, bool) {
 	record, _ := run.ReadJSON(ownFile("session", seat.Name))
 	cut, known := owed{}, true
@@ -121,7 +115,7 @@ func (seat Seat) revivalLine() (owed, bool) {
 	if cut.line == "" {
 		notice := notify.Last(seat.Name)
 		noticed := !seat.unowned && notify.OwnerQuestion(notice) || revivalFailure(notice)
-		return cut, known && seat.Word != "working" && !noticed && !revivalFile(seat.Name).Truthy("reopened_at")
+		return cut, known && seat.Word != "working" && !noticed
 	}
 	answered := notify.OwnerQuestion(notify.Last(seat.Name)) && !notify.UnansweredQuestion(seat.Name)
 	return cut, known && !answered && !seat.hasActiveRun()

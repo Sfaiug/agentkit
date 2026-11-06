@@ -199,6 +199,31 @@ func TestQuestionRevivalLeavesOwnerStoppedAndSleepingSeatsAlone(t *testing.T) {
 	}
 }
 
+// Reopened once, its hook facts moved aside by that launch, a seat dead again before any tick saw
+// it live owes nothing on record: the same death, which stays down, as revive_seats leaves it.
+func TestASeatDeadAgainOwingNothingStaysDown(t *testing.T) {
+	home, _ := questionRecoveryHome(t)
+	for _, name := range []string{"notify-acme.json", "card-acme.json"} {
+		if err := os.Remove(stateFile(home, name)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := Write("acme", "reopened_at", []any{run.Float(seconds(moment) - 10)}); err != nil {
+		t.Fatal(err)
+	}
+	before := run.Line(revivalFile("acme"))
+	found, known := Looking(moment)
+	if !known {
+		t.Fatal("seat not readable")
+	}
+	if carried, err := found.ReviveTurns(moment, nil, func(string) {}, io.Discard); !carried || err != nil {
+		t.Fatal(carried, err)
+	}
+	if _, err := os.Stat(filepath.Join(home, "started")); !os.IsNotExist(err) || run.Line(revivalFile("acme")) != before {
+		t.Fatal("the same death was reopened again")
+	}
+}
+
 func TestOwedLinesHandOverLiveForeignOrPartlyTypedLinesAtTheirOwnTurn(t *testing.T) {
 	for _, kind := range []string{"foreign", "typed"} {
 		t.Run(kind, func(t *testing.T) {
