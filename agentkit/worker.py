@@ -103,7 +103,6 @@ REAL_USERS = ("[worker judgement] This repository has real users: new user-visib
 # The commit a turn's `users:` line is read at, handed in the turn's env like the findings
 # path and taken out of it before the harness starts.
 BASE_ENV = "AK_USERS_BASE"
-EXECUTOR_LINES_ENV = "AK_EXECUTOR_LINES"    # the run's `executor_lines`, handed in the same way
 
 
 def users_declared(workspace, base=None):
@@ -142,18 +141,8 @@ SUITE = ("[worker judgement] Never run the repository's `tests:` suite or a larg
          "say so in your summary.")
 
 
-def size_rule(lines):
-    """What a builder is told of the first review's ceiling of `lines` added lines."""
-    if lines == "no limit":
-        return "[checked by ak: tests/test_key_no_limit.py] The change has no line limit."
-    return (f"[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when "
-            f"its first review would read more than {lines} added lines, the tests among "
-            "them (files `.gitattributes` marks generated and blocks moved unchanged aside).")
-
-
-# PREAMBLES hold ak's default, whatever this host sets, because Go's rules are generated from
-# them; `call` puts the number in force in a turn's.
-SIZE = size_rule(config.POLICY["executor_lines"][0])
+LINES = ("[checked by ak: tests/test_key_done_counts_the_lines.py] ak refuses done while the "
+         "change adds more lines than its first review takes.")
 REVIEW_COPY = ("[checked by ak: tests/test_reviewer_edits_never_land.py] ak reviews in an isolated copy, "
                "archives and undoes edits; they never reach the branch.")
 TIMEOUT = 124       # what a turn killed for running past its limit exits with, as `timeout(1)` does
@@ -318,7 +307,7 @@ PREAMBLES = {
     "executor": (
         "You are the executor.\n"
         "[worker judgement] Work only inside {workspace} on the current branch; never push.\n"
-        f"{COMMITS}\n{CHECKS}\n{SUITE}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
+        f"{COMMITS}\n{CHECKS}\n{SUITE}\n{LINES}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     "reviewer": (
@@ -339,7 +328,7 @@ PREAMBLES = {
         f"{GATE}\n{ONE_PASS}"),
     "fixer": (
         "You are the executor, continuing.\n"
-        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SUITE}\n{SIZE}\n{PROCESSES}\n{LEAST}\n"
+        f"{FIX_OR_DISPUTE.format(work='the diff')}\n{COMMITS}\n{CHECKS}\n{SUITE}\n{PROCESSES}\n{LEAST}\n"
         "[worker judgement] Finish with `## Summary`: what changed, how you verified it, open issues.\n"
         f"{NO_NOTIFY}\n{BLOCKED}"),
     # somebody else's PR: no executor ran, so the diff is judged against the repository itself
@@ -890,9 +879,7 @@ def call(cfg, model_name, body, workspace, out_dir, role="executor", session=Non
                                        role=role, findings=turn_env.pop(hand_in.FINDINGS_ENV, None),
                                        checks=json.loads(turn_env.pop(hand_in.CHECKS_ENV, "null")))
     base = turn_env.pop(BASE_ENV, None)
-    preamble = (PREAMBLES[role].format(workspace=workspace)
-                .replace(SIZE, size_rule(turn_env.pop(EXECUTOR_LINES_ENV, None)
-                                         or config.policy()["executor_lines"])))
+    preamble = PREAMBLES[role].format(workspace=workspace)
     if GATE in preamble:
         if users_declared(workspace, base) == "real":
             preamble = preamble.replace(GATE, f"{GATE}\n{REAL_USERS}")

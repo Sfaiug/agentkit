@@ -252,7 +252,7 @@ func rated(rows []Row, role string) []*Rating {
 			}
 		}
 		if len(found) > 0 {
-			typical[each.column] = median(found)
+			typical[each.column] = Median(found)
 		}
 	}
 	errorOf := func(i int, column string) float64 {

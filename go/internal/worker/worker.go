@@ -56,6 +56,10 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if given.Efforts != nil {
 		model.Efforts = given.Efforts
 	}
+	lines, err := ceiling(given.ReviewLines)
+	if err != nil {
+		return 0, "", err
+	}
 	adapter, err := config.Adapter(model.Harness)
 	if !box.Supported || errors.Is(err, config.ErrNoAdapterDir) || config.EnsureDirs() != nil {
 		return 0, "", ErrPython
@@ -91,7 +95,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		return 0, "", err
 	}
 	prompt := filepath.Join(out, "prompt.md")
-	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given)+"\n\n"+body), 0o666); err != nil {
+	if err := os.WriteFile(prompt, []byte(opening(role, workspace, given, lines)+"\n\n"+body), 0o666); err != nil {
 		return 0, "", err
 	}
 	argv := []string{adapter, "run", model.ID, model.TurnEffort(strings.HasPrefix(role, "reviewer")), workspace, prompt, out}
@@ -166,14 +170,15 @@ func refused(adapter string, env []string) string {
 
 // Login is what the adapter's `auth` verb says of the login env names, as Python's
 // worker.auth_ok reads it: answered where it said one line exiting 0 or 1, yes for 0, and that
-// line.
-func Login(adapter string, env []string) (answered, yes bool, line string) {
+// line. The seat's probe adds "seat" to ask about its interactive login.
+func Login(adapter string, env []string, args ...string) (answered, yes bool, line string) {
 	ctx, cancel := context.WithTimeout(context.Background(), authCap)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, adapter, "auth")
+	cmd := exec.CommandContext(ctx, adapter, append([]string{"auth"}, args...)...)
 	// A stdin closed at once: asking opens no file of its own on a machine watching for that.
 	cmd.Env, cmd.Stdin, cmd.Stdout, cmd.Stderr, cmd.WaitDelay = env, strings.NewReader(""), &stdout, &stderr, time.Second
+	host.AdapterCall(cmd)
 	if err := cmd.Run(); err != nil && !errors.As(err, new(*exec.ExitError)) {
 		return false, false, ""
 	}

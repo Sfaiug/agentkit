@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/run"
@@ -82,6 +83,14 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	every, entries, no := listing(seat, wanted, showHistory, machine, now)
 	if no {
 		return notImplemented(errOut, "run status")
+	}
+	var db *history.DB
+	if showHistory && wanted == "" && !machine {
+		// opened before a line is printed: a database Go leaves to Python ak leaves it the command
+		if db, err = history.Open(); err != nil {
+			return notImplemented(errOut, "run status")
+		}
+		defer db.Close()
 	}
 	for i := range entries {
 		if looked && !machine && !entries[i].unreadable {
@@ -164,7 +173,7 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	}
 	fmt.Fprintf(out, "%d older run(s) hidden; ak run status --history [--json] shows full history\n", hidden)
 	if showHistory {
-		fmt.Fprintln(out, strings.Join(scoreboard(screen, now), "\n"))
+		fmt.Fprintln(out, strings.Join(append(scoreboard(screen, db, now), sizeLines(db)...), "\n"))
 	}
 	return 0
 }
@@ -240,11 +249,11 @@ func actedOn(record *run.Object) bool {
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a job it shows,
-// a run its reap or a look at it acts on, and with --json or --history what history.db and
-// the seats would add; one run named shows no job and no scoreboard.
+// a run its reap or a look at it acts on, with --json what history.db would add, and with
+// --history the seats' tokens; one run named shows no job and no scoreboard.
 func refused(entries []listed, seat, wanted string, showHistory, machine bool, now time.Time) bool {
 	listing := showHistory && wanted == ""
-	if exists(filepath.Join(config.Home(), "history.db")) && (machine || listing) {
+	if exists(history.Path()) && machine {
 		return true
 	}
 	if listing && seatRecorded() {
@@ -258,6 +267,10 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 			continue
 		}
 		if _, err := look(entry.record.Copy()); actedOn(entry.record) || wanted != "" && err != nil {
+			return true
+		}
+		// a run with review off or no limit is Python's whole, its status too
+		if !run.Carries(entry.record) {
 			return true
 		}
 	}

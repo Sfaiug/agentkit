@@ -222,10 +222,10 @@ type loop struct {
 	workspace     string
 	place         workplace
 	title         string
-	cmds          []string // the done-when lines a round reads
-	usersAt       string   // the ref a review's `users:` is read at
-	reviewLines   int      // the first review's ceiling
-	once          []string // those deferred to landing
+	cmds          []string     // the done-when lines a round reads
+	usersAt       string       // the ref a review's `users:` is read at
+	reviewLines   config.Lines // the first review's ceiling
+	once          []string     // those deferred to landing
 	executor      string
 	reviewer      string
 	workers       []string // the lists the run was launched with, nil where none was bound

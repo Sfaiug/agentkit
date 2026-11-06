@@ -6,14 +6,14 @@ agentkit                                                                        
 
 
 ATOLL
-  1  atoll-fix   Fable 5.1  ● working    ─────────────────────────────────────────────── no plan yet
-  2  atoll-plan  Fable 5.1  ! needs you
+  1  atoll-fix   Fable 5.1 xhigh  ● working    ───────────────────────────────────────── no plan yet
+  2  atoll-plan  Fable 5.1 xhigh  ! needs you
      waiting for you
 
 agentkit
-  3  menu        Fable 5.1  ○ idle
+  3  menu        Fable 5.1 xhigh  ○ idle
 
 newsletter-tool
-  4  rent        Fable 5.1  ○ idle
+  4  rent        Fable 5.1 xhigh  ○ idle
 
   n new   c config   esc leave

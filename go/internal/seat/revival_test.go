@@ -245,21 +245,22 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// a later death is still reopened as its number opens it, by what it waited on ending
 	for _, each := range []struct {
-		model, own, death string
-		canOpen           bool
+		model, own, death  string
+		supported, canOpen bool
 	}{
-		{"opus", "claude", "1005", true},
-		{"opus", "claude", "1010", false},
-		{"opus", "claude", "unreadable", false},
-		{"astra", "codex", "1005", false},
+		{"opus", "claude", "1005", true, true},
+		{"opus", "claude", "1010", false, true},
+		{"opus", "claude", "unreadable", false, true},
+		{"astra", "codex", "1005", false, false},
 	} {
 		t.Run(each.own+"/"+each.death, func(t *testing.T) {
 			t.Setenv("DIED", each.death)
 			record(t, home, "acme", map[string]any{"orchestrator": each.model, "launched": 1000})
 			home := Home{Seats: []Seat{{Name: "acme", own: each.own, held: true}}}
-			if got := home.Revivals()[0].CanOpen; got != each.canOpen {
-				t.Fatalf("can open=%v", got)
+			if got := home.Revivals()[0]; got.Supported != each.supported || got.CanOpen != each.canOpen {
+				t.Fatalf("supported=%v, can open=%v", got.Supported, got.CanOpen)
 			}
 		})
 	}
@@ -372,7 +373,7 @@ esac
 	carried, err := Health("acme", func(Live) bool {
 		t.Fatal("a dead harness reached the live-screen health predicate")
 		return false
-	})
+	}, func(string) {})
 	if !carried || err != nil {
 		t.Fatal(carried, err)
 	}

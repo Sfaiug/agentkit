@@ -220,8 +220,7 @@ def unanswered(record, cwd, conversation):
 
 def running(record, cwd, conversation):
     """The newer of that conversation's last answer and its status-line report."""
-    from .. import config
-    from . import last_entry, moment
+    from . import last_entry, model_report, moment
     path = transcript(record, cwd, conversation)
     entry = path and last_entry(path, lambda entry: entry.get("type") == "assistant"
                                 and not entry.get("isSidechain")
@@ -229,18 +228,8 @@ def running(record, cwd, conversation):
                                 and entry["message"].get("model") not in (None, "<synthetic>"))
     latest = ((entry["message"]["model"], entry.get("effort"), moment(entry.get("timestamp")))
               if entry else None)
-    if not conversation:
-        return latest
-    try:
-        with (config.STATE / f"model-{conversation}.json").open() as stream:
-            report = json.load(stream)
-            # Read the timestamp from the same inode: another render may have replaced it.
-            at = os.fstat(stream.fileno()).st_mtime
-        if isinstance(report, dict) and report.get("model") and (not latest or at > (latest[2] or 0)):
-            return report["model"], report.get("effort"), at
-    except (OSError, ValueError):
-        pass
-    return latest
+    report = model_report(conversation)
+    return report if report and (not latest or report[2] > (latest[2] or 0)) else latest
 
 
 def resumable(record, cwd, conversation):

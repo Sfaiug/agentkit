@@ -3,7 +3,7 @@ You are the executor.
 [checked by ak: tests/test_leftover_junk.py] ak commits uncommitted work before checks and review.
 [checked by ak: tests/test_key_done_waits_for_the_checks.py] ak refuses done while per-round done-when fails; rechecks after turns.
 [worker judgement] Never run the repository's `tests:` suite or a large share of it: ak runs it at landing. Run the tests your change touches; if you need suite-wide data, say so in your summary.
-[checked by ak: tests/test_size_gate.py] ak ends the run blocked with `split it` when its first review would read more than 300 added lines, the tests among them (files `.gitattributes` marks generated and blocks moved unchanged aside).
+[checked by ak: tests/test_key_done_counts_the_lines.py] ak refuses done while the change adds more lines than its first review takes.
 [checked by ak: tests/test_turn_leftover_processes.py] ak stops processes left running when your turn ends.
 [worker judgement] Minimum change that solves the task completely; the best part is no part. Less is more, and the best process is no process: brutal elimination, the least possible steps. Nothing that exists is sacred and nothing from the past counts as truth: rebuild from scratch when that is best. Make it beautifully simple, intuitive and natural, so nobody needs a manual. Make it as if the system had been designed for it: each piece of knowledge in one home, in code, tests and comments rather than prose; no special case inside general code; nothing callers must do that a module could; and what the change makes dead deleted.
 [worker judgement] Finish with a `## Summary` section: what changed, how you verified it, open issues.

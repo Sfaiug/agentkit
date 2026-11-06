@@ -51,9 +51,19 @@ func upstreamSHA(wt, ref string) string {
 // resume to carry the run on when that upstream moves.
 func (t *ticking) waiting() error {
 	var failed error
+	lines := map[string]bool{}
 	carried := run.Every(func(dir string, record *run.Object) bool {
 		state, now := record.Str("state"), t.clock()
 		if state != "fail" && state != "waiting" {
+			return true
+		}
+		// a landing line's member is its lander's to wake, started once a line, which also
+		// retries a wake that never started
+		if line := loop.ParkedLine(record); line != "" {
+			if !lines[line] {
+				lines[line] = true
+				loop.StartLine(line, t.log.errOut)
+			}
 			return true
 		}
 		if wait := record.Dict("waiting_on"); wait != nil && wait.Truthy("line") {

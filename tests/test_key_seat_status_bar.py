@@ -69,7 +69,7 @@ class AQuestionSeat(Bar):
 
     def test_line_two_is_who_builds_and_reviews_with_the_menu_key_at_its_end(self):
         line = self.bar()[1]
-        self.assertRegex(line, r"^ *Opus 5\.5 ⚒◎ +" + KEY + "$")
+        self.assertRegex(line, r"^ *Opus 5\.5 xhigh ⚒◎ +" + KEY + "$")
         # against the terminal's right edge, whatever margin a build leaves there
         self.assertGreaterEqual(len(line), 100 - 2, line)
 
@@ -93,7 +93,7 @@ class AWorkingSeatWithAPlan(Bar):
 
     def test_the_tick_draws_its_word_name_model_and_its_plan_as_a_count(self):
         self.assertRegex(self.bar()[0], r"^ *● working +wrk +Opus 5\.5 xhigh +\S+ 1 of 2$")
-        self.assertRegex(self.bar()[1], r"^ *Opus 5\.5 ⚒◎ +" + KEY + "$")
+        self.assertRegex(self.bar()[1], r"^ *Opus 5\.5 xhigh ⚒◎ +" + KEY + "$")
 
     # never a percentage or a finish time. [2, 14, 19, 23, 26 Oct 2026]
     def test_no_row_of_the_bar_is_a_percentage(self):

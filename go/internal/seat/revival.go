@@ -34,7 +34,7 @@ const Warmup = 10 * time.Second
 type Revival struct {
 	Name                string
 	Live, Closed, Owing bool
-	CanOpen, Fresh      bool
+	CanOpen, Fresh      bool // reopened as its number opens it, on its own conversation or a fresh one
 	Supported           bool // Go opens this harness and owns this death's recovery
 	Failed              bool // a failed revival still needs the owner
 	File                *run.Object
@@ -53,7 +53,7 @@ func (home Home) Revivals() []Revival {
 		supported := each.supportsRunRevival(record)
 		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
 			Owing:   !each.restingGone(),
-			CanOpen: canOpen && supported, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
+			CanOpen: canOpen, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,
 			Failed: revivalFailure(notify.Last(each.Name))})
 	}
 	return seats
@@ -81,9 +81,15 @@ func (seat Seat) restingGone() bool {
 	if seat.live || seat.closed {
 		return true
 	}
-	if seat.held || seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
+	if seat.Word == "needs you" && !seat.waitingQuestion() || seat.Word == "working" {
 		return false
 	}
+	return seat.cutNothing()
+}
+
+// cutNothing is whether the seat's end cut off no turn, question or background work its last look
+// or newer hook says it had (watch.cut_off).
+func (seat Seat) cutNothing() bool {
 	file := revivalFile(seat.Name)
 	fact := hookfact.Standing(seat.Name)
 	hooked, event, err := lifecycle.State(seat.own, fact)
@@ -119,7 +125,7 @@ func (seat Seat) revivalQuestion() bool {
 
 // Question revival leaves a project's refresh to Reopen.
 func (seat reopening) launchable(record map[string]any) bool {
-	_, opens := harness.Opens(seat.model.Harness)
+	opens := harness.Relaunches(seat.model.Harness)
 	_, checkout := os.Lstat(filepath.Join(seat.cwd, ".git"))
 	repo, _ := record["repo"].(string)
 	return opens && repo == "" && checkout != nil
@@ -139,7 +145,7 @@ func (home Home) ReviveQuestions(now time.Time, reviving map[string]string, log 
 			}
 			continue
 		}
-		if seat.closed || seat.asleep || seat.restingGone() || reviving[seat.Name] != "" {
+		if seat.closed || seat.asleep || seat.restingGone() || seat.waitsGone() || reviving[seat.Name] != "" {
 			continue
 		}
 		if !seat.revivalQuestion() {

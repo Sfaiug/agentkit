@@ -7,12 +7,12 @@ import (
 )
 
 func restingGone() bool {
-	home, known := seat.Looking(time.Now())
+	home, known := seat.TickHome(time.Now())
 	return known && home.RestingGone()
 }
 
 func stampGone(now time.Time) error {
-	home, known := seat.Looking(now)
+	home, known := seat.TickHome(now)
 	if !known {
 		return errLeft
 	}
@@ -20,7 +20,7 @@ func stampGone(now time.Time) error {
 }
 
 func seatProjects() ([]string, error) {
-	home, known := seat.Looking(time.Now())
+	home, known := seat.TickHome(time.Now())
 	if !known {
 		return nil, errLeft
 	}
@@ -40,13 +40,8 @@ func noSeatAlive() bool {
 	return true
 }
 
-func waitsOnNothing() bool {
-	home, known := seat.Looking(time.Now())
-	return known && home.WaitsOnNothing()
-}
-
 func (t *ticking) retainedSeats() bool {
 	now := t.clock()
-	home, known := seat.Looking(now)
+	home, known := seat.TickHome(now)
 	return known && home.Retained(now)
 }

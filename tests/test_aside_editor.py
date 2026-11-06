@@ -236,12 +236,12 @@ class AsideEditor(unittest.TestCase):
         self.assertEqual(self.buffers, {})
 
     def test_a_seat_launch_keeps_the_owners_editor_beside_aks(self):
-        self.assertEqual(aside_editor.launch_env({"EDITOR": "nano"}),
+        self.assertEqual(aside_editor.launch_env({"EDITOR": "nano"}, REPO),
                          [f"VISUAL={aside_editor.EDITOR}", f"EDITOR={aside_editor.EDITOR}",
                           f"{aside_editor.OWNER}=nano"])
         # one launched from inside a seat, whose own $VISUAL is ak's
         inside = {"VISUAL": str(aside_editor.EDITOR), aside_editor.OWNER: "vim"}
-        self.assertEqual(aside_editor.launch_env(inside)[2], f"{aside_editor.OWNER}=vim")
+        self.assertEqual(aside_editor.launch_env(inside, REPO)[2], f"{aside_editor.OWNER}=vim")
 
     def test_a_seat_is_told_by_its_launch_not_by_what_its_harness_runs(self):
         # each seat's wrapper, on the pane's terminal, runs its harness on another, and the

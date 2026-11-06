@@ -81,7 +81,7 @@ func seated(now time.Time) (Home, bool) {
 	if len(config.SeatFiles()) == 0 {
 		return Home{}, OnNoServer()
 	}
-	return Looking(now)
+	return TickHome(now)
 }
 
 // lived is the seat as Live reads it off that capture, false where its panes no longer run its
@@ -99,7 +99,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 	if !seat.live || record == nil || err != nil || len(session) != 3 || exited {
 		return Live{}, false
 	}
-	if _, err := climbingOf(state, seat, found, seconds(now)).climb(); err != nil {
+	if !liveClimbs(state, seat, found, seconds(now)) {
 		return Live{}, false
 	}
 	seen, tail := eyeOf(seat.own), screen.Tail(pane)
@@ -125,11 +125,10 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 
 // Health is the tick's look at a seat its panes run on (watch.health): its conversation's title read
 // on from where the last reading stopped, then under its announce lock one capture, read as Live
-// reads it.  Where ok says the look is all the tick does there, that capture is kept as
-// watch.live_state keeps it and the word published, as announce_state publishes it with no look of
-// its own, so what its last answer moved stays as it is.  False, with nothing published, where the
-// seat is not one Go reads or ok says otherwise.
-func Health(name string, ok func(Live) bool) (bool, error) {
+// reads it. Both ok and the account decision run before that capture is kept and its word
+// published, so unsupported recovery leaves no publish behind. The account decision may reopen
+// the seat through its shared launch path. False where either decision leaves work to Python.
+func Health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
 	if err != nil {
@@ -153,7 +152,7 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 	carried := false
 	err = announcing(state, name, func() error {
 		now := time.Now()
-		home, seat, known := liveSeat(name, now, nil)
+		home, seat, known := liveSeat(name, now, nil, true)
 		if !known {
 			carried, err = home.healthGone(state, name, now)
 			return err
@@ -168,12 +167,25 @@ func Health(name string, ok func(Live) bool) (bool, error) {
 		if carried = read && ok(live); !carried {
 			return nil
 		}
+		if strings.TrimFunc(pane, config.Space) == "" && found.authority != "hook" && !seat.hasActiveRun() {
+			return nil
+		}
+		if carried, err = MoveAccount(live, log); !carried || err != nil {
+			return err
+		}
 		found, err := seat.keep(state, pane, exited, found, previous, seconds(now))
 		if err != nil {
 			return err
 		}
 		if err := seat.askKeptBack(found); err != nil {
 			return err
+		}
+		// A relaunch consumed the old Stop; it cannot nudge the replacement harness.
+		if live.sameRecord() {
+			found, err = seat.nudgeOpenWork(state, found, log)
+			if err != nil {
+				return err
+			}
 		}
 		if err := seat.decided(state, found, seconds(now), live.Attached); err != nil {
 			return err

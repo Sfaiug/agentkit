@@ -1,4 +1,4 @@
-"""AK_BIN's admitted checkout survives a real install, subsequent rounds, hand-ins and landing."""
+"""AK_BIN's admitted checkout survives installs for rounds and hand-ins; landing uses the install."""
 
 import json
 from pathlib import Path
@@ -44,7 +44,7 @@ def wait_for(read):
 
 
 class RunKeepsItsVersion(unittest.TestCase):
-    def test_rounds_hand_ins_gate_and_landing_keep_the_admitted_commit(self):
+    def test_rounds_and_hand_ins_keep_the_admitted_commit_while_landing_uses_the_install(self):
         with Home() as home:
             install = Install(home)
             for module, (entry, path) in OBSERVE.items():
@@ -81,7 +81,8 @@ class RunKeepsItsVersion(unittest.TestCase):
             self.assertTrue(state.get("merged"), (directory / "log.txt").read_text()
                             + str([call["hand_ins"] for fake in fakes.values() for call in fake.runs()]))
             self.assertNotIn("pickup", state)
-            for name in ("round-1.code", "round-2.code", "landing.code",
+            self.assertEqual((directory / "landing.code").read_text().strip(), second)
+            for name in ("round-1.code", "round-2.code",
                          "round-1/executor/ak.code", "round-2/executor/ak.code"):
                 self.assertEqual((directory / name).read_text().strip(), first, name)
             self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
