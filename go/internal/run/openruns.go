@@ -141,7 +141,7 @@ func (reader *Reader) look(name string, full bool, smoke func(*Object) bool, now
 		if record != nil {
 			each.Written, each.Smoke = info.ModTime(), smoke(record)
 		}
-	} else if full {
+	} else if full && each.Record != nil {
 		each.Smoke = smoke(each.Record)
 	}
 	if each.info = vouching(info, now); each.Record == nil && !each.bad {

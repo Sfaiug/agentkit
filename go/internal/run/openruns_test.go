@@ -52,3 +52,25 @@ func TestARunAtRestIsLookedAtAgainOnlyByAFullRead(t *testing.T) {
 		t.Fatal("a run goes with its directory")
 	}
 }
+
+func TestADamagedRecordIsRefusedOnEveryRead(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path := filepath.Join(Runs(), "acme", "run.json")
+	week := time.Now().Add(-7 * 24 * time.Hour)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("null"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, week, week); err != nil {
+		t.Fatal(err)
+	}
+	reader := &Reader{}
+	for range 2 { // the second a full read of what the first kept
+		if _, known := reader.Read(); known {
+			t.Fatal("a record Go does not read is read")
+		}
+		reader.due = time.Now()
+	}
+}

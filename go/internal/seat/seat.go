@@ -120,10 +120,12 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		return Home{}, false
 	}
 	var names []string
+	renamed := map[string]bool{} // a rename's old names, which name no seat of their own (config.session_records)
 	for _, entry := range entries {
-		// a rename's pointer names no seat of its own (config.session_records)
 		if name, ok := sessionFile(entry.Name()); ok {
-			if record, _ := run.ReadJSON(filepath.Join(state, entry.Name())); record == nil || !record.Has(config.Renamed) {
+			if record, _ := run.ReadJSON(filepath.Join(state, entry.Name())); record != nil && record.Has(config.Renamed) {
+				renamed[name] = true
+			} else {
 				names = append(names, name)
 			}
 		}
@@ -152,12 +154,12 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		kind, rest, _ := strings.Cut(entry.Name(), "-")
 		name, suffix, _ := strings.Cut(rest, ".")
 		// a seat removed leaves its locks, which writers hold or wait on, and its stop mark, which
-		// no listing reads (forget), and one renamed its pointer; one tmux no longer holds leaves its
-		// announce lock, its word and its card, which the tick closes (notify.tick_cards), and what it
-		// asked the owner last, an orphan ending's question among them (handback.announce)
-		if !slices.Contains(names, name) && entry.Type().IsRegular() &&
-			(suffix == "lock" || (kind == "seat" || kind == "session") && suffix == "json" || kind == "seat" && suffix == "announce" ||
-				(kind == "card" || kind == "notify") && suffix == "json") {
+		// no listing reads (forget); one renamed leaves its pointer and what the rename keeps under its
+		// old name; one tmux no longer holds leaves its announce lock, its word and its card, which the
+		// tick closes (notify.tick_cards), and what it asked the owner last, an orphan ending's question
+		// among them (handback.announce)
+		if renamed[name] || !slices.Contains(names, name) && entry.Type().IsRegular() &&
+			(suffix == "lock" || kind == "seat" && (suffix == "json" || suffix == "announce") || (kind == "card" || kind == "notify") && suffix == "json") {
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
