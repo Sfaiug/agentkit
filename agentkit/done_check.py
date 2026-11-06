@@ -6,7 +6,9 @@ of its own holding what the seat was asked and what it did: each message its own
 cards beside the question and choices it wrote (`answers`), oldest first, one file each, in
 each conversation it had, those it left included (`notify.conversations_of`); each of those
 conversations as its harness keeps it (`said`), so a "yes" reads against what the seat proposed
-and a question against the seat's reply; its plan; and each run it launched.  The model
+and a question against the seat's reply; its plan; each run it launched; and each picture of a
+screen it kept with `ak orch look` (`look`), so a screen the owner will see reads as it was kept,
+on every harness alike, never as the seat says it is.  The model
 hands in each gap as a finding quoting the owner.  A quote that is not word for word in one
 message or answer of the owner's is no gap, whatever the model wrote in its workspace, the seat's
 replies, questions and choices included: that is decided here, not by the model.  Exit 1 with a
@@ -17,13 +19,16 @@ seat whose plan has every line done owes a check (`owed`) until one read what it
 and its plan holds now.
 """
 
+import base64
 import hashlib
 import json
 import sys
 import tempfile
+import time
 from pathlib import Path
 
-from . import config, hand_in, harness, notify, plan, record, staffing, transitions, worker
+from . import (command_help, config, hand_in, harness, notify, plan, record, staffing, transitions,
+               worker)
 
 ASK = """\
 # Does seat {name}'s work hold everything its owner asked of it?
@@ -36,12 +41,16 @@ ASK = """\
   only owner/ says which words are the owner's.
 - plan.md: its plan, `- [x]` a line done and `- [ ]` one open.
 - runs/: each run it launched: its title, state, whether it merged, its PR and its task.
+- pictures/: each picture of a screen it kept with `ak orch look`, an image or a text capture
+  of a terminal screen, as the screen was then, oldest first:
+{pictures}
 
 Read each message of the owner's where it stands in the conversation: a "yes" or "the second
 one" takes what the seat proposed just before. A gap is something the owner asked to be built or
-changed that no done plan line and no merged run delivered, or a question or a request to explain
-that no reply of the seat's answered. Only a later message of the owner's drops or changes an
-ask; the seat's replies never do.
+changed that no done plan line and no merged run delivered; a screen the owner will see that the
+work changed and no picture shows, quoting the ask that changed it; or a question or a request to
+explain that no reply of the seat's answered. Only a later message of the owner's drops or changes
+an ask; the seat's replies never do.
 
 Hand in each gap as `ak hand-in finding owner/N.md:LINE "what the work does not hold" "why the
 owner needs it" --quote "the owner's words"`, the words copied exactly from that message or
@@ -143,6 +152,30 @@ def keep(name, read):
         fresh.replace(path)
 
 
+def look(argv):
+    """`ak orch look FILE`: keep a picture of a screen the seat's work changed for its done
+    check, as the file is now and beside every one kept before, a later one of the same file
+    included.  The seat's, as its plan is: under its lock, which a rename takes too, so under the
+    name it goes by now, and no conversation's."""
+    if len(argv) != 1:
+        raise config.Error(command_help.COMMANDS["orch look"][0])
+    seat = config.current_session()
+    if not seat:
+        raise config.Error("ak orch look belongs to a session; run it inside one")
+    path = Path(argv[0])
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise config.Error(f"cannot keep {argv[0]}: {exc.strerror}") from None
+    kept = json.dumps({"at": time.time(), "name": path.name,
+                       "data": base64.b64encode(data).decode()})
+    with notify.session_lock(config.resolve_session(seat)) as current:
+        with config.seat_file("pictures", current).open("a", encoding="utf-8") as fh:
+            fh.write(kept + "\n")
+    print(f"{current}'s done check will see {path.name} as it is now")
+    return 0
+
+
 def checker(cfg, name):
     """`[done_check] model` (setting), else the reviewer a run of that seat's would draw now."""
     named = setting(cfg)["model"]
@@ -175,6 +208,7 @@ def gaps(cfg, name):
             if not seats or not seats[-1][3]:
                 raise config.Error(f"no seat named {name} whose conversation ak can read")
             owner = owner_words(seats, [notify.owner_messages(name, seat) for seat in seats])
+            pictures = [*harness.entries(config.seat_file("pictures", name))]
         said = [words for _, words, _ in owner]
         if not said:
             return []       # asked nothing, so nothing is missing
@@ -189,6 +223,11 @@ def gaps(cfg, name):
                 "".join(f"**{turn['who']}:** {turn['text']}\n\n"
                         for turn in seat[0].said(*seat[1:]) or []) for seat in seats)
             files["plan.md"] = "".join(line + "\n" for line in planned)
+            shown = []
+            for n, picture in enumerate(pictures, 1):
+                files[f"pictures/{n}-{picture['name']}"] = base64.b64decode(picture["data"])
+                shown.append(f"  - pictures/{n}-{picture['name']}, kept "
+                             + time.strftime(plan.STAMP, time.localtime(picture["at"])))
             for directory, state in record.runs():
                 if transitions.launched_session(state) == name:
                     task = directory / "task.md"
@@ -199,13 +238,15 @@ def gaps(cfg, name):
                         + (task.read_text(errors="replace") if task.is_file() else ""))
             for relative, text in files.items():
                 (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
-                (workspace / relative).write_text(text)
+                (workspace / relative).write_bytes(text if isinstance(text, bytes)
+                                                   else text.encode())
             try:
                 # an existing role, which Go's rules already hold: the reviewer's of a
                 # workspace, whose hand-in takes findings and refuses a quote its file does
                 # not hold
-                worker.turn(cfg, model, ASK.format(name=name, workspace=workspace), workspace,
-                            out, role="reviewer-scratch")
+                worker.turn(cfg, model, ASK.format(name=name, workspace=workspace,
+                                                   pictures="\n".join(shown) or "  none kept"),
+                            workspace, out, role="reviewer-scratch")
             except worker.LoginExpired as expired:
                 raise config.Error(str(expired)) from None
             review = hand_in.read(out / hand_in.FILE)

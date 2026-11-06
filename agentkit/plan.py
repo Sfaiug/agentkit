@@ -56,10 +56,12 @@ def names(name):
 
 
 def forget(name):
-    """Remove every plan the name reads (`path`): a seat that takes a name -- made under it,
-    or renamed into a free one -- starts without the plan a gone seat left there."""
+    """Remove every plan the name reads (`path`), and the pictures kept beside it for its done
+    check (`done_check.look`): a seat that takes a name -- made under it, or renamed into a free
+    one -- starts without the plan and pictures a gone seat left there."""
     for each in names(name):
         config.plan_path(each).unlink(missing_ok=True)
+        config.seat_file("pictures", each).unlink(missing_ok=True)
 
 
 def path(name):
@@ -759,7 +761,9 @@ def main(argv):
                 print(" " * (number_width + 2) + continuation)
         from . import done_check    # here, not at the top: it reads the plan through this module
         if done_check.owed(name, text) and done_check.main([name]):
-            print("Build what is missing, or ask your owner whether to drop it.")
+            print("Build what is missing, or ask your owner whether to drop it. Keep a picture of "
+                  "each screen your work changed with `ak orch look FILE`, an image or a text "
+                  "capture of a terminal screen.")
         return 0
     if argv[0] == "add" and len(argv) == 4 and argv[2] == "--check":
         print(add(name, argv[1], argv[3]))
