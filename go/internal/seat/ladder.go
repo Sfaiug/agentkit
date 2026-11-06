@@ -184,9 +184,9 @@ func ownQuestion(facts climbing) (*answer, error) {
 }
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is
-// in or the owner closed.  ErrUnread where its word hangs on what Go does not read: a move to another
-// account that failed, a wait no limit cut a turn off for, one its runs or its `ak wait` stand
-// beside, a done plan, or a refusal kept with no wait.
+// in or the owner closed, or one the wait leaves its own word (keepsOwnWord).  ErrUnread where its
+// word hangs on what Go does not read: a move to another account that failed, a wait its runs or
+// its `ak wait` stand beside, a plan that may be done unprompted, or a refusal kept with no wait.
 func usage(facts climbing) (*run.Object, error) {
 	if facts.gone != nil || facts.file.Truthy("closed_by_owner") {
 		return nil, nil
@@ -198,9 +198,14 @@ func usage(facts climbing) (*run.Object, error) {
 	if wait == nil {
 		return nil, ErrUnread
 	}
-	finished, err := plan.Finished(facts.name)
-	if _, said := wait.Get("reason").(string); !said || !wait.Has("since") || !wait.Truthy("until") || !wait.Truthy("continue") ||
-		err != nil || finished || len(facts.mine) > 0 || facts.file.Get("wait") != nil {
+	if _, said := wait.Get("reason").(string); !said || !wait.Has("since") || !wait.Truthy("until") ||
+		len(facts.mine) > 0 || facts.file.Get("wait") != nil {
+		return nil, ErrUnread
+	}
+	if keepsOwnWord(facts.name, facts.file, wait) {
+		return nil, nil
+	}
+	if mayRestDone(facts.name) {
 		return nil, ErrUnread
 	}
 	return wait, nil
