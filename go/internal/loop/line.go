@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/config"
@@ -265,7 +266,11 @@ func startLine(turn string, said io.Writer) {
 	}
 }
 
-// detach starts this program with args in a session of its own, appending to log.
+// wakesUnderWay are the wakes this lander started that have not yet handed their runs on: a
+// service's manager stops all that is left in it when the lander ends (CheckLine).
+var wakesUnderWay sync.WaitGroup
+
+// detach starts this program with args in a session of its own, appending to log, as a wake.
 func detach(log string, env []string, args ...string) error {
 	self, err := os.Executable()
 	if err != nil {
@@ -281,7 +286,8 @@ func detach(log string, env []string, args ...string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go cmd.Wait() // a zombie still answers as alive
+	wakesUnderWay.Add(1)
+	go func() { cmd.Wait(); wakesUnderWay.Done() }() // a zombie still answers as alive
 	return nil
 }
 
@@ -340,6 +346,9 @@ func resume(dir string, record *run.Object) error {
 // lander already holding it keeps, members are checked on the stack ahead and woken on their
 // verdict, a verdict saved for it is published again, and anything else waits for Python's.
 func CheckLine(name string, out io.Writer) int {
+	// last, the line let go: each wake's `ak run resume` ends once its run's driver is in a unit
+	// of its own, so nothing of theirs is left in the lander's when that ends
+	defer wakesUnderWay.Wait()
 	host.Lower()
 	turn := filepath.Join(run.Runs(), name)
 	code := ourCode() // read as the pass starts: an update installed during a check is not this pass's

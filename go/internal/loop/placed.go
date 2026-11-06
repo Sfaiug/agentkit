@@ -47,9 +47,10 @@ func place(dir string, cmd *exec.Cmd, detached bool, record *run.Object) (int, e
 // Python's start_line: ahead of every run for the CPU, as every passed run waits behind its check,
 // and capped at the most any member was capped at or peaked at, or one run's cap below the slice's
 // ceiling, the host's memory where none is set, whichever is more: never the small scope of
-// whatever started this pass.  Unlike Python's, its unit is not stopped when it ends: what it
-// leaves running on purpose, its members' wakes, go on to units of their own, and what its checks
-// leave ends with their box.
+// whatever started this pass.  Unlike Python's, it stops no scope of its own when it ends, and a
+// service's manager stops what is left in that: either way the lander outlives the wakes it
+// starts until they hand their runs to units of their own (CheckLine), and what its checks leave
+// ends with their box.
 func land(turn string, members []member, env []string) error {
 	ceiling := host.SliceMemoryMax()
 	if ceiling == 0 {
