@@ -34,12 +34,14 @@ func (r refusing) Spent(name string) string {
 	return r.Room.Spent(name)
 }
 
-// unmetered is a read nobody could take: meters nobody could read withhold no reviewer.
+// unmetered is a read nobody could take: meters nobody could read withhold no reviewer, and
+// report no pace, which keeps a payg one out.
 type unmetered struct{}
 
 func (unmetered) Spent(string) string             { return "" }
 func (unmetered) Budget(string) (float64, string) { return 0, "unknown: unread" }
 func (unmetered) OnCredits(string) bool           { return false }
+func (unmetered) Pace(string) (float64, bool)     { return 0, false }
 
 // handExecutor gives this round's work to a model on a provider that refused nothing yet, Python's
 // hand_executor: the same worktree, branch, round and budget, only the model changes, and the record
