@@ -36,9 +36,14 @@ var policy = []struct {
 var defaults = Numbers{defaultRounds, AtMost(DefaultReviewLines), AtMost(50)}
 
 // policyIn is the numbers given names, those of over where it names none, refused as Python's
-// config._policy_in refuses them: a whole number at the floor or above, or a line limit's
-// "no limit".  A number an int cannot hold Go refuses too.
+// config._policy_in refuses them: no old name, and a whole number at the floor or above, or a line
+// limit's "no limit".  A number an int cannot hold Go refuses too.
 func policyIn(given func(key string) (any, bool), over Numbers) (Numbers, error) {
+	for _, names := range policyRenames {
+		if _, old := given(names[0]); old {
+			return over, fmt.Errorf("use %s instead of %s", names[1], names[0])
+		}
+	}
 	read := over.limits()
 	for i, number := range policy {
 		value, set := given(number.key)
@@ -72,6 +77,24 @@ func policyIn(given func(key string) (any, bool), over Numbers) (Numbers, error)
 // limits is the numbers in policy's order, the rounds as the limit they are.
 func (n Numbers) limits() [3]Lines { return [3]Lines{AtMost(n.Rounds), n.ReviewLines, n.SeatLines} }
 
+// Said is the numbers as a run's record keeps them: each under its name, "no limit" as text.
+func (n Numbers) Said() []any {
+	var pairs []any
+	for i, limit := range n.limits() {
+		pairs = append(pairs, policy[i].key, limit.Said())
+	}
+	return pairs
+}
+
+// PolicyKeys is the numbers' names, in policy's order.
+func PolicyKeys() []string {
+	keys := make([]string, len(policy))
+	for i, number := range policy {
+		keys[i] = number.key
+	}
+	return keys
+}
+
 // homeFile is config.toml as the home holds it, empty where there is none, and the numbers it
 // names over ak's defaults (Python's host_policy), refused naming it where it does not read or a
 // number is out of range: what its other tables hold is load's to judge.
@@ -85,7 +108,6 @@ func homeFile() (*table, Numbers, error) {
 	if err != nil {
 		return nil, Numbers{}, fmt.Errorf("%s: %w", path, err)
 	}
-	renamePolicy(root)
 	numbers, err := policyIn(func(key string) (any, bool) {
 		value, set := root.values[key]
 		return value, set
@@ -96,8 +118,8 @@ func homeFile() (*table, Numbers, error) {
 	return root, numbers, nil
 }
 
-// Recorded is the numbers a run's record holds, as given names them, ak's default for one it
-// names none of.
+// Recorded is the numbers a run's record holds, as given names them, an old run's under their
+// old names, ak's default for one it names none of.
 func Recorded(given func(key string) (any, bool)) (Numbers, error) {
-	return policyIn(given, defaults)
+	return policyIn(renamed(given), defaults)
 }

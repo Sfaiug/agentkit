@@ -20,7 +20,7 @@ var (
 	// a black-box test of the program from outside, which a port to another language keeps
 	answerKey = regexp.MustCompile(`^tests/test_key_[^/]*\.py$`)
 	prose     = []string{".md", ".markdown", ".mdx", ".rst", ".adoc"}
-	frontKeys = []string{"tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup", "alive", "nightly", "rounds", "review_lines", "seat_lines"}
+	frontKeys = append([]string{"tests", "health", "cleanup", "users", "features", "suite_image", "content", "setup", "alive", "nightly"}, config.PolicyKeys()...)
 )
 
 // raw is git's output with every byte kept: a name handed back to git names the same file.
