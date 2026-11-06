@@ -29,7 +29,6 @@ func TestAudit(repo string) (Audit, error) {
 	if _, err := os.Stat(Path()); err != nil {
 		return audit, nil
 	}
-	runtimeOnce.Do(cacheCompiles)
 	db, err := connect(Path(), sqlite3.OPEN_READONLY)
 	if err != nil {
 		return audit, err
