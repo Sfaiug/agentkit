@@ -9,9 +9,11 @@ would cost every landing the deadlines of each key whose verb Go lacks.
 
     python3 tests/test_go_keys.py [test_key_name ...]
 
-Key file names keep it to those files' claims, and one go/keys.txt does not list fails.  With
+Key file names keep this file, or a test_go_keys_part_*.py, to those files' claims, and one
+go/keys.txt does not list fails; without names each runs a fixed slice of the claims.  With
 AK_BIN set it judges that program, a relative name read from the checkout, instead of building.
-Without names, this file and test_go_keys_part_*.py each run a fixed slice of the claims.
+Each failing claim is named by its key file's name in the file FAILED_PARTS names: a slice
+takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 """
 
 import os
@@ -23,6 +25,7 @@ import sys
 import tempfile
 import unittest
 
+from suite_shares import name_failed
 from test_go import ENV
 
 REPO = Path(__file__).resolve().parents[1]
@@ -68,8 +71,14 @@ class Claims(unittest.TestCase):
                 if done.returncode or not PASSED.search(done.stderr):
                     failed.append(" ".join((name, *parts)))
                     print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
+        name_failed((claim.split()[0] for claim in failed), "FAILED_PARTS")
         self.assertFalse(failed, "these claims of go/keys.txt fail or skip")
 
 
-if __name__ == "__main__":
+def main():
+    # The claims' names are Claims' own arguments, never unittest's.
     unittest.main(argv=sys.argv[:1], verbosity=2)
+
+
+if __name__ == "__main__":
+    main()
