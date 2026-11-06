@@ -117,12 +117,16 @@ func (l *loop) checksFailed(text string) string {
 	return l.prompt + "\n\n## The done-when commands failed. Fix the root cause.\n```\n" + text + "\n```"
 }
 
-// firstTurn is the round's opening turn: a fixer a host cut off goes on first, on what it was told.
+// firstTurn is the round's opening turn: a fixer a host cut off goes on first, on what it was told,
+// and a turn that answered already is not taken again.
 func (l *loop) firstTurn() (string, error) {
 	if name, _, _ := openWorker(l.roundDir()); name != "" && name != "executor" {
 		l.say(fmt.Sprintf("--- round %d/%d: continuing %s", l.rnd, l.budget, name))
 		checked, _ := os.ReadFile(filepath.Join(l.roundDir(), "donewhen.log"))
 		return l.execute("fixer", name, l.checksFailed(string(checked)), "")
+	}
+	if out := answered(l.roundDir()); out != "" {
+		return l.goOnAnswered(out)
 	}
 	l.say(fmt.Sprintf("--- round %d/%d: executor %s", l.rnd, l.budget, l.executor))
 	if l.rnd > 1 {

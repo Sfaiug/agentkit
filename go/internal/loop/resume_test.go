@@ -87,7 +87,7 @@ func TestAPointGoCannotPickUpFromIsPythons(t *testing.T) {
 		"an executor cut off":       {base(), map[string]map[string]string{"executor": {"session_id": "s"}}, true},
 		"a fixer cut off":           {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}, "fixer": {"session_id": "s"}}, true},
 		"an answer with no closing": {base(), map[string]map[string]string{"executor": {"final.md": "a"}}, false},
-		"the checks cut off":        {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}}, false},
+		"the checks cut off":        {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}}, true},
 		"a review with no pending":  {base(), map[string]map[string]string{"reviewer": {"session_id": "s"}}, false},
 		"a retry of Python's":       {base(), map[string]map[string]string{"executor": {"session_id": "s"}, "executor-retry-1": {}}, false},
 		"a review pending":          {base("review_pending", run.Fields("round", 1, "summary", "s", "failed", []any{})), nil, true},
