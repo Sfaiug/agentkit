@@ -2,9 +2,10 @@
 
 A piece that died by SIGKILL while its cgroup's `oom_kill` count rose meanwhile ran out of
 memory: it runs again after its siblings, and still out of memory it is nobody's red -- the
-pass ends with no verdict, no member sent to its fixer and the target's tip never probed.  A
-piece killed the same way with no count rising is a red like any other, as is one exiting with
-the helper's own out-of-memory code.  Black-box: the program
+pass ends with no verdict, no member sent to its fixer and the target's tip never probed -- as
+is a red piece whose failed tests, run again alone, die so.  A piece killed the same way with
+no count rising is a red like any other, as is one exiting with the helper's own out-of-memory
+code.  Black-box: the program
 `AK_BIN` names checks a landing line from outside through tests/fixtures/akline.py, its cgroup
 the test's (`AK_CGROUP_ROOT`, `AK_CGROUP_FILE`), kept in the project's Git storage, where a
 boxed check may write.  The member's tree kills its piece every go; the tip's passes it, as a
@@ -49,11 +50,18 @@ class MemoryKilledPieceNeverBlamed(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         return line.verdict(1), (storage / "tip.log").exists()
 
-    def test_a_piece_killed_for_memory_blames_nobody(self):
-        verdict, probed = self.land(f"{RAISE}; {KILL}")
+    def assertNobodyBlamed(self, member):
+        verdict, probed = self.land(member)
         self.assertNotIn("fix", verdict, verdict)
         self.assertNotIn("land", verdict, verdict)
         self.assertFalse(probed, "the target's tip was probed")
+
+    def test_a_piece_killed_for_memory_blames_nobody(self):
+        self.assertNobodyBlamed(f"{RAISE}; {KILL}")
+
+    def test_a_retry_killed_for_memory_blames_nobody(self):
+        # the piece fails as a test may; the test it named fails, run alone, for memory
+        self.assertNobodyBlamed(f'[ -n "${{AK_ONLY:-}}" ] || exit 1; {RAISE}; {KILL}')
 
     def test_a_piece_killed_with_no_memory_kill_is_the_members_red(self):
         verdict, _ = self.land(KILL)
