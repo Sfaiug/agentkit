@@ -267,7 +267,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				session = os.Getenv("AGENTKIT_SESSION")
 			}
 			frame.Stop()
-			if !menuConfig(session, shown.cells, keyboard, painter) {
+			if !menuConfig(session, shown.cells, latest.Load, keyboard, painter) {
 				keyboard.Give()
 				return notImplemented(errOut, "attach")
 			}
