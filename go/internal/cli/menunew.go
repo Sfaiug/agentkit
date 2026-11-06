@@ -56,7 +56,7 @@ func startMenuRow(model *menu.Model, dry, overlay bool, keyboard *terminal.Keybo
 	}
 	known = false
 	if err == nil {
-		known, err = seat.Open(d.Name(), d.Orchestrator, d.Models[d.Orchestrator], d.Workers,
+		known, err = seat.Open(d.Name(), d.Orchestrator, d.Models, d.Workers,
 			config.Resolve(cwd), d.Typed == "", d.Reviewers)
 	}
 	if err == nil && !known {

@@ -18,5 +18,5 @@ func Ensure(name string, roles config.Selection, repo string) (bool, error) {
 	if err := os.MkdirAll(cwd, 0o777); err != nil {
 		return true, err
 	}
-	return open(name, roles.Orchestrator, models[roles.Orchestrator], roles.Workers, cwd, false, repo, false, roles.Reviewers)
+	return open(name, roles.Orchestrator, models, roles.Workers, cwd, false, repo, false, roles.Reviewers)
 }

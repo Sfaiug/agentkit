@@ -6,21 +6,34 @@ import (
 )
 
 // EffortStep sets one role's effort. An unworded row follows the model's effort;
-// a worker at that effort follows it too, as Python's menu._set_effort does.
-type EffortStep struct{ Model, Key, Effort string }
+// a worker at that effort follows it too, as Python's menu._set_effort does. Each key of
+// Hold that follows the effort keeps the one it followed, so a new effort leaves it in place.
+type EffortStep struct {
+	Model, Key, Effort string
+	Hold               []string
+}
 
 func (s EffortStep) Apply(held map[string]string) map[string]string {
 	next := maps.Clone(held)
 	if next == nil {
 		next = map[string]string{}
 	}
+	if effort, set := next["effort"]; set {
+		for _, key := range s.Hold {
+			if _, own := next[key]; !own {
+				next[key] = effort
+			}
+		}
+	}
 	word := s.Effort
 	if word == "" {
 		word = next["effort"]
 	}
 	next[s.Key] = word
-	if s.Key != "effort" && word == next["effort"] {
-		delete(next, s.Key)
+	for _, key := range append([]string{s.Key}, s.Hold...) {
+		if key != "effort" && next[key] == next["effort"] {
+			delete(next, key)
+		}
 	}
 	return next
 }
