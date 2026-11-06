@@ -39,7 +39,7 @@ func table(t *ticking) []pass {
 		{"boot resume", true, configured, t.bootResume},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
-		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
+		{"rebooted turns", false, configured, rebootedTurns},
 		{"login resume", true, noLoginResume, nil},
 		// a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which

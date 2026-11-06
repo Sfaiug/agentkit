@@ -12,7 +12,6 @@ import (
 
 	"agentkit/internal/adapters"
 	"agentkit/internal/config"
-	"agentkit/internal/hookfact"
 	"agentkit/internal/host"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -63,8 +62,10 @@ func AccountIdle(live Live) bool {
 // and turns in flight are left at this point, before a relaunch writes anything; a move waits for
 // the input field to read empty (fieldWaits).
 func MoveAccount(live Live, log func(string)) (carried bool, err error) {
-	file := live.File
-	if file.Truthy("usage_wait") || file.Truthy("usage_refusal") || file.Truthy("midturn") {
+	// the line a move to another account owes holds the seat where it is (seat_account); the one a
+	// reboot owes does not
+	file, mark := live.File, live.File.Dict("midturn")
+	if file.Truthy("usage_wait") || file.Truthy("usage_refusal") || file.Truthy("midturn") && (mark == nil || mark.Truthy("account")) {
 		return false, nil
 	}
 	if AccountIdle(live) {
@@ -95,7 +96,7 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		return false, nil
 	}
 	spent := own.Spent != ""
-	work := hookfact.Standing(live.Name).Holds
+	work := holding(live.Name)
 	if !spent && len(work) > 0 {
 		return true, nil
 	}
@@ -133,9 +134,9 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		if err := live.accountStill(live.Name, !spent); err != nil {
 			return err
 		}
-		work := hookfact.Standing(live.Name).Holds
+		work := holding(live.Name)
 		back.still = func(name string) error {
-			if !slices.Equal(hookfact.Standing(name).Holds, work) {
+			if !slices.Equal(holding(name), work) {
 				return errAccountChanged
 			}
 			return live.accountStill(name, !spent)
@@ -196,7 +197,7 @@ func (live Live) accountStill(name string, between bool) error {
 	}
 	tty, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", at.pane, "#{pane_tty}")
 	info, statErr := os.Stat(tty)
-	if err != nil || statErr != nil || !terminalQuiet(info) || len(hookfact.Standing(name).Holds) > 0 {
+	if err != nil || statErr != nil || !terminalQuiet(info) || len(found.holds) > 0 || len(holding(name)) > 0 {
 		return errAccountChanged
 	}
 	return nil

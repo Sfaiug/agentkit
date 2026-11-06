@@ -77,6 +77,8 @@ type sight struct {
 	hookedAt                         any
 	interrupted                      bool // the owner stopped its last turn: until their next prompt it rests
 	typedByAk                        bool // its composer holds the line ak typed last, not the owner's
+	holds                            []string
+	heldRead                         bool // its screen said what it holds, none or some: else the last read stands
 }
 
 // observed is watch.observed: what a capture shows of a seat, against its files as they stand,
@@ -96,6 +98,7 @@ func observed(state, name string, reader harness.Reader, pane string, now float6
 	fact := reader.HookFact(name)
 	found = classify(own, seen.rules.Read(pane), fact, previous, now, endedAt(name, own, record, seen.rules, pane, fact, now))
 	found.typedByAk = found.state == "draft" && typedByAk(name, seen.rules, pane)
+	found.holds, found.heldRead = seen.rules.Held(tail)
 	switch {
 	case pane == "":
 		found.stall, found.login = previous.Get("stall"), previous.Get("login")
@@ -146,6 +149,9 @@ func (seat Seat) keep(state, pane string, exited bool, found sight, previous *ru
 	fields := []field{{"state", found.state}, {"since", found.since}, {"began", found.began}, {"authority", found.authority},
 		{"rule", found.rule}, {"evidence", found.evidence}, {"hooked", orNone(found.hooked)}, {"hooked_at", found.hookedAt}, {"hooked_event", orNone(found.hookedEvent)},
 		{"interrupted", found.interrupted}, {"stall", found.stall}, {"login", found.login}}
+	if found.heldRead {
+		fields = append(fields, field{"holds", modelList(found.holds)})
+	}
 	return found, writeSeat(state, seat.Name, append(fields, turnMarks(seen.rules, tail, found, previous, now)...))
 }
 

@@ -2,9 +2,11 @@ package seat
 
 import (
 	"cmp"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"agentkit/internal/config"
@@ -23,7 +25,7 @@ type Comeback struct {
 // AfterBoot is every seat resume_after_boot reopens, by name, but those attempted: absent, its
 // conversation its own, not closed by the owner, and cut off owing (watch.cut_off) or owing work
 // (watch.owes_work).  False where one hangs on what Go does not read, or opens it as Go does not:
-// background work it held, runs of its own, a project's checkout.
+// runs of its own, a project's checkout.
 func (home Home) AfterBoot(attempted []any) ([]Comeback, bool) {
 	state := filepath.Join(config.Home(), "state")
 	seats := slices.SortedFunc(slices.Values(home.records), func(a, b Seat) int { return cmp.Compare(a.Name, b.Name) })
@@ -52,21 +54,29 @@ func (home Home) AfterBoot(attempted []any) ([]Comeback, bool) {
 	return back, true
 }
 
-// cutLine is the line a seat cut off is told once back (watch._cut_line): it asked, its question
-// on its screen or standing in its notices, or it was in a turn; "" for neither.  False where it
-// held background work, whose line Go does not word.
+// cutLine is the line a seat cut off owing is told once back (watch.cut_off): it asked, its
+// question on its screen or standing in its notices, or it was in a turn; after either, or alone,
+// the background work its process held, which alone owes unless it is only a watch.  "" where it
+// owes none of it.
 func (seat Seat) cutLine() (string, bool) {
-	found, held, err := seat.lastSeen()
-	if err != nil || held {
+	found, err := seat.lastSeen()
+	if err != nil {
 		return "", false
 	}
+	var said []string
 	if found.state == "asking" || notify.OwnerQuestion(notify.Last(seat.Name)) {
-		return QuestionContinue, true
+		said = append(said, QuestionContinue)
+	} else if flight, _ := found.turnInFlight(seat.own); flight {
+		said = append(said, MidturnContinue)
 	}
-	if flight, _ := found.turnInFlight(seat.own); flight {
-		return MidturnContinue, true
+	work := holding(seat.Name)
+	if len(said) == 0 && !slices.ContainsFunc(work, func(kind string) bool { return kind != "monitor" }) {
+		return "", true
 	}
-	return "", true
+	if len(work) > 0 {
+		said = append(said, fmt.Sprintf(heldContinue, strings.Join(work, ", ")))
+	}
+	return strings.Join(said, " "), true
 }
 
 // owesWork is whether a seat nobody is in still owes work (watch.owes_work): a notice standing, its

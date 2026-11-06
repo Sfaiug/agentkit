@@ -78,7 +78,7 @@ type plugin struct {
 	// line (`title_command`).
 	opens, titled bool
 	launch        func() (*run.Object, []string)
-	launched      func(string, string, *run.Object) (*run.Object, []string, error)
+	launched      func(seat, cwd, conversation string, before *run.Object) (*run.Object, []string, error)
 	retire        func(*run.Object) error
 	handed        func(*run.Object) (string, bool)
 	moveReady     func() bool

@@ -14,15 +14,22 @@ type Account struct {
 	Budget                float64
 }
 
-// SeatAccounts is Accounts as a fresh snapshot reads them, nothing probed or written: refreshing
-// a seat's account meters remains Python's, at the seat_account point that needs them.
+// SeatAccounts is Accounts as seat_account reads them: a fresh snapshot's, nothing probed or
+// written, else, where none is fresh, every provider asked again, as Python's collect asks.
 func SeatAccounts(name, home string) ([]Account, error) {
 	models, err := config.Entries()
 	blob := object(read())
 	now := clock()
 	at, dated := number(blob.Get("fetched_at"))
-	if err != nil || !dated || now-at > cacheTTL {
+	if err != nil {
 		return nil, ErrPython
+	}
+	if !dated || now-at > cacheTTL {
+		readings, err := Collected()
+		if err != nil {
+			return nil, err
+		}
+		return readings.Accounts(name, home)
 	}
 	return (&Readings{providers: object(blob.Get("providers")), models: models, now: now}).Accounts(name, home)
 }

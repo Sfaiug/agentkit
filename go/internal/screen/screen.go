@@ -28,6 +28,7 @@ type Reading struct{ State, Rule, Evidence string }
 type Rules struct {
 	composer, footer, tray *pyre.Regexp // each reads a whole row
 	away, scrolled, draft  *pyre.Regexp
+	held                   *pyre.Regexp // the background work it draws running
 	ruled, boxed, scrolls  bool
 	faint                  []string
 	rules                  []rule
@@ -84,7 +85,8 @@ func Compile(chrome map[string]any, rules []map[string]any) (*Rules, error) {
 		whole  bool
 		flags  pyre.Flag
 	}{{&read.composer, chrome["composer"], true, 0}, {&read.footer, footer, true, pyre.IgnoreCase}, {&read.tray, chrome["tray"], true, 0},
-		{&read.away, chrome["away"], false, 0}, {&read.scrolled, chrome["scrolled"], false, 0}, {&read.draft, chrome["draft"], false, pyre.Multiline}} {
+		{&read.away, chrome["away"], false, 0}, {&read.scrolled, chrome["scrolled"], false, 0}, {&read.draft, chrome["draft"], false, pyre.Multiline},
+		{&read.held, chrome["held"], false, pyre.Multiline}} {
 		var err error
 		if *each.into, err = pattern(each.source, each.flags, each.whole); err != nil {
 			return nil, err

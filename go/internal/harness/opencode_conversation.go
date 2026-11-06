@@ -18,7 +18,7 @@ func opencodeConversation(record map[string]any) string {
 	if !launchToken.MatchString(token) {
 		return ""
 	}
-	reported, err := os.ReadFile(filepath.Join(config.Home(), "state", "opencode-launch-"+token, "session"))
+	reported, err := os.ReadFile(filepath.Join(opencodeReceipt(token), "session"))
 	session := strings.TrimFunc(string(reported), config.Space)
 	if err != nil || !opencodeSession.MatchString(session) {
 		return ""

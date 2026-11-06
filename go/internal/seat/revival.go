@@ -12,7 +12,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/hookfact"
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -81,14 +80,14 @@ func revivalKind(kind, suffix string) bool {
 // cutNothing is whether the seat's end cut off no turn, question or background work its last look
 // or newer hook says it had (watch.cut_off).
 func (seat Seat) cutNothing() bool {
-	found, held, err := seat.lastSeen()
+	found, err := seat.lastSeen()
 	flight, _ := found.turnInFlight(seat.own)
-	return err == nil && found.state != "asking" && !flight && !held && !revivalFile(seat.Name).Truthy("reopened_at")
+	return err == nil && found.state != "asking" && !flight && len(holding(seat.Name)) == 0 && !revivalFile(seat.Name).Truthy("reopened_at")
 }
 
 // lastSeen is what the seat was doing when its process went (watch._cut_line): its last look,
-// unless its hook has spoken since, and whether either says it held background work.
-func (seat Seat) lastSeen() (sight, bool, error) {
+// unless its hook has spoken since.
+func (seat Seat) lastSeen() (sight, error) {
 	file := revivalFile(seat.Name)
 	fact := seat.reader.HookFact(seat.Name)
 	hooked, event, err := lifecycle.State(seat.own, fact)
@@ -96,7 +95,7 @@ func (seat Seat) lastSeen() (sight, bool, error) {
 	if hooked != "" && fact.At != 0 && fact.At != at(file.Get("hooked_at")) {
 		found = sight{state: hooked, hooked: hooked, hookedEvent: event}
 	}
-	return found, len(hookfact.Standing(seat.Name).Holds) > 0 || file.Truthy("holds"), err
+	return found, err
 }
 
 func revivalFile(name string) *run.Object {
@@ -121,6 +120,7 @@ func (seat Seat) revivalLine() (string, bool) {
 	line, known := "", true
 	if record != nil && conversationOwned(seat.reader, record) {
 		line, known = seat.cutLine()
+		known = known && len(holding(seat.Name)) == 0
 	}
 	if line == "" {
 		notice := notify.Last(seat.Name)

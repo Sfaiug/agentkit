@@ -28,8 +28,17 @@ func museInteractive(root string, args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "muse interactive: no rulebook for this seat")
 		return 2
 	}
-	line := []string{"env", "MUSE_NO_AUTO_UPDATE=1", "MUSE_LAUNCHER_INSTALL=0", "TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE=" + rulebook,
-		filepath.Join(root, "bin", "ak"), "adapter", root, "muse", "seat", "--", "muse"}
+	// the line runs later, outside this adapter's environment: an account's login goes into it by name
+	var login []string
+	if account := os.Getenv("AGENTKIT_ACCOUNT"); account != "" {
+		if err := museHome(account); err != nil {
+			fmt.Fprintln(errOut, "muse interactive:", err)
+			return 2
+		}
+		login = []string{"env", "-u", "META_API_KEY", "XDG_CONFIG_HOME=" + museConfig(account)}
+	}
+	line := append(login, "env", "MUSE_NO_AUTO_UPDATE=1", "MUSE_LAUNCHER_INSTALL=0", "TBH_EVAL_APPEND_SYSTEM_PROMPT_FILE="+rulebook,
+		filepath.Join(root, "bin", "ak"), "adapter", root, "muse", "seat", "--", "muse")
 	if len(args) > 2 && args[2] != "" {
 		line = append(line, "resume", args[2])
 	}

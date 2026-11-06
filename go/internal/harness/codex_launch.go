@@ -18,7 +18,7 @@ func codexToken() string {
 	return hex.EncodeToString(token[:])
 }
 
-func codexLaunched(cwd, conversation string, before *run.Object) (*run.Object, []string, error) {
+func codexLaunched(_, cwd, conversation string, before *run.Object) (*run.Object, []string, error) {
 	if conversation != "" {
 		return nil, nil, errors.New("Codex ownership changed before launch; reopen the seat to start fresh")
 	}

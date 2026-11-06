@@ -74,13 +74,6 @@ accounts=['default','second']
 			}
 		})
 	}
-	stale := run.Line(fields("fetched_at", now-600, "providers", fields()))
-	if err := os.WriteFile(filepath.Join(state(), "usage.json"), []byte(stale), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SeatAccounts("opus", "default"); !errors.Is(err, ErrPython) {
-		t.Fatal("stale account meters were used", err)
-	}
 	missing := run.Line(fields("fetched_at", now, "providers", fields("test", fields("accounts", fields("default", reading(97, 10, 0, 0))))))
 	if err := os.WriteFile(filepath.Join(state(), "usage.json"), []byte(missing), 0o600); err != nil {
 		t.Fatal(err)

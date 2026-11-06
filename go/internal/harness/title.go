@@ -13,6 +13,9 @@ import (
 	"agentkit/internal/run"
 )
 
+// Titles is whether that harness's seat takes a title line (its plugin's `title_command`).
+func Titles(name string) bool { return plugins[name].titled }
+
 // SessionTitle is the custom title the conversation a seat's record names was last given (its
 // plugin's `session_title`): "" for none, nil where it cannot be read or its harness keeps none Go
 // reads.  Kept is what cache, the reading carried over from the last, is to hold now, nil where it
