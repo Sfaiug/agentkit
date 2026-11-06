@@ -9,7 +9,7 @@ import (
 // words, which its look after the event checks (hooks/seat-state.sh's `look`), or their answer on
 // the harness's own question card, which is recorded here (seat.AnswerCard); nil for anything
 // else.  False where that answer is Python's to record, with nothing written.
-func heardAnswer(event *run.Object, at float64, row string) (*seat.Prompt, bool) {
+func heardAnswer(event *run.Object, at float64, launched string) (*seat.Prompt, bool) {
 	switch event.Str("hook_event_name") {
 	case "UserPromptSubmit":
 		if words := ownersWords(event); words != nil {
@@ -17,7 +17,7 @@ func heardAnswer(event *run.Object, at float64, row string) (*seat.Prompt, bool)
 		}
 	case "PostToolUse":
 		if replies := cardReplies(event); replies != nil {
-			return nil, seat.AnswerCard(row, at, replies)
+			return nil, seat.AnswerCard(launched, at, replies)
 		}
 	}
 	return nil, true

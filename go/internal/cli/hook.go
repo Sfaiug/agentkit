@@ -73,6 +73,12 @@ func seatState(payload []byte, out io.Writer) int {
 		}
 		tellPrompt(seat, event, out)
 	}
+	// The answer it heard goes first: a rename taken while it waits moves the seat its fact
+	// goes to.
+	heard, carried := heardAnswer(event, at, seat)
+	if !carried {
+		return leftToPython
+	}
 	// `ak orch rename` leaves a pointer at the old name, and the harness carries its launch
 	// name for its whole life.
 	row := seat
@@ -89,10 +95,6 @@ func seatState(payload []byte, out io.Writer) int {
 			break
 		}
 		row = next
-	}
-	heard, carried := heardAnswer(event, at, row)
-	if !carried {
-		return leftToPython
 	}
 	kind := first(event, "notification_type", "notificationType", "tool_name", "toolName", "trigger")
 	text := question(event)

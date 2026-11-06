@@ -27,8 +27,8 @@ const cardWait = 2 * time.Second
 // and with no notice then, a needs you only the screen said is what was answered.  Only a hook in
 // the seat's own pane answers.  False, with nothing written, where that is Python's to record: a
 // notice standing, whose questions the card may answer; a question kept back for a turn since
-// ended, which it asks first; a conversation Go cannot name; a history that cannot take the rows;
-// and a notice lock not had in time.
+// ended, which it asks first; a conversation Go cannot name; a history or seat file that cannot
+// take what it writes; and a notice lock not had in time.
 func AnswerCard(name string, at float64, replies [][]string) bool {
 	if _, own := inPane(name); !own {
 		return true
@@ -44,7 +44,8 @@ func AnswerCard(name string, at float64, replies [][]string) bool {
 }
 
 // answerCard is AnswerCard under the seat's notice lock, which the caller holds: the owner's rows
-// go first, so a history that cannot take them leaves the questions kept for Python.
+// and the questions they answer leaving the seat are one commit, so where either cannot be
+// written neither is, and the answer is Python's.
 func answerCard(name string, at float64, replies [][]string) error {
 	file, _ := run.ReadJSON(seatFile(name))
 	var kept []*run.Object
@@ -56,11 +57,10 @@ func answerCard(name string, at float64, replies [][]string) error {
 	if notify.Standing(name) || firstOpen(left) > 0 || !known {
 		return errPython
 	}
-	if history.OwnerTime(conversation, ownerTime(answered, at)) != nil {
+	if len(answered) > 0 && history.OwnerTime(conversation, ownerTime(answered, at), func() error {
+		return dropKept(name, answered)
+	}) != nil {
 		return errPython
-	}
-	if err := dropKept(name, answered); err != nil {
-		return err
 	}
 	if err := askKept(name, true); err != nil || notify.Standing(name) {
 		return err
@@ -117,9 +117,6 @@ func ownerTime(answered []*run.Object, at float64) []history.Moment {
 
 // dropKept has those questions leave what the seat keeps back, and any kept since stay.
 func dropKept(name string, answered []*run.Object) error {
-	if len(answered) == 0 {
-		return nil
-	}
 	path := seatFile(name)
 	return put(path, strings.TrimSuffix(path, ".json")+".lock", run.Line, false, func(data *run.Object) bool {
 		var left []*run.Object
