@@ -61,7 +61,7 @@ func readAll(shipped bool) (*Readings, error) {
 	if err != nil {
 		return nil, err
 	}
-	models, err := config.Models()
+	models, err := config.Entries()
 	if err != nil {
 		return nil, err
 	}

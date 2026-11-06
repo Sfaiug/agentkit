@@ -17,7 +17,7 @@ type Account struct {
 // SeatAccounts is Accounts as a fresh snapshot reads them, nothing probed or written: refreshing
 // a seat's account meters remains Python's, at the seat_account point that needs them.
 func SeatAccounts(name, home string) ([]Account, error) {
-	models, err := config.Models()
+	models, err := config.Entries()
 	blob := object(read())
 	now := clock()
 	at, dated := number(blob.Get("fetched_at"))

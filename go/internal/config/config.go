@@ -616,16 +616,7 @@ func resolve(root *table, name string) (Model, error) {
 	if _, exists := root.values["providers"].(*table).values[provider]; !valid || !exists {
 		return Model{}, fmt.Errorf("~/.agentkit/config.toml: [models.%s].provider=%s has no [providers.*] entry", name, valueRepr(entry.values["provider"]))
 	}
-	harness, _ := entry.values["harness"].(string)
-	efforts := map[string]string{}
-	for _, key := range RoleEfforts {
-		if word, ok := entry.values[key].(string); ok {
-			efforts[key] = word
-		}
-	}
-	meter, _ := entry.values["meter"].(string)
-	mode, _ := entry.values["mode"].(string)
-	return Model{provider, fmt.Sprint(entry.values["model"]), harness, efforts, meter, mode}, nil
+	return modelOf(entry), nil
 }
 
 func valueRepr(value any) string {

@@ -132,7 +132,7 @@ func recordPairs(src source, name, effort, role, runID string, before, meters []
 		}
 		meters, at = prov.List("meters"), measured
 	}
-	models, err := config.Models()
+	models, err := config.Entries()
 	if err != nil {
 		return
 	}
