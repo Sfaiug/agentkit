@@ -34,6 +34,10 @@ func (l *loop) rounds() (bool, error) {
 		if landingLine(record) != "" || l.prior && run.ReviewPass(record, run.Models()) && savedIntegrationPass(record) {
 			return true, nil // a saved PASS resumes delivery, never a task round
 		}
+		pending := record.Dict("review_pending")
+		if r, landing := l.place.(*repoPlace); landing && l.prior && pending != nil && pending.Get("record") == false {
+			return l.landAgain(r)
+		}
 	}
 	if l.prior {
 		if passed, err := l.resumeReview(); err != nil || passed {

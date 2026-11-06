@@ -6,14 +6,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
-	"agentkit/internal/usage"
 )
 
 // pythonRoads are what a record holds on a road Go does not drive: Python's to resume.
@@ -24,18 +22,25 @@ var pythonRoads = []string{"job_id", "review_pr", "from_pass", "waiting_on", "pi
 // executor or the fixer, at the checks after their answer, or at the next round's start.  Decided
 // before anything is written, as Python's resume takes any other point.
 func Pickup(dir string, record *run.Object) bool {
-	if record.Str("state") == "waiting" {
+	switch record.Str("state") {
+	case "waiting":
 		return waitingPickup(dir, record)
+	case "exhausted":
+		return exhaustedPickup(dir, record)
+	case "running", "interrupted", "error":
+		return record.Truthy("no_merge") && cutOff(dir, record) && pairReady(dir, record)
 	}
-	if state := record.Str("state"); state != "running" && state != "interrupted" && state != "error" {
-		return false
-	}
+	return false
+}
+
+// cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from.
+func cutOff(dir string, record *run.Object) bool {
 	for _, key := range pythonRoads {
 		if record.Truthy(key) {
 			return false
 		}
 	}
-	if run.Lined(record) || !record.Truthy("no_merge") || record.Str("verdict") == "PASS" || !unitless(record) ||
+	if run.Lined(record) || record.Str("verdict") == "PASS" || !unitless(record) ||
 		!record.Truthy("executor") || !record.Truthy("reviewer") || !record.Has("round_summaries") || !isDir(record.Str("worktree")) {
 		return false
 	}
@@ -46,7 +51,7 @@ func Pickup(dir string, record *run.Object) bool {
 			}
 		}
 	}
-	return point(dir, record) && pairReady(record)
+	return point(dir, record)
 }
 
 // Woken is whether the run waits in its landing line on a verdict its lander wrote, which Go
@@ -76,7 +81,8 @@ func unitless(record *run.Object) bool {
 }
 
 // point is whether the run was cut off where Go goes on from, Python's rounds and continuation: a
-// retry directory and an answer with no closing are Python's roads.
+// retry directory and an answer with no closing are Python's roads, but for the refusal a run
+// waits out on a provider's window, which is no answer.
 func point(dir string, record *run.Object) bool {
 	rounds, known := record.Int("rounds")
 	spent := len(record.List("round_summaries"))
@@ -84,6 +90,10 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	if pending := record.Dict("review_pending"); pending != nil {
+		if pending.Get("record") == false {
+			// a landing's review, which spends no round: the resume takes the target in again (landAgain)
+			return !pending.Has("handed") && len(pending.List("failed")) == 0
+		}
 		left, _, err := run.ChangeLeft(record, dir, rounds, 0, time.Now())
 		round, numbered := pending.Int("round")
 		for _, key := range []string{"record", "reason", "handed", "passed_head_sha"} {
@@ -105,7 +115,8 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	name, _, _ := openWorker(round)
-	return name != "" && !exists(filepath.Join(latestTurn(round, name), "final.md")) || answered(round) != ""
+	refused := run.ExhaustedWait(record) == "window"
+	return name != "" && (refused || !exists(filepath.Join(latestTurn(round, name), "final.md"))) || answered(round) != ""
 }
 
 // retried is whether Python's retries wrote in that round, which Go does not read on.
@@ -116,23 +127,10 @@ func retried(round string) bool {
 
 // pairReady is whether the saved pair goes on as it is, which leaves no pick to make: a model that
 // cannot run and a reviewer no longer eligible are for Python's to hand over, and so is a saved
-// self-review, but for one whose executor answered with no other reviewer ready, which Python keeps.
-func pairReady(record *run.Object) bool {
-	l := &loop{workers: names(record.List("workers")), reviewers: names(record.List("reviewers"))}
-	rules, ok := l.rules()
-	if !ok {
-		return false
-	}
-	readings, err := usage.Read()
-	if err != nil {
-		return false
-	}
-	room := ready{readings, unable()}
-	executor, reviewer := record.Str("executor"), record.Str("reviewer")
-	order := rules.Order(room, true, io.Discard)
-	own := rules.Same(executor, reviewer) && (!record.Truthy("review_pending") ||
-		slices.ContainsFunc(order, func(other string) bool { return !rules.Same(executor, other) }))
-	return room.Spent(executor) == "" && !own && slices.Contains(order, reviewer)
+// self-review where a pair that is none is ready.
+func pairReady(dir string, record *run.Object) bool {
+	rules, room, ok := picking(record)
+	return ok && asIs(dir, record, rules, room)
 }
 
 // delivery is what the last attempt's ending said, Python's clear_delivery: this one owes its own.

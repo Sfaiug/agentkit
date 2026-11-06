@@ -14,7 +14,7 @@ func waitingPickup(dir string, record *run.Object) bool {
 			return false
 		}
 	}
-	return run.IntegrationNote(dir, record) && savedIntegrationPass(record) && pairReady(record)
+	return run.IntegrationNote(dir, record) && savedIntegrationPass(record) && pairReady(dir, record)
 }
 
 func savedIntegrationPass(record *run.Object) bool {

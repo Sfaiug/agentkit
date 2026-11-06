@@ -84,14 +84,14 @@ func Read(dir string) (*Object, error) {
 	return ReadJSON(filepath.Join(dir, "run.json"))
 }
 
-// Reap is the record as Python's reap leaves an ended run a listing reads, and whether that
-// reap would end what the run started: a passed or failed run whose loop died before its final
-// cleanup is swept once per loop, the sweep stamped as `tree_stopped`; a stop and a run found
-// not needed ended theirs on purpose.  A run that recorded no pid and no scope started nothing
-// to sweep, so only the stamp changes, here in memory alone.
+// Reap is the record as Python's reap leaves an ended or exhausted run a listing reads, and
+// whether that reap would end what the run started: a passed, failed or exhausted run whose loop
+// died before its final cleanup is swept once per loop, the sweep stamped as `tree_stopped`; a
+// stop and a run found not needed ended theirs on purpose.  A run that recorded no pid and no
+// scope started nothing to sweep, so only the stamp changes, here in memory alone.
 func Reap(record *Object) (*Object, bool) {
 	loop := []any{record.Get("pid"), record.Get("process_identity")}
-	if !(Failed(record) || record.Str("state") == "pass") || ProcessActive(record) || Equal(record.Get("tree_stopped"), loop) {
+	if !(Failed(record) || stateIn(record, []string{"pass", "exhausted"})) || ProcessActive(record) || Equal(record.Get("tree_stopped"), loop) {
 		return record, false
 	}
 	if record.Get("pid") != nil || record.Get("scope") != nil {

@@ -116,8 +116,7 @@ func checkouts(stands func() []stand) []string {
 
 // inFlight is orch.in_flight, by name: what the other seats have on the checkout, each filed
 // under it or with a going run on it, and the going runs launched from none; or false where a
-// record, a plan or a path cannot be read as Python does, or a run on it is `exhausted`, whose
-// going is Python's (`exhausted_wait`).
+// record, a plan or a path cannot be read as Python does.
 func inFlight(name, repo string, stands func() []stand, now time.Time) ([]flight, bool) {
 	target := checkoutOf(repo, stands)
 	if target == "" {
@@ -155,12 +154,8 @@ func inFlight(name, repo string, stands func() []stand, now time.Time) ([]flight
 		if seat == "" && (record.Truthy("launched_session") || record.Truthy("session")) {
 			return nil, false // a rename chain Python refuses
 		}
-		exhausted := record.Str("state") == "exhausted"
-		if seat == name || !exhausted && !run.Going(record, now) || run.SmokeRun(record) || checkoutOf(record.Str("repo"), stands) != target {
+		if seat == name || !run.Going(record, now) || run.SmokeRun(record) || checkoutOf(record.Str("repo"), stands) != target {
 			continue
-		}
-		if exhausted {
-			return nil, false
 		}
 		files, known := changedFiles(dir, record)
 		if !known {

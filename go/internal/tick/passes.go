@@ -55,7 +55,7 @@ func table(t *ticking) []pass {
 		{"usage refresh", true, configured, t.wet(refreshUsage)},
 		{"login reminder", false, nil, t.remindLogins},
 		{"token reminder", false, nil, t.remindTokens},
-		{"exhausted resume", true, noExhaustedResume, nil},
+		{"exhausted resume", true, all(configured, unseated, t.dryly(noExhaustedResume)), t.wet(t.exhaustedResume)},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
 		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
 		{"old endings", false, nil, func() error {

@@ -37,9 +37,6 @@ func TestFilingLeavesToPythonWhatGoCannotRead(t *testing.T) {
 			write(t, filepath.Join(state, "session-b.json"), `{"renamed": "a"}`)
 			runRecord(t, home, "r", map[string]any{"state": "pass", "launched_session": "a"})
 		},
-		"an exhausted run on the checkout": func(t *testing.T, home, state string) {
-			runRecord(t, home, "r", map[string]any{"state": "exhausted", "launched_session": "other", "repo": onAcme(home)})
-		},
 		"a plan that is not UTF-8": func(t *testing.T, home, state string) {
 			record(t, home, "other", map[string]any{"repo": onAcme(home)})
 			write(t, filepath.Join(state, "plan-other.md"), "- [ ] \xff\n")

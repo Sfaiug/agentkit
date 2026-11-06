@@ -41,7 +41,7 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 		"seat health":      `{"state":"waiting_login"}`,
 		"dead loops":       `{"state":"running","scope":"acme.scope"}`,
 		"stall recovery":   `{"state":"stalled"}`,
-		"exhausted resume": `{"state":"exhausted","quota_dry":true}`,
+		"exhausted resume": `{"state":"exhausted","error":"reviewer: API/transport errors"}`,
 		"error retry":      `{"state":"error","error_retry_at":1,"title":"\ud800"}`,
 		"waiting resume":   `{"state":"fail","waiting_on":{"line":"older"}}`,
 		"endings":          `{"state":"pass","launched_session":"acme","merged":true}`,
