@@ -4,8 +4,9 @@ package whose test binary died, or that failed with no test of its own failing, 
 path and none of its tests; a step by what it checks, the vet of the caller's own platform among
 them.  Given parts it runs just those after the toolchain check, a step on its platform, a named
 test with no event failing as not there; without, every part in its order.  The caller's GOFLAGS
-hold in every run it makes; a vet they ask as JSON fails by what it finds, never by the `{}` of a
-package it finds nothing in, and a build by its exit code alone, whatever it prints.
+hold in every run it makes; a vet fails by what it finds, shown, in text or as the JSON they may
+ask, never by the `{}` of a package it finds nothing in, and a build by its exit code alone,
+whatever it prints.
 
 Offline: the real test_go.py runs with a fake `go` first on PATH, on the platform ACME_HOST
 names, noting each call and its GOFLAGS, whose `test -json` prints the events a test hands it,
@@ -147,17 +148,20 @@ class GoNamesItsFailingTests(unittest.TestCase):
     def test_a_failing_vet_of_the_callers_own_platform_is_named_by_it_and_given_runs_there(self):
         code, out, parts, _ = self.checked(ACME_BROKEN="go vet linux/arm64")
         self.assertEqual((code, parts), (1, ["vet linux/arm64"]), out)
+        self.assertIn("go vet linux/arm64 broke", out)
         code, out, parts, calls = self.checked("vet linux/arm64", host="linux/amd64",
                                                ACME_BROKEN="go vet linux/arm64")
         self.assertEqual((code, parts, calls), (1, ["vet linux/arm64"],
                                                 [TOOLCHAIN, "go vet linux/arm64"]), out)
 
     def test_a_json_vet_fails_by_what_it_finds_and_a_build_by_its_exit_code_alone(self):
-        for part, prints, expected in (("vet linux/arm64", CLEAN, (0, [])),
-                                       ("vet linux/arm64", CLEAN + FOUND, (1, ["vet linux/arm64"])),
-                                       ("build linux/arm64", BUILT, (0, []))):
-            code, out, parts, _ = self.checked(part, ACME_PRINTS=prints)
-            self.assertEqual((code, parts), expected, out)
+        code, out, parts, _ = self.checked("vet linux/arm64", ACME_PRINTS=CLEAN)
+        self.assertEqual((code, parts), (0, []), out)
+        code, out, parts, _ = self.checked("vet linux/arm64", ACME_PRINTS=CLEAN + FOUND)
+        self.assertEqual((code, parts), (1, ["vet linux/arm64"]), out)
+        self.assertIn("wrong type", out)
+        code, out, parts, _ = self.checked("build linux/arm64", ACME_PRINTS=BUILT)
+        self.assertEqual((code, parts), (0, []), out)
 
     def test_the_callers_own_platform_go_ships_on_is_vetted_first_and_once(self):
         _, out, _, calls = self.checked(host="darwin/arm64")
