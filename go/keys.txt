@@ -144,6 +144,7 @@ test_key_merge_body_query
 test_key_merge_delivery
 test_key_merge_retry
 test_key_merge_trailer
+test_key_model_followed_grokbuild
 test_key_model_rows_fold_when_narrow
 test_key_model_typed_forms
 test_key_model_typed_forms ModelNames
