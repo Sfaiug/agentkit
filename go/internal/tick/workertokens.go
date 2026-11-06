@@ -93,8 +93,8 @@ func tokenAuth(harness string) (answered bool, why string) {
 }
 
 // remindTokens is the token reminder row (watch.remind_worker_tokens): the owner paged once a local
-// day for each worker token that ends within remindWithin, as a login's end is, by its harness
-// alone, `claude worker token`, the outbox keeping the token's warning.  The poll left none dead.
+// day for each worker token that ends within remindWithin, as a login's end is, the card naming
+// only its harness's token, the outbox keeping the token's warning.  The poll left none dead.
 func (t *ticking) remindTokens() error {
 	now := t.clock()
 	tokens := t.state.Dict("worker_tokens")
