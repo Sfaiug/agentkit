@@ -12,7 +12,7 @@ would cost every landing the deadlines of each key whose verb Go lacks.
 Key file names keep this file, or a test_go_keys_part_*.py, to those files' claims, and one
 go/keys.txt does not list fails; without names each runs a fixed slice of the claims.  With
 AK_BIN set it judges that program, a relative name read from the checkout, instead of building.
-Each failing claim is named by its key file's name in the file AK_FAILED_PARTS names: a slice
+Each failing claim is named by its key file's name in the file FAILED_PARTS names: a slice
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 """
 
@@ -71,7 +71,7 @@ class Claims(unittest.TestCase):
                 if done.returncode or not PASSED.search(done.stderr):
                     failed.append(" ".join((name, *parts)))
                     print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
-        name_failed((claim.split()[0] for claim in failed), "AK_FAILED_PARTS")
+        name_failed((claim.split()[0] for claim in failed), "FAILED_PARTS")
         self.assertFalse(failed, "these claims of go/keys.txt fail or skip")
 
 

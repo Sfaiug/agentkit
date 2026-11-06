@@ -19,7 +19,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import suite_times
 
 # Notes the parts each run runs, all three without arguments; fix_api fails on the first
-# ACME_FAILING_RUNS runs and is named in the file AK_FAILED_PARTS names.
+# ACME_FAILING_RUNS runs and is named in the file FAILED_PARTS names.
 STAND_IN = '''import os, pathlib, sys
 log = pathlib.Path(os.environ["ACME_LOG"])
 runs = len(log.read_text().splitlines()) if log.exists() else 0
@@ -28,7 +28,7 @@ with log.open("a") as fh:
     fh.write(" ".join(parts) + "\\n")
 failing = [part for part in parts
            if part == "fix_api" and runs < int(os.environ["ACME_FAILING_RUNS"])]
-with open(os.environ["AK_FAILED_PARTS"], "a") as fh:
+with open(os.environ["FAILED_PARTS"], "a") as fh:
     fh.writelines(f"{part}\\n" for part in failing)
 print(f"TESTS_RUN={len(parts)}")
 sys.exit(bool(failing))
@@ -106,7 +106,7 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         done = subprocess.run(
             [sys.executable, self.root / "tests/test_go_keys_part_2.py", "test_key_widget"],
             env=dict(self.base, AK_BIN="/bin/true", ACME_LOG=str(self.root / "ran.log"),
-                     ACME_FAILS="test_key_widget", AK_FAILED_PARTS=str(self.root / "parts")),
+                     ACME_FAILS="test_key_widget", FAILED_PARTS=str(self.root / "parts")),
             capture_output=True, text=True, timeout=120)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
         self.assertEqual(self.read("ran.log"), ["test_key_widget"])

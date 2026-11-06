@@ -22,9 +22,10 @@ reads by the running interpreter's rules), and import only from the standard lib
 repository, including files smoke.sh already ran. A file failing again is also named in the
 file AK_FAILED names, and one passing it in AK_FLAKY's; with AK_ONLY set only the files its
 file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names.
-A file may name its failing parts, one per line, in the file AK_FAILED_PARTS names: it is then
-named `<file>::<part>`, one ID per part, and its re-run gives it just those parts as its
-arguments, as a run does for the `<file>::<part>` IDs AK_ONLY lists.
+A file may name its failing parts, one per line, in the file FAILED_PARTS names (no AK_ name,
+as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
+gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
+lists.
 The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
 whole run too; AK_ONLY set, they are checked only where it lists them.
 
@@ -148,7 +149,7 @@ def run_file(root, path, env, parts=(), failed=None):
                                      ignore_cleanup_errors=True) as sandbox:
         # Made only by a file naming a part: every other file's HOME starts as empty as before.
         named = Path(sandbox, "failed-parts")
-        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox, AK_FAILED_PARTS=str(named))
+        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox, FAILED_PARTS=str(named))
         proc = subprocess.run([sys.executable, str(path.relative_to(root)), *parts], cwd=root,
                               env=child_env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
