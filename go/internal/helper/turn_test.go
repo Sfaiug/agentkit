@@ -63,6 +63,12 @@ func TestATurnsParcelHoldsWhatPythonsHolds(t *testing.T) {
 	if err := os.Symlink("../bin/ak", filepath.Join(ours, "tools", "shim")); err != nil {
 		t.Fatal(err)
 	}
+	// a cache another user's Python left, which Python's parcel never opens
+	cache := filepath.Join(ours, "agentkit", "__pycache__")
+	if err := os.Chmod(cache, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(cache, 0o755) })
 	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_ADAPTER_DIR": adapters,
 		"GIT_CONFIG_NOSYSTEM": "1", "PATH": tools + string(os.PathListSeparator) + os.Getenv("PATH")} {
 		t.Setenv(key, value)

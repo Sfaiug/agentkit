@@ -72,18 +72,16 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 	}
 	// executable, as tools/helper has it
 	files := map[string]file{"turn.sh": made(0o755, script), "harness": made(0o644, []byte(program))}
-	if err := add(files, out, "out", true); err != nil {
+	if err := add(files, out, "out", true, nil); err != nil {
 		return nil, err
 	}
+	// what this host's Python compiled stays here, unread, as Python's parcel leaves it
+	compiled := func(name string) bool { return strings.Contains(name, "__pycache__") }
 	for _, name := range ak {
-		if err := add(files, filepath.Join(checkout(), name), "ak/"+name, true); err != nil {
+		if err := add(files, filepath.Join(checkout(), name), "ak/"+name, true, compiled); err != nil {
 			return nil, err
 		}
 	}
-	// what this host's Python compiled stays here, as Python's parcel leaves it
-	maps.DeleteFunc(files, func(name string, _ file) bool {
-		return strings.HasPrefix(name, "ak/") && strings.Contains(name, "__pycache__")
-	})
 	g := gitcall.Git{Repo: cwd}
 	paths, err := uncommitted.Paths(g)
 	if err != nil {
@@ -93,7 +91,7 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 	for _, name := range paths {
 		at := filepath.Join(cwd, filepath.FromSlash(name))
 		if _, err := os.Lstat(at); err == nil {
-			if err := add(files, at, "dirty/"+name, false); err != nil {
+			if err := add(files, at, "dirty/"+name, false, nil); err != nil {
 				return nil, err
 			}
 		}
@@ -106,7 +104,7 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 		exclude = filepath.Join(cwd, exclude)
 	}
 	if info, err := os.Stat(exclude); err == nil && info.Mode().IsRegular() {
-		if err := add(files, exclude, "exclude", false); err != nil {
+		if err := add(files, exclude, "exclude", false, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -122,7 +120,7 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 		files["home/"+name] = each
 	}
 	for _, name := range held {
-		if err := add(files, filepath.Join(env["HOME"], filepath.FromSlash(name)), "home/"+name, true); err != nil {
+		if err := add(files, filepath.Join(env["HOME"], filepath.FromSlash(name)), "home/"+name, true, nil); err != nil {
 			return nil, err
 		}
 	}
@@ -154,11 +152,20 @@ func listed(names []string) []byte {
 }
 
 // add puts in files what the disk has at from as name, as Python's tarfile.add does: a link as a
-// link, and, deep, a directory with all under it.  A socket goes nowhere, as there.
-func add(files map[string]file, from, name string, deep bool) error {
+// link, and, deep, a directory with all under it but what skip names, a folder it names never
+// opened, as Python's filter leaves it.  A socket goes nowhere, as there.
+func add(files map[string]file, from, name string, deep bool, skip func(name string) bool) error {
 	return filepath.WalkDir(from, func(at string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
+		}
+		inside, _ := filepath.Rel(from, at)
+		inside = path.Join(name, filepath.ToSlash(inside))
+		if skip != nil && skip(inside) {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		info, err := entry.Info()
 		link := ""
@@ -168,13 +175,12 @@ func add(files map[string]file, from, name string, deep bool) error {
 		if err != nil {
 			return err
 		}
-		inside, _ := filepath.Rel(from, at)
 		if head, err := tar.FileInfoHeader(info, link); err == nil {
 			each := file{head: *head}
 			if head.Typeflag == tar.TypeReg {
 				each.from = at
 			}
-			files[path.Join(name, filepath.ToSlash(inside))] = each
+			files[inside] = each
 		}
 		if !deep && entry.IsDir() {
 			return fs.SkipDir
