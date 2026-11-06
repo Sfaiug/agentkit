@@ -48,7 +48,7 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 	for _, sub := range subs {
 		monthly[sub.Name] = sub.Price
 	}
-	makers := map[string]string{}
+	makers := map[string]string{"": ""} // a row whose board names no maker names no provider
 	for _, row := range rows {
 		if _, named := makers[row.Maker]; !named {
 			if makers[row.Maker], err = config.Company(row.Maker); err != nil {
@@ -81,7 +81,8 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 	}
 	price := func(role string, rows []quality.Row, rated []*quality.Rating) string {
 		measuredShare := func(name, effort string) (float64, bool) {
-			if efforts := shares.Dict(name); efforts != nil && efforts.Dict(effort) != nil {
+			// a row without an effort measured none: ak's runs count only those naming theirs
+			if efforts := shares.Dict(name); effort != "" && efforts != nil && efforts.Dict(effort) != nil {
 				return run.Num(efforts.Dict(effort).Get(configRoles[role]))
 			}
 			return 0, false
