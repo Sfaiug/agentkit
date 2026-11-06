@@ -50,14 +50,11 @@ func (facts climbing) runsOwe() (bool, error) {
 	}), nil
 }
 
-// newsOwed is what watch.news_owed reads where a look read the seat's screen (`authority`), as the
+// news is what watch.news_owed reads once a look has read the seat's screen (`authority`), as the
 // reason ak types it: the end of its `ak wait` not yet told, or an ending of its own runs nobody
 // has heard that is the seat's to decide, neither recorded without typing nor riding on its next
 // prompt; "" for none.
-func (facts climbing) newsOwed() string {
-	if facts.found.authority == "" {
-		return ""
-	}
+func (facts climbing) news() string {
 	if wait := facts.file.Dict("wait"); wait != nil && wait.Truthy("over") && !wait.Truthy("told") {
 		return fmt.Sprintf("telling it its wait on %v is over", wait.Get("on"))
 	}

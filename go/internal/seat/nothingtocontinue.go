@@ -39,10 +39,12 @@ func mayRestDone(name string) bool {
 // one until its windows come back that no limit cut a turn off for, its work done and live
 // (watch.work_live: its plan finished, and no run of its own owing work or awaiting its live
 // check), and no line or news owed it.  The owner, 2 Nov 2026: "Out of usage should be when there
-// is no more usage from the provider to continue."
+// is no more usage from the provider to continue."  News keeps the wait standing only once a look
+// has read the screen, and the look writes what it read: before it, a wait news would keep
+// standing is Python's, as nothing yet says whether it stands.
 func keepsOwnWord(facts climbing, wait *run.Object) (bool, error) {
 	finished, err := plan.Finished(facts.name)
-	if !wait.Truthy("until") || wait.Truthy("continue") || err != nil || !finished || facts.newsOwed() != "" ||
+	if !wait.Truthy("until") || wait.Truthy("continue") || err != nil || !finished ||
 		slices.ContainsFunc(facts.file.List("owed_lines"), func(line any) bool {
 			owed, ok := line.(*run.Object)
 			return !ok || !owed.Truthy("switch")
@@ -51,5 +53,13 @@ func keepsOwnWord(facts climbing, wait *run.Object) (bool, error) {
 	}
 	owes, err := facts.runsOwe()
 	live := slices.ContainsFunc(facts.mine, func(each ran) bool { return each.view != nil && each.view.live })
-	return !owes && !live && err == nil, err
+	switch {
+	case owes || live || err != nil:
+		return false, err
+	case facts.news() == "":
+		return true, nil
+	case facts.found.authority == "":
+		return false, ErrUnread
+	}
+	return false, nil
 }
