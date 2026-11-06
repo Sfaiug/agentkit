@@ -201,9 +201,9 @@ func (r *repoPlace) landingMark(l *loop, landing func() error) error {
 
 // integrate takes in the target's tip, Python's integrate: a branch that does not hold it yet is
 // rebased onto it, or merged with it, and checked again there, and its review stands when the
-// checks pass on the commit the integration made.  A conflict, a red, or checks that leave work to
-// review again are Python's; a branch with nothing left over the tip ends PASS as already on the
-// target.
+// checks pass on the commit the integration made; a conflict's fixer has its work reviewed again.
+// A red, or checks that leave work to review again, are Python's; a branch with nothing left over
+// the tip ends PASS as already on the target.
 func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	g := r.git()
 	// --prune: a merged PR's branch, deleted on origin, otherwise leaves its tracking ref behind,
@@ -252,13 +252,16 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	} else {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
-	if err := r.integrateTip(l, upstream, how, tip); err != nil {
+	carried, fixed, err := r.integrateTip(l, upstream, how, tip, true)
+	if err != nil || !carried {
 		return false, err
 	}
 	if held {
 		l.say("--- merge: unchanged commit; reusing done-when and review evidence")
-	} else if err := r.recheck(l, upstream, how, head, saved, verdict); err != nil {
-		return false, err
+	} else if !fixed {
+		if err := r.recheck(l, upstream, how, head, saved, verdict); err != nil {
+			return false, err
+		}
 	}
 	code, _, err = g.Out("diff", "--quiet", tip, "HEAD")
 	if err != nil || code != 0 {
@@ -347,15 +350,10 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 	if err != nil {
 		return err
 	}
-	ok, text, err := l.verify()
+	text, err := r.retest(l, upstream, how)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		l.say("done-when after the " + how + ": FAILED")
-		return notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
-	}
-	l.say("done-when after the " + how + ": all passed")
 	if moved, err := r.changedSince(head, tree); err != nil || moved {
 		return cmp.Or(err, notYet("the checks after the "+how+" changed the commit", "reviewing it again at landing"))
 	}
@@ -367,6 +365,21 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 		keepFlakes(record, text)
 		record.Delete("review_pending")
 	})
+}
+
+// retest runs the round's checks on what an integration made, what they said where they passed: a
+// red there is Python's.
+func (r *repoPlace) retest(l *loop, upstream, how string) (string, error) {
+	ok, text, err := l.verify()
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		l.say("done-when after the " + how + ": FAILED")
+		return "", notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
+	}
+	l.say("done-when after the " + how + ": all passed")
+	return text, nil
 }
 
 // finalCheck runs the round's checks and those deferred to landing on the commit about to be

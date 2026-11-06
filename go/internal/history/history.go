@@ -193,8 +193,8 @@ func Path() string {
 	return filepath.Join(config.Home(), "history.db")
 }
 
-// Open is history.db brought up to today's tables, keeping its rows; nil where none stands,
-// since Go makes none.  An error where Go leaves it to Python ak, having written nothing: SQLite
+// Open is history.db brought up to today's tables, keeping its rows; nil where none stands, as
+// a read makes none.  An error where Go leaves it to Python ak, having written nothing: SQLite
 // cannot open it, it keeps seats' tokens, which Python alone reads on, or its tokens wait for
 // Python's one-time repair.  All of it under Python's writers' lock, so what Go decides on stays
 // as it read it until it is done.
@@ -203,7 +203,7 @@ func Open() (*DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, nil
 	}
-	held, err := lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
+	held, err := writers(path)
 	if err != nil {
 		return nil, err
 	}
@@ -221,6 +221,12 @@ func Open() (*DB, error) {
 		return nil, err
 	}
 	return db, nil
+}
+
+// writers is Python's lock every writer of the database at path holds, waited for, Python's
+// waiter.writing: one writer at a time across processes, SQLite's own wait being too short.
+func writers(path string) (*os.File, error) {
+	return lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
 }
 
 // connect opens a connection that never moves the WAL into the database, which the tick alone
@@ -263,6 +269,12 @@ func leftToPython(path string) (recounted bool, err error) {
 	if err != nil || len(seats) > 0 {
 		return false, cmp.Or(err, errors.New("it keeps seats' tokens, which Python ak alone reads on"))
 	}
+	return db.recounted()
+}
+
+// recounted is whether Python's one-time recount of the tokens is done, an error where it is owed:
+// it reads the turns' event files, which only Python ak can.
+func (db *DB) recounted() (bool, error) {
 	version, err := db.rows("PRAGMA user_version")
 	if err != nil {
 		return false, err

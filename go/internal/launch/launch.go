@@ -31,6 +31,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/helper"
+	"agentkit/internal/history"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -215,13 +216,13 @@ func surroundings() bool {
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python: a queued run's
-// start, one a history.db that stands would record (no suite's sink marks it), one the
+// start, one a history of runs that stands would record (no suite's sink marks it), one the
 // gate does not admit outright, a home HOME does not name, or text Python would write with a lone
 // surrogate.
 func unread() bool {
 	depth, known := runDepth()
 	_, capped := config.MaxRuns()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !run.Historyless() ||
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !history.Runless() ||
 		os.Getenv("HOME") == "" || !known || capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0 ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
