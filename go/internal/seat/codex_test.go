@@ -13,7 +13,7 @@ import (
 	"agentkit/internal/run"
 )
 
-func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
+func TestCodexScreenReadsTheThreadOnceTheTickBindsIt(t *testing.T) {
 	home := sandbox(t)
 	other := map[string]any{"conversation": "legacy", "id_source": nil, "repo": nil}
 	record(t, home, "aaa", other)
@@ -50,7 +50,7 @@ func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
 	record(t, home, "aaa", other) // the earlier record has a reconcile to write too
 	before := stateFiles(t, home)
 	if _, known := Looking(time.Now()); known {
-		t.Fatal("Go took a receipt Python has not bound")
+		t.Fatal("Go's look took a receipt no reconcile has bound")
 	}
 	if after := stateFiles(t, home); !maps.Equal(before, after) {
 		t.Fatalf("handing over wrote: %v, then %v", before, after)
@@ -64,12 +64,17 @@ func TestCodexScreenLeavesTheRecordForPythonToReconcile(t *testing.T) {
 	if after := stateFiles(t, home)["session-acme.json"]; before["session-acme.json"] != after {
 		t.Fatalf("listing changed the record: %s", after)
 	}
-	// The next look reads the record Python's reconcile leaves.
-	fields["conversation"], fields["id_source"], fields["resumable"] = "t1", "codex-session-start", true
-	record(t, home, "acme", fields)
+	// The tick's reconcile binds the thread, and the next look reads the record it leaves.
+	if err := Reconcile(); err != nil {
+		t.Fatal(err)
+	}
+	if bound, _ := run.ReadJSON(stateFile(home, "session-acme.json")); bound.Get("conversation") != "t1" ||
+		bound.Get("id_source") != "codex-session-start" || bound.Get("resumable") != true {
+		t.Fatalf("the tick did not bind the receipt: %s", run.Encode(bound))
+	}
 	waited = checkScreen()
 	// A stale listing must never put t1 back over a newer conversation.
-	fields["conversation"] = "t2"
+	fields["conversation"], fields["id_source"], fields["resumable"] = "t2", "codex-session-start", true
 	record(t, home, "acme", fields)
 	newer := stateFiles(t, home)["session-acme.json"]
 	if err := waited.Announce(time.Now()); err != nil {

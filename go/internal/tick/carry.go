@@ -86,6 +86,11 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
 		t.report = report[0]
 	}
 	t.unended(began, previous)
+	// what each harness proves goes into its records before any row reads a seat, as Python's
+	// orch.records puts it there before anything claims one resumable; a dry tick writes none
+	if seat.Reconcile() != nil {
+		return false, nil
+	}
 	if !t.through(table(t)) {
 		return false, nil
 	}
