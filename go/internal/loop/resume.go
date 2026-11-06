@@ -29,9 +29,15 @@ func Pickup(dir string, record *run.Object) bool {
 	case "exhausted":
 		return exhaustedPickup(dir, record)
 	case "running", "interrupted", "error":
-		return record.Truthy("no_merge") && cutOff(dir, record) && pairReady(dir, record)
+		return carriedOn(dir, record)
 	}
 	return false
+}
+
+// carriedOn is whether Go goes on from where the run's record says its rounds stopped, whatever
+// stopped them.
+func carriedOn(dir string, record *run.Object) bool {
+	return record.Truthy("no_merge") && cutOff(dir, record) && pairReady(dir, record)
 }
 
 // cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from.
@@ -160,7 +166,19 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 		host.EndMarked(dir, io.Discard)
 		// what the resume takes the run up from, Python's resume_from: a dead driver's is an
 		// interruption, but for one whose resume the tick ordered, holding the death it noticed
-		from := record.Str("state")
+		from, queuedAt := record.Str("state"), any(clock())
+		if from == "queued" {
+			// a launch that never opened goes on from what queued it, keeping its place in line
+			// and its wait so far
+			from = cmp.Or(record.Str("resume_from"), "interrupted")
+			if record.Truthy("queued_at") {
+				queuedAt = record.Get("queued_at")
+			}
+		} else {
+			for _, key := range []string{"slot_waited", "slot_wait_reason", "slot_wait_kind"} {
+				record.Delete(key)
+			}
+		}
 		if from == "running" && !run.ResumeOrdered(record, clock()) {
 			from = "interrupted"
 			reason := "Run process exited or its identity changed."
@@ -185,10 +203,10 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 			}
 			run.SetAll(record, "merge_failed", false, "merge_note", nil)
 		}
-		for _, key := range []string{"waiting_resume_at", "slot_waited", "slot_wait_reason", "slot_wait_kind", "stall_resume_at"} {
+		for _, key := range []string{"waiting_resume_at", "stall_resume_at"} {
 			record.Delete(key)
 		}
-		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", clock(),
+		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", queuedAt,
 			"pid", os.Getpid(), "process_identity", Identity(os.Getpid()), "recovery_pending", true,
 			"recovery_acknowledged_at", nil, "error", nil, "finished_at", nil, "reported", false)
 		return nil
