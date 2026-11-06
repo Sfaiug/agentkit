@@ -30,8 +30,8 @@ func redGiven() {
 
 // waking starts the pass's wake, Python's _waking, and returns its end: each run parked in the
 // line as it stands on a red Go's woken run carries, waiting on no run with a place in the line
-// (redBehind), is woken once a pass: on a host with suite helpers, none is.  It wakes as the pass starts, after each red the pass gives,
-// every wakeEvery while it runs, and as it ends.
+// (redBehind), is woken once a pass: on a host with suite helpers, none is.  It wakes as the pass
+// starts, after each red the pass gives, every wakeEvery while it runs, and as it ends.
 func waking(line string, said io.Writer) (end func()) {
 	done, ended := make(chan struct{}), make(chan struct{})
 	go func() {
