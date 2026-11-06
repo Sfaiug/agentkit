@@ -8,7 +8,8 @@ import (
 
 // SaveAudit writes config.toml as Python's config.save does with `[audit]`'s `key` set to `value`,
 // a list of names as one, beside the keys the table holds (menu.setting's write): refused, nothing
-// written, where Audit cannot read what it leaves.  `keep` is as RememberDefaults's.
+// written, where Audit cannot read what it leaves.  The file's own [defaults] are written as it
+// has them.  `keep` is as RememberDefaults's.
 func SaveAudit(key string, value any, keep func() error) error {
 	data, err := os.ReadFile(filepath.Join(Home(), "config.toml"))
 	if err != nil && !os.IsNotExist(err) {
@@ -27,7 +28,13 @@ func SaveAudit(key string, value any, keep func() error) error {
 			return fmt.Errorf("~/.agentkit/config.toml: [audit] must be a table")
 		}
 		held.put(key, value)
-		_, _, err := audit(root)
+		// read as Audit reads it, over the defaults load() fills in where the file leaves them out
+		effective, err := load()
+		if err != nil {
+			return err
+		}
+		effective.put("audit", held)
+		_, _, err = audit(effective)
 		return err
 	}, keep)
 }
