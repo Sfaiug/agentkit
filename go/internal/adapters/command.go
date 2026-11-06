@@ -15,15 +15,20 @@ import (
 	"agentkit/internal/harness"
 )
 
-// Command is the TUI command a new seat of model opens on the usual login, as Python's
-// orch.command and fresh_command build it: ak's own env words, then the line the harness's
-// adapter prints for `interactive`, under a new conversation id or, where its TUI cannot be told
-// one (exit 3), none; and that id, "" for none.  env is what the adapter is told.  No line where
-// none opens: Python's launch says why where no adapter runs or it prints no line, and the error
-// does, after the model's name, where a file the harness reads on its own, which nothing on the
-// line can stop, is there.
-func Command(model config.Model, env []string) ([]string, string, error) {
-	return Fresh(model, append(slices.Clip(env), "AGENTKIT_ACCOUNT="))
+// Fresh is the TUI command a seat of model opens on in a new conversation, on the login env's
+// AGENTKIT_ACCOUNT names, as Python's orch.command and fresh_command build it: ak's own env words,
+// then the line the harness's adapter prints for `interactive`, under a new conversation id or,
+// where its TUI cannot be told one (exit 3), none; and that id, "" for none.  env is what the
+// adapter is told.  No line where none opens: Python's launch says why where no adapter runs or it
+// prints no line, and the error does, after the model's name, where a file the harness reads on
+// its own, which nothing on the line can stop, is there.
+func Fresh(model config.Model, env []string) ([]string, string, error) {
+	conversation := uuid()
+	line, told, err := command(model, env, []string{conversation, "new"}, nil)
+	if !told {
+		conversation = ""
+	}
+	return line, conversation, err
 }
 
 // Resumed is the command a seat of model comes back on with the conversation it owns, as Python's

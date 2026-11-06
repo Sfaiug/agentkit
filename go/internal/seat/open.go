@@ -3,6 +3,7 @@ package seat
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,11 +21,13 @@ import (
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/tmux"
+	usages "agentkit/internal/usage"
 )
 
-// Open is the shared new-seat launch used by the menu and ak orch. Its rulebook precedes
-// the adapter's command, and its record uses Python's locks and format. False leaves
-// unsupported harness launches, provider accounts and leftover seat files to Python.
+// Open is the shared new-seat launch used by the menu and ak orch, on the login OpeningAccount
+// picks. Its rulebook precedes the adapter's command, and its record uses Python's locks and
+// format. False leaves unsupported harness launches, a usage reading Python's and leftover seat
+// files to Python.
 func Open(name, orchestrator string, model config.Model, workers []string, cwd string, unnamed bool, reviews ...[]string) (bool, error) {
 	repo := Project(cwd)
 	if repo != "" {
@@ -38,8 +41,14 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	titled, known := harness.Opens(model.Harness)
 	bound, unbound := config.Bind()
 	models, err := config.Models()
-	if !known || !opensAt(model) || !unclaimed(state, name) || unbound != nil || err != nil {
+	if !known || !unclaimed(state, name) || unbound != nil || err != nil {
 		return false, nil
+	}
+	account, err := OpeningAccount(orchestrator, model)
+	if errors.Is(err, usages.ErrPython) {
+		return false, nil
+	} else if err != nil {
+		return true, err
 	}
 	// written before its adapter is asked, which may read it, and gone again where no seat comes
 	// of it: unclaimed takes a file left under the name for a gone seat's
@@ -56,8 +65,8 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		return true, fmt.Errorf("no rulebook for %s: %w", name, err)
 	}
 	created := seconds(time.Now())
-	cmd, conversation, err := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
-		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
+	cmd, conversation, err := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
+		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)))
 	if cmd == nil {
 		os.Remove(rulebook)
 		if err != nil {
@@ -76,7 +85,7 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 	if reviewers != nil {
 		fields = append(fields, field{"reviewers", modelList(reviewers)})
 	}
-	fields = append(fields, field{"cwd", cwd}, field{"repo", orNone(repo)}, field{"created", created}, field{"account", nil}, field{"home_account", nil})
+	fields = append(fields, field{"cwd", cwd}, field{"repo", orNone(repo)}, field{"created", created}, field{"account", orNone(account)}, field{"home_account", orNone(account)})
 	if unnamed {
 		fields = append(fields, field{"unnamed", true})
 	}

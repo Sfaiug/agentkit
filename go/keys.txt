@@ -44,6 +44,7 @@ test_key_checks_override_pass
 test_key_claude_hooks_merge
 test_key_claude_hooks_wiring
 test_key_claude_launch_pins
+test_key_claude_one_settings
 test_key_claude_seat_prep
 test_key_claude_words
 test_key_config_count_settings

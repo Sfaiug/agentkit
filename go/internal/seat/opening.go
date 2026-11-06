@@ -22,7 +22,7 @@ func OpeningAccount(name string, model config.Model) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	readings, err := usages.Read()
+	readings, err := usages.Collected()
 	if err != nil {
 		return "", err
 	}
