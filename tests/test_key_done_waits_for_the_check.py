@@ -4,7 +4,10 @@ done and its stop goes back, and one that does counts until the owner says more.
 
 The owner asks for a retry button and a receipt email; the plan holds the button alone.  The
 first check names the email, quoting the owner; once the owner drops it, the next finds no gap.
-`[done_check] on = false` leaves done as it was.  Black-box: the program `AK_BIN` names runs from
+A check that could not be made counts for nothing, nor does one passed before another that ended
+later on a gap, under whichever name the seat went by meanwhile; and a record ak cannot read,
+whichever harness keeps it, is no owner who said nothing.  `[done_check] on = false` leaves done
+as it was.  Black-box: the program `AK_BIN` names runs from
 outside through tests/fixtures/akbin.py, on a Claude seat of tests/fixtures/akseat.py whose
 transcript the test writes, with a fake harness of fakeadapter.py for the model, and the hooks
 beside that program fired as tests/test_key_live_work_plan_line.py fires them.
@@ -14,12 +17,13 @@ import json
 import re
 import shlex
 import sys
+import time
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
-from fixtures.akbin import AK, Home
+from fixtures.akbin import AK, REAL_TMUX, Home
 from fixtures.akseat import Seat
 from fixtures.hookdrive import ROOT
 
@@ -34,6 +38,7 @@ GAP = {"sh": f"{shlex.quote(AK)} hand-in finding \"$(grep -rlF -- {shlex.quote(S
              f"--quote {shlex.quote(SECOND)}",
        "final": "Checked.", "hand_in": [["done"]]}
 NONE = {"final": "Checked.", "hand_in": [["done"]]}
+TOKEN = "a" * 32    # an OpenCode or Codex seat's launch receipt
 
 
 class DoneWaitsForTheCheck(unittest.TestCase):
@@ -64,8 +69,8 @@ class DoneWaitsForTheCheck(unittest.TestCase):
             json.dumps({**turn, "timestamp": f"2026-11-05T10:{n:02d}:00Z"}) + "\n"
             for n, turn in enumerate(turns)))
 
-    def why(self):
-        done = self.home.ak("orch", "why", "acme")
+    def why(self, name="acme", home=None):
+        done = (home or self.home).ak("orch", "why", name)
         self.assertEqual(done.code, 0, done.out + done.err)
         return done.out.splitlines()[0]
 
@@ -109,6 +114,77 @@ class DoneWaitsForTheCheck(unittest.TestCase):
         self.assertEqual(self.stop(), "")
         self.plan()
         self.assertEqual(self.fake.n, 2)
+
+    def test_a_check_that_could_not_be_made_counts_for_nothing(self):
+        self.configure()
+        self.plan(NONE)
+        self.assertEqual(self.why(), DONE)
+        self.fake.behave("silent")      # its turn never hands in done
+        self.assertEqual(self.home.ak("orch", "check", "acme").code, 2)
+        self.assertNotEqual(self.why(), DONE)
+        self.plan(NONE)
+        self.assertEqual(self.fake.n, 3)
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_a_check_ending_on_a_gap_after_a_rename_stands_under_the_new_name(self):
+        self.configure()
+        Seat(self.home, "acme", record={"conversation": CONVERSATION})      # one tmux holds
+        self.plan(NONE)
+        begun, release = self.fake.dir / "begun", self.fake.dir / "release"
+        wait = shlex.quote(f"while test ! -f {shlex.quote(str(release))}; do sleep 0.02; done")
+        self.fake.behave({**GAP, "sh": f"touch {shlex.quote(str(begun))}; timeout 30 sh -c "
+                                       f"{wait}; {GAP['sh']}"})
+        checking = self.home.spawn("orch", "check", "acme")
+        try:
+            until = time.monotonic() + 30
+            while not begun.exists():
+                self.assertIsNone(checking.poll(), "the check ended before its turn began")
+                self.assertLess(time.monotonic(), until, "the check's turn never began")
+                time.sleep(0.02)
+            renamed = self.home.ak("orch", "rename", "acme", "acme-renamed")
+            self.assertEqual(renamed.code, 0, renamed.out + renamed.err)
+        finally:
+            release.touch()
+            checking.wait(timeout=60)
+        self.assertEqual(checking.returncode, 1)
+        self.assertNotEqual(self.why("acme-renamed"), "acme-renamed  done")
+
+    @unittest.skipUnless(REAL_TMUX, "no tmux installed")
+    def test_a_record_ak_cannot_read_holds_the_seat(self):
+        self.configure()
+        self.transcript.unlink()
+        self.transcript.mkdir()
+        self.assertNotEqual(self.why(), DONE)
+        for kind, (model, harness) in {"an OpenCode database": ("mimo", "opencode"),
+                                       "an OpenCode launch receipt": ("mimo", "opencode"),
+                                       "an Antigravity database": ("gemini", "antigravity"),
+                                       "a Codex transcript": ("astra", "codex")}.items():
+            with self.subTest(kind), Home() as home:
+                fakeadapter.install(home, **{harness: "pass", "claude": "pass"})
+                seat = Seat(home, "acme", model=model, screen=f"{harness}-prompt-pane.txt",
+                            record={"opencode_launch": TOKEN, "codex_launch": TOKEN})
+                if harness == "opencode":
+                    receipt = home.write(f".agentkit/state/opencode-launch-{TOKEN}/session",
+                                         "ses_acme")
+                    if kind.endswith("receipt"):
+                        receipt.unlink()
+                        receipt.mkdir()
+                    else:
+                        home.write(".local/share/opencode/opencode.db", "not a SQLite database")
+                elif harness == "antigravity":
+                    home.write(".gemini/antigravity-cli/conversations/conv-acme.db",
+                               "not a SQLite database")
+                else:
+                    rollout = home.path / "rollout.jsonl"
+                    rollout.mkdir()
+                    home.write(f".agentkit/state/codex-launch-{TOKEN}.json", {
+                        "launch": TOKEN, "cwd": str(seat.cwd), "event": {
+                            "session_id": "thread-acme", "transcript_path": str(rollout),
+                            "hook_event_name": "SessionStart", "source": "startup",
+                            "cwd": str(seat.cwd)}})
+                home.write(".agentkit/state/plan-acme.md", f"- [x] {PLANNED}\n")
+                akconfig.write(home, [model, "opus"], extra='[done_check]\nmodel = "opus"')
+                self.assertNotEqual(self.why(home=home), DONE)
 
     def test_with_the_check_off_a_finished_plan_reads_done_and_ak_plan_takes_no_turn(self):
         self.configure(on=False)

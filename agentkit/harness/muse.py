@@ -420,10 +420,12 @@ def conversation(record, cwd=None):
     """The session this seat's launch reported, or None where it reported none yet; the one
     Muse's registry has since moved that launch's process to, once the registry says so, kept
     in the receipt for the seat to reopen on after that process is gone."""
+    from . import unread
     path = path_for(record)
     try:
         sid = (path / "session").read_text(encoding="utf-8") if path else ""
-    except OSError:
+    except OSError as exc:
+        unread(exc)
         return None
     if not SESSION.fullmatch(sid):
         return None

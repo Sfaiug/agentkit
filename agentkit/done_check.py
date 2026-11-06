@@ -18,12 +18,11 @@ and its plan holds now.
 
 import hashlib
 import json
-import os
 import sys
 import tempfile
 from pathlib import Path
 
-from . import config, hand_in, notify, plan, record, staffing, transitions, worker
+from . import config, hand_in, harness, notify, plan, record, staffing, transitions, worker
 
 ASK = """\
 # Does seat {name}'s work hold everything its owner asked of it?
@@ -69,15 +68,17 @@ def owed(name, text):
     try:
         if not on(config.load()):
             return False
-        seat = notify.conversation_of(name)
-        messages = notify.owner_messages(name, seat, strict=True)    # none with no conversation
-        if not messages:
-            return False
+        with harness.strictly():
+            seat = notify.conversation_of(name)
+            messages = notify.owner_messages(name, seat)    # none with no conversation
+            if not messages:
+                return False
+            owner = owner_words(seat, messages)
         try:
             kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
         except FileNotFoundError:
             kept = None
-        return fingerprint(owner_words(seat, messages), text) != kept
+        return fingerprint(owner, text) != kept
     except (OSError, ValueError, config.Error):
         return True
 
@@ -101,15 +102,17 @@ def fingerprint(owner, text):
 
 
 def keep(name, read):
-    """Keep what a check that found no gap `read`, or, None, forget it for one that found one:
-    of two checks of a seat at once, the one that ends last stands."""
-    path = config.seat_file("checked", name)
-    if read is None:
-        path.unlink(missing_ok=True)
-        return
-    fresh = path.with_name(f"{path.name}.{os.getpid()}")
-    fresh.write_text(read + "\n", encoding="utf-8")
-    fresh.replace(path)
+    """Keep what a check that found no gap `read`, or, None, forget what one kept: under the
+    seat's lock, which a rename takes too, so under the name it goes by now.  Of two checks of
+    a seat at once, the one that ends last stands."""
+    with notify.session_lock(name) as current:
+        path = config.seat_file("checked", current)
+        if read is None:
+            path.unlink(missing_ok=True)
+            return
+        fresh = path.with_name(path.name + ".new")
+        fresh.write_text(read + "\n", encoding="utf-8")
+        fresh.replace(path)
 
 
 def checker(cfg, name):
@@ -135,52 +138,60 @@ def card(answer):
 
 
 def gaps(cfg, name):
-    """The findings of the checking turn that quote one of the owner's messages or answers;
-    what it read is kept where it found none, and forgotten where it found one (`keep`)."""
-    seat = notify.conversation_of(name)
+    """The findings of the checking turn that quote one of the owner's messages or answers.
+    What it read is kept where it found none (`keep`); once it has the seat's conversation, one
+    that found a gap or could not check forgets what an earlier one kept, counting for nothing."""
+    with harness.strictly():
+        seat = notify.conversation_of(name)
     if seat is None or not seat[3]:
         raise config.Error(f"no seat named {name} whose conversation ak can read")
-    owner = owner_words(seat, notify.owner_messages(name, seat, strict=True))
-    said = [words for _, words, _ in owner]
-    if not said:
-        return []       # asked nothing, so nothing is missing
-    planned = plan.lines(name)
-    model = checker(cfg, name)
-    print(f"ak orch check: {model} reads what {name} was asked and did", file=sys.stderr)
-    config.ensure_dirs()
-    with tempfile.TemporaryDirectory(prefix=f"check-{name}-", dir=config.TMP) as tmp:
-        workspace, out = Path(tmp, "workspace"), Path(tmp, "out")
-        files = {f"owner/{n}.md": shown for n, (_, _, shown) in enumerate(owner, 1)}
-        files["conversation.md"] = "".join(f"**{turn['who']}:** {turn['text']}\n\n"
-                                           for turn in seat[0].said(*seat[1:]) or [])
-        files["plan.md"] = "".join(line + "\n" for line in planned)
-        for directory, state in record.runs():
-            if transitions.launched_session(state) == name:
-                task = directory / "task.md"
-                files[f"runs/{directory.name}.md"] = (
-                    f"title: {state.get('title')}\nstate: {state.get('state')}\n"
-                    f"merged: {'yes' if state.get('merged') else 'no'}\n"
-                    f"PR: {state.get('pr') or 'none'}\n\n"
-                    + (task.read_text(errors="replace") if task.is_file() else ""))
-        for relative, text in files.items():
-            (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
-            (workspace / relative).write_text(text)
-        try:
-            # an existing role, which Go's rules already hold: the reviewer's of a workspace,
-            # whose hand-in takes findings and refuses a quote its file does not hold
-            worker.turn(cfg, model, ASK.format(name=name, workspace=workspace), workspace, out,
-                        role="reviewer-scratch")
-        except worker.LoginExpired as expired:
-            raise config.Error(str(expired)) from None
-        review = hand_in.read(out / hand_in.FILE)
-    if not review or not review.done:
-        raise config.Error(f"{model} could not check {name}: its turn did not end in "
-                           "`ak hand-in done`")
-    found = [row for row in review.findings
-             if (quote := row["evidence"].get("quote", "")).strip()
-             and any(quote in text for text in said)]
-    keep(name, None if found else fingerprint(owner, planned))
-    return found
+    read = None
+    try:
+        with harness.strictly():
+            owner = owner_words(seat, notify.owner_messages(name, seat))
+        said = [words for _, words, _ in owner]
+        if not said:
+            return []       # asked nothing, so nothing is missing
+        planned = plan.lines(name)
+        model = checker(cfg, name)
+        print(f"ak orch check: {model} reads what {name} was asked and did", file=sys.stderr)
+        config.ensure_dirs()
+        with tempfile.TemporaryDirectory(prefix=f"check-{name}-", dir=config.TMP) as tmp:
+            workspace, out = Path(tmp, "workspace"), Path(tmp, "out")
+            files = {f"owner/{n}.md": shown for n, (_, _, shown) in enumerate(owner, 1)}
+            files["conversation.md"] = "".join(f"**{turn['who']}:** {turn['text']}\n\n"
+                                               for turn in seat[0].said(*seat[1:]) or [])
+            files["plan.md"] = "".join(line + "\n" for line in planned)
+            for directory, state in record.runs():
+                if transitions.launched_session(state) == name:
+                    task = directory / "task.md"
+                    files[f"runs/{directory.name}.md"] = (
+                        f"title: {state.get('title')}\nstate: {state.get('state')}\n"
+                        f"merged: {'yes' if state.get('merged') else 'no'}\n"
+                        f"PR: {state.get('pr') or 'none'}\n\n"
+                        + (task.read_text(errors="replace") if task.is_file() else ""))
+            for relative, text in files.items():
+                (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
+                (workspace / relative).write_text(text)
+            try:
+                # an existing role, which Go's rules already hold: the reviewer's of a
+                # workspace, whose hand-in takes findings and refuses a quote its file does
+                # not hold
+                worker.turn(cfg, model, ASK.format(name=name, workspace=workspace), workspace,
+                            out, role="reviewer-scratch")
+            except worker.LoginExpired as expired:
+                raise config.Error(str(expired)) from None
+            review = hand_in.read(out / hand_in.FILE)
+        if not review or not review.done:
+            raise config.Error(f"{model} could not check {name}: its turn did not end in "
+                               "`ak hand-in done`")
+        found = [row for row in review.findings
+                 if (quote := row["evidence"].get("quote", "")).strip()
+                 and any(quote in text for text in said)]
+        read = None if found else fingerprint(owner, planned)
+        return found
+    finally:
+        keep(name, read)
 
 
 def main(argv):
