@@ -1385,10 +1385,12 @@ def suite_env(changed=None, times=None):
     return env
 
 
-def pinned(command, times, changed=None):
+def pinned(command, times, changed=None, only=None):
     """`command` as a piece runs it on the suite helper, which hands it no environment: AK_TIMES
     holds `times` in the command, and AK_CHANGED names a file there holding the paths the file
     `changed` holds here, in the command too; the piece's VM or container takes the file with it.
+    So does AK_ONLY, naming one that lists the tests `only` names, for a piece that runs just
+    those (land._probe).
 
     The piece runs in a clone there, which land._check's look at this checkout never sees: it
     checks that clone itself and fails, as land._check does, if it changed.
@@ -1396,6 +1398,9 @@ def pinned(command, times, changed=None):
     paths = "" if changed is None else (
         f'export AK_CHANGED="$(mktemp)" && printf %s {shlex.quote(Path(changed).read_text())}'
         ' >"$AK_CHANGED" || exit\n')
+    if only is not None:
+        paths += (f"export AK_ONLY=\"$(mktemp)\" && printf '%s\\n' {shlex.join(only)}"
+                  ' >"$AK_ONLY" || exit\n')
     return (f"export AK_TIMES={shlex.quote(times)}\n{paths}"
             f"head=$(git rev-parse HEAD) && bash -c {shlex.quote(command)} || exit\n"
             '[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||'

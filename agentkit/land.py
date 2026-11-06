@@ -19,6 +19,7 @@ import json
 import math
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
@@ -876,6 +877,64 @@ def _check_tests(directory, state, scratch, tree, command, piece, tests, log):
                     **red}} if red.get("tests") or not tests else {}
 
 
+def _probe(directory, state, scratch, tree, command, tests, cost):
+    """Whether just `tests` of `command` pass on the stack `scratch` holds, run once on a suite
+    helper as a piece of `cost` (CPUs, MiB): True where each was named as run (`AK_RAN`), False
+    where the run failed naming one of them both as run and as failed (`AK_FAILED`), and None
+    where it proved neither -- no helper took it, it hung, the helper lost it or had no room, a
+    test was not named as run.  It leaves its `checks` row and records nothing else, no flaky
+    sighting either: a red only a helper shows is no evidence (`_check_tests` decides)."""
+    from . import gate, helper, history, run, worker
+    asked, head = time.time(), run.git(scratch, "rev-parse", "HEAD")
+    there = gate.pinned(command, suite_times.handed(scratch), only=tests)
+    away = helper.start(*cost, scratch, lambda _: None, there, one=True)[0]
+    if not away:
+        return None
+    log_path = directory / f"lander-{tree}-probe.log"
+    silence = 60 * state.get("silence_minutes", record.SILENCE_MINUTES)
+    try:
+        with log_path.open("wb") as output, history.check(
+                (directory, None, "landing", head), command, asked, away.alias) as ended:
+            # A hang ends as a suite piece's first go does, at its suite's pace: its round
+            # waits for it.
+            code, _, killed = worker.limited(
+                helper.piece(away, "1/1", there),
+                3600 * state.get("ceiling_hours", record.CEILING_HOURS), cwd=str(scratch),
+                activity=log_path, output=output, env=gate.suite_env(),
+                silence=gate.quiet_window(command, scratch, None, silence) or silence,
+                stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+            ended.append(None if killed else code)
+        if killed or code < 0 or code in (*helper.GONE, helper.FULL):
+            return None
+        ran = helper.failed(away, "1/1", "ran")
+        if not code:
+            return all(test in ran for test in tests) or None
+        return False if set(tests) & set(ran) & set(helper.failed(away, "1/1")) else None
+    finally:
+        helper.finish(away)
+
+
+def _round(stacks, floor, high, command, tests, log):
+    """One round of a red stack's narrowing: probes (`_probe`) of the stacks between `floor` and
+    `high`, as many as the suite helpers have places for, spread evenly and all at once, and
+    each probed stack's answer once the last has ended; {} where the helpers have no place.
+    Probes running the same tests end about together, so waiting for the last costs little,
+    and none outlives its round: nothing is ever called off on a helper."""
+    from . import gate, helper
+    cost = gate.suite_cost(command, stacks[high][2], None)[1:]
+    count = min(helper.places(*cost, stacks[high][2]), high - floor - 1)
+    picked = [floor + (n + 1) * (high - floor) // (count + 1) for n in range(count)]
+    with ThreadPoolExecutor(max_workers=max(1, count)) as pool:
+        probes = {index: pool.submit(_probe, *stacks[index][:4], command, tests, cost)
+                  for index in picked}
+    answers = {index: probe.result() for index, probe in probes.items()}
+    if answers:
+        said = {True: "passes", False: "fails", None: "proves nothing"}
+        log(f"{' '.join(tests)} on the suite helpers: " + ", ".join(
+            f"{said[answer]} up to {stacks[index][0].name}" for index, answer in answers.items()))
+    return answers
+
+
 def _check_tree(directory, state, scratch, tree, checks, log, suite):
     log_path = directory / f"lander-{tree}.log"
     ok, text, red = _check(directory, state, scratch, list(checks), log_path, log, suite=suite)
@@ -1003,6 +1062,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                          and checked(entry, commands(positions[entry["tested"]])))}
             answers = {}
             passed_alone = {}   # (index, what failed): whether just that passed run alone there
+            probed_red = set()  # (index, what failed): a probe found just that red there
             for _, _, _, tree, checks in stacks:
                 if tree in green and checked(green[tree], checks):
                     answers[tree, checks] = green_answer(tree, green[tree]["tested"])
@@ -1118,6 +1178,7 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                             red_index = next((index for index in range(unchecked[0], len(stacks))
                                               if "fix" in answers.get(tuple(stacks[index][3:]), {})), None)
                             low = unchecked[0] - 1
+                            high = red_index
                             if red_index is not None:
                                 # Each step runs just what failed: the tests of the first failing
                                 # command's piece that failed again alone, or with none that
@@ -1130,9 +1191,15 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                     narrowing = command, tests
                                     owner = next((index for index, stack in enumerate(stacks)
                                                   if command in stack[4]), 0)
+                                    # a probe's red bounds it sooner, though it blames nobody,
+                                    # until a pass here outweighs it
+                                    high = min([red_index] + [
+                                        index for index, failed in probed_red
+                                        if failed == narrowing and index > low
+                                        and not passed_alone.get((index, failed))])
                                     low = max([low] + [
                                         index for (index, failed), ok in passed_alone.items()
-                                        if ok and failed == narrowing and index < red_index])
+                                        if ok and failed == narrowing and index < high])
                             if narrowing and low + 1 == red_index:
                                 # It passes alone on the stack just ahead and fails on its own:
                                 # its change turned it red, whatever the stacks ahead hold.
@@ -1146,8 +1213,24 @@ def _check_members(turn, members, repo, tip, target_tree, log, *, prefix=(), rea
                                 break
                             # No stack below the command's first runs it: the search starts
                             # just ahead of that one, and it reaches lower only on evidence.
-                            unchecked = [(max(low, owner - 1) + red_index) // 2
-                                         if red_index is not None else unchecked[-1]]
+                            floor = max(low, owner - 1)
+                            if narrowing and tests and floor + 1 < high:
+                                # The stacks between go to the suite helpers, many at once, a
+                                # round at a time: here each step took minutes, one after the
+                                # other (127 of a pass's 370, 5 Nov 2026).  A round that proves
+                                # nothing leaves the step to this host.
+                                probed = _round(stacks, floor, high, command, tests, log)
+                                passed_alone.update(((index, narrowing), True)
+                                                    for index, ok in probed.items() if ok)
+                                probed_red.update((index, narrowing)
+                                                  for index, ok in probed.items() if ok is False)
+                                if any(ok is not None for ok in probed.values()):
+                                    continue
+                            # A probe's red right after a pass runs here: it decides the blame,
+                            # with the flaky handling a probe has none of, and passing here it
+                            # moves the narrowing on above it.
+                            unchecked = [unchecked[-1] if red_index is None else
+                                         high if low + 1 == high else (floor + high) // 2]
                         active = {tuple(stacks[index][3:]) for index, *_ in running.values()}
                         for index in unchecked:
                             member, saved, scratch, tree, own = stacks[index]

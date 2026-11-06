@@ -1,9 +1,10 @@
 """A suite helper that is a Linux machine with docker, for black-box tests: ssh runs what it is
 given on it, a directory with a HOME and programs of its own: a fake docker, whose containers have
-`container=docker` in their environment, and the machine's readings, two CPUs.
+`container=docker` in their environment, and the machine's readings, two CPUs unless told more.
 
     from fixtures import akmachine
     machine = akmachine.install(home)    # every alias ssh is given reaches it
+    machine = akmachine.install(home, cpus=8)    # with room for four pieces at once
     logs = machine.glob("docker/roots/*/home/ak/work/.git/suite.log")    # each piece's clone
 """
 
@@ -127,12 +128,12 @@ TOOLS = {"docker": f"#!{sys.executable}\n{DOCKER}",
          "curl": "#!/bin/sh\nexit 7\n"}
 
 
-def install(home):
-    """Make `home`'s ssh reach a machine of its own; its directory."""
+def install(home, cpus=2):
+    """Make `home`'s ssh reach a machine of its own, of `cpus` CPUs; its directory."""
     machine = home.root / "machine"
     for directory in ("home", "bin", "docker/images", "docker/containers"):
         (machine / directory).mkdir(parents=True)
-    for name, text in TOOLS.items():
+    for name, text in {**TOOLS, "nproc": f"#!/bin/sh\necho {cpus}\n"}.items():
         (machine / "bin" / name).write_text(text)
         (machine / "bin" / name).chmod(0o755)
     home.fake("ssh", SSH.format(home=machine / "home", bin=machine / "bin"))
