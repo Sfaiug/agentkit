@@ -44,10 +44,17 @@ func resetCheckout(g gitcall.Git, head string, before []string) error {
 	return err
 }
 
-// proofOn replays a command on a revision, Python's prompts.proof_on: the checkout goes there, the
-// tests from `from` laid over, with what restores it on the record first, as a hard exit skips any
-// restoring: its evidence as a record holds it.
+// proofOn replays a command on a revision, Python's prompts.proof_on.
 func (r *repoPlace) proofOn(l *loop, command, path, revision, from string) (*run.Object, error) {
+	return r.onRevision(l, "proof on "+revision, revision, from, func() (int, string, bool, error) {
+		return l.proved(r.wt, command, path, revision)
+	})
+}
+
+// onRevision is what replay says run on a revision: the checkout goes there, the tests from `from`
+// laid over, with what restores it on the record first, as a hard exit skips any restoring: its
+// evidence as a record holds it.
+func (r *repoPlace) onRevision(l *loop, label, revision, from string, replay func() (int, string, bool, error)) (*run.Object, error) {
 	if err := l.stopCheck(); err != nil {
 		return nil, err
 	}
@@ -70,7 +77,6 @@ func (r *repoPlace) proofOn(l *loop, command, path, revision, from string) (*run
 			return nil, err
 		}
 	}
-	label := "proof on " + revision
 	kept := []any{}
 	for _, each := range slices.Sorted(slices.Values(before)) {
 		kept = append(kept, each)
@@ -80,14 +86,14 @@ func (r *repoPlace) proofOn(l *loop, command, path, revision, from string) (*run
 	}); err != nil {
 		return nil, err
 	}
-	proof, err := r.probe(l, command, path, revision, from, head, before, tests)
+	proof, err := r.probe(l, revision, from, head, before, tests, replay)
 	if failed := r.restoreProbe(l, head, branch, before, label); err == nil {
 		err = failed
 	}
 	return proof, err
 }
 
-func (r *repoPlace) probe(l *loop, command, path, revision, from, head string, before, tests []string) (*run.Object, error) {
+func (r *repoPlace) probe(l *loop, revision, from, head string, before, tests []string, replay func() (int, string, bool, error)) (*run.Object, error) {
 	g := r.git()
 	if err := resetCheckout(g, head, before); err != nil {
 		return nil, err
@@ -104,7 +110,7 @@ func (r *repoPlace) probe(l *loop, command, path, revision, from, head string, b
 			return nil, err
 		}
 	}
-	code, output, killed, err := l.proved(r.wt, command, path, revision)
+	code, output, killed, err := replay()
 	if err != nil {
 		return nil, err
 	}

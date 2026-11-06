@@ -1,7 +1,6 @@
 package loop
 
 import (
-	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -61,8 +60,21 @@ func (r *repoPlace) meetTarget(l *loop) error {
 		verb = "merging"
 	}
 	l.say(fmt.Sprintf("--- round %d: %s onto %s (%s)", l.rnd, verb, upstream, tip[:12]))
-	if err := r.integrateTip(l, upstream, how, tip); err != nil {
+	carried, fixed, err := r.integrateTip(l, upstream, how, tip, false)
+	if err != nil {
 		return err
+	}
+	if !carried {
+		record, err := read(l)
+		if err != nil {
+			return err
+		}
+		return &exhausted{record.Str("merge_note"), false}
+	}
+	if fixed {
+		if err := l.step("done-when"); err != nil {
+			return err
+		}
 	}
 	return l.save(func(record *run.Object) {
 		record.Set("rebases", append(record.List("rebases"), run.Fields("round", l.rnd, "onto", tip, "method", how)))
@@ -86,14 +98,19 @@ func (r *repoPlace) disjoint(head, tip string) (bool, error) {
 }
 
 // integrateTip takes tip into the branch the way how says, the one integration a round and the
-// merge both make, and makes it the run's base.  A conflict, or a git that stopped, puts the branch
-// back as it was and hands the run on: resolving it is Python's.
-func (r *repoPlace) integrateTip(l *loop, upstream, how, tip string) error {
-	if code, out, err := r.git().Out(integration(how, tip)...); err != nil || code != 0 {
-		r.abort(l, how, err != nil)
-		return cmp.Or(err, notYet(fmt.Sprintf("its %s onto %s at %s stopped on a conflict: %s", how, upstream, tip[:12], tail(out, 400)), "resolving it"))
+// merge both make, and makes it the run's base: whether the branch carries it, and whether that took
+// a conflict's fixer (resolve, rechecking as recheck says).  A git that stopped puts the branch back.
+func (r *repoPlace) integrateTip(l *loop, upstream, how, tip string, recheck bool) (carried, fixed bool, err error) {
+	code, out, err := r.git().Out(integration(how, tip)...)
+	if err != nil {
+		r.abort(l, how, true)
+		return false, false, err
 	}
-	return r.setBase(l, tip)
+	if code != 0 {
+		carried, err := r.resolve(l, upstream, how, tip, out, recheck)
+		return carried, true, err
+	}
+	return true, false, r.setBase(l, tip)
 }
 
 // setBase makes sha the run's base and target, Python's set_base: what the diff, the suite and a
