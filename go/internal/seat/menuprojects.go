@@ -12,8 +12,9 @@ import (
 )
 
 // menuProjects files old records before reading their order: first session_projects' missing
-// repo, then file_projectless' run votes. The typing lock keeps a snapshot from undoing a launch.
-func menuProjects(runs, projects map[string][]ran) bool {
+// repo, then file_projectless' run votes, and says whether it wrote. The typing lock keeps a
+// snapshot from undoing a launch.
+func menuProjects(runs, projects map[string][]ran) (wrote, known bool) {
 	state, stands := filepath.Join(config.Home(), "state"), sync.OnceValue(listed)
 	for _, path := range config.SeatFiles() {
 		record, err := run.ReadJSON(path)
@@ -36,7 +37,7 @@ func menuProjects(runs, projects map[string][]ran) bool {
 					// Older runs with tasks need Python's task front-matter reader.
 					if _, err := os.Stat(filepath.Join(run.Runs(), each.name, "task.md")); !os.IsNotExist(err) ||
 						!each.record.Truthy("repo") && each.record.Truthy("task_file") {
-						return false
+						return wrote, false
 					}
 					project = each.record.Str("repo")
 				}
@@ -51,6 +52,7 @@ func menuProjects(runs, projects map[string][]ran) bool {
 		if record.Has("repo") && run.Equal(repo, record.Get("repo")) {
 			continue
 		}
+		wrote = true
 		if err := notify.Held(context.Background(), name, func(current string) error {
 			return update(state, current, func(data *run.Object) bool {
 				if data.Has("repo") && (data.Truthy("repo") || data.Truthy("filed")) {
@@ -59,8 +61,8 @@ func menuProjects(runs, projects map[string][]ran) bool {
 				return set([]field{{"repo", repo}})(data)
 			})
 		}); err != nil {
-			return false
+			return wrote, false
 		}
 	}
-	return true
+	return wrote, true
 }

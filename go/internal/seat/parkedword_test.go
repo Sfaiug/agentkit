@@ -2,6 +2,7 @@ package seat
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -29,7 +30,7 @@ func TestAParkedRunNeedsYouOnASeatSomeoneIsIn(t *testing.T) {
 					drawn(t, home, "acme", prompting)
 				}
 				runRecord(t, home, "going", each.fields)
-				found, known := Menu(moment)
+				found, known := handedOver(t, home)
 				if known != live || live && (len(found.Seats) != 1 || found.Seats[0].Word != "needs you" || found.Seats[0].reason != each.reason) {
 					t.Fatalf("known %v, want %v: %+v", known, live, found.Seats)
 				}
@@ -59,7 +60,7 @@ func TestAnUndecidedRunKeepsAFinishedPlanTheOwners(t *testing.T) {
 					drawn(t, home, "acme", prompting)
 				}
 				runRecord(t, home, "going", each.fields)
-				found, known := Menu(moment)
+				found, known := handedOver(t, home)
 				want := live && each.reason != ""
 				if known != want || want && (len(found.Seats) != 1 || found.Seats[0].Word != "needs you" || found.Seats[0].reason != each.reason) {
 					t.Fatalf("known %v, want %v: %+v", known, want, found.Seats)
@@ -67,4 +68,19 @@ func TestAnUndecidedRunKeepsAFinishedPlanTheOwners(t *testing.T) {
 			})
 		}
 	}
+}
+
+// handedOver is acme's menu, whose record, where Go leaves the home to Python, is as it was: filing
+// its project waits until Go reads the home.
+func handedOver(t *testing.T, home string) (Home, bool) {
+	t.Helper()
+	before, err := os.ReadFile(stateFile(home, "session-acme.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, known := Menu(moment)
+	if after, err := os.ReadFile(stateFile(home, "session-acme.json")); !known && (err != nil || string(after) != string(before)) {
+		t.Fatalf("written before handing over: %s, then %s (%v)", before, after, err)
+	}
+	return found, known
 }
