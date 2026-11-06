@@ -14,15 +14,16 @@ import (
 var errUnrecorded = errors.New("its live notice could not be written down")
 
 // LiveLeft is whether telling that the merged run `record` went live is Python's: not told yet,
-// and its seat owes work, which may make the pass its to hear, or a line typed for it waits for
-// its Enter.
+// and its seat owes work, which may make the pass its to hear, unless its ending's own line says it
+// (CarriesLive); or a line typed for it waits for its Enter.
 func LiveLeft(record *run.Object) bool {
 	if record.Truthy("live_notified") {
 		return false
 	}
 	if session := run.Seat(record); session != "" {
 		if owes, err := plan.Owes(session); owes || err != nil {
-			return true
+			carried, _ := carries(record)
+			return !carried
 		}
 	}
 	typed := record.Dict("live_typed")
@@ -30,8 +31,8 @@ func LiveLeft(record *run.Object) bool {
 }
 
 // Live is a merge gone live at `at`, as Python's live_passed tells it under the run's delivery
-// lock, on the attempt snapshot is of and not told yet: written down and never typed.  Left where
-// LiveLeft holds by then.
+// lock, on the attempt snapshot is of and not told yet: said by its ending's own line, or written
+// down and never typed.  Left where LiveLeft holds by then.
 func Live(dir string, snapshot *run.Object, at float64, say func(string)) (left bool, err error) {
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))
 	if err != nil {
@@ -42,12 +43,20 @@ func Live(dir string, snapshot *run.Object, at float64, say func(string)) (left 
 	if current == nil || !sameAttempt(snapshot, current) || current.Truthy("live_notified") {
 		return false, nil
 	}
+	if carried, _ := carries(current); carried {
+		return false, nil // the ending's line, typed later in this tick, says it
+	}
 	if LiveLeft(current) {
 		return true, nil
 	}
 	if !mark(dir, current, "live_notified", run.Float(at), "live_typed", nil, "live_note", routine) {
 		return false, errUnrecorded // the next tick tells it again
 	}
-	say(fmt.Sprintf("run %s is live: %s. Recorded, not typed", filepath.Base(dir), run.Text(current.Get("pr"))))
+	say(liveSentence(current, dir) + " Recorded, not typed")
 	return false, nil
+}
+
+// liveSentence is the whole notice that a merge went live (handback.live_sentence).
+func liveSentence(record *run.Object, dir string) string {
+	return fmt.Sprintf("run %s is live: %s.", filepath.Base(dir), run.Text(record.Get("pr")))
 }

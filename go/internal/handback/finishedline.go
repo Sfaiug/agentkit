@@ -11,9 +11,10 @@ import (
 	"agentkit/internal/run"
 )
 
-// handbackLine is Python's handback_line: every ending uses its decision or delivery line.
-// A shortened notice is saved whole before any keys are sent, under Give's delivery lock.
-func handbackLine(record *run.Object, dir string, save bool) string {
+// handbackLine is Python's handback_line: every ending uses its decision or delivery line, a
+// delivery's ending with `live` saying its change went live too.  A shortened notice is saved
+// whole before any keys are sent, under Give's delivery lock.
+func handbackLine(record *run.Object, dir string, save, live bool) string {
 	word, why, move, detail := Decision(record, dir, run.Delivery(record, run.Models()))
 	if move != "" {
 		whole := run.Decision(record, dir, word, sentences(why, utf8.RuneCountInString(why)+1), move+detail, false)
@@ -26,8 +27,11 @@ func handbackLine(record *run.Object, dir string, save bool) string {
 	if record.Truthy("scratch") && record.Truthy("worktree") {
 		workspace = " Workspace: " + record.Str("worktree") + "."
 	}
-	ending := "run " + filepath.Base(dir) + " finished " + word
-	whole := fmt.Sprintf("%s: %s. Result: %s.%s Decide the next step.", ending, why, filepath.Join(dir, "result.md"), workspace)
+	ending, action := "run "+filepath.Base(dir)+" finished "+word, "Decide the next step."
+	if live {
+		action += " " + liveSentence(record, dir)
+	}
+	whole := fmt.Sprintf("%s: %s. Result: %s.%s %s", ending, why, filepath.Join(dir, "result.md"), workspace, action)
 	if fits(whole) {
 		return whole
 	}
@@ -35,7 +39,7 @@ func handbackLine(record *run.Object, dir string, save bool) string {
 	if count := len(record.List("followups")); count > 0 {
 		parts = append(parts, fmt.Sprintf("%d review follow-ups in full in result.md.", count))
 	}
-	line := strings.Join(append(parts, "Decide the next step."), " ")
+	line := strings.Join(append(parts, action), " ")
 	if fits(line) && (!save || saveNotice(dir, record, whole)) {
 		return line
 	}

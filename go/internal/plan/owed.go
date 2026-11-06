@@ -29,22 +29,22 @@ func Owes(name string) (bool, error) {
 // a line before it.
 func OwedLine(name string) (line string, owes bool, err error) {
 	for line, err := range owed(name) {
-		return line, true, err
+		return line.What, true, err
 	}
 	return "", false, nil
 }
 
-// owed is each line the seat owes, in its plan's own words, in order: "" alone for a plan nothing
-// can read, and an error for a line whose runs Go cannot read as Python does.
-func owed(name string) iter.Seq2[string, error] {
-	return func(yield func(string, error) bool) {
+// owed is each line the seat owes, its What in its plan's own words, in order: an empty one alone
+// for a plan nothing can read, and an error for a line whose runs Go cannot read as Python does.
+func owed(name string) iter.Seq2[entry, error] {
+	return func(yield func(entry, error) bool) {
 		current, _, err := config.ResolveSession(name)
 		var lines []string
 		if err == nil {
 			lines, err = read(current)
 		}
 		if err != nil {
-			yield("", nil)
+			yield(entry{}, nil)
 			return
 		}
 		for _, line := range lines {
@@ -54,7 +54,7 @@ func owed(name string) iter.Seq2[string, error] {
 			written, ok := parse(line)
 			if ok && written.Deferred {
 				if taken, err := taken(current, written); err != nil {
-					if !yield("", err) {
+					if !yield(entry{}, err) {
 						return
 					}
 					continue
@@ -66,7 +66,7 @@ func owed(name string) iter.Seq2[string, error] {
 				line = strings.TrimFunc(line, config.Space)
 				written.What = strings.TrimFunc(line[boxLine.FindStringIndex(line)[1]:], config.Space)
 			}
-			if !yield(written.What, nil) {
+			if !yield(written, nil) {
 				return
 			}
 		}
