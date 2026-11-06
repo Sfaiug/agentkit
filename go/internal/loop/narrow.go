@@ -209,6 +209,9 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 	if ok {
 		return run.Fields("land", s.tree), nil
 	}
+	if s.short(selection) {
+		return nil, nil
+	}
 	if selection.tests != nil && (selection.red == nil || !selection.red.Has("tests")) {
 		return nil, nil // a missing or unconfirmed test needs the stack's whole check
 	}

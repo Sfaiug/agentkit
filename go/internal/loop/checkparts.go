@@ -49,7 +49,7 @@ func (s *checkSelection) observe(command string, result ran, flaky bool) {
 	if s == nil {
 		return
 	}
-	s.handoff = s.handoff || flaky || result.flaky || result.stopped != "" || result.code == 137 || result.code == -9
+	s.handoff = s.handoff || flaky || result.flaky || result.stopped != ""
 	if s.red != nil || result.code == 0 {
 		return
 	}
@@ -58,6 +58,9 @@ func (s *checkSelection) observe(command string, result ran, flaky bool) {
 		share = s.shard
 	}
 	s.red = run.Fields("command", command, "piece", share)
+	if result.starved {
+		s.red.Set("short", true)
+	}
 	if len(result.confirmed) > 0 {
 		s.red.Set("tests", toList(result.confirmed))
 	}
@@ -104,6 +107,8 @@ func reportedTests(result ran, out string, only [][]string, output io.Writer) ra
 	return result
 }
 
+const pieceRetry = "command is not sent to the suite helper (piece retry)"
+
 // A named retry confirms only tests both run and failed. An inconclusive retry needs the piece
 // again; passing alone is flaky even if the piece fails again, and landing leaves that to Python.
 func retryTests(at *piece, attempt func(*piece, string, []string) error) error {
@@ -118,7 +123,7 @@ func retryTests(at *piece, attempt func(*piece, string, []string) error) error {
 			return nil
 		}
 	}
-	if err := attempt(at, "command is not sent to the suite helper (piece retry)", nil); err != nil {
+	if err := attempt(at, pieceRetry, nil); err != nil {
 		return err
 	}
 	at.ended.flaky = at.ended.flaky || flaky || at.ended.code == 0
