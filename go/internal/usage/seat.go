@@ -6,12 +6,7 @@ func (r *Readings) SeatSpent(name string) bool {
 	if r.OnCredits(name) {
 		return false
 	}
-	meters, provider := r.gating(name)
-	for _, meter := range objects(provider.Get("meters")) {
-		if session(meter) {
-			meters = append(meters, meter)
-		}
-	}
+	meters, _ := r.watched(name)
 	for _, meter := range meters {
 		if used(meter) >= 100 {
 			return true

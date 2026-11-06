@@ -92,21 +92,19 @@ def setting(cfg):
 
 def owed(name, text):
     """Whether the seat, its plan `text` holding lines and every one done, owes a done check:
-    one is on, the owner wrote a message in one of its conversations, and no check that found
-    no gap read what they have said and what the plan holds now (`fingerprint`).  A record ak
-    cannot read holds the seat.  Their words are read only for such a plan; nothing here makes a
-    check."""
+    one is on, the owner wrote a message or answered a question card in one of its
+    conversations, and no check that found no gap read what they have said and what the plan
+    holds now (`fingerprint`).  A record ak cannot read holds the seat.  Their words are read only
+    for such a plan; nothing here makes a check."""
     if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
         return False
     try:
         if not on(config.load()):
             return False
         with harness.strictly():
-            seats = notify.conversations_of(name)
-            messages = [notify.owner_messages(name, seat) for seat in seats]
-            if not any(messages):       # none with no conversation
-                return False
-            owner = owner_words(seats, messages)
+            owner = owner_words(name, notify.conversations_of(name))
+        if not owner:       # none with no conversation
+            return False
         try:
             kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
         except FileNotFoundError:
@@ -116,13 +114,14 @@ def owed(name, text):
         return True
 
 
-def owner_words(seats, messages):
-    """The owner's words to the seat in its conversations `seats`, oldest first, as (when, the
-    words, the file showing them): each of their `messages`, a list for each, and each answer
-    they gave on its question cards.  A message that replies to a card (`replies`) counts only
-    as those answers: its text repeats the seat's question as if the owner had said it."""
+def owner_words(name, seats):
+    """The owner's words to seat `name` in its conversations `seats`, oldest first, as (when, the
+    words, the file showing them): each message they wrote it and each answer they gave on its
+    question cards.  A message that replies to a card (`replies`) counts only as those answers:
+    its text repeats the seat's question as if the owner had said it."""
     return sorted([*((message["at"], message["text"], message["text"])
-                     for said in messages for message in said if "replies" not in message),
+                     for seat in seats for message in notify.owner_messages(name, seat)
+                     if "replies" not in message),
                    *((answer["at"], answer["answer"], card(answer))
                      for seat in seats for answer in seat[0].answers(*seat[1:]))],
                   key=lambda said: said[0])
@@ -210,7 +209,7 @@ def gaps(cfg, name):
             seats = notify.conversations_of(name)
             if not seats or not seats[-1][3]:
                 raise config.Error(f"no seat named {name} whose conversation ak can read")
-            owner = owner_words(seats, [notify.owner_messages(name, seat) for seat in seats])
+            owner = owner_words(name, seats)
             pictures = [*harness.entries(config.seat_file("pictures", name))]
         said = [words for _, words, _ in owner]
         if not said:
@@ -228,8 +227,11 @@ def gaps(cfg, name):
             files["plan.md"] = "".join(line + "\n" for line in planned)
             shown = []
             for n, picture in enumerate(pictures, 1):
-                files[f"pictures/{n}-{picture['name']}"] = base64.b64decode(picture["data"])
-                shown.append(f"  - pictures/{n}-{picture['name']}, kept "
+                # numbered, never named: a name the filesystem took leaves no room for more;
+                # its type stays for the reader, the name itself in the list
+                kept = f"pictures/{n}{Path(picture['name']).suffix[:16]}"
+                files[kept] = base64.b64decode(picture["data"])
+                shown.append(f"  - {kept}: {picture['name']}, kept "
                              + time.strftime(plan.STAMP, time.localtime(picture["at"])))
             for directory, state in record.runs():
                 if transitions.launched_session(state) == name:

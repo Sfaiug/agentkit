@@ -89,8 +89,9 @@ func codexOwns(record *run.Object, conversation string) bool {
 	return thread == conversation
 }
 
-// codexRecord leaves binding a proven thread to Python's reconcile. Without one, including at
-// prepare's startup chooser, the screen still says the seat's word; legacy ids stay untouched.
+// codexRecord hands Python a record whose proven thread no reconcile has bound yet (codexReconcile
+// is the tick's). Without one, including at prepare's startup chooser, the screen still says the
+// seat's word; legacy ids stay untouched.
 func codexRecord(_ string, record *run.Object) (plugin, bool) {
 	thread, rollout := codexThread(record)
 	ready := thread == "" || record.Get("conversation") == thread &&

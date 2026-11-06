@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"cmp"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handin"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 	"agentkit/internal/uncommitted"
 )
@@ -46,8 +48,9 @@ func resetCheckout(g gitcall.Git, head string, before []string) error {
 
 // proofOn replays a command on a revision, Python's prompts.proof_on.
 func (r *repoPlace) proofOn(l *loop, command, path, revision, from string) (*run.Object, error) {
+	asked := clock()
 	return r.onRevision(l, "proof on "+revision, revision, from, func() (int, string, bool, error) {
-		return l.proved(r.wt, command, path, revision)
+		return l.proved(r.wt, command, path, revision, asked)
 	})
 }
 
@@ -163,9 +166,10 @@ func (r *repoPlace) restoreProbe(l *loop, head, branch string, before []string, 
 	return l.save(func(record *run.Object) { record.Delete("probe_checkout") })
 }
 
-// proved is a command's replay in cwd under a check's walls, in a log of its own, cut as a
-// hand-in's.
-func (l *loop) proved(cwd, command, path, label string) (int, string, bool, error) {
+// proved is a command's replay in cwd on revision, "" for the workspace, under a check's walls, in
+// a log of its own, cut as a hand-in's: its row in history the round's replay, asked for at asked.
+func (l *loop) proved(cwd, command, path, revision string, asked float64) (int, string, bool, error) {
+	label := cmp.Or(revision, "workspace")
 	l.say("--- review proof: checking " + label)
 	progress, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND, 0o666)
 	if err != nil {
@@ -174,7 +178,9 @@ func (l *loop) proved(cwd, command, path, label string) (int, string, bool, erro
 	defer progress.Close()
 	fmt.Fprintf(progress, "$ %s (on %s)\n", command, label)
 	start, _ := progress.Seek(0, io.SeekEnd)
-	outcome, err := l.boxed(cwd, command, "", l.ceiling, progress, path, true)
+	row := history.Check(l.rows("replay", revision), command, asked, "", l.say)
+	outcome, err := l.boxed(cwd, command, "", l.ceiling, progress, path, true, false)
+	row.End(exitOf(outcome, err))
 	if err != nil {
 		return 0, "", false, err
 	}

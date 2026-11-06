@@ -68,29 +68,45 @@ func ranVerb(harness, verb, account, provider string) bool {
 	interrupts := make(chan os.Signal, 1)
 	signal.Notify(interrupts, os.Interrupt)
 	defer signal.Stop(interrupts)
-	adapter, err := config.LoginAdapter(harness)
-	env, envErr := config.ChildEnv()
-	if err = cmp.Or(err, envErr); err != nil {
+	run, err := adapterCall(harness, account, provider, strings.Fields(verb)...)
+	if err != nil {
 		fmt.Println(harness + ": " + err.Error())
 		return false
 	}
 	if login {
-		env = host.Unmarked(env) // a browser a sign-in opens is the owner's, and outlives ak
+		run.Env = host.Unmarked(run.Env) // a browser a sign-in opens is the owner's, and outlives ak
 	}
-	env = append(env, config.AccountEnv(account), "AGENTKIT_PROVIDER="+provider)
-	run := exec.Command(adapter, strings.Fields(verb)...)
-	run.Env, run.Stdin, run.Stdout, run.Stderr = env, os.Stdin, os.Stdout, os.Stderr
+	run.Stdin, run.Stdout, run.Stderr = os.Stdin, os.Stdout, os.Stderr
 	if run.Run() != nil {
 		return false
 	}
 	if !login {
 		return true
 	}
-	if answered, yes, _ := worker.Login(adapter, env, "seat"); answered && !yes {
+	if answered, yes, _ := worker.Login(run.Path, run.Env, "seat"); answered && !yes {
 		return false
 	}
 	signedIn[harness] = true // c reads its models again
 	return true
+}
+
+// adapterCall is that verb of the harness's adapter for account's login and provider's, in the
+// environment ak's children get with adapterTold added.
+func adapterCall(harness, account, provider string, verb ...string) (*exec.Cmd, error) {
+	adapter, err := config.LoginAdapter(harness)
+	env, envErr := config.ChildEnv()
+	if err = cmp.Or(err, envErr); err != nil {
+		return nil, err
+	}
+	call := exec.Command(adapter, verb...)
+	call.Env = append(env, adapterTold(account, provider)...)
+	return call, nil
+}
+
+// adapterTold is what an adapter call for account's login and provider's is told (config.account_env,
+// config.provider_env).
+func adapterTold(account, provider string) []string {
+	return []string{config.AccountEnv(account), "AGENTKIT_PROVIDER=" + provider}
 }
 
 // forget is what that harness made for account, a login that did not finish, taken away.

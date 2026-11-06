@@ -13,8 +13,9 @@ refills.  A provider's pace is the max over its meters.  It no longer ranks anyt
 decides one thing, when a payg provider is allowed in, and it never withholds a model from
 anything.
 
-Exhaustion is the one hard exclusion, and it is not a knob: a meter is spent at 100% used and
-not one point earlier, because a subscription is bought to be used to the end.  The worker
+Exhaustion is the one hard exclusion of usage, and it is not a knob: a meter is spent at 100%
+used and not one point earlier, because a subscription is bought to be used to the end.
+Beside it, a model off in the model list (`matrix.off`) is never picked.  The worker
 pick (`pick_order`) ranks whatever is left by `matrix.rank` for the role, budget only among
 models ranked alike or ranked by nothing; the orchestrator choice (`ak orch`) ignores every
 number and takes the default orchestrator while it still has something to spend.
@@ -829,7 +830,8 @@ def collect(cfg, *, refresh=False):
                              if name in cfg["providers"]}
                 # ... and so is one read before the config listed the accounts it lists now
                 rolled = [name for name, prov in providers.items()
-                          if any(_past(m, now) for m in prov.get("meters") or [])
+                          if any(_past(m, now) for record in [prov, *_record(prov.get("accounts")).values()]
+                                 for m in _record(record).get("meters") or [])
                           or list(prov.get("accounts") or []) != config.accounts(cfg, name)]
                 for name in rolled:
                     providers[name] = _reread(cfg, name, providers[name], now)
@@ -1645,11 +1647,15 @@ def spent_meter(cfg, name, providers):
 
 
 def unready(cfg, name, providers):
-    """Why this model's harness cannot run a turn here, or None when nothing says so.
+    """Why this model cannot run a turn here, or None when nothing says so: off in the model
+    list (matrix.off), so a named or saved model is refused or handed over as one whose
+    harness cannot run, else what its harness said.
 
     Read off the `harnesses` a pick's `readiness` asked; a read that carries none withholds
     nothing, as a turn goes ahead on an `auth` verb that said nothing.
     """
+    if name in matrix.off(cfg):
+        return matrix.OFF
     return getattr(providers, "harnesses", {}).get(_asked(cfg, config.model(cfg, name)))
 
 
@@ -1685,12 +1691,13 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     model.  Among models ranked alike, budget decides:
     the fraction unspent over the fraction of the window still to go, unknown readings after
     every known one; a model on credits (`on_credits`) after every one with a window left;
-    equal on all of it keeps list order.  The one exclusion is a gate meter at 100% used with
-    no credits left; `skip` names models a caller leaves out before any of this reads the
-    list.  payg providers are the exception: they cost money, so they stay out while any
-    subscription model is still below pace, and a subscription model whose meters report
-    nothing counts as below it.  Where the harness's own config says what a model is paid
-    from, that outranks the model's own `mode`, which outranks its provider's.
+    equal on all of it keeps list order.  The exclusions are a model off in the model list
+    (`matrix.off`) and a gate meter at 100% used with no credits left; `skip` names models a
+    caller leaves out before any of this reads the list.  payg providers are the exception:
+    they cost money, so they stay out while any subscription model is still below pace, and a
+    subscription model whose meters report nothing counts as below it.  Where the harness's
+    own config says what a model is paid from, that outranks the model's own `mode`, which
+    outranks its provider's.
 
     Each role stays within its selection. ak's own run numbers never affect the order. JSON
     output uses `quiet` because the providers already carry their unknown reasons as
@@ -1713,7 +1720,9 @@ def pick_order(cfg, providers, workers=None, *, role="executor", orchestrator=No
     def pace(name):
         return model_pace(cfg, name, providers)[0]
 
-    gates = {n: model_exhausted(cfg, n, providers) for n in tier_b}
+    off = matrix.off(cfg)
+    gates = {n: (True, matrix.OFF) if n in off else model_exhausted(cfg, n, providers)
+             for n in tier_b}
     if not quiet:
         for name, (exhausted, reason) in gates.items():
             if exhausted:

@@ -38,14 +38,17 @@ func fakeGH(t *testing.T, answers map[string]string) string {
 	return calls
 }
 
-// pullRig is a review's place on the rig's checkout, the commit it has out being the PR's head,
-// and what GitHub says of that PR, in the given state.
+// pullRig is a review's place on the rig's checkout, the commit it has out being the PR's head, as
+// its record says, and what GitHub says of that PR, in the given state.
 func pullRig(t *testing.T, state string) (*loop, *pullPlace, map[string]string) {
 	t.Helper()
 	l, r := repoRig(t)
 	head := strings.TrimSpace(shell(t, r.wt, "git rev-parse HEAD"))
 	p := &pullPlace{repoPlace: r, url: "https://github.com/acme/widget/pull/1", sha: head}
 	l.place, l.pull, l.reviewer = p, p.url, "opus"
+	if err := run.Change(l.dir, func(record *run.Object) error { record.Set("head_sha", head); return nil }); err != nil {
+		t.Fatal(err)
+	}
 	answers := map[string]string{
 		"pr view": `{"title":"Add contrib","body":"adds","author":{"login":"other-dev"}}`,
 		"api repos/acme/widget/pulls/1": fmt.Sprintf(`{"state":%q,"base":{"ref":"main"},"head":{"sha":%q,"ref":"ak/acme","repo":{"clone_url":%q}}}`,
@@ -84,6 +87,25 @@ func TestAMovedHeadOrCheckoutKeepsTheWorkForInspection(t *testing.T) {
 	}
 	if err := l.reviewPull(); err == nil || err.Error() != kept {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A review judges what its own landing made of the PR's head once that is pinned, as Python's
+// pinned_head: a checkout moved past the head before then is refused.
+func TestAReviewJudgesWhatItsOwnLandingMadeOnceItIsPinned(t *testing.T) {
+	l, p, _ := pullRig(t, "open")
+	if err := run.Change(l.dir, func(record *run.Object) error { record.Set("review_pr", p.url); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	shell(t, p.wt, "git commit -q --allow-empty -m 'the landing rebased it'")
+	if err := p.restore(l, "tests"); err == nil {
+		t.Fatal("a checkout moved past the PR head was judged before it was pinned")
+	}
+	if err := p.pin(l); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.restore(l, "tests"); err != nil {
+		t.Fatal(err)
 	}
 }
 

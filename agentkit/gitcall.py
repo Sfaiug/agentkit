@@ -800,6 +800,28 @@ def leftover_junk(path):
                    for part in parts))
 
 
+# How Go's README at a build cache's root begins (cmd/go/internal/cache).  GOCACHE may name that
+# directory anything, so only this tells one: a check that set it inside the checkout had its
+# cache's 2153 files committed with the work, and the run refused at 3604 lines before review.
+GO_CACHE_README = b"This directory holds cached build artifacts from the Go build system.\n"
+
+
+def go_build_cache(wt, path):
+    """Whether `path` is in a Go build cache in `wt`: below a directory holding the README Go
+    writes at a cache's root, that README included, the checkout's own root among them."""
+    parts = path.split("/")
+    for depth in range(len(parts)):
+        try:
+            # nonblocking: a FIFO named README would otherwise hold the run until a writer came
+            with open(Path(wt, *parts[:depth], "README"), "rb",
+                      opener=lambda name, flags: os.open(name, flags | os.O_NONBLOCK)) as readme:
+                if readme.read(len(GO_CACHE_README)) == GO_CACHE_README:
+                    return True
+        except OSError:
+            continue                    # no README here, or not a file: not a cache's root
+    return False
+
+
 def add_paths(wt, paths, env=None):
     """Stage selected work that still has a file or an entry in this index.
 
@@ -851,10 +873,10 @@ def commit_leftovers(wt, log, artifacts, state):
     Everything the done-when commands generated is left alone.  Committing that instead earns
     a FAIL on junk the next round's commands recreate, so the fixer can never get out of it.
 
-    Test sandboxes, run locks and dependency trees are left alone too, including symlinks,
-    whatever the repository's .gitignore says.  Anything `git check-ignore` would ignore
-    stays out as well.  Ignored junk is listed back for the count below, since
-    `dirty_paths` never sees it.
+    Test sandboxes, run locks and dependency trees, symlinks included, and Go build caches
+    are left alone too, whatever the repository's .gitignore says.  Anything `git check-ignore`
+    would ignore stays out as well.  Ignored sandboxes, locks and dependencies are listed back
+    for the count below, since `dirty_paths` never sees them.
 
     The done-when only verifies a checkout clean at HEAD, so nothing left out may stay
     staged: a staged `venv` would fail every round as a changed checkout.  It is unstaged,
@@ -903,13 +925,15 @@ def commit_leftovers(wt, log, artifacts, state):
 def committable_paths(wt, artifacts=(), env=None):
     """(the dirty paths a commit of the checkout would take, the leftover junk it leaves): the
     one rule of what a run's uncommitted work is.  Test sandboxes, run locks and dependency
-    trees (`leftover_junk`), whatever the repository's `.gitignore` names, and what the
-    done-when generated (`artifacts`) are left.  `env` goes to every git read."""
+    trees (`leftover_junk`), Go build caches (`go_build_cache`), whatever the repository's
+    `.gitignore` names, and what the done-when generated (`artifacts`) are left.  `env` goes
+    to every git read."""
     real, sandbox = [], []
     for path in dirty_paths(wt, env):
         if path in artifacts:
             continue
-        if leftover_junk(path) or git_out(wt, "check-ignore", "-q", "--", path, env=env)[0] == 0:
+        if (leftover_junk(path) or go_build_cache(wt, path)
+                or git_out(wt, "check-ignore", "-q", "--", path, env=env)[0] == 0):
             sandbox.append(path)
         else:
             real.append(path)

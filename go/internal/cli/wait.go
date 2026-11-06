@@ -19,8 +19,8 @@ func init() { commands["wait"] = wait }
 
 // wait is `ak wait PR_URL|RUN_ID`, as Python's watch.wait_main answers it: the seat ends its turn
 // waiting on that pull request or run, written into its own record for the tick to end, and one
-// already over is refused with its fact.  Python's are a wait reaching an exhausted run, one of a
-// seat whose finished plan holds open deferred lines or who has runs of its own.
+// already over is refused with its fact.  Python's are a wait of a seat whose finished plan holds
+// open deferred lines or who has runs of its own.
 func wait(args []string, out, errOut io.Writer) int {
 	name, _, err := config.CurrentSession()
 	if err != nil {
@@ -100,8 +100,8 @@ func ownRun(name, on string, now time.Time) (any, error) {
 		if run.Seat(record) != name {
 			continue
 		}
-		if live, err := waitfact.Going(record, now); live || err != nil {
-			return record.Get("run_id"), err
+		if run.Going(record, now) {
+			return record.Get("run_id"), nil
 		}
 	}
 	return nil, nil

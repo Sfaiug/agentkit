@@ -44,8 +44,10 @@ type opencodeTurn struct {
 // keeps while it runs included; false where Go reads it otherwise than Python does.
 func opencodeRead(session string) (opencodeTurn, bool) {
 	path := opencodeDatabase()
-	if info, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) || err == nil && !info.Mode().IsRegular() {
+	if info, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return opencodeTurn{}, true
+	} else if err != nil || !info.Mode().IsRegular() { // Python's sqlite3 fails on it (`unread`); a pipe would hang the open
+		return opencodeTurn{}, false
 	}
 	conn, err := sqlite.Open(path, sqlite3.OPEN_READONLY)
 	if err != nil {

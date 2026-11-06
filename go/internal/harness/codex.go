@@ -5,9 +5,9 @@ package harness
 // not reopen one on a receipt yet.
 func init() {
 	plugins["codex"] = plugin{seats: true, looks: true, recorded: codexError, answer: codexAnswer, owns: codexOwns,
-		record: codexRecord, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
+		record: codexRecord, reconcile: codexReconcile, keys: []string{codexLaunch, "codex_history"}, kept: codexKept,
 		fresh: "starts a new Codex conversation", receipt: codexLaunch, registerMCP: codexRegisterMCP,
 		launched: codexLaunched, retire: codexRetire, handed: codexHanded, moveReady: codexMoveReady, forget: codexForget,
-		opens: true, interactive: codexInteractive, serve: codexServeSeat, hookEvent: codexHookEvent,
-		tokens: codexTokens, yolo: codexYolo, rulebook: ".codex/AGENTS.md"}
+		opens: true, usual: true, interactive: codexInteractive, serve: codexServeSeat, hookEvent: codexHookEvent,
+		tokens: codexTokens, yolo: codexYolo, rulebook: ".codex/AGENTS.md", holds: true}
 }

@@ -9,13 +9,13 @@ import (
 	"agentkit/internal/run"
 )
 
-// Reminder is questions.reminder: what the seat's closing message must still say before it stops,
-// each question recorded for the owner whose words it does not hold, "" for none.  The owner must
-// see a question in the chat before `needs you` begins.
-func Reminder(name, said string) string { return reminder(said, pending(name, notify.Last(name))) }
+// Pending is questions.pending of the seat as it stands: each question recorded for the owner.
+func Pending(name string) []string { return pending(name, notify.Last(name)) }
 
-// reminder is what a closing message that said this must still say of those questions.
-func reminder(said string, asked []string) string {
+// Reminder is questions.reminder: what a closing message that said this must still say before it
+// stops, each of those questions whose words it does not hold, "" for none.  The owner must see a
+// question in the chat before `needs you` begins.
+func Reminder(said string, asked []string) string {
 	shown := []string{shownWords(said), shownWords(inline(said))}
 	var missing []string
 	for _, question := range asked {

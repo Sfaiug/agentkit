@@ -34,7 +34,8 @@ func TestPastKeepsItsFrameAroundLongDetailsAndPages(t *testing.T) {
 				if terminal.Cells(line) > min(size[0], 120) || strings.HasSuffix(line, " ") {
 					t.Fatalf("%v: overflowing row: %q", size, line)
 				}
-				if at < len(f.spots) && f.spots[at] != "" && f.Open(terminal.Key{Name: "pointer", Mouse: terminal.Mouse{Row: at + 1, Column: 3, Released: true}}) != f.spots[at] {
+				first, _ := terminal.Drawn(line, 1, size[0])
+				if at < len(f.spots) && f.spots[at] != "" && f.Open(terminal.Key{Name: "pointer", Mouse: terminal.Mouse{Row: at + 1, Column: first, Released: true}}) != f.spots[at] {
 					t.Fatal("a past row's pointer opens another seat")
 				}
 			}

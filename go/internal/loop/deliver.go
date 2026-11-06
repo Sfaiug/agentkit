@@ -240,9 +240,16 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	}
 	held := code == 0
 	saved, verdict := record.Dict("review"), record.Get("verdict")
+	landing := landingReview(record)
 	if !held {
-		// before git rewrites HEAD: an interruption must not leave a PASS saved on it
-		if err := r.pendingReview(l, "Re-review after the "+how+" of "+upstream+"."); err != nil {
+		// before git rewrites HEAD: an interruption must not leave a PASS saved on it, and a
+		// landing's review already pending stays as it was
+		if landing {
+			err = l.save(func(record *run.Object) { run.SetAll(record, "verdict", nil, "review", nil) })
+		} else {
+			err = r.pendingReview(l, "Re-review after the "+how+" of "+upstream+".")
+		}
+		if err != nil {
 			return false, err
 		}
 	}
@@ -256,9 +263,14 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	if err != nil || !carried {
 		return false, err
 	}
-	if held {
+	switch {
+	case landing && !fixed:
+		if passed, err := r.reviewLanding(l, upstream, how); err != nil || !passed {
+			return false, err
+		}
+	case held:
 		l.say("--- merge: unchanged commit; reusing done-when and review evidence")
-	} else if !fixed {
+	case !fixed:
 		if err := r.recheck(l, upstream, how, head, saved, verdict); err != nil {
 			return false, err
 		}
@@ -343,6 +355,21 @@ func passedReviewHead(record *run.Object) string {
 	return ""
 }
 
+// checkedAgain is the round's checks on the commit a clean integration made, Python's verify_work
+// there: what they printed once they pass, and a red is a fixer's at landing, not Go's yet.
+func (l *loop) checkedAgain(upstream, how string) (string, error) {
+	ok, text, err := l.verify()
+	if err != nil {
+		return "", err
+	}
+	if !ok {
+		l.say("done-when after the " + how + ": FAILED")
+		return "", notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
+	}
+	l.say("done-when after the " + how + ": all passed")
+	return text, nil
+}
+
 // recheck runs the round's checks on the commit an integration made, Python's integrate after a
 // clean one: passing on that same commit, the review saved before it stands for it.
 func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Object, verdict any) error {
@@ -350,15 +377,10 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 	if err != nil {
 		return err
 	}
-	ok, text, err := l.verify()
+	text, err := l.checkedAgain(upstream, how)
 	if err != nil {
 		return err
 	}
-	if !ok {
-		l.say("done-when after the " + how + ": FAILED")
-		return notYet(fmt.Sprintf("done-when after the %s of %s failed: %s", how, upstream, firstFailure(text)), "a fixer at landing")
-	}
-	l.say("done-when after the " + how + ": all passed")
 	if moved, err := r.changedSince(head, tree); err != nil || moved {
 		return cmp.Or(err, notYet("the checks after the "+how+" changed the commit", "reviewing it again at landing"))
 	}
@@ -385,6 +407,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 	if len(once) == 0 {
 		return true, nil
 	}
+	l.once = once // what takes a heavy-suite turn, here and in its probes: a rebase may change the suite
 	head, tree, err := r.identity()
 	if err != nil {
 		return false, err
@@ -395,7 +418,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 		return false, err
 	}
 	path := filepath.Join(l.dir, "final-check.log")
-	ok, text, err := r.checks(l, append(every, once...), path)
+	ok, text, err := r.checks(l, append(every, once...), path, nil)
 	if err != nil {
 		return false, err
 	}

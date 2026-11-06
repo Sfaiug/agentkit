@@ -37,7 +37,7 @@ func TestModelTicksRestoreBytesAndNeverMaterializeOmittedDefaults(t *testing.T) 
 			}
 			flip := func() {
 				t.Helper()
-				if err := ticks.Tick("acme", "m1", "Model One 2", []string{"low", "medium", "high"}, noKeep); err != nil {
+				if err := ticks.Tick("acme", "m1", "Model One 2", []string{"low", "medium", "high"}, nil, noKeep); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -80,7 +80,7 @@ func TestModelTickRefusalsLeaveEveryByteAndSkipRecordPreparation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = ticks.Tick("acme", "m0", "One", []string{"high"}, func() error {
+	err = ticks.Tick("acme", "m0", "One", []string{"high"}, nil, func() error {
 		t.Fatal("a refused removal prepared records")
 		return nil
 	})
@@ -88,7 +88,7 @@ func TestModelTickRefusalsLeaveEveryByteAndSkipRecordPreparation(t *testing.T) {
 		t.Fatal("removed the last model")
 	}
 	failed := errors.New("record preparation failed")
-	if err := ticks.Tick("acme", "m1", "Two", []string{"high"}, func() error { return failed }); err != failed {
+	if err := ticks.Tick("acme", "m1", "Two", []string{"high"}, nil, func() error { return failed }); err != failed {
 		t.Fatalf("lost the save failure: %v", err)
 	}
 	if data, _ := os.ReadFile(path); !bytes.Equal(data, before) || len(ticks.Names("acme", "m1")) != 0 {
@@ -99,14 +99,14 @@ func TestModelTickRefusalsLeaveEveryByteAndSkipRecordPreparation(t *testing.T) {
 func TestTickOutPreservesChangesMadeSinceTickIn(t *testing.T) {
 	path := rememberIn(t, tickModels)
 	ticks, _ := OpenModelTicks()
-	if err := ticks.Tick("acme", "m1", "Two", []string{"high"}, noKeep); err != nil {
+	if err := ticks.Tick("acme", "m1", "Two", []string{"high"}, nil, noKeep); err != nil {
 		t.Fatal(err)
 	}
 	on, _ := os.ReadFile(path)
 	if err := os.WriteFile(path, append([]byte("concurrent = 17\n"), on...), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := ticks.Tick("acme", "m1", "Two", []string{"high"}, noKeep); err != nil {
+	if err := ticks.Tick("acme", "m1", "Two", []string{"high"}, nil, noKeep); err != nil {
 		t.Fatal(err)
 	}
 	data, _ := os.ReadFile(path)

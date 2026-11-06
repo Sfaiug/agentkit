@@ -77,13 +77,17 @@ func HandedOver(payload *run.Object) ([]any, bool) {
 	return tasks, listed
 }
 
+// Watch is a watch, not work (lifecycle.WATCH): an artifact's comment watch stays in a Stop's list
+// for the rest of the session, neither a wait nor work a dead seat owes.
+const Watch = "monitor"
+
 // WaitsOn is whether the payload hands over work the seat started that has not reported back,
 // each piece waking the seat again as it settles.  A `monitor`, an artifact's comment watch,
 // held a seat working for days; under `background_tasks` neither is a `shell` (a background
 // poll the harness kills under memory pressure: a seat waits through `ak wait`), nor a
 // `terminal` or a plugin's `agent`, whose end starts no turn.
 func WaitsOn(payload *run.Object) bool {
-	idle := []string{"monitor"}
+	idle := []string{Watch}
 	if payload.Get("background_tasks") != nil {
 		idle = append(idle, "shell", "terminal", "agent")
 	}

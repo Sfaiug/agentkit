@@ -1,7 +1,6 @@
 package seat
 
 import (
-	"errors"
 	"os"
 	"slices"
 	"time"
@@ -11,9 +10,6 @@ import (
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
 )
-
-// errExhausted is a run of the seat's whose wait transitions.exhausted_wait reads, not Go yet.
-var errExhausted = errors.New("an exhausted run, which Python's exhausted_wait reads")
 
 // RecordedEnding is stop.recorded_ending: whether what the seat recorded
 // lets its turn end, and whether runs of its own sit parked undecided, which hold it.  A question
@@ -34,8 +30,8 @@ func RecordedEnding(name string, census []*run.Object, record map[string]any, as
 			return false, false, err
 		}
 	}
-	if parked, err := run.Parked(name, census, now); parked || err != nil {
-		return false, parked, err
+	if run.Parked(name, census, now) {
+		return false, true, nil
 	}
 	if owes, err := plan.Owes(name); !owes || err != nil {
 		return !owes, false, err
@@ -44,9 +40,6 @@ func RecordedEnding(name string, census []*run.Object, record map[string]any, as
 	for _, mine := range census {
 		if seat(mine) != name {
 			continue
-		}
-		if mine.Str("state") == "exhausted" {
-			return false, false, errExhausted
 		}
 		if run.Going(mine, now) || AwaitingLive(mine, now) || len(since) > 0 && startedSince(mine, since[0]) {
 			return true, false, nil

@@ -15,16 +15,16 @@ import (
 	"agentkit/internal/harness"
 )
 
-// Fresh is the TUI command a seat of model opens on in a new conversation, on the login env's
-// AGENTKIT_ACCOUNT names, as Python's orch.command and fresh_command build it: ak's own env words,
-// then the line the harness's adapter prints for `interactive`, under a new conversation id or,
-// where its TUI cannot be told one (exit 3), none; and that id, "" for none.  env is what the
-// adapter is told.  No line where none opens: Python's launch says why where no adapter runs or it
-// prints no line, and the error does, after the model's name, where a file the harness reads on
-// its own, which nothing on the line can stop, is there.
-func Fresh(model config.Model, env []string, dir string) ([]string, string, error) {
+// Fresh is the TUI command a seat of the model config.toml calls name opens on in a new
+// conversation, on the login env's AGENTKIT_ACCOUNT names, as Python's orch.command and
+// fresh_command build it: ak's own env words, then the line the harness's adapter prints for
+// `interactive`, under a new conversation id or, where its TUI cannot be told one (exit 3), none;
+// and that id, "" for none.  env is what the adapter is told.  No line where none opens, and an
+// error saying why in Python's words: no adapter runs, it prints no line, or a file the harness
+// reads on its own, which nothing on the line can stop, is there.
+func Fresh(name string, model config.Model, env []string, dir string) ([]string, string, error) {
 	conversation := uuid()
-	line, told, err := command(model, env, dir, []string{conversation, "new"}, nil)
+	line, told, err := command(name, model, env, dir, []string{conversation, "new"}, nil)
 	if !told {
 		conversation = ""
 	}
@@ -34,12 +34,12 @@ func Fresh(model config.Model, env []string, dir string) ([]string, string, erro
 // Resumed is the command a seat of model comes back on with the conversation it owns, as Python's
 // orch.resume_command builds it: resumed where its harness has opened it, else handed over as one
 // to open, or resumed after all where its TUI cannot be told one.
-func Resumed(model config.Model, conversation string, opened bool, env []string, dir string) ([]string, error) {
+func Resumed(name string, model config.Model, conversation string, opened bool, env []string, dir string) ([]string, error) {
 	if opened {
-		line, _, err := command(model, env, dir, []string{conversation}, nil)
+		line, _, err := command(name, model, env, dir, []string{conversation}, nil)
 		return line, err
 	}
-	line, _, err := command(model, env, dir, []string{conversation, "new"}, []string{conversation})
+	line, _, err := command(name, model, env, dir, []string{conversation, "new"}, []string{conversation})
 	return line, err
 }
 
@@ -66,11 +66,11 @@ func answering(name string) ([]string, error) {
 
 // command is the seat's line from the adapter's answer to `interactive` with first, asked in the
 // seat's folder dir, whether that answered, or with then where first, naming a conversation to
-// open, exits 3: none is told one.  No line and no error where the adapter gives none.
-func command(model config.Model, env []string, dir string, first, then []string) ([]string, bool, error) {
+// open, exits 3: none is told one.  No line where the adapter gives none, and why.
+func command(name string, model config.Model, env []string, dir string, first, then []string) ([]string, bool, error) {
 	argv, err := answering(model.Harness)
 	if err != nil {
-		return nil, false, nil
+		return nil, false, err
 	}
 	account := commandAccount(env)
 	env = append(slices.Clip(env), "AGENTKIT_ACCOUNT="+account)
@@ -86,9 +86,16 @@ func command(model config.Model, env []string, dir string, first, then []string)
 		out, err = ask(then)
 		asFirst = false
 	}
-	line, ok := commandhelp.ShellSplit(strings.TrimFunc(string(out), config.Space))
-	if err != nil || !ok || len(line) == 0 {
-		return nil, false, nil
+	if err != nil {
+		return nil, false, refusal(model.Harness, name, err)
+	}
+	printed := strings.TrimFunc(string(out), config.Space)
+	line, ok := commandhelp.ShellSplit(printed)
+	if !ok {
+		return nil, false, fmt.Errorf("the %s adapter's interactive printed a command that will not parse: %.200s", model.Harness, printed)
+	}
+	if len(line) == 0 {
+		return nil, false, fmt.Errorf("the %s adapter's interactive printed no command for %s", model.Harness, name)
 	}
 	// ak's editor is the seat's own, so the owner's unsent text can be set aside for a line of
 	// ak's (agentkit/aside_editor.py); the owner's own goes beside it
@@ -109,9 +116,24 @@ func command(model config.Model, env []string, dir string, first, then []string)
 	cwd, _ := os.Getwd()
 	for _, path := range config.Unswitched(model.Harness, values, cwd) {
 		if _, err := os.Stat(path); err == nil {
-			return nil, false, fmt.Errorf("harness reads %s on its own and has no switch for it, so a seat on it would "+
-				"take instructions beside its rulebook: move it away, or open the seat on a model of another harness", path)
+			return nil, false, fmt.Errorf("%s's harness reads %s on its own and has no switch for it, so a seat on it would "+
+				"take instructions beside its rulebook: move it away, or open the seat on a model of another harness", name, path)
 		}
 	}
 	return line, asFirst, nil
+}
+
+// refusal is why the harness's adapter answered `interactive` for the model config.toml calls name
+// with no line, as Python's orch.command says it: its exit code and the end of what it said, or
+// why it never ran.
+func refusal(harness, name string, err error) error {
+	exit := (*exec.ExitError)(nil)
+	if !errors.As(err, &exit) {
+		return fmt.Errorf("the %s adapter's interactive could not start: %w", harness, err)
+	}
+	said := strings.TrimFunc(string(exit.Stderr), config.Space)
+	if runes := []rune(said); len(runes) > 300 {
+		said = string(runes[len(runes)-300:])
+	}
+	return fmt.Errorf("the %s adapter's interactive exited %d without a command for %s: %s", harness, exit.ExitCode(), name, said)
 }

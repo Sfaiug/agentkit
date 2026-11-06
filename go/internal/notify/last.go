@@ -2,13 +2,15 @@ package notify
 
 import "agentkit/internal/run"
 
-// NeededSince is whether the seat's last notice is a question `ak notify needs` recorded at
+// NeededSince is the questions the seat's last notice asks where `ak notify needs` recorded it at
 // since or later, read from its file as the stop hook reads it (`told`).
-func NeededSince(seat string, since float64) bool {
+func NeededSince(seat string, since float64) []string {
 	notice, _ := run.ReadJSON(seatFile("notify", seat, "json"))
 	if notice == nil {
-		return false
+		return nil
 	}
-	at, dated := notice.Num("time")
-	return notice.Get("kind") == "needs" && dated && at >= since
+	if at, dated := notice.Num("time"); notice.Get("kind") != "needs" || !dated || at < since {
+		return nil
+	}
+	return questions(notice)
 }

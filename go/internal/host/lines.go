@@ -17,9 +17,17 @@ const (
 	heavyMemMB = 410 // ... and its memory
 )
 
+// A command holding a heavy suite turn finds HeavyTurn set to 1, Python's gate.suite_env, so a suite
+// whose own host-wide lock is another copy's answers SuiteBusy at once, Python's SUITE_BUSY, rather
+// than wait on that lock holding the turn.
+const (
+	HeavyTurn = "AK_HEAVY_TURN"
+	SuiteBusy = 75
+)
+
 // SuiteOwn is what a done-when command's environment never inherits, Python's gate.suite_env: a
 // loop started below a suite holds none of that suite's turn, nor its share, path or test lists.
-var SuiteOwn = []string{"AK_HEAVY_TURN", "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_CHANGED", "AK_TIMES"}
+var SuiteOwn = []string{HeavyTurn, "AK_SHARD", "AK_ONLY", "AK_FAILED", "AK_RAN", "AK_CHANGED", "AK_TIMES"}
 
 // G is megabytes as gigabytes to one decimal, trailing zeros dropped; `?` for no reading.
 func G(mb float64, ok bool) string {
@@ -116,12 +124,12 @@ func (m memory) inUse(name string) string {
 // never more in all than the cores and memory fit with nothing running.
 func (r Readings) heavyLimit() int {
 	running := 0
-	for _, path := range heavyLocks() {
+	for _, path := range HeavyTurns(0) {
 		if lock.Held(path) {
 			running++
 		}
 	}
-	return r.fit(running, heavyCPUs, heavyMemMB, false)
+	return r.Fit(running, heavyCPUs, heavyMemMB, false)
 }
 
 // Pieces is how many pieces of a suite run here at once with no turn held, Python's
@@ -129,7 +137,7 @@ func (r Readings) heavyLimit() int {
 // than a heavy suite's first estimate, and fits the unit's own memory room too.
 func Pieces(cpus, memMB float64) int {
 	cpus, memMB = Cost(cpus, memMB)
-	return Read().fit(0, cpus, memMB, true)
+	return Read().Fit(0, cpus, memMB, true)
 }
 
 // Cost is what one piece of a suite costs as Python's gate.suite_cost gives it: what a run
@@ -138,9 +146,10 @@ func Cost(cpus, memMB float64) (float64, float64) {
 	return max(cpus, heavyCPUs), max(memMB, heavyMemMB)
 }
 
-// fit is running plus how many more jobs of that cost the headroom fits, at least one; with unit,
-// the unit's own memory room and the headroom under its hard caps bound memory too.
-func (r Readings) fit(running int, jobCPUs, jobMemMB float64, unit bool) int {
+// Fit is running plus how many more jobs of that cost the headroom fits, at least one, Python's
+// derived_heavy_limit; with unit, the unit's own memory room and the headroom under its hard caps
+// bound memory too.
+func (r Readings) Fit(running int, jobCPUs, jobMemMB float64, unit bool) int {
 	var cpuFree, cpuWhole float64
 	hasCPU := true
 	cpuQuota, hasCPUQuota := r.Number("slice_cpu_quota")
@@ -206,11 +215,11 @@ func cappedBy(free float64, read bool, room float64) (float64, bool) {
 	return room, true
 }
 
-// heavyLocks are the turn files on disk, a shrunk limit's higher ones included: the suites
-// still holding those count too.
-func heavyLocks() []string {
+// HeavyTurns are the heavy-suite turn files, Python's gate_lock: those on disk, a shrunk limit's
+// higher ones included, as the suites still holding those count too, and at least least of them.
+func HeavyTurns(least int) []string {
 	paths := config.Glob(filepath.Join(config.Home(), "runs"), ".heavy-*.lock")
-	highest := -1
+	highest := least - 1
 	for _, path := range paths {
 		name := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), ".heavy-"), ".lock")
 		if index, err := strconv.Atoi(name); err == nil && index > highest {
@@ -293,4 +302,43 @@ func StatusLines() (string, error) {
 // Python's gate.clear_landing_wait: a fresh or finished landing counts from its own first wait.
 func ClearLandingWait(dir string) {
 	os.Remove(filepath.Join(dir, "landing_since"))
+}
+
+// FirstLandingWait is when the run at dir first waited for a heavy suite turn as a lander, Python's
+// _first_landing_wait: kept beside its record, where a whole-record save cannot wipe it.
+func FirstLandingWait(dir string) (float64, bool) {
+	data, err := os.ReadFile(filepath.Join(dir, "landing_since"))
+	if err != nil {
+		return 0, false
+	}
+	since, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64)
+	return since, err == nil
+}
+
+// SeedLandingWait starts the run at dir's first landing wait at since, Python's _seed_landing_wait.
+func SeedLandingWait(dir string, since float64) {
+	os.WriteFile(filepath.Join(dir, "landing_since"), []byte(strconv.FormatFloat(since, 'f', -1, 64)), 0o666)
+}
+
+// LineCheckWaiting is a line's own check seen waiting for a heavy suite turn until the file closes,
+// Python's landing_wait: a share of the lock LineCheckWaits reads, nil where it cannot be had.  It
+// makes the lookers' turn file first, which they never make themselves.
+func LineCheckWaiting() *os.File {
+	runs := filepath.Join(config.Home(), "runs")
+	if turn, err := lock.Try(filepath.Join(runs, ".heavy-landing.probe")); err == nil {
+		turn.Close()
+	}
+	shared, _ := lock.Shared(filepath.Join(runs, ".heavy-landing.wait"))
+	return shared
+}
+
+// LineCheckWaits is whether a line's own check waits for a heavy suite turn now, Python's
+// landing_waits.  Lookers take turns on a file of their own, so one never reads another as a waiter,
+// and make no file: a launch Go hands over to Python leaves runs/ as it found it.
+func LineCheckWaits() bool {
+	runs := filepath.Join(config.Home(), "runs")
+	if turn, err := lock.Edit(filepath.Join(runs, ".heavy-landing.probe")); err == nil {
+		defer turn.Close()
+	}
+	return lock.Held(filepath.Join(runs, ".heavy-landing.wait"))
 }

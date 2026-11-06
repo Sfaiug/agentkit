@@ -410,8 +410,7 @@ class FollowupRuns(unittest.TestCase):
         (self.repo / "broken.py").write_text("def first(items):\n    return items[0] if items else None\n")
         self.git(self.repo, "commit", "-qam", "Fix the planned follow-up")
         self.git(self.repo, "push", "-q", "origin", "main")
-        with patch.dict(os.environ, {config.SESSION_ENV: "seat"}):
-            self.assertEqual(plan.main([]), 0)
+        plan.delivery("seat", CHECK)        # the fix run's, which its line is left to
         [line] = plan.lines("seat")
         self.assertRegex(line, r"^- \[x\] Fix .* · done [0-9a-f]{12} Fix the planned follow-up$")
 
@@ -428,8 +427,7 @@ class FollowupRuns(unittest.TestCase):
         self.git(fixer, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                  "commit", "-qam", "Fix the planned follow-up")
         self.git(fixer, "push", "-q", "origin", "main")
-        with patch.dict(os.environ, {config.SESSION_ENV: "seat"}):
-            self.assertEqual(plan.main([]), 0)
+        plan.delivery("seat", CHECK)        # the fix run's, which its line is left to
         [line] = plan.lines("seat")
         self.assertRegex(line, r"^- \[x\] Fix .* · done [0-9a-f]{12} Fix the planned follow-up$")
 

@@ -47,10 +47,7 @@ func (h *Highlight) Move(key terminal.Key, frame Frame) bool {
 		case mouse.Button&64 != 0:
 			step = mouse.Notches
 		default:
-			name := ""
-			if mouse.Column <= frame.width && mouse.Row > 0 && mouse.Row <= len(frame.spots) {
-				name = frame.spots[mouse.Row-1]
-			}
+			name := frame.seatAt(mouse)
 			h.Cursor, h.Open, h.Hidden = frame.cursor, name != "", name == ""
 			if name != "" {
 				h.Cursor = name

@@ -48,6 +48,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		return err == context.Canceled
 	}
 	defer painter.Forget()
+	nextKey := followSeat(session, keyboard)
 	for {
 		var known bool
 		if view.Options, known = configOptions(c); !known {
@@ -64,14 +65,22 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		frame := menu.ConfigFrame(screen, view)
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
-		key := keyboard.ReadKey()
-		view.Note = ""
+		key := nextKey(c)
+		switch {
+		case key.Name == "again": // a resize: drawn whole again, what was said and the pointer's place kept
+			painter.Forget()
+			continue
+		case key.Name == "wake": // the seat's record changed: drawn again, what was said kept
+			continue
+		case view.Away && (key.Name == "space" || key.Name == "enter"):
+			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			continue
+		}
+		view.Note, view.Away = "", false
 		level := -1
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return true
-		case key.Name == "again":
-			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
 			view.Row = max(0, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
@@ -102,6 +111,8 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 						level = frame.Level(mouse, c.Effort(c.Names[row], column-3))
 					}
 				}
+			} else {
+				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
 			if !menuModels(session, "config · recommended · "+view.Scope, c, keyboard, painter) {
@@ -109,6 +120,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
+		}
+		if key.Name == "enter" && view.Row == len(c.Names)+3 {
+			if !menuAudit(keyboard, painter) {
+				return false
+			}
+			continue
 		}
 		if key.Name == "enter" && view.Row == len(c.Names)+5 {
 			if !menuMachines(keyboard, painter) {
@@ -197,17 +214,7 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	if err != nil {
 		audit = err.Error()
 	} else {
-		named := func(names []string) string {
-			labels := []string{}
-			for _, name := range names {
-				labels = append(labels, config.ModelName(name, c.Models))
-			}
-			if len(labels) == 0 {
-				return "nobody"
-			}
-			return strings.Join(labels, ", ")
-		}
-		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + named(setting.Workers) + " · " + menu.RoleHead(2) + " " + named(setting.Reviewers)
+		audit = onOff(on) + " · " + menu.RoleHead(0) + " " + config.ModelName(setting.Orchestrator, c.Models) + " · " + menu.RoleHead(1) + " " + auditNames(setting.Workers, c.Models) + " · " + menu.RoleHead(2) + " " + auditNames(setting.Reviewers, c.Models)
 	}
 	checker, on, err := config.DoneCheck()
 	check := ""

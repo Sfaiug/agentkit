@@ -54,7 +54,7 @@ func wakeReds(line string, woken map[string]bool, said io.Writer) {
 	members := lineMembers(line)
 	for _, m := range members {
 		wait, id := m.record.Dict("waiting_on"), filepath.Base(m.dir)
-		if woken[id] || m.record.Str("state") != "waiting" || !wait.Has("fix") || landingFixHandoff(wait) != "" ||
+		if woken[id] || m.record.Str("state") != "waiting" || !wait.Has("fix") || landingFixHandoff(m.record) != "" ||
 			pythons(m.record) || redBehind(wait, members) || run.ProcessActive(m.record) {
 			continue
 		}
@@ -78,9 +78,10 @@ func wakeReds(line string, woken map[string]bool, said io.Writer) {
 	}
 }
 
-// pythons is a member Go's lander leaves to Python's: a PR review's or a target repair's.
+// pythons is a member Go's lander leaves to Python's: a target repair's, or a review of a PR other
+// than a seat's own.
 func pythons(record *run.Object) bool {
-	return record.Truthy("review_pr") || record.Truthy("repair")
+	return record.Truthy("review_pr") && !record.Truthy("own_pr") || record.Truthy("repair")
 }
 
 // A sharedOut is one writer the pass and its wake both write to.

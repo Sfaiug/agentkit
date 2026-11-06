@@ -1,5 +1,5 @@
 """`r recommended` on `c` opens a page named as `c`'s other pages are, `config · recommended ·
-new seats` in a window of its own, and so are the pages it opens, `p` and a row's why.
+new seats` in a window of its own, and so is the page it opens, a row's why.
 Black-box, as tests/test_key_models_answer.py, judged by the header.  Fails against /bin/false.
 """
 
@@ -33,8 +33,6 @@ class RecommendedNamedAsC(unittest.TestCase):
         named = lambda shown: lambda screen: shown in screen and lines(screen)[0].startswith(TITLE)
         term.wait("esc leave")
         for key, shown in [("c", "r recommended"), ("r", named("comparing all 4 models")),
-                           ("p", named("models to compare")),
-                           ("Escape", named("comparing all 4 models")),
                            ("Enter", named("\n  why "))]:   # the pointer starts on a pick
             term.keys(key)
             term.wait(shown)

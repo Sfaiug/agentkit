@@ -3,9 +3,11 @@ beside the question and the choices the seat offered; a gap may quote the answer
 question.
 
 The seat asks on an AskUserQuestion card which layout to use; the owner picks one and adds a
-note asking for one more thing.  The model's turn hands in its gaps only where its workspace
-holds the question, both choices and the answer: one quoting the note, one quoting the question,
-and one quoting the note of a subagent's card, which no file of the workspace holds.
+note asking for one more thing, and writes nothing else.  With its plan's every line done, the
+seat does not read done: the answer alone owes a check.  The model's turn hands in its gaps only
+where its workspace holds the question, both choices and the answer: one quoting the note, one
+quoting the question, and one quoting the note of a subagent's card, which no file of the
+workspace holds.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 Claude seat of tests/fixtures/akseat.py whose transcript the test writes as Claude Code 2.1.318
 records a card's answer, with a fake harness of fakeadapter.py for the model.
@@ -58,6 +60,11 @@ class OwnerAnswersKept(unittest.TestCase):
                 json.dumps({**entry, "timestamp": f"2026-11-05T10:0{n}:00Z"}) + "\n"
                 for n, entry in enumerate(entries)))
             akconfig.write(home, ["opus"], extra='[done_check]\nmodel = "opus"')
+            home.write(".agentkit/state/plan-acme.md", "- [x] Tabbed settings page · check: "
+                       "`true` · acme · written 2026-11-05 10:05 · done 0123456789ab\n")
+            why = home.ak("orch", "why", "acme")
+            self.assertEqual(why.code, 0, why.out + why.err)
+            self.assertNotEqual(why.out.splitlines()[0], "acme  done")
             # no gap at all unless the workspace holds the question, both choices and the answer
             sh = [f"grep -rqF -- {shlex.quote(given)} . || exit 1"
                   for given in (QUESTION, *CHOICES, *CHOICES.values(), NOTE)]

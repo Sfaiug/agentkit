@@ -18,10 +18,10 @@ func guards() error {
 	if err != nil {
 		return err
 	}
-	// go/tools is a link to Python's tools, whose guards are Go's too.  A guard finds its
-	// checkout by the link it is run through, so each is linked past go/tools, where Python
-	// links it.
-	tools := config.Resolve(filepath.Join(filepath.Dir(filepath.Dir(config.Resolve(executable))), "tools"))
+	// go/tools holds Go's guards, each a link to the shim body the seat package embeds, beside
+	// `ak`, a link to this checkout's program: the body asks the `ak` beside the link it is run
+	// through, so each is linked as it lies there.
+	tools := filepath.Join(filepath.Dir(filepath.Dir(config.Resolve(executable))), "tools")
 	bin := filepath.Join(config.Home(), "bin")
 	if err := os.MkdirAll(bin, 0o777); err != nil {
 		return err

@@ -146,12 +146,14 @@ class RankByTheAnswer(Sandbox):
         self.store()
         with patch.object(quality, "rated", wraps=quality.rated) as rated:
             matrix._answered.cache_clear()
+            matrix._listed.cache_clear()
             ranks = matrix.rank(self.cfg, "execute", ["opus", "astra"])
             self.assertEqual([ranks[name][:3] for name in ("astra", "opus")],
                              [(0, False, 0.0), (1, False, 0.0)])
             self.assertEqual(self.pick(), ["astra", "opus", "fable"])
             self.assertEqual(self.pick(), ["astra", "opus", "fable"])
-        self.assertEqual(rated.call_count, len(quality.ROLES))    # once per stored lineup
+        # once per stored lineup for the rank, and once for the model list (matrix.off)
+        self.assertEqual(rated.call_count, 2 * len(quality.ROLES))
 
 
 if __name__ == "__main__":

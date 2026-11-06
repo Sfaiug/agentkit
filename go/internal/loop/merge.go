@@ -573,23 +573,37 @@ func (r *repoPlace) addTrailer(l *loop, message, trailer string) (string, error)
 
 // merged records the PR merged, with what proving it live stands on, Python's merged.
 func (r *repoPlace) merged(l *loop, url, method string) error {
-	if err := l.save(func(record *run.Object) {
-		record.Set("merged", true)
-		// the `health:` the merged commit declares, the one record the tick reads after a merge
-		if sha := record.Str("delivery_sha"); sha != "" {
-			if code, _, err := r.git().Out("cat-file", "-e", sha+"^{commit}"); err == nil && code == 0 {
-				health := run.NewObject()
-				if command := gitcall.DeclaredAt(r.wt, sha, "health"); command != "" {
-					health.Set("command", command)
-				}
-				record.Set("health", health)
-			}
-		}
-	}); err != nil {
+	record, err := read(l)
+	if err != nil {
+		return err
+	}
+	if err := r.mergedAt(l, record.Str("delivery_sha")); err != nil {
 		return err
 	}
 	l.say("--- merge: merged " + url + " with --" + method + ", remote branch deleted")
 	return nil
+}
+
+// mergedAt records the work merged at sha with the `health:` and `deployed:` that commit declares,
+// the one record the tick reads after a merge, Python's merge_record.
+func (r *repoPlace) mergedAt(l *loop, sha string) error {
+	return l.save(func(record *run.Object) {
+		record.Set("merged", true)
+		if sha == "" {
+			return
+		}
+		if code, _, err := r.git().Out("cat-file", "-e", sha+"^{commit}"); err == nil && code == 0 {
+			health := run.NewObject()
+			if command := gitcall.DeclaredAt(r.wt, sha, "health"); command != "" {
+				health.Set("command", command)
+			}
+			var deployed any
+			if command := gitcall.DeclaredAt(r.wt, sha, "deployed"); command != "" {
+				deployed = command
+			}
+			run.SetAll(record, "health", health, "deployed", deployed)
+		}
+	})
 }
 
 // mergedAnyway is whether GitHub merged this delivery whatever `gh pr merge` answered, recorded

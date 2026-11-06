@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -58,6 +57,8 @@ func lockPath() string { return filepath.Join(config.Home(), "state", "watch.tic
 
 func logPath() string { return filepath.Join(config.Home(), "tmp", logName) }
 
+func keptPath() string { return filepath.Join(config.Home(), "tmp", logKept) }
+
 // holder is who holds the lock and since when, off the file it wrote: its pid, as Python's int()
 // reads the file's stripped text and 0 for what it cannot read, and its mtime, when that tick
 // began; now for no file, which is no evidence of a long-running holder.
@@ -74,7 +75,8 @@ func holder(path string) (*big.Int, time.Time) {
 	return pid, began
 }
 
-// log is the tick's printing, which keeps the log bounded where out or errOut is it.
+// log is the tick's printing, which keeps the log bounded where out or errOut is it, and dates
+// each line there.
 type log struct {
 	out     io.Writer
 	errOut  io.Writer
@@ -83,28 +85,21 @@ type log struct {
 }
 
 func newLog(out, errOut io.Writer) *log {
-	l := &log{out: out, errOut: errOut, owned: map[*os.File]bool{}}
+	l := &log{owned: map[*os.File]bool{}}
 	for _, stream := range []io.Writer{out, errOut} {
 		if file, ok := stream.(*os.File); ok {
 			l.streams = append(l.streams, file)
 		}
 	}
+	l.claim()
+	l.out, l.errOut = l.stamp(out), l.stamp(errOut)
 	return l
 }
 
-// lineBreak is what Python's splitlines reads as the end of a line.
-var lineBreak = regexp.MustCompile("\\r\\n|[\\n\\r\\v\\f\\x1c\\x1d\\x1e\\x{85}\\x{2028}\\x{2029}]")
-
 // line prints one of the tick's lines, rolling the log it prints into first: the cron line only
 // redirects, and the tick that never gets the lock is the only one writing while another hangs.
-// In the log each line starts with its date and time, so two say how long what lay between them
-// took; a stream elsewhere has a reader who sees each as it comes.
 func (l *log) line(text string) {
 	l.roll()
-	if file, ok := l.out.(*os.File); ok && l.owned[file] {
-		stamp := time.Now().Format("2006-01-02 15:04:05 ")
-		text = stamp + lineBreak.ReplaceAllString(text, "${0}"+stamp)
-	}
 	fmt.Fprintln(l.out, text)
 }
 
@@ -112,10 +107,26 @@ func (l *log) line(text string) {
 // it, so two ticks that both saw it oversized do not both rename and lose the kept generation.
 // Whoever rolled, the streams the log owns rejoin its live file.
 func (l *log) roll() {
+	if !l.claim() {
+		return
+	}
 	path := logPath()
-	kept := filepath.Join(config.Home(), "tmp", logKept)
+	if info, err := os.Stat(path); err == nil && info.Size() > logMax {
+		held, err := lock.Wait(context.Background(), filepath.Join(config.Home(), "state", logName+".lock"))
+		if err == nil {
+			if info, err := os.Stat(path); err == nil && info.Size() > logMax {
+				os.Rename(path, keptPath())
+			}
+			held.Close()
+		}
+	}
+	l.follow(path)
+}
+
+// claim finds which of the streams are the log, and whether any is.
+func (l *log) claim() bool {
 	found := []os.FileInfo{}
-	for _, name := range []string{path, kept} {
+	for _, name := range []string{logPath(), keptPath()} {
 		if info, err := os.Stat(name); err == nil {
 			found = append(found, info)
 		}
@@ -126,19 +137,7 @@ func (l *log) roll() {
 			l.owned[stream] = true
 		}
 	}
-	if len(l.owned) == 0 {
-		return
-	}
-	if info, err := os.Stat(path); err == nil && info.Size() > logMax {
-		held, err := lock.Wait(context.Background(), filepath.Join(config.Home(), "state", logName+".lock"))
-		if err == nil {
-			if info, err := os.Stat(path); err == nil && info.Size() > logMax {
-				os.Rename(path, kept)
-			}
-			held.Close()
-		}
-	}
-	l.follow(path)
+	return len(l.owned) > 0
 }
 
 // follow puts the streams the log owns back on whatever its name points at now: a roll is a

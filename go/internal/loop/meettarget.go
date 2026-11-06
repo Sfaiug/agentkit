@@ -114,8 +114,12 @@ func (r *repoPlace) integrateTip(l *loop, upstream, how, tip string, recheck boo
 }
 
 // setBase makes sha the run's base and target, Python's set_base: what the diff, the suite and a
-// review's `users:` read from, whatever a later fetch moves the target's ref to.
+// review's `users:` read from, whatever a later fetch moves the target's ref to.  A PR review judges
+// what that integration left (pin).
 func (r *repoPlace) setBase(l *loop, sha string) error {
 	r.baseSHA, l.usersAt = sha, sha
-	return l.save(func(record *run.Object) { run.SetAll(record, "base_sha", sha, "target_sha", sha) })
+	if err := l.save(func(record *run.Object) { run.SetAll(record, "base_sha", sha, "target_sha", sha) }); err != nil {
+		return err
+	}
+	return r.pin(l)
 }

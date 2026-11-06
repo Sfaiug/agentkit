@@ -6,10 +6,11 @@ The owner asks for a chart; the seat's plan has every line done.  The model's tu
 quoting that ask unless its workspace holds the seat's picture byte for byte, so the check finds
 the gap until the seat keeps the chart, and none after, the file itself deleted.  A picture is
 the seat's, as its plan is: it stays through a rename, a later one of the same file stands beside
-it, a look cut off partway loses none kept after it, and a seat renamed into a gone seat's name
-sees none of that seat's.  Black-box: the program `AK_BIN` names runs from outside through
-tests/fixtures/akbin.py, on a Claude seat of tests/fixtures/akseat.py whose transcript the test
-writes, with a fake harness of fakeadapter.py for the model.
+it, one named as long as the filesystem allows is seen, a look cut off partway loses none kept
+after it, and a seat renamed into a gone seat's name sees none of that seat's.  Black-box: the
+program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a Claude seat of
+tests/fixtures/akseat.py whose transcript the test writes, with a fake harness of fakeadapter.py
+for the model.
 """
 
 import json
@@ -54,11 +55,11 @@ class DoneCheckSeesPictures(unittest.TestCase):
                            f"--quote {shlex.quote(ASKED)}",
                      "final": "Checked.", "hand_in": [["done"]]})
 
-    def look(self, data, seat="acme"):
-        """The seat keeps chart.png holding `data`, then deletes it."""
-        chart = self.seat.cwd / "chart.png"
+    def look(self, data, seat="acme", name="chart.png"):
+        """The seat keeps `name` holding `data`, then deletes it."""
+        chart = self.seat.cwd / name
         chart.write_bytes(data)
-        done = self.home.ak("orch", "look", "chart.png", env={"AGENTKIT_SESSION": seat},
+        done = self.home.ak("orch", "look", name, env={"AGENTKIT_SESSION": seat},
                             cwd=self.seat.cwd)
         self.assertEqual(done.code, 0, done.out + done.err)
         chart.unlink()
@@ -69,6 +70,11 @@ class DoneCheckSeesPictures(unittest.TestCase):
         self.assertIn(ASKED, done.out)
         self.assertIn("ak orch look", done.out)
         self.look(CHART)
+        done = self.home.ak("orch", "check", "acme")
+        self.assertEqual(done.code, 0, done.out + done.err)
+
+    def test_a_picture_named_as_long_as_the_filesystem_allows_is_seen(self):
+        self.look(CHART, name="s" * 250 + ".png")      # 254 bytes: no room for a prefix
         done = self.home.ak("orch", "check", "acme")
         self.assertEqual(done.code, 0, done.out + done.err)
 

@@ -154,7 +154,7 @@ func TestAFailedWriteIsSaid(t *testing.T) {
 
 // A run goes on in Go unless history.db holds a step of it, which only Python records: one Python
 // carried, tokens that wait for Python's repair, or a database SQLite cannot read; and a history
-// holds Python's runs where it holds a step of any.
+// holds Python's runs where it holds a step of any.  One that is no file holds none.
 func TestARunWithStepsIsPythons(t *testing.T) {
 	home(t)
 	if Carried("20261105-1200-fix-api") || Carried("") {
@@ -177,6 +177,11 @@ func TestARunWithStepsIsPythons(t *testing.T) {
 	os.WriteFile(Path(), []byte("not a database"), 0o600)
 	if !Carried("20261105-1300-fix-ui") {
 		t.Fatal("an unreadable database left to Go")
+	}
+	os.Remove(Path())
+	os.Mkdir(Path(), 0o700)
+	if Carried("") {
+		t.Fatal("a directory read as Python's history")
 	}
 }
 

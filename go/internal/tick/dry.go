@@ -13,10 +13,10 @@ import (
 )
 
 // Dry is `ak watch --dry-run`, as Python's watch.main runs one: the line on who holds the tick
-// lock, that no tick has ended and how big the log is, what each row would do, then why the
-// GitHub passes are skipped; it writes nothing. It runs the tick's own rows with its dry switch
-// and keeps what they say until each has proved Go's. False, with nothing printed, wherever a row
-// finds what Go does not carry or gh says who is logged in, and on Windows, as Overlap.
+// lock, that no tick has ended and how big the log is, then what each row and GitHub pass would
+// do; it writes nothing. It runs the tick's own rows and GitHub passes with its dry switch and
+// keeps what they say until each has proved Go's. False, with nothing printed, wherever one finds
+// what Go does not carry, and on Windows, as Overlap.
 func Dry(out io.Writer) bool {
 	if runtime.GOOS == "windows" {
 		return false
@@ -34,12 +34,11 @@ func Dry(out io.Writer) bool {
 		return false
 	}
 	value, why, err := gh.JSON(run.Runs(), "api", "user")
-	if err != nil || login(value) != "" {
+	// a dry tick says no pass's time
+	if err != nil || !t.github(value, why, 0) {
 		return false
 	}
-	line, _ := unanswered(why)
 	fmt.Fprintln(out, health)
 	preview.WriteTo(out)
-	fmt.Fprintln(out, line)
 	return true
 }

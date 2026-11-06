@@ -1,19 +1,18 @@
 package loop
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
-	"agentkit/internal/usage"
 )
 
 // pythonRoads are what a record holds on a road Go does not drive: Python's to resume.
@@ -24,18 +23,31 @@ var pythonRoads = []string{"job_id", "review_pr", "from_pass", "waiting_on", "pi
 // executor or the fixer, at the checks after their answer, or at the next round's start.  Decided
 // before anything is written, as Python's resume takes any other point.
 func Pickup(dir string, record *run.Object) bool {
-	if record.Str("state") == "waiting" {
+	switch record.Str("state") {
+	case "waiting":
 		return waitingPickup(dir, record)
+	case "exhausted":
+		return exhaustedPickup(dir, record)
+	case "running", "interrupted", "error":
+		return carriedOn(dir, record)
 	}
-	if state := record.Str("state"); state != "running" && state != "interrupted" && state != "error" {
-		return false
-	}
+	return false
+}
+
+// carriedOn is whether Go goes on from where the run's record says its rounds stopped, whatever
+// stopped them.
+func carriedOn(dir string, record *run.Object) bool {
+	return record.Truthy("no_merge") && cutOff(dir, record) && pairReady(dir, record)
+}
+
+// cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from.
+func cutOff(dir string, record *run.Object) bool {
 	for _, key := range pythonRoads {
 		if record.Truthy(key) {
 			return false
 		}
 	}
-	if run.Lined(record) || !record.Truthy("no_merge") || record.Str("verdict") == "PASS" || !unitless(record) ||
+	if run.Lined(record) || record.Str("verdict") == "PASS" || !unitless(record) ||
 		!record.Truthy("executor") || !record.Truthy("reviewer") || !record.Has("round_summaries") || !isDir(record.Str("worktree")) {
 		return false
 	}
@@ -46,19 +58,19 @@ func Pickup(dir string, record *run.Object) bool {
 			}
 		}
 	}
-	return point(dir, record) && pairReady(record)
+	return point(dir, record)
 }
 
 // Woken is whether the run waits in its landing line on a verdict its lander wrote, which Go
 // carries on into its landing: one it holds no verdict for is the lander's, as Python's resume
-// refuses it.
+// refuses it.  A seat's own PR goes on where Go carries its landing (ownLands).
 func Woken(record *run.Object) bool {
 	wait := record.Dict("waiting_on")
 	if !parkedInLine(record) || !wait.Has("land") && !wait.Has("fix") || run.ProcessActive(record) || !unitless(record) {
 		return false
 	}
 	for _, key := range pythonRoads {
-		if key != "waiting_on" && record.Truthy(key) {
+		if key != "waiting_on" && record.Truthy(key) && !(key == "review_pr" && ownLands(record)) {
 			return false
 		}
 	}
@@ -76,7 +88,8 @@ func unitless(record *run.Object) bool {
 }
 
 // point is whether the run was cut off where Go goes on from, Python's rounds and continuation: a
-// retry directory and an answer with no closing are Python's roads.
+// retry directory and an answer with no closing are Python's roads, but for the refusal a run
+// waits out on a provider's window, which is no answer.
 func point(dir string, record *run.Object) bool {
 	rounds, known := record.Int("rounds")
 	spent := len(record.List("round_summaries"))
@@ -84,6 +97,10 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	if pending := record.Dict("review_pending"); pending != nil {
+		if pending.Get("record") == false {
+			// a landing's review, which spends no round: the resume takes the target in again (landAgain)
+			return !pending.Has("handed") && len(pending.List("failed")) == 0
+		}
 		left, _, err := run.ChangeLeft(record, dir, rounds, 0, time.Now())
 		round, numbered := pending.Int("round")
 		for _, key := range []string{"record", "reason", "handed", "passed_head_sha"} {
@@ -105,7 +122,8 @@ func point(dir string, record *run.Object) bool {
 		return false
 	}
 	name, _, _ := openWorker(round)
-	return name != "" && !exists(filepath.Join(latestTurn(round, name), "final.md")) || answered(round) != ""
+	refused := run.ExhaustedWait(record) == "window"
+	return name != "" && (refused || !exists(filepath.Join(latestTurn(round, name), "final.md"))) || answered(round) != ""
 }
 
 // retried is whether Python's retries wrote in that round, which Go does not read on.
@@ -116,23 +134,10 @@ func retried(round string) bool {
 
 // pairReady is whether the saved pair goes on as it is, which leaves no pick to make: a model that
 // cannot run and a reviewer no longer eligible are for Python's to hand over, and so is a saved
-// self-review, but for one whose executor answered with no other reviewer ready, which Python keeps.
-func pairReady(record *run.Object) bool {
-	l := &loop{workers: names(record.List("workers")), reviewers: names(record.List("reviewers"))}
-	rules, ok := l.rules()
-	if !ok {
-		return false
-	}
-	readings, err := usage.Read()
-	if err != nil {
-		return false
-	}
-	room := ready{readings, unable()}
-	executor, reviewer := record.Str("executor"), record.Str("reviewer")
-	order := rules.Order(room, true, io.Discard)
-	own := rules.Same(executor, reviewer) && (!record.Truthy("review_pending") ||
-		slices.ContainsFunc(order, func(other string) bool { return !rules.Same(executor, other) }))
-	return room.Spent(executor) == "" && !own && slices.Contains(order, reviewer)
+// self-review where a pair that is none is ready.
+func pairReady(dir string, record *run.Object) bool {
+	rules, room, ok := picking(record)
+	return ok && asIs(dir, record, rules, room)
 }
 
 // delivery is what the last attempt's ending said, Python's clear_delivery: this one owes its own.
@@ -161,7 +166,19 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 		host.EndMarked(dir, io.Discard)
 		// what the resume takes the run up from, Python's resume_from: a dead driver's is an
 		// interruption, but for one whose resume the tick ordered, holding the death it noticed
-		from := record.Str("state")
+		from, queuedAt := record.Str("state"), any(clock())
+		if from == "queued" {
+			// a launch that never opened goes on from what queued it, keeping its place in line
+			// and its wait so far
+			from = cmp.Or(record.Str("resume_from"), "interrupted")
+			if record.Truthy("queued_at") {
+				queuedAt = record.Get("queued_at")
+			}
+		} else {
+			for _, key := range []string{"slot_waited", "slot_wait_reason", "slot_wait_kind"} {
+				record.Delete(key)
+			}
+		}
 		if from == "running" && !run.ResumeOrdered(record, clock()) {
 			from = "interrupted"
 			reason := "Run process exited or its identity changed."
@@ -186,10 +203,10 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 			}
 			run.SetAll(record, "merge_failed", false, "merge_note", nil)
 		}
-		for _, key := range []string{"waiting_resume_at", "slot_waited", "slot_wait_reason", "slot_wait_kind", "stall_resume_at"} {
+		for _, key := range []string{"waiting_resume_at", "stall_resume_at"} {
 			record.Delete(key)
 		}
-		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", clock(),
+		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", queuedAt,
 			"pid", os.Getpid(), "process_identity", Identity(os.Getpid()), "recovery_pending", true,
 			"recovery_acknowledged_at", nil, "error", nil, "finished_at", nil, "reported", false)
 		return nil
@@ -232,27 +249,36 @@ func (r *repoPlace) reopen(l *loop, _ *run.Object) error {
 // passed, false with none pending.  What came before it ran in another process, so its checks run
 // again and their failure is recorded, never compared.
 func (l *loop) resumeReview() (bool, error) {
-	record, err := run.Read(l.dir)
-	if record == nil {
-		return false, err
-	}
-	pending := record.Dict("review_pending")
+	pending, err := l.pendingRound()
 	if pending == nil {
-		return false, nil
-	}
-	l.rnd, _ = pending.Int("round")
-	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return false, err
 	}
 	ok, text, err := l.verify()
 	if err != nil {
 		return false, err
 	}
+	return l.reviewPending(pending, ok, text)
+}
+
+// pendingRound is the review left pending, its round the one under way; nil with none.
+func (l *loop) pendingRound() (*run.Object, error) {
+	record, err := run.Read(l.dir)
+	if record == nil || record.Dict("review_pending") == nil {
+		return nil, err
+	}
+	pending := record.Dict("review_pending")
+	l.rnd, _ = pending.Int("round")
+	return pending, os.MkdirAll(l.roundDir(), 0o777)
+}
+
+// reviewPending is the pending review on checks run for it, Python's resume_review on verified
+// ones: whether it passed.
+func (l *loop) reviewPending(pending *run.Object, ok bool, text string) (bool, error) {
 	if err := l.sameFailure(ok, text, false); err != nil {
 		return false, err
 	}
 	if err := l.place.beforeReview(l); err != nil {
 		return false, err
 	}
-	return l.review(pending.Str("summary"), ok, text, "Resume the unfinished review.")
+	return l.review(pending.Str("summary"), ok, text, cmp.Or(pending.Str("reason"), "Resume the unfinished review."))
 }

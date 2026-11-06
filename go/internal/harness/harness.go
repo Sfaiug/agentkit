@@ -53,6 +53,8 @@ type plugin struct {
 	heard  func(name string) hookfact.Fact
 	keys   []string
 	kept   *regexp.Regexp
+	// reconcile is what Reconcile writes into its seats' records; nil leaves that to Python.
+	reconcile func(record *run.Object) *run.Object
 	// notices is how each manifest frame that is a notice all its own ends: the manifest names one
 	// only by what opens it, and an owner who goes on after one wrote the rest themselves.
 	notices map[string][]string
@@ -74,6 +76,8 @@ type plugin struct {
 	typed func(conversation string) []Prompt
 	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers.
 	answered func(record map[string]any) ([]Turn, []Card, error)
+	// usual is whether Go opens its seats on its usual login alone (UsualLoginOnly).
+	usual bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
@@ -110,6 +114,8 @@ type plugin struct {
 	// rulebook Rulebook's, under HOME: "" where no older install linked ak's rules over its own.
 	yolo     func(out io.Writer) error
 	rulebook string
+	// holds is AsksHolds'.
+	holds bool
 }
 
 var plugins = map[string]plugin{}

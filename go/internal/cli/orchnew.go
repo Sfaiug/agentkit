@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -21,13 +22,15 @@ import (
 
 // orchNew answers a person's new seat, `ak orch [NAME] --model M [--workers W]`, as Python's
 // orch.main, orch.select and orch.create do: the flags refused before anything is asked, the name
-// and the workers asked where not given, a name tmux holds for no seat refused.  A preview
-// (`--dry-run`) prints what the seat would take and the command it would run, its rulebook written
-// into a scratch folder gone once that is printed, and saves and starts nothing; an open, from a
-// person's terminal, opens the seat and hands it that terminal; a seat on a provider's accounts
-// opens on the one its login and usage pick (seat.OpeningAccount).  The rest is Python's: a seat
-// tmux or a record holds under the name, and an open with no tmux, whose harness runs in the
-// terminal itself.
+// asked where not given, a name tmux holds for no seat refused, then the orchestrator usage picks
+// (chosen) and the workers asked where not given.  A preview (`--dry-run`) prints what the seat
+// would take and the command it would run, its rulebook written into a scratch folder gone once
+// that is printed, and saves and starts nothing; an open, from a person's terminal, opens the seat
+// and hands it that terminal; a seat on a provider's accounts opens on the one its login and usage
+// pick (seat.OpeningAccount).  The rest is Python's, settled before usage is read: a seat tmux or
+// a record holds under the name, an open with no tmux, whose harness runs in the terminal itself,
+// and a seat on a model Go does not carry (seat.Carried), any the question may pick.  Past that
+// read, whatever fails is an error.
 func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.Writer) int {
 	if name != "" && held(name) {
 		return notImplemented(errOut, "orch")
@@ -64,25 +67,53 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		fmt.Fprintf(errOut, "ak orch: tmux already holds a session named %s, and it is no seat; pick another name\n", commandhelp.Quote(name))
 		return 2
 	}
+	failed := func(err error) int {
+		fmt.Fprintf(errOut, "ak orch: %s\n", err)
+		return 2
+	}
+	// the models the seat may open on: the one asked for, else any the question may pick
+	choices, fallback := []string{orchestrator}, ""
+	if orchestrator == "" {
+		var unread error
+		choices, err = config.Offered()
+		fallback, unread = config.DefaultOrchestrator()
+		if err = cmp.Or(err, unread); err != nil {
+			return failed(err)
+		}
+	}
+	for _, each := range choices {
+		if model, err := config.ModelNamed(each); err != nil || !seat.Carried(name, model, dryRun) {
+			return notImplemented(errOut, "orch")
+		}
+	}
+	var text string // a preview's rulebook, as an open's is read where it is written
+	if dryRun {
+		if text, err = seat.Rulebook(name); err != nil {
+			return notImplemented(errOut, "orch")
+		}
+	}
 	reason := "--model"
 	if orchestrator == "" {
-		var ok bool
-		orchestrator, reason, ok, err = askOrchestrator(out)
+		readings, err := usage.Collected()
 		if err != nil {
-			return notImplemented(errOut, "orch")
+			return failed(err)
 		}
-		if !ok {
+		picked, why, suffix := chosen(readings, choices, fallback)
+		var ok bool
+		if orchestrator, ok = askOrchestrator(out, choices, picked, suffix); !ok {
 			return 0
 		}
-		model, err = config.ModelNamed(orchestrator)
-		if err != nil {
-			return notImplemented(errOut, "orch")
+		if reason = why; orchestrator != picked {
+			reason = "selected"
+		}
+		if model, err = config.ModelNamed(orchestrator); err != nil {
+			return failed(err)
 		}
 	}
 	if crew == nil {
 		asked, ok, err := askWorkers(out)
 		if err != nil {
-			return notImplemented(errOut, "orch")
+			return failed(err)
 		}
 		if !ok {
 			return 0
@@ -90,10 +121,10 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		crew = asked
 	}
 	if !dryRun {
-		models, _ := config.Models() // the config's: Open hands over one that does not read
+		models, _ := config.Models() // the config's, which Carried has read
 		opened, err := seat.Open(name, orchestrator, models, crew, cwd, unnamed)
-		if !opened {
-			return notImplemented(errOut, "orch")
+		if !opened { // settled above: config.toml or the state folder changed since
+			err = fmt.Errorf("%s changed as the seat opened; open it again", config.Home())
 		}
 		if err == nil {
 			err = seat.Attach(name, out, errOut)
@@ -101,27 +132,25 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 		if err == nil {
 			return 0
 		}
-		fmt.Fprintf(errOut, "ak orch: %s\n", err)
-		return 2
+		return failed(err)
 	}
 	account, err := seat.OpeningAccount(orchestrator, model)
-	if errors.Is(err, usage.ErrPython) {
-		return notImplemented(errOut, "orch")
-	} else if err != nil {
-		fmt.Fprintf(errOut, "ak orch: %s\n", err)
-		return 2
+	if err != nil {
+		return failed(err)
 	}
 	scratch, err := os.MkdirTemp("", "ak-dry-run-")
+	if err != nil {
+		return failed(err)
+	}
 	defer os.RemoveAll(scratch)
 	rulebook := filepath.Join(scratch, "rulebook-"+name+".md")
-	if text, unread := seat.Rulebook(name); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
-		return notImplemented(errOut, "orch")
+	if err := os.WriteFile(rulebook, []byte(text), 0o666); err != nil {
+		return failed(err)
 	}
-	// a preview refused too is Python's to print
-	cmd, _, _ := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
+	cmd, _, err := adapters.Fresh(orchestrator, model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
 		"AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)), cwd)
-	if cmd == nil {
-		return notImplemented(errOut, "orch")
+	if err != nil {
+		return failed(err)
 	}
 	fmt.Fprintf(out, "orch: %s (%s)\nsession %s in %s (new)\nworkers %s\n", orchestrator, reason, name, cwd, strings.Join(crew, " "))
 	if tmux.Term() != "" {

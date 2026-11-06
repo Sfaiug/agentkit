@@ -1,6 +1,7 @@
 """Every current model on the boards, a row per release and effort with the installed harnesses'
 models that are it (`lineup`), answered per role on quality and cost (`answer`), using
-`quality.pick`; `rank` places each configured model off it.  ak's
+`quality.pick`; `rank` places each configured model off it.  Only the models of your
+companies you left on are compared (`compared`) or used (`off`): the owner, 5 Nov 2026.  ak's
 own run numbers stand beside, per configured model, the effort its runs recorded and role, with
 their count, and never rank (tests/test_matrix_live_column.py).
 Attribution: Source: Artificial Analysis (artificialanalysis.ai); arena.ai.
@@ -15,7 +16,7 @@ import sys
 import time
 
 from . import catalog, command_help, config, quality, record, terminal
-from .boards import PREFIX, cached, collect, effort_rank
+from .boards import PREFIX, collect, effort_rank
 
 # the config's word for each role ak answers: `config.ROLE_EFFORTS` keys its efforts by these
 CONFIG_ROLES = {"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
@@ -208,7 +209,8 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     changes with what is compared; then over the rows of the releases in `compared` (slugs, None
     for every one), `best` quality, `pick` by role, `front`: those with a cost, best first,
     each better than every cheaper one, a row of yours than every cheaper one of yours, as one
-    no harness of yours runs is no reason to leave it out; and `take`: the same rule over yours.
+    no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
+    and `choices` and `others` over those with a cost, whoever runs them (`_choices`).
     Keep the pick and take visible even if rows outside their eligible pool beat them.
     Costs use the role's subscription unit when measured, retaining each row's board dollars."""
     shares = task_usage if task_usage is not None else _task_usage(cfg) if cfg else {}
@@ -226,20 +228,139 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
         front = sorted((row for n, row in enumerate(priced) if row is pick or row is take or all(
             cheaper["quality"] < row["quality"] for cheaper in priced[:n]
             if cheaper["yours"] or not row["yours"])), key=lambda row: -row["quality"])
+        choices, others = _choices(priced)
         out[role] = {"cost_unit": unit, "rated": rated, "best": best, "pick": pick,
-                     "front": front, "take": take}
+                     "front": front, "take": take, "choices": choices, "others": others}
     return out
 
 
-def compared(cfg, current):
-    """The releases of `current` (slugs) that `compare` in the config marks, one replaced since
-    as its successor (catalog.successor), so a mark never holds a replaced model, and one that
-    is neither as nothing; None, every one, where nothing is marked."""
-    marked = cfg.get("compare") or []
-    boards = cached() if set(marked) - current else {}    # the boards only for a replaced one
-    found = {slug if slug in current else (catalog.successor(boards, slug) or {}).get("slug")
-             for slug in marked} & current
-    return found or None
+# The models screen's choices, the owner, 5 Nov 2026: none further below the best than WINDOW
+# points, each APART above the one before, PLACES of them at most.
+WINDOW, APART, PLACES = 10, 1, 5
+
+
+def _above(row, other):
+    """The quality points `row` is above `other`, to a millionth: a rating's roundoff never
+    moves a row across a line, as 90 is 10 under 100, never 10.00000000000001."""
+    return round(row["quality"] - other["quality"], 6)
+
+
+def _choices(priced):
+    """Of `priced`, cheapest first and an equal cost better first, (`choices`, `others`).  Its
+    front holds each row better than every cheaper one, the best last.  `choices`: the front's
+    rows within `WINDOW` of the best, cheapest first, each kept when `APART` above the last kept,
+    the best taking the place of one less than that below it; the costliest `PLACES` of them.
+    `others`: of each release with no choice its best row, a cheaper one on a tie, best first,
+    each with its `why` and `by`: `beaten` by the cheapest choice, else row of the front, as
+    good and no dearer; on the front, `far below`, by None, more than `WINDOW` under the best;
+    else `close` to the nearest choice, less than `APART` from it; else `no room`, by None:
+    `APART` or more under every choice, as the costliest `PLACES` leave it."""
+    front = []
+    for row in priced:
+        if not front or _above(row, front[-1]) > 0:
+            front.append(row)
+    kept = []
+    for row in front:
+        if _above(front[-1], row) > WINDOW:
+            continue
+        if kept and _above(row, kept[-1]) < APART:
+            if row is front[-1]:
+                kept[-1] = row
+        else:
+            kept.append(row)
+    choices = kept[-PLACES:]
+    chosen, tops = {row["release"] for row in choices}, {}
+    for row in priced:
+        top = tops.get(row["release"])
+        if row["release"] not in chosen and (top is None or _above(row, top) > 0):
+            tops[row["release"]] = row
+    others = sorted(tops.values(), key=functools.cmp_to_key(
+        lambda one, other: _above(other, one) or one["cost"] - other["cost"]))
+    for row in others:
+        if not any(one is row for one in front):
+            row["why"], row["by"] = "beaten", next(
+                one for one in (*choices, *front)
+                if _above(one, row) >= 0 and one["cost"] <= row["cost"])
+        elif _above(front[-1], row) > WINDOW:
+            row["why"], row["by"] = "far below", None
+        else:
+            near = min(choices, key=lambda one: abs(_above(one, row)))
+            close = abs(_above(near, row)) < APART
+            row["why"], row["by"] = ("close", near) if close else ("no room", None)
+    return choices, others
+
+
+def companies(cfg, lineup):
+    """The makers you have, as the boards name them: `companies` in the config, else the makers
+    of the releases the `[defaults]` orchestrator, workers and reviewers run, the rows of
+    `lineup` whose `yours` holds that model's harness and model."""
+    if cfg.get("companies") is not None:
+        return set(cfg["companies"])
+    defaults = cfg["defaults"]
+    runs = {(cfg["models"][name]["harness"], cfg["models"][name]["model"])
+            for name in (defaults["orchestrator"], *defaults["workers"],
+                         *defaults.get("reviewers", ())) if name in cfg["models"]}
+    return {row["maker"] for row in lineup for one in row["yours"]
+            if (one["harness"], one["model"]) in runs}
+
+
+@functools.lru_cache(maxsize=1)
+def _listed(text):
+    lineup = (json.loads(text).get("matrix") or {}).get("lineup") or []
+    return lineup, {row["release"]: row["maker"] for role in quality.ROLES
+                    for row in quality.rated(lineup, role)}
+
+
+def listed():
+    """The lineup last stored and its listed releases, {slug: maker}: each a role rates a row of
+    (`answer`'s `rated`), rated once per stored lineup, so a release without scores is never
+    listed; ([], {}) where nobody stored one."""
+    try:
+        return _listed(cache_path().read_text())
+    except (OSError, ValueError):
+        return [], {}
+
+
+def ours(cfg):
+    """The listed releases of your companies (`companies`): what the models screen counts."""
+    lineup, found = listed()
+    makers = companies(cfg, lineup)
+    return {slug for slug, maker in found.items() if maker in makers}
+
+
+def compared(cfg):
+    """The releases on, the only ones the models screen and `ak models` compare: those of
+    `ours` whose slug `models_off` in the config does not hold.  A company's next release is
+    on by itself."""
+    return ours(cfg) - set(cfg.get("models_off") or ())
+
+
+def off(cfg):
+    """The configured models ak never uses: each running a listed release that is not on, the
+    one whose rows of the lineup last stored, as `rank` reads it, hold its harness and model in
+    their `yours`.  A model running an unlisted release, or none, is not the list's to turn
+    off.  The picks leave them out (usage.pick_order, usage.unready, orch.in_order), and a turn
+    or a seat named on one outright is refused (`refuse_off`)."""
+    lineup, found = listed()
+    if not found:
+        return set()
+    gone = set(found) - compared(cfg)
+    runs = {(one["harness"], one["model"]): row["release"]
+            for row in lineup for one in row["yours"]}
+    return {name for name in config.offered(cfg)
+            if runs.get((cfg["models"][name]["harness"], cfg["models"][name]["model"])) in gone}
+
+
+OFF = "off in the model list"     # why a pick leaves out a model of `off`
+
+
+def refuse_off(cfg, name):
+    """Refuse a turn or a seat on `name` while it is off: every turn (worker.call) and every
+    seat's command (orch.command) ask this first, so no named, saved or configured model gets
+    around the picks."""
+    if name in off(cfg):
+        raise config.Error(f"{name} is {OFF}: turn it on with `companies` or `models_off` "
+                           "in config.toml")
 
 
 LIVE_HEADERS = ("model", "orch", "exec", "review")
@@ -403,20 +524,24 @@ def main(argv):
     from . import menu      # here, not at the top: the menu reaches this module as it loads
     cfg = config.load()
     _, rows = refresh(cfg, refresh="--refresh" in flags)
-    current = {row["release"] for row in rows}
-    marked = compared(cfg, current)
+    marked = compared(cfg)
     shares = _task_usage(cfg)
     found, own = answer(rows, marked, cfg=cfg, task_usage=shares), live(cfg)
     if "--json" in flags:
-        json.dump({**{role: {"best": said["best"], "cost_unit": said["cost_unit"], "front": [
-            {**{key: row[key] for key in ("release", "name", "effort", "quality", "se", "cost",
-                                         "board_cost", "cost_rule")},
-             "notes": notes(row, said)} for row in said["front"]]}
+        def drawn(row, said):
+            return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
+                                                 "cost", "board_cost", "cost_rule")},
+                    "notes": notes(row, said)}
+        json.dump({**{role: {
+            "best": said["best"], "cost_unit": said["cost_unit"],
+            **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
+            "others": [{**drawn(row, said), "why": row["why"], "by": row["by"] and {
+                key: row["by"][key] for key in ("name", "effort")}} for row in said["others"]]}
             for role, said in found.items()}, "live": own, "task_usage": shares},
             sys.stdout, indent=2)
         print()
         return 0
     body, _ = menu.models_body(menu.models_said(found, rows), marked,
-                               len(current), stored().get("fetched_at"))
+                               len(ours(cfg)), stored().get("fetched_at"))
     print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
     return 0

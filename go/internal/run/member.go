@@ -1,9 +1,6 @@
 package run
 
-import (
-	"os"
-	"strings"
-)
+import "os"
 
 // Member is whether a record holds a place in its landing line, Python's land.member, the one
 // answer the line, what a red waits on, the lander's wake and the record's line_since read: it
@@ -35,10 +32,7 @@ func delivering(record *Object) bool {
 	case "queued":
 		return ProcessActive(record) || record.Truthy("slot_waiting")
 	case "exhausted":
-		// transitions.exhausted_wait: the tick brings it back on a provider's window or a
-		// reviewer's, unless a later merged run replaced it
-		return !record.Truthy("replaced") &&
-			(record.Truthy("quota_dry") || strings.Contains(record.Str("error"), "API/transport errors"))
+		return ExhaustedWait(record) != ""
 	case "interrupted":
 		return record.Truthy("deaths") && TickResumes(record)
 	}

@@ -88,29 +88,24 @@ func TestLocalPieceRedReachesTheLandingFixerAfterItsPrefixLeaves(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
 	wait := run.Fields("fix", run.Fields("command", "suite", "piece", "1/2", "tests", []any{"a"}))
-	if road := landingFixHandoff(wait); road != "" {
+	record := run.Fields("waiting_on", wait)
+	if road := landingFixHandoff(record); road != "" {
 		t.Fatal(road)
 	}
 	wait.Set("after", run.Fields("first", "tree"))
-	if road := landingFixHandoff(wait); road != "" {
+	if road := landingFixHandoff(record); road != "" {
 		t.Fatal("a stack red is Go's fixer's once its prefix leaves: " + road)
 	}
 	if !redBehind(wait, []member{{dir: filepath.Join(home, "first")}}) || redBehind(wait, nil) {
 		t.Fatal("the fix must wait for exactly its prefix's deliveries")
 	}
-	wait.Delete("after")
-	wait.Dict("fix").Set("moved", true)
-	if landingFixHandoff(wait) == "" {
-		t.Fatal("a moved PR was handed to Go's fixer")
-	}
-	wait.Dict("fix").Delete("moved")
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit"), 0o777); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte("suite_helper = 'acme'\n"), 0o666); err != nil {
 		t.Fatal(err)
 	}
-	if landingFixHandoff(wait) == "" {
+	if landingFixHandoff(record) == "" {
 		t.Fatal("helper work was handed to Go's fixer")
 	}
 }

@@ -66,11 +66,11 @@ func lineUpstream(record *run.Object) string {
 	return upstream
 }
 
-// landingFixHandoff is what of a red Go's woken run does not carry, "" for none.
-func landingFixHandoff(wait *run.Object) string {
-	fix := wait.Dict("fix")
-	if fix.Truthy("moved") {
-		return "a moved PR head"
+// landingFixHandoff is what of a red Go's woken run does not carry, "" for none: a PR's but where
+// Go carries a seat's own PR's landing (ownLands).
+func landingFixHandoff(record *run.Object) string {
+	if record.Truthy("review_pr") && !ownLands(record) {
+		return "a PR's landing fix"
 	}
 	if helper.May() {
 		return "a landing red with suite helpers"
