@@ -1,8 +1,24 @@
 package harness
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 func TestOwnedConversation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	token := strings.Repeat("a", 32)
+	receipt := filepath.Join(home, ".agentkit", "state", "opencode-launch-"+token)
+	if err := os.MkdirAll(receipt, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(receipt, "session"), []byte("ses_Acme\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	for _, each := range []struct {
 		name, harness string
 		record        map[string]any
@@ -15,7 +31,8 @@ func TestOwnedConversation(t *testing.T) {
 		{"no conversation", "claude", map[string]any{}, "", true},
 		{"no receipt, whatever the record names", "codex", map[string]any{"conversation": "c", "id_source": "launcher"}, "", true},
 		{"a receipt to verify", "codex", map[string]any{"codex_launch": "r"}, "", false},
-		{"a store of its own", "opencode", map[string]any{"conversation": "c", "id_source": "launcher"}, "", false},
+		{"no report, whatever the record names", "opencode", map[string]any{"conversation": "c", "id_source": "launcher"}, "", true},
+		{"the session its launch reported", "opencode", map[string]any{"opencode_launch": token}, "ses_Acme", true},
 		{"a store Go has no plugin for", "antigravity", map[string]any{}, "", false},
 		{"an adapter alone", "echo", map[string]any{"conversation": "c", "id_source": "launcher"}, "c", true},
 	} {
