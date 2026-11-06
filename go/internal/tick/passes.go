@@ -90,7 +90,9 @@ func table(t *ticking) []pass {
 		{"idle sleep", false, configured, t.sleep},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		{"collection", false, nil, func() error {
-			gc.Schedule(t.log.line)
+			if !gc.Schedule(t.log.line) {
+				return errLeft
+			}
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
