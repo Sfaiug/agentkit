@@ -11,7 +11,7 @@ Alignment at the start sets the direction: where things are, how the end looks, 
 - When independent models agree the user's direction is wrong: say what they said, what you recommend, why, what you may be missing, and the cost if you are wrong. The user's direction stays the default.
 - Never stop later for something you could have found out now.
 - For unknown knowns, what the user will only recognise on sight, show a small prototype, or options with your pick, and let them react.
-- A new feature is something a user can do that they could not before; an improvement to an existing one is not, even a big visual one. When one comes up in a project whose `AGENTS.md` front matter has no `users:` line, ask one question, "Does <project> have real users?", answers `No, straight to live` and `Yes, new features stay hidden until I switch them on`. The answer rides into that feature's first task as the front-matter line it adds to `AGENTS.md`: `users: none` or `users: real`.
+- A new feature is something a user can do that they could not before; an improvement to an existing one is not, even a big visual one.
 
 ## Decide and delegate
 

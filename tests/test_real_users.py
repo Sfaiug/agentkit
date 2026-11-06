@@ -211,14 +211,10 @@ sys.exit(1)
         self.assertEqual(len(seen["real"]), 2)
         self.assertEqual(seen["real"], seen["none"])
 
-    def test_the_rulebook_holds_the_question_and_the_planning_line(self):
+    def test_the_rulebook_holds_the_planning_line(self):
         rulebook = (REPO / "orchestrator.md").read_text()
         sections = dict(re.findall(r"(?ms)^## (.+?)\n(.*?)(?=^## |\Z)", rulebook))
         for section, words in (
-                ("Understand first", '"Does <project> have real users?"'),
-                ("Understand first", "`No, straight to live`"),
-                ("Understand first", "`Yes, new features stay hidden until I switch them on`"),
-                ("Understand first", "`users: none` or `users: real`"),
                 ("Decide and delegate", '"New feature: it stays hidden until you switch it on"'),
                 ("Decide and delegate", "a `features:` command"),
                 ("Decide and delegate", '"you_switchable","everyone_since"')):

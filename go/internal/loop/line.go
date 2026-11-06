@@ -59,11 +59,6 @@ func parkedInLine(record *run.Object) bool {
 // green is a verdict to deliver: the tree checked, and no fixer owed.
 func green(wait *run.Object) bool { return wait != nil && wait.Has("land") && !wait.Has("fix") }
 
-// declaredSuite is the target's `tests:` at ref, else the checkout's, Python's declared_suite.
-func declaredSuite(checkout, ref string) string {
-	return cmp.Or(gitcall.DeclaredAt(checkout, ref, "tests"), gitcall.Declared(checkout, "tests"))
-}
-
 // joinLine takes a passed run into its line, rebased onto the target and unchecked, Python's
 // join_line: the line's check is the one check of its tree before it merges.  A run woken from
 // the line lands instead.
@@ -204,7 +199,7 @@ func (r *repoPlace) landFromLine(l *loop, upstream string, record *run.Object, d
 		tested = cmp.Or(evidence(turn, "trees").Dict(wait.Str("land")), run.NewObject()).Str("tested")
 	}
 	var suite any
-	if declared := declaredSuite(r.wt, tip); declared != "" {
+	if declared := gitcall.Suite(r.wt, tip); declared != "" {
 		suite = declared
 	}
 	if err := l.save(func(record *run.Object) {
@@ -532,7 +527,7 @@ func landingChecks(dir, scratch, tip string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	suite := declaredSuite(scratch, tip)
+	suite := gitcall.Suite(scratch, tip)
 	_, once := task.Group(task.RoundCommands(cmds, suite, true))
 	if own := gitcall.Declared(scratch, "tests"); own != "" && own != suite && !slices.Contains(once, own) {
 		once = append(once, own)

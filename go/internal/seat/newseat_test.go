@@ -18,7 +18,7 @@ func TestMenuReadsAnOrchestratorBuildingAlone(t *testing.T) {
 			t.Fatalf("live %v: menu did not list the seat", live)
 		}
 		seat := found.Seats[0]
-		if seat.Orchestrator != "opus" || seat.Workers != "" || seat.Warning != "" || !found.Settled(moment) {
+		if seat.Orchestrator != "opus" || seat.Workers != "" || seat.Warning != "" || !found.Settled() {
 			t.Fatalf("live %v: %+v", live, seat)
 		}
 		builds, reviews := found.Crew(seat)

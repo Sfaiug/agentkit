@@ -638,6 +638,7 @@ func (l *loop) finish(err error) int {
 			}
 			run.SetAll(record, "state", state, "finished_at", finished)
 			record.Delete("transient_wait") // a wait that ended, which nothing reads now
+			DropErrorRetry(record)
 		})
 	}
 	if errors.Is(err, errStop) {
@@ -652,14 +653,17 @@ func (l *loop) finish(err error) int {
 }
 
 // End is the driver's own ending in error, why its reason, as Python's mark_state: the verdict it
-// reached stands, as does a stop that landed or an ending already written.  A driver that could not
-// start ends its run here too.  It is the exit status of the ending.
+// reached stands, as does a stop that landed or an ending already written, and the tick's retry is
+// stamped on it or the error parked.  A driver that could not start ends its run here too.  It is
+// the exit status of the ending.
 func End(dir, why string) int {
 	err := run.Change(dir, func(record *run.Object) error {
 		if !run.Active(record) {
 			return errStop
 		}
-		run.SetAll(record, "state", "error", "error", why, "finished_at", clock())
+		now := time.Now()
+		run.SetAll(record, "state", "error", "error", why, "finished_at", float64(now.UnixNano())/1e9)
+		ParkError(dir, record, now)
 		return nil
 	})
 	if err != nil {

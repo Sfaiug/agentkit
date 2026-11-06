@@ -92,7 +92,7 @@ class ModelsPick(unittest.TestCase):
         self.assertEqual(self.compare(), ["acme-max-5", "acme-mid-5"])
         term.keys("Escape")
         shown = lines(term.wait("comparing 2 of 4 models"))
-        at = shown.index(" " * 73 + "quality  a task")      # was Bolt 3's
+        at = shown.index("  orch".ljust(73) + "quality  a task")      # was Bolt 3's
         self.assertEqual(shown[at + 3], f"› ★ pick   Acme Max 5  ▰▱  high  {bar(35, 1, size=38)}     "
                                         "99.4  $10.00  no harness")
 

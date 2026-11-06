@@ -5,12 +5,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/hooks"
 	"agentkit/internal/lock"
+	"agentkit/internal/run"
 )
 
 // relaunch is the common rulebook, adapter command and launch for Reopen and ReopenPast.
@@ -59,5 +61,13 @@ func (seat reopening) relaunch(dry bool, out io.Writer) (string, bool, error) {
 	}
 	hooks.HandTaskTemplate()
 	settled, err := seat.launch(state, rulebook, cmd, conversation)
-	return settled, true, err
+	if err != nil {
+		return settled, true, err
+	}
+	// seen by whoever it is reopened for, as Python's resume stamps a seat it hands over; the
+	// tick's reopening of a seat cut off mid-question launches it unseen (revival)
+	return settled, true, update(state, settled, func(data *run.Object) bool {
+		data.Set("seen", int(time.Now().Unix()))
+		return true
+	})
 }

@@ -8,6 +8,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
+	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
 	"agentkit/internal/leftover"
@@ -57,9 +58,14 @@ func table(t *ticking) []pass {
 		{"login reminder", false, nil, loginReminder},
 		{"token reminder", false, nil, nil},
 		{"exhausted resume", true, noExhaustedResume, nil},
-		{"error retry", true, noErrorRetry, nil},
+		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
 		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
-		{"old endings", false, noOldEndings, nil},
+		{"old endings", false, nil, func() error {
+			if !handback.MarkHistory(t.log.line) {
+				return errLeft
+			}
+			return nil
+		}},
 		{"endings", false, t.endingsIdle, t.endings},
 		{"job handbacks", false, jobless, nil},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
@@ -72,7 +78,7 @@ func table(t *ticking) []pass {
 		{"typed answers", false, every(unasked), nil},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut) }},
 		{"notification retry", true, nil, t.retryNotifications},
-		{"end hook", false, nil, hookOptions},
+		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
@@ -82,7 +88,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
-		{"seat sweep", false, all(noRunSweep, seated, t.retainedSeats), nil},
+		{"seat sweep", false, noRunSweep, t.sweep},
 		{"ended logins", false, noLoginsToEnd, nil},
 		{"leftover sweep", false, leftover.Tagless, func() error { leftover.Sweep(t.log.line); return nil }},
 		{"rented machines", false, all(configured, noRenting), nil},

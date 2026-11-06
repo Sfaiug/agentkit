@@ -4,5 +4,5 @@ package harness
 // token (agentkit/harness/opencode.py's `mode`).
 func init() {
 	plugins["opencode"] = plugin{paysItsOwnWay: true, seats: true, looks: true,
-		record: opencodeRecord, keys: []string{"opencode_launch"}, kept: opencodeKept}
+		record: opencodeRecord, keys: []string{"opencode_launch"}, kept: opencodeKept, forget: receiptGone("opencode")}
 }

@@ -62,7 +62,7 @@ class ModelsLayout(unittest.TestCase):
 
     def models(self, width):
         """`r` on `c` in a window of its own, once the answer is drawn."""
-        term = Terminal(self.home, size=(width, 120), env=ENV)
+        term = Terminal(self.home, size=(width, 60), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -89,7 +89,7 @@ class ModelsLayout(unittest.TestCase):
             self.assertEqual(shown[at - 1], "")
             self.assertNotEqual(shown[at - 2], "")
         self.assertEqual(sum("quality" in line for line in shown), 1)
-        self.assertRegex(next(line for line in shown if "quality" in line), r"^ +quality")
+        self.assertRegex(next(line for line in shown if "quality" in line), r"^  orch +quality")
 
     def test_the_full_frontier_sizes_every_line(self):
         _, shown = self.models(100)

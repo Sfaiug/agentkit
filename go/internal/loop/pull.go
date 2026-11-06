@@ -157,7 +157,7 @@ func (l *loop) reviewPull() error {
 		wt, branch = cut.wt, cut.branch
 	}
 	// the target's line, which a PR cannot loosen; else the checkout's
-	tests := cmp.Or(gitcall.DeclaredAt(wt, targetSHA, "tests"), gitcall.Declared(wt, "tests"))
+	tests := gitcall.Suite(wt, targetSHA)
 	body, title := pullTask(l.pull, pull, tests)
 	path := filepath.Join(l.dir, "task.md")
 	if err := os.WriteFile(path, []byte(fmt.Sprintf("---\nrepo: %s\nrounds: 1\n---\n%s", repo, body)), 0o666); err != nil {

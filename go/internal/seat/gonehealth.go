@@ -74,9 +74,3 @@ func (home Home) StampGone(now time.Time) error {
 	}
 	return nil
 }
-
-// Retained is whether no record is due for Python's sweep, using the menu's retention rule.
-func (home Home) Retained(now time.Time) bool {
-	state := filepath.Join(config.Home(), "state")
-	return !slices.ContainsFunc(home.records, func(seat Seat) bool { return seat.retired(state, now) })
-}
