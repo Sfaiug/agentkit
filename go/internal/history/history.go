@@ -1,7 +1,6 @@
 // Package history opens ~/.agentkit/history.db, the record of past work Python ak keeps, through
-// SQLite compiled to WebAssembly: the one binding whose build fits in a landing piece.  It keeps
-// the database in Python's schema, as Python's history._connect brings an older one up to
-// today's tables, and holds the scoreboard's queries.
+// Go's one SQLite.  It keeps the database in Python's schema, as Python's history._connect brings
+// an older one up to today's tables, and holds the scoreboard's queries.
 package history
 
 import (
@@ -12,17 +11,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/ncruces/go-sqlite3"
-	_ "github.com/ncruces/go-sqlite3/embed"
-	"github.com/tetratelabs/wazero"
-	"github.com/tetratelabs/wazero/api"
 
 	"agentkit/internal/config"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
+	"agentkit/internal/sqlite"
 )
 
 // The tables and columns Python ak writes, as its history module declares them, word for word:
@@ -207,7 +203,6 @@ func Open() (*DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		return nil, nil
 	}
-	runtimeOnce.Do(cacheCompiles)
 	held, err := lock.Wait(context.Background(), strings.TrimSuffix(path, ".db")+".lock")
 	if err != nil {
 		return nil, err
@@ -228,27 +223,10 @@ func Open() (*DB, error) {
 	return db, nil
 }
 
-var runtimeOnce sync.Once
-
-// cacheCompiles keeps SQLite's compiled WebAssembly under the user's cache directory, so only the
-// first open there pays for compiling it, under the limits the binding sets itself.
-func cacheCompiles() {
-	dir, err := os.UserCacheDir()
-	if err != nil {
-		return
-	}
-	cache, err := wazero.NewCompilationCacheWithDir(filepath.Join(dir, "agentkit", "sqlite"))
-	if err != nil {
-		return
-	}
-	sqlite3.RuntimeConfig = wazero.NewRuntimeConfig().WithMemoryLimitPages(4096).
-		WithCoreFeatures(api.CoreFeaturesV2).WithCompilationCache(cache)
-}
-
 // connect opens a connection that never moves the WAL into the database, which the tick alone
 // does, waits on a writer as Python's does, and reads realWork's suite_run.
 func connect(path string, flags sqlite3.OpenFlag) (*DB, error) {
-	conn, err := sqlite3.OpenFlags(path, flags)
+	conn, err := sqlite.Open(path, flags)
 	if err != nil {
 		return nil, err
 	}
