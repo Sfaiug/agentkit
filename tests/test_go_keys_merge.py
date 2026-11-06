@@ -1,4 +1,5 @@
-"""Two milestones claiming neighbouring keys merge cleanly, each claim kept.
+"""Two milestones claiming neighbouring keys merge cleanly, each claim kept, and a key claimed on
+two lines runs once.
 
 go/keys.txt holds one claim a line. This repository's own .gitattributes, in a repository of
 its own, merges two branches through `git merge-tree` with both claims kept.
@@ -9,6 +10,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+
+from suite_shares import claims
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -38,6 +41,14 @@ class NeighbouringClaims(unittest.TestCase):
             merged = git(tree, "show", f"{done.stdout.split()[0]}:go/keys.txt").stdout.split()
             self.assertEqual(sorted(merged),
                              ["test_key_a", "test_key_b", "test_key_c", "test_key_z"])
+
+    def test_a_key_claimed_on_two_lines_runs_once(self):
+        with tempfile.TemporaryDirectory() as tree:
+            keys = Path(tree, "go", "keys.txt")
+            keys.parent.mkdir()
+            keys.write_text("test_key_a A.test_x\ntest_key_b B\ntest_key_a\ntest_key_b C B\n"
+                            "test_key_c C.test_y\ntest_key_c C\n")
+            self.assertEqual(claims(tree), [["test_key_a"], ["test_key_b", "B", "C"], ["test_key_c", "C"]])
 
 
 if __name__ == "__main__":

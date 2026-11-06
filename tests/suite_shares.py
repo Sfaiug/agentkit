@@ -38,8 +38,16 @@ def name_failed(tests, file="AK_FAILED"):
 
 
 def claims(root):
-    """go/keys.txt's claims at `root`, a line each: a key file's name, then the parts Go passes."""
-    return [line.split() for line in (Path(root) / "go/keys.txt").read_text().splitlines()]
+    """go/keys.txt's claims at `root`, one a key: a key file's name, then the parts Go passes,
+    none where any of its lines claims it whole.  Two milestones claiming one key each keep their
+    line (go/keys.txt merges as a union), and a key run once costs a landing its time once; a
+    test its class's claim covers would run twice."""
+    merged = {}
+    for name, *parts in (line.split() for line in (Path(root) / "go/keys.txt").read_text().splitlines()):
+        had = merged.get(name)
+        parts = [] if had == [] or not parts else list(dict.fromkeys([*(had or []), *parts]))
+        merged[name] = [part for part in parts if not any(part.startswith(f"{other}.") for other in parts)]
+    return [[name, *parts] for name, parts in merged.items()]
 
 
 def parts_of(root, name):
