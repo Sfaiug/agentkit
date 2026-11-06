@@ -2,6 +2,7 @@ package loop
 
 import (
 	"errors"
+	"slices"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -53,9 +54,9 @@ func unable() map[string]string {
 }
 
 // unready is why the model's harness cannot run a turn here, Python's usage.harness_unready: not
-// installed, or its own `auth` verb saying no, which in a home with no adapter to ask is Go's own
-// read of the login.  No answer withholds nothing, as for a provider's several accounts, each
-// Python's to ask, or a login only a turn can renew.
+// installed, or its own `auth` verb saying no for every login a turn may run on, each account its
+// provider lists else the usual one, which in a home with no adapter to ask is Go's own read of
+// the usual login.  No answer withholds nothing, as for a login only a turn can renew.
 func unready(model config.Model) string {
 	program := model.Harness
 	if version, _ := config.Words(model.Harness, "update", "version"); len(version) > 0 && version[0] != "" {
@@ -66,7 +67,8 @@ func unready(model config.Model) string {
 	if err != nil && !unnamed || harness.Binary(program) == "" {
 		return model.Harness + " is not installed"
 	}
-	if accounts, err := config.Accounts(model.Provider); err != nil || len(accounts) > 0 {
+	accounts, err := config.Accounts(model.Provider)
+	if err != nil || len(accounts) > 0 && unnamed {
 		return ""
 	}
 	if unnamed {
@@ -82,8 +84,17 @@ func unready(model config.Model) string {
 	if err != nil {
 		return ""
 	}
-	if answered, yes, _ := worker.Login(adapter, append(env, "AGENTKIT_PROVIDER="+model.Provider)); answered && !yes {
-		return model.Harness + " is not logged in"
+	if len(accounts) == 0 {
+		accounts = []string{""} // the usual login
 	}
-	return ""
+	for _, account := range accounts {
+		told := append(slices.Clip(env), "AGENTKIT_PROVIDER="+model.Provider)
+		if account != "" {
+			told = append(told, config.AccountEnv(account))
+		}
+		if answered, yes, _ := worker.Login(adapter, told); !answered || yes {
+			return ""
+		}
+	}
+	return model.Harness + " is not logged in"
 }

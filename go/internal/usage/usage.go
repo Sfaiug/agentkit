@@ -16,9 +16,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// ErrPython is a home whose usage Python ak reads: where its adapter scripts live, a provider
-// listing accounts, but for the ak screen's refresh, and the tokens a window holds measured in
-// state/capacity.json are not yet Go's.
+// ErrPython is a home whose usage Python ak reads: where its adapter scripts live and the tokens a
+// window holds measured in state/capacity.json are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // Readings is every provider's reading, as of the moment it was read.
@@ -77,9 +76,9 @@ func Check() error {
 	return err
 }
 
-// listed is every provider config.toml lists as a read asks it, or why that is not Go's; a refresh
-// asks, where no $AGENTKIT_ADAPTER_DIR is named, the checkout's own adapters, and each account a
-// provider lists, as Python does.
+// listed is every login config.toml lists as a read asks it, a provider's one or each account it
+// lists, as Python does, or why that is not Go's; a refresh asks, where no $AGENTKIT_ADAPTER_DIR
+// is named, the checkout's own adapters.
 func listed(refresh bool) ([]source, error) {
 	subs, err := config.Subscriptions()
 	if err != nil {
@@ -99,7 +98,7 @@ func listed(refresh bool) ([]source, error) {
 		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
 			adapter, err = config.ShippedAdapter(sub.Harness)
 		}
-		if errors.Is(err, config.ErrNoAdapterDir) || len(accounts) > 0 && !refresh {
+		if errors.Is(err, config.ErrNoAdapterDir) {
 			return nil, ErrPython
 		}
 		if len(accounts) == 0 {
@@ -172,24 +171,14 @@ func (r *Readings) OnCredits(name string) bool {
 // what its week holds in tokens and what a million of them cost, which no capacity.json reading
 // measures (Read).
 func (r *Readings) Shown() *run.Object {
-	for _, src := range r.sources {
-		prov, ok := r.providers.Get(src.Name).(*run.Object)
-		if !ok {
-			continue
+	for _, each := range r.logins() {
+		each.prov.Set("capacity_tokens", nil)
+		each.prov.Set("capacity_pairs", 0)
+		each.prov.Set("price", nil)
+		if price := r.source(each.provider).Price; price != nil {
+			each.prov.Set("price", *price)
 		}
-		records := []*run.Object{prov}
-		if accounts, ok := prov.Get("accounts").(*run.Object); ok && len(accounts.Keys()) > 0 {
-			records = objects(values(accounts))
-		}
-		for _, record := range records {
-			record.Set("capacity_tokens", nil)
-			record.Set("capacity_pairs", 0)
-			record.Set("price", nil)
-			if src.Price != nil {
-				record.Set("price", *src.Price)
-			}
-			record.Set("price_per_1m", nil)
-		}
+		each.prov.Set("price_per_1m", nil)
 	}
 	return r.providers
 }
