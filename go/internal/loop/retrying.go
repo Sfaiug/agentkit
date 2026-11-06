@@ -61,11 +61,12 @@ func (h *handedOver) Error() string {
 	return h.before + " failed on the provider twice; handed to " + h.next
 }
 
-// A try is one attempt of a call, what the faults read and may replace.
+// A try is one attempt of a call, what the faults read.
 type try struct {
-	out, text, session, asked string // asked: the conversation it was told to go on, on a first attempt
-	code                      int
-	silent                    bool // stopped for streaming nothing
+	out, text, session, resumed string // resumed: the conversation it went on, "" for a new one
+	code                        int
+	asked                       bool // the call's first: resumed is the conversation it was told to go on
+	silent                      bool // stopped for streaming nothing
 }
 
 // A call is one turn of a model on the road Python's call_retrying takes: it goes again while the
@@ -102,15 +103,13 @@ func (c *call) run() (*try, error) {
 next:
 	for {
 		target := c.out
-		asked := c.session
 		if c.calls > 0 {
-			target, asked = fmt.Sprintf("%s-retry%d", c.out, c.calls), ""
+			target = fmt.Sprintf("%s-retry%d", c.out, c.calls)
 		}
 		t, err := c.attempt(c.body, target)
 		if err != nil {
 			return nil, err
 		}
-		t.asked = asked
 		c.calls++
 		for _, fault := range callFaults {
 			again, err := fault(c, t)
@@ -143,7 +142,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 	if c.session != "" && c.session == c.lastSession {
 		previous = c.previous
 	}
-	t := &try{out: target}
+	t := &try{out: target, resumed: c.session, asked: c.calls == 0}
 	turn := func(cwd string) (failed error) {
 		told, at := body, l.workspace
 		if cwd != "" {
@@ -182,14 +181,19 @@ func (c *call) attempt(body, target string) (*try, error) {
 	return t, nil
 }
 
-// unopened is a resume the harness ended at once, with nothing streamed and nothing answered:
-// retrying that id spends the waits on a conversation that will not come back, so the role goes on
-// in a new one, Python's resume_failed.
+// unopened is a resume the harness says it holds no conversation for, or, of the one the call was
+// told to go on, one it ended at once with nothing streamed and nothing answered: retrying that id
+// spends the waits on a conversation that will not come back, so the role goes on in a new one,
+// Python's resume_failed.
 func (c *call) unopened(t *try) (bool, error) {
-	if t.asked == "" || t.silent || strings.TrimFunc(t.text, config.Space) != "" || !saidNothing(t.out) {
+	if t.resumed == "" || t.silent {
 		return false, nil
 	}
-	c.l.say(fmt.Sprintf("resume of %s failed; fresh conversation", t.asked))
+	if ending, _ := harness.Ending(c.model.Harness, c.said(t), true); ending != harness.Lost &&
+		(!t.asked || strings.TrimFunc(t.text, config.Space) != "" || !saidNothing(t.out)) {
+		return false, nil
+	}
+	c.l.say(fmt.Sprintf("resume of %s failed; fresh conversation", t.resumed))
 	if c.notice != nil {
 		c.notice.Set("restarted", true)
 		c.notice.Set("at", clock())
@@ -204,13 +208,7 @@ func (c *call) unopened(t *try) (bool, error) {
 		}
 	}
 	c.session = ""
-	fresh, err := c.attempt(c.body, fmt.Sprintf("%s-retry%d", c.out, c.calls))
-	if err != nil {
-		return false, err
-	}
-	c.calls++
-	*t = *fresh
-	return false, nil
+	return true, nil
 }
 
 // neverRan is a harness that says on stderr it never ran the turn, Python's cannot_run: not a wait,
@@ -250,8 +248,7 @@ func (c *call) neverRan(t *try) (bool, error) {
 // refusal or an outage is waited out on the same session.  A kill reads as the signal whatever else
 // was said, unless the window is spent.
 func (c *call) harnessWords(t *try) (bool, error) {
-	terminal, _ := config.Words(c.model.Harness, "stall", "terminal")
-	said := harnessSaid(t.out, t.text, strings.Join(terminal, ""), t.code == 0)
+	said := c.said(t)
 	ending, mark := harness.Ending(c.model.Harness, said, true)
 	if ending == harness.Unsaid || ending != harness.Spent && !t.silent && killedWord(t.code) != "" {
 		return false, nil
@@ -273,6 +270,12 @@ func (c *call) harnessWords(t *try) (bool, error) {
 	until := usage.MarkExhausted(c.model.Provider, usage.TryAgainAt(said))
 	c.l.say(fmt.Sprintf("WARN %s %s refused: %s; nothing is picked on %s until %s", c.role, c.name, message, c.model.Provider, time.Unix(int64(until), 0).Format("2006-01-02 15:04")))
 	return false, &ranDry{mark, t.out, message, t.code}
+}
+
+// said is what the harness itself said in the attempt, on a clean exit only its failure events.
+func (c *call) said(t *try) string {
+	terminal, _ := config.Words(c.model.Harness, "stall", "terminal")
+	return harnessSaid(t.out, t.text, strings.Join(terminal, ""), t.code == 0)
 }
 
 // signalled is a worker dead by signal, neither on the provider nor on the task: it resumes once, at
