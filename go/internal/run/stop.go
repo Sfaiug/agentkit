@@ -83,9 +83,9 @@ func Stop(dir string, now time.Time) error {
 		os.Chtimes(moved, now, now)
 	}
 	if Report(dir, ended) == nil {
-		note(dir, "ERROR "+Why, now)
+		Note(dir, "ERROR "+Why, now)
 	}
-	note(dir, "stopped "+filepath.Base(dir), now)
+	Note(dir, "stopped "+filepath.Base(dir), now)
 	return nil
 }
 
@@ -125,8 +125,8 @@ func Relaunch(dir string, record *Object) string {
 	return "ak run " + filepath.Join(dir, "task.md")
 }
 
-// note is one line in the run's log; a log it cannot write costs the stop nothing.
-func note(dir, message string, now time.Time) {
+// Note is one line in the run's log; a log it cannot write costs its writer nothing.
+func Note(dir, message string, now time.Time) {
 	file, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return

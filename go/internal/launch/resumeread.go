@@ -10,11 +10,13 @@ import (
 // refusals in its words, `ak run`'s exit status, and why it refused. Anything else it leaves to
 // Python (ErrPython) before it writes anything.
 func Resume(id string, bg bool, out, errOut io.Writer) (int, string, error) {
-	return resume(id, bg, nil, out, errOut)
+	return resume(id, bg, nil, nil, out, errOut)
 }
 
 // ResumeExpected adopts only the wait the tick decided to resume, as spawn_bg(expected)
-// does: a later attempt or a stop cannot be resumed on that decision.
-func ResumeExpected(id string, expected *run.Object) (int, string, error) {
-	return resume(id, true, expected, io.Discard, io.Discard)
+// does: a later attempt or a stop cannot be resumed on that decision.  order, where the tick
+// gives one, is what it writes on the record ordering the resume (watch._arm_resume): written
+// with the resume taking the record up, so a resume left to Python leaves nothing written.
+func ResumeExpected(id string, expected *run.Object, order func(*run.Object)) (int, string, error) {
+	return resume(id, true, expected, order, io.Discard, io.Discard)
 }

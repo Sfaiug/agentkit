@@ -131,7 +131,7 @@ func (t *ticking) errorRetry() error {
 		case given:
 			t.log.line(fmt.Sprintf("WARN %s: %s; leaving it parked for a person", id, why))
 		case due:
-			if code, said, err := launch.ResumeExpected(id, decided); err != nil || code != 0 {
+			if code, said, err := launch.ResumeExpected(id, decided, nil); err != nil || code != 0 {
 				t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(said, fmt.Sprint(err))))
 			} else {
 				t.log.line(fmt.Sprintf("resumed %s: error retry %s", id, run.Field(decided, "error_retries", "None")))

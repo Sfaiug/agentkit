@@ -17,7 +17,7 @@ func TestAResumedErrorSaysItResumesFromTheError(t *testing.T) {
 		t.Fatal(err)
 	}
 	read, _ := run.Read(l.dir)
-	if err := Reopen(l.dir, read); err != nil {
+	if err := Reopen(l.dir, read, nil); err != nil {
 		t.Fatal(err)
 	}
 	record, _ := run.Read(l.dir)

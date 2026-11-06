@@ -9,9 +9,10 @@ import (
 func recoveryEnding(record *run.Object) bool { return record.Str("state") == "interrupted" }
 
 // Awaiting includes an interruption's recovery notice, which uses the same decision line
-// and delivery lock as a finished run (handback.notify_recovery).
+// and delivery lock as a finished run (handback.notify_recovery): a run no seat launched has
+// nobody to give it to.
 func Awaiting(record *run.Object, now time.Time) bool {
-	return Owed(record, now) || recoveryEnding(record) && !record.Truthy("handed_back") &&
+	return Owed(record, now) || recoveryEnding(record) && run.Launched(record) != "" && !record.Truthy("handed_back") &&
 		!record.Truthy("reported") && !record.Truthy("recovery_notified") && !record.Truthy("recovery_acknowledged_at")
 }
 
