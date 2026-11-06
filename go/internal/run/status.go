@@ -3,7 +3,6 @@ package run
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gitcall"
 	"agentkit/internal/task"
 )
 
@@ -213,24 +213,11 @@ func span(elapsed float64) string {
 
 // DeclaredSuite is the target's `tests:` suite at `origin/<target>`, else the checkout's.
 func DeclaredSuite(worktree, target string) string {
-	if target != "" {
-		ref := target
-		if !strings.HasPrefix(ref, "origin/") {
-			ref = "origin/" + target
-		}
-		command := exec.Command("git", "-C", worktree, "show", ref+":AGENTS.md")
-		command.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
-		if out, err := command.Output(); err == nil || errors.As(err, new(*exec.ExitError)) {
-			if suite := task.FrontValue(strings.TrimSpace(task.Text(out)), "tests"); suite != "" {
-				return suite
-			}
-		}
+	ref := target
+	if target != "" && !strings.HasPrefix(target, "origin/") {
+		ref = "origin/" + target
 	}
-	data, err := os.ReadFile(filepath.Join(worktree, "AGENTS.md"))
-	if err != nil {
-		return ""
-	}
-	return task.FrontValue(task.Text(data), "tests")
+	return gitcall.Suite(worktree, ref)
 }
 
 // FinalCheck is the run's `final check:` line, or "" where its task cannot be read.

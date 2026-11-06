@@ -231,7 +231,7 @@ func (s *narrowingStack) checkTests(command, suite string, selection *checkSelec
 }
 
 func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingStack, below int, said io.Writer) (int, int, error) {
-	suite := declaredSuite(stacks[0].checkout.path, tip)
+	suite := gitcall.Suite(stacks[0].checkout.path, tip)
 	limit := host.Pieces(0, 0)
 	if pinned, _ := config.MaxGates(); pinned > 0 {
 		limit = pinned

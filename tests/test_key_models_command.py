@@ -13,7 +13,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import BUILDS, ENV, LEGEND, ORCH, REVIEWS, boards, lines
+from test_key_models_answer import BUILDS, ENV, LEGEND, ORCH, REVIEWS, boards
 
 OWN = ["model orch exec review", "mid   -    -    -", "bolt  -    -    -"]
 
@@ -36,7 +36,7 @@ class ModelsCommand(unittest.TestCase):
         return done.out
 
     def test_each_role_s_answer_then_ak_s_own_numbers(self):
-        shown = lines(self.models().rstrip("\n"))
+        shown = [line.rstrip() for line in self.models().splitlines()]
         at = shown.index(ORCH[0])
         answer = [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND]
         self.assertEqual(shown[at:at + len(answer)], answer)

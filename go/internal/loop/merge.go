@@ -520,7 +520,7 @@ func (r *repoPlace) mergeBody(l *loop, head, url string) ([]string, error) {
 		return nil, err
 	}
 	checked := cmp.Or(record.Dict("final_check"), run.NewObject())
-	suite := declaredSuite(r.wt, cmp.Or(record.Str("target_sha"), r.upstream()))
+	suite := gitcall.Suite(r.wt, cmp.Or(record.Str("target_sha"), r.upstream()))
 	tree := checked.Str("tree_sha")
 	if suite == "" || checked.Str("suite") != suite || checked.Str("outcome") != "passed" || checked.Str("sha") != head || tree == "" ||
 		(checked.Has("tested") && checked.Str("tested") != tree) {

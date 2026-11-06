@@ -89,8 +89,8 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 		return view, true
 	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
-	// Other parked recovery still needs Python's reader.
-	if !view.going && (run.NeedsRecovery(record) || state == "error" || state == "waiting") {
+	// Other parked recovery still needs Python's reader; a parked error is rung 3's (runParked).
+	if !view.going && state != "error" && (run.NeedsRecovery(record) || state == "waiting") {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]

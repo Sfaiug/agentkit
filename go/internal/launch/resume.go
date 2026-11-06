@@ -23,7 +23,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	if expected != nil && !run.Equal(record, expected) {
 		return 2, loop.ErrChanged.Error(), nil
 	}
-	if record == nil || elsewhere() || run.Lined(record) && !loop.Woken(record) || !run.Carries(record) {
+	if !reached(record) {
 		return 0, "", ErrPython
 	}
 	switch state := record.Str("state"); {
@@ -34,10 +34,7 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 	case state == "stopped":
 		return 2, "stopped runs are not resumed; start a new task from its branch", nil
 	}
-	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil || box.Check() != nil {
-		return 0, "", ErrPython
-	}
-	if !driverHere() || record.Truthy("repo") && helper.May() || !loop.Pickup(dir, record) && !loop.Woken(record) {
+	if !goesOn(dir, record) {
 		return 0, "", ErrPython
 	}
 	if loop.Logging(dir) {
@@ -71,6 +68,19 @@ func resume(id string, bg bool, expected *run.Object, out, errOut io.Writer) (in
 		return 0, "", nil
 	}
 	return loop.Follow(dir, info.Size(), out, errOut), "", nil
+}
+
+// reached is whether Go's resume reads that run at all: anything else is Python's before a refusal.
+func reached(record *run.Object) bool {
+	return record != nil && !elsewhere() && !(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
+}
+
+// goesOn is whether Go's resume takes up a run it reached and did not refuse.
+func goesOn(dir string, record *run.Object) bool {
+	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil || box.Check() != nil {
+		return false
+	}
+	return driverHere() && !(record.Truthy("repo") && helper.May()) && (loop.Pickup(dir, record) || loop.Woken(record))
 }
 
 // driverHere is whether a driver can run on this host: placed, with meters it can read.
