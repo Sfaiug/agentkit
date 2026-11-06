@@ -60,6 +60,7 @@ test_key_browser_verb
 test_key_c_follows_the_seat
 test_key_c_pages_come_up
 test_key_c_shows_each_machine_and_its_work
+test_key_c_space_marks_enter_opens ConfigKeys
 test_key_checks_die_first
 test_key_checks_override_pass
 test_key_claude_hooks_merge
@@ -406,6 +407,7 @@ test_key_seat_status_bar
 test_key_seat_transport_full
 test_key_seat_verb_help
 test_key_seat_wrapper_looks
+test_key_session_efforts
 test_key_setup_error
 test_key_several_suite_helpers
 test_key_shim_lookup
