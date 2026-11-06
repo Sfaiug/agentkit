@@ -122,11 +122,14 @@ func said(name string, asked []Kept, previous *run.Object, kept bool) (*run.Obje
 	stands := previous != nil && previous.Get("watcher") != true && !resolved(previous)
 	if stands {
 		standing = questions(previous)
-		var read [3]bool
-		dated, read[0] = copied(previous, "asked_at", run.NewObject())
-		dates, read[1] = copied(previous, "question_times", dated)
-		ids, read[2] = copied(previous, "question_ids", run.NewObject())
-		if read != [3]bool{true, true, true} {
+		var read bool
+		if dated, read = copied(previous, "asked_at", run.NewObject()); !read {
+			return nil, false
+		}
+		if dates, read = copied(previous, "question_times", dated); !read {
+			return nil, false
+		}
+		if ids, read = copied(previous, "question_ids", run.NewObject()); !read {
 			return nil, false
 		}
 	}

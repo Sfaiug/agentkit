@@ -35,6 +35,7 @@ func TestAnAskFollowsTheWordItsSeatSaysWithIt(t *testing.T) {
 		{name: "an ak wait landing as the word is read", file: `{"word":"idle"}`, landing: wait, word: "working"},
 		{name: "a seat its owner closed", file: `{"word":"idle","closed_by_owner":true}`, word: "needs you", question: true},
 		{name: "a standing question Go cannot join", notice: `{"kind":"needs","text":"Which branch?","time":1,"asked_at":{"which branch?":1},"question_times":[1]}`},
+		{name: "a standing question Go cannot date", notice: `{"kind":"needs","text":"Which branch?","time":1,"asked_at":[["which branch?",1]]}`},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			_, write := questionHome(t)
