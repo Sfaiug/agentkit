@@ -44,11 +44,11 @@ var release = regexp.MustCompile(`\p{Nd}+\.\p{Nd}+\.\p{Nd}+`)
 // A plan is one harness `ak update` moves, as its manifest's `[update]` says, and its
 // `[snapshot]` where nothing else puts it back.
 type plan struct {
-	name                     string
-	version, upgrade, revert []string
-	env                      []string // KEY=value each
-	cannot                   string
-	snapshot                 *recipe
+	name                             string
+	version, upgrade, revert, latest []string
+	env                              []string // KEY=value each
+	cannot                           string
+	snapshot                         *recipe
 }
 
 // Main is `ak update` from the checkout at repo where Go carries it out, in Python's update.main
@@ -183,7 +183,8 @@ func harnesses() ([]plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		if _, err := words(name, facts, "latest"); err != nil {
+		latest, err := words(name, facts, "latest")
+		if err != nil {
 			return nil, err
 		}
 		cannot, _ := facts["cannot"].(string)
@@ -191,7 +192,7 @@ func harnesses() ([]plan, error) {
 		if !ok {
 			return nil, ErrPython // a value Python's str() writes as Go does not
 		}
-		plans = append(plans, plan{name, version, upgrade, revert, env, cannot, snapshotted(name)})
+		plans = append(plans, plan{name, version, upgrade, revert, latest, env, cannot, snapshotted(name)})
 	}
 	return plans, nil
 }

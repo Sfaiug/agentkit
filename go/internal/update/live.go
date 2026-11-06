@@ -26,8 +26,9 @@ func LiveReady(repo string) bool {
 	return exchange != nil && (errors.Is(err, fs.ErrNotExist) || err == nil && len(checks) == 0)
 }
 
-// GoLive is Python's go_live where origin carries no tests/live.sh: fetch silently offline,
-// move only when ahead, and retry an install owed until it passes, under the same move lock.
+// GoLive is Python's go_live where no tests/live.sh holds a move: fetch silently offline, move
+// only when ahead, and retry an install owed until it passes, under the same move lock.  A move
+// to an origin/main holding one waits for its check, which is Python's.
 func GoLive(repo string, say func(string)) error {
 	if !liveHere(repo) {
 		return nil
@@ -50,20 +51,20 @@ func GoLive(repo string, say func(string)) error {
 		if err != nil {
 			return err
 		}
-		if target != "" {
-			code, _, err := g.Out("cat-file", "-e", target+":tests/live.sh")
-			if err != nil {
-				return err
-			}
-			if code == 0 {
-				return ErrPython
-			}
-		}
 	}
 	moved := false
 	if target != "" {
 		code, _, err := g.Out("merge-base", "--is-ancestor", target, "HEAD")
 		moved = err == nil && code == 1
+	}
+	if moved {
+		code, _, err := g.Out("cat-file", "-e", target+":tests/live.sh")
+		if err != nil {
+			return err
+		}
+		if code == 0 {
+			return ErrPython
+		}
 	}
 	pending := filepath.Join(config.Home(), "state", "agentkit-install-pending")
 	if !moved && !exists(pending) {

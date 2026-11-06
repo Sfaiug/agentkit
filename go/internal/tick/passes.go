@@ -31,10 +31,9 @@ type pass struct {
 var errLeft = errors.New("left to Python")
 
 // table is the tick's passes in the order Python's watch.local_passes runs them, the one home of
-// their names and order. A later milestone fills a pass's step, and puts in its row each of those
-// that act whatever the home holds: harness upgrade.  Each row reads the seats at its own turn,
-// and a home holding a seat Go does not read leaves the tick to Python at the first row that
-// reads one. A step a dry tick runs checks t.dry where it would act; until it does, it is wet.
+// their names and order. A later milestone fills a pass's step. Each row reads the seats at its
+// own turn, and a home holding a seat Go does not read leaves the tick to Python at the first row
+// that reads one. A step a dry tick runs checks t.dry where it would act; until it does, it is wet.
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
@@ -111,6 +110,7 @@ func table(t *ticking) []pass {
 		{"alive checks", false, nil, t.alive},
 		{"night reads", false, noNights, t.nights},
 		{"live update", false, liveUpdateIdle, t.liveUpdate},
+		{"harness upgrade", false, nil, t.harnessUpgrade},
 	}
 }
 
