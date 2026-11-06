@@ -507,10 +507,10 @@ MONTHS = ("jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", 
 
 
 # The files in a worker's out dir that are not the harness talking.  prompt.md is what it was
-# told, and session_id and the receipts of its harness and login are bookkeeping; none is ever
-# evidence of anything the harness said, even a login named `402`.
-NOT_HARNESS = ("prompt.md", "session_id", "harness", "account", hand_in.FILE, hand_in.REPORT,
-               hand_in.FINDINGS_FILE)
+# told, and session_id and the receipts of its harness, login and model are bookkeeping; none is
+# ever evidence of anything the harness said, even a login named `402`.
+NOT_HARNESS = ("prompt.md", "session_id", "harness", "account", "model", hand_in.FILE,
+               hand_in.REPORT, hand_in.FINDINGS_FILE)
 
 
 ANSWER = "final.md"             # and this one arrives as `text`, already read by worker.call
