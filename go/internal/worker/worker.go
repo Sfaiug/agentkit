@@ -58,7 +58,9 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		model.Efforts = given.Efforts
 	}
 	adapter, err := Adapter(model)
-	if err != nil {
+	if errors.Is(err, ErrPython) || config.EnsureDirs() != nil {
+		return 0, "", ErrPython
+	} else if err != nil {
 		return 0, "", err
 	}
 	seated, err := config.ChildEnv()

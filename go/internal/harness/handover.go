@@ -36,7 +36,7 @@ func Handover(name string, record map[string]any) (string, bool) {
 
 func handedMessages(path, model string, read func(*run.Object) (string, string)) (string, bool) {
 	var text strings.Builder
-	err := entries(path, func(entry *run.Object) {
+	err := Entries(path, func(entry *run.Object) {
 		if who, said := read(entry); said != "" {
 			if who != "user" {
 				who = model

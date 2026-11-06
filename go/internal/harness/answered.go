@@ -33,10 +33,10 @@ func Answered(name string, record map[string]any) ([]Turn, []Card, bool, error) 
 	return said, cards, true, err
 }
 
-// entries calls each with every JSON object the file at path holds a line, first line first, as
+// Entries calls each with every JSON object the file at path holds a line, first line first, as
 // Python's harness.entries reads a growing record: an unfinished last line can wait, and no
 // path or no file holds none.  What cannot be read is an error.
-func entries(path string, each func(*run.Object)) error {
+func Entries(path string, each func(*run.Object)) error {
 	if path == "" {
 		return nil
 	}

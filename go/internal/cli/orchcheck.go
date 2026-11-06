@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
@@ -20,6 +21,7 @@ import (
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
+	"agentkit/internal/usage"
 	"agentkit/internal/worker"
 )
 
@@ -100,8 +102,10 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 		return "", nil, err
 	}
 	conversation, messages, err := notify.OwnerMessages(name)
-	if err != nil {
+	if errors.Is(err, notify.ErrUnread) {
 		return "", nil, errLeft
+	} else if err != nil {
+		return "", nil, fmt.Errorf("could not check %s: %w", name, err)
 	}
 	if conversation == "" {
 		return "", nil, fmt.Errorf("no seat named %s whose conversation ak can read", name)
@@ -123,15 +127,20 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 	if len(owner) == 0 {
 		return name, nil, nil // asked nothing, so nothing is missing
 	}
-	model, err := checker(name, record)
-	if err != nil {
-		return "", nil, err
-	}
+	// every record read, and every case Python carries settled, before the pick's meters or the
+	// turn's folders are written
 	files, err := checkFiles(name, owner, said)
 	if err != nil {
 		return "", nil, err
 	}
+	model, err := checker(name, record)
+	if err != nil {
+		return "", nil, err
+	}
 	fmt.Fprintf(errOut, "ak orch check: %s reads what %s was asked and did\n", model, name)
+	if err := config.EnsureDirs(); err != nil {
+		return "", nil, fmt.Errorf("could not check %s: %w", name, err)
+	}
 	tmp, err := os.MkdirTemp(filepath.Join(config.Home(), "tmp"), "check-"+name+"-")
 	if err != nil {
 		return "", nil, err
@@ -152,8 +161,6 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 	ask := strings.NewReplacer("{name}", name, "{workspace}", workspace).Replace(checkAsk)
 	var expired *worker.LoginExpired
 	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{}, errOut); {
-	case errors.Is(err, worker.ErrPython):
-		return "", nil, errLeft
 	case errors.Is(err, worker.ErrInterrupted), errors.As(err, &expired):
 		return "", nil, err
 	case err != nil && !errors.Is(err, worker.ErrSilent):
@@ -176,8 +183,8 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 }
 
 // checkFiles is the checking turn's workspace, each file by its path there: the owner's words a
-// file each, the seat's conversation, its plan and each run it launched.  errLeft where Go does
-// not read the runs as Python does.
+// file each, the seat's conversation, its plan and each run it launched, read without writing
+// anything.  errLeft where Go does not read the runs as Python does.
 func checkFiles(name string, owner []ownerWords, said []harness.Turn) (map[string]string, error) {
 	files := map[string]string{}
 	for n, each := range owner {
@@ -197,16 +204,22 @@ func checkFiles(name string, owner []ownerWords, said []harness.Turn) (map[strin
 	files["conversation.md"], files["plan.md"] = conversation.String(), planned.String()
 	var unread error
 	if !run.Every(func(dir string, state *run.Object) bool {
-		if run.Seat(state) != name {
+		// the seat it was launched from by its name now, as transitions.launched_session follows it
+		launched := run.Launched(state)
+		if launched == "" {
 			return true
 		}
-		taskText := ""
-		if info, err := os.Stat(filepath.Join(dir, "task.md")); err == nil && info.Mode().IsRegular() {
-			data, err := os.ReadFile(filepath.Join(dir, "task.md"))
-			if unread = err; err != nil {
-				return false
-			}
-			taskText = task.Text([]byte(gitcall.Decoded(string(data))))
+		seat, _, err := config.ResolveSession(launched)
+		if err != nil {
+			unread = err // in the seat record's own words, as the seat's own is refused
+			return false
+		} else if seat != name {
+			return true
+		}
+		taskText, err := runTask(filepath.Join(dir, "task.md"))
+		if err != nil {
+			unread = fmt.Errorf("could not check %s: %w", name, err)
+			return false
 		}
 		merged, pr := "no", "none"
 		if state.Truthy("merged") {
@@ -220,31 +233,51 @@ func checkFiles(name string, owner []ownerWords, said []harness.Turn) (map[strin
 		return true
 	}) {
 		if unread != nil {
-			return nil, fmt.Errorf("could not check %s: %w", name, unread)
+			return nil, unread
 		}
 		return nil, errLeft
 	}
 	return files, nil
 }
 
+// runTask is a run's task as Python reads it beside the run: "" where Path.is_file says there is
+// no file (missing, under a file or in a link loop, or no regular file), an error where it
+// cannot tell.
+func runTask(path string) (string, error) {
+	info, err := os.Stat(path)
+	var errno syscall.Errno
+	if err == nil && !info.Mode().IsRegular() || errors.As(err, &errno) && slices.Contains([]syscall.Errno{syscall.ENOENT, syscall.ENOTDIR, syscall.EBADF, syscall.ELOOP}, errno) {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(path)
+	return task.Text([]byte(gitcall.Decoded(string(data)))), err
+}
+
 // checker is the model that checks the seat's work: `[done_check] model`, else the reviewer a
-// run of that seat's would draw now.  errLeft where Python draws it or runs its turn.
+// run of that seat's would draw now.  errLeft where Python draws it or runs its turn, settled
+// before the draw writes the meters it reads.
 func checker(name string, record map[string]any) (string, error) {
 	model, err := config.DoneCheckModel()
-	if err == nil && model == "" {
-		model, err = readyReviewer(name, record)
-	}
 	if err != nil {
 		return "", err
+	} else if model != "" {
+		return model, goTurn(model)
 	}
+	return readyReviewer(name, record)
+}
+
+// goTurn is nil where Go runs that model's turn, errLeft where Python does.
+func goTurn(model string) error {
 	entry, err := config.ModelNamed(model)
 	if err != nil {
-		return "", err
+		return err
 	}
 	if _, err := worker.Adapter(entry); errors.Is(err, worker.ErrPython) {
-		return "", errLeft
+		return errLeft
 	}
-	return model, nil
+	return nil
 }
 
 // readyReviewer is the first of the seat's reviewers, else its workers, that a pick draws now.
@@ -265,9 +298,16 @@ func readyReviewer(name string, record map[string]any) (string, error) {
 	if !ok {
 		return "", errLeft
 	}
-	order, ok := loop.ReadyOrder(rules, true)
-	if !ok {
+	for _, each := range listed {
+		if err := goTurn(each); err != nil {
+			return "", err
+		}
+	}
+	order, err := loop.ReadyOrder(rules, true)
+	if errors.Is(err, usage.ErrPython) {
 		return "", errLeft
+	} else if err != nil {
+		return "", fmt.Errorf("could not check %s: %w", name, err)
 	}
 	if len(order) == 0 {
 		return "", fmt.Errorf("none of %s's reviewers can run now", name)
