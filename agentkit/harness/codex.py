@@ -47,7 +47,10 @@ HOOK_TIMEOUT = 600
 QUESTION_TOOL = "request_user_input_async"
 # A Plan-mode turn asks with `request_user_input`, which waits in a dialog of the seat's own: its
 # PreToolUse is the seat asking.  One group takes both tools, as Codex reads a matcher as a regex.
-QUESTIONS = "request_user_input(_async)?"
+PLAN_TOOL = "request_user_input"
+QUESTIONS = PLAN_TOOL + "(_async)?"
+# What a Plan-mode card's output puts before the note the owner added to a pick (Codex 0.167).
+NOTE = "user_note: "
 FRESH = "starts a new Codex conversation"
 BEGIN = "# --- agentkit browser bridge: managed by `ak browser mcp-register` ---"
 END = "# --- end agentkit browser bridge ---"
@@ -330,44 +333,73 @@ def said(record, cwd, conversation):
 
 
 def user_messages(record, cwd, conversation):
-    for kept, replies in messages(record, cwd, conversation):
+    for _, _, kept, replies in lines(record, cwd, conversation):
         if replies is not None:
             kept["replies"] = [question_id(call, index) for call, index, _, _ in replies]
-        yield kept
+        if kept:
+            yield kept
 
 
 def answers(record, cwd, conversation):
-    """Each card reply's answer, beside the title and options its call asked with: a call that
-    Codex 0.163 names, and whose options it lists."""
-    for kept, replies in messages(record, cwd, conversation):
+    """Each card answer, beside the question and choices its call asked with: an async card's
+    reply to a call that Codex 0.163 names, and whose options it lists, and a Plan-mode card's
+    (`picked`)."""
+    for entry, calls, kept, replies in lines(record, cwd, conversation):
         for call, _, asked, answer in replies or ():
             if isinstance(call, str) and isinstance(asked.get("options"), list):
                 yield {"at": kept["at"], "question": asked.get("title"), "answer": answer,
                        "choices": [{"label": option, "description": ""}
                                    for option in asked["options"]]}
+        yield from picked(entry, calls)
 
 
-def messages(record, cwd, conversation):
-    """Each owner message, with the (call, index, question asked, answer) of each card question
-    it answers, or None where it is no card reply."""
+def picked(entry, calls):
+    """Each answer a Plan-mode card's call holds as its output, if that rollout line is one: the
+    owner answers that card in the seat's own screen, and Codex 0.167 keeps no message of theirs,
+    only their pick, then any note they added, under each question's id."""
+    from . import moment
+    payload, at = entry.get("payload"), moment(entry.get("timestamp"))
+    try:
+        asked = calls[PLAN_TOOL, payload["call_id"]]
+        if (entry["type"] != "response_item" or payload["type"] != "function_call_output"
+                or at is None):
+            return
+        given = json.loads(payload["output"])["answers"]
+    except (KeyError, TypeError, ValueError):
+        return
+    for question in asked:
+        try:    # a question with no answer under its id, or of any other shape, answers nothing
+            words = given[question["id"]]["answers"]
+            if isinstance(words, list):
+                yield {"at": at, "question": question["question"],
+                       "answer": "\n".join(text.removeprefix(NOTE) for text in words),
+                       "choices": [{"label": option["label"],
+                                    "description": option.get("description", "")}
+                                   for option in question.get("options") or ()]}
+        except (AttributeError, KeyError, TypeError):
+            continue
+
+
+def lines(record, cwd, conversation):
+    """Each rollout line, beside the card calls asked up to it, by (tool, call id); the owner
+    message it holds, or None; and the (call, index, question asked, answer) of each card
+    question that message answers, or None where it is no card reply."""
     from . import entries, user_message
     calls = {}
     for entry in entries(transcript(record, cwd, conversation)):
         payload = entry.get("payload")
-        if (entry.get("type") == "response_item" and isinstance(payload, dict)
-                and payload.get("type") == "function_call"
-                and str(payload.get("name", "")).split(".")[-1] == QUESTION_TOOL):
+        name = str(payload.get("name", "")).split(".")[-1] if isinstance(payload, dict) else ""
+        if (re.fullmatch(QUESTIONS, name) and entry.get("type") == "response_item"
+                and payload.get("type") == "function_call"):
             try:
                 asked = json.loads(payload["arguments"])["questions"]
                 if isinstance(asked, list) and all(isinstance(q, dict) for q in asked):
-                    calls[payload["call_id"]] = asked
+                    calls[name, payload["call_id"]] = asked
             except (KeyError, TypeError, ValueError):
                 pass
         kept = user_message(entry.get("timestamp"), prompt(entry))
-        if not kept:
-            continue
-        if not kept["text"].startswith("<send_user_message_question_reply>"):
-            yield kept, None
+        if not kept or not kept["text"].startswith("<send_user_message_question_reply>"):
+            yield entry, calls, kept, None
             continue
         # Codex 0.163's submitted card reply names its call and question index.
         # A skipped/expired card emits no such owner message. Bad ids answer none.
@@ -381,12 +413,12 @@ def messages(record, cwd, conversation):
             try:
                 tool, call, index = json.loads(reply["questionItemId"])
                 if (tool == QUESTION_TOOL and type(index) is int and index >= 0
-                        and index < len(calls[call])
+                        and index < len(calls[tool, call])
                         and isinstance(reply.get("answer"), str) and reply["answer"].strip()):
-                    answered.append((call, index, calls[call][index], reply["answer"]))
+                    answered.append((call, index, calls[tool, call][index], reply["answer"]))
             except (KeyError, IndexError, TypeError, ValueError):
                 continue
-        yield kept, answered
+        yield entry, calls, kept, answered
 
 
 def error(record, cwd, conversation):
