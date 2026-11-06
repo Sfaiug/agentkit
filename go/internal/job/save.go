@@ -22,6 +22,12 @@ func Save(dir string, record *run.Object) error {
 	if current, _ := Read(dir); !record.Truthy("finished_at") && current != nil && current.Truthy("finished_at") {
 		return ErrStopped
 	}
+	return Write(dir, record)
+}
+
+// Write replaces the receipt of the job at dir whole through job.tmp, as save_job writes it,
+// under the recovery lock its caller holds.
+func Write(dir string, record *run.Object) error {
 	tmp := filepath.Join(dir, "job.tmp")
 	if err := os.WriteFile(tmp, []byte(run.EncodeText(record)), 0o666); err != nil {
 		return err

@@ -239,6 +239,7 @@ test_key_orch_rules
 test_key_orch_stop_other_seat
 test_key_orch_stop_remove
 test_key_orch_stop_runs
+test_key_owner_words Collection
 test_key_page_answered
 test_key_page_card_wait
 test_key_page_chooser
