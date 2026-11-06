@@ -1244,6 +1244,7 @@ SEAT_FILES = {
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
     "verified": "txt",   # how many verifications of it began, and the last to check each open line (`plan._verified`)
     "checked": "txt",    # what its last done check finding no gap read (`done_check.keep`)
+    "pictures": "jsonl", # each picture of a screen it kept for its done check (`done_check.look`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
     # seat, and a change may still be told against it (`orch.rulebook_change`)
     "rules": "md",

@@ -4880,6 +4880,9 @@ def main(argv):
     if argv[:1] == ["check"]:
         from . import done_check   # here, not at the top: it reaches this module through notify
         return done_check.main(argv[1:])
+    if argv[:1] == ["look"]:
+        from . import done_check
+        return done_check.look(argv[1:])
     name, forced, forced_workers, dry_run = parse(argv)
     if not dry_run:
         maintenance()
