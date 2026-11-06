@@ -9,11 +9,25 @@ import (
 	"agentkit/internal/plan"
 )
 
-// Menu reads a frame's seats and runs once, filing projectless records before numbering them:
+// Menu is MenuRead with each seat whose panes run on looked at once, writing nothing: the ak
+// screen's first frame.  A frame that writes the words down looks under their announce locks
+// instead (Announce).
+func Menu(now time.Time) (Home, bool) {
+	home, known := MenuRead(now)
+	if !known {
+		return Home{}, false
+	}
+	if _, err := home.look(seconds(now)); err != nil {
+		return Home{}, false
+	}
+	return home, true
+}
+
+// MenuRead reads a frame's seats and runs once, filing projectless records before numbering them:
 // read first, so a home Go leaves to Python is left before filing writes into it, and again once
 // filing wrote.  Looking and commands that publish a word use the same run interpretation without
 // filing.
-func Menu(now time.Time) (Home, bool) {
+func MenuRead(now time.Time) (Home, bool) {
 	runs, projects, known := menuRuns(now, &screenRuns)
 	if !known {
 		return Home{}, false
@@ -32,22 +46,7 @@ func Menu(now time.Time) (Home, bool) {
 	if !known {
 		return Home{}, false
 	}
-	state := filepath.Join(config.Home(), "state")
-	for i := range home.Seats {
-		each := &home.Seats[i]
-		if !each.looked() {
-			continue
-		}
-		taken := each.shot() // the frame's one capture, which Announce publishes from
-		found, _ := observed(state, each.Name, each.reader, taken.pane, seconds(now))
-		if taken.exited {
-			found.stall, found.login = nil, nil
-		}
-		// when one out of usage comes back, and the model it could go on with, are Python's to draw
-		if each.decided(state, found, seconds(now), taken.attached) != nil || each.Word == "out of usage" {
-			return Home{}, false
-		}
-	}
+	home.drawn = true
 	return home, true
 }
 

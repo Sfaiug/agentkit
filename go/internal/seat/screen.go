@@ -132,11 +132,6 @@ func (seat Seat) look(state string, now float64) (sight, error) {
 		return sight{}, nil
 	}
 	pane, exited := harnessScreen(seat.Name)
-	return seat.kept(state, pane, exited, now)
-}
-
-// kept is a capture classified against the seat's files as they stand, and kept.
-func (seat Seat) kept(state, pane string, exited bool, now float64) (sight, error) {
 	found, previous := observed(state, seat.Name, seat.reader, pane, now)
 	if err := seat.keepHolds(state, found); err != nil {
 		return found, err
@@ -242,7 +237,18 @@ func lookedLive(state, name string, runs readsRuns, readers recordReaders) (Seat
 			return ErrUnread
 		}
 		seat = live
-		return seat.lookAnnounced(state, now, home.models)
+		found, err := seat.look(state, seconds(now))
+		if err != nil {
+			return err
+		}
+		if err := seat.askKeptBack(found); err != nil {
+			return err
+		}
+		attached, _ := tmux.Ask(seat.server(), "display-message", "-p", "-t", "="+name+":", "#{session_attached}")
+		if err := seat.decided(state, found, seconds(now), attached != "" && attached != "0"); err != nil {
+			return err
+		}
+		return seat.announced(state, now, home.models)
 	})
 	return seat, err
 }

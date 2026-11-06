@@ -60,7 +60,6 @@ type Seat struct {
 	reader harness.Reader
 	path   string
 	seen   sight
-	shot   func() shot // its one capture this reading, taken when first asked for (shoot)
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -71,6 +70,7 @@ type Home struct {
 	models  map[string]config.Model
 	readers recordReaders
 	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
+	drawn   bool      // the ak screen draws it (MenuRead), where a seat out of usage is Python's to draw
 }
 
 type recordReaders map[string]harness.Reader
@@ -230,10 +230,10 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	}
 	order(home.Seats)
 	for i := range home.Seats {
-		if home.Seats[i].live {
-			home.Seats[i].shot = sync.OnceValue(home.Seats[i].shoot)
-		} else if err := home.Seats[i].goneAt(state, i+1, now); err != nil {
-			return Home{}, false
+		if !home.Seats[i].live {
+			if err := home.Seats[i].goneAt(state, i+1, now); err != nil {
+				return Home{}, false
+			}
 		}
 	}
 	return home, true
@@ -450,12 +450,8 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 // Announce publishes the listing using the evidence frozen by reading, under Python's locks.
 func (home Home) Announce(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
-	for at := range home.Seats {
-		if home.Seats[at].live { // its look decides its word, which every reader of this home reads
-			if err := home.Seats[at].lookedOnce(state, home.models); err != nil {
-				return err
-			}
-		}
+	if err := home.announceLive(state); err != nil { // their looks decide their words, which every reader of this home reads
+		return err
 	}
 	if err := reconcile(state, home.records, true); err != nil {
 		return err
