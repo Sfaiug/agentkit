@@ -48,6 +48,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		return err == context.Canceled
 	}
 	defer painter.Forget()
+	nextKey := followSeat(session, keyboard)
 	for {
 		var known bool
 		if view.Options, known = configOptions(c); !known {
@@ -64,7 +65,10 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		frame := menu.ConfigFrame(screen, view)
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
-		key := keyboard.ReadKey()
+		key := nextKey(c)
+		if key.Name == "wake" { // the seat's record changed: drawn again, what was said kept
+			continue
+		}
 		view.Note = ""
 		level := -1
 		switch {
