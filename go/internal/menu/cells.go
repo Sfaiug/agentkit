@@ -77,7 +77,7 @@ func Cells(now time.Time) ([]Cell, error) {
 			login := logins.Of(each.sub.Name, account)
 			cell := Cell{Label: config.AccountLabel(accounts, account, each.name), Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
 				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour,
-				Harness: cmp.Or(each.sub.Harness, config.ShippedHarness(each.sub.Name)), // logins.harness
+				Harness: logins.Harness(each.sub),
 				Held:    readings.InHand(each.sub.Name, account), Notes: readings.Detail(each.sub.Name, account)}
 			if login != nil {
 				cell.Email, cell.Plan = login.Str("email"), login.Str("plan")

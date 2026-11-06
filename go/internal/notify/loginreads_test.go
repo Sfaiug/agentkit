@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -48,5 +49,20 @@ func TestAFailedLoginEndKeepsItsAnswerAndWaitsBeforeAskingAgain(t *testing.T) {
 				t.Fatal("asked again inside the cadence", err)
 			}
 		})
+	}
+}
+
+// A subscription none of whose models is left is asked through the harness the shipped default
+// runs it on, so a login made again is read rather than its old end kept.
+func TestALoginWithoutModelsIsAskedThroughItsShippedHarness(t *testing.T) {
+	_, write := questionHome(t)
+	adapters := t.TempDir()
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	write(filepath.Join(config.Home(), "config.toml"), "[models.beta]\nharness='codex'\nmodel='beta'\neffort='high'\nprovider='openai'\n"+
+		"[providers.openai]\nmode='subscription'\n[providers.anthropic]\nmode='subscription'\n")
+	write(filepath.Join(state(), "logins.json"), `{"anthropic": {"default": {"ends": 1, "checked_at": 1}}}`)
+	write(filepath.Join(adapters, "claude.sh"), "#!/bin/sh\necho '{\"ends\": 2000000000}'\n")
+	if kept, err := RefreshLogins(clock()); err != nil || number(kept.Dict("anthropic").Dict("default"), "ends") != 2000000000 {
+		t.Fatal(kept, err)
 	}
 }

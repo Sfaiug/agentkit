@@ -57,7 +57,7 @@ func RefreshLogins(now float64) (*run.Object, error) {
 			ends, ending := finite(last.Get("ends"))
 			if !dated || now-checked < 0 || now-checked >= 3600 || ending && ends-now <= 7*86400 {
 				last = last.Copy()
-				if answer := logins.Ask(sub.Harness, account); answer != nil {
+				if answer := logins.Ask(logins.Harness(sub), account); answer != nil {
 					run.SetAll(last, "email", answer.Get("email"), "ends", answer.Get("ends"), "plan", answer.Get("plan"))
 				}
 				last.Set("checked_at", run.Float(now))
