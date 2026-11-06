@@ -30,10 +30,18 @@ from datetime import datetime
 from pathlib import Path
 import re
 import sqlite3
+import time
 
 from .. import config
 
 LAUNCHER = "launcher"      # `id_source`: the id in the record is one the launcher handed out
+# What a launch writes about the conversation it owns: the launcher's own id, each
+# harness's receipt, and the title that launch takes. A restart that fails puts these
+# back from the record as it was, so the seat keeps its own conversation; a typing receipt
+# keeps them where its conversation is not named yet (`Harness.receipt`).
+LAUNCH_KEYS = ("conversation", "resumable", "id_source", "before", "codex_launch",
+               "codex_history", "opencode_launch", "muse_launch", "antigravity_launch",
+               "antigravity_open", "session_title", "title_sync")
 FRESH_WORDS = "no conversation recorded; it starts fresh"   # `[conversation] fresh_words`
 
 # `[update]`: how `ak update` moves this harness, and what it cannot do.  A harness that names
@@ -617,7 +625,7 @@ class Harness:
         matched, excluded = set(), set()
         if seat:
             for sent in entries(config.seat_file("input", config.resolve_session(seat))):
-                if sent.get("harness") != self.name or sent.get("conversation") != conversation:
+                if sent.get("harness") != self.name or self.went_into(sent) != conversation:
                     continue
                 for index, message in enumerate(messages):
                     if (index not in matched and index >= sent.get("after", len(messages))
@@ -627,6 +635,26 @@ class Harness:
                             excluded.add(index)
                         break
         return [message for index, message in enumerate(messages) if index not in excluded]
+
+    def receipt(self, record, conversation, text, source="ak"):
+        """The typing receipt `user_messages` tells that line by, written before it goes into
+        that seat's conversation: the messages already there are `after` it.  Where its harness
+        has not named that conversation yet, as on a fresh Codex launch, it keeps what that
+        launch wrote in the record (`launch`), by which the harness names it once it has."""
+        sent = {"at": time.time(), "text": text, "source": source, "harness": self.name,
+                "conversation": conversation,
+                "after": len(self.user_messages(record, record.get("cwd"), conversation))}
+        if conversation is None:
+            sent["launch"] = {key: record[key] for key in LAUNCH_KEYS
+                              if record.get(key) is not None}
+        return sent
+
+    def went_into(self, sent):
+        """The conversation a receipt's line went into: the one it names, else the one its
+        launch's own evidence names (`receipt`), None while that names none."""
+        launch = sent.get("launch")
+        return sent.get("conversation") or (self.conversation(launch) if isinstance(launch, dict)
+                                            else None)
 
     def answers(self, record, cwd, conversation):
         """Each question the owner answered on its own question card, oldest first, as {at,

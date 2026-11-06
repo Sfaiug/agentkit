@@ -14,7 +14,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import fakeadapter
-from fixtures.akbin import REPO, Home
+from fixtures.akbin import AK, REPO, Home
 from fixtures.gitrig import Rig
 
 
@@ -81,7 +81,8 @@ class FakeAdapter(unittest.TestCase):
         manifest = tomllib.loads(fake.manifest.read_text())
         shipped = tomllib.loads((REPO / "adapters/codex.toml").read_text())
         self.assertEqual((manifest["worker"], manifest["stall"]),
-                         ({"state": [str(fake.dir)], "sessions": shipped["worker"]["sessions"]},
+                         ({"state": [str(fake.dir), str(Path(AK).parent)],
+                           "sessions": shipped["worker"]["sessions"]},
                           shipped["stall"]))
         self.assertEqual(fakeadapter.install(self.home, codex="pass")["codex"].calls(), [])
 

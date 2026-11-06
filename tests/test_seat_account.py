@@ -260,8 +260,8 @@ print(json.dumps({"account": os.environ.get("AGENTKIT_ACCOUNT"), "directory": di
 ''')
         fake.chmod(0o755)
         for account in ("second", "default", None):
-            cmd = orch.resume_command(self.cfg, "opus", CONVERSATION, self.root,
-                                      seat=NAME, account=account)
+            cmd, _ = orch.resume_command(self.cfg, "opus", CONVERSATION, self.root,
+                                         seat=NAME, account=account)
             # Run all real trust/account preparation; replace only the compactor and TUI.
             at = cmd.index(str(REPO / "tools/idle-compact.py")) - 1
             proc = subprocess.run(cmd[:at] + [str(fake)], check=True, cwd=self.root,

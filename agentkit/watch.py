@@ -3801,10 +3801,7 @@ def _send_line(session, text, log, typed=lambda: None, *, source="ak", put=None)
     name = session["name"]
     record = config.session_records().get(name, {})
     plugin = orch.seat_plugin(record)
-    cwd = record.get("cwd")
-    conversation = plugin.conversation(record, cwd)
-    sent = {"at": time.time(), "text": text, "source": source, "harness": plugin.name,
-            "conversation": conversation, "after": len(plugin.user_messages(record, cwd, conversation))}
+    sent = plugin.receipt(record, plugin.conversation(record, record.get("cwd")), text, source)
     config.STATE.mkdir(parents=True, exist_ok=True)
     with config.seat_file("input", name).open("a+", encoding="utf-8") as fh:
         before = fh.tell()
