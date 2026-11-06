@@ -325,17 +325,19 @@ func cutOff(name, own string, file *run.Object) bool {
 
 // command is the seat's line and the conversation it owns on it (orch.resume, resume_command): the
 // one its record holds, or one a new launch can be told, "" for none.  told is what else its adapter
-// is told: the rulebook written for it.
+// is told: the rulebook written for it.  False where none opens, a seat its adapter refuses too:
+// Python's resume says why.
 func (seat reopening) command(told []string) ([]string, string, bool) {
 	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
 	if seat.moving != nil {
 		env = append(env, "AGENTKIT_FIRST_PROMPT="+seat.moving.line)
 	}
 	if seat.conversation == "" {
-		return adapters.Fresh(seat.model, env)
+		cmd, conversation, _ := adapters.Fresh(seat.model, env)
+		return cmd, conversation, cmd != nil
 	}
-	cmd, ok := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
-	return cmd, seat.conversation, ok
+	cmd, _ := adapters.Resumed(seat.model, seat.conversation, seat.opened, env)
+	return cmd, seat.conversation, cmd != nil
 }
 
 // said is what the seat is told to be doing, as orch.resume logs it.

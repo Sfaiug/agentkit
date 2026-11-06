@@ -12,13 +12,13 @@ import (
 )
 
 // Fresh starts a conversation on the account supplied by the reopening seat.
-func Fresh(model config.Model, env []string) ([]string, string, bool) {
+func Fresh(model config.Model, env []string) ([]string, string, error) {
 	conversation := uuid()
-	line, told, ok := command(model, env, []string{conversation, "new"}, nil)
+	line, told, err := command(model, env, []string{conversation, "new"}, nil)
 	if !told {
 		conversation = ""
 	}
-	return line, conversation, ok
+	return line, conversation, err
 }
 
 func commandAccount(env []string) string {

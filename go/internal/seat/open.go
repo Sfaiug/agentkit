@@ -63,10 +63,13 @@ func open(name, orchestrator string, model config.Model, workers []string, cwd s
 		return true, fmt.Errorf("no rulebook for %s: %w", name, err)
 	}
 	created := seconds(time.Now())
-	cmd, conversation, ok := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
+	cmd, conversation, err := adapters.Command(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO="+repo,
 		"AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT="))
-	if !ok {
+	if cmd == nil {
 		os.Remove(rulebook)
+		if err != nil {
+			return true, fmt.Errorf("%s's %w", orchestrator, err)
+		}
 		return false, nil
 	}
 	fields := []field{{"orchestrator", orchestrator}, {"workers", modelList(workers)}}

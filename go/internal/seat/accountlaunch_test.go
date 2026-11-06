@@ -139,9 +139,9 @@ func TestFreshReopenKeepsItsAccountWhileNewSeatsUseTheUsualLogin(t *testing.T) {
 	if !known || conversation == "" || string(account) != "second" || cmd[1] != "AGENTKIT_ACCOUNT=second" {
 		t.Fatal(cmd, conversation, string(account), known)
 	}
-	cmd, _, known = adapters.Command(back.model, append(os.Environ(), "AGENTKIT_ACCOUNT=second"))
+	cmd, _, _ = adapters.Command(back.model, append(os.Environ(), "AGENTKIT_ACCOUNT=second"))
 	account, _ = os.ReadFile(filepath.Join(home, "adapter-account"))
-	if !known || len(account) != 0 || cmd[1] != "AGENTKIT_ACCOUNT=" {
+	if cmd == nil || len(account) != 0 || cmd[1] != "AGENTKIT_ACCOUNT=" {
 		t.Fatal("a new seat inherited its caller's login", cmd, string(account))
 	}
 }
