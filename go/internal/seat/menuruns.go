@@ -55,11 +55,7 @@ func menuRuns(now time.Time) (map[string][]ran, map[string][]ran, bool) {
 		if !known {
 			return nil, nil, false
 		}
-		info, err := os.Stat(filepath.Join(dir, "run.json"))
-		if err != nil {
-			return nil, nil, false
-		}
-		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: now.Sub(info.ModTime()).Seconds(), view: &view})
+		mine[name] = append(mine[name], ran{name: entry.Name(), record: record, quiet: silence(dir, record, now), view: &view})
 	}
 	index := run.NewIndex(records)
 	for _, runs := range mine {
