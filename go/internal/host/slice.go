@@ -21,13 +21,17 @@ import (
 // ErrNoAnswer is a systemctl that did not answer within 5 seconds.
 var ErrNoAnswer = errors.New("systemctl did not answer")
 
-// SetOnRuns sets one property of the runs slice for this boot only, as Python's gc.systemctl runs
-// `systemctl --user`, and is systemctl's exit code.
+// SetOnRuns sets one property of the runs slice for this boot only, and is systemctl's exit code.
 func SetOnRuns(property string) (int, error) {
+	return setProperty(filepath.Base(RunsCgroup()), property)
+}
+
+// setProperty sets one property of a unit for this boot only, as Python's gc.systemctl runs
+// `systemctl --user`, and is systemctl's exit code.
+func setProperty(unit, property string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, "systemctl", "--user", "set-property", "--runtime",
-		filepath.Base(RunsCgroup()), property)
+	command := exec.CommandContext(ctx, "systemctl", "--user", "set-property", "--runtime", unit, property)
 	command.Env = busEnv()
 	err := command.Run()
 	var exited *exec.ExitError

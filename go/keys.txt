@@ -298,6 +298,7 @@ test_key_spent_reviewer_spare
 test_key_task_check_refusals
 test_key_task_key_refusals
 test_key_task_preflight
+test_key_the_seat_you_are_in_goes_first
 test_key_tick_gh_out
 test_key_tick_lock_held
 test_key_tick_log_roll

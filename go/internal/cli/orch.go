@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/host"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
 )
@@ -26,8 +27,8 @@ func validateOrch(args []string) string {
 				return commandhelp.Usage("orch list")
 			}
 			return ""
-		case "ended":
-			// tmux's pane-died hook's hidden verb, Python's alone (orchOpen)
+		case "ended", "front":
+			// tmux's hooks' hidden verbs, which read nothing after them (orchOpen)
 			return ""
 		case "why", "rules", "stop":
 			if len(rest) != 1 {
@@ -91,12 +92,16 @@ func validateOrch(args []string) string {
 
 // orchOpen refuses an open nobody typed, as Python's main does: only a person opens a seat.  It
 // answers only where Python's maintenance finds nothing to tidy on the way in; a seat that is
-// there is orchAgain's, a person's open and a dry run are orchNew's, and pane-died's `ended` is
-// Python's.
+// there is orchAgain's, a person's open and a dry run are orchNew's, pane-died's `ended` is
+// Python's, and the client hooks' `front` puts the seats a client is in first.
 func orchOpen(args []string, out, errOut io.Writer) int {
-	// validateOrch reads nothing after `ended`, so neither may this
+	// validateOrch reads nothing after `ended` or `front`, so neither may this
 	if len(args) > 0 && args[0] == "ended" {
 		return notImplemented(errOut, "orch")
+	}
+	if len(args) > 0 && args[0] == "front" {
+		host.Front()
+		return 0
 	}
 	name, dryRun, flags := "", false, map[string]string{}
 	for i := 0; i < len(args); i++ {
