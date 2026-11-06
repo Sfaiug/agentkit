@@ -214,7 +214,7 @@ class RulebookNews(Sandbox):
 
         with patch.object(watch, "_send_line", return_value=True), \
                 patch.object(orch, "tmux_out", side_effect=tmux), \
-                patch.object(watch, "pane_text", return_value=""), \
+                patch.object(watch, "pane_text", return_value="❯"), \
                 patch.object(watch, "KEY_GAP", 0):
             self.assertTrue(watch.type_into({"name": SEAT}, "a peer note", lambda _line: None))
         self.assertIn(TOLD, heard[0])

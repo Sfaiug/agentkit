@@ -1237,20 +1237,28 @@ ok "0 the suite cannot reach another tmux server: every kill goes through a test
 # `mergework` does it and leaves a merge commit behind, `pass` reviews everything as PASS,
 # `dead` is spent and never comes back, `meterless` works and reports the [usage] none form
 # the real grokbuild and opencode adapters answer, so the sandbox ranks those providers
-# neutrally instead of last. They live here, not in the repo tree.
+# neutrally instead of last. They live here, not in the repo tree.  A seat one opens shows an
+# empty composer, the only one ak types a line into, and keeps each line entered in
+# <dir>/<seat>.typed.lines (tests/fixtures/akpane.py).
 fakeadapter() {   # fakeadapter <dir> <harness> <flaky|work|mergework|pass|dead|meterless>
   local d=$1 h=$2
   printf '%s\n' "$3" >"$d/$h.beh"
+  printf '❯\n' >"$d/composer.txt"
   cat >"$d/$h.sh" <<SH
 #!/usr/bin/env bash
 set -uo pipefail
 S="$d/$h"
+D="$d"
 AK="$REPO/bin/ak"
+PANE="$REPO/tests/fixtures/akpane.py"
 SH
   cat >>"$d/$h.sh" <<'SH'
 if [ "${1:-}" = usage ] && [ "$(cat "$S.beh" 2>/dev/null)" = meterless ]; then printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: smoke fake"}'; exit 0; fi
 if [ "${1:-}" = usage ]; then printf '%s\n' '{"meters":[],"error":"unknown: smoke fake"}'; exit 0; fi
-if [ "${1:-}" = interactive ]; then echo 'sleep 600'; exit 0; fi   # a seat that paints nothing
+if [ "${1:-}" = interactive ]; then
+  printf '%q %q %q %q\n' "$(command -v python3)" "$PANE" "$D/composer.txt" "$D/$AGENTKIT_SESSION.typed"
+  exit 0
+fi
 if [ "${1:-}" = auth ]; then echo 'the smoke fake needs no login'; exit 0; fi
 shift; ws=$3 out=$5
 mkdir -p -- "$out"
@@ -4266,8 +4274,8 @@ grep -q '^+c$' "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/nu
 git -C "$PH/.agentkit/wt/$PRUNID" rev-parse HEAD 2>/dev/null | grep -q "^$PHEAD$" || PRR=1
 tm has-session -t "=$INBOX" 2>/dev/null || PRR=1
 grep -q "asked the $INBOX seat: PR #7 by bob: Add contrib. Merge? yes/no" "$WORK/prreview.log" || PRR=1
-# the seat holds a `sleep`, so what was typed sits echoed in its pane: the merge is pinned to the head
-tm capture-pane -p -J -t "=$INBOX:" 2>/dev/null | grep -q -- "--match-head-commit $PHEAD" || PRR=1
+# the line the seat took pins the merge to the head
+grep -qs -- "--match-head-commit $PHEAD" "$PAD/$INBOX.typed.lines" || PRR=1
 grep -q "message: Needs you . $INBOX: PR #7 by bob: Add contrib. Merge? yes/no" "$WORK/prreview.log" || PRR=1
 jq -e '.kind == "needs" and .text == "PR #7 by bob: Add contrib. Merge? yes/no"' \
   "$PH/.agentkit/state/notify-$INBOX.json" >/dev/null 2>&1 || PRR=1

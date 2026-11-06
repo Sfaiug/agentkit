@@ -64,7 +64,7 @@ class InboxQuestionPages(unittest.TestCase):
             self.typed.append(args[-1])
         if args[0] == "display-message" and args[-1] == "#{socket_path}\t#{session_name}":
             return 0, f"/fake/agentkit-test\t{SEAT}"
-        return 0, ""     # a pane painting no composer: a delivered send is sent
+        return 0, "❯" if args[0] == "capture-pane" else ""     # an empty composer
 
     def post(self, request, **_kw):
         self.posts.append(json.loads(request.data))

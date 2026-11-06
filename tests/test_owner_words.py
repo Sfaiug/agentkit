@@ -64,7 +64,8 @@ class OwnerWords(unittest.TestCase):
         self.stack.enter_context(patch.object(watch.time, "time", return_value=100))
         self.stack.enter_context(patch.object(watch.time, "sleep"))
         self.stack.enter_context(patch.object(watch, "KEY_GAP", 0))
-        self.stack.enter_context(patch.object(watch, "pane_text", return_value=""))
+        # an empty composer, the one screen ak types a new line into
+        self.stack.enter_context(patch.object(watch, "pane_text", return_value="❯"))
         self.cfg = config.load()
         config.ensure_dirs()
         self.seat = {"name": "lagoon", "created": 10, "legacy": False}

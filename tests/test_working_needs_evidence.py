@@ -277,11 +277,6 @@ class SeatNeverSaysWorking(Sandbox):
         self.assertTrue(ok)
         self.assertGreaterEqual(events.count("capture"), 3)
 
-    def test_v5n_delivery_without_composer_counts_as_sent(self):
-        ok, events = self.check_v5n_delivery(["sleep 600\n"], "continue")
-        self.assertTrue(ok)
-        self.assertEqual(events, ["capture", "send", "send"])
-
     def test_v5n_finished_plan_outranked_by_working(self):
         seat = {"name": "seat", "created": 100}
         config.plan_path("seat").write_text("- [x] Checks passed\n")
