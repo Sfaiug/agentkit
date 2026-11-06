@@ -18,10 +18,11 @@ func answerable(live seat.Live) bool {
 	return notify.Last(live.Name) == nil && !live.File.Truthy("unasked") && (!asked || notify.RetiredQuestion(live.Name)) || notify.AnswersRead(live.Name)
 }
 
-// cardsHeld is whether every card is a seat's, none left of a seat gone (notify.tick_cards).
+// cardsHeld is whether every card is a seat's, or one of a seat nothing is left of, which the row
+// closes (notify.tick_cards).
 func cardsHeld() bool {
 	seats, known := seat.Seats(time.Now())
-	return known && !slices.ContainsFunc(recorded("card"), func(name string) bool { return !slices.Contains(seats, name) })
+	return known && !slices.ContainsFunc(recorded("card"), func(name string) bool { return !slices.Contains(seats, name) && !seat.Unheld(name) })
 }
 
 // recorded is the seat each record of that kind is named for.
