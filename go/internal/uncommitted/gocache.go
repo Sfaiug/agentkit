@@ -27,14 +27,18 @@ func goBuildCache(wt, path string) bool {
 	return false
 }
 
-// goCacheRoot opens dir's README nonblocking: a FIFO named README would otherwise hold the run
-// until a writer came.  Windows has no such file and ignores the flag.
+// goCacheRoot opens dir's README nonblocking, as a FIFO named README would otherwise hold the run
+// until a writer came, and reads it only if the opened file is a regular one: Go's poller makes a
+// FIFO's read wait for data however it was opened.  Windows has no such file and ignores the flag.
 func goCacheRoot(dir string) bool {
 	readme, err := os.OpenFile(filepath.Join(dir, "README"), os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false
 	}
 	defer readme.Close()
+	if info, err := readme.Stat(); err != nil || !info.Mode().IsRegular() {
+		return false
+	}
 	head := make([]byte, len(goCacheReadme))
 	_, err = io.ReadFull(readme, head)
 	return err == nil && string(head) == goCacheReadme
