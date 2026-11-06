@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
@@ -177,23 +178,24 @@ class TickHealth(unittest.TestCase):
         start = source.index("# --- (g) server or client")
         return source[start:source.index("\n# --- ", start + 1)]
 
-    def install_cron(self, existing):
-        """Run that block with a crontab shim; what the crontab holds afterwards, and what
-        the installer said."""
-        binaries = self.root / "bin"
-        binaries.mkdir(exist_ok=True)
-        table = self.root / "crontab.txt"
+    def install_cron(self, existing, root=None, repo=REPO):
+        """Run that block with a crontab shim, the home's paths under root and the checkout
+        repo; what the crontab holds afterwards, and what the installer said."""
+        root = root or self.root
+        binaries = root / "bin"
+        binaries.mkdir(parents=True, exist_ok=True)
+        table = root / "crontab.txt"
         table.write_text(existing)
         shim = binaries / "crontab"
         shim.write_text("#!/bin/sh\n"
                         f'if [ "$1" = "-l" ]; then cat {shlex.quote(str(table))}; '
                         f'else cat >{shlex.quote(str(table))}; fi\n')
         shim.chmod(0o755)
-        prelude = (f"set -euo pipefail\nROLE=server\nSANDBOX=0\nALIAS=\nAK={shlex.quote(str(self.root))}\n"
-                   f"REPO={shlex.quote(str(REPO))}\nBIN={shlex.quote(str(binaries))}\n"
-                   f"NPM_PREFIX={shlex.quote(str(self.root))}\n"
+        prelude = (f"set -euo pipefail\nROLE=server\nSANDBOX=0\nALIAS=\nAK={shlex.quote(str(root))}\n"
+                   f"REPO={shlex.quote(str(repo))}\nBIN={shlex.quote(str(binaries))}\n"
+                   f"NPM_PREFIX={shlex.quote(str(root))}\n"
                    'have() { command -v "$1" >/dev/null 2>&1; }\nnote() { echo "$@"; }\n')
-        (self.root / "state").mkdir(exist_ok=True)
+        (root / "state").mkdir(exist_ok=True)
         proc = subprocess.run(["bash", "-c", prelude + self.cron_block()], text=True,
                               capture_output=True,
                               env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"})
@@ -366,6 +368,21 @@ class TickHealth(unittest.TestCase):
                 self.assertIn("# agentkit watch", lines[1])
                 self.assertFalse(lines[1].startswith("#"), lines[1])
                 self.assertIn("every three minutes", said)
+
+    def test_the_line_runs_watch_from_paths_holding_spaces_quotes_and_percents(self):
+        root = self.root / "acme's 100% home"
+        program = root / "check out" / "bin" / "ak"
+        program.parent.mkdir(parents=True)
+        program.write_text('#!/bin/sh\nprintf "%s\\n" "$PATH" "$@" >"$0.called"\n')
+        program.chmod(0o755)
+        (root / "tmp").mkdir()
+        table, _ = self.install_cron("", root=root, repo=program.parents[1])
+        # what cron hands sh: the command up to its first unescaped %, each \% a %
+        command = re.split(r"(?<!\\)%", table.splitlines()[-1].split(" ", 5)[5])[0]
+        subprocess.run(["/bin/sh", "-c", command.replace("\\%", "%")], check=True, timeout=10)
+        self.assertEqual(program.with_name("ak.called").read_text().splitlines(),
+                         [f"{root}/bin:{root}/bin:/usr/local/bin:/usr/bin:/bin", "watch"])
+        self.assertTrue((root / "tmp" / "watch.log").exists())
 
     def test_a_crontab_that_already_holds_only_the_live_line_is_left_as_it_is(self):
         table, _ = self.install_cron("")
