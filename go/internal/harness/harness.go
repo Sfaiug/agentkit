@@ -23,8 +23,8 @@ type plugin struct {
 	identity    func(text string, argv []string) (string, bool)
 	interactive func(root string, args []string, out, errOut io.Writer) int
 	seatWords   func(words, env []string) []string
-	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int) int
-	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error)) (*run.Object, int)
+	serve       func(words, env []string, errOut io.Writer, terminal func(words, env []string) int, changed func()) int
+	hookEvent   func(event *run.Object, out io.Writer, refused func(seat string) (string, error), update func(seat string, change func(*run.Object) bool) error) (*run.Object, int)
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
@@ -137,8 +137,8 @@ func Reopens(name string) (string, bool) {
 	return own.fresh, own.seats
 }
 
-// Receipt is the key of a seat's record that names that harness's evidence of the conversation it
-// owns, which Go does not verify yet; "" where the record alone says.
+// Receipt is the key of a seat's record that names that harness's launch receipt, its evidence of
+// the conversation it owns; "" where the record alone says.
 func Receipt(name string) string {
 	return plugins[name].receipt
 }

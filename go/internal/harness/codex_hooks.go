@@ -17,20 +17,26 @@ import (
 var codexQuestion = regexp.MustCompile("^(?:" + codexQuestions + ")$")
 
 // codexHookEvent reads what Codex hands a seat's hook, as codex-seat.py's hook verbs do, before the
-// shared seat hook writes it down.  SessionStart fills in the launch's receipt first (`capture`).
+// shared seat hook writes it down.  SessionStart fills in the launch's receipt first (`capture`),
+// then binds the thread it proves in the seat's record, as Python's next listing would
+// (`codexReconciled`): Go's listing leaves an unbound receipt to Python's (codexRecord).
 // A Stop names the work its thread still has in flight, where the seat's server says.  A question
 // going up is refused where the seat may not ask now, and an async card's questions are Python's
 // to keep; a Plan-mode one is the seat asking.  A call's end is news only while the seat's fact
 // is a question, which the owner's answer or approval let run: any other ends in a turn already
 // running, or in one that ended, a shell the owner's Esc left running or a sub-agent's call after
 // the seat's Stop, which it would bring back.
-func codexHookEvent(event *run.Object, out io.Writer, refused func(seat string) (string, error)) (*run.Object, int) {
+func codexHookEvent(event *run.Object, out io.Writer, refused func(seat string) (string, error),
+	update func(seat string, change func(*run.Object) bool) error) (*run.Object, int) {
 	launched, worker := os.Getenv("AGENTKIT_SESSION"), os.Getenv("AK_RUN_ROLE") == "worker"
 	name, _, err := config.ResolveSession(launched)
 	switch event.Str("hook_event_name") {
 	case "SessionStart":
 		if path := os.Getenv(codexCaptureEnv); path != "" {
 			codexCapture(path, event)
+			if err == nil {
+				update(name, codexReconciled)
+			}
 		}
 	case "Stop":
 		if tasks, ok := codexInFlight(event.Str("session_id")); ok {

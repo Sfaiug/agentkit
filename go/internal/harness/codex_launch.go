@@ -18,21 +18,40 @@ func codexToken() string {
 	return hex.EncodeToString(token[:])
 }
 
+// codexLaunched writes a launch receipt of this launch's own before its TUI starts, for its
+// SessionStart hook to fill in, as codex.py `prepare` does.  A launch resuming the thread its last
+// receipt proves carries that receipt's evidence on; a fresh one keeps the last launch's in its
+// history.  Either keeps the seat's remote home, where its conversations are.
 func codexLaunched(_, cwd, conversation string, before *run.Object) (*run.Object, []string, error) {
-	if conversation != "" {
+	if thread, _ := codexThread(before); conversation != "" && thread != conversation {
 		return nil, nil, errors.New("Codex ownership changed before launch; reopen the seat to start fresh")
+	}
+	previous := codexReceipt(before)
+	if previous == nil {
+		previous = run.NewObject()
 	}
 	token := codexToken()
 	path := filepath.Join(config.Home(), "state", "codex-launch-"+token+".json")
-	cwd, err := filepath.Abs(cwd)
-	if err != nil {
-		return nil, nil, err
+	receipt := run.Fields("launch", token, "cwd", codexResolved(cwd), "expected", nil, "remote", previous.Get("remote"))
+	if !previous.Truthy("remote") {
+		receipt.Set("remote", codexToken())
+	}
+	if conversation != "" {
+		// a resumed thread keeps its rollout's directory, even where its checkout was removed
+		if previous.Has("cwd") {
+			receipt.Set("cwd", previous.Get("cwd"))
+		}
+		receipt.Set("expected", conversation)
+		receipt.Set("event", previous.Get("event"))
+		if previous.Truthy("home") {
+			receipt.Set("home", previous.Get("home"))
+		}
 	}
 	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return nil, nil, err
 	}
-	_, err = file.WriteString(run.Encode(run.Fields("launch", token, "cwd", cwd, "expected", nil, "remote", codexToken())))
+	_, err = file.WriteString(run.Encode(receipt))
 	closed := file.Close()
 	if err != nil || closed != nil {
 		os.Remove(path)
@@ -42,25 +61,25 @@ func codexLaunched(_, cwd, conversation string, before *run.Object) (*run.Object
 		return nil, nil, err
 	}
 	history := append([]any(nil), before.List("codex_history")...)
-	if before.Truthy("conversation") || before.Truthy(codexLaunch) {
+	if conversation == "" && (before.Truthy("conversation") || before.Truthy(codexLaunch)) {
 		old := run.NewObject()
 		for _, key := range []string{"conversation", "id_source", codexLaunch} {
 			if before.Has(key) {
 				old.Set(key, before.Get(key))
 			}
 		}
-		receipt := codexReceipt(before)
-		if receipt == nil {
-			receipt = run.NewObject()
-		}
-		old.Set("receipt", receipt)
+		old.Set("receipt", previous)
 		history = append(history, old)
 	}
 	var kept any
 	if len(history) > 0 {
 		kept = history
 	}
-	return run.Fields(codexLaunch, token, "codex_history", kept, "conversation", nil, "id_source", nil, "resumable", false),
+	var owned, source any
+	if conversation != "" {
+		owned, source = conversation, codexSource
+	}
+	return run.Fields(codexLaunch, token, "codex_history", kept, "conversation", owned, "id_source", source, "resumable", conversation != ""),
 		[]string{"AGENTKIT_CODEX_RECEIPT=" + path}, nil
 }
 
