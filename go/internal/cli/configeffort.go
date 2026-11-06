@@ -70,7 +70,7 @@ func stepConfigEffort(c *matrix.Configuration, session string, row, column, to i
 	}
 	word := levels[to]
 	if session == "" {
-		return stepNewSeatsEffort(c, name, column, word), true
+		return stepNewSeatsEffort(c, name, column, word)
 	}
 	saved, err := seat.SaveEffort(session, name, config.RoleEfforts[role], word)
 	if err != nil {
