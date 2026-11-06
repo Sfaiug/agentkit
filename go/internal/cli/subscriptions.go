@@ -11,10 +11,11 @@ import (
 )
 
 // menuSubscriptions is `Subscriptions` on `c` read with the keys until Esc (menu.config_subscriptions):
-// true back on `c`, false where a key is Python's, nothing written: `+ add a subscription`, a reset
-// spent, a removal.  ↑/↓ and the pointer move the highlight, ←/→ and the pointer the act lit on the
-// line its row opens, and Enter or a click runs that act.  The line a row the keys come to opens lit
-// on `log in again` where offered, and an act going from under the light lights nothing in its place.
+// true back on `c`, false where a key is Python's, nothing written: a reset spent.  ↑/↓ and the
+// pointer move the highlight, ←/→ and the pointer the act lit on the line its row opens, and Enter or
+// a click runs that act or `+ add a subscription`, a subscription it adds pointed at.  The line a row
+// the keys come to opens lit on `log in again` where offered, and an act going from under the light
+// lights nothing in its place.
 // The usage it shows is read again every draw, at least every rereadEvery, so a reading that lands
 // shows without a key.
 func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
@@ -91,15 +92,22 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 				view.Away = true
 			}
 		}
-		switch {
-		case key.Name != "enter" || view.At < len(cells) && !slices.Contains(drawn.Acts, view.On):
-		case view.On != menu.LogInAgain || view.At == len(cells):
-			return false // `+ add a subscription`, a reset spent and a removal are Python's
-		default:
-			view.Note = signIn(cells[view.At], keyboard, painter)
-			clock = &motion.Clock{} // back from a sign-in, the page is drawn as it is
-			clock.Finish()
-			painter.Forget()
+		if key.Name != "enter" || view.At < len(cells) && !slices.Contains(drawn.Acts, view.On) {
+			continue
 		}
+		switch {
+		case view.At == len(cells):
+			view.Note = menuAddSubscription(cells, keyboard, painter)
+			view.At = addedAt(cells, view.At)
+		case view.On == menu.LogInAgain:
+			view.Note = signIn(cells[view.At], keyboard, painter)
+		case view.On == "remove":
+			view.Note = menuRemoveSubscription(cells[view.At], keyboard, painter)
+		default:
+			return false // a reset spent is Python's
+		}
+		clock = &motion.Clock{} // back from a list, a card or a sign-in, the page is drawn as it is
+		clock.Finish()
+		painter.Forget()
 	}
 }

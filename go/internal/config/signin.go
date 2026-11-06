@@ -1,6 +1,9 @@
 package config
 
-import "errors"
+import (
+	"os"
+	"path/filepath"
+)
 
 // DefaultAccount is the name a provider's usual login is listed under among its `accounts`.
 const DefaultAccount = "default"
@@ -14,14 +17,19 @@ func AccountEnv(account string) string {
 	return "AGENTKIT_ACCOUNT=" + account
 }
 
-// LoginAdapter is the script that signs a harness's logins in and says when they end:
-// $AGENTKIT_ADAPTER_DIR's, else the checkout's own, as Python's config.adapter finds it.
+// LoginAdapter is the script that signs a harness's logins in and says when they end, at its
+// AdapterPath, as Python's config.adapter finds it.
 func LoginAdapter(harness string) (string, error) {
-	adapter, err := Adapter(harness)
-	if errors.Is(err, ErrNoAdapterDir) {
-		return ShippedAdapter(harness)
+	return runnable(AdapterPath(harness), harness)
+}
+
+// AdapterPath is where that harness's script is looked for, there or not: $AGENTKIT_ADAPTER_DIR,
+// else the checkout's own adapters (config.adapter_path).
+func AdapterPath(harness string) string {
+	if dir := os.Getenv(adapterDir); dir != "" {
+		return filepath.Join(Expand(dir), harness+".sh")
 	}
-	return adapter, err
+	return filepath.Join(Repo(), "adapters", harness+".sh")
 }
 
 // SignsInAgain is whether that harness's adapter's `login again` signs that account in afresh: not
@@ -35,17 +43,8 @@ func SignsInAgain(harness, account string) bool {
 // ShippedHarness is the first harness the shipped default runs that provider's models on, "" for
 // none: what asks and signs in its logins once the config's models of it are all removed.
 func ShippedHarness(provider string) string {
-	shipped, _ := parseDocument(defaultConfig)
-	models, _ := shipped.get("models").(*table)
-	if models == nil {
-		return ""
-	}
-	for _, name := range models.keys {
-		if entry, _ := models.get(name).(*table); entry.get("provider") == provider {
-			if harness, ok := entry.get("harness").(string); ok {
-				return harness
-			}
-		}
+	if harnesses := ShippedHarnesses(provider); len(harnesses) > 0 {
+		return harnesses[0]
 	}
 	return ""
 }

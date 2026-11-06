@@ -48,9 +48,20 @@ func Lister(harness string) (string, bool) {
 // the config, or else of the shipped one, runs there; the usual login alone where the harness
 // keeps one, or none of those is left.
 func ListingLogins(harness string) ([][]string, error) {
+	return ListingLoginsAdding(harness, "", "")
+}
+
+// ListingLoginsAdding is ListingLogins as it will be once provider, where named, lists account
+// alone: what a login just made for it is asked its models on before anything is written.
+func ListingLoginsAdding(harness, provider, account string) ([][]string, error) {
 	root, err := load()
 	if err != nil {
 		return nil, err
+	}
+	if provider != "" {
+		entry := newTable()
+		entry.put("accounts", listed([]string{account}))
+		root.values["providers"].(*table).put(provider, entry)
 	}
 	manifests, err := manifests()
 	if err != nil {

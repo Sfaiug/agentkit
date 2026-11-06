@@ -9,16 +9,24 @@ import (
 	"agentkit/internal/seat"
 )
 
-// A visit reads each harness once, before any key can step its models' efforts.
+// A visit reads each harness once, before any key can step its models' efforts, and again after a
+// sign-in on it finishes, since a login changes what each of its models offers.
 type configCatalog struct {
 	choices map[string][]modelListing.Choice
 	ask     func(string) ([]modelListing.Choice, error)
 }
 
+// signedIn is each harness a sign-in has finished on since c last read its models (ranVerb).
+var signedIn = map[string]bool{}
+
 func (catalogs *configCatalog) read(c *matrix.Configuration) error {
 	if catalogs.choices == nil {
 		catalogs.choices = map[string][]modelListing.Choice{}
 	}
+	for harness := range signedIn {
+		delete(catalogs.choices, harness)
+	}
+	clear(signedIn)
 	ask := catalogs.ask
 	if ask == nil {
 		ask = modelListing.Choices
