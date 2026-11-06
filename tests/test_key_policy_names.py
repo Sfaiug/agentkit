@@ -112,7 +112,7 @@ class PolicyNames(unittest.TestCase):
                 self.assertEqual(path.read_text(), expected)
 
     def front(self, key, value):
-        text = f"---\ntests: none\nhealth: none\n{key}: {value}\n---\nA project.\n"
+        text = f"---\ntests: none\nhealth: none\nusers: none\n{key}: {value}\n---\nA project.\n"
         self.rig.commit({"AGENTS.md": text}, "project policy")
         self.rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
         return text

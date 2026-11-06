@@ -30,7 +30,7 @@ def over(asked, budget):
 
 
 def front(**numbers):
-    return {"AGENTS.md": "---\ntests: none\nhealth: none\n" + "".join(f"{key}: {value}\n" for key, value in numbers.items())
+    return {"AGENTS.md": "---\ntests: none\nhealth: none\nusers: none\n" + "".join(f"{key}: {value}\n" for key, value in numbers.items())
                          + "---\nA project.\n"}
 
 

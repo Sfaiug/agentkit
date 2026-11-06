@@ -23,7 +23,7 @@ from fixtures.akseat import Seat
 from fixtures.fakegh import GitHub
 from fixtures.gitrig import Rig
 
-RULES = "---\ntests: test -f contrib.txt\n---\n# widgets\n"
+RULES = "---\ntests: test -f contrib.txt\nusers: none\n---\n# widgets\n"
 FIND = {"final": "Found one.", "hand_in": [
     ["finding", "contrib.txt:1", "contrib.txt is unfinished", "nothing reads it", "--run",
      "grep -q fixed contrib.txt"], ["done"]]}

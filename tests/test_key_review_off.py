@@ -41,7 +41,7 @@ class ReviewOff(unittest.TestCase):
                         AK_HOST_READINGS=json.dumps({"cpus": 4, "load": 0, "free_mb": 16000}))
         akconfig.write(home, ["opus", "astra"], workers=["opus"], reviewers=["astra"],
                        settings={"review_rounds": 1 - rounds if project else rounds})
-        rules = "---\ntests: test ! -f bad.txt\nhealth: none\n"
+        rules = "---\ntests: test ! -f bad.txt\nhealth: none\nusers: none\n"
         rules += f"review_rounds: {rounds}\n" if project else ""
         rig = Rig(home, "widgets", files={"AGENTS.md": rules + "---\n# Widgets\n"})
         rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")

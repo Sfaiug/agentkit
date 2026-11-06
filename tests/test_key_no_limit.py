@@ -21,7 +21,7 @@ class NoLimit(unittest.TestCase):
         self.home = Home()
         self.addCleanup(self.home.close)
         akconfig.write(self.home, ["opus", "astra"], settings={} if front else {key: value})
-        files = {"AGENTS.md": f"---\ntests: true\nhealth: none\n{key}: {value}\n---\nA project.\n"} if front else {}
+        files = {"AGENTS.md": f"---\ntests: true\nhealth: none\nusers: none\n{key}: {value}\n---\nA project.\n"} if front else {}
         self.rig = Rig(self.home, "widgets", files=files)
         self.rig.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
         self.fakes = fakeadapter.install(self.home, claude="pass", codex="pass")

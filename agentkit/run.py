@@ -1377,8 +1377,8 @@ def preflight(run_dir, opts, log):
             fetch_pr(checkout, number, info["baseRefName"], log)
             target_sha = git(checkout, "rev-parse", f"origin/{info['baseRefName']}^{{commit}}")
             base_sha = git(checkout, "merge-base", target_sha, head)
-            why = (own_pr_first_review(checkout, url, number, base_sha, target_sha, head, run_dir)
-                   or (0, None))[1]
+            why = (unanswered_head(checkout, head) or (own_pr_first_review(
+                checkout, url, number, base_sha, target_sha, head, run_dir) or (0, None))[1])
             if why:
                 raise Refused(why)
         repo, base, target = f"{owner}/{name}", info["baseRefName"], info["baseRefName"]
@@ -2336,6 +2336,15 @@ def own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir):
                                      exclude=run_dir)
 
 
+def unanswered_head(repo, head):
+    """Why no round of a seat's own PR's review starts on `head`, or None: its AGENTS.md has no
+    `users:` answer (`users_refusal`).  Asked of every round's head, review off too, not only a
+    first review's: a head moves while a launch waits, and with a push, a fix or a resume, and
+    the seat hears the question before any turn is spent on one."""
+    return users_refusal(repo, head, "Add the chosen line to AGENTS.md's front matter on the "
+                                     "PR's branch.")
+
+
 def pr_review_blocked(lp, exc):
     """A PR review's blocked ending, from a round, its fixer turn or the size gate before any
     reviewer is picked: no reviewer's harness can run, the task cannot be done as written, or
@@ -2660,6 +2669,18 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         os.environ.update(env)
         log(f"env: {config.ENV / f'{repo.name}.env'} -> {', '.join(sorted(env))}")
 
+    # preflight refuses these before the run waits for a slot; here again on the head checked
+    # out, which may have moved since, as on a resume or a restart
+    first = is_own and not off and own_pr_first_review(repo, url, number, base_sha, target_sha,
+                                                       head, run_dir)
+    why = is_own and (unanswered_head(repo, head) or (first or (0, None))[1])
+    if why:
+        lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
+        return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
+    if first:
+        # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
+        history.first_review(state.get("run_id"), first[0], log=log)
+
     if off:
         lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, pr_context(state, body))
         lp.rnd = 1
@@ -2668,16 +2689,6 @@ def review_pr_round(cfg, run_dir, url, opts, log):
         review(lp, "", ok, dw_log)
         return settle_pr_round(lp, url, info)
 
-    first = is_own and own_pr_first_review(repo, url, number, base_sha, target_sha, head, run_dir)
-    if first:
-        # preflight refuses it before the run waits for a slot; here again on the head checked
-        # out, which may have moved since, as on a resume or a restart
-        read, why = first
-        if why:
-            lp = Loop(cfg, run_dir, state, opts, log, wt, body, cmds, body)
-            return pr_review_blocked(lp, Blocked(why, f"## Blocked\n\n{why}"))
-        # what the first review reads, whatever the run's ending (`roundloop.first_review_ceiling`)
-        history.first_review(state.get("run_id"), read, log=log)
     providers = collect_usage(cfg)
     # the reviewer is picked against everyone who wrote part of the head under review: the
     # orchestrator, and every model a fixer turn ran on or was handed to; none comes first

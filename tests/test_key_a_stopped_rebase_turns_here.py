@@ -35,7 +35,7 @@ class AStoppedRebaseTurnsHere(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         cls.rig = rig = Rig(home, "widgets", files={
-            "AGENTS.md": "---\nhealth: none\ntests: test -f contrib.txt\n---\n# widgets\n",
+            "AGENTS.md": "---\nhealth: none\ntests: test -f contrib.txt\nusers: none\n---\n# widgets\n",
             "tools/helper/Containerfile": "FROM docker.io/library/alpine:3.20\n"})
         gh = GitHub(home)
         akconfig.write(home, ["opus", "astra"],
