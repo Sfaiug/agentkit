@@ -96,6 +96,22 @@ func fetchPull(l *loop, repo string, pull *gh.Pull) error {
 	}
 }
 
+// located is the pull request fetched into repo: its target's tip, and where its head left that.
+func located(l *loop, repo string, pull *gh.Pull) (targetSHA, baseSHA string, err error) {
+	if err := fetchPull(l, repo, pull); err != nil {
+		return "", "", err
+	}
+	g := gitcall.Git{Repo: repo}
+	if _, err := g.Must("rev-parse", "--verify", "--quiet", pull.Head+"^{commit}"); err != nil {
+		return "", "", err
+	}
+	if targetSHA, err = g.Must("rev-parse", "origin/"+pull.Base+"^{commit}"); err != nil {
+		return "", "", err
+	}
+	baseSHA, err = g.Must("merge-base", targetSHA, pull.Head)
+	return targetSHA, baseSHA, err
+}
+
 // reviewPull is the review of the pull request the record names, Python's review_pr_round.
 func (l *loop) reviewPull() error {
 	record, err := run.Read(l.dir)
@@ -134,18 +150,7 @@ func (l *loop) reviewPull() error {
 	if err != nil {
 		return err
 	}
-	if err := fetchPull(l, repo, pull); err != nil {
-		return err
-	}
-	g := gitcall.Git{Repo: repo}
-	if _, err := g.Must("rev-parse", "--verify", "--quiet", pull.Head+"^{commit}"); err != nil {
-		return err
-	}
-	targetSHA, err := g.Must("rev-parse", "origin/"+pull.Base+"^{commit}")
-	if err != nil {
-		return err
-	}
-	baseSHA, err := g.Must("merge-base", targetSHA, pull.Head)
+	targetSHA, baseSHA, err := located(l, repo, pull)
 	if err != nil {
 		return err
 	}
@@ -193,7 +198,7 @@ func (l *loop) reviewPull() error {
 		l.every, l.once = task.Group(l.cmds)
 	}
 	l.body = body + place.rules()
-	if err := l.pickReviewer(); err != nil {
+	if err := l.pickReviewer("no executor: this is a review of somebody else's PR"); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
@@ -217,14 +222,22 @@ func pullTask(url string, pull *gh.Pull, tests string) (string, string) {
 	if said == "" {
 		said = "(no description)"
 	}
+	var cmds []string
+	if tests != "" {
+		cmds = []string{tests}
+	}
 	return fmt.Sprintf("# %s\n\n## Goal\nJudge %s by %s against this repository: its AGENTS.md, README, tests and conventions. "+
 		"Nobody from agentkit executed anything here; the diff is the author's, and the PR states its intent.\n\n"+
-		"## The PR says\n%s\n\n## Done when\n```bash\n%s\n```\n", title, url, pull.Author, said, cmp.Or(tests, noTestsCheck)), title
+		"## The PR says\n%s\n\n%s", title, url, pull.Author, said, doneWhenBlock(cmds)), title
 }
 
-// pickReviewer picks who judges the head: the first of the run's reviewers with room, nobody here
-// having written anything of it.
-func (l *loop) pickReviewer() error {
+// pickReviewer picks who judges the head, saying why it is the one: the first of the run's
+// reviewers with room, beside everyone who wrote part of it (headWriters).
+func (l *loop) pickReviewer(why string) error {
+	record, err := read(l)
+	if err != nil {
+		return err
+	}
 	rules, ok := l.rules()
 	if !ok {
 		return notYet("the models cannot be picked here", "a pick Python makes")
@@ -233,7 +246,7 @@ func (l *loop) pickReviewer() error {
 	if err != nil {
 		return notYet("the meters cannot be read: "+err.Error(), "a pick without them")
 	}
-	order := rules.Order(ready{readings, unable()}, true, rawLog{l.dir})
+	order := rules.Beside(ready{readings, unable()}, headWriters(record), rawLog{l.dir})
 	if len(order) == 0 {
 		return notYet("no reviewer can run now", "an exhausted run")
 	}
@@ -241,7 +254,7 @@ func (l *loop) pickReviewer() error {
 	if err := l.save(func(record *run.Object) { record.Set("reviewer", l.reviewer) }); err != nil {
 		return err
 	}
-	l.say(fmt.Sprintf("reviewer=%s (no executor: this is a review of somebody else's PR)", l.reviewer))
+	l.say(fmt.Sprintf("reviewer=%s (%s)", l.reviewer, why))
 	return nil
 }
 
@@ -368,8 +381,9 @@ func (p *pullPlace) settleVerdict(l *loop, pull *gh.Pull) error {
 }
 
 // post is the findings as a GitHub review on the commit judged, Python's post_review: whether
-// GitHub took it, and why not.  A PR by the account ak posts with always comments: GitHub rejects a
-// changes-requested review from the PR's author, which would turn a FAIL into an error.
+// GitHub took it, and why not.  A seat's own PR, as its launch captured it, or one by the account
+// ak posts with always comments: GitHub rejects a changes-requested review from the PR's author,
+// which would turn a FAIL into an error.
 func (p *pullPlace) post(l *loop, pull *gh.Pull, record *run.Object) (bool, string, error) {
 	unposted := func(why string) (bool, string, error) {
 		return false, why, l.save(func(record *run.Object) { run.SetAll(record, "review_posted", false, "review_error", why) })
@@ -389,7 +403,10 @@ func (p *pullPlace) post(l *loop, pull *gh.Pull, record *run.Object) (bool, stri
 		return unposted("cannot verify the PR head: " + err.Error())
 	}
 	if current.Head != p.sha || current.State != "OPEN" {
-		why := "PR head changed or closed; discarded review; watcher will re-queue"
+		why := "PR head changed or closed; discarded review"
+		if !record.Truthy("own_pr") {
+			why += "; watcher will re-queue" // the watcher queues somebody else's PR again; a seat's own is its seat's
+		}
 		l.say("WARN " + why)
 		if err := l.save(func(record *run.Object) { record.Set("review_stale", true) }); err != nil {
 			return false, "", err
@@ -402,7 +419,7 @@ func (p *pullPlace) post(l *loop, pull *gh.Pull, record *run.Object) (bool, stri
 		return false, "", err
 	}
 	how := "REQUEST_CHANGES"
-	if record.Str("verdict") == "PASS" || gh.ByViewer(pull.Author) {
+	if record.Str("verdict") == "PASS" || record.Truthy("own_pr") || gh.ByViewer(pull.Author) {
 		how = "COMMENT"
 	}
 	code, said, err := gh.Call(l.dir, "api", pull.API()+"/pulls/"+pull.Number+"/reviews", "--method", "POST",

@@ -43,11 +43,11 @@ func (r *repoPlace) firstReviewCeiling(l *loop) error {
 	if err := r.followTarget(l); err != nil {
 		return err
 	}
-	lines, err := r.addedLines()
+	lines, err := r.addedLines(r.baseSHA, "HEAD")
 	if err != nil {
 		return err
 	}
-	carried, err := r.carriedLines()
+	_, carried, err := r.reviewedLines(r.baseSHA, "HEAD")
 	if err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ func (r *repoPlace) firstReviewCeiling(l *loop) error {
 
 // generated is which of names git marks linguist-generated in the base's tree, read from there so
 // a change cannot leave its own lines out by marking them generated.
-func (r *repoPlace) generated(names []string) (map[string]bool, error) {
+func (r *repoPlace) generated(base string, names []string) (map[string]bool, error) {
 	found := map[string]bool{}
 	if len(names) == 0 {
 		return found, nil
@@ -81,7 +81,7 @@ func (r *repoPlace) generated(names []string) (map[string]bool, error) {
 	defer os.RemoveAll(tmp)
 	// older Git has no check-attr --source; a private index reads the same tree
 	private := r.git("GIT_INDEX_FILE=" + filepath.Join(tmp, "index"))
-	if _, err := private.Must("read-tree", r.baseSHA); err != nil {
+	if _, err := private.Must("read-tree", base); err != nil {
 		return nil, err
 	}
 	said, err := private.Must(append([]string{"check-attr", "--cached", "-z", "linguist-generated", "--"}, names...)...)
@@ -100,10 +100,10 @@ func (r *repoPlace) generated(names []string) (map[string]bool, error) {
 	return found, nil
 }
 
-// addedLines is the text lines the diff from where HEAD left base adds, generated files aside:
+// addedLines is the text lines the diff from where tip left base adds, generated files aside:
 // nothing deleted counts, Python's diff_lines with added_only.
-func (r *repoPlace) addedLines() (int, error) {
-	said, err := r.git().Must("diff", "--numstat", "-z", "--find-renames", "--diff-filter=d", r.baseSHA+"...HEAD")
+func (r *repoPlace) addedLines(base, tip string) (int, error) {
+	said, err := r.git().Must("diff", "--numstat", "-z", "--find-renames", "--diff-filter=d", base+"..."+tip)
 	if err != nil {
 		return 0, err
 	}
@@ -125,7 +125,7 @@ func (r *repoPlace) addedLines() (int, error) {
 			names = append(names, name)
 		}
 	}
-	skip, err := r.generated(names)
+	skip, err := r.generated(base, names)
 	if err != nil {
 		return 0, err
 	}
@@ -184,14 +184,15 @@ func windows(lines []string) ([]string, []int) {
 	return keys, lengths
 }
 
-// carriedLines is the added lines a reviewer need not read, Python's carried_lines: the blocks
-// moved unchanged, whitespace aside, from lines the same diff deletes, each deleted line paired
-// once, each key's positions consumed in order, so the walk grows with the diff's size.
-func (r *repoPlace) carriedLines() (int, error) {
+// reviewedLines is the added lines from where tip left base that a reviewer reads, each as its text
+// with whitespace collapsed, counted, and how many it need not read, Python's reviewed_lines: the
+// blocks moved unchanged, whitespace aside, from lines the same diff deletes, each deleted line
+// paired once, each key's positions consumed in order, so the walk grows with the diff's size.
+func (r *repoPlace) reviewedLines(base, tip string) (map[string]int, int, error) {
 	diff, err := r.git().Try("-c", "core.quotePath=false", "diff", "-U0", "--find-renames", "--no-color", "--no-ext-diff", "--no-textconv",
-		"--src-prefix=a/", "--dst-prefix=b/", "--submodule=short", r.baseSHA+"...HEAD")
+		"--src-prefix=a/", "--dst-prefix=b/", "--submodule=short", base+"..."+tip)
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	added, deleted := map[string][]string{}, map[string][]string{}
 	for _, chunk := range strings.Split("\n"+diff, "\ndiff --git ")[1:] {
@@ -213,13 +214,13 @@ func (r *repoPlace) carriedLines() (int, error) {
 			deleted[name] = pick('-')
 		}
 	}
-	skipNew, err := r.generated(slices.Sorted(maps.Keys(added)))
+	skipNew, err := r.generated(base, slices.Sorted(maps.Keys(added)))
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
-	skipOld, err := r.generated(slices.Sorted(maps.Keys(deleted)))
+	skipOld, err := r.generated(base, slices.Sorted(maps.Keys(deleted)))
 	if err != nil {
-		return 0, err
+		return nil, 0, err
 	}
 	type position struct {
 		file string
@@ -239,7 +240,7 @@ func (r *repoPlace) carriedLines() (int, error) {
 			}
 		}
 	}
-	cursor := map[string]int{}
+	cursor, read := map[string]int{}, map[string]int{}
 	carried := 0
 	for _, name := range slices.Sorted(maps.Keys(added)) {
 		if skipNew[name] {
@@ -277,11 +278,12 @@ func (r *repoPlace) carriedLines() (int, error) {
 				carried += length
 				i += length
 			} else {
+				read[lines[i]]++
 				i++
 			}
 		}
 	}
-	return carried, nil
+	return read, carried, nil
 }
 
 // numbersOf is the first review's ceiling the run holds to (run.Policy), ak's default where that

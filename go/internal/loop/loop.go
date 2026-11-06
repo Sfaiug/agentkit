@@ -6,7 +6,7 @@
 // error, Clean takes a run's checkout, StopRun ends a run, Pickup and Woken say which dead or
 // woken one Reopen hands to a new driver, CheckLine is a landing line's lander, and Logging says a
 // process writes into a run's log.  A review of somebody else's pull request takes the same
-// driver, with no executor.
+// driver, with no executor, as does a seat's own, whose fixer is the seat's orchestrator.
 //
 // It hides the stages (the workplace, the models, the executor's turn, the checks, the reviewer's
 // verdict, the delivery), the round files under <run>/round-N, and the locks: every record is
@@ -250,6 +250,9 @@ func Drive(dir string) int {
 	return drive(dir, func(l *loop) error {
 		if l.pull != "" {
 			l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
+			if record, _ := run.Read(dir); record != nil && record.Truthy("own_pr") {
+				return l.reviewOwn()
+			}
 			return l.reviewPull()
 		}
 		word := "run"
@@ -595,6 +598,7 @@ func (l *loop) pick() error {
 func (l *loop) finish(err error) int {
 	var cannot *blocked
 	var unnecessary *notNeeded
+	var gone *overtaken
 	switch {
 	case errors.Is(err, errStop):
 		return 1
@@ -611,6 +615,11 @@ func (l *loop) finish(err error) int {
 		})
 	case errors.As(err, &unnecessary):
 		err = l.finishNotNeeded(unnecessary)
+	case errors.As(err, &gone):
+		err = write(l.dir, func(record *run.Object) {
+			run.SetAll(record, "state", "fail", "error", gone.why, "finished_at", clock())
+		})
+		l.say("FAIL " + gone.why)
 	case err != nil:
 		said, park, stands := parked(err)
 		if !stands {

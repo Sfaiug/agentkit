@@ -103,9 +103,13 @@ func noteHandover(record *run.Object, before, next, why string, round int) {
 		"model", before, "rounds", rounds, "why", why)))
 }
 
-// headWriters is every model that wrote part of the head a review judges, Python's head_writers.
+// headWriters is every model that wrote part of the head a review judges, Python's head_writers: a
+// seat's own PR's orchestrator among them.
 func headWriters(record *run.Object) []string {
 	writers := []string{record.Str("executor")}
+	if record.Truthy("own_pr") {
+		writers = append(writers, record.Str("own_orchestrator"))
+	}
 	for _, each := range record.List("executor_history") {
 		if entry, _ := each.(*run.Object); entry != nil {
 			writers = append(writers, entry.Str("from"), entry.Str("to"))
@@ -133,7 +137,7 @@ func (l *loop) readyReviewers(failed []any) (all, independent []string, err erro
 		room = ready{readings, unable()}
 	}
 	writers := headWriters(record)
-	for _, name := range rules.Beside(room, writers) {
+	for _, name := range rules.Beside(room, writers, nil) {
 		if slices.Contains(failed, any(name)) {
 			continue
 		}
