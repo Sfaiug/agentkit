@@ -830,7 +830,8 @@ def collect(cfg, *, refresh=False):
                              if name in cfg["providers"]}
                 # ... and so is one read before the config listed the accounts it lists now
                 rolled = [name for name, prov in providers.items()
-                          if any(_past(m, now) for m in prov.get("meters") or [])
+                          if any(_past(m, now) for record in [prov, *_record(prov.get("accounts")).values()]
+                                 for m in _record(record).get("meters") or [])
                           or list(prov.get("accounts") or []) != config.accounts(cfg, name)]
                 for name in rolled:
                     providers[name] = _reread(cfg, name, providers[name], now)
