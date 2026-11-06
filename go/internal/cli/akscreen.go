@@ -4,7 +4,6 @@ import (
 	"io"
 	"os"
 	"runtime"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -102,13 +101,12 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	keyboard.Sense()
 	var latest atomic.Pointer[reading]
 	latest.Store(&first)
-	var sweeping sync.RWMutex // a read while the opening's sweep forgets a seat meets it half gone
+	swept, heard := sweepBehind(handed || dry || overlay, &latest, keyboard.Wake) // a restart leaves it to the tick
 	reread := func() {
-		sweeping.RLock()
+		<-swept
 		if found, known := readFrame(time.Now()); known {
 			latest.Store(&found)
 		}
-		sweeping.RUnlock()
 		keyboard.Wake()
 	}
 	go func() {
@@ -125,11 +123,8 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			time.Sleep(usage.RefreshEvery)
 		}
 	}()
-	heard := func() []string { return nil }
-	if handed { // its sweep is the tick's next one
+	if handed {
 		go reread()
-	} else if !dry && !overlay {
-		heard = sweepBehind(&latest, &sweeping, keyboard.Wake)
 	}
 	clock, model := &motion.Clock{}, menu.Model{}
 	if overlay {
@@ -189,6 +184,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				keyboard.Give()
 				return 0
 			case "start":
+				<-swept
 				if leave, code := startMenuRow(&model, dry, overlay, keyboard, painter, errOut); leave {
 					return code
 				}
@@ -201,6 +197,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		choice := menuChoice(key, drawn, shown.seats, keyboard)
 		switch {
 		case choice != "":
+			<-swept
 			if leave, code := openMenuSeat(choice, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
@@ -220,7 +217,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		case key.Name == "char" && (key.Char == "p" || key.Char == "P") && len(shown.past) > 0:
 			frame.Stop()
 			returned := *shown
-			if leave, code := menuPast(&returned.past, dry, overlay, keyboard, painter, errOut); leave {
+			if leave, code := menuPast(&returned.past, swept, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
 			latest.Store(&returned)

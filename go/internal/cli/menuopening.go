@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -24,27 +23,33 @@ func openedFrame(none bool) (reading, []string, bool) {
 	return first, said, carried
 }
 
-// sweepBehind starts the drawn ak screen's opening sweep behind its first frame, which is the
-// records as they stand, as Python's menu starts its maintenance (Live.tidy), and is what the sweep
-// said, once, from when the home it left is latest.  A read holding reads waits for it.  What it
-// leaves to Python is the tick's next sweep, as a restart's is: it touches nothing of a seat it
-// stops at.
-func sweepBehind(latest *atomic.Pointer[reading], reads *sync.RWMutex, wake func()) func() []string {
-	heard := make(chan []string, 1)
-	go func() {
-		reads.Lock()
-		again, said, _ := swept()
-		if again != nil {
-			latest.Store(again)
-		}
-		reads.Unlock()
-		heard <- said
-		wake()
-	}()
-	return func() []string {
+// sweepBehind starts the drawn ak screen's opening sweep, but where none, behind its first frame,
+// which is the records as they stand, as Python's menu starts its maintenance (Live.tidy).  It is
+// a channel closed once the home the sweep left is latest, and what the sweep said, once, from
+// then.  Until then no read and no act on a seat begins: the read could meet a seat the sweep is
+// forgetting half gone, and the act bring back one the sweep then forgets.  What a sweep leaves to
+// Python is the tick's next one, as a restart's is: it touches nothing of a seat it stops at.
+func sweepBehind(none bool, latest *atomic.Pointer[reading], wake func()) (<-chan struct{}, func() []string) {
+	done, said := make(chan struct{}), []string(nil)
+	if none {
+		close(done)
+	} else {
+		go func() {
+			again, lines, _ := swept()
+			if again != nil {
+				latest.Store(again)
+			}
+			said = lines
+			close(done)
+			wake()
+		}()
+	}
+	return done, func() []string {
 		select {
-		case said := <-heard:
-			return said
+		case <-done:
+			lines := said
+			said = nil
+			return lines
 		default:
 			return nil
 		}

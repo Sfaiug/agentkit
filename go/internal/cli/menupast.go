@@ -37,7 +37,7 @@ func sortPast(past []menu.PastSeat) {
 	slices.SortStableFunc(past, func(a, b menu.PastSeat) int { return cmp.Compare(b.Closed, a.Closed) })
 }
 
-func menuPast(saved *[]menu.PastSeat, dry, overlay bool, keyboard *terminal.Keyboard, painter *terminal.Painter, errOut io.Writer) (bool, int) {
+func menuPast(saved *[]menu.PastSeat, swept <-chan struct{}, dry, overlay bool, keyboard *terminal.Keyboard, painter *terminal.Painter, errOut io.Writer) (bool, int) {
 	past, highlight := slices.Clone(*saved), menu.Highlight{}
 	defer func() { *saved = past }()
 	for len(past) > 0 {
@@ -56,6 +56,7 @@ func menuPast(saved *[]menu.PastSeat, dry, overlay bool, keyboard *terminal.Keyb
 		choice := menuChoice(key, drawn, rows, keyboard)
 		switch {
 		case choice != "":
+			<-swept
 			keyboard.Give()
 			known, err := seat.ReopenPast(choice, dry, os.Stdout, errOut)
 			if !known {
@@ -93,6 +94,7 @@ func menuPast(saved *[]menu.PastSeat, dry, overlay bool, keyboard *terminal.Keyb
 				return true, notImplemented(errOut, "attach")
 			}
 			if accepted {
+				<-swept
 				known, err := removePast(name, dry)
 				if !known {
 					keyboard.Give()

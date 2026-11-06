@@ -4,20 +4,33 @@ package localtime
 import (
 	"encoding/binary"
 	"os"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 )
 
-// Read is called once, as the program starts: where Go found no zone file for TZ and fell back to
-// UTC, it reads TZ as the C library then does, as a POSIX rule such as `AKT-5`.
-func Read() {
-	if time.Local.String() == "UTC" {
-		rule := strings.TrimPrefix(os.Getenv("TZ"), ":")
-		if local, err := time.LoadLocationFromTZData(rule, zone(rule)); err == nil {
-			time.Local = local
-		}
+// undated is a POSIX rule naming summer time but not its dates, such as `AKT5AKDT`.  The C library
+// takes them from the host: glibc shifts zoneinfo's posixrules by its own arithmetic, which keeps an
+// offset an earlier rule left, and other C libraries date it otherwise.
+var undated = regexp.MustCompile(`^(<[^>]*>|[A-Za-z]+)[+-]?[0-9]+(:[0-9]+){0,2}(<[^>]*>|[A-Za-z]+)([+-]?[0-9]+(:[0-9]+){0,2})?,?$`)
+
+// Read is called once, as the program starts, and is whether Go's local time is now the C
+// library's: where Go found no zone file for TZ and fell back to UTC, it reads TZ as the C library
+// then does, as a POSIX rule such as `AKT-5`, but for an undated one, whose local time is Python's
+// to read.
+func Read() bool {
+	if time.Local.String() != "UTC" {
+		return true
 	}
+	rule := strings.TrimPrefix(os.Getenv("TZ"), ":")
+	if undated.MatchString(rule) {
+		return false
+	}
+	if local, err := time.LoadLocationFromTZData(rule, zone(rule)); err == nil {
+		time.Local = local
+	}
+	return true
 }
 
 // zone is a zone file of one zone, UTC, and no transition, whose footer is rule: Go's reader reads
