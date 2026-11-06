@@ -263,8 +263,8 @@ func look(record *run.Object) (bool, error) {
 
 // actedOn is whether Python's reap would act on the run as Go does not: end processes it left
 // behind, reap an active run whose loop is gone, offer a wait's recovery, or reap one neither
-// active, waiting, stalled nor ended, past what handback.Reap does; or whether it holds a place in
-// a landing line, which Go leaves to Python.
+// active, waiting, stalled, ended nor untold, past what handback.Reap does; or whether it holds a
+// place in a landing line, which Go leaves to Python.
 func actedOn(record *run.Object) bool {
 	_, owed := run.Reap(record)
 	wait := record.Dict("waiting_on")
@@ -277,7 +277,7 @@ func actedOn(record *run.Object) bool {
 	case state == "waiting":
 		return run.NeedsRecovery(record)
 	default:
-		return state != "stalled" && !run.Ended(record) && !handback.Reapable(record)
+		return state != "stalled" && !run.Ended(record) && !handback.Untold(record) && !handback.Reapable(record)
 	}
 }
 

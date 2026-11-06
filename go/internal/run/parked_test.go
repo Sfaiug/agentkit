@@ -28,7 +28,8 @@ func TestASeatsParkedRunsAreItsOwnUndecidedOnes(t *testing.T) {
 			also: `{"state": "pass", "merged": true, "title": "fix", "finished_at": 6, "run_id": "b"}`},
 		{name: "a relaunch still going replaces nothing", run: `"state": "interrupted", "branch": "ak/fix", "finished_at": 5`,
 			also: `{"state": "running", "from": "ak/fix", "started_at": 6, "run_id": "b"}`, parked: true},
-		{name: "exhausted, whose wait is Python's", run: `"state": "exhausted"`, unread: true},
+		{name: "exhausted on a provider's window", run: `"state": "exhausted", "quota_dry": true`},
+		{name: "exhausted, waiting on nobody", run: `"state": "exhausted"`, parked: true},
 		{name: "exhausted and looked at", run: `"state": "exhausted", "recovery_acknowledged_at": 5`},
 		{name: "a record only Python reads", also: `{"title": "\ud800"}`, unread: true},
 	} {
@@ -58,10 +59,7 @@ func TestASeatsParkedRunsAreItsOwnUndecidedOnes(t *testing.T) {
 				}
 			}
 			census, err := Records()
-			parked := false
-			if err == nil {
-				parked, err = Parked("acme", census, now)
-			}
+			parked := err == nil && Parked("acme", census, now)
 			if parked != each.parked || (err != nil) != each.unread {
 				t.Fatalf("parked %v, error %v", parked, err)
 			}

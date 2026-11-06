@@ -584,8 +584,8 @@ func (r *repoPlace) merged(l *loop, url, method string) error {
 	return nil
 }
 
-// mergedAt records the work merged at sha with the `health:` that commit declares, the one record
-// the tick reads after a merge, Python's merge_record.
+// mergedAt records the work merged at sha with the `health:` and `deployed:` that commit declares,
+// the one record the tick reads after a merge, Python's merge_record.
 func (r *repoPlace) mergedAt(l *loop, sha string) error {
 	return l.save(func(record *run.Object) {
 		record.Set("merged", true)
@@ -597,7 +597,11 @@ func (r *repoPlace) mergedAt(l *loop, sha string) error {
 			if command := gitcall.DeclaredAt(r.wt, sha, "health"); command != "" {
 				health.Set("command", command)
 			}
-			record.Set("health", health)
+			var deployed any
+			if command := gitcall.DeclaredAt(r.wt, sha, "deployed"); command != "" {
+				deployed = command
+			}
+			run.SetAll(record, "health", health, "deployed", deployed)
 		}
 	})
 }

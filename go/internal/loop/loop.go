@@ -670,7 +670,11 @@ func (l *loop) finish(err error) int {
 				finished = nil
 			}
 			run.SetAll(record, "state", state, "finished_at", finished)
-			record.Delete("transient_wait") // a wait that ended, which nothing reads now
+			// a finished run waits on nothing: a wait that ended, a window it ran dry on, a refusal's
+			// or an error's retry
+			for _, key := range []string{"transient_wait", "quota_dry", "refusal_retry"} {
+				record.Delete(key)
+			}
 			DropErrorRetry(record)
 		})
 	}

@@ -43,6 +43,9 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 	if !goesOn(dir, record) {
 		return 0, "", ErrPython
 	}
+	if dry := loop.Dry(record); dry != "" {
+		return parkDry(dir, read, order, dry, out)
+	}
 	if loop.Logging(dir) {
 		// a lander's wake writes into the run's log already: following it would feed it back in
 		bg, out = true, io.Discard

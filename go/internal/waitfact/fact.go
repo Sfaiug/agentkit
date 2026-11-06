@@ -20,14 +20,6 @@ import (
 // ErrPython is a fact only Python reads yet.
 var ErrPython = errors.New("left to Python")
 
-// Going is transitions.going as Go reads it: an exhausted run's is Python's (`exhausted_wait`).
-func Going(record *run.Object, now time.Time) (bool, error) {
-	if record.Str("state") == "exhausted" {
-		return false, ErrPython
-	}
-	return run.Going(record, now), nil
-}
-
 // Run is wait_fact for a run: over, with the line saying how and the run whose ending that is,
 // once it is no longer going, or once the run its task was started again as is not.
 func Run(on string, now time.Time) (bool, string, string, error) {
@@ -57,8 +49,8 @@ func ended(on string, record *run.Object, now time.Time) (bool, string, string, 
 		return true, fmt.Sprintf("run %s stalled: resume it with ak run resume %s", on, on), "", nil
 	}
 	// a merge whose project has yet to prove itself live is still the seat's to wait on
-	if live, err := Going(record, now); live || err != nil || seat.AwaitingLive(record, now) {
-		return false, "", "", err
+	if run.Going(record, now) || seat.AwaitingLive(record, now) {
+		return false, "", "", nil
 	}
 	ended := "ended"
 	for _, key := range []string{"state", "verdict"} { // Python's `verdict or state or "ended"`
@@ -104,11 +96,7 @@ func PR(on string, now time.Time) (bool, string, error) {
 	// run that would not (a stalled one) ends it with its own line
 	first := ""
 	for _, record := range runs {
-		live, err := Going(record, now)
-		if err != nil {
-			return false, "", err
-		}
-		if !live {
+		if !run.Going(record, now) {
 			continue
 		}
 		over, why, _, err := Run(record.Str("run_id"), now)
