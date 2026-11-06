@@ -149,15 +149,12 @@ func ownFirstReview(dir, repo, url, number, target, head string) (string, error)
 		return "", err
 	}
 	// a seat whose limit is 0 builds nothing, so even a change adding no line is too much there,
-	// Python's seat_lines
+	// Python's seat_lines; a run with executors off is Python's (run.Carried), so a worker can
+	// always build it
 	counted := lines - carried
 	if most, limited := numbers.SeatLines.Most(); limited && (most == 0 || counted > most) {
-		action := "Write it as a task and launch it; a worker builds it"
-		if numbers.ReviewLines == config.AtMost(0) {
-			action = "Split it into smaller PRs."
-		}
-		return fmt.Sprintf("PR #%s adds %d lines (generated files and unchanged moves aside): too big for the seat, which builds at most %d added lines. %s",
-			number, counted, most, action), nil
+		return fmt.Sprintf("PR #%s adds %d lines (generated files and unchanged moves aside): too big for the seat, which builds at most %d added lines. Write it as a task and launch it; a worker builds it",
+			number, counted, most), nil
 	}
 	budget, err := run.PolicyRounds(record)
 	if err != nil {
