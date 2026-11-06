@@ -14,17 +14,22 @@ import (
 // as it was, a thread it leaves unbound for the reading that meets it to hand to Python. A config
 // that does not load names no harness, as Python's orch.loaded reads it.
 func Reconcile() {
-	models, _ := config.Models()
-	state := filepath.Join(config.Home(), "state")
 	for _, path := range config.SeatFiles() {
 		name, _ := sessionFile(filepath.Base(path))
-		update(state, name, func(record *run.Object) bool {
-			fields := harness.Reconcile(models[record.Str("orchestrator")].Harness, record)
-			var changes []field
-			for _, key := range fields.Keys() {
-				changes = append(changes, field{key, fields.Get(key)})
-			}
-			return set(changes)(record)
-		})
+		Reconciled(name)
 	}
+}
+
+// Reconciled is Reconcile of that seat alone, for its harness's hook that has just proven what it
+// reconciles.
+func Reconciled(name string) {
+	models, _ := config.Models()
+	update(filepath.Join(config.Home(), "state"), name, func(record *run.Object) bool {
+		fields := harness.Reconcile(models[record.Str("orchestrator")].Harness, record)
+		var changes []field
+		for _, key := range fields.Keys() {
+			changes = append(changes, field{key, fields.Get(key)})
+		}
+		return set(changes)(record)
+	})
 }

@@ -314,10 +314,7 @@ func handedBack(record *run.Object) bool {
 func resumeHoldsTree(record *run.Object, dir string) bool {
 	summaries := record.List("round_summaries")
 	rounds, _ := run.Num(record.Get("rounds"))
-	worktree, _ := record.Get("worktree").(string)
-	atBudget := record.Str("state") == "fail" && !record.Truthy("review_pr") && worktree != "" && isDir(worktree) &&
-		float64(len(summaries)) >= rounds && rounds > 0
-	return needsRecovery(record) || atBudget || record.Str("state") == "error" && record.Truthy("own_pr_round_pending") ||
+	return needsRecovery(record) || run.AtBudget(record) || record.Str("state") == "error" && record.Truthy("own_pr_round_pending") ||
 		float64(len(summaries)) < rounds && (integrationNote(record, dir) || judged(record, dir))
 }
 

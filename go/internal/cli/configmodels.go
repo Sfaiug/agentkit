@@ -1,159 +1,94 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/menu"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
-	"agentkit/internal/update"
 )
 
+// ticksNote is what `Models` says under its rows.
+const ticksNote = "Space on a model under its harness takes it in or out of the config."
+
+// menuConfigModels is `Models` on `c` (menu.models_page): a row per harness the config's providers
+// run on, in its colour, opening every model it lists (modelsList), ■ each the config runs there,
+// Space taking it in or out (config.ModelTicks), saved at once; on a host, the config's providers
+// it has no login for after them, Enter logging in to one.  The models' names are read once and
+// again after each tick, as Python's page reads the config it holds.
 func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	ticks, err := config.OpenModelTicks()
 	if err != nil || len(ticks.Harnesses) == 0 {
 		return false
 	}
-	models, err := config.Models()
-	if err != nil {
-		return false
-	}
-	catalogs := map[string][]throughChoice{}
-	at, choice, top, opened, note := 0, 0, 0, false, ""
-	version := update.Build()
-	if version == "" {
-		version = "?"
-	}
-	defer painter.Forget()
-	for {
-		rows := []menu.ModelRow{}
-		cursor := at
-		for i, harness := range ticks.Harnesses {
+	catalogs := map[string][]throughChoice{} // each harness's, once read this visit
+	var models map[string]config.Model       // as last read
+	ticked := func() { models = nil }
+	return configPage("models", ticksNote, func() ([]menu.PageRow, bool) {
+		if models == nil {
+			if models, err = config.Models(); err != nil {
+				return nil, false
+			}
+		}
+		var rows []menu.PageRow
+		for _, harness := range ticks.Harnesses {
 			name, colour := config.HarnessLook(harness)
 			labels := []string{}
 			for _, name := range ticks.Names(harness, "") {
 				labels = append(labels, config.ModelName(name, models))
 			}
-			value := strings.Join(labels, ", ")
-			if value == "" {
-				value = "none"
-			}
-			rows = append(rows, menu.ModelRow{Name: name, Value: value, Colour: colour})
-			if opened && i == at {
-				cursor = len(rows) + choice
-				for _, each := range catalogs[harness] {
-					rows = append(rows, each.modelRow(harness, ticks))
-				}
-			}
+			rows = append(rows, menu.PageRow{Label: name, Colour: colour, Value: cmp.Or(strings.Join(labels, ", "), "none"), Several: true,
+				List: func() ([]menu.PageRow, bool) {
+					return modelChoices(harness, ticks, ticked, catalogs, keyboard, painter)
+				}})
 		}
-		frame := menu.ConfigModelsFrame(keyboard.Screen(), rows, cursor, top, time.Now().Format("15:04"), version, note)
-		top = frame.Top
-		painter.Write(frame.Lines, keyboard.Screen())
-		key := keyboard.ReadKey()
-		note = ""
-		harness := ticks.Harnesses[at]
-		step := 0
+		return rows, true
+	}, keyboard, painter)
+}
+
+// modelChoices is the list a harness's row opens: each choice modelsList makes, asked behind the
+// waiting rule until one answer is read, ■ each model the config runs, Space ticking it and then
+// calling `ticked`, and a provider logged in to asking it again, its models listed now; else a line
+// saying why none is.
+func modelChoices(harness string, ticks *config.ModelTicks, ticked func(), catalogs map[string][]throughChoice, keyboard *terminal.Keyboard, painter *terminal.Painter) ([]menu.PageRow, bool) {
+	if _, read := catalogs[harness]; !read {
+		choices, err := modelsList(harness, keyboard, painter)
 		switch {
-		case key.Name == "again":
-			painter.Forget()
-		case key.Name == "eof":
-			return true
-		case key.Name == "esc":
-			if !opened {
-				return true
-			}
-			opened = false
-		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
-			step = -1
-		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
-			step = 1
-		case key.Name == "pointer":
-			mouse := key.Mouse
-			if mouse.Button&64 != 0 {
-				step = mouse.Notches
-			} else if row, _, hit := frame.Hit(mouse); hit {
-				if opened && row > at && row <= at+len(catalogs[harness]) {
-					choice = row - at - 1
-					if mouse.Released && mouse.Button&3 == 0 {
-						key.Name = "space"
-						if catalogs[harness][choice].model == nil {
-							key.Name = "enter" // a provider's click logs in to it
-						}
-					}
-				} else {
-					if opened && row > at {
-						row -= len(catalogs[harness])
-					}
-					at, opened = row, false
-					if mouse.Released && mouse.Button&3 == 0 {
-						key.Name = "enter"
-					}
-				}
-			}
+		case err == context.Canceled:
+			return []menu.PageRow{{Value: "not read: esc and open it again"}}, true
+		case err != nil:
+			return []menu.PageRow{{Value: err.Error()}}, true
 		}
-		harness = ticks.Harnesses[at]
-		if step != 0 {
-			if opened {
-				choice = max(0, min(len(catalogs[harness])-1, choice+step))
-			} else {
-				at = max(0, min(len(ticks.Harnesses)-1, at+step))
-			}
-		}
-		if key.Name == "enter" {
-			if opened && catalogs[harness][choice].model != nil {
-				opened = false
-				continue
-			}
-			if opened { // a provider to log in to: its models are listed once it is
-				provider := catalogs[harness][choice].provider
-				verb := adapterVerbs(keyboard, painter, harness, []string{"login"}, "", provider.ID, false)
-				painter.Forget()
-				if verb != "" {
-					note = notAdded(harness, verb, provider.Name)
-					continue
-				}
-				delete(catalogs, harness)
-			}
-			if _, read := catalogs[harness]; !read {
-				choices, err := modelsList(harness, keyboard, painter)
-				if err == context.Canceled {
-					opened = false
-					continue
-				}
-				catalogs[harness] = choices
-				if err != nil {
-					note = err.Error()
-				}
-			}
-			if len(catalogs[harness]) == 0 {
-				opened = false
-				if note == "" {
-					note = "its catalog lists no model"
-				}
-				continue
-			}
-			if opened { // asked again after a login: the highlight stays on a choice
-				choice = min(choice, len(catalogs[harness])-1)
-				continue
-			}
-			opened, choice = true, 0
-			for i, chosen := range catalogs[harness] {
-				if chosen.modelRow(harness, ticks).Marked {
-					choice = i
-					break
-				}
-			}
-		}
-		if key.Name == "space" && opened && catalogs[harness][choice].model != nil {
-			chosen := catalogs[harness][choice]
-			if err := ticks.Tick(harness, chosen.model.ID, chosen.model.Label, chosen.model.Efforts, chosen.under(), seat.KeepConfigEfforts); err != nil {
-				note = err.Error()
-			} else {
-				models, _ = config.Models()
-			}
-		}
+		catalogs[harness] = choices
 	}
+	if len(catalogs[harness]) == 0 {
+		return []menu.PageRow{{Value: "its catalog lists no model"}}, true
+	}
+	var choices []menu.PageRow
+	for _, chosen := range catalogs[harness] {
+		if model := chosen.model; model != nil {
+			choices = append(choices, menu.PageRow{Value: model.Label, On: len(ticks.Names(harness, model.ID)) > 0, Flip: func() string {
+				defer ticked()
+				if err := ticks.Tick(harness, model.ID, model.Label, model.Efforts, chosen.under(), seat.KeepConfigEfforts); err != nil {
+					return err.Error()
+				}
+				return ""
+			}})
+			continue
+		}
+		provider := chosen.provider
+		choices = append(choices, menu.PageRow{Value: provider.Name, Does: "log in", Act: func() string {
+			verb := adapterVerbs(keyboard, painter, harness, []string{"login"}, "", provider.ID, false)
+			painter.Forget()
+			if verb != "" {
+				return notAdded(harness, verb, provider.Name)
+			}
+			delete(catalogs, harness)
+			return ""
+		}})
+	}
+	return choices, true
 }

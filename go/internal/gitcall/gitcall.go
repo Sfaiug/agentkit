@@ -58,12 +58,13 @@ func (s *Stopped) Error() string { return s.Why }
 // A Git runs git in Repo ("" the current directory).  Env changes its environment: `KEY=value`
 // sets, a bare `KEY` drops.  Cap is its limit, CapSeconds where none.  Ctx, where set, stops it
 // as its limit does, and a git it stopped answers with its cause: work dropped mid-way waits on
-// no git of its own.
+// no git of its own.  In, where set, is what it reads.
 type Git struct {
 	Repo string
 	Env  []string
 	Cap  time.Duration
 	Ctx  context.Context
+	In   []byte
 }
 
 // environment is Python's tool_env as Env changes it: no seat's name, and no prompt.
@@ -118,6 +119,9 @@ func (g Git) Bytes(args ...string) (int, []byte, []byte, error) {
 	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
 	command.WaitDelay = grace
 	command.Env = env
+	if g.In != nil {
+		command.Stdin = bytes.NewReader(g.In)
+	}
 	var stdout, stderr bytes.Buffer
 	command.Stdout, command.Stderr = &stdout, &stderr
 	err = command.Run()

@@ -51,9 +51,10 @@ func (catalogs *configCatalog) read(c *matrix.Configuration) error {
 }
 
 // stepConfigEffort steps the effort in column one level on, from the highest round to the lowest,
-// or, `to` 0 or more, takes its to-th level, a level past its last changing nothing.
+// or, `to` 0 or more, takes its to-th level, a level past its last changing nothing.  A seat's
+// orchestrator effort needs a restart, which is Python's.
 func stepConfigEffort(c *matrix.Configuration, session string, row, column, to int) (string, bool) {
-	if session == "" || column == 3 {
+	if session != "" && column == 3 {
 		return "", false
 	}
 	name, role := c.Names[row], column-3
@@ -68,6 +69,9 @@ func stepConfigEffort(c *matrix.Configuration, session string, row, column, to i
 		return "", true
 	}
 	word := levels[to]
+	if session == "" {
+		return stepNewSeatsEffort(c, name, column, word)
+	}
 	saved, err := seat.SaveEffort(session, name, config.RoleEfforts[role], word)
 	if err != nil {
 		return err.Error(), true

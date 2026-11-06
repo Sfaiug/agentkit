@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 )
 
@@ -28,12 +29,14 @@ type testReport struct {
 
 // A checkSelection is what a landing check is asked to run, and what it saw: the tests that
 // failed, then passed, every command's repeated reds (as `.flakes` keeps them, but for tree, time
-// and log), and each command that passed with the tests it ran, nil for all.
+// and log), and each command that passed with the tests it ran, nil for all; and the history rows
+// it left, taken back where it is handed on.
 type checkSelection struct {
 	shard   string
 	tests   []string
 	red     *run.Object
 	handoff bool
+	rows    *history.Checked
 	flaky   []string
 	reds    []*run.Object
 	passed  map[string][]string

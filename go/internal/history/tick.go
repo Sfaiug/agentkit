@@ -26,8 +26,7 @@ func (db *DB) keepsSeats() (bool, error) {
 // but for what git measures; one whose directory is gone ends as unknown; one still going, or
 // started again before the write, ends its row itself.  False, having written nothing, where the
 // sync is Python ak's: a history SQLite cannot read, or whose tokens wait for Python's one-time
-// repair, running rows or none; or an ending Python writes more of, a record Go cannot read as
-// Python does, or a merge's landing breaks.
+// repair, running rows or none; or a record Go cannot read as Python does.
 func Agree(log func(string)) bool {
 	ids, read := running()
 	if !read {
@@ -45,9 +44,6 @@ func Agree(log func(string)) bool {
 			return false
 		}
 		if record != nil && run.Ended(record) {
-			if record.Truthy("merged") && record.Truthy("landing_red_patches") {
-				return false
-			}
 			dues = append(dues, due{id, record, record})
 		} else if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 			dues = append(dues, due{id, run.NewObject(), run.Fields("state", "unknown")})

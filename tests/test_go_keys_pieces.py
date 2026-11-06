@@ -57,6 +57,7 @@ class GoKeysPieces(unittest.TestCase):
         share runs: their claims, as `<key> <part>`, by the tree each ran in."""
         claims = [f"{key} Acme" for key in list(SECONDS)[:count]]
         claims.insert(1, "test_key_acme_00 Acme.test_it")   # a key claimed twice, as some are
+        ran_as = [claims[0], *claims[2:]]   # runs once: its class's claim covers the other's test
         (self.root / "go/keys.txt").write_text("".join(f"{claim}\n" for claim in claims))
         for key in list(SECONDS)[:count]:
             (self.root / "tests" / f"{key}.py").write_text(KEY)
@@ -83,13 +84,11 @@ class GoKeysPieces(unittest.TestCase):
         suite_times.keep(self.root, output)
         output.unlink()
         self.assertCountEqual([claim for pieces in shares for piece in pieces.values()
-                               for claim in piece], claims, "a claim runs in no piece or two")
+                               for claim in piece], ran_as, "a claim runs in no piece or two")
         return shares
 
     def test_every_claim_runs_in_exactly_one_piece_and_its_seconds_are_kept(self):
-        shares = self.land(8)
-        self.assertTrue(any({"test_key_acme_00 Acme", "test_key_acme_00 Acme.test_it"} <= set(
-            piece) for pieces in shares for piece in pieces.values()), "a key's claims split")
+        self.land(8)
         kept = suite_times.read(suite_times.handed(self.root))
         self.assertLessEqual({f"tests/test_go_keys.py::{key}" for key in list(SECONDS)[:8]},
                              kept.keys())

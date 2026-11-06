@@ -7,7 +7,7 @@ with no choice, best first, `beaten` by a choice, else a row of the front, as go
 dearer; on the front, `far below`, by null, more than 10 points under the best; else `close`
 to the nearest choice, less than a point from it; else `no room`, by null, a point or more under
 every choice, as the costliest five leave it.  Qualities exactly 10 or 1 apart are so, whatever
-a rating's roundoff.
+a rating's roundoff, and a row a millionth of a point better still ranks above.
 
 Black-box: AK_BIN in a temporary HOME, the boards held as just asked with invented releases of
 one maker, its one harness a fake running one of them; only `ak models --json` is observed.
@@ -52,6 +52,13 @@ OTHERS = [("Acme Edge 1", "high", "close", {"name": "Acme Best 1", "effort": "hi
 # Shares whose qualities lie exactly 10, 1 and 1 apart, which a rating's floats put a hair
 # across: the lower row 10.00000000000001 under the best, 0.99999999999999 under the next
 EXACT = ((.57, .67), (.804, .814, .90), (.56, .57))
+# Rows a few millionths of a point apart in quality, cheapest first, and the others they leave
+HAIR = (([("acme-cheap-1", "high", .899999998), ("acme-best-1", "high", .90)],
+         [("acme-cheap-1", "high", "close", "acme-best-1")]),
+        ([("acme-best-1", "high", .90), ("acme-other-1", "high", .85),
+          ("acme-other-1", "max", .850000002), ("acme-next-1", "high", .850000004)],
+         [("acme-next-1", "high", "beaten", "acme-best-1"),
+          ("acme-other-1", "max", "beaten", "acme-best-1")]))
 
 
 def answer(rows, runs):
@@ -104,6 +111,18 @@ class RoleChoices(unittest.TestCase):
                     self.assertEqual([row["release"] for row in found[role]["choices"]],
                                      [release for release, *_ in rows])
                     self.assertEqual(found[role]["others"], [])
+
+    def test_a_millionth_better_still_ranks_above(self):
+        for rows, others in HAIR:
+            found = answer([(release, release, effort, share, n + 1)
+                            for n, (release, effort, share) in enumerate(rows)], rows[0][0])
+            for role in ROLES:
+                with self.subTest(rows=rows, role=role):
+                    self.assertEqual([row["release"] for row in found[role]["choices"]],
+                                     ["acme-best-1"])
+                    self.assertEqual([(row["release"], row["effort"], row["why"],
+                                       row["by"] and row["by"]["name"])
+                                      for row in found[role]["others"]], others)
 
 
 if __name__ == "__main__":

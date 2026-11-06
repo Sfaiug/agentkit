@@ -7,7 +7,7 @@ func TestExplanationUsesTheBestEvenWhenUnpricedAndNotCompared(t *testing.T) {
 		row("acme", "max", false, intel, 70.0, "aa.frontierCode20", .8, "aa.terminalBench40", .8),
 		row("bolt", "low", true, intel, 50.0, "aa.frontierCode20", .6, "aa.terminalBench40", .6, taskCost, 1.0),
 	}
-	found := Answer(rows, map[string]bool{"bolt": true})["execute"]
+	found := Answer(rows, map[string]bool{"bolt": true}, nil)["execute"]
 	why := Explain(found, "execute", found.Pick)
 	if *found.Best != 80 || why.Best.Release != "acme" || why.Behind != "20.0 behind the best," {
 		t.Fatalf("compared best %v, explanation %+v", *found.Best, why)

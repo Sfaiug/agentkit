@@ -13,9 +13,9 @@ import (
 
 const adviceBackupPrefix = ".advice-"
 
-// savingAdviceEfforts stages every legacy record before replacing any, and keeps
-// originals and Python's locks until config.toml lands. A failed save restores them.
-func savingAdviceEfforts(inFile []string, models map[string]config.Model, offered []string, save func(func() error) error) (err error) {
+// savingEfforts stages every legacy record before replacing any, and keeps originals and
+// Python's locks, which `take` takes, until config.toml lands. A failed save restores them.
+func savingEfforts(inFile []string, models map[string]config.Model, offered []string, take func(locks []string) ([]*os.File, error), save func(func() error) error) (err error) {
 	type staged struct {
 		path, tmp, backup string
 		written, landed   bool
@@ -42,14 +42,13 @@ func savingAdviceEfforts(inFile []string, models map[string]config.Model, offere
 	}()
 	return save(func() error {
 		paths := config.SeatRecords("session")
-		for _, path := range paths {
-			// A Python rename locks old then new, in either name order. Never wait
-			// while holding another record's lock: refuse a busy save intact.
-			file, err := lock.Try(filepath.Join(filepath.Dir(path), "."+strings.TrimSuffix(filepath.Base(path), ".json")+".lock"))
-			if err != nil {
-				return err
-			}
-			held = append(held, file)
+		locks := make([]string, len(paths))
+		for i, path := range paths {
+			locks[i] = filepath.Join(filepath.Dir(path), "."+strings.TrimSuffix(filepath.Base(path), ".json")+".lock")
+		}
+		var err error
+		if held, err = take(locks); err != nil {
+			return err
 		}
 		for _, path := range paths {
 			before, err := os.ReadFile(path)
@@ -108,4 +107,19 @@ func savingAdviceEfforts(inFile []string, models map[string]config.Model, offere
 		}
 		return nil
 	})
+}
+
+// tryLocks takes each lock while it is free, and the first that is not ends it with
+// lock.ErrHeld, returning those taken: a Python rename locks old then new, in either name
+// order, so a record's lock is never waited for while another's is held.
+func tryLocks(paths []string) ([]*os.File, error) {
+	var held []*os.File
+	for _, path := range paths {
+		file, err := lock.Try(path)
+		if err != nil {
+			return held, err
+		}
+		held = append(held, file)
+	}
+	return held, nil
 }

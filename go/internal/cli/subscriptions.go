@@ -16,19 +16,31 @@ import (
 // a click runs that act or `+ add a subscription`, a subscription it adds pointed at.  The line a row
 // the keys come to opens lit on `log in again` where offered, and an act going from under the light
 // lights nothing in its place.
-// The usage it shows is read again every draw, at least every rereadEvery, so a reading that lands
-// shows without a key.
+// The usage it shows is read again every draw but one after a key that runs no act, which draws
+// what was read, and rereadEvery after the last read at the latest, however many keys come
+// between, so a reading that lands shows without a key.
 func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+	frame := time.AfterFunc(time.Hour, keyboard.Wake)
+	defer frame.Stop()
+	return menuSubscriptionsOn(keyboard, painter, time.Now, func(at time.Time) { frame.Reset(time.Until(at)) })
+}
+
+// menuSubscriptionsOn is menuSubscriptions on the time now tells, each draw asking wakeAt to wake
+// the keyboard at its next frame.
+func menuSubscriptionsOn(keyboard *terminal.Keyboard, painter *terminal.Painter, now func() time.Time, wakeAt func(time.Time)) bool {
 	view, clock := menu.Subscriptions{}, &motion.Clock{}
 	// whose line the keys last opened: none yet, so the first lights its first act
 	opened := "\x00"
-	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
-	defer frame.Stop()
 	defer painter.Forget()
+	var cells []menu.Cell
+	var read time.Time // when cells were read; zero to read them on the next draw
 	for {
-		cells, err := menu.Cells(time.Now())
-		if err != nil {
-			return false
+		if now().Sub(read) >= rereadEvery {
+			var err error
+			if cells, err = menu.Cells(now()); err != nil {
+				return false
+			}
+			read = now()
 		}
 		view.Cells, view.At = cells, min(view.At, len(cells))
 		whose := ""
@@ -39,20 +51,23 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 			opened, view.On = whose, menu.LogInAgain
 		}
 		screen := keyboard.Screen()
-		clock.Draw(time.Now())
-		view.Motion, view.Clock = clock, time.Now().Format("15:04")
+		clock.Draw(now())
+		view.Motion, view.Clock = clock, now().Format("15:04")
 		if !screen.Moves() {
 			view.Motion = nil
 		}
 		drawn := menu.SubscriptionsPage(screen, view)
 		view.Top, view.On = drawn.Top, drawn.On
 		painter.Write(drawn.Lines, screen, drawn.Over...)
-		next, due := clock.Next()
-		if !due {
-			next = rereadEvery
+		if next, due := clock.Next(); due {
+			wakeAt(now().Add(next))
+		} else {
+			wakeAt(read.Add(rereadEvery))
 		}
-		frame.Reset(next)
 		key := keyboard.ReadKey()
+		if key.Name == "wake" || key.Name == "again" {
+			read = time.Time{}
+		}
 		if key.Name != "wake" && key.Name != "again" && key.Name != "pointer" {
 			clock.Finish() // a key, not the pointer, ends what moves on its last frame
 			view.Note, view.Away = "", false
@@ -109,5 +124,6 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 		clock = &motion.Clock{} // back from a list, a card or a sign-in, the page is drawn as it is
 		clock.Finish()
 		painter.Forget()
+		read = time.Time{}
 	}
 }

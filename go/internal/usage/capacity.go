@@ -3,7 +3,6 @@ package usage
 import (
 	"cmp"
 	"fmt"
-	"maps"
 	"math"
 	"os"
 	"path/filepath"
@@ -244,101 +243,6 @@ func about(screen terminal.Screen) string {
 // digits is a price in plain digits, never an exponent, Python's usage._digits.
 func digits(value float64) string {
 	return grouped(strconv.FormatFloat(value, 'f', -1, 64))
-}
-
-// Rates is, per model the config offers and per effort it runs at or its pairs ran at, the weekly
-// percentage points a million of its tokens cost, nil where none of its pairs moved a meter,
-// Python's usage.model_rates.  Every login of a provider pools its pairs by tokens, each login's
-// meter moves allocated on their own; a meter a model claims as its own cap is not its
-// provider's week, and only the shared week the snapshot reads is measured where it reads one.
-// Nobody is asked.
-func (r *Readings) Rates() (*run.Object, error) {
-	names, err := config.Offered()
-	if err != nil {
-		return nil, err
-	}
-	type total struct{ tokens, moved float64 }
-	totals := map[[2]string]*total{}
-	measured := measuredPairs()
-	for _, provider := range measured.Keys() {
-		scoped := map[string]bool{}
-		for _, name := range names {
-			if model := r.models[name]; model.Provider == provider && model.Meter != "" {
-				scoped[model.Meter] = true
-			}
-		}
-		listed, err := config.Accounts(provider)
-		if err != nil {
-			return nil, err
-		}
-		logins := object(measured.Get(provider))
-		for _, account := range logins.Keys() {
-			prov := object(r.providers.Get(provider))
-			if account != config.DefaultAccount || len(listed) > 0 {
-				prov = object(object(prov.Get("accounts")).Get(account))
-			}
-			shared := r.sharedWeek(provider, prov)
-			meters := object(logins.Get(account))
-			for _, name := range meters.Keys() {
-				if scoped[name] || shared != nil && name != shared.Str("name") {
-					continue
-				}
-				pairs, ends := wellFormed(meters.Get(name)), seen(provider, account, name)
-				end, dated, window, sized := 0.0, false, 0.0, false
-				if shared != nil {
-					end, dated = number(shared.Get("resets_at"))
-					dated = dated && end != 0
-					window, sized = number(shared.Get("window_secs"))
-				}
-				if !dated {
-					end, dated = latest(ends, pairs)
-				}
-				if !dated {
-					continue
-				}
-				pairs = recent(pairs, ends, end, window, sized)
-				for i, moved := range allocated(pairs) {
-					model, _ := pairs[i].Get("model").(string)
-					effort, said := pairs[i].Get("effort").(string)
-					if !said || !slices.Contains(names, model) || r.models[model].Provider != provider {
-						continue
-					}
-					key := [2]string{model, effort}
-					if totals[key] == nil {
-						totals[key] = &total{}
-					}
-					totals[key].tokens += field(pairs[i], "tokens")
-					totals[key].moved += moved
-				}
-			}
-		}
-	}
-	found := run.NewObject()
-	for _, name := range names {
-		model := r.models[name]
-		efforts := map[string]bool{}
-		for _, key := range config.RoleEfforts {
-			effort, set := model.Efforts[key]
-			if !set {
-				effort = model.Efforts["effort"]
-			}
-			efforts[effort] = true
-		}
-		for key := range totals {
-			if key[0] == name {
-				efforts[key[1]] = true
-			}
-		}
-		rates := run.NewObject()
-		for _, effort := range slices.Sorted(maps.Keys(efforts)) {
-			rates.Set(effort, nil)
-			if spent := totals[[2]string{name, effort}]; spent != nil && spent.tokens > 0 && spent.moved > 0 {
-				rates.Set(effort, 1e6*spent.moved/spent.tokens)
-			}
-		}
-		found.Set(name, rates)
-	}
-	return found, nil
 }
 
 // A paired meter is a meter as the reading after a turn holds it and the pair it made.

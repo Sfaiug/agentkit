@@ -58,9 +58,6 @@ func TestAnOpenPastItsUsageReadNeverHandsOver(t *testing.T) {
 					write(t, filepath.Join(adapters, "echo.sh"), each.script)
 					os.Chmod(filepath.Join(adapters, "echo.sh"), 0o700)
 				}
-				if err := config.EnsureDirs(); err != nil { // as an open's way in makes them
-					t.Fatal(err)
-				}
 				back, _ := os.Getwd()
 				os.Chdir(home)
 				t.Cleanup(func() { os.Chdir(back) })

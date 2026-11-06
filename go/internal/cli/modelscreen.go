@@ -15,42 +15,78 @@ import (
 
 var readingModels sync.Mutex // closing and reopening the page shares the boards' reader
 
-// title is the name `c` gives this page; the pages it opens, `p` and a row's why, carry it too.
+// title is the name `c` gives this page; a row's why, which it opens, carries it too.  False
+// where Python ak takes the page over, having written nothing.
 func menuModels(session, title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	type reading struct {
 		found *matrix.Matrix
 		err   error
 	}
 	found := matrix.Stored()
-	compared, err := matrix.Compared(found.Rows)
-	if priced, failed := matrix.Priced(found.Rows); err != nil || failed != nil || priced {
+	var compared map[string]bool
+	var total int // the listed releases of your companies
+	var answer map[string]*quality.Said
+	// each role's answer over the lineup found, an error where Go does not draw it
+	answered := func() (err error) {
+		if compared, total, err = matrix.Compared(found.Rows); err != nil {
+			return err
+		}
+		shares, err := matrix.Shares()
+		if err != nil {
+			return err
+		}
+		if answer, err = matrix.Answer(found.Rows, compared, shares); err != nil {
+			return err
+		}
+		return matrix.Drawn(answer)
+	}
+	if answered() != nil {
 		return false
 	}
 	read := make(chan reading, 1)
 	go func() {
 		readingModels.Lock()
 		defer readingModels.Unlock()
-		found, err := matrix.Refresh(false)
+		found, err := matrix.Refresh(false, true)
 		read <- reading{found, err}
 		keyboard.Wake()
 	}()
-	answer := quality.Answer(found.Rows, compared)
 	var rows []*quality.Rating
 	var roles []string
 	var colours map[string]string
 	pointing := false
 	at, top, note := -1, 0, ""
+	// The boards landing leaves the pointer on the row it was on, as Python's does; where that row is
+	// gone, on its role's pick, the first role's before any.
 	lineup := func() {
 		colours = modelColours(found.Rows)
-		rows, roles = nil, nil
-		at = -1
-		for _, role := range quality.Roles {
-			for _, row := range answer[role].Front {
-				if at < 0 && row == answer[role].Pick {
-					at = len(rows)
+		role, was := quality.Roles[0], quality.Row{}
+		if at >= 0 && at < len(rows) {
+			role, was = roles[at], rows[at].Row
+		}
+		rows, roles, at = nil, nil, -1
+		pick, first := -1, -1
+		for _, each := range quality.Roles {
+			for _, row := range answer[each].Front {
+				if each == role {
+					if at < 0 && row.Release == was.Release && row.Effort == was.Effort {
+						at = len(rows)
+					}
+					if pick < 0 && row == answer[each].Pick {
+						pick = len(rows)
+					}
+					if first < 0 {
+						first = len(rows)
+					}
 				}
-				rows, roles = append(rows, row), append(roles, role)
+				rows, roles = append(rows, row), append(roles, each)
 			}
+		}
+		if at < 0 {
+			at = pick
+		}
+		if at < 0 {
+			at = first
 		}
 		if at < 0 && len(rows) > 0 {
 			at = 0
@@ -68,17 +104,12 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				note = "the boards were not read: " + fresh.err.Error()
 			} else {
 				found = fresh.found
-				if compared, err = matrix.Compared(found.Rows); err != nil {
+				if answered() != nil {
 					return false
 				}
-				answer = quality.Answer(found.Rows, compared)
 				lineup()
 			}
 		default:
-		}
-		current := map[string]bool{}
-		for _, row := range found.Rows {
-			current[row.Release] = true
 		}
 		s := keyboard.Screen()
 		light := menu.ModelLight{}
@@ -86,7 +117,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			light = menu.ModelLight{Maker: rows[at].Maker, Colour: colours[rows[at].Maker]}
 		}
 		frame := menu.ModelsFrame(s, title, menu.ModelsSaid(s, answer, found.Rows),
-			compared, len(current), found.Fetched, at, top, note, light)
+			compared, total, found.Fetched, at, top, note, light)
 		top = frame.Top
 		painter.Write(frame.Lines, s)
 		key := keyboard.ReadKey()
@@ -116,14 +147,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				pointing = false
 			}
 		case key.Name == "char" && key.Char == "p":
-			if !modelsPick(title, found.Rows, keyboard, painter) {
-				return false
-			}
-			if compared, err = matrix.Compared(found.Rows); err != nil {
-				return false
-			}
-			answer = quality.Answer(found.Rows, compared)
-			lineup()
+			return false // your companies' model list, Python's to draw
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {
