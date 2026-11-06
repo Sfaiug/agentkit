@@ -49,6 +49,10 @@ func Main(args []string, out, errOut io.Writer) int {
 	// touches no machine.
 	sandboxed := sandbox()
 	machine := role == "server" && mac() && !sandboxed
+	if machine && unbrewed() {
+		fmt.Fprintln(errOut, "ak install: Homebrew, which Lima comes from, is not installed by Go yet")
+		return 3
+	}
 	if machine {
 		role, alias = "client", machineAlias
 	}

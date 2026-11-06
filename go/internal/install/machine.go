@@ -30,6 +30,17 @@ var mac = sync.OnceValue(func() bool {
 	return strings.TrimSpace(string(said)) == "Darwin"
 })
 
+// lima is whether this Mac's Lima is new enough for `limactl autostart`.
+func lima() bool { return exec.Command("limactl", "autostart", "--help").Run() == nil }
+
+// unbrewed is whether this Mac's Lima needs Homebrew, which is not here: install.sh installs
+// Homebrew itself in its packages step, which Go does not carry yet, so Go hands the install
+// over before writing anything.
+func unbrewed() bool {
+	_, err := exec.LookPath("brew")
+	return err != nil && !lima()
+}
+
 // linuxMachine makes sure this Mac's Linux machine is up, stays up with the Mac and has ak's
 // server installed in it, as install.sh's step (2b) does; nothing already right changes.
 func linuxMachine(out, errOut io.Writer) error {
@@ -65,12 +76,12 @@ func linuxMachine(out, errOut io.Writer) error {
 // machineUp is tools/linux-machine.sh's linux_machine_up: the machine exists, is up and stays up
 // with the Mac, and ssh reaches it.
 func machineUp(name string, out, errOut io.Writer) error {
-	lima := os.Getenv("LIMA_HOME")
-	if lima == "" {
-		lima = filepath.Join(config.UserHome(), ".lima")
+	limaHome := os.Getenv("LIMA_HOME")
+	if limaHome == "" {
+		limaHome = filepath.Join(config.UserHome(), ".lima")
 	}
-	dir := filepath.Join(lima, machineName)
-	if exec.Command("limactl", "autostart", "--help").Run() != nil {
+	dir := filepath.Join(limaHome, machineName)
+	if !lima() {
 		verb := "install"
 		if _, err := exec.LookPath("limactl"); err == nil {
 			verb = "upgrade"
