@@ -30,6 +30,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/helper"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -60,7 +61,7 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	text := task.Text(data)
 	meta, cmds, err := task.Read(path)
 	bound, unbound := bind()
-	if err != nil || unbound != nil || python(path, values, flags, bound) {
+	if err != nil || unbound != nil || python(path, values, bound) {
 		return 0, "", ErrPython
 	}
 	// read before the receipt, as Python's capture_launch does: a refusal here leaves no run
@@ -71,12 +72,13 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
 		stem = stem[:dot]
 	}
-	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(task.Title(text, stem)))
+	named := task.Title(text, stem)
+	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(named))
 	if err != nil {
 		return 0, "", err
 	}
 	copied := filepath.Join(dir, "task.md")
-	reason, warning, place, err := preflight(meta, cmds, path, copied, values, flags, bound)
+	reason, warning, place, err := preflight(meta, cmds, path, copied, named, values, flags, bound)
 	var outright *refusedOutright
 	if errors.As(err, &outright) {
 		return 2, outright.why, nil
@@ -190,19 +192,12 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
 // cannot read as it does: any that leaves unread surroundings to Python, one naming no executor,
-// a seat's whose runs Go cannot count its project from, one Python's rival check may refuse, which
-// a seat's asks with its queue (preflight), or a string for the record Python would write with a
-// lone surrogate.  A count that is none the gate never reads: Task refuses it.
-func python(path string, values map[string]string, flags map[string]bool, bound config.Binding) bool {
+// a seat's whose runs Go cannot count its project from, or a string for the record Python would
+// write with a lone surrogate.  A count that is none the gate never reads: Task refuses it.
+func python(path string, values map[string]string, bound config.Binding) bool {
 	name, _, unnamed := Seat()
-	if unnamed != nil || unread() || len(bound.Workers) == 0 || !readable(path) ||
-		!readable(slices.Collect(maps.Values(values))...) {
-		return true
-	}
-	if name != "" {
-		return !seat.Votes(name)
-	}
-	return !flags["--anyway"] && going(path)
+	return unnamed != nil || unread() || len(bound.Workers) == 0 || !readable(path) ||
+		!readable(slices.Collect(maps.Values(values))...) || name != "" && !seat.Votes(name)
 }
 
 // elsewhere is whether this process's surroundings leave any launch or resume to Python: those
@@ -243,11 +238,13 @@ func runDepth() (int, bool) {
 }
 
 // A place is what preflight settled of where a run it passes works: the repository, "" for a
-// scratch task, its base, target and numbers, and the checks a round runs.
+// scratch task, its base, target, project (taskProject) and numbers, the checks a round runs, and
+// the run under way it starts beside, told --anyway.
 type place struct {
-	repo, base, target string
-	numbers            config.Numbers
-	every, once        []string
+	repo, base, target, alongside string
+	project                       string
+	numbers                       config.Numbers
+	every, once                   []string
 }
 
 // checkout is the checkout a launch of the task works in, "" for none, as Python's task_repo finds
@@ -269,12 +266,15 @@ func checkout(meta map[string]string, path, copied string) (string, string, erro
 		}
 		return repo, "", nil
 	}
-	top, _, found, err := git("", "rev-parse", "--show-toplevel")
-	if err != nil || !found && filed(path) {
-		return "", "", ErrPython // the checkout a task folder is named for is Python's to find
+	top, err := taskProject("", path)
+	if err != nil {
+		return "", "", err
 	}
-	if !found {
-		return "", "", nil
+	if top == "" {
+		var found bool
+		if top, _, found, err = git("", "rev-parse", "--show-toplevel"); err != nil || !found {
+			return "", "", err
+		}
 	}
 	if repo := config.Resolve(top); readable(repo) {
 		return repo, "", nil
@@ -284,7 +284,8 @@ func checkout(meta map[string]string, path, copied string) (string, string, erro
 
 // Budget is the rounds in force for a launch of the task at path, as Python's launch_policy reads
 // them before anything else is judged: its checkout's, the host's where the task does not read or
-// names a checkout that is none; ErrPython where the checkout is Python's to find.
+// names a checkout that is none; ErrPython where the checkout is Python's to find, or the
+// numbers Python's to carry (numbers).
 func Budget(path string) (int, error) {
 	repo := ""
 	if meta, _, err := task.Read(path); err == nil {
@@ -304,7 +305,7 @@ func Budget(path string) (int, error) {
 // first, and where a run it passes works: a repository that is no git repository, a base git cannot
 // read, more than 3 checks a round runs, or a `from:` the run cannot start from.  It leaves to
 // Python a run whose suite is narrowed to its change, or whose landing checks run in pieces.
-func preflight(meta map[string]string, cmds []string, path, copied string, values map[string]string, flags map[string]bool, bound config.Binding) (string, string, place, error) {
+func preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool, bound config.Binding) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
 		return reason, warning, at, err
@@ -314,7 +315,9 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 		return refuse("", "", err)
 	}
 	// a refused checkout is none (repo ""), so the host's numbers are in force, as in Budget
-	if at.numbers, err = numbers(repo); err != nil {
+	if at.numbers, err = numbers(repo); errors.Is(err, ErrPython) {
+		return refuse("", "", err)
+	} else if err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
 	// `--rounds` was judged before the task was read (Budget); a task's own `rounds:` is judged
@@ -322,9 +325,19 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	if why := task.RoundsOver(meta["rounds"], "task rounds", at.numbers.Rounds); why != "" {
 		return refuse("", "", &refusedOutright{why})
 	}
+	// a change under way is refused next, as Python's already_under_way is
+	found, err := rivals(repo, path, title, cmds)
+	owner, _, _ := Seat()
+	if err != nil {
+		return refuse("", "", err)
+	} else if len(found) > 0 && !flags["--anyway"] {
+		return refuse("", "", &refusedOutright{underWayRefusal(found, owner != "")})
+	} else if len(found) > 0 {
+		at.alongside = found[0].id
+	}
 	// a seat's launch is judged up to its queue, asked last before anything is created
-	if seat, _, _ := Seat(); seat != "" {
-		if err := seatQueue(seat, repo); err != nil {
+	if owner != "" {
+		if err := seatQueue(owner); err != nil {
 			return refuse("", "", err)
 		}
 	}
@@ -332,6 +345,15 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 		return refuse(refused, "", nil)
 	}
 	at.repo = repo
+	// a run belongs to the repository its task names, else to its task folder's checkout, never
+	// to one it inherits from where it was launched
+	worked := ""
+	if meta["repo"] != "" {
+		worked = repo
+	}
+	if at.project, err = taskProject(worked, path); err != nil {
+		return refuse("", "", err)
+	}
 	landing := at.repo != "" && !flags["--no-merge"]
 	at.target = cmp.Or(meta["target"], meta["base"])
 	suite := ""
@@ -372,11 +394,11 @@ func preflight(meta map[string]string, cmds []string, path, copied string, value
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(path, values, bound); err != nil {
+		if err := drivable(values, bound); err != nil {
 			return refuse("", "", err)
 		}
-		// a helper takes a repository's checks in Python, and Go has none
-		if at.repo != "" && helped() {
+		// a repository run on a host with a helper is Python's: its rounds' checks and turns go there
+		if at.repo != "" && helper.May() {
 			return refuse("", "", ErrPython)
 		}
 	}
@@ -413,8 +435,14 @@ func asPython(err error) error {
 	return nil
 }
 
+// numbers is the numbers in force for a run in repo, the host's for none (run.LaunchPolicy);
+// ErrPython for those Go does not carry (run.Carried), read where Python's launch_policy is.
 func numbers(repo string) (config.Numbers, error) {
-	return run.LaunchPolicy(repo)
+	found, err := run.LaunchPolicy(repo)
+	if err == nil && !run.Carried(found) {
+		return found, ErrPython
+	}
+	return found, err
 }
 
 // git is git's stdout and stderr in repo ("" the current directory), stripped, and whether it

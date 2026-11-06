@@ -118,7 +118,8 @@ func (view View) withNew() View {
 		number = max(number, each.Number+1)
 	}
 	view.Seats = append(slices.Clone(view.Seats), Seat{Number: number, Name: name,
-		Model: config.ModelName(d.Orchestrator, d.Models), Word: "new", draft: d})
+		Model: config.ModelAt(d.Orchestrator, "effort", d.Models), Alone: config.ModelName(d.Orchestrator, d.Models),
+		Word: "new", draft: d})
 	view.Highlight = Highlight{Cursor: name, Open: true}
 	view.Keys = "⏎ start   tab models   esc back"
 	if view.Screen.ASCII() {
@@ -146,7 +147,7 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 		typed = typed[max(0, len(typed)-max(0, w.name-1)):]
 	}
 	name := padded(s.Bold(typed)+s.Styled(caret, "accent")+s.Styled(hint, "dim"), w.name)
-	line := "  " + terminal.Pad(strconv.Itoa(seat.Number), w.num) + "  " + name + "  " + cell(s, seat.Model, w.orch, "dim")
+	line := "  " + terminal.Pad(strconv.Itoa(seat.Number), w.num) + "  " + name + "  " + cell(s, seat.orchestrator(w.orch), w.orch, "dim")
 	if w.count > 0 {
 		line += "  " + s.Styled("new", "dim")
 	}
@@ -155,10 +156,10 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 	if w.count == 0 {
 		lines = append(lines, row{indent + s.Styled("new", "dim"), seat.Name})
 	}
-	named := func(names []string) []string {
+	named := func(names []string, effort string) []string {
 		var shown []string
 		for _, name := range names {
-			shown = append(shown, config.ModelName(name, d.Models))
+			shown = append(shown, config.ModelAt(name, effort, d.Models))
 		}
 		return shown
 	}
@@ -166,7 +167,7 @@ func (d *Draft) block(s terminal.Screen, seat Seat, w widths) []row {
 	if len(builds) == 0 {
 		builds = []string{d.Orchestrator}
 	}
-	text, tone := s.Crew(named(builds), named(d.Reviewers)), "dim"
+	text, tone := s.Crew(named(builds, "exec_effort"), named(d.Reviewers, "review_effort")), "dim"
 	if why := d.Refusal(); why != "" {
 		text, tone = why, "amber"
 	}

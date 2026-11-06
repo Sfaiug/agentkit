@@ -109,12 +109,13 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before t
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
                      "to split or re-scope", ("first round", "unmerged", "hours to merge")),
-    "executor_lines": (300, 1, "the most added lines a first review reads",
+    "executor_lines": (300, 0, "the most added lines a first review reads",
                      ("first round", "merged")),
     "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds", ("built",)),
 }
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}
+EXECUTORS_OFF = "Executors are off; the orchestrator builds every change itself."
 # How a number of rounds opens a sentence and how the round past them reads; further up, figures.
 ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
                4: ("Four", "a fifth"), 5: ("Five", "a sixth")}
@@ -502,11 +503,13 @@ def _policy_in(path, data):
         if type(value) is not int or value < floor:
             raise Error(f"{path}: {key} must be a whole number of at least {floor}{unlimited}, {meaning} "
                         f"(got {value!r})")
+    if numbers["executor_lines"] == numbers["orchestrator_lines"] == 0:
+        raise Error(f"{path}: executor_lines and orchestrator_lines cannot both be 0: nobody could build a change")
     return numbers
 
 
 def in_force(text, table=None):
-    """ak's own text with host POLICY numbers. `$Review_rounds` starts a budget line, replaced
+    """ak's own text with POLICY numbers. `$Review_rounds` starts a budget line, replaced
     whole when review is off. Owner and project text stays theirs, dollars included."""
     try:
         numbers = host_policy(table)
@@ -521,6 +524,11 @@ def in_force(text, table=None):
                          f"you build at most {orchestrator} added lines; anything bigger you write "
                          "as a task and an executor builds it while you write the next. "
                          f"ak refuses your own PR above {orchestrator} lines")
+    if executor == 0:
+        text = re.sub(r"(?m)^([ \t]*(?:- )?)[^\n]*\$executor_size[^\n]*",
+                      lambda line: line[1] + EXECUTORS_OFF, text)
+        if orchestrator != "no limit":
+            orchestrator_size = f"you build at most {orchestrator} added lines per PR; split larger changes"
     no_review = "No review: a change lands on its checks; no reviewer."
     if rounds == 0:
         text = re.sub(r"(?m)^([ \t]*(?:- )?)\$Review_rounds[^\n]*",
@@ -1198,6 +1206,14 @@ def model_name(cfg, name):
             or entry["model"].rsplit("/", 1)[-1])
 
 
+def model_at(cfg, record, name, role):
+    """How every screen names model `name` in `role` for the seat `record`: `Opus 5.5 max`, its
+    full name (model_name), then the effort the seat runs it at in that role over the config's
+    (at_efforts), or its name alone where that is no effort or `none`."""
+    effort = worker_effort(at_efforts(cfg, record), name, role)
+    return model_name(cfg, name) + (f" {effort}" if effort and effort != "none" else "")
+
+
 def catalog_label(harness, model):
     """A model's full name, its harness's catalog label for its id, read off the manifest's
     table so no draw waits on a listing; None where the table names it no other way."""
@@ -1772,9 +1788,11 @@ def workers(cfg):
     return session["workers"] if session else list(cfg["defaults"]["workers"])
 
 
-def reviewers(cfg):
-    """An omitted reviewer selection uses that same record's workers, never another seat's."""
-    selection = active_session(cfg) or cfg["defaults"]
+def reviewers(cfg, seat=None):
+    """The reviewers `seat` marks, else the seat this runs in, else [defaults]'s.  An omitted
+    reviewer selection uses that same record's workers, never another seat's."""
+    selection = ((load_session(cfg, seat, required=False) if seat else active_session(cfg))
+                 or cfg["defaults"])
     return list(selection.get("reviewers", selection["workers"]))
 
 
@@ -1821,7 +1839,7 @@ def role_groups(cfg, workers=None, reviewers=None):
     return workers, reviewers
 
 
-def adapter(harness):
+def adapter(harness, code=None):
     """adapters/<harness>.sh, the script that runs one harness: the adapter contract.
 
     A harness is that script, adapters/<harness>.toml beside it (`manifest`), a `[models.<name>]`
@@ -1881,7 +1899,7 @@ def adapter(harness):
     $AGENTKIT_PROVIDER, space-separated; a harness that runs one provider may ignore it.  Each
     manifest table is explained at the code that reads it.
     """
-    path = adapter_path(harness)
+    path = adapter_path(harness, code)
     if not path.exists():
         raise Error(f"no adapter for harness {harness!r}: {path} does not exist")
     if not os.access(path, os.X_OK):
@@ -1889,9 +1907,11 @@ def adapter(harness):
     return path
 
 
-def adapter_path(harness):
-    """Where `adapter` looks for that harness's script, there or not."""
-    return Path(os.environ.get(ADAPTER_DIR_ENV) or REPO / "adapters").expanduser() / f"{harness}.sh"
+def adapter_path(harness, code=None):
+    """Where `adapter` looks for that harness's script, there or not: in the checkout `code`, this
+    one unless given, where no adapter directory is named."""
+    folder = os.environ.get(ADAPTER_DIR_ENV) or (code or REPO) / "adapters"
+    return Path(folder).expanduser() / f"{harness}.sh"
 
 
 def run_adapter(argv, timeout, env=None):
@@ -2182,14 +2202,15 @@ def rulebook_path(name):
     return seat_file("rulebook", name)
 
 
-def rulebook_text():
-    """The rulebook a session receives: ak's rules with this host's numbers, then its own.
+def rulebook_text(repo=None):
+    """The rulebook a session receives: ak's rules with its project's numbers, else the host's,
+    then the host's own rules.
 
     Only a host that has written no rules of its own has none: a rules.md that is there and
     cannot be read is an error, never an empty one, because a session opened without rules the
     owner did write is a session working to rules nobody chose.
     """
-    body = in_force((REPO / "orchestrator.md").read_text())
+    body = in_force((REPO / "orchestrator.md").read_text(), policy(repo) if repo else None)
     try:
         local = (HOME / "rules.md").read_text()
     except FileNotFoundError:
@@ -2217,7 +2238,7 @@ def seat_rulebook(session, repo=None):
     record = session_records().get(session, {})
     repo = record.get("repo") if repo is None else repo
     project = gitcall.agents_body(repo, RULES_REF)
-    body = rulebook_text()
+    body = rulebook_text(repo)
     if project:
         body = (f"{body.rstrip()}\n\n# The project's AGENTS.md\n\nThe rules of {Path(repo).name}, "
                 "the project this session is filed under, as on its default branch: its workers "

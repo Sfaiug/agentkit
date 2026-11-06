@@ -1,24 +1,20 @@
 package cli
 
 import (
-	"context"
 	"os/exec"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestConfigCatalogWaitDrawsFirstAndEscReapsTheBlockedAdapter(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
 	binary := filepath.Join(t.TempDir(), "ak")
-	build := exec.CommandContext(ctx, "go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
+	build := exec.Command("go", "build", "-mod=vendor", "-o", binary, "./cmd/ak")
 	build.Dir = filepath.Join("..", "..")
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
-	call := exec.CommandContext(ctx, "python3", "-B", "-c", `
+	call := exec.Command("python3", "-B", "-c", `
 import errno, os, shlex, sys
 from pathlib import Path
 os.environ["AK_BIN"] = sys.argv[1]
@@ -28,10 +24,15 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akseat import Seat
 from fixtures.akterm import Terminal
 
-for page, colour in (("config", False), ("models", False), ("config", True)):
+for page, colour, size in (("config", False, (100, 30)), ("models", False, (100, 30)),
+                           ("config", True, (100, 30)), ("config", False, (60, 12)),
+                           ("config", False, (18, 9)), ("config", False, (60, 7))):
     with Home() as home:
-        cfg = akconfig.write(home, {"fable": "claude", "astra": "codex"})
-        adapters = fakeadapter.install(home, claude="pass", codex="pass")
+        models = {"fable": "claude", "astra": "codex"}
+        if size[1] < 30:
+            models.update(spark="muse", grok="grokbuild", gemini="antigravity", mimo="opencode")
+        cfg = akconfig.write(home, models)
+        adapters = fakeadapter.install(home, **dict.fromkeys(models.values(), "pass"))
         Seat(home, "acme", model="fable", record={"workers": ["astra"], "repo": None})
         record = home.path / ".agentkit/state/session-acme.json"
         before = (cfg.read_bytes(), record.read_bytes())
@@ -48,7 +49,7 @@ for page, colour in (("config", False), ("models", False), ("config", True)):
                           shlex.quote(str(real)) + ' "$@"\nfi\n')
         script.chmod(0o755)
         env = {"AGENTKIT_SESSION": "acme", **({"COLORTERM": "truecolor"} if colour else {"NO_COLOR": "1"})}
-        term = Terminal(home, "attach", "--overlay", size=(100, 30), env=env)
+        term = Terminal(home, "attach", "--overlay", size=size, env=env)
         term.wait("esc leave", bound=10)
         try:
             term.keys("c")
@@ -57,8 +58,10 @@ for page, colour in (("config", False), ("models", False), ("config", True)):
                 term.keys("j", "j", "Enter")
                 term.wait("config · models", bound=10)
                 term.keys("Enter")
-            shown = term.wait(lambda s: marker.exists(), bound=10)
-            assert "agentkit · config" in shown and "esc back" in shown and "Reading models" in shown, shown
+            shown = term.wait(lambda s: marker.exists() and "Reading models" in s, bound=10)
+            assert shown.splitlines()[0].startswith("agentkit") and "esc back" in shown and "Reading models" in shown, shown
+            if size[0] >= 60:
+                assert "agentkit · config" in shown.splitlines()[0], shown
             if colour:
                 rule = shown.splitlines()[1]
                 term.wait(lambda s: s.splitlines()[1] != rule, bound=3)

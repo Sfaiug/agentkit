@@ -369,6 +369,9 @@ class RedMain(unittest.TestCase):
         with patch.object(gitcall, "git_out", side_effect=checkout):   # add_worktree runs inside gitcall
             land.check_line(self.turn)
             if target_red:
+                self.wake.assert_called_once_with(first.name, unittest.mock.ANY)
+                # The fake wake leaves the head inactive, so the next pass retries it.
+                self.wake.reset_mock()
                 self.exhaust()
         self.assertIn("fix", self.wait(first))
         self.assertIn("Tree: ", (later / "target-probe.log").read_text())

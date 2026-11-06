@@ -50,7 +50,7 @@ class Keys(unittest.TestCase):
         shown.frame()
         shown.send(b"n")
         lines = shown.frame(keys="esc back")
-        self.assertRegex(shown.highlighted(lines), r"^›\s+3  ▏[a-z]+\s+Opus 5\.5\s+new$")
+        self.assertRegex(shown.highlighted(lines), r"^›\s+3  ▏[a-z]+\s+Opus 5\.5 xhigh\s+new$")
         self.assertIn(menu.BORN_KEYS, lines[-1])
         shown.send(b"Fix Apix\x7f")               # a space is a dash, and Backspace takes one back
         shown.frame(lambda lines: "fix-api▏" in shown.highlighted(lines), keys="esc back")

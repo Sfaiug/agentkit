@@ -30,10 +30,7 @@ func Cached() (*Readings, error) {
 // them; or -1 with said `empty until <when>`, or `—` and why.  An account of "" is the provider's
 // single reading.
 func (r *Readings) Cell(provider, account string) (left int, said string) {
-	prov := object(r.providers.Get(provider))
-	if account != "" {
-		prov = object(object(prov.Get("accounts")).Get(account))
-	}
+	prov := r.login(provider, account)
 	week := r.sharedWeek(provider, prov)
 	if week == nil {
 		return -1, "—  " + r.unread(prov)
@@ -51,6 +48,22 @@ func (r *Readings) Cell(provider, account string) (left int, said string) {
 		return -1, "empty until " + when
 	}
 	return -1, "empty"
+}
+
+// Held is the usage-limit resets that subscription holds for the owner to spend on `c`, as its
+// cell's account names it; 0 for none or none known (menu.in_hand).
+func (r *Readings) Held(provider, account string) int {
+	held, _ := number(r.login(provider, account).Get("resets"))
+	return int(held)
+}
+
+// login is that subscription's reading, the provider's single one for an account of "".
+func (r *Readings) login(provider, account string) *run.Object {
+	prov := object(r.providers.Get(provider))
+	if account != "" {
+		prov = object(object(prov.Get("accounts")).Get(account))
+	}
+	return prov
 }
 
 // unread is why a reading has no shared week to draw, Python's menu.unread.  Only the harness's own

@@ -299,9 +299,11 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                         current["waiting_on"].pop("after")
                 self.assert_cleaned()
 
-    def test_a_live_rejoiner_behind_a_green_prefix_prevents_a_pass(self):
+    def test_a_live_rejoiner_behind_a_green_prefix_is_omitted_from_later_stacks(self):
         members = self.members()
+        self.capacity.return_value = 5
         land.check_line(self.turn)
+        self.capacity.return_value = 2
         with record.record(members[0]) as current:
             current.update(state="running", pid=5678)
         for member in members[1:]:
@@ -310,24 +312,34 @@ class LanderPassDepth(LanderFixture, unittest.TestCase):
                     current.update(pid=4321)
                 current["waiting_on"].pop("land")
                 current["waiting_on"].pop("after")
+        self.checked.clear()
         self.checks.clear()
         self.wake.reset_mock()
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") in (5678, 4321)):
             land.check_line(self.turn)
-        self.assertEqual(self.checks, [])
-        self.wake.assert_not_called()
-        self.assertTrue(all("land" not in self.wait(member) for member in members[1:]))
+        self.assertTrue(self.checks)
+        self.assertEqual([call.args[0] for call in self.wake.call_args_list],
+                         [member.name for member in members[2:]])
+        self.assertNotIn("land", self.wait(members[1]))
+        for member in members[2:]:
+            self.assertIn("land", self.wait(member))
+            self.assertNotIn(members[1].name, self.wait(member)["after"])
+        self.assertEqual(self.checked_members(), {frozenset(
+            f"member-{n}.txt" for n in (1, 3, 4, 5))})
         self.assert_cleaned()
 
-    def test_candidate_stacks_stop_before_a_live_rejoiner(self):
+    def test_candidate_stacks_skip_a_live_rejoiner(self):
         members = self.members()
         with record.record(members[1]) as current:
             current.update(pid=4321)
         with patch.object(record, "process_active", side_effect=lambda state: state.get("pid") == 4321):
             land.check_line(self.turn)
-        self.assertEqual(self.checked_members(), {frozenset({"member-1.txt"})})
-        self.assertIn("land", self.wait(members[0]))
-        self.assertTrue(all("land" not in self.wait(member) for member in members[1:]))
+        self.assertEqual(self.checked_members(), {frozenset(
+            f"member-{n}.txt" for n in (1, 3, 4, 5))})
+        self.assertNotIn("land", self.wait(members[1]))
+        for member in (members[0], *members[2:]):
+            self.assertIn("land", self.wait(member))
+            self.assertNotIn(members[1].name, self.wait(member)["after"])
         self.assert_cleaned()
 
     def test_cached_green_and_red_suffixes_cover_the_unanswered_prefix(self):

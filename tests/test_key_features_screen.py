@@ -124,7 +124,7 @@ class FeaturesScreen(unittest.TestCase):
         term.keys("k")
         screen = steady(term, "› ACME")
         self.assertEqual(row(screen, "ACME"), "› " + heading)
-        self.assertEqual(row(screen, "acme-fix"), "  1  acme-fix  Opus 5.5  ○ idle")
+        self.assertEqual(row(screen, "acme-fix"), "  1  acme-fix  Opus 5.5 xhigh  ○ idle")
         term.keys("Escape")
         self.assertEqual(term.exit_code(), 0)
 

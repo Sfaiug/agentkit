@@ -544,7 +544,7 @@ class LiveStatus(unittest.TestCase):
                 self.assertIn(terminal.state_text(word), row)
                 # the bar is the row's own values, word and last column alike
                 self.assertEqual(top, statusbar.lines(
-                    "herdr", info["orchestrator"] + " xhigh", info["word"],
+                    "herdr", info["orchestrator"], info["word"],
                     menu.last_column(info["word"], *info["bar"],
                                      statusbar.CELLS, tmux=True))[0])
                 self.assertEqual(self.options["set-titles-string"], f"herdr · {word}")

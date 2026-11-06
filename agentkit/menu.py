@@ -222,11 +222,13 @@ class Live:
     `ak usage` -- `usage.PROBE_EVERY` -- so a second seat's screen costs no adapter request at
     all; Muse's adapter keeps its own ten-minute cache besides.  The same pipe is how a seat's
     word moving anywhere asks for a draw, and how a read landing does: see `watch`; and how
-    a line maintenance says does (`tidy`).
+    a line maintenance says does (`tidy`).  `cfg` is config.toml as it last loaded, read again
+    whenever the file changes, whoever wrote it (`configure`).
     """
 
     def __init__(self, cfg, every=None):
-        self.cfg = cfg
+        self.cfg, self.configured = cfg, self.config_mark()
+        self.configuring = threading.Lock()   # one reload at a time (`configure`)
         self.every = usage.PROBE_EVERY if every is None else every
         self.started = None          # when the probe now running was started, or None
         self.thread = None
@@ -456,6 +458,33 @@ class Live:
             found += [(key, entry["rows"], entry["error"]) for key, entry in _SWITCHES.items()]
         return found
 
+    @staticmethod
+    def config_mark():
+        """config.toml's inode and mtime, None while there is none: a save replaces the file,
+        a hand edit rewrites it."""
+        try:
+            stat = (config.HOME / config.CONFIG_NAME).stat()
+        except OSError:
+            return None
+        return stat.st_ino, stat.st_mtime_ns
+
+    def configure(self):
+        """config.toml read again if it changed since last read, whoever wrote it -- `c` in this
+        window or another -- and everything read again on it (`ask`), so every read, probe, draw
+        and key after it acts on the config as saved.  One that does not load, a hand edit with
+        an error, leaves the last that did, until its next change.  The watcher and the draw
+        both call it, one at a time, so a slow load never lands over a newer one."""
+        with self.configuring:
+            mark = self.config_mark()
+            if mark == self.configured:
+                return
+            self.configured = mark
+            try:
+                self.cfg = config.load()
+            except (config.Error, OSError, ValueError, TypeError, KeyError):
+                return
+        self.ask()
+
     def _watch(self):
         while True:
             self.asked.wait(STIR)
@@ -465,6 +494,7 @@ class Live:
             if not self.watching.is_set():
                 continue                 # away since the wait: what it would read, nobody draws
             now = self.recorded()
+            self.configure()
             if now == self.seen and not self.asked.is_set():
                 continue
             self.asked.clear()
@@ -1000,22 +1030,25 @@ def squares(tasks, room=float("inf"), tmux=False, most=None):
 
 def seat_crew(cfg, selection):
     """(who builds, who reviews) a seat's work, from its saved selection: its workers; its
-    reviewers, else its workers, each by its full name (`config.model_name`).  A seat whose
-    orchestrator builds alone names no builder, and nothing beside its orchestrator says so:
-    no ⚒ is the seat itself building (the owner's word of 21 Oct 2026).  No selection: nobody.
-    The menu row and the seat's own bar both read this, as they read `seat_tasks`."""
+    reviewers, else its workers, each named at the effort it runs that role at
+    (`config.model_at`).  A seat whose orchestrator builds alone names no builder, and nothing
+    beside its orchestrator says so: no ⚒ is the seat itself building (the owner's word of 21
+    Oct 2026).  No selection: nobody.  The menu row and the seat's own bar both read this, as
+    they read `seat_tasks`."""
     if not selection:
         return [], []
     workers = list(selection.get("workers") or [])
-    return ([config.model_name(cfg, model) for model in workers],
-            [config.model_name(cfg, model) for model in selection.get("reviewers", workers)])
+    return ([config.model_at(cfg, selection, model, "executor") for model in workers],
+            [config.model_at(cfg, selection, model, "reviewer")
+             for model in selection.get("reviewers", workers)])
 
 
 def crew(info, tmux=False, room=None):
-    """`astra ⚒   opus ⚒◎   spark ◎`: each model that builds or reviews a seat's work named once,
-    in the order it first comes, ⚒ after it where it builds and ◎ where it reviews, all dim, as
-    the row's orchestrator is (the owner's pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux` draws
-    it as tmux text."""
+    """`astra high ⚒   opus xhigh ⚒◎   spark ◎`: each model that builds or reviews a seat's work
+    named once at each effort it runs at (`seat_crew`), in the order it first comes, ⚒ after it
+    where it builds and ◎ where it reviews, all dim, as the row's orchestrator is (the owner's
+    pick of 18 Oct 2026); without UTF-8 `B` and `R`.  Cut to `room` cells where given; `tmux`
+    draws it as tmux text."""
     builds, reviews = info.get("crew") or ((), ())
     build, review = ("⚒", "◎") if terminal.utf8() else ("B", "R")
     roles = {model: (build if model in builds else "") + (review if model in reviews else "")
@@ -1151,7 +1184,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
                            number=number, run_numbers=run_numbers, index=index, silent=silent_map)
     selection = selection_of(cfg, name)
     orchestrator = selection["orchestrator"] if selection else "-"
-    shown = config.model_name(cfg, orchestrator)
+    shown = config.model_at(cfg, selection, orchestrator, "orchestrator")
     done, total = seat_progress(name)
     bar = (done, total) if total > 0 else None
     word = found["word"]
@@ -1164,6 +1197,7 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "crew": seat_crew(cfg, selection),
             "tasks": own_tasks(own, now),
             "count": word, "orchestrator": shown, "worker": shown,
+            "model": config.model_name(cfg, orchestrator),
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
             "sentence": sentence, "unsent": found.get("unsent"), "bar": bar,
@@ -1620,6 +1654,9 @@ def v5o_column_widths(infos, term_width):
     state_w = 2 + count_w
     if 2 + num_w + 2 + min(name_w, 8) + 2 + min(orch_w, 8) + state_w > room:
         count_w = state_w = 0
+    # an effort gives way, whole, before any name is cut (`_orchestrator`)
+    fits = room - (2 + num_w + 2 + name_w + 2 + state_w)
+    orch_w = max([terminal.cells(_orchestrator(info, fits)) for info in infos] + [0])
     while 2 + num_w + 2 + name_w + 2 + orch_w + state_w > room and max(name_w, orch_w) > 1:
         if name_w >= orch_w:
             name_w -= 1
@@ -1636,12 +1673,19 @@ def v5o_column_widths(infos, term_width):
             "sent": max(10, room - fixed), "free": room - fixed}
 
 
+def _orchestrator(info, room):
+    """What a row's orchestrator column says in `room` cells: its model at its effort
+    (`config.model_at`) where that fits, else the model alone, which the column may cut."""
+    said = info.get("orchestrator") or info.get("worker") or ""
+    return said if terminal.cells(said) <= room else info.get("model", said)
+
+
 def _head(info, widths, tone="dim"):
     """A seat row's fixed columns -- number, name, orchestrator in `tone`, state -- in `widths`.
     Where even their narrowest do not fit, the number keeps its place behind the indent the
     highlight's `›` takes. A zero state width puts that column below the row instead."""
     number = "  " + _styled_cell(info["number"], widths["num"], "dim", right=True)
-    orchestrator = info.get("orchestrator") or info.get("worker") or ""
+    orchestrator = _orchestrator(info, widths["orch"])
     rest = [born_name(info["born"], widths["name"]) if "born" in info else
             terminal.pad(terminal.cut(info["name"], widths["name"]), widths["name"]),
             _styled_cell(orchestrator, widths["orch"], tone)]
@@ -1954,8 +1998,8 @@ def draw(cfg, found, keys=KEYS, page=0, cursor=None, drawn=None, ask=None, look=
                   if each == provider and own in (None, account)]
             line = coloured + line[len(head):] if pointed in on else line
             if coloured != head:     # its model is drawn in its column, where a colour shows
-                models.append((len(out) + 1, terminal.cut(seat["orchestrator"], widths["orch"]),
-                               lit, on))
+                said = _orchestrator(seat, widths["orch"])
+                models.append((len(out) + 1, terminal.cut(said, widths["orch"]), lit, on))
         out.append(terminal.highlight(("  " if isinstance(name, Path) else "") + line,
                                       mark=name != above and not at) if lit else line)
         above = name
@@ -2294,8 +2338,9 @@ def born_groups(groups, born):
     ordered, infos, *rest = groups
     selected = born["selected"]
     cfg = born["cfg"]
-    shown = config.model_name(cfg, selected["orchestrator"])
+    shown = config.model_at(cfg, selected, selected["orchestrator"], "orchestrator")
     row = {"number": "", "name": BORN, "born": born, "orchestrator": shown, "worker": shown,
+           "model": config.model_name(cfg, selected["orchestrator"]),
            "count": "new", "word": "new", "crew": seat_crew(cfg, selected), "tasks": [],
            "sentence": "", "repo": None}
     ordered = [{**project, "seats": list(project["seats"])} for project in ordered]
@@ -2987,7 +3032,7 @@ LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # the keys' own names were unclear to users.
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
                "executor_lines": ("Max lines per executor task", "executor", "lines",
-                                (100, 200, 300, 500, 1000, 2000, "no limit")),
+                                (0, 100, 200, 300, 500, 1000, 2000, "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
                               (0, 10, 25, 50, 100, 200, "no limit"))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
@@ -5380,6 +5425,10 @@ def config_limits(cfg):
     on, off = ("●", "○") if terminal.utf8() else ("*", ".")
 
     def take(key, value):
+        try:
+            config.host_policy({**cfg, key: value})
+        except config.Error as exc:
+            return f"config: {exc}"
         before = copy.deepcopy(cfg)
         cfg[key] = value
         return _saved(cfg, cfg, before)
@@ -5398,6 +5447,9 @@ def config_limits(cfg):
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
                  (lambda key=key: choices(key), False),
                  ("A change lands on its checks; no reviewer." if key == "review_rounds" and numbers[key] == 0
+                  else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
+                  else "The orchestrator builds nothing; executors build every change."
+                  if key == "orchestrator_lines" and numbers[key] == 0
                   else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
     config_page("limits", page)
@@ -5416,8 +5468,7 @@ def show_config(dry_run=False, keyboard=None, session=None):
     ~/.agentkit/config.toml and ~/.agentkit/secrets, so nobody opens either file; a seat's
     models live in its record, the one place its row and its runs read them from too.  A dry
     run, and a menu with no keyboard to read -- a pipe -- draw it once and read nothing.
-    Returns the config as the screen left it, for the menu to go on with; None when there was
-    nothing to show.
+    Returns the config as the screen left it; None when there was nothing to show.
     """
     try:
         cfg = config.load()
@@ -6007,9 +6058,10 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
     The main screen is live: the read waits at most TICK seconds, and a wait that ends with
     nothing typed draws again, so the clock, the seat rows, the counts on the top line and the
     usage stay true in front of whoever left it open -- and it ends within STIR of any seat's
-    record or the usage cache changing, so a row never says for longer what its bar no longer
-    does, a run at rest aside (`Live.watch`).  Nothing is read between a key and its frame: the
-    seats, their runs and their rows are read once before the first draw, then in `Live`'s thread -- on the clock, after a key
+    record, the usage cache or config.toml changing, so a row never says for longer what its bar
+    or the config no longer does, a run at rest aside (`Live.watch`, `Live.configure`).  Nothing
+    is read between a key and its frame: the seats, their runs and their rows are read once
+    before the first draw, then in `Live`'s thread -- on the clock, after a key
     that did more than move the highlight, and within STIR of a record changing -- and every
     draw is what the last read left, drawn again when the next one lands.  While the owner is in
     a seat it opened, or on the screen that opens one, nothing is read but by the pass a seat
@@ -6069,6 +6121,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
         newborn = None                    # the seat `n` is typing the name of (`born`)
         framed = False                    # the last wait read no key: its frame is still up
         while True:
+            live.configure()              # what `c` here saved, drawn at once
+            cfg = live.cfg
             if back:
                 live.back()               # drawn as the last read left it, read behind it
                 back = False
@@ -6283,9 +6337,8 @@ def loop(cfg, client=False, dry_run=False, overlay=False, tidy=None):
                     return 0
             elif key == "c":
                 # the popup's own seat, whichever row is highlighted, and in a window of its own
-                # new seats (the owner, 24 Oct 2026); read with the keys, the looks and probes
-                # going on with what it saved
-                cfg = live.cfg = show_config(dry_run, keyboard, own) or cfg
+                # new seats (the owner, 24 Oct 2026); read with the keys
+                show_config(dry_run, keyboard, own)
             elif key == "p" and past:
                 if show_past(cfg, found, dry_run, keyboard) and overlay:   # read with the keys
                     return 0              # a seat reopened: the popup's client is on it

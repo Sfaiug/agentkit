@@ -126,6 +126,29 @@ class LimitsPage(unittest.TestCase):
         shown = self.picked(term, NAMES[2], ("k", "k", "k"), "off")
         self.assertIn(row(NAMES[2], "off default 50", on=True), shown)
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
+        term.wait(lambda screen: "The orchestrator builds nothing; executors build every change."
+                  in " ".join(screen.split()))
+
+    def test_picking_off_executors_saves_zero_and_explains_who_builds(self):
+        term = self.c()
+        self.limits(term)
+        shown = self.picked(term, NAMES[1], ("k",) * 3, "off")
+        self.assertIn(row(NAMES[1], "off default 300", on=True), shown)
+        self.assertEqual(akconfig.read(self.home)["executor_lines"], 0)
+        term.wait(lambda screen: "Executors are off; the orchestrator builds every change itself."
+                  in " ".join(screen.split()))
+        term.keys("Escape")
+        term.wait("executor off")
+
+    def test_the_second_builder_cannot_be_switched_off(self):
+        for off, target in (("executor_lines", NAMES[2]), ("orchestrator_lines", NAMES[1])):
+            with self.subTest(off=off):
+                term = self.c({off: 0})
+                given = (self.home.path / ".agentkit/config.toml").read_bytes()
+                self.limits(term)
+                self.picked(term, target, ("k",) * 20, "off")
+                term.wait("cannot both be 0")
+                self.assertEqual((self.home.path / ".agentkit/config.toml").read_bytes(), given)
 
     def test_picking_review_off_saves_zero_and_explains_checks_only(self):
         term = self.c()
@@ -143,7 +166,7 @@ class LimitsPage(unittest.TestCase):
         term.keys("j", "Enter")
         shown = lines(term.wait("›   ● 150"))
         self.assertEqual([line[6:].strip() for line in shown if line[4:6] in ("● ", "○ ")],
-                         ["100", "150", "200", "300", "500", "1000", "2000", "no limit"])
+                         ["off", "100", "150", "200", "300", "500", "1000", "2000", "no limit"])
 
     def test_both_line_lists_end_with_no_limit_and_save_it(self):
         for key, name in zip(("executor_lines", "orchestrator_lines"), NAMES[1:]):

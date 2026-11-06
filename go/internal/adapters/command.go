@@ -11,6 +11,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 )
 
 // Command is the TUI command a new seat of model opens on the usual login, as Python's
@@ -20,12 +21,7 @@ import (
 // Python's launch says why none opens: no adapter runs, it prints no line, or a file the harness
 // reads on its own, which nothing on the line can stop, is there.
 func Command(model config.Model, env []string) ([]string, string, bool) {
-	conversation := uuid()
-	line, told, ok := command(model, env, []string{conversation, "new"}, nil)
-	if !told {
-		conversation = ""
-	}
-	return line, conversation, ok
+	return Fresh(model, append(slices.Clip(env), "AGENTKIT_ACCOUNT="))
 }
 
 // Resumed is the command a seat of model comes back on with the conversation it owns, as Python's
@@ -44,21 +40,21 @@ func Resumed(model config.Model, conversation string, opened bool, env []string)
 // else this program, to which the stubs under go/adapters hand every verb, where the manifest
 // gives it the words of a seat's line; else the shell adapter shipped beside the manifest, whose
 // line is the one Python's launch runs.
-func answering(harness string) ([]string, error) {
-	adapter, err := config.Adapter(harness)
+func answering(name string) ([]string, error) {
+	adapter, err := config.Adapter(name)
 	if !errors.Is(err, config.ErrNoAdapterDir) {
 		return []string{adapter}, err
 	}
-	launch, err := config.Section(harness, "launch")
+	launch, err := config.Section(name, "launch")
 	if err != nil {
 		return nil, err
 	}
-	if launch["seat"] == nil {
-		return []string{filepath.Join(config.Repo(), "adapters", harness+".sh")}, nil
+	if launch["seat"] == nil && harness.Interactive(name) == nil {
+		return []string{filepath.Join(config.Repo(), "adapters", name+".sh")}, nil
 	}
 	self, _ := os.Executable()
 	self, err = filepath.EvalSymlinks(self)
-	return []string{self, "adapter", filepath.Dir(filepath.Dir(self)), harness}, err
+	return []string{self, "adapter", filepath.Dir(filepath.Dir(self)), name}, err
 }
 
 // command is the seat's line from the adapter's answer to `interactive` with first, whether that
@@ -68,7 +64,8 @@ func command(model config.Model, env []string, first, then []string) ([]string, 
 	if err != nil {
 		return nil, false, false
 	}
-	env = append(slices.Clip(env), "AGENTKIT_ACCOUNT=")
+	account := commandAccount(env)
+	env = append(slices.Clip(env), "AGENTKIT_ACCOUNT="+account)
 	args := []string{"interactive", model.ID, model.Efforts["effort"]}
 	ask := func(words []string) ([]byte, error) {
 		run := exec.Command(argv[0], slices.Concat(argv[1:], args, words)...)
@@ -92,7 +89,7 @@ func command(model config.Model, env []string, first, then []string) ([]string, 
 	if !set {
 		owner = cmp.Or(os.Getenv("VISUAL"), os.Getenv("EDITOR"))
 	}
-	line = append([]string{"env", "AGENTKIT_ACCOUNT=", "VISUAL=" + editor, "EDITOR=" + editor, "AK_OWNER_EDITOR=" + owner}, line...)
+	line = append([]string{"env", "AGENTKIT_ACCOUNT=" + account, "VISUAL=" + editor, "EDITOR=" + editor, "AK_OWNER_EDITOR=" + owner}, line...)
 	// looked for as the line sets the harness's home, and, on the usual login, in the usual homes
 	// too, where an adapter drops an account's home a seat handed down (config.unswitched_files)
 	_, seated := environ(line, os.Environ())

@@ -20,7 +20,7 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		t.Setenv(key, value)
 	}
 	task := filepath.Join(home, "task.md")
-	// a run Python's maintenance would reap leaves even an open nobody typed to Python
+	// A run without its record keeps maintenance in shadow.
 	if err := os.MkdirAll(filepath.Join(home, ".agentkit", "runs", "acme-1"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -33,8 +33,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 	before := tree(t, home)
 	// One call a line: milestones in flight each take theirs out, and lines apart merge.
 	calls := [][]string{
-		{},
-		{"attach", "--client"},
 		{"usage", "--json"},
 		{"worker", "acme", task},
 		{"run", task},

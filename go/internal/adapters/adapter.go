@@ -16,6 +16,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/hooks"
 )
 
@@ -27,6 +28,9 @@ import (
 // rulebook to hand over, since a seat opened without the rules it was asked for is worse than
 // one that does not open.
 func Interactive(root, name string, args []string, out, errOut io.Writer) int {
+	if launch := harness.Interactive(name); launch != nil {
+		return launch(root, args, out, errOut)
+	}
 	if len(args) < 2 {
 		fmt.Fprintf(errOut, "%s interactive needs <model> <effort> [session-id [new]]\n", name)
 		return 2

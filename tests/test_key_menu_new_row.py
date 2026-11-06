@@ -22,7 +22,7 @@ from fixtures.akterm import Terminal
 MAIN_KEYS = "  ↑↓←→ move   ⏎ open   n new   c config   esc leave"
 ROW_KEYS = "  ⏎ start   tab models   esc back"
 UNFILED = "not assigned yet"
-CREW = "     Fable 5.1 ⚒◎   GPT-6-Astra ⚒◎"
+CREW = "     Fable 5.1 xhigh ⚒◎   GPT-6-Astra xhigh ⚒◎"
 SHIPPED = 'orchestrator = "opus"\nworkers = ["opus", "astra"]'
 DEFAULTS = 'orchestrator = "fable"\nworkers = ["fable", "astra"]'
 
@@ -84,7 +84,7 @@ class NewRow(unittest.TestCase):
         self.assertNotIn(UNFILED, menu.screen().splitlines())
         screen = self.new_row(menu)
         row, under = highlighted(screen)
-        self.assertRegex(row, r"^› 3  ▏[a-z-]+ +Fable 5.1  new$")
+        self.assertRegex(row, r"^› 3  ▏[a-z-]+ +Fable 5.1 xhigh  new$")
         self.assertEqual(under, CREW)
         rows = screen.splitlines()
         headings = [line for line in rows[:rows.index(row)] if line[:1].isalpha()]
@@ -95,10 +95,10 @@ class NewRow(unittest.TestCase):
         self.new_row(menu)
         menu.type("My Seat!")            # `!` can be no part of a name
         screen = menu.wait(lambda screen: "my-seat▏" in screen)
-        self.assertRegex(highlighted(screen)[0], r"^› 3  my-seat▏ +Fable 5.1  new$")
+        self.assertRegex(highlighted(screen)[0], r"^› 3  my-seat▏ +Fable 5.1 xhigh  new$")
         menu.keys("BSpace")
         screen = menu.wait(lambda screen: "my-sea▏" in screen)
-        self.assertRegex(highlighted(screen)[0], r"^› 3  my-sea▏ +Fable 5.1  new$")
+        self.assertRegex(highlighted(screen)[0], r"^› 3  my-sea▏ +Fable 5.1 xhigh  new$")
         menu.keys("Escape")
         rows = menu.wait(shown(MAIN_KEYS)).splitlines()
         self.assertNotIn(UNFILED, rows)
@@ -115,7 +115,7 @@ class NewRow(unittest.TestCase):
                 menu.type(name)
                 refusal = f"     a seat is called {name} already"
                 row, under = highlighted(menu.wait(shown(refusal)))
-                self.assertRegex(row, rf"^› 3  {name}▏ +Fable 5.1  new$")
+                self.assertRegex(row, rf"^› 3  {name}▏ +Fable 5.1 xhigh  new$")
                 self.assertEqual(under, refusal)
                 menu.keys("Enter")
                 # keys are read in turn: one taken back on the row is read after the Enter

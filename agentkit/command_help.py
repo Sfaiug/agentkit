@@ -1,5 +1,7 @@
 """Public command help, safe to print before importing operational command modules."""
 
+import os
+
 from . import config
 
 WORKER_USAGE = ("usage: ak worker MODEL TASK [--workspace DIR] [--out DIR] [--session ID]\n"
@@ -70,6 +72,7 @@ COMMANDS = {
                            'ak hand-in not-needed "The target already fixes empty input"'),
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
+              [--in-order]
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
        ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]
        ak run resume ID [--rounds N] [--bg]
@@ -85,12 +88,13 @@ $rounds_refusal
 From a seat, --exec, --review, --anyway and --first are refused: ak picks the models,
 decides what goes first and refuses a second run of a change under way.
 Several task files run as one job of independent pieces; --parallel caps it.
+--in-order starts each task once the one before it merged, and none after one that did not.
 max_runs caps the count when positive; 0 leaves host memory as the gate
 (config.toml or AK_MAX_RUNS).
 $pr_delivery
 Task size: $executor_size.
 Seat's work: $orchestrator_size.
-Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
+Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
             "ak run task.md --bg"),
     "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]",
                    "Show current work and result paths; --history includes older runs.\n"
@@ -111,7 +115,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                "Collect inactive temporary state and old merged checkouts; --dry-run only plans.",
                "ak run gc --dry-run"),
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
-       ak orch list [--why] | ak orch why NAME
+       ak orch list [--why] | ak orch why NAME | ak orch check SEAT
        ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
        ak orch project [SEAT] CHECKOUT | ak orch rules CODE""",
              "Start or attach to a named orchestrator session; a new one opens only from a terminal.\n"
@@ -129,6 +133,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, afte
                  "Explain one seat's state: the authority, the rule or hook event,\n"
                  "the evidence line and when that state began.",
                  "ak orch why parser-fix"),
+    "orch check": ("usage: ak orch check SEAT",
+                   "Ask one model whether a seat's work holds everything its owner asked of it.\n"
+                   "Exits 1 naming each gap in the owner's words, 0 with none, 2 if it could not check.",
+                   "ak orch check parser-fix"),
     "orch stop": ("usage: ak orch stop NAME",
                   "Stop a session and keep it, its number reopening it; stop it again to remove it.",
                   "ak orch stop parser-fix"),
@@ -239,12 +247,12 @@ PURPOSES = {
 }
 
 
-def purpose(command):
+def purpose(command, table=None):
     """The command's one-line purpose: the top table's for a top-level command,
     otherwise its description's first line."""
     if command in PURPOSES:
         return PURPOSES[command]
-    return config.in_force(COMMANDS[command][1].splitlines()[0])
+    return config.in_force(COMMANDS[command][1].splitlines()[0], table)
 
 
 def _same_sentence(first, second):
@@ -263,14 +271,22 @@ def render(command):
         lines += [f"  {name.ljust(width)}  {PURPOSES[name]}" for name in ORCHESTRATOR]
         lines += ["", terminal.styled("internal:  " + "  ".join(INTERNAL), "dim"), ""]
         return "\n".join(lines) + "\nUse -h or --help after any command.\nExample: ak run task.md --bg\n"
-    usage, description, example = map(config.in_force, COMMANDS[command])
+    numbers = None
+    if os.environ.get(config.SESSION_ENV):
+        try:
+            seat = config.session_record(config.current_session()) or {}
+            numbers = config.policy(seat.get("repo", seat.get("cwd")))
+        except config.Error:
+            pass        # help still prints when a seat or its settings cannot be read
+    usage, description, example = (config.in_force(text, numbers) for text in COMMANDS[command])
     # the one-line purpose first, then the usage and the rest of the
     # description as today: a description that opens by repeating the purpose
     # keeps only the purpose line, never the same sentence twice
     lines = description.splitlines()
-    if lines and _same_sentence(lines[0], purpose(command)):
+    said = purpose(command, numbers)
+    if lines and _same_sentence(lines[0], said):
         description = "\n".join(lines[1:])
-    body = f"{purpose(command)}\n\n{usage}"
+    body = f"{said}\n\n{usage}"
     if description:
         body += f"\n\n{description}"
     return body + f"\n\nExample: {example}\n"

@@ -110,7 +110,7 @@ class Lines(unittest.TestCase):
         rig = host(self, "widgets", BUILD, executor_lines=120, orchestrator_lines=20)
         _, _, state = launched(self.home, str(taskfile.write(self.home, rig.path)), "--no-merge")
         self.assertIn("a first review takes at most 120; split it", state["error"])
-        self.assertIn("more than 120 added lines", Path(self.fakes["claude"].runs()[0]["argv"][3]).read_text())
+        self.assertIn("a first review takes at most 120", self.fakes["claude"].runs()[0]["hand_ins"][0]["err"])
         gh = GitHub(self.home)
         Seat(self.home, "acme", model="opus", cwd=rig.path, alive=False, planned=True)
         rig.branch("big", {"contrib.txt": "line\n" * 25})
@@ -140,7 +140,7 @@ class Refused(unittest.TestCase):
     def test_a_number_nobody_could_mean_refuses_the_launch_with_no_run_directory(self):
         review, seat = "the most added lines a first review reads", "the most added lines an orchestrator builds"
         for numbers, why in (
-                ({"executor_lines": "abc"}, f'executor_lines must be a whole number of at least 1 or "no limit", {review} (got \'abc\')'),
+                ({"executor_lines": "abc"}, f'executor_lines must be a whole number of at least 0 or "no limit", {review} (got \'abc\')'),
                 ({"orchestrator_lines": "abc"}, f'orchestrator_lines must be a whole number of at least 0 or "no limit", {seat} (got \'abc\')')):
             with self.subTest(numbers=numbers):
                 rig = host(self, "widgets", **numbers)

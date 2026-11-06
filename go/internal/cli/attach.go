@@ -29,7 +29,7 @@ func attach(args []string, out, errOut io.Writer) int {
 			return 2
 		}
 		if alias == "" || contains(args, "--overlay") {
-			return akScreen(args, errOut)
+			return akScreen(args, out, errOut)
 		}
 		return notImplemented(errOut, "attach")
 	}

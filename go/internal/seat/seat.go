@@ -46,6 +46,7 @@ type Seat struct {
 	live                                              bool     // a pane of its session still runs: its screen says what it is
 	own                                               string   // the harness its screen is read as
 	question                                          bool     // its reason is the question its screen shows, not for the bar to repeat
+	back                                              any      // when it comes back, out of usage
 	unsent                                            string   // what nobody sent, left in its composer
 	wordFrom                                          []any    // what its word was decided from (watch.word_from), none for one nobody is in
 	asleep                                            bool     // put to sleep since its harness launched (sleep.asleep)
@@ -76,7 +77,7 @@ func (home Home) Seatless() bool { return len(home.records) == 0 }
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
 // file's, its typing lock, and the plan of a seat the owner stopped, whose word no plan decides.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "verify": {"lock"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
@@ -108,7 +109,7 @@ func Read(now time.Time) (Home, bool) { return reading(now, false, readRuns, nil
 // Looking is Read with seats whose panes still run among them, where Go reads their screens.
 func Looking(now time.Time) (Home, bool) { return reading(now, true, lookRuns, nil) }
 
-func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders) (Home, bool) {
+func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (map[string][]ran, bool), readers recordReaders, pending ...bool) (Home, bool) {
 	state := filepath.Join(config.Home(), "state")
 	entries, err := os.ReadDir(state)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -129,10 +130,10 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
 		// lock, its log's and the hourly stamps of its reads, and what the collection keeps say
 		// nothing a word hangs on: a seat's own wait on its usage is in its seat file
-		if harness.KeptInState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
-			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup"}, entry.Name()) ||
+		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
+			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "retire.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || usages.Owns(entry.Name()) || recommendationState(entry.Name()) ||
+			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
@@ -144,7 +145,7 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 			continue
 		}
 		if entry.IsDir() || !slices.Contains(names, name) || name == "" || config.SessionName(name) != name ||
-			!slices.Contains(kinds[kind], suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
+			!slices.Contains(kinds[kind], suffix) && !launchKind(kind, suffix) && !goneKind(kind, suffix) && !goneQuestionKind(kind, name, suffix) && !revivalKind(kind, suffix) &&
 				!pastKind(state, name, kind, suffix) && !(slices.Contains(live, name) && looksKind(kind, suffix)) {
 			return Home{}, false
 		}
@@ -159,13 +160,18 @@ func reading(now time.Time, looking bool, readRuns func([]string, time.Time) (ma
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		isLive := slices.Contains(live, name)
-		seat, ok := read(state, name, models, offered, runs[name], now, isLive, readers)
+		deferred := isLive && len(pending) > 0 && pending[0]
+		seat, ok := read(state, name, models, offered, runs[name], now, isLive, readers, deferred)
 		if !ok {
 			return Home{}, false
 		}
 		seat.held, seat.live = slices.Contains(held, name), isLive
 		if seat.live {
-			if !seat.looksOn(seat.own) || !climbingOf(state, seat, sight{}, seconds(now)).readable() {
+			facts := climbingOf(state, seat, sight{}, seconds(now))
+			if deferred {
+				facts = accountClimbing(facts)
+			}
+			if !seat.looksOn(seat.own) || !facts.readable() {
 				return Home{}, false
 			}
 		}
@@ -233,13 +239,13 @@ func onServer(names []string) (held, live []string, known bool) {
 
 // read is the seat one record holds, from it, its seat file and its runs.  `live` is whether its
 // panes run on, whose look reads more of its seat file.
-func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool, readers recordReaders) (Seat, bool) {
+func read(state, name string, models map[string]config.Model, offered []string, mine []ran, now time.Time, live bool, readers recordReaders, deferred bool) (Seat, bool) {
 	record, err := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if err != nil || record == nil {
 		return Seat{}, false
 	}
 	seat, known := recorded(state, name, record, models, readers)
-	if !known || !only(record, slices.Concat(recordFields, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
+	if !known || !only(record, slices.Concat(recordFields, launchKeys, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
 		return Seat{}, false
 	}
 	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
@@ -253,7 +259,13 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 			return Seat{}, false
 		}
 	}
-	if seat.closed, known = revivalStopped(previous); !known {
+	stopped := revivalStopped
+	if deferred {
+		stopped = liveStopped
+	} else if live {
+		stopped = waitingStopped
+	}
+	if seat.closed, known = stopped(previous); !known {
 		return Seat{}, false
 	}
 	if seat.closed && seat.unowned {

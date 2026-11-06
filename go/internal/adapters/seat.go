@@ -40,7 +40,7 @@ func Seat(name string, args []string, errOut io.Writer, moved, ended func()) int
 		fmt.Fprintf(errOut, "ak adapter: %s\n", err)
 		return 2
 	}
-	code := run(program, words, env, errOut, moved)
+	code := run(program, harness.SeatWords(name, words, env), env, errOut, moved)
 	ended()
 	return code
 }

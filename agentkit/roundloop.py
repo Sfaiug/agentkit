@@ -558,12 +558,8 @@ def affected_suite(lp):
         where = f"{head[:12]} merged onto {lp.upstream} at {tip[:12]}"
         if code:
             return False, f"$ {suite}\n[not run: {where} does not merge cleanly]\n{tree}"
-        # Identical trees and parents give every attempt the same temporary suite commit.
-        stamp = {"GIT_AUTHOR_NAME": "ak", "GIT_AUTHOR_EMAIL": "ak@localhost",
-                 "GIT_COMMITTER_NAME": "ak", "GIT_COMMITTER_EMAIL": "ak@localhost",
-                 "GIT_AUTHOR_DATE": "2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE": "2000-01-01T00:00:00Z"}
         merged = gitcall.git(checkout, "commit-tree", tree.splitlines()[0], "-p", tip, "-p", head,
-                             "-m", where, env=stamp)
+                             "-m", where, env=gitcall.STAMP)
         gitcall.git(checkout, "checkout", "--quiet", "--detach", merged)
         paths = [p for p in gitcall.git(checkout, "diff", "--name-only", "-z", "--no-renames",
                                         tip, merged).split("\0") if p]
@@ -1167,6 +1163,10 @@ def execute(lp, role, text, name):
                                                                      "files": getattr(lp, "files", ()),
                                                                      "scratch": lp.scratch,
                                                                      "artifacts": sorted(getattr(lp, "artifacts", ())),
+                                                                     # done counts a first build as the gate after it will
+                                                                     "lines": (run_record.policy_of(lp.state)["executor_lines"]
+                                                                               if role == "executor" and first_review_due(lp)
+                                                                               else "no limit"),
                                                                      "limit": lp.done_when_limit,
                                                                      "silence": lp.turn_limit},
                                                              handover=handover, **resume)
@@ -1811,6 +1811,13 @@ def rounds(lp):
             return
 
 
+def first_review_due(lp):
+    """Whether the change still waits for the first review, the one review its size is counted
+    for (`first_review_ceiling`)."""
+    return not (lp.scratch or lp.state.get("review_pr")
+                or transitions.change_reviewed(change=transitions.change_of(lp.state)))
+
+
 def first_review_ceiling(lp, record=True):
     """A task's change gets its first review only up to `executor_lines` added lines
     (`transitions.first_review_refusal`): past it the run ends blocked with `split it`
@@ -1820,8 +1827,7 @@ def first_review_ceiling(lp, record=True):
     left.  A scratch run has no diff to count.  A first review that goes ahead records the lines
     it reads in the run's history row, whatever the run's ending, so the ceiling can be weighed
     against how often changes of each size end merged."""
-    if (lp.scratch or lp.state.get("review_pr")
-            or transitions.change_reviewed(change=transitions.change_of(lp.state))):
+    if not first_review_due(lp):
         return
     gitcall.commit_leftovers(lp.wt, lp.log, lp.artifacts, lp.state)
     follow_target(lp)

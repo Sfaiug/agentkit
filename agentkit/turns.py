@@ -987,9 +987,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
     # Mark only the worker child; the loop's orphaned-orchestrator fallback may still speak.
     # Every role (and retry) lives under <run>/round-N/<role> and inherits this audit log.
     env = {**gitcall.run_child_env(), "AK_RUN_ROLE": "worker",
-           "AK_RUN_LOG": str(run_dir / "log.txt"),
-           worker.EXECUTOR_LINES_ENV: str(run_record.policy_of(
-               run_record.read_state(run_dir) or {})["executor_lines"])}
+           "AK_RUN_LOG": str(run_dir / "log.txt")}
     if findings:
         env[hand_in.FINDINGS_ENV] = str(findings)
     if checks is not None:

@@ -252,7 +252,7 @@ func rated(rows []Row, role string) []*Rating {
 			}
 		}
 		if len(found) > 0 {
-			typical[each.column] = median(found)
+			typical[each.column] = Median(found)
 		}
 	}
 	errorOf := func(i int, column string) float64 {
@@ -407,6 +407,7 @@ type Said struct {
 	Front      []*Rating
 	Best       *float64
 	Pick, Take *Rating
+	Top        *Rating // best over all rows, including those not compared or priced
 }
 
 // Answer is each role's Said; compared, the releases compared, nil for every one.  Every row is
@@ -417,6 +418,9 @@ func Answer(rows []Row, compared map[string]bool) map[string]*Said {
 		said := &Said{}
 		var priced []*Rating
 		for _, row := range rated(rows, role) {
+			if said.Top == nil || row.Quality > said.Top.Quality {
+				said.Top = row
+			}
 			if compared != nil && !compared[row.Release] {
 				continue
 			}

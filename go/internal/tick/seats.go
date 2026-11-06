@@ -10,10 +10,8 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
-	"agentkit/internal/usage"
 )
 
 // every is whether every seat the home holds now is one Go reads, and each reads as ok says.
@@ -45,9 +43,12 @@ func midturn(live seat.Live, account bool) bool {
 // stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
 // no notice to answer by its output, and no account to move it to or off.
 func healthy(live seat.Live) bool {
-	return live.Stall == nil && live.Login == nil && !live.Stuck && live.Bound && titleKept(live) &&
-		(notify.Last(live.Name) == nil || unansweredQuestion(live)) && stays(live)
+	return healthReady(live) && live.Refused == "" && stays(live)
 }
+
+// refused is whether the health row's look, and the wait on its usage the refusal its record ends
+// on puts it in, are all the row does there (watch.seat_account), which a dry tick says it would.
+func refused(live seat.Live) bool { return live.Refused != "" && looked(live) }
 
 // titleKept is whether the seat's title is the name it has, which the owner has not retitled
 // (watch.follow_title) and sync_title has nothing to send for: a title it superseded is one it
@@ -64,33 +65,19 @@ func titleKept(live seat.Live) bool {
 // subscription and the seat is on the one it opened on, with room on it, and its harness wrapped no
 // turn up for want of any.
 func stays(live seat.Live) bool {
-	models, err := config.Models()
-	if err != nil {
-		return false
-	}
-	model := live.Record.Str("orchestrator")
-	accounts, err := config.Accounts(models[model].Provider)
-	readings, unread := usage.Cached()
-	home := func(key string) string {
-		if account := live.Record.Str(key); account != "" {
-			return account
-		}
-		return "default"
-	}
-	return err == nil && len(accounts) == 0 && home("account") == home("home_account") && unread == nil &&
-		readings.Spent(model) == "" && !live.WrappedUp
+	return seat.AccountIdle(live)
 }
 
 // health is the seat health row (watch.health): each seat looked at and its word published, as the
 // later rows read it, while the look is all the row does there; the first it would do more at ends
 // the tick there, before its publish.
-func health() error {
+func (t *ticking) health() error {
 	names, known := seat.Seats(time.Now())
 	if !known {
 		return errLeft
 	}
 	for _, name := range names {
-		if carried, err := seat.Health(name, healthy); err != nil || !carried {
+		if carried, err := seat.Health(name, func(live seat.Live) bool { return healthReady(live) || refused(live) }, t.log.line); err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
 	}

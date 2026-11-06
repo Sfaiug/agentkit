@@ -42,8 +42,6 @@ class NoLimit(unittest.TestCase):
                 self.assertEqual(done.code, 0, done.out + done.err)
                 state = json.loads((taskfile.only_run(self.home) / "run.json").read_text())
                 self.assertEqual((state["verdict"], self.reviews()), ("PASS", 1))
-                prompt = Path(self.fakes["claude"].runs()[0]["argv"][3]).read_text()
-                self.assertIn("The change has no line limit.", prompt)
 
     def test_a_seat_s_own_five_hundred_line_pull_request_is_reviewed(self):
         for front in (False, True):
@@ -60,7 +58,7 @@ class NoLimit(unittest.TestCase):
 
     def test_other_text_is_refused_naming_the_accepted_values(self):
         for front in (False, True):
-            for key, floor in (("executor_lines", 1), ("orchestrator_lines", 0)):
+            for key, floor in (("executor_lines", 0), ("orchestrator_lines", 0)):
                 with self.subTest(front=front, key=key):
                     self.prepare(key, "lots", front=front)
                     task = taskfile.write(self.home, self.rig.path)

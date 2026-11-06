@@ -21,11 +21,12 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from . import config, gitcall, prompts, record, suite_times, transitions, turns, update, versions
+from . import config, gitcall, prompts, record, suite_times, transitions, turns, update
 
 KEEP = 24 * 3600    # a recorded tree older than a day lands through its own suite again
 CHECKED = 60        # a pass shorter than a minute checked nothing: it says nothing of the pace
@@ -34,6 +35,7 @@ FLAKY = 7 * 24 * 3600   # a file's tests failing, then passing, on two trees thi
 # A stack's scratch checkout says so in its own git directory: gc takes one a killed lander
 # left, whatever it holds, and no other checkout for it.
 SCRATCH_MARK = "ak-lander-scratch"
+WAKE = 10           # a blamed run waits at most this long once no run it waits on is in line
 
 
 def _trees(turn, kind="trees"):
@@ -189,15 +191,55 @@ def green_delivery(wait):
 
 def red_stack(wait):
     """Whether the lander found `wait`'s member red on top of runs ahead of it, named in its
-    `after`.  Its fixer would work on the member's branch rebased onto the target, which holds
-    none of their changes until they land, so it waits for them to leave the line and is then
-    checked again.  A delivery's red required checks keep `land` beside their `fix`: theirs."""
+    `after`.  Its fixer works on the member's branch rebased onto the target, which holds
+    none of their changes until they land, so it waits for them to leave the line before
+    waking to fix.  A delivery's red required checks keep `land` beside their `fix`: theirs."""
     return "fix" in wait and "land" not in wait and bool(wait.get("after"))
 
 
 def red_behind(wait, names):
     """Whether a `red_stack` verdict still waits on runs in the line, `names`."""
     return red_stack(wait) and bool(wait["after"].keys() & names)
+
+
+@contextmanager
+def _waking(turn, log):
+    """The pass's `wake`: each parked member of the line as it stands with a `fix` that waits
+    on no run in it (`red_behind`) is woken, once a pass.  Asked as the pass starts and ends,
+    for each verdict it gives, and every WAKE seconds while it runs: the runs ahead leave on
+    their own time, and one check holds a pass for hours (a run blamed behind runs that all
+    merged at 20:26 waited past 22:40 for the next pass, 5 Nov 2026)."""
+    from . import watch
+    # a resume takes its record a moment after its start, and one refused leaves it parked:
+    # that one the next pass wakes again
+    woken, done = set(), threading.Event()
+
+    def wake():
+        members = line(turn)
+        names = {directory.name for directory, _ in members}
+        for directory, state in members:
+            if (state.get("state") == "waiting" and "fix" in state["waiting_on"]
+                    and not red_behind(state["waiting_on"], names)):
+                # `woken` under the run's own lock: two threads of the pass wake it once
+                with record.recovery_lock(directory):
+                    if (directory.name not in woken and record.read_state(directory) == state
+                            and not record.process_active(state)):
+                        woken.add(directory.name)
+                        watch.launch_resume(directory.name, log)
+
+    def watching():
+        while not done.wait(WAKE):
+            wake()
+
+    wake()
+    watcher = threading.Thread(target=watching, daemon=True)
+    watcher.start()
+    try:
+        yield wake
+    finally:
+        done.set()
+        watcher.join()
+    wake()
 
 
 def start_line(turn, log=lambda _: None):
@@ -214,9 +256,9 @@ def start_line(turn, log=lambda _: None):
             except BlockingIOError:
                 return False
             members = line(turn)
-            waiting = next((state for _, state in members if state.get("state") == "waiting"), None)
-            if waiting is None or record.process_active(waiting):
-                return False  # the joining attempt must finish cleanup before a wake
+            if not any(state.get("state") == "waiting" and not record.process_active(state)
+                       for _, state in members):
+                return False
         # The suite gets the run's derived allowance or the largest recorded need,
         # never the small scope of the run or tick that happened to start this pass.
         readings = host.host_readings(slice_dir=orch.slice_cgroup)
@@ -238,16 +280,16 @@ def start_line(turn, log=lambda _: None):
                     config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
             env.pop(key, None)
         env["AK_RUN_DEPTH"] = "0"
-        with versions.checkout(waiting["ak_checkout"]) if waiting.get("ak_checkout") else nullcontext(config.REPO) as code:
-            installed = Path.home() / ".local" / "bin" / "ak"
-            if not installed.is_file():
-                installed = code / "bin" / "ak"
-            env["AK_RUN_CODE"] = str(code)
-            return orch.start_in_slice(
-                [sys.executable, str(installed), "run", "--lander", turn.name],
-                f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
-                env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
-                properties=properties, nice=True)
+        # Owner, 5 Nov 2026: a lander fix takes effect when installed, and changes
+        # launched on different versions stack, so the lander runs the installed ak.
+        installed = Path.home() / ".local" / "bin" / "ak"
+        if not installed.is_file():
+            installed = config.REPO / "bin" / "ak"
+        return orch.start_in_slice(
+            [sys.executable, str(installed), "run", "--lander", turn.name],
+            f"agentkit-lander-{turn.stem.removeprefix('.merge-')}-{time.time_ns()}",
+            env, turn.with_suffix(".log"), log, target_slice=orch.run_slice_name(),
+            properties=properties, nice=True)
     except (OSError, config.Error) as exc:
         log(f"WARN could not start lander for {turn.name}: {exc}")
         return False
@@ -389,7 +431,6 @@ def _repair(turn, directory, state, tree, red, log):
     and is handed the red target as its own landing finding -- its next head is checked on
     its own merits, so one that repairs the target lands (see `check_line`).
     """
-    from . import handback, watch
     if state.get("review_pr"):
         path = directory / "target-red.log"
         path.write_text(red["probe"]["text"] + "\n")
@@ -399,8 +440,7 @@ def _repair(turn, directory, state, tree, red, log):
             with record.record(directory) as current:
                 current["waiting_on"] = {**current["waiting_on"], "fix": {
                     "line": red["probe"]["text"].splitlines()[0], "log": str(path)}}
-        watch.launch_resume(directory.name, log)
-        return None
+        return None     # the pass wakes it (`_waking`)
     name = _start_repair(state, directory, red["probe"], log)
     if name:
         note(turn, [], directory.name, red={tree: {**red, "run": name}})
@@ -495,7 +535,7 @@ def _flaked(turn, directory, state, scratch, tree, log_path, log, flaky, failed,
 
 
 def check_line(turn, log=lambda _: None):
-    """Check stacks from the first member without a verdict, under the singleton flock.
+    """Check ready stacks from the first member without a verdict, under the singleton flock.
 
     The singleton is separate from delivery so checks and merges can overlap.
     Saved verdicts are woken again if a crash or refused launch left them parked.  A member
@@ -505,32 +545,24 @@ def check_line(turn, log=lambda _: None):
     from . import handback, roundloop, run, watch
     turn = Path(turn)
     _code()     # read as the pass starts: an update installed during a check is not this pass's
-    with _pass(turn) as held:
+    with _pass(turn) as held, ExitStack() as waking:
         if not held:
             return
+        # Checks may return after their first group; no saved red waits for that walk to reach it.
+        wake = waking.enter_context(_waking(turn, log))
         target, prefix, tip_green = None, [], set()    # the pieces the tip passed on this pass
         members = copy.deepcopy(line(turn))     # its own: it writes its answers into them
-        names = {directory.name for directory, _ in members}
         for index, (directory, state) in enumerate(members):
             with record.recovery_lock(directory):
                 if record.read_state(directory) != state or record.process_active(state):
-                    if "land" in state["waiting_on"] and "fix" not in state["waiting_on"]:
+                    if green_delivery(state["waiting_on"]):
                         prefix.append((directory, state))
-                        continue
-                    return  # a live rejoiner still holds its place ahead of later stacks
-                if state.get("state") == "waiting" and red_stack(state["waiting_on"]):
-                    if red_behind(state["waiting_on"], names):
-                        continue
-                    with record.record(directory) as current:
-                        current["waiting_on"] = {key: value for key, value
-                                                 in state["waiting_on"].items()
-                                                 if key not in ("fix", "after")}
-                    state = record.read_state(directory)
+                    continue
+                if "fix" in state["waiting_on"]:
+                    continue
             if state.get("state") != "waiting":
                 prefix.append((directory, state))
                 continue
-            if state.get("ak_checkout") not in (None, str(config.REPO)):
-                return
             if target is None:
                 repo = Path(state.get("worktree") or state["repo"])
                 gitcall.no_auto_gc(repo)
@@ -579,14 +611,12 @@ def check_line(turn, log=lambda _: None):
                     continue
                 candidates = [(directory, state)]
                 for later, saved in members[index + 1:] if not name else ():
-                    if saved.get("ak_checkout") != state.get("ak_checkout"):
-                        break
                     with record.recovery_lock(later):
                         if (record.read_state(later) != saved or record.process_active(saved)
-                                or saved.get("state") != "waiting"):
-                            break
+                                or saved.get("state") != "waiting" or "fix" in saved["waiting_on"]):
+                            continue
                         if ((saved.get("review") or {}).get("verdict") == "PASS"
-                                and not any(k in saved["waiting_on"] for k in ("land", "fix"))):
+                                and "land" not in saved["waiting_on"]):
                             candidates.append((later, saved))
             else:
                 candidates = [(directory, state)]
@@ -633,8 +663,9 @@ def check_line(turn, log=lambda _: None):
                         snapshots[member]["waiting_on"] = dict(current["waiting_on"])
                     sent.update(fresh)
                     for member, answer in fresh.items():
-                        if not red_behind(answer, names):
+                        if "fix" not in answer:
                             watch.launch_resume(member.name, log)
+                    wake()
                 return True
 
             verdicts = (_check_members(turn, candidates, repo, tip, target_tree, log, prefix=prefix,

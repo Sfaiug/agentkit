@@ -10,8 +10,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// questionTransition cards a question read under its typing lock, from its notice or screen.
-func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, question func(string, *run.Object) *run.Object) (bool, error) {
+// questionTransition cards a need read under its typing lock. Only a question waits for the
+// owner to leave the seat: another failure may need them even while they are there.
+func questionTransition(name string, said func(string) (string, any), clock func() float64, wait float64, errOut io.Writer, isQuestion bool, question func(string, *run.Object) *run.Object) (bool, error) {
 	if os.Getenv("AK_RUN_ROLE") == "worker" {
 		return true, nil
 	}
@@ -33,6 +34,7 @@ func questionTransition(name string, said func(string) (string, any), clock func
 			return nil
 		}
 		present, last, gone, known := questionActivity(current)
+		present = present && isQuestion
 		if !known || !gone && config.Fold(file.Str("reason")) != config.Fold(notice.Str("text")) {
 			return nil
 		}

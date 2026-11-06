@@ -38,6 +38,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/gh"
 	"agentkit/internal/handback"
 	"agentkit/internal/host"
 	"agentkit/internal/pick"
@@ -221,10 +222,10 @@ type loop struct {
 	workspace     string
 	place         workplace
 	title         string
-	cmds          []string // the done-when lines a round reads
-	usersAt       string   // the ref a review's `users:` is read at
-	reviewLines   int      // the first review's ceiling
-	once          []string // those deferred to landing
+	cmds          []string     // the done-when lines a round reads
+	usersAt       string       // the ref a review's `users:` is read at
+	reviewLines   config.Lines // the first review's ceiling
+	once          []string     // those deferred to landing
 	executor      string
 	reviewer      string
 	workers       []string // the lists the run was launched with, nil where none was bound
@@ -275,6 +276,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 	ctx, release := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
+	defer gh.Serve(l.say, l.wait)()
 	err := l.admitQueued()
 	if err == nil {
 		err = l.adopt()

@@ -1237,20 +1237,28 @@ ok "0 the suite cannot reach another tmux server: every kill goes through a test
 # `mergework` does it and leaves a merge commit behind, `pass` reviews everything as PASS,
 # `dead` is spent and never comes back, `meterless` works and reports the [usage] none form
 # the real grokbuild and opencode adapters answer, so the sandbox ranks those providers
-# neutrally instead of last. They live here, not in the repo tree.
+# neutrally instead of last. They live here, not in the repo tree.  A seat one opens shows an
+# empty composer, the only one ak types a line into, and keeps each line entered in
+# <dir>/<seat>.typed.lines (tests/fixtures/akpane.py).
 fakeadapter() {   # fakeadapter <dir> <harness> <flaky|work|mergework|pass|dead|meterless>
   local d=$1 h=$2
   printf '%s\n' "$3" >"$d/$h.beh"
+  printf '❯\n' >"$d/composer.txt"
   cat >"$d/$h.sh" <<SH
 #!/usr/bin/env bash
 set -uo pipefail
 S="$d/$h"
+D="$d"
 AK="$REPO/bin/ak"
+PANE="$REPO/tests/fixtures/akpane.py"
 SH
   cat >>"$d/$h.sh" <<'SH'
 if [ "${1:-}" = usage ] && [ "$(cat "$S.beh" 2>/dev/null)" = meterless ]; then printf '%s\n' '{"provider":"xai","meters":[],"error":null,"none":"no meter: smoke fake"}'; exit 0; fi
 if [ "${1:-}" = usage ]; then printf '%s\n' '{"meters":[],"error":"unknown: smoke fake"}'; exit 0; fi
-if [ "${1:-}" = interactive ]; then echo 'sleep 600'; exit 0; fi   # a seat that paints nothing
+if [ "${1:-}" = interactive ]; then
+  printf '%q %q %q %q\n' "$(command -v python3)" "$PANE" "$D/composer.txt" "$D/$AGENTKIT_SESSION.typed"
+  exit 0
+fi
 if [ "${1:-}" = auth ]; then echo 'the smoke fake needs no login'; exit 0; fi
 shift; ws=$3 out=$5
 mkdir -p -- "$out"
@@ -3526,8 +3534,8 @@ grep -q 'n new   x stop   c config   esc leave' "$WORK/overlay-popup.txt" &&
   grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 # two seats holding a sleep, with nothing asked or owed: at rest
 IDLE_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
-grep -qE "1  $OV1  $FABLE +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
-grep -qE "2  $OV2  $ASTRA +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -qE "1  $OV1  $FABLE xhigh +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -qE "2  $OV2  $ASTRA xhigh +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q 'p preview' "$WORK/overlay-popup.txt" && OVERLAY=1   # not offered over a running session
 # 2 switches this client to that seat, and the popup comes down behind it. switch-client, the
 # popup closing and the seat drawing its own bar are three redraws, in that order and none of
@@ -3782,7 +3790,7 @@ done
 tm kill-session -t =resume-seat 2>/dev/null
 printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
 RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
-OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' opus)
+OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' opus)
 grep -qE "^ +[0-9]+  resume-seat +$OPUS +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
 grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
 akn orch resume-seat >"$WORK/name-reopen.log" 2>&1 || NAME=1
@@ -3969,7 +3977,7 @@ jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
 # the first frame is the records as they stand: the line that leaves goes in once the seat's
 # look has landed and drawn its row again, its question on the line under it
-ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' astra) +! needs you"
+ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' astra) +! needs you"
 rm -f -- "$WORK/menu-shape.log"
 { for _ in $(seq 300); do grep -q 'Which branch?' "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done
@@ -4266,8 +4274,8 @@ grep -q '^+c$' "$PH/.agentkit/runs/$PRUNID/round-1/reviewer/prompt.md" 2>/dev/nu
 git -C "$PH/.agentkit/wt/$PRUNID" rev-parse HEAD 2>/dev/null | grep -q "^$PHEAD$" || PRR=1
 tm has-session -t "=$INBOX" 2>/dev/null || PRR=1
 grep -q "asked the $INBOX seat: PR #7 by bob: Add contrib. Merge? yes/no" "$WORK/prreview.log" || PRR=1
-# the seat holds a `sleep`, so what was typed sits echoed in its pane: the merge is pinned to the head
-tm capture-pane -p -J -t "=$INBOX:" 2>/dev/null | grep -q -- "--match-head-commit $PHEAD" || PRR=1
+# the line the seat took pins the merge to the head
+grep -qs -- "--match-head-commit $PHEAD" "$PAD/$INBOX.typed.lines" || PRR=1
 grep -q "message: Needs you . $INBOX: PR #7 by bob: Add contrib. Merge? yes/no" "$WORK/prreview.log" || PRR=1
 jq -e '.kind == "needs" and .text == "PR #7 by bob: Add contrib. Merge? yes/no"' \
   "$PH/.agentkit/state/notify-$INBOX.json" >/dev/null 2>&1 || PRR=1

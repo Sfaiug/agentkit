@@ -33,6 +33,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, menu, notify, orch, run, statusbar, terminal
 from agentkit import record as run_record
+from fixtures.clock import Clock
 from fixtures.sandbox import menu_input
 
 REAL_TMUX = shutil.which("tmux")
@@ -42,9 +43,7 @@ STAND_IN = "stand-in harness: no model call"
 # What each seat here asks the owner: a seat with nothing asked rests, `idle`, with no reason
 # under its word, and these pages are laid out for rows that carry one.
 ASKED = "waiting for you"
-# How long a wait for a real tmux screen may last: a guard against a hang, never a claim
-# about speed.  A wait ends the moment its screen is there; at 30 s a loaded landing host
-# missed it three times in two days and sent a passed change back each time.
+# A guard against a hung tmux screen, never a claim about speed.
 HANG = 180
 LONG_REASON = ("reviewer astra died on API/transport errors 3 times and no eligible reviewer is "
                "left on another provider; waiting for review. See {}/round-1-reviewer*/stderr.log "
@@ -96,7 +95,8 @@ class Sandbox(unittest.TestCase):
             "AGENTKIT_DISCORD_WEBHOOK": "off", "AGENTKIT_TMUX_SOCKET": SOCKET,
             "TMUX_TMPDIR": str(self.seats_dir), config.ADAPTER_DIR_ENV: str(self.root / "adapters"),
             "GIT_CONFIG_GLOBAL": os.devnull, "PYTHONDONTWRITEBYTECODE": "1",
-            "TERM": "xterm-256color"})
+            # The assertions pin Unicode glyphs, including popup borders and page arrows.
+            "TERM": "xterm-256color", "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8"})
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         # a menu leaves its reads and looks going: they end before this HOME goes
@@ -456,53 +456,34 @@ class Terminal:
     def keys(self, *keys):
         self.tmux("send-keys", "-t", "phone", *keys)
 
-    def menu(self, *texts, tries=4):
-        """Ctrl-b m, then the menu's screen with `texts` on it; the keys again while no menu came
-        up.  tmux drops a prefix sent while it is still switching the client to a seat: the
-        walk then waited its whole limit on the seat's own screen, at landing and alone."""
-        for attempt in range(tries):
-            self.keys("C-b", "m")
-            try:
-                return self.until("esc leave", *texts, prompt="esc leave",
-                                  timeout=HANG if attempt == tries - 1 else 20)
-            except AssertionError:
-                if attempt == tries - 1 or any("esc leave" in line for line in self.screen()):
-                    # out of tries, or a menu is up -- late, or not the one expected: the full
-                    # wait says which
-                    return self.until("esc leave", *texts, prompt="esc leave")
+    def menu(self, *texts):
+        """Open the popup after the preceding popup has finished handing back the client."""
+        self.settled()
+        self.keys("C-b", "m")
+        return self.until("esc leave", *texts, prompt="esc leave")
 
     def resize(self, width, height):
         self.width, self.height = width, height
         self.tmux("resize-window", "-t", "phone", "-x", str(width), "-y", str(height))
 
-    def redraw(self, *texts, key="F5", prompt="esc leave", tries=5):
-        """`key` (a key that does nothing, by default) for a redraw; again when the pane's
-        pty was still being resized under it.
-
-        tmux applies a pane's new size to its pty a moment after `resize-window`, so a key
-        sent straight after may be answered at the old size, as a phone turned mid-keypress
-        would be; the next one draws it right.  The screen has to be this size's as well as
-        say the texts, as the old layout re-wrapped by tmux and a capture inside the new frame
-        may: every frame ends two lines above the bottom, its keys last, so one ending there
-        and nothing under it is whole.
-        """
+    def redraw(self, *texts, prompt="esc leave"):
+        """Wait for the resize's SIGWINCH to draw at the new size. A key sent before the pty
+        has resized can draw at the old size. The full frame's header and rule must have the
+        new width, and every frame ends two lines above the bottom, its keys last."""
         def drawn(screen):
             return (len(screen) == self.height - 2
-                    and all(terminal.cells(line) <= self.width for line in screen))
-        for _ in range(tries):
-            self.keys(key)
-            try:
-                return self.until(*texts, prompt=prompt, timeout=3, drawn=drawn)
-            except AssertionError as exc:
-                last = exc
-        raise last
+                    and all(terminal.cells(line) <= self.width for line in screen)
+                    and (not screen[0].startswith("agentkit")
+                         or terminal.cells(screen[0]) == self.width
+                         and screen[1] == "─" * self.width))
+        return self.until(*texts, prompt=prompt, drawn=drawn)
 
     def settled(self, timeout=HANG):
         """Wait until no popup of this fixture's is still on its way out after a switch.
 
-        `switch-client` shows the seat before the popup's own process has finished and the
-        popup has come down; a key sent in between goes to the popup and is lost.  Only
-        processes with this test's HOME count: the owner's own seats may have popups up.
+        `switch-client` shows the seat before the menu exits, and display-popup closes the
+        popup after that. A key sent in between goes to the popup and is lost. Only processes
+        with this test's HOME count: the owner's own seats may have popups up.
         """
         deadline = time.monotonic() + timeout
         home = f"HOME={self.case.home}".encode()
@@ -513,7 +494,8 @@ class Terminal:
                     continue
                 try:
                     cmdline = (proc / "cmdline").read_bytes()
-                    if b"attach\0--overlay" in cmdline and home in (proc / "environ").read_bytes().split(b"\0"):
+                    if (b"attach\0--overlay" in cmdline or b"display-popup" in cmdline.split(b"\0")) \
+                            and home in (proc / "environ").read_bytes().split(b"\0"):
                         open_.append(proc.name)
                 except OSError:
                     continue
@@ -521,6 +503,49 @@ class Terminal:
                 return
             self.case.assertLess(time.monotonic(), deadline, f"popup processes still up: {open_}")
             time.sleep(0.1)
+
+
+class Synchronization(Sandbox):
+    def test_a_checkout_path_does_not_make_an_attached_client_a_popup(self):
+        entry = self.root / "display-popup-checkout" / "bin" / "ak"
+        entry.parent.mkdir(parents=True)
+        self.script(entry, "import sys; sys.stdin.read()\n")
+        client = subprocess.Popen([sys.executable, str(entry), "attach", "--client"],
+                                  env=self.env, stdin=subprocess.PIPE)
+        self.addCleanup(client.communicate)
+        phone = Terminal.__new__(Terminal)
+        phone.case = self
+        phone.settled(timeout=0)
+        self.assertIsNone(client.poll())
+
+    def test_the_tmux_popup_command_must_finish_after_the_menu_exits(self):
+        # display-popup outlives its menu: no overlay process is left, but keys still go to
+        # the closing popup. End that command only once settled has waited for it.
+        popup = subprocess.Popen([sys.executable, "-c", "import sys; sys.stdin.read()",
+                                  "display-popup"], env=self.env, stdin=subprocess.PIPE)
+        self.addCleanup(popup.communicate)
+        phone = Terminal.__new__(Terminal)
+        phone.case = self
+        with patch(f"{__name__}.time", Clock(lambda _: popup.communicate(timeout=HANG))):
+            phone.settled()
+        self.assertEqual(popup.poll(), 0)
+
+    def test_a_resize_waits_for_the_new_frame_without_sending_keys(self):
+        def frame(width):
+            return [f"{'agentkit':<{width - 5}}12:34", "─" * width,
+                    *[""] * 25, "  esc leave"]
+
+        old, new = frame(40), frame(100)
+        # Both fit the new terminal's bounds; the header can arrive before the rule.
+        partial = [new[0], *old[1:]]
+        phone = Terminal.__new__(Terminal)
+        phone.case, phone.width, phone.height = self, 100, 30
+        with patch.object(phone, "screen", side_effect=[old, partial, new]), \
+                patch.object(phone, "dead", return_value=False), \
+                patch.object(phone, "shot"), patch.object(phone, "keys") as keys, \
+                patch(f"{__name__}.time", Clock(lambda _: None)):
+            self.assertEqual(phone.redraw("esc leave"), new)
+        keys.assert_not_called()
 
 
 @unittest.skipUnless(REAL_TMUX, "tmux not installed")
@@ -722,22 +747,18 @@ class Phone(Sandbox):
         self.assertNotIn("p preview", "\n".join(screen))
         phone.keys("Escape")
         phone.until(STAND_IN, absent=["esc leave"])
-        phone.settled()                      # its screen goes before its process does
         phone.menu()
         phone.press("n")
         phone.until("tab models", prompt="esc back")
         phone.keys("acme", "Enter")          # the row's crew, as the last creation's: astra
         phone.until("acme  ", "Ctrl-b m  menu", absent=["esc leave"])
-        phone.settled()
         self.assertTrue(self.has_seat("acme"))
         phone.menu("1  phone-au", "2  acme")     # in the order they were made
         phone.press("1")
         phone.until("   phone-a", absent=["esc leave"])   # its bar: line one cut on a phone
-        phone.settled()
         phone.menu("2  acme")
         phone.press("2")
         phone.until("acme  ", absent=["esc leave"])
-        phone.settled()
         phone.menu()
         phone.press("x")                     # this session's, asked under its own row
         phone.until("Stop acme and everything it runs?", "Keep", prompt="esc back")
@@ -875,7 +896,6 @@ class Phone(Sandbox):
         self.assertEqual(self.marked(screen), 12)
         phone.press("12")
         phone.until(STAND_IN, absent=["esc leave"])
-        phone.settled()
         phone.menu()
         phone.press("x")
         screen = "\n".join(phone.until("everything it runs?", "Keep", prompt="esc back"))

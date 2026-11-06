@@ -18,3 +18,18 @@ func ModelName(name string, models map[string]Model) string {
 	}
 	return model.ID[strings.LastIndexByte(model.ID, '/')+1:]
 }
+
+// ModelAt is how every screen names model `name` at its effort `key` (RoleEfforts, else
+// `effort`) in `models`, a seat's as it runs them (config.model_at): its full name, then that
+// effort, alone where it is none.
+func ModelAt(name, key string, models map[string]Model) string {
+	efforts := models[name].Efforts
+	effort, set := efforts[key]
+	if !set {
+		effort = efforts["effort"]
+	}
+	if effort == "" || effort == "none" {
+		return ModelName(name, models)
+	}
+	return ModelName(name, models) + " " + effort
+}

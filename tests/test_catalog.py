@@ -136,7 +136,7 @@ class Catalog(unittest.TestCase):
         self.stub("codex", listing=FIXTURES / "codex-models.json", rc=1)
         got = {model: efforts for model, _, efforts in lines(self.models("codex"))}
         self.assertEqual(list(got), list(self.table("codex")))
-        self.assertEqual(got["gpt-5.2"], "low medium high xhigh")
+        self.assertEqual(got["gpt-5.5"], "low medium high xhigh")
 
     def test_muse_table_labels_models_by_their_ids(self):
         rows = lines(self.models("muse"))

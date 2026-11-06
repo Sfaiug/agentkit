@@ -37,7 +37,7 @@ func WriteResult(dir string, record *run.Object) error {
 			if record.Str("state") == "blocked" {
 				outcome = "BLOCKED"
 			}
-			return save(dir, report(dir, record, declaredChecks(record, cmds)), record, outcome)
+			return save(dir, report(dir, record, ranChecks(record, cmds)), record, outcome)
 		}
 		suffix = "\n\n(the full result could not be written: " + err.Error() + ")"
 	}
@@ -66,9 +66,7 @@ func save(dir, text string, record *run.Object, outcome string) error {
 	return os.WriteFile(path, []byte(resultOpening(dir, record, outcome)+text+kept), 0o666)
 }
 
-// report is result.md's body, Python's handback.write_result, its opening added under the delivery lock. A run
-// that ends well lists the checks its rounds ran, without their `# once` marks; any other lists the
-// task's.
+// report is result.md's body, Python's handback.write_result, its opening added under the delivery lock.
 func report(dir string, record *run.Object, cmds []string) string {
 	spent := record.List("round_summaries")
 	parts := append([]string{"", "", "VERDICT: " + run.Field(record, "verdict", "None"),
@@ -76,28 +74,7 @@ func report(dir string, record *run.Object, cmds []string) string {
 	if record.Truthy("blocked") {
 		parts = append(parts, "", record.Str("blocked"), "")
 	}
-	once := false
-	shown := make([]string, len(cmds))
-	for i, cmd := range cmds {
-		bare, marked := task.SplitOnce(cmd)
-		switch {
-		case !marked:
-			shown[i] = cmd
-		case record.Str("state") == "pass":
-			shown[i] = bare
-		default:
-			shown[i], once = bare+" (once)", true
-		}
-	}
-	final := run.FinalChecked(record)
-	switch {
-	case final != "":
-	case once:
-		final = "final check: not run"
-	default:
-		final = "final check: none (no once-commands)"
-	}
-	parts = append(parts, "", "## Done-when", "```", strings.Join(shown, "\n"), "```", "", final, "")
+	parts = append(parts, "", "## Done-when", "```", strings.Join(shownChecks(record, cmds), "\n"), "```", "", finalLine(record, cmds), "")
 	if line := baseProofLine(record); line != "" {
 		parts = append(parts, line, "")
 	}

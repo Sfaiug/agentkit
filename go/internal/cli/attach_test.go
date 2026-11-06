@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bytes"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,20 +29,17 @@ func TestTheAliasIsTheServerFileStripped(t *testing.T) {
 	}
 }
 
-func TestAnythingButAHopIsThePythonMenu(t *testing.T) {
-	for name, server := range map[string]string{"alias": "acme-box\n", "empty": " \n"} {
-		clientHome(t, server)
-		calls := [][]string{{"--client"}, {"--overlay"}, {"--client", "--dry-run"}, {"--overlay", "--overlay", "--dry-run"}}
-		if name == "empty" {
-			calls = append(calls, []string{}, []string{"--dry-run"})
-		}
-		for _, args := range calls {
-			var out, errOut bytes.Buffer
-			if code := Main(args, &out, &errOut); code != 3 || out.Len() != 0 {
-				t.Fatalf("%s %v: exit=%d stdout=%q stderr=%q", name, args, code, out.String(), errOut.String())
-			}
+func TestAClientWithAnAliasIsThePythonMenu(t *testing.T) {
+	clientHome(t, "acme-box\n")
+	for _, args := range [][]string{{"--client"}, {"--client", "--dry-run"}} {
+		var out, errOut bytes.Buffer
+		if code := Main(args, &out, &errOut); code != 3 || out.Len() != 0 {
+			t.Fatalf("%v: exit=%d stdout=%q stderr=%q", args, code, out.String(), errOut.String())
 		}
 	}
+}
+
+func TestAnUnreadableServerFileIsNoAlias(t *testing.T) {
 	home := clientHome(t, "")
 	unreadable := filepath.Join(home, ".agentkit", "state", "server")
 	if err := os.Remove(unreadable); err != nil {
@@ -52,8 +48,8 @@ func TestAnythingButAHopIsThePythonMenu(t *testing.T) {
 	if err := os.Mkdir(unreadable, 0o700); err != nil { // reads as an error for any user, root too
 		t.Fatal(err)
 	}
-	if code := Main([]string{"--dry-run"}, io.Discard, io.Discard); code != 3 {
-		t.Fatalf("exit=%d", code)
+	if alias := serverAlias(); alias != "" {
+		t.Fatalf("alias=%q", alias)
 	}
 }
 

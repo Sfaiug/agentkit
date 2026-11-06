@@ -44,8 +44,8 @@ func hypot(values map[source]float64) float64 {
 	return root
 }
 
-// median is Python's statistics.median of at least one value.
-func median(values []float64) float64 {
+// Median is Python's statistics.median of at least one value.
+func Median(values []float64) float64 {
 	sorted := slices.Sorted(slices.Values(values))
 	middle := len(sorted) / 2
 	if len(sorted)%2 == 1 {

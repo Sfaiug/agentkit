@@ -20,7 +20,7 @@ import time
 from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, owner,
                proc_snapshot, record, retention, run, stop, transitions, turns, watch, worktrees)
 from .harness import (conversation_stores, end_conversation, idle_conversations,
-                      load as harness_plugin)
+                      load as harness_plugin, recorded_conversations)
 
 GC_INTERVAL = 86400             # background retention inspects old state at most once a day
 GC_LOG_LIMIT = 1024 * 1024      # retain two bounded automatic-collection logs
@@ -114,8 +114,9 @@ def stale_seat_files(now):
 def model_report_stale(path):
     return (retention.safe(path) and path.is_file()
             and path.stem.removeprefix("model-") not in {
-                (retention.read_json(seat) or {}).get("conversation")
-                for _, seat in config.seat_files("session", retention.children(config.STATE))})
+                conversation
+                for _, seat in config.seat_files("session", retention.children(config.STATE))
+                for conversation in recorded_conversations(retention.read_json(seat) or {})})
 
 
 def stale_model_reports():

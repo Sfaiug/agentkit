@@ -129,12 +129,14 @@ func (r *repoPlace) prove(l *loop, command, path string) (*run.Object, error) {
 
 // earlierWork is what a later round's review adds to the whole change: ak's proof of the last
 // review's findings on this commit, which the reviewer is handed where the fix left them, and with
-// a new commit the delta since that review, which is what the review reads.
+// a new commit the delta since that review, which is what the review reads.  A landing re-review
+// reads the whole change alone, and one whose base moved since that review (no `delta_from`) reads
+// it with that proof.
 func (r *repoPlace) earlierWork(l *loop, j *judging, whole, head string) (string, error) {
-	if j.from == "" || len(j.earlier) == 0 {
+	if j.uncounted || len(j.earlier) == 0 {
 		return whole, nil
 	}
-	if j.from != head {
+	if j.from != "" && j.from != head {
 		j.since = j.from
 	}
 	var left []*run.Object

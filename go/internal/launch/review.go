@@ -31,7 +31,9 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}
 	parts := gh.PullURL.FindStringSubmatch(url)
 	numbersIn, err := reviewNumbers(parts[1] + "/" + parts[2])
-	if err != nil {
+	if errors.Is(err, ErrPython) {
+		return 0, "", err
+	} else if err != nil {
 		return 2, err.Error(), nil
 	}
 	pull, unread := gh.View(url)
@@ -72,7 +74,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}
 	if err := unstopped(func(record *run.Object) {
 		run.SetAll(record, "title", fmt.Sprintf("Review PR #%s: %s", pull.Number, pull.Title), "own_pr", false, "own_orchestrator", nil,
-			"own_orchestrator_effort", nil, "policy", run.Fields("rounds", numbersIn.Rounds, "review_lines", numbersIn.ReviewLines, "seat_lines", numbersIn.SeatLines))
+			"own_orchestrator_effort", nil, "policy", run.Fields("rounds", numbersIn.Rounds, "review_lines", numbersIn.ReviewLines.Said(), "seat_lines", numbersIn.SeatLines.Said()))
 	}); err != nil {
 		return 0, "", err
 	}
@@ -114,8 +116,5 @@ func samePull(one, two string) bool {
 // reviewNumbers is the numbers in force for a review of that repository: its checkout's here, else
 // the host's.
 func reviewNumbers(slug string) (config.Numbers, error) {
-	if checkout := seat.CheckoutFor(slug); checkout != "" {
-		return numbers(checkout)
-	}
-	return config.HostNumbers()
+	return numbers(seat.CheckoutFor(slug))
 }

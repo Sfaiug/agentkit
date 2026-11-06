@@ -94,6 +94,18 @@ class LanderLifecycle(unittest.TestCase):
             self.assertFalse(land.start_line(self.turn))
         self.assertEqual(self.starts, [])
 
+    def test_a_live_first_member_does_not_prevent_starting_a_pass_for_later_members(self):
+        code = self.root / "ready-code"
+        first = self.member(ak_checkout=str(self.root / "active-code"))
+        self.member("fix-docs", pid=None, ak_checkout=str(code))
+        self.starts.clear()
+        with patch.object(record, "process_active", side_effect=lambda state: bool(state.get("pid"))):
+            self.assertTrue(land.start_line(self.turn))
+        self.assertEqual(len(self.starts), 1)
+        self.assertEqual(self.starts[0][0][1], str(REPO / "bin" / "ak"))
+        self.assertEqual([member.name for member, _ in land.line(self.turn)],
+                         [first.name, "fix-docs"])
+
     def test_a_woken_green_member_allows_a_pass_behind_it(self):
         first = self.member(state="running", worktree=str(self.root), waiting_on={
             "line": self.turn.name, "joined": 1, "land": "tree"})
@@ -102,6 +114,29 @@ class LanderLifecycle(unittest.TestCase):
             later = self.member("fix-docs", pid=None)
         self.assertEqual(len(self.starts), 1)
         self.assertEqual([member for member, _ in land.line(self.turn)], [first, later])
+
+    def test_a_blamed_first_member_does_not_choose_the_pass_checkout(self):
+        first = self.member(ak_checkout=str(self.root / "blamed-code"), waiting_on={
+            "line": self.turn.name, "joined": 1, "fix": {"line": "failed"},
+            "after": {"departed": "tree"}})
+        code = self.root / "ready-code"
+        self.member("fix-docs", ak_checkout=str(code), waiting_on={
+            "line": self.turn.name, "joined": 2})
+        self.starts.clear()
+        self.assertTrue(land.start_line(self.turn))
+        self.assertEqual(len(self.starts), 1)
+        self.assertEqual(self.starts[0][0][1], str(REPO / "bin" / "ak"))
+        self.assertEqual([member.name for member, _ in land.line(self.turn)],
+                         [first.name, "fix-docs"])
+
+    def test_a_line_with_only_blame_still_starts_a_pass_to_wake_its_fixer(self):
+        first = self.member(ak_checkout=str(self.root / "blamed-code"), waiting_on={
+            "line": self.turn.name, "joined": 1, "fix": {"line": "failed"},
+            "after": {"departed": "tree"}})
+        self.assertEqual(len(self.starts), 1)
+        with patch.object(watch, "launch_resume", return_value=999) as wake:
+            land.check_line(self.turn)
+        wake.assert_called_once_with(first.name, unittest.mock.ANY)
 
     def test_a_live_rejoiner_behind_a_green_member_finishes_cleanup_before_a_pass(self):
         self.member(state="running", worktree=str(self.root), pid=5678, waiting_on={
@@ -311,7 +346,7 @@ class LanderDelivery(unittest.TestCase):
         self.assertTrue(record.read_state(self.case.directory)["on_target"])
         self.assertEqual(self.starts, [(0, None, False), (0, None, True)])
 
-    def test_a_changed_target_rejoins_and_starts_the_next_pass_after_unlock(self):
+    def test_a_changed_target_rejoin_starts_passes_for_members_behind_it(self):
         self.prepare()
         (self.case.owner / "other.txt").write_text("external move\n")
         self.case.commit(self.case.owner, "move target")
@@ -319,7 +354,7 @@ class LanderDelivery(unittest.TestCase):
         self.assertEqual(run.cmd_resume([self.case.directory.name]), 0)
         wait = record.read_state(self.case.directory)["waiting_on"]
         self.assertEqual(wait, {"line": self.case.turn.name, "joined": 10})
-        self.assertEqual(self.starts, [(0, wait, True)])
+        self.assertEqual(self.starts, [(0, wait, False), (0, wait, True), (0, wait, True)])
 
 
 if __name__ == "__main__":

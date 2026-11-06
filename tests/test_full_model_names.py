@@ -31,12 +31,12 @@ class FullNames(Sandbox):
 
     def test_a_model_is_named_by_its_catalog_label_else_its_id(self):
         self.assertEqual([config.model_name(self.cfg, name) for name in MODELS],
-                         ["Opus 5.5", "gpt-6.1-sol", "acme-flash-free", "codex"])
+                         ["Opus 5.5", "GPT-6.1-Sol", "acme-flash-free", "codex"])
         self.assertEqual(config.model_name(self.cfg, "gone"), "gone")
 
     def test_a_seat_row_its_crew_and_its_bar_say_the_full_names(self):
         selection = {"orchestrator": "opus", "workers": ["gpt-sol"], "reviewers": ["opus"]}
-        self.assertEqual(menu.seat_crew(self.cfg, selection), (["gpt-6.1-sol"], ["Opus 5.5"]))
+        self.assertEqual(menu.seat_crew(self.cfg, selection), (["GPT-6.1-Sol"], ["Opus 5.5"]))
         written = []
         with patch.object(statusbar, "_tell", lambda _target, options: written.extend(options)):
             statusbar._write("fix-api", "opus", "working", cfg=self.cfg)

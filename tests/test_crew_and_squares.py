@@ -94,7 +94,7 @@ class CrewAndSquares(Sandbox):
         info["word"] = "working"
         with patch.object(terminal, "colour_depth", return_value=0):
             [line] = menu.detail(self.cfg, info, 80)
-        self.assertEqual(line, "GPT-6-Astra ⚒   Fable 5.1 ◎   ■□□  ■■□")
+        self.assertEqual(line, "GPT-6-Astra xhigh ⚒   Fable 5.1 xhigh ◎   ■□□  ■■□")
         self.assertNotIn("parser", line)
         # a model that builds and reviews is named once, with both
         info["crew"] = (["opus", "astra"], ["fable", "opus"])
@@ -124,8 +124,8 @@ class CrewAndSquares(Sandbox):
             info["word"] = "working"
             with patch.object(terminal, "colour_depth", return_value=0):
                 [lines[bool(workers)]] = menu.detail(self.cfg, info, 80)
-        self.assertEqual(lines, {False: "Fable 5.1 ◎   ■■□",
-                                 True: "GPT-6-Astra ⚒   Fable 5.1 ◎   ■■□"})
+        self.assertEqual(lines, {False: "Fable 5.1 xhigh ◎   ■■□",
+                                 True: "GPT-6-Astra xhigh ⚒   Fable 5.1 xhigh ◎   ■■□"})
 
 
 if __name__ == "__main__":

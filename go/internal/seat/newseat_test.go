@@ -18,11 +18,11 @@ func TestMenuReadsAnOrchestratorBuildingAlone(t *testing.T) {
 			t.Fatalf("live %v: menu did not list the seat", live)
 		}
 		seat := found.Seats[0]
-		if seat.Orchestrator != "opus" || seat.Workers != "" || seat.Warning != "" || !found.Settled(moment) {
+		if seat.Orchestrator != "opus" || seat.Workers != "" || seat.Warning != "" || !found.Settled() {
 			t.Fatalf("live %v: %+v", live, seat)
 		}
 		builds, reviews := found.Crew(seat)
-		if len(builds) != 0 || len(reviews) != 1 || reviews[0] != config.ModelName("astra", found.models) {
+		if len(builds) != 0 || len(reviews) != 1 || reviews[0] != config.ModelAt("astra", "review_effort", found.models) {
 			t.Fatalf("live %v: builders %v, reviewers %v", live, builds, reviews)
 		}
 	}

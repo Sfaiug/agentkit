@@ -12,7 +12,7 @@ import (
 // These remain after a harness dies; none is a screen to read for its word.
 func goneKind(kind, suffix string) bool {
 	return suffix == "json" && slices.Contains([]string{"hook", "title", "card"}, kind) ||
-		kind == ".hook" && suffix == "lock" || kind == "input" && suffix == "jsonl"
+		kind == ".hook" && suffix == "lock" || kind == "input" && suffix == "jsonl" || kind == "rulebook" && suffix == "md"
 }
 
 // RestingGone leaves revival and the line it owes to Python: a past screen or a newer hook may
@@ -73,30 +73,4 @@ func (home Home) StampGone(now time.Time) error {
 		}
 	}
 	return nil
-}
-
-// WaitsOnNothing includes every record, as watch.wait_over does: an absent seat's completed
-// wait still owes its line, and an owner-closed seat's wait still has to end on its fact.
-func (home Home) WaitsOnNothing() bool {
-	for _, seat := range home.records {
-		file, _ := run.ReadJSON(seatFile(seat.Name))
-		if file == nil {
-			continue
-		}
-		wait := file.Dict("wait")
-		if wait == nil {
-			continue
-		}
-		_, named := wait.Get("on").(string)
-		if named && !wait.Truthy("told") {
-			return false
-		}
-	}
-	return true
-}
-
-// Retained is whether no record is due for Python's sweep, using the menu's retention rule.
-func (home Home) Retained(now time.Time) bool {
-	state := filepath.Join(config.Home(), "state")
-	return !slices.ContainsFunc(home.records, func(seat Seat) bool { return seat.retired(state, now) })
 }

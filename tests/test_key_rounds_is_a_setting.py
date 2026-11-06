@@ -20,7 +20,6 @@ from fixtures import akconfig, fakeadapter, taskfile
 from fixtures.akbin import Home
 from fixtures.gitrig import Rig
 
-REVIEW = "the most added lines a first review reads"
 SEAT = "the most added lines an orchestrator builds"
 OVER = ("--rounds 6 is over the budget: 5 rounds, then a run goes back to its orchestrator to "
         "split or re-scope")
@@ -95,17 +94,12 @@ class Refused(unittest.TestCase):
         self.addCleanup(home.close)
         task = taskfile.write(home, "none", done_when=("true",))
         config = home.path / ".agentkit" / "config.toml"
-        for settings, why in (
-                ({"executor_lines": 0}, f"executor_lines must be a whole number of at least 1, "
-                                      f"{REVIEW} (got 0)"),
-                ({"orchestrator_lines": -1}, f"orchestrator_lines must be a whole number of at least 0, "
-                                     f"{SEAT} (got -1)")):
-            with self.subTest(settings=settings):
-                akconfig.write(home, ["opus"], settings=settings)
-                done = home.ak("run", str(task), timeout=60)
-                self.assertEqual(done.code, 2, done.out)
-                self.assertEqual(done.err, f"ak run: {config}: {why}\n")
-                self.assertEqual(taskfile.runs(home), [])
+        akconfig.write(home, ["opus"], settings={"orchestrator_lines": -1})
+        done = home.ak("run", str(task), timeout=60)
+        self.assertEqual(done.code, 2, done.out)
+        self.assertEqual(done.err, f"ak run: {config}: orchestrator_lines must be a whole number "
+                                  f"of at least 0, {SEAT} (got -1)\n")
+        self.assertEqual(taskfile.runs(home), [])
 
 
 if __name__ == "__main__":

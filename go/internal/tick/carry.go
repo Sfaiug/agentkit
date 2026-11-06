@@ -27,7 +27,8 @@ type ticking struct {
 	clock       func() time.Time
 	slowest     time.Duration
 	slowestName string
-	dry         bool // a dry tick, which reads the dry rows and carries out none
+	dry         bool // a dry tick: it runs the rows Python's does, each acting only where it checks this
+	report      AuditReport
 }
 
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding
@@ -36,7 +37,7 @@ type ticking struct {
 // Go does not carry, what the rows before did standing; after what Python's next tick reads as its
 // own where gh names a pull request to act on; with nothing written where gh cannot be read,
 // or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.
-func Carry(out, errOut io.Writer) bool {
+func Carry(out, errOut io.Writer, report ...AuditReport) bool {
 	if Overlap(out, errOut) {
 		return true
 	}
@@ -72,6 +73,9 @@ func Carry(out, errOut io.Writer) bool {
 		return false
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
+	if len(report) > 0 {
+		t.report = report[0]
+	}
 	if !t.through(table(t)) {
 		return false
 	}
@@ -93,9 +97,12 @@ func (t *ticking) save() error { return saveState(t.state) }
 
 // through runs the passes in order, each asked whether it has nothing to act on just before Go
 // carries out its step, the one place that says of a pass that it raised; false at the first that
-// finds what Go does not carry.
+// finds what Go does not carry. A dry tick runs only those Python's dry tick runs.
 func (t *ticking) through(passes []pass) bool {
 	for _, each := range passes {
+		if t.dry && !each.dry {
+			continue
+		}
 		if each.idle != nil && !each.idle() {
 			return false
 		}
@@ -121,9 +128,9 @@ func (t *ticking) timed(name string, step func() error) error {
 	return err
 }
 
-// took says so of a step over a second, and keeps the slowest.
+// took says so of a step over a second, in a real tick, and keeps the slowest.
 func (t *ticking) took(name string, spent time.Duration) {
-	if spent > time.Second {
+	if spent > time.Second && !t.dry {
 		t.log.line(fmt.Sprintf("%s took %.1f s", name, spent.Seconds()))
 	}
 	if spent > t.slowest || spent == t.slowest && name > t.slowestName {

@@ -26,7 +26,7 @@ from fixtures.akterm import Terminal
 ROW_KEYS = "  ⏎ start   tab models   esc back"
 PICKER_KEYS = "  ↑↓←→ move   ␣ mark   ⏎ start   esc back"
 # The born row before a key: the pointer, its number, the caret, the name Enter alone gives it.
-BORN = re.compile(r"› 2  ▏[a-z0-9-]+ +Fable 5.1  new")
+BORN = re.compile(r"› 2  ▏[a-z0-9-]+ +Fable 5.1 xhigh  new")
 
 
 def rows(screen):
@@ -94,7 +94,7 @@ class NewRow(unittest.TestCase):
         launched = self.fakes["claude"].calls("interactive")[-1]
         self.assertEqual(launched["argv"],
                          ["claude-fable-5-1", "xhigh", record["conversation"], "new"])
-        shown = self.back_on_the_menu("fix-api", "2  fix-api  Fable 5.1  ○ idle")
+        shown = self.back_on_the_menu("fix-api", "2  fix-api  Fable 5.1 xhigh  ○ idle")
         self.assertLess(shown.index("not assigned yet"),
                         next(at for at, line in enumerate(shown) if "  fix-api  " in line))
 
@@ -125,15 +125,15 @@ class NewRow(unittest.TestCase):
         self.menu.keys("Escape")
         screen = self.menu.wait(ROW_KEYS)
         # the row's line names the picks: astra only reviews
-        self.assertEqual(under(screen, "› 2  fix-api▏  Fable 5.1  new"),
-                         "     Fable 5.1 ⚒◎   GPT-6-Astra ◎")
+        self.assertEqual(under(screen, "› 2  fix-api▏  Fable 5.1 xhigh  new"),
+                         "     Fable 5.1 xhigh ⚒◎   GPT-6-Astra high ◎")
         self.menu.keys("Enter")
         record = self.opened("fix-api")
         self.assertEqual((record["orchestrator"], record["workers"], record["reviewers"]),
                          ("fable", ["fable"], ["fable", "astra"]))
         # what the next new seat starts from
         self.assertEqual(akconfig.read(self.home)["defaults"]["workers"], ["fable"])
-        self.back_on_the_menu("fix-api", "2  fix-api  Fable 5.1  ○ idle")
+        self.back_on_the_menu("fix-api", "2  fix-api  Fable 5.1 xhigh  ○ idle")
 
 
 class OrchestratorQuestion(unittest.TestCase):

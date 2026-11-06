@@ -68,10 +68,10 @@ class MenuLiveLine(Sandbox):
     def test_a_the_highlighted_seat_opens_its_line_and_no_other_row_grows(self):
         lines, _ = self.draw("fix-api")
         indent = " " * (2 + 1 + 2)                     # under the name
-        self.assertEqual(self.under(lines, "fix-api"), indent + "Opus 5.5 ⚒◎   ■□□")
+        self.assertEqual(self.under(lines, "fix-api"), indent + "Opus 5.5 xhigh ⚒◎   ■□□")
         self.assertEqual(sum("⚒" in line for line in lines), 1)   # web is not highlighted
         lines, _ = self.draw("web")
-        self.assertEqual(self.under(lines, "web"), indent + "Opus 5.5 ⚒◎   ■■□")
+        self.assertEqual(self.under(lines, "web"), indent + "Opus 5.5 xhigh ⚒◎   ■■□")
         self.assertEqual(sum("⚒" in line for line in lines), 1)
         # no screen names a task
         self.assertNotIn("gh2", "\n".join(lines))
@@ -116,7 +116,7 @@ class MenuLiveLine(Sandbox):
         self.assertNotIn("\x1b[2J", out.getvalue())
         lines = screen(out.getvalue())
         self.assertEqual(self.under(lines, "fix-api").strip(),
-                         "opus fast ⚒◎   ■□□")
+                         "opus fast xhigh ⚒◎   ■□□")
 
 
 if __name__ == "__main__":

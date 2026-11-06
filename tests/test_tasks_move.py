@@ -52,7 +52,7 @@ class TasksMove(Sandbox):
 
     def groups(self, lines):
         """(row, first column) of each task's squares on the line the row opens."""
-        builds = f"{config.model_name(self.cfg, 'astra')} ⚒"
+        builds = f"{config.model_at(self.cfg, None, 'astra', 'executor')} ⚒"
         row = next(n for n, line in enumerate(lines, 1) if builds in line)
         return [(row, terminal.cells(lines[row - 1][:group.start()]) + 1)
                 for group in re.finditer("[■□]{3}", lines[row - 1])]

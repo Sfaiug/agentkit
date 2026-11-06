@@ -47,52 +47,10 @@ func RememberDefaults(orchestrator string, workers, reviewers []string, keep fun
 	if len(steps) == 0 && reflect.DeepEqual(meant(file.get("defaults")), meant(defaults)) {
 		return nil
 	}
-	root, err := load()
-	if err != nil {
-		return err
-	}
-	// what Python's load() does beside validate: [tiers] gone, its pace_margin kept where the
-	// file has none, and the provider of a harness that hosts providers named by its label
-	if tiers, ok := root.get("tiers").(*table); ok && root.get("pace_margin") == nil && tiers.get("pace_margin") != nil {
-		root.put("pace_margin", tiers.get("pace_margin"))
-	}
-	delete(root.values, "tiers")
-	hosts, err := manifests()
-	if err != nil {
-		return err
-	}
-	for harness, manifest := range hosts {
-		block, _ := manifest.get("providers").(*table)
-		label, named := block.get("label").(string)
-		if entry, ok := root.get("providers").(*table).get(harness).(*table); ok && named {
-			entry.put("name", label)
-		}
-	}
-	for _, key := range present(file) {
-		if !slices.Contains([]string{"defaults", "tiers", "models", "providers"}, key) {
-			root.put(key, file.values[key])
-		}
-	}
-	root.put("defaults", defaults)
-	if err := recommendedEfforts(root, steps); err != nil {
-		return err
-	}
-	text, err := dump(root)
-	if err != nil {
-		return err
-	}
-	tmp := filepath.Join(Home(), "config.tmp")
-	if err := os.WriteFile(tmp, []byte(text), 0o600); err != nil {
-		return err
-	}
-	defer os.Remove(tmp)
-	if err := os.Chmod(tmp, 0o600); err != nil {
-		return err
-	}
-	if err := keep(); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return saveConfig(file, func(root *table) error {
+		root.put("defaults", defaults)
+		return recommendedEfforts(root, steps)
+	}, keep)
 }
 
 func listed(names []string) []any {

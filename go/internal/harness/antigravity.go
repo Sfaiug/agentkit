@@ -1,7 +1,8 @@
 package harness
 
-// Antigravity's screen says its word; its launch and conversation store stay Python's.
+// Antigravity's launcher-owned conversations reopen without learning an id from its SQLite store.
 func init() {
 	plugins["antigravity"] = plugin{seats: true, looks: true, record: antigravityRecord,
-		keys: []string{"antigravity_launch", "antigravity_open"}, kept: antigravityKept}
+		launch: antigravityLaunch,
+		keys:   []string{"antigravity_launch", "antigravity_open"}, kept: antigravityKept}
 }

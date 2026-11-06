@@ -6,6 +6,7 @@ package harness
 import (
 	"cmp"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,7 +20,10 @@ import (
 
 // A plugin is one harness's own answers; a hook it leaves nil takes the default.
 type plugin struct {
-	identity func(text string, argv []string) (string, bool)
+	identity    func(text string, argv []string) (string, bool)
+	interactive func(root string, args []string, out, errOut io.Writer) int
+	seatWords   func(words, env []string) []string
+	hookEvent   func(event *run.Object) *run.Object
 	// seats is whether Go follows this harness's seats tmux no longer holds, and fresh what
 	// reopening one does where it owns no conversation its record names.
 	seats   bool
@@ -28,8 +32,11 @@ type plugin struct {
 	answer  func(record *run.Object) (model, effort, at any, found bool)
 	// conversation is the file a seat's record says its conversation is kept in, "" for none.
 	conversation func(record map[string]any) string
-	// owns is whether the record vouches for that conversation as the seat's own (orch.owns).
-	owns func(record *run.Object, conversation string) bool
+	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
+	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
+	// record (orch.resumable).
+	owns      func(record *run.Object, conversation string) bool
+	resumable func(record *run.Object) bool
 	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
 	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
@@ -54,6 +61,11 @@ type plugin struct {
 	// conversation id alone (the default `launched`), and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
+	launch        func() (*run.Object, []string)
+	launched      func(string, string, *run.Object) (*run.Object, []string, error)
+	retire        func(*run.Object) error
+	handed        func(*run.Object) (string, bool)
+	moveReady     func() bool
 	// paysItsOwnWay is whether its own config says how a model of it is paid, over config.toml's
 	// `mode`, as Python's plugin `mode` reads it.
 	paysItsOwnWay bool
@@ -63,12 +75,16 @@ type plugin struct {
 	usageRecorded func(state string, now float64) []*run.Object
 	// recordTurn is RecordTurn's: nil where a turn reports no refusal of its own.
 	recordTurn func(out, state, account string)
+	// failed is TurnFailed's: nil where a failed turn's stderr holds all it says of why.
+	failed func(out string, result map[string]any)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
 	registerMCP func(servers []Server) (string, error)
 	// title is SessionTitle's: nil where its conversation keeps no title Go reads.
 	title func(record *run.Object, cache string) (any, *run.Object)
 	// wrapped is WrappedUp's: nil where its conversation notes no turn wrapped up for its limit.
 	wrapped func(record map[string]any, prompted func(*run.Object) bool) any
+	// forget is Forgetting's: nil where it keeps nothing for a seat beyond the seat's own files.
+	forget func(record *run.Object) (func(), bool)
 }
 
 var plugins = map[string]plugin{}
