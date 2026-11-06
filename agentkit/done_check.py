@@ -164,14 +164,17 @@ def look(argv):
         raise config.Error("ak orch look belongs to a session; run it inside one")
     path = Path(argv[0])
     try:
-        data = path.read_bytes()
+        kept = json.dumps({"at": time.time(), "name": path.name,
+                           "data": base64.b64encode(path.read_bytes()).decode()}) + "\n"
+        with notify.session_lock(config.resolve_session(seat)) as current:
+            # written whole beside the pictures, then in their place: a write cut short leaves
+            # them as they were, never a torn line the next one is appended to
+            pictures = config.seat_file("pictures", current)
+            fresh = pictures.with_name(pictures.name + ".new")
+            fresh.write_bytes((pictures.read_bytes() if pictures.exists() else b"") + kept.encode())
+            fresh.replace(pictures)
     except OSError as exc:
         raise config.Error(f"cannot keep {argv[0]}: {exc.strerror}") from None
-    kept = json.dumps({"at": time.time(), "name": path.name,
-                       "data": base64.b64encode(data).decode()})
-    with notify.session_lock(config.resolve_session(seat)) as current:
-        with config.seat_file("pictures", current).open("a", encoding="utf-8") as fh:
-            fh.write(kept + "\n")
     print(f"{current}'s done check will see {path.name} as it is now")
     return 0
 

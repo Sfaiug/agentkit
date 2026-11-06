@@ -6,14 +6,17 @@ The owner asks for a chart; the seat's plan has every line done.  The model's tu
 quoting that ask unless its workspace holds the seat's picture byte for byte, so the check finds
 the gap until the seat keeps the chart, and none after, the file itself deleted.  A picture is
 the seat's, as its plan is: it stays through a rename, a later one of the same file stands beside
-it, and a seat renamed into a gone seat's name sees none of that seat's.  Black-box: the program `AK_BIN` names runs from outside through
+it, a look cut off partway loses none kept after it, and a seat renamed into a gone seat's name
+sees none of that seat's.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a Claude seat of tests/fixtures/akseat.py whose transcript the test
 writes, with a fake harness of fakeadapter.py for the model.
 """
 
 import json
 import re
+import resource
 import shlex
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -65,6 +68,17 @@ class DoneCheckSeesPictures(unittest.TestCase):
         self.assertEqual(done.code, 0, done.out + done.err)
         self.assertIn(ASKED, done.out)
         self.assertIn("ak orch look", done.out)
+        self.look(CHART)
+        done = self.home.ak("orch", "check", "acme")
+        self.assertEqual(done.code, 0, done.out + done.err)
+
+    def test_a_look_cut_off_partway_loses_no_later_picture(self):
+        (self.seat.cwd / "chart.png").write_bytes(CHART * 30)    # more than a 1 KiB write holds
+        cut = subprocess.run([AK, "orch", "look", "chart.png"], cwd=self.seat.cwd,
+                             env={**self.home.env, "AGENTKIT_SESSION": "acme"}, capture_output=True,
+                             preexec_fn=lambda: resource.setrlimit(resource.RLIMIT_FSIZE, (1024, 1024)),
+                             timeout=120)
+        self.assertNotEqual(cut.returncode, 0, cut.stdout + cut.stderr)
         self.look(CHART)
         done = self.home.ak("orch", "check", "acme")
         self.assertEqual(done.code, 0, done.out + done.err)
