@@ -1,9 +1,9 @@
 // Package install makes a home ready for Go's ak as install.sh does for Python's.  go/install.sh
 // runs it as `ak install`, unlisted, so each step has one home here, the same on every system.
-// So far it holds install.sh's options, its step (1), the seat guards, the old rulebook links
-// undone, the yolo defaults, the role's record, the tick's crontab line, the install stamp and
-// the phone's key; what else writes outside the home (packages, harnesses, a Mac's Linux
-// machine) is still to come.
+// So far it holds install.sh's options, its step (1), a Mac's Linux machine, the seat guards,
+// the old rulebook links undone, the yolo defaults, the role's record, the tick's crontab line,
+// the install stamp and the phone's key; what else writes outside the home (packages,
+// harnesses) is still to come.
 package install
 
 import (
@@ -14,7 +14,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
@@ -38,20 +37,26 @@ func Main(args []string, out, errOut io.Writer) int {
 		saved, _ := os.ReadFile(filepath.Join(config.Home(), "state", "server"))
 		alias, _, _ = strings.Cut(string(saved), "\n")
 		role = "client"
-		if alias == "" || serverBox(alias) {
+		// a Mac whose record names its own Linux machine installs that server again
+		if alias == "" || mac() && alias == machineAlias || serverBox(alias) {
 			role = "server"
 		}
 	}
 	if role == "client" && alias == "" {
 		alias = serverName
 	}
+	// A Mac's server is a Linux machine of its own, whose client the Mac is; a sandbox HOME
+	// touches no machine.
 	sandboxed := sandbox()
-	if role == "server" && runtime.GOOS == "darwin" && !sandboxed {
-		// install.sh makes a Mac the client of a Linux machine of its own, the server
-		fmt.Fprintln(errOut, "ak install: a Mac's server, a Linux machine of its own, is not set up in Go yet")
+	machine := role == "server" && mac() && !sandboxed
+	if machine && unbrewed() {
+		fmt.Fprintln(errOut, "ak install: Homebrew, which Lima comes from, is not installed by Go yet")
 		return 3
 	}
-	err := install(role, alias, sandboxed, out, errOut)
+	if machine {
+		role, alias = "client", machineAlias
+	}
+	err := install(role, alias, machine, sandboxed, out, errOut)
 	if err == nil {
 		err = phone(key, out, errOut)
 	}
@@ -92,7 +97,7 @@ func options(args []string) (role, alias, key, refused string) {
 	return role, alias, key, ""
 }
 
-func install(role, alias string, sandboxed bool, out, errOut io.Writer) error {
+func install(role, alias string, machine, sandboxed bool, out, errOut io.Writer) error {
 	if role == "server" {
 		fmt.Fprintln(out, "install mode: server")
 	} else {
@@ -146,6 +151,11 @@ func install(role, alias string, sandboxed bool, out, errOut io.Writer) error {
 	}
 	if err := onPath(role, home, out); err != nil {
 		return err
+	}
+	if machine {
+		if err := linuxMachine(out, errOut); err != nil {
+			return err
+		}
 	}
 	if err := guards(); err != nil {
 		fmt.Fprintf(errOut, "note: the seat guards in %s were not linked (%v); the next seat started links them\n", filepath.Join(ak, "bin"), err)
@@ -226,7 +236,7 @@ func onPath(role, home string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "installed: %s (0700) and %s -> %s\n", config.Home(), link, program)
 	rcs := []string{".bashrc", ".profile"}
-	if runtime.GOOS == "darwin" {
+	if mac() {
 		rcs = []string{".zshrc", ".zprofile"}
 	}
 	for _, name := range rcs {
