@@ -7,7 +7,7 @@ import (
 )
 
 // exhaustedPickup is whether Go carries on a run waiting on a provider's window, Python's resume of
-// a quota run: cut off where Go goes on from, and either its saved pair goes on, the window it ran
+// one run dry: cut off where Go goes on from, and either its saved pair goes on, the window it ran
 // dry on refilled, or nothing can run it yet, which its resume parks again (ParkDry).  A handover
 // is the tick's to write first (ResumeModels), and a run that merges delivers as any other.
 func exhaustedPickup(dir string, record *run.Object) bool {
@@ -23,7 +23,7 @@ func exhaustedPickup(dir string, record *run.Object) bool {
 }
 
 // windowed is whether the run waits on a provider's window for its executor's turn, Python's
-// resume_needs_executor of a quota run: one whose review alone is left picks only a reviewer.
+// resume_needs_executor of a run dry: one whose review alone is left picks only a reviewer.
 func windowed(record *run.Object) bool {
 	return run.ExhaustedWait(record) == "window" && (record.Str("step") == "executor" || !record.Truthy("review_pending"))
 }
