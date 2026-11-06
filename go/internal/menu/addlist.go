@@ -38,7 +38,7 @@ func (f AddFrame) Hit(mouse terminal.Mouse) (int, bool) {
 }
 
 // AddPage is the list drawn (menu.add_body): each step chosen so far on a line of its own, `model
-// DeepSeek V4.1 · OpenCode`, then the step being chosen, with `/` and what is found while finding,
+// Acme 4 · Acme Cloud`, then the step being chosen, with `/` and what is found while finding,
 // then its choices in columns, the one At lit; a choice's mark keeps up to half the row, and its
 // label gives way before its id.  The note goes under it, and a list past the screen offers `/ find`.
 func AddPage(s terminal.Screen, view AddList) AddFrame {

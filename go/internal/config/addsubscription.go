@@ -160,8 +160,8 @@ func TakeIn(model, harness, id, effort, provider, label, mode string, keep func(
 			providers.put(provider, entry)
 		}
 		entry := modelEntry(harness, id, effort, provider)
-		// a table that came with another harness's login: Codex's plan pays for no call OpenCode
-		// makes on an OpenAI key
+		// a table that came with another harness's login: a plan paid for there pays for no call a
+		// host makes on that provider's key
 		if own, _ := providers.get(provider).(*table).get("mode").(string); mode != cmp.Or(own, "subscription") {
 			entry.put("mode", mode)
 		}

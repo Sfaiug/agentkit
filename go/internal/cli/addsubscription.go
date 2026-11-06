@@ -117,8 +117,8 @@ func addProvider(picked menu.Addable, account string, cells []menu.Cell, keyboar
 	} else if err != nil {
 		return "config: " + err.Error()
 	}
-	// a `<provider>/<model>` id is that provider's, the way OpenCode names every provider's models,
-	// and any other id is every provider's the harness runs
+	// a `<provider>/<model>` id is that provider's, the way a host names every provider's models, and
+	// any other id is every provider's the harness runs
 	listed = slices.DeleteFunc(listed, func(model modelListing.Choice) bool {
 		owner, _, named := strings.Cut(model.ID, "/")
 		return named && owner != picked.Provider
