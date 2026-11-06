@@ -167,6 +167,9 @@ func (k *Keyboard) ReadKey() Key {
 		}
 		key, kept, ok := spell(first, k.next)
 		k.keyed = append(kept, k.keyed...)
+		if ok && wheel(key) {
+			key, ok = k.notches(key)
+		}
 		if ok {
 			return key
 		}

@@ -78,11 +78,7 @@ func menuSubscriptions(keyboard *terminal.Keyboard, painter *terminal.Painter) b
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				step := -1
-				if mouse.Button&1 != 0 {
-					step = 1
-				}
-				view.At, view.Away = max(0, min(len(cells), view.At+step)), false
+				view.At, view.Away = max(0, min(len(cells), view.At+mouse.Notches)), false
 			} else if row, act, hit := drawn.Hit(mouse); hit {
 				view.At, view.Away = row, false
 				if act >= 0 {

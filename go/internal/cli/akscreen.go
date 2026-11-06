@@ -17,7 +17,7 @@ import (
 )
 
 // rereadEvery is the longest the frame goes unread (menu.TICK).
-const rereadEvery = 10 * time.Second
+const rereadEvery = terminal.Tick
 
 // A reading is what a frame is drawn from, apart from the terminal and the clock.
 type reading struct {
@@ -29,10 +29,10 @@ type reading struct {
 }
 
 // readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it,
-// each seat's word written down as `ak orch list` writes it (menu.v5o_seat_info's look) once all
-// of the frame is Go's to draw; false where Go does not read that home, or where opening it would
-// do more than draw.
-func readFrame(now time.Time) (reading, bool) {
+// and with announce each seat's word written down as `ak orch list` writes it (menu.v5o_seat_info's
+// look) once all of the frame is Go's to draw; false where Go does not read that home, or where
+// opening it would do more than draw.
+func readFrame(now time.Time, announce bool) (reading, bool) {
 	home, known := seat.Menu(now)
 	if !known || !home.Settled() {
 		return reading{}, false
@@ -55,7 +55,7 @@ func readFrame(now time.Time) (reading, bool) {
 	if found.standing, err = menu.Standing(now); err != nil {
 		return reading{}, false
 	}
-	if home.Announce(now) != nil {
+	if announce && home.Announce(now) != nil {
 		return reading{}, false
 	}
 	for i, each := range home.Seats {
@@ -97,10 +97,12 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		keyboard.Take() // stays up however long a read takes
 		painter.Restore(left, keyboard.Screen())
 	}
-	first, handed := handedRead() // a restart's first frame waits on no read
+	// a restart's first frame waits on no read, and none waits on writing every seat's word down,
+	// a look at each that the read behind it makes, as Python's menu looks behind its first frame
+	first, handed := handedRead()
 	known := handed
 	if !handed {
-		keyboard.While(func() { first, known = readFrame(time.Now()) })
+		keyboard.While(func() { first, known = readFrame(time.Now(), false) })
 	}
 	if !known || first.handoff {
 		keyboard.Give()
@@ -115,7 +117,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	settle := func() { keyboard.While(func() { <-swept }) }
 	reread := func() {
 		<-swept
-		if found, known := readFrame(time.Now()); known {
+		if found, known := readFrame(time.Now(), true); known {
 			latest.Store(&found)
 		}
 		keyboard.Wake()
@@ -134,9 +136,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			time.Sleep(usage.RefreshEvery)
 		}
 	}()
-	if handed {
-		go reread()
-	}
+	go reread()
 	clock, model := &motion.Clock{}, menu.Model{}
 	if overlay {
 		model.Highlight.Cursor = os.Getenv("AGENTKIT_SESSION")

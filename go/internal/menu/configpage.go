@@ -42,7 +42,8 @@ func (f PageFrame) Hit(mouse terminal.Mouse) (int, bool) {
 }
 
 // Step is the row the keys are on and the first line shown, `step` rows on as ↑/↓ and the wheel
-// move: a row going on past the page that way turns to its next page before they leave it.
+// move, as far as there are rows: a row going on past the page that way turns to its next page
+// before they leave it.
 func (f PageFrame) Step(step int) (int, int) {
 	past := f.Top - 1
 	if step > 0 {
@@ -51,10 +52,10 @@ func (f PageFrame) Step(step int) (int, int) {
 	if past >= 0 && past < len(f.rows) && f.rows[past] == f.at {
 		return f.at, pageTop(f.rows, f.at, f.Top+step*f.page, f.page)
 	}
-	if slices.Contains(f.rows, f.at+step) {
-		return f.at + step, f.Top
+	if len(f.rows) == 0 {
+		return f.at, f.Top
 	}
-	return f.at, f.Top
+	return max(f.rows[0], min(f.at+step, f.rows[len(f.rows)-1])), f.Top
 }
 
 // pageTop is the first line shown of `rows`, a page `page` lines high, from `top`: moved the least

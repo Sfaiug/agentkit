@@ -204,6 +204,7 @@ test_key_models_pick
 test_key_models_rows_drawn_as_c
 test_key_models_why
 test_key_move_copies
+test_key_moving_through_a_screen_writes_only_what_changes
 test_key_muse_hooks
 test_key_muse_native_question_after_new
 test_key_muse_question_after_new
@@ -414,6 +415,7 @@ test_key_usage_per_task
 test_key_wait_records
 test_key_watch_dry_run
 test_key_what_a_gone_ak_left_ends
+test_key_wheel_swipe_is_one_draw
 test_key_window_title
 test_key_word_since
 test_key_words_carry_the_numbers

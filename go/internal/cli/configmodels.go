@@ -74,10 +74,7 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				step = -1
-				if mouse.Button&1 != 0 {
-					step = 1
-				}
+				step = mouse.Notches
 			} else if row, _, hit := frame.Hit(mouse); hit {
 				if opened && row > at && row <= at+len(catalogs[harness]) {
 					choice = row - at - 1
