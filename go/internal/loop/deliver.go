@@ -395,7 +395,7 @@ func (r *repoPlace) finalCheck(l *loop) (bool, error) {
 		return false, err
 	}
 	path := filepath.Join(l.dir, "final-check.log")
-	ok, text, err := r.checks(l, append(every, once...), path)
+	ok, text, err := r.checks(l, append(every, once...), path, nil)
 	if err != nil {
 		return false, err
 	}

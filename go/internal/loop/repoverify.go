@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"agentkit/internal/gitcall"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 	"agentkit/internal/uncommitted"
 )
@@ -34,11 +35,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 		return false, "", err
 	}
 	r.checked = [2]string{head, tree}
-	scope, err := r.filesScope()
-	if err != nil {
-		return false, "", err
-	}
-	rules, err := r.rulesCheck()
+	failures, err := l.rulesOn(head, r.filesScope, r.rulesCheck)
 	if err != nil {
 		return false, "", err
 	}
@@ -47,7 +44,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 		return false, "", err
 	}
 	clean := code == 0
-	ok, text, err := r.roundChecks(l, l.every, path)
+	ok, text, err := r.roundChecks(l, l.every, path, l.rows("done-when", head))
 	if err != nil {
 		return false, "", err
 	}
@@ -59,7 +56,7 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 		ok = false
 		text += "\n\nCheckout changed during done-when; these commands do not verify the pinned commit."
 	}
-	for _, failure := range []string{scope, rules} {
+	for _, failure := range failures {
 		if failure != "" {
 			ok = false
 			text += "\n\n" + failure
@@ -71,12 +68,13 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 
 // checks runs the commands in the checkout, keeping on the record what they newly dirty: the
 // loop's own droppings, never the executor's work, which a later commit of leftovers leaves out.
-func (r *repoPlace) checks(l *loop, cmds []string, path string) (bool, string, error) {
+// Each go leaves its row in history under rows.
+func (r *repoPlace) checks(l *loop, cmds []string, path string, rows *history.Checked) (bool, string, error) {
 	before, err := uncommitted.Paths(r.git())
 	if err != nil {
 		return false, "", err
 	}
-	ok, text, _, err := l.checksIn(r.wt, cmds, path)
+	ok, text, _, err := l.checksIn(r.wt, cmds, path, rows)
 	if err != nil {
 		return false, "", err
 	}
@@ -303,7 +301,7 @@ func (r *repoPlace) failsOnBase(l *loop) (string, error) {
 
 // replay is each check's exit in a checkout of its own made from git alone, at base with paths of
 // head laid over, committed the same way for every replay, so only the branch's files between two
-// replays can turn a check; nil for one killed or never run.
+// replays can turn a check; nil for one killed or never run.  Its rows are the round's base proof.
 func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, name string) ([]*int, error) {
 	tmp, err := os.MkdirTemp(l.dir, "")
 	if err != nil {
@@ -364,7 +362,7 @@ func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, n
 		return nil, err
 	}
 	path := filepath.Join(l.dir, name)
-	_, text, marks, err := l.checksIn(checkout, cmds, path)
+	_, text, marks, err := l.checksIn(checkout, cmds, path, l.rows("base-proof", r.baseSHA))
 	if err != nil {
 		return nil, err
 	}

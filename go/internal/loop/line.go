@@ -490,7 +490,7 @@ func (l *loop) checkTree(scratch string, checks []string, name, suite string, se
 		return false, "", "", err
 	}
 	path := filepath.Join(l.dir, name)
-	ok, text, marks, err := l.checksIn(scratch, checks, path, selections...)
+	ok, text, marks, err := l.checksIn(scratch, checks, path, nil, selections...)
 	if err != nil {
 		return false, "", "", err
 	}

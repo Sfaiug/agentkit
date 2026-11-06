@@ -62,11 +62,11 @@ func (p *ownPull) verify(l *loop, _ string) (bool, string, error) {
 		said = deferredRun
 	}
 	l.say(said)
-	failure, err := p.rulesCheck()
+	failures, err := l.rulesOn(head, p.rulesCheck)
 	if err != nil {
 		return false, "", err
 	}
-	if failure != "" {
+	if failure := failures[0]; failure != "" {
 		l.say(failure)
 		return false, said + "\n\n" + failure, nil
 	}

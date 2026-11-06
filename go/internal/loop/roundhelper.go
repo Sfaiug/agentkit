@@ -11,6 +11,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/helper"
+	"agentkit/internal/history"
 )
 
 // roundChecks is a round's checks, Python's gate.run_round: on the suite helper first, as one
@@ -19,18 +20,18 @@ import (
 // no helper, no recipe, no room, a red, the helper failing -- runs the list here, which decides,
 // below what the piece printed there: a command that needs this host, its network or a file only
 // it holds, is only slower.  A list naming AK_SHARD runs here, as a suite has its own way there
-// (pieces).
-func (r *repoPlace) roundChecks(l *loop, cmds []string, path string) (bool, string, error) {
+// (pieces).  The list there leaves one row in history under rows, each command here its own.
+func (r *repoPlace) roundChecks(l *loop, cmds []string, path string, rows *history.Checked) (bool, string, error) {
 	there := ""
 	if len(cmds) > 0 && !slices.ContainsFunc(cmds, namesShard.MatchString) {
-		green, said, why, err := l.onePiece(r.wt, cmds, path)
+		green, said, why, err := l.onePiece(r.wt, cmds, path, rows)
 		if err != nil || green {
 			return green, said, err
 		}
 		there = said
 		l.say("done-when runs here: " + why)
 	}
-	ok, text, err := r.checks(l, cmds, path)
+	ok, text, err := r.checks(l, cmds, path, rows)
 	if there != "" {
 		text = there + "\n\n" + text
 	}
@@ -38,9 +39,10 @@ func (r *repoPlace) roundChecks(l *loop, cmds []string, path string) (bool, stri
 }
 
 // onePiece runs cmds one after another on the suite helper that takes them, as one piece, its
-// output into path: whether all were green there, the round's record of them then, else what the
-// piece printed, "" where none ran, and why the list runs here.
-func (l *loop) onePiece(cwd string, cmds []string, path string) (bool, string, string, error) {
+// output into path and its row in history under rows: whether all were green there, the round's
+// record of them then, else what the piece printed, "" where none ran, and why the list runs here.
+func (l *loop) onePiece(cwd string, cmds []string, path string, rows *history.Checked) (bool, string, string, error) {
+	asked := clock()
 	cpus, memory := suiteCost(l.dir, cwd, gitcall.Declared(cwd, "tests"))
 	lines := make([]string, len(cmds))
 	for i, cmd := range cmds {
@@ -65,7 +67,9 @@ func (l *loop) onePiece(cwd string, cmds []string, path string) (bool, string, s
 		return false, "", "", err
 	}
 	defer progress.Close()
+	finish := history.Check(rows, strings.Join(cmds, "\n"), asked, away.Alias, l.say)
 	code, stopped, err := l.onHelper(away, "1/1", l.ceiling, progress)
+	finish(exitOf(ran{code: code, stopped: stopped}, err))
 	if err == nil {
 		err = l.stopCheck()
 	}

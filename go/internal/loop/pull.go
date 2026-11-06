@@ -274,10 +274,11 @@ func (p *pullPlace) verify(l *loop, path string) (bool, string, error) {
 		return false, "", err
 	}
 	p.checked = [2]string{head, tree}
-	rules, err := p.rulesCheck()
+	failures, err := l.rulesOn(head, p.rulesCheck)
 	if err != nil {
 		return false, "", err
 	}
+	rules := failures[0]
 	if len(l.cmds) == 0 {
 		l.say(noTestsRun)
 		if rules != "" {
@@ -287,7 +288,7 @@ func (p *pullPlace) verify(l *loop, path string) (bool, string, error) {
 		p.untested = true
 		return true, noTestsRun, nil
 	}
-	ok, text, _, err := l.checksIn(p.wt, l.every, path)
+	ok, text, _, err := l.checksIn(p.wt, l.every, path, l.rows("done-when", head))
 	if err != nil {
 		return false, "", err
 	}
