@@ -36,8 +36,8 @@ var entries = map[string]entry{
 		"ak worker MODEL task.md --role reviewer",
 	},
 	"hand-in": {
-		"usage: ak hand-in finding PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES)\n       ak hand-in follow-up PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES) [--before PROOF]\n       ak hand-in dispute PATH:LINE \"WHY IT IS WRONG\" (--run COMMAND | --quote LINES)\n       ak hand-in done\n       ak hand-in blocked \"WHY\"\n       ak hand-in not-needed \"WHY\"",
-		"Hand in review evidence or close a worker turn.\nThe loop names AK_HAND_IN; outside a turn this command is refused.\nPaths and lines must exist in the checkout; a quote must occur in that file.\n--run executes in the checkout and records bounded output excerpts and the exit status.\nA finding's command must fail while the defect exists; ak re-runs it on commit and base.\nA follow-up from before the task has --before, naming the base or an ancestor commit, or verbatim lines in its file at base; its command must fail on base.\nA follow-up of this change has no --before; its --run must fail now and on the reviewed commit.\nUnproven follow-ups are dropped into Notes.\nA follow-up's --run is one line without backticks or this checkout's path.\nOnly a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\nak gives the next reviewer the dispute and its own proof output beside the finding.\nHand the finding in again to uphold it; otherwise it is dropped into result.md's Disputes.\ndone closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\nExecutors and fixers use blocked when the task cannot be done as written, or\nnot-needed when a fix run's first turn finds the defect gone or already being fixed.\nReview turns refuse blocked and not-needed; other turns refuse finding and follow-up.\nA closing record refuses later records.",
+		"usage: ak hand-in finding PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES)\n       ak hand-in follow-up PATH:LINE \"WHAT\" \"WHY IT MATTERS\" (--run COMMAND | --quote LINES) [--before PROOF]\n       ak hand-in dispute PATH:LINE \"WHY IT IS WRONG\" (--run COMMAND | --quote LINES)\n       ak hand-in concede PATH:LINE \"WHY\"\n       ak hand-in done\n       ak hand-in blocked \"WHY\"\n       ak hand-in not-needed \"WHY\"",
+		"Hand in review evidence or close a worker turn.\nThe loop names AK_HAND_IN; outside a turn this command is refused.\nPaths and lines must exist in the checkout; a quote must occur in that file.\n--run executes in the checkout and records bounded output excerpts and the exit status.\nA finding's command must fail while the defect exists; ak re-runs it on commit and base.\nA follow-up from before the task has --before, naming the base or an ancestor commit, or verbatim lines in its file at base; its command must fail on base.\nA follow-up of this change has no --before; its --run must fail now and on the reviewed commit.\nUnproven follow-ups are dropped into Notes.\nA follow-up's --run is one line without backticks or this checkout's path.\nOnly a fixer may dispute a blocking finding handed to its turn; its command must exit 0.\nak gives the next reviewer the dispute and its own proof output beside the finding.\nAnswer every dispute: hand the finding in again to uphold it, or concede its site with why.\nA review's done waits until every handed dispute has an answer.\ndone closes any turn; in a review, any blocking finding means FAIL, otherwise PASS.\nExecutors and fixers use blocked when the task cannot be done as written, or\nnot-needed when a fix run's first turn finds the defect gone or already being fixed.\nReview turns refuse blocked and not-needed; other turns refuse finding and follow-up.\nA closing record refuses later records.",
 		"ak hand-in finding api.py:12 \"Wrong result\" \"Breaks callers\" --quote \"return None\"",
 	},
 	"hand-in finding": {
@@ -54,6 +54,11 @@ var entries = map[string]entry{
 		"usage: ak hand-in dispute PATH:LINE \"WHY IT IS WRONG\" (--run COMMAND | --quote LINES)",
 		"Dispute a blocking finding handed to this fixer, with a passing command or quoted evidence.",
 		"ak hand-in dispute api.py:12 \"The result is correct\" --run \"python3 check_result.py\"",
+	},
+	"hand-in concede": {
+		"usage: ak hand-in concede PATH:LINE \"WHY\"",
+		"Accept a dispute handed to this reviewer and record why it is right.",
+		"ak hand-in concede api.py:12 \"The default is required\"",
 	},
 	"hand-in done": {
 		"usage: ak hand-in done",

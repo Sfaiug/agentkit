@@ -11,7 +11,7 @@ import (
 // init answers `hand-in` and each of its words, which Main takes off the arguments.
 func init() {
 	commands["hand-in"] = handIn
-	for _, word := range []string{"finding", "follow-up", "dispute", "done", "blocked", "not-needed"} {
+	for _, word := range []string{"finding", "follow-up", "dispute", "concede", "done", "blocked", "not-needed"} {
 		commands["hand-in "+word] = func(args []string, out, errOut io.Writer) int {
 			return handIn(append([]string{word}, args...), out, errOut)
 		}
