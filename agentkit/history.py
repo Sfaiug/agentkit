@@ -257,8 +257,8 @@ READINGS_KEPT_FOR = 35 * 86400     # five weeks
 # One row per model a worker turn's harness reported its tokens by (`Harness.turn_usage`),
 # written with the turn's sum in `runs`: `turn` its directory as `counted_turns` names it,
 # `account` the login it ran on, `model` NULL where it named none, `began` and `at` when it
-# started and ended.  Where its harness totals a session, each count is the growth over the
-# latest earlier turn of that session in the run, never below 0.
+# started and ended.  Where its harness totals a session, each count is what that total exceeds
+# the rows the run keeps for the session's earlier turns, never below 0.
 TURN_USAGE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS turn_usage (
     turn TEXT,
@@ -738,7 +738,7 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
         return
     counted = set(json.loads(row[0] or "[]"))
     plugin = harness_plugin(harness)
-    values, rows = [], []
+    values = []
     for out in paths:
         out = Path(out)
         turn = str(out.resolve())
@@ -747,7 +747,12 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
             if value is not None:
                 values.append(value)
                 counted.add(turn)
-                rows += [(turn, run_id, role, *usage) for usage in _turn_usage(plugin, run_id, out)]
+                # kept at once, so a later turn of the same session among `paths` sees them
+                connection.executemany(
+                    "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, "
+                    "input, cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                    [(turn, run_id, role, *usage)
+                     for usage in _turn_usage(connection, plugin, run_id, out)])
     if not values:
         return
     # The total, its rows by model and the turns they include survive or roll back together,
@@ -755,28 +760,45 @@ def _add_turn_tokens(connection, run_id, role, paths, harness):
     connection.execute(
         f"UPDATE runs SET {column}=COALESCE({column},0)+?, counted_turns=? WHERE run_id=?",
         (int(sum(values)), json.dumps(sorted(counted)), run_id))
-    connection.executemany(
-        "INSERT INTO turn_usage (turn, run_id, role, account, model, began, at, input, "
-        "cache_write, cache_read, output) VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
 
 
-def _turn_usage(plugin, run_id, out):
+def _turn_usage(connection, plugin, run_id, out):
     """(account, model, began, at, input, cache write, cache read, output) for each model the
     turn in `out` reported, as `TURN_USAGE_SCHEMA` keeps them.
 
-    It began when its `harness` receipt was written and ended at its last event."""
+    It began when its `harness` receipt was written and ended at its last event.  What a
+    session's total exceeds is measured against the rows kept for the session's turns that began
+    before it, not against what they report now: a transcript coming home later changes a killed
+    turn's report, never its rows.  Turns are counted in whatever order their collectors find
+    them, so the session's next total kept already, which took this turn's share, gives it back.
+    """
     reported = plugin.turn_usage(out)
     if reported is None:
         return []
-    session, counts = reported
+    session, totals, counts = reported
     began = _moment(out / "harness")
     if session is not None and began is not None:
-        earlier = [(when, found[1]) for receipt in (config.RUNS / run_id).glob("round-*/*/harness")
-                   if (when := _moment(receipt)) is not None and when < began
-                   and (found := plugin.turn_usage(receipt.parent)) and found[0] == session]
-        before = max(earlier, key=lambda pair: pair[0])[1] if earlier else {}
-        counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, before.get(
-            model, (0,) * len(numbers)))) for model, numbers in counts.items()}
+        rows = connection.execute(
+            "SELECT turn, began, model, input, cache_write, cache_read, output FROM turn_usage "
+            "WHERE run_id=? AND began IS NOT NULL", (run_id,)).fetchall()
+        # each of the session's turns kept, and whether its counts total the session
+        ours = {turn: found[1] for turn in {row[0] for row in rows}
+                if (found := plugin.turn_usage(Path(turn))) and found[0] == session}
+        if totals:
+            kept = {}
+            for turn, when, model, *numbers in rows:
+                if turn in ours and when < began:
+                    kept[model] = tuple(map(sum, zip(kept.get(model, (0,) * 4), numbers)))
+            counts = {model: tuple(max(0, now - then) for now, then in zip(numbers, kept.get(
+                model, (0,) * len(numbers)))) for model, numbers in counts.items()}
+        later = min(((when, turn) for turn, when, *_ in rows if ours.get(turn) and when > began),
+                    default=None)
+        if later:
+            connection.executemany(
+                "UPDATE turn_usage SET input=MAX(0, input-?), cache_write=MAX(0, cache_write-?), "
+                "cache_read=MAX(0, cache_read-?), output=MAX(0, output-?) "
+                "WHERE turn=? AND model IS ?",
+                [(*numbers, later[1], model) for model, numbers in counts.items()])
     try:
         account = (out / "account").read_text()
     except OSError:

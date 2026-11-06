@@ -123,7 +123,7 @@ def turn_usage(out):
         model = (out / "model").read_text()
     except OSError:
         model = ""
-    return None, {model if model not in ("", "default") else None: counts}
+    return None, False, {model if model not in ("", "default") else None: counts}
 
 
 def _completed_counts(events):
