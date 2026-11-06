@@ -5,6 +5,7 @@ package features
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -98,4 +99,41 @@ func TestAWaitOverBeforeTheCommandStartsIsNoAnswer(t *testing.T) {
 		t.Errorf("said %q", why)
 	}
 	time.Sleep(10 * time.Millisecond) // for a stop the deadline set off to have run
+}
+
+// One gone to a session of its own, holding the output open past the wait, is let go of: no
+// answer, and nothing of the command left open in ak.
+func TestPastTheWaitAnOutputHeldFromAnotherSessionIsClosed(t *testing.T) {
+	if _, err := exec.LookPath("setsid"); err != nil {
+		t.Skip("no setsid here")
+	}
+	t.Setenv("HOME", t.TempDir())
+	before := wait
+	wait = 200 * time.Millisecond
+	t.Cleanup(func() { wait = before })
+	checkout := t.TempDir()
+	if err := os.WriteFile(filepath.Join(checkout, "features.sh"), []byte("setsid sleep 60 & echo $! >child.pid; echo '[]'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, "AGENTS.md"), []byte("---\nfeatures: sh features.sh\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec.Command("true").Output() // the poller a pipe needs is ak's own, not the command's
+	open, err := os.ReadDir("/dev/fd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows, listed := List(context.Background(), checkout)
+	data, err := os.ReadFile(filepath.Join(checkout, "child.pid"))
+	pid, unread := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil || unread != nil {
+		t.Fatal(err, unread)
+	}
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	if listed {
+		t.Errorf("answered %v past the wait", rows)
+	}
+	if left, _ := os.ReadDir("/dev/fd"); len(left) > len(open) {
+		t.Errorf("%d descriptors open after, %d before", len(left), len(open))
+	}
 }
