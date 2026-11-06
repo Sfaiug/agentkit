@@ -55,6 +55,13 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 	return ak, gh
 }
 
+// carries is whether a tick was carried out whole: Go did not leave it to Python, and it saved
+// watch.json.
+func carries(out, errOut io.Writer) bool {
+	carried, err := Carry(out, errOut)
+	return carried && err == nil
+}
+
 func put(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
@@ -100,7 +107,7 @@ func TestATickKeepsWhatItDoesNotKnowAndRecordsItself(t *testing.T) {
 	ak, _ := idleHome(t, answers)
 	put(t, filepath.Join(ak, "state", "watch.json"), `{"mine": {"big": 12345678901234567890, "é": 1e3}, "gh_out": {"at": 1.0}, "boot_id": "another"}`)
 	var out bytes.Buffer
-	if !Carry(&out, io.Discard) || out.Len() != 0 {
+	if !carries(&out, io.Discard) || out.Len() != 0 {
 		t.Fatalf("printed %q", out.String())
 	}
 	text := read(t, filepath.Join(ak, "state", "watch.json"))
@@ -128,7 +135,7 @@ func TestATickKeepsWhatItDoesNotKnowAndRecordsItself(t *testing.T) {
 func TestALogoutIsRecordedAndAnOutageLeavesIt(t *testing.T) {
 	ak, gh := idleHome(t, "echo 'To get started, please run:  gh auth login' >&2; exit 4")
 	var out bytes.Buffer
-	if !Carry(&out, io.Discard) || out.String() != "gh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
+	if !carries(&out, io.Discard) || out.String() != "gh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
 		t.Fatalf("printed %q", out.String())
 	}
 	at := watched(t, ak)["gh_out"]
@@ -137,7 +144,7 @@ func TestALogoutIsRecordedAndAnOutageLeavesIt(t *testing.T) {
 	}
 	gh("echo offline >&2; exit 1")
 	out.Reset()
-	if !Carry(&out, io.Discard) || out.String() != "WARN GitHub is unavailable; PR checks skipped (offline)\n" {
+	if !carries(&out, io.Discard) || out.String() != "WARN GitHub is unavailable; PR checks skipped (offline)\n" {
 		t.Fatalf("printed %q", out.String())
 	}
 	if got := watched(t, ak)["gh_out"]; !reflect.DeepEqual(got, at) {
@@ -150,7 +157,7 @@ func TestALogoutIsRecordedAndAnOutageLeavesIt(t *testing.T) {
 func endedThere(t *testing.T, ak, said string) {
 	t.Helper()
 	var out, errOut bytes.Buffer
-	if Carry(&out, &errOut) || out.String() != said || errOut.Len() != 0 {
+	if carries(&out, &errOut) || out.String() != said || errOut.Len() != 0 {
 		t.Fatalf("carried it, printing %q %q", out.String(), errOut.String())
 	}
 	if text, err := os.ReadFile(filepath.Join(ak, "state", "watch.json")); err == nil && strings.Contains(string(text), `"tick"`) {
@@ -346,7 +353,7 @@ func TestWhatTheSearchFinds(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, step.script)
 			var out bytes.Buffer
-			if Carry(&out, io.Discard) != step.carried || out.String() != step.said {
+			if carries(&out, io.Discard) != step.carried || out.String() != step.said {
 				t.Errorf("printed %q", out.String())
 			}
 			if watched(t, ak)["tick"] == nil {

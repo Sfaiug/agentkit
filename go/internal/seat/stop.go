@@ -347,15 +347,15 @@ func stopped(seat *run.Object) (bool, bool) {
 
 // quiet is whether watch.json holds nothing a seat's word reads: what watch.forget leaves where
 // the watch kept nothing else, every map but the alert generations, the heads the tick reviewed
-// and a merge's break empty, beside the boot the tick last saw and the record of how the last tick
-// went.
+// and a merge's break empty, beside the boot the tick last saw, the record of how the last tick
+// went and when the last tick ended whole.
 func quiet(path string) bool {
 	data, err := run.ReadJSON(path)
 	if err != nil || data == nil {
 		return false
 	}
 	for _, key := range data.Keys() {
-		if key == "boot_id" || key == "tick" {
+		if key == "boot_id" || key == "tick" || key == "tick_completed_at" {
 			continue
 		}
 		held := data.Dict(key)

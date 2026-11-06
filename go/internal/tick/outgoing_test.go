@@ -13,7 +13,7 @@ func TestSavedForeignPRHandsOverAfterSearchDropsIt(t *testing.T) {
 	path := filepath.Join(ak, "runs", "fix-api", "run.json")
 	text := `{"state":"pass","foreign":true,"pr":"https://github.com/other/api/pull/1","handed_back":true,"reported":true,"tree_stopped":[null,null]}`
 	put(t, path, text)
-	if Carry(io.Discard, io.Discard) {
+	if carries(io.Discard, io.Discard) {
 		t.Fatal("saved foreign PR was lost when the open search returned nothing")
 	}
 	if read(t, path) != text {

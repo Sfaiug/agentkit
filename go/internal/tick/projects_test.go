@@ -36,7 +36,7 @@ func checkoutHome(t *testing.T, agents string) (ak, api string) {
 func TestACheckoutIsTended(t *testing.T) {
 	ak, api := checkoutHome(t, "# acme\n")
 	var out bytes.Buffer
-	if !Carry(&out, io.Discard) {
+	if !carries(&out, io.Discard) {
 		t.Fatalf("left it to Python, printing %q", out.String())
 	}
 	if !strings.Contains(out.String(), "git gc: "+api) {
