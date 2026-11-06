@@ -3,11 +3,13 @@ package loop
 // Narrowing hides the search between a red stack and the last tree green on what failed.
 // Whole checks, evidence, publication and delivery remain the line's own steps. Named tests
 // passing alone are search evidence only: below each culprit a whole check must cover the
-// surviving prefix before the rebuilt suffix runs. Flakes, helpers, PR reviews, changed-file
-// suites and target repairs stay with Python, as do integration or rules refusals on a stack.
+// surviving prefix before the rebuilt suffix runs. Flakes, reds with suite helpers, PR reviews,
+// changed-file suites and target repairs stay with Python, as do integration or rules refusals on
+// a stack.
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/helper"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
@@ -58,9 +61,6 @@ func redBehind(wait *run.Object, members []member) bool {
 }
 
 func narrowLine(turn, code, repo, tip, upstream string, members []member, said io.Writer) error {
-	if len(config.MachineNames()) > 0 {
-		return nil
-	}
 	var prefix, pending []member
 	for _, m := range members {
 		if m.record.Truthy("review_pr") || m.record.Truthy("repair") {
@@ -200,6 +200,9 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 		name = logs[0]
 	}
 	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, suite, selection)
+	if errors.Is(err, helper.ErrPython) {
+		selection.handoff, err = true, nil
+	}
 	if err != nil || selection.handoff {
 		return nil, err
 	}
@@ -294,6 +297,9 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 		}
 		if err != nil || answer == nil {
 			return answer, err
+		}
+		if answer.Has("fix") && helper.May() {
+			return nil, nil // a landing red with suite helpers is Python's, as stack.go says
 		}
 		note(turn, func(trees, _, red *run.Object) {
 			entry := run.Fields("at", clock(), "leader", filepath.Base(stacks[index].dir), "checks", toList(checks), "code", codeValue(code))

@@ -30,6 +30,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/helper"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
@@ -391,8 +392,8 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 		if err := drivable(path, values, bound); err != nil {
 			return refuse("", "", err)
 		}
-		// a helper takes a repository's checks in Python, and Go has none
-		if at.repo != "" && helped() {
+		// a repository run on a host with a helper is Python's: its rounds' checks and turns go there
+		if at.repo != "" && helper.May() {
 			return refuse("", "", ErrPython)
 		}
 	}
