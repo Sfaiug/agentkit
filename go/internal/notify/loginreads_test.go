@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
@@ -26,8 +27,8 @@ func TestAFailedLoginEndKeepsItsAnswerAndWaitsBeforeAskingAgain(t *testing.T) {
 			last := run.Fields("email", "owner@acme.test", "plan", "pro", "ends", clock()+10*86400, "checked_at", 1)
 			write(path, run.Encode(run.Fields("test", run.Fields("default", last))))
 			write(filepath.Join(adapters, "claude.sh"), "#!/bin/sh\n"+script+"\n")
-			if quiet, err := QuietLogins(); !quiet || err != nil {
-				t.Fatal(quiet, err)
+			if _, err := RefreshLogins(clock()); err != nil {
+				t.Fatal(err)
 			}
 			stored, err := run.ReadJSON(path)
 			if err != nil {
@@ -44,9 +45,24 @@ func TestAFailedLoginEndKeepsItsAnswerAndWaitsBeforeAskingAgain(t *testing.T) {
 			}
 			// If the failure was not dated, this newly available expiry would be read.
 			write(filepath.Join(adapters, "claude.sh"), "#!/bin/sh\necho '{\"ends\":1}'\n")
-			if quiet, err := QuietLogins(); !quiet || err != nil {
-				t.Fatal("asked again inside the cadence", quiet, err)
+			if kept, err := RefreshLogins(clock()); err != nil || number(kept.Dict("test").Dict("default"), "ends") == 1 {
+				t.Fatal("asked again inside the cadence", err)
 			}
 		})
+	}
+}
+
+// A subscription none of whose models is left is asked through the harness the shipped default
+// runs it on, so a login made again is read rather than its old end kept.
+func TestALoginWithoutModelsIsAskedThroughItsShippedHarness(t *testing.T) {
+	_, write := questionHome(t)
+	adapters := t.TempDir()
+	t.Setenv("AGENTKIT_ADAPTER_DIR", adapters)
+	write(filepath.Join(config.Home(), "config.toml"), "[models.beta]\nharness='codex'\nmodel='beta'\neffort='high'\nprovider='openai'\n"+
+		"[providers.openai]\nmode='subscription'\n[providers.anthropic]\nmode='subscription'\n")
+	write(filepath.Join(state(), "logins.json"), `{"anthropic": {"default": {"ends": 1, "checked_at": 1}}}`)
+	write(filepath.Join(adapters, "claude.sh"), "#!/bin/sh\necho '{\"ends\": 2000000000}'\n")
+	if kept, err := RefreshLogins(clock()); err != nil || number(kept.Dict("anthropic").Dict("default"), "ends") != 2000000000 {
+		t.Fatal(kept, err)
 	}
 }

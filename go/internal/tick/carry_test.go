@@ -173,7 +173,7 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 	for path, content := range map[string]string{
 		"runs/fix-api/run.json":            `{"state":"waiting_login"}`,
 		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
-		"secrets/acme":                     "",
+		"secrets/claude_oauth_token":       "",
 		"history.db":                       "",
 		"state/session-acme.json":          "{}",
 		"state/google-cloud-need":          "4096\n",

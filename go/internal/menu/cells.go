@@ -10,7 +10,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
@@ -50,10 +49,10 @@ func Cells(now time.Time) ([]Cell, error) {
 		if err != nil {
 			return nil, err
 		}
-		// a provider named nowhere is its key capitalised, in the accent, Mocha's blue
+		// a provider coloured nowhere is in the accent, Mocha's blue
 		ownName, ownColour := harness.Company(sub.Name)
 		grey, place := hue(cmp.Or(colour, ownColour, "#89b4fa"))
-		rows = append(rows, shown{sub, cmp.Or(name, ownName, titled(sub.Name)), cmp.Or(colour, ownColour, "accent"), grey, place})
+		rows = append(rows, shown{sub, cmp.Or(name, ownName), cmp.Or(colour, ownColour, "accent"), grey, place})
 	}
 	slices.SortStableFunc(rows, func(a, b shown) int {
 		if a.grey != b.grey {
@@ -78,7 +77,7 @@ func Cells(now time.Time) ([]Cell, error) {
 			login := logins.Of(each.sub.Name, account)
 			cell := Cell{Label: config.AccountLabel(accounts, account, each.name), Left: left, Said: said, Ends: logins.Ending(login, now), Provider: each.sub.Name,
 				Account: account, Company: cmp.Or(harness.Heading(each.sub.Name), each.name), Colour: each.colour,
-				Harness: cmp.Or(each.sub.Harness, config.ShippedHarness(each.sub.Name)), // logins.harness
+				Harness: logins.Harness(each.sub),
 				Held:    readings.InHand(each.sub.Name, account), Notes: readings.Detail(each.sub.Name, account)}
 			if login != nil {
 				cell.Email, cell.Plan = login.Str("email"), login.Str("plan")
@@ -110,20 +109,6 @@ func hue(colour string) (grey bool, place float64) {
 		place = 4 + (channel[0]-channel[1])/span
 	}
 	return false, math.Mod(place/6+1, 1)
-}
-
-// titled is a provider's key capitalised as Python's str.title does.
-func titled(name string) string {
-	out, start := []rune(name), true
-	for i, r := range out {
-		if start {
-			out[i] = unicode.ToUpper(r)
-		} else {
-			out[i] = unicode.ToLower(r)
-		}
-		start = !unicode.IsLetter(r)
-	}
-	return string(out)
 }
 
 // Standing is the worker token's note while the ak screen shows it, from tokenWarn days out and once
