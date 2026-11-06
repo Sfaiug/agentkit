@@ -11,21 +11,10 @@ import (
 	"agentkit/internal/run"
 )
 
-// The tick's history rows: seat tokens' read (KeepsSeats), history sync (Agree) and history
-// checkpoint (Checkpoint).
+// The tick's history rows: seat tokens (SeatTokens, seattokens.go), history sync (Agree) and
+// history checkpoint (Checkpoint).
 
-// KeepsSeats is whether history.db keeps seats' tokens, which Python ak alone reads on: true where
-// SQLite cannot say.
-func KeepsSeats() bool {
-	db, err := connect(Path(), sqlite3.OPEN_READONLY)
-	if err != nil {
-		return true
-	}
-	defer db.Close()
-	seats, err := db.keepsSeats()
-	return err != nil || seats
-}
-
+// keepsSeats is whether history.db keeps seats' tokens.
 func (db *DB) keepsSeats() (bool, error) {
 	seats, err := db.rows("SELECT 1 FROM sqlite_master WHERE name = 'seat_sources'")
 	return len(seats) > 0, err

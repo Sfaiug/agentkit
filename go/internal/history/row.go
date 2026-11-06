@@ -214,7 +214,11 @@ func unrecorded(record *run.Object) bool {
 // up to today's tables, in one commit under Python's writers' lock.  History never makes a run
 // fail: what goes wrong is said on log, else in history.log.
 func apply(log func(string), change func(*DB) error) {
-	err := commit(change)
+	warn(log, commit(change))
+}
+
+// warn says what a write's error was on log, else in history.log.
+func warn(log func(string), err error) {
 	if err == nil {
 		return
 	}

@@ -128,7 +128,7 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 		Stall: seen.stallOn(seat.own, pane, tail, recorded, kept), Login: seen.loginOn(seat.own, tail, recorded, kept),
 		Stuck: loginHint.MatchString(line) || terminalFailure.MatchString(line), Refused: refused,
 		Bound: session[1] != "", Attached: session[0] != "" && session[0] != "0", Path: session[2], Pane: pane,
-		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: script.Moment(wrapped) != 0, Record: record, File: file}, true
+		Draft: draft, Typed: joined(seat.Name, draft), Title: title, WrappedUp: harness.Moment(wrapped) != 0, Record: record, File: file}, true
 }
 
 // Health is the tick's look at a seat its panes run on (watch.health): its conversation's title read

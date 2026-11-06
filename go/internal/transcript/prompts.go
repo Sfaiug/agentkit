@@ -29,7 +29,7 @@ func Prompts(name, path string) (found []Prompt) {
 		if skip != nil && fits(skip, entry) || len(answer.items(entry)) > 0 {
 			continue
 		}
-		if text, when := promptWords(name, kinds, entry), moment(first(at(entry, stamp))); text != "" && when != 0 {
+		if text, when := promptWords(name, kinds, entry), harness.Moment(first(at(entry, stamp))); text != "" && when != 0 {
 			found = append(found, Prompt{At: when, Text: text})
 		}
 	}
