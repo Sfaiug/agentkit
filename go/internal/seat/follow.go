@@ -139,7 +139,7 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	}
 	if to.chosen != seat.Orchestrator {
 		orchestrate := set([]field{{"orchestrator", to.chosen}})
-		if err := seat.edit(state, func(data *run.Object) bool {
+		if err := update(state, seat.Name, func(data *run.Object) bool {
 			if !read(data, seat.Orchestrator) || !orchestrate(data) {
 				return false
 			}
@@ -152,7 +152,7 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	if to.effort == "" {
 		return nil
 	}
-	return seat.edit(state, func(data *run.Object) bool {
+	return update(state, seat.Name, func(data *run.Object) bool {
 		efforts := orchestratingAt(data, to.chosen, to.effort, models)
 		if !read(data, to.chosen) || run.Equal(efforts, data.Get("efforts")) {
 			return false

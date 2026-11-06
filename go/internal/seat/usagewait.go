@@ -15,7 +15,7 @@ import (
 // subscription of the model it names is spent (spentAlone); nil for none Go reads or for a dry
 // look, as collecting them keeps them, false for neither. Health decides again from the model its
 // look follows.
-func usageAhead(state, name string, models map[string]config.Model, dry bool) (*usages.Readings, bool) {
+func usageAhead(state, name string, models map[string]config.Model) (*usages.Readings, bool) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		return nil, false
@@ -27,7 +27,7 @@ func usageAhead(state, name string, models map[string]config.Model, dry bool) (*
 	if refused, _ := harness.Refusal(own, said); (!known || !kept || !refused) && !spentAlone(model, models[model]) {
 		return nil, false
 	}
-	if dry {
+	if drying != nil {
 		return nil, true
 	}
 	readings, err := usages.Collected()

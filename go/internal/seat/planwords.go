@@ -106,7 +106,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 		return found, err
 	}
 	const why = "stopped with work open, no question and no run"
-	if seat.dry != nil {
+	if drying != nil {
 		log("would resume " + seat.Name + ", " + why + ", with 'continue'")
 		return found, nil
 	}

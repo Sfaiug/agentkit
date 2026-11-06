@@ -94,7 +94,7 @@ func (seat Seat) lastSeen() (sight, error) {
 }
 
 func revivalFile(name string) *run.Object {
-	file, _ := run.ReadJSON(seatFile(name))
+	file, _ := asLeft(seatFile(name))
 	if file == nil {
 		return run.NewObject()
 	}

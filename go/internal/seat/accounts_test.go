@@ -62,7 +62,7 @@ func TestAccountRecoveryHandsOwnerInputTurnsAndWaitsBackWithoutWriting(t *testin
 				t.Fatal("a recovery case did not reach its account decision")
 			}
 			before := stateFiles(t, home)
-			if carried, err := MoveAccount(lives[0], false, func(string) {}); carried || err != nil {
+			if carried, err := MoveAccount(lives[0], func(string) {}); carried || err != nil {
 				t.Fatal(carried, err)
 			}
 			if !maps.Equal(before, stateFiles(t, home)) {

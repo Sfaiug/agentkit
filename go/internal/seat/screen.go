@@ -163,7 +163,7 @@ func (seat Seat) keep(state, pane string, exited bool, found sight, previous *ru
 	fields := []field{{"state", found.state}, {"since", found.since}, {"began", found.began}, {"authority", found.authority},
 		{"rule", found.rule}, {"evidence", found.evidence}, {"hooked", orNone(found.hooked)}, {"hooked_at", found.hookedAt}, {"hooked_event", orNone(found.hookedEvent)},
 		{"interrupted", found.interrupted}, {"stall", found.stall}, {"login", found.login}}
-	return found, seat.save(state, append(fields, turnMarks(seen.rules, tail, found, previous, now)...))
+	return found, writeSeat(state, seat.Name, append(fields, turnMarks(seen.rules, tail, found, previous, now)...))
 }
 
 // orNone is that text, or null for none, as the seat file keeps what a hook did not say.

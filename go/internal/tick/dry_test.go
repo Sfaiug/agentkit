@@ -170,6 +170,51 @@ func TestDryDiscoveryLeavesAMuseReceiptAsItWas(t *testing.T) {
 	}
 }
 
+// The background work a seat's screen shows is kept by the real look before the account decision
+// reads it: on an account running low, the seat stays for that work, and on one spent it moves.
+// A dry tick decides the same, carrying the first and handing the second over, and keeps and locks
+// none of it, whether a seat file was saved before it or not.
+func TestDryScreenHoldsAreNeverSaved(t *testing.T) {
+	for _, each := range []struct {
+		name, seatFile string
+		used           int // of the seat's own account
+		carried        bool
+	}{
+		{"carried", "", 97, true},
+		{"carried, saved", `{"state": "at_prompt", "holds": []}`, 97, true},
+		{"handed over", "", 100, false},
+		{"handed over, saved", `{"state": "at_prompt", "holds": []}`, 100, false},
+	} {
+		t.Run(each.name, func(t *testing.T) {
+			ak, _ := idleHome(t, loggedOut)
+			home := filepath.Dir(ak)
+			put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.gemini]\nharness='antigravity'\nmodel='gemini'\neffort='high'\nprovider='test'\n"+
+				"[providers.test]\nmode='subscription'\naccounts=['default','second']\n")
+			put(t, filepath.Join(ak, "state", "session-acme.json"), run.Line(run.Fields("orchestrator", "gemini", "workers", []any{"gemini"},
+				"cwd", filepath.Join(home, "work", "acme"), "created", 1799000000, "conversation", "conv-acme", "id_source", "launcher", "resumable", true, "session_title", "acme")))
+			if each.seatFile != "" {
+				put(t, filepath.Join(ak, "state", "seat-acme.json"), each.seatFile)
+			}
+			meter := func(used int) *run.Object {
+				return run.Fields("meters", []any{run.Fields("name", "session", "used", used, "window_secs", 18000, "resets_at", epoch(time.Now())+3600)})
+			}
+			put(t, filepath.Join(ak, "state", "usage.json"), run.Line(run.Fields("fetched_at", epoch(time.Now()),
+				"providers", run.Fields("test", run.Fields("accounts", run.Fields("default", meter(each.used), "second", meter(10)))))))
+			rule := strings.Repeat("─", 40)
+			drawn(t, home, "The patch is ready.\n"+rule+"\n>\n"+rule+"\n● [12:08:46] sleep 45 running\n"+rule+
+				"\n? for shortcuts              agentkit (GPT-OSS 120B (Medium))  /agents · 1 task(s) · /tasks\n")
+			before := files(t, home)
+			var out bytes.Buffer
+			if Dry(&out) != each.carried {
+				t.Fatalf("carried %v, printing %q", !each.carried, &out)
+			}
+			if after := files(t, home); !reflect.DeepEqual(after, before) {
+				t.Fatal("the dry tick changed HOME")
+			}
+		})
+	}
+}
+
 // loggedOut is a gh logged in as nobody, openPlan a plan with work open, and continued what a dry
 // tick says of a seat stopped there.
 const (

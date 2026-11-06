@@ -200,7 +200,7 @@ func TestThePromptInItsConversationAnswersTheQuestion(t *testing.T) {
 	write(t, stateFile(home, "card-acme.json"), fmt.Sprintf(`{"word": "needs you", "since": %f, "began": %f, "episode": "e", "sent": false}`, since, since))
 	// the words of a prompt heard but not written yet answer nothing, past the time given them
 	state := stateFile(home, "")
-	if done, known, err := answerWritten(state, "acme", seconds(time.Now()), 0, false); done || !known || err != nil {
+	if done, known, err := answerWritten(state, "acme", seconds(time.Now()), 0); done || !known || err != nil {
 		t.Fatal(done, known, err)
 	}
 	transcript(t, home, "acme", fmt.Sprintf(`{"type": "user", "timestamp": %q, "message": {"role": "user", "content": "this one"}}`+"\n", time.Now().UTC().Format(time.RFC3339Nano)))

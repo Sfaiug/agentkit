@@ -10,7 +10,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/lock"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	"agentkit/internal/screen"
@@ -138,26 +137,27 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // published, so unsupported recovery leaves no publish behind. The account decision may reopen
 // the seat through its shared launch path; a refusal its record ends on, or its one subscription
 // spent, is instead waited on, the wait written before the publish (waitOnUsage). False where
-// either decision leaves work to Python. A dry look decides as the real one and acts on nothing:
-// it takes no lock, reads the seat as its writes would leave it and saves none of it (dryLook),
-// and says through log the `continue` it would type; a seat it would do anything else at, or
-// cannot decide, is not carried.
+// either decision leaves work to Python. A dry look decides as the real one and acts on nothing
+// (dryLook), and says through log the `continue` it would type; a seat it would do anything else
+// at, or cannot decide, is not carried.
 func Health(name string, ok func(Live) bool, log func(string), dry bool) (bool, error) {
-	carried, err := health(name, ok, log, dry)
-	if dry && err != nil {
-		return false, nil
+	if !dry {
+		return health(name, ok, log)
 	}
-	return carried, err
+	drying = dryLook{}
+	defer func() { drying = nil }()
+	carried, err := health(name, ok, log)
+	return carried && err == nil, nil
 }
 
-func health(name string, ok func(Live) bool, log func(string), dry bool) (bool, error) {
+func health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	state := filepath.Join(config.Home(), "state")
 	models, err := config.Models()
 	if err != nil {
 		return false, err
 	}
 	// read under its typing lock, as watch.follow_title reads it, and kept
-	if !dry {
+	if drying == nil {
 		err = notify.Held(context.Background(), name, func(current string) error {
 			record, _ := run.ReadJSON(filepath.Join(state, "session-"+current+".json"))
 			if record == nil {
@@ -176,23 +176,19 @@ func health(name string, ok func(Live) bool, log func(string), dry bool) (bool, 
 	carried := false
 	// that wait is written under every lifecycle change's lock, which watch.seat_account takes
 	// outside the announce lock, the meters read before either
-	readings, ahead := usageAhead(state, name, models, dry)
-	if ahead && !dry {
-		held, err := lock.Wait(context.Background(), filepath.Join(state, "watch.lock"))
+	readings, ahead := usageAhead(state, name, models)
+	if ahead {
+		release, err := hold(filepath.Join(state, "watch.lock"))
 		if err != nil {
 			return false, err
 		}
-		defer held.Close()
+		defer release()
 	}
-	look := announcing
-	if dry {
-		look = func(_, _ string, tell func() error) error { return tell() }
-	}
-	err = look(state, name, func() error {
+	err = announcing(state, name, func() error {
 		now := time.Now()
 		home, seat, known := liveSeat(name, now, lookRuns, nil, true)
 		if !known {
-			carried, err = home.healthGone(state, name, now, dry)
+			carried, err = home.healthGone(state, name, now)
 			return err
 		}
 		if carried = !seat.looked(); carried { // a seat nothing here started
@@ -200,16 +196,13 @@ func health(name string, ok func(Live) bool, log func(string), dry bool) (bool, 
 		}
 		pane, exited := harnessScreen(name)
 		if exited {
-			carried, err = home.healthDied(state, name, now, dry)
+			carried, err = home.healthDied(state, name, now)
 			return err
 		}
 		found, previous := observed(state, name, seat.reader, pane, seconds(now))
 		live, read := seat.lived(state, pane, exited, found, now)
 		if carried = read && ok(live); !carried {
 			return nil
-		}
-		if dry {
-			seat.dry = &dryLook{record: live.Record.Copy(), file: previous.Copy()}
 		}
 		var wait func() error
 		blank := strings.TrimFunc(pane, config.Space) == ""
@@ -250,7 +243,7 @@ func health(name string, ok func(Live) bool, log func(string), dry bool) (bool, 
 			return err
 		}
 		if wait == nil { // a refusal is waited on, never moved from at its prompt
-			if carried, err = MoveAccount(live, dry, log); !carried || err != nil {
+			if carried, err = MoveAccount(live, log); !carried || err != nil {
 				return err
 			}
 		}
@@ -265,7 +258,7 @@ func health(name string, ok func(Live) bool, log func(string), dry bool) (bool, 
 			if err := wait(); err != nil {
 				return err
 			}
-		} else if dry || live.sameRecord() { // A relaunch, which a dry look makes none of, consumed the old Stop; it cannot nudge the replacement harness.
+		} else if live.sameRecord() { // A relaunch consumed the old Stop; it cannot nudge the replacement harness.
 			// an unanswered owner decision is never a reason to type a resume
 			asked := notify.OwnerQuestion(notify.Last(seat.Name))
 			if found, err = seat.nudgeQuestion(state, found, log); err == nil && !asked {
@@ -283,50 +276,42 @@ func health(name string, ok func(Live) bool, log func(string), dry bool) (bool, 
 	return carried, err
 }
 
-// A dryLook is a look that acts on nothing: the seat's record and seat file as its writes would
-// leave them, which its reads read in place of the files and nothing saves. A look holding one
-// takes no lock and types, asks and publishes nothing; at what else it would do, it is errDry.
-type dryLook struct{ record, file *run.Object }
+// A dryLook is a look that acts on nothing: what each file it would write would hold. While one
+// looks (drying), hold takes no lock and rewrite lands no file but keeps it here, where asLeft
+// reads it in the file's place. Every save of a seat's record or seat file (put, so writeSeat,
+// update and Write) goes through both, and the announce lock and watch.lock through hold, so
+// nothing a dry look calls saves one or takes those locks. Where it would act otherwise it checks
+// drying: it says the `continue` it would type, keeps no title and tells no bar, and leaves
+// anything else it would do to Python.
+type dryLook map[string][]byte
+
+// drying is the look under way, where it is a dry one.
+var drying dryLook
 
 // errDry is a dry look come to what it would do that Go's dry tick does not say yet.
 var errDry = errors.New("a dry look leaves this to Python's dry tick")
 
+// asLeft is the JSON object at path as this look leaves it.
+func asLeft(path string) (*run.Object, error) {
+	data, kept := drying[path]
+	if !kept {
+		return run.ReadJSON(path)
+	}
+	value, err := run.Decode(data)
+	object, _ := value.(*run.Object)
+	return object, err
+}
+
 // record is the seat's record as this look leaves it.
 func (seat Seat) record(state string) *run.Object {
-	if seat.dry != nil {
-		return seat.dry.record
-	}
-	record, _ := run.ReadJSON(filepath.Join(state, "session-"+seat.Name+".json"))
+	record, _ := asLeft(filepath.Join(state, "session-"+seat.Name+".json"))
 	return record
 }
 
 // file is the seat file as this look leaves it.
 func (seat Seat) file(state string) *run.Object {
-	if seat.dry != nil {
-		return seat.dry.file
-	}
-	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
+	file, _ := asLeft(filepath.Join(state, "seat-"+seat.Name+".json"))
 	return file
-}
-
-// edit is update of the seat's record by this look: a dry one changes the record it holds.
-func (seat Seat) edit(state string, change func(data *run.Object) bool) error {
-	if seat.dry == nil {
-		return update(state, seat.Name, change)
-	}
-	if next := seat.dry.record.Copy(); change(next) {
-		seat.dry.record = next
-	}
-	return nil
-}
-
-// save is writeSeat by this look: a dry one sets the fields in the seat file it holds.
-func (seat Seat) save(state string, fields []field) error {
-	if seat.dry == nil {
-		return writeSeat(state, seat.Name, fields)
-	}
-	set(fields, field{"session", seat.Name})(seat.dry.file)
-	return nil
 }
 
 // Published is the word the seat's file holds and since when, as its last announce wrote them.

@@ -122,7 +122,7 @@ esac
 		t.Fatal("seat unread")
 	}
 	before := lives[0].Record
-	if carried, err := MoveAccount(lives[0], false, func(string) {}); carried || err != nil {
+	if carried, err := MoveAccount(lives[0], func(string) {}); carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	after, _ := run.ReadJSON(stateFile(home, "session-acme.json"))

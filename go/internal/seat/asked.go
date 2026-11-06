@@ -62,10 +62,10 @@ func LookSoon(heard *Prompt) {
 // harness cannot say whose its messages are; any other look asks that conversation too.
 func answering(state, name string, heard *Prompt) error {
 	if heard == nil || notify.AkPrompt(name, heard.Said, notify.Last(name)) {
-		_, _, err := answerWritten(state, name, seconds(time.Now()), 0, false)
+		_, _, err := answerWritten(state, name, seconds(time.Now()), 0)
 		return err
 	}
-	if _, known, err := answerWritten(state, name, heard.At, promptWritten, false); known || err != nil {
+	if _, known, err := answerWritten(state, name, heard.At, promptWritten); known || err != nil {
 		return err
 	}
 	_, err := answered(state, name, heard.At, nil)
@@ -75,11 +75,11 @@ func answering(state, name string, heard *Prompt) error {
 // answerWritten is notify.answer_written: a message of the owner's in the seat's conversation,
 // written after what it asked them, answers it.  One kept back whose turn's end is on record is
 // asked first, and one whose turn still runs waits for the look that asks it.  Whether it was
-// answered, and false for known where its harness cannot say whose its messages are. A dry one
-// (Health's) is errDry where it would ask or answer anything.
-func answerWritten(state, name string, at float64, wait time.Duration, dry bool) (done, known bool, err error) {
+// answered, and false for known where its harness cannot say whose its messages are. A dry look's
+// is errDry where it would ask or answer anything.
+func answerWritten(state, name string, at float64, wait time.Duration) (done, known bool, err error) {
 	if Kept(name) {
-		if dry {
+		if drying != nil {
 			return false, true, errDry
 		}
 		if err := notify.Held(context.Background(), name, func(current string) error { return askKept(current, true) }); err != nil {
@@ -103,7 +103,7 @@ func answerWritten(state, name string, at float64, wait time.Duration, dry bool)
 			return false, false, nil
 		}
 		if len(said) > 0 && slices.Max(said) > since {
-			if dry {
+			if drying != nil {
 				return false, true, errDry
 			}
 			typed := slices.Max(said)
@@ -135,7 +135,7 @@ func (seat Seat) askKeptBack(found sight) error {
 	if !Kept(seat.Name) || found.state == "asking" || !found.composerOpen(seat.own) {
 		return nil
 	}
-	if seat.dry != nil {
+	if drying != nil {
 		return errDry
 	}
 	if err := TurnEnded(seat.Name); err != nil {

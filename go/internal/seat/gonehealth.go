@@ -27,15 +27,12 @@ func (home Home) Repositories() []string {
 	return repos
 }
 
-// healthGone publishes an absent seat under Health's announce lock, with no screen read, or for a
-// dry look nothing. What its death cut off is the recovery rows' to judge later.
-func (home Home) healthGone(state, name string, now time.Time, dry bool) (bool, error) {
+// healthGone publishes an absent seat under Health's announce lock, with no screen read.
+// What its death cut off is the recovery rows' to judge later.
+func (home Home) healthGone(state, name string, now time.Time) (bool, error) {
 	at := slices.IndexFunc(home.Seats, func(seat Seat) bool { return seat.Name == name })
 	if at < 0 || home.Seats[at].live {
 		return false, nil
-	}
-	if dry {
-		return true, nil
 	}
 	seat := home.Seats[at]
 	return true, seat.announced(state, now, home.models)
