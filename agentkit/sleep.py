@@ -6,7 +6,8 @@ it (`wake`).  Hidden: a seat rests from its turn's end while nothing but what it
 (`_rests`); sleeping ends its tmux session, harness and scope's servers with it, marking it asleep
 until it launches again or the owner closes it; waking is the reboot's resume, what waits to be
 typed going in at the next quiet prompt; and anything but rest, work in its scope (`_busy`) or
-held (`watch.cut_off`), an owner attached, a draft or a second pane keeps it awake."""
+held (`watch.cut_off`), an owner attached, any text in its composer or one not read whole, or
+a second pane keeps it awake."""
 
 import math
 from pathlib import PurePath
@@ -54,7 +55,13 @@ def _idle_since(cfg, session, record, table):
             and not session["attached"] and not session["exited"]
             and live.get("state") == "at_prompt" and _rests(name, session, cfg, live)
             and not watch.cut_off(cfg, name)[0]
-            and not _busy(session, table, record, cfg)):
+            and not _busy(session, table, record, cfg)
+            # The owner, 5 Nov 2026: "the text in the input field should never be deleted".  The
+            # screen rules can read a long draft as an empty prompt, so only a composer read
+            # whole and empty sleeps, read last, under `tick`'s lock; keys pressed after it end
+            # with the session, as at a move's frozen last look (the owner's choice, 21 Oct 2026).
+            and watch.composer_draft(orch.seat_harness(record, cfg),
+                                     watch.pane_text(session)) == ""):
         return live.get("began") and max(live["began"], record.get("launched") or 0)
 
 
