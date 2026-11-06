@@ -325,7 +325,7 @@ class V5s(Sandbox):
         self.stack.enter_context(patch.object(orch, "attach",
                                               side_effect=AssertionError("attached")))
         self.stack.enter_context(patch.object(orch, "launch",
-                                              side_effect=lambda *args: launched.append(args)))
+                                              side_effect=lambda *args, **_kw: launched.append(args)))
         self.stack.enter_context(patch.object(
             orch, "command", side_effect=lambda cfg, model, conversation=None, fresh=False,
             account=None, **_kw: [

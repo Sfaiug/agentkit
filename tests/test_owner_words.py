@@ -1,11 +1,13 @@
 """Each harness reads the owner's own prompts from a seat's record, which the scoreboard and the
 done notice time from; every transcript and seat here lives in a temporary HOME."""
 
-from contextlib import ExitStack
+from contextlib import ExitStack, closing, redirect_stdout
 from datetime import datetime, timezone
+import io
 import json
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -14,7 +16,7 @@ from unittest.mock import patch
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, harness, notify, orch, watch
-from agentkit.harness import claude, codex, grokbuild
+from agentkit.harness import claude, codex, grokbuild, opencode
 
 
 def stamp(at):
@@ -92,6 +94,66 @@ class OwnerWords(unittest.TestCase):
     def type(self, text, **kwargs):
         with patch.object(orch, "tmux_out", return_value=(0, "")):
             return watch.type_checked(self.seat, text, lambda _: None, "claude", **kwargs)
+
+    def launch(self, model, line=None, conversation=None):
+        """The seat relaunched on `model`, opening on `line`: on that conversation, else on one
+        its harness names only once it has opened it, as Codex and OpenCode do."""
+        cwd = self.root / "acme"
+        cwd.mkdir(exist_ok=True)
+        config.update_session("lagoon", orchestrator=model)
+        with patch.object(orch, "start"):
+            orch.launch("lagoon", model, cwd, ["fake-tui"], conversation, line=line)
+        return cwd
+
+    def test_a_fresh_codex_launch_s_first_prompt_stays_ak_s_once_codex_names_its_thread(self):
+        cwd = self.launch("astra", watch.MOVED_LINE)
+        rollout = self.root / ".codex" / "rollout.jsonl"
+        rollout.parent.mkdir()
+        rollout.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": "codex-thread", "cwd": str(cwd)}}) + "\n")
+        self.append(codex_prompt(101, watch.MOVED_LINE), codex_prompt(102, "Keep the routes."),
+                    path=rollout)
+        started = {"hook_event_name": "SessionStart", "source": "startup",
+                   "session_id": "codex-thread", "cwd": str(cwd), "transcript_path": str(rollout)}
+        codex.capture(codex.path_for(self.record()), started)
+        self.assertEqual(self.messages(), [{"at": 102, "text": "Keep the routes."}])
+        # reopened on that thread: the launch receipt Codex named it in goes with the launch
+        self.launch("astra", conversation="codex-thread")
+        codex.capture(codex.path_for(self.record()), {**started, "source": "resume"})
+        self.assertEqual(self.messages(), [{"at": 102, "text": "Keep the routes."}])
+
+    def test_a_fresh_opencode_launch_s_first_prompt_is_ak_s_in_that_session_alone(self):
+        with patch.dict(os.environ, {"XDG_DATA_HOME": str(self.root / "data")}):
+            self.launch("mimo", watch.MOVED_LINE)
+            (opencode.path_for(self.record()) / "session").write_text("ses_first")
+            opencode.database().parent.mkdir(parents=True)
+
+            def said(session, *rows):
+                with closing(sqlite3.connect(opencode.database())) as db, db:
+                    db.execute("CREATE TABLE IF NOT EXISTS session_message (session_id TEXT, "
+                               "type TEXT, time_created INTEGER, data TEXT, seq INTEGER)")
+                    db.executemany("INSERT INTO session_message VALUES (?, 'user', ?, ?, ?)",
+                                   [(session, at * 1000, json.dumps({"text": text}), seq)
+                                    for seq, (at, text) in enumerate(rows, 1)])
+            said("ses_first", (101, watch.MOVED_LINE), (102, "Keep the routes."))
+            self.assertEqual(self.messages(), [{"at": 102, "text": "Keep the routes."}])
+            # opened again on a session of its own, where the owner says those words first
+            self.launch("mimo")
+            (opencode.path_for(self.record()) / "session").write_text("ses_second")
+            said("ses_second", (103, watch.MOVED_LINE))
+            self.assertEqual(self.messages(), [{"at": 103, "text": watch.MOVED_LINE}])
+
+    def test_a_dry_run_writes_no_receipt_for_the_line_it_would_open_on(self):
+        self.append(prompt(20, "Add a retry button."))
+        adapter = self.root / "adapters" / "claude.sh"
+        adapter.parent.mkdir()
+        adapter.write_text("#!/bin/sh\nprintf 'fake-tui\\n'\n")
+        adapter.chmod(0o755)
+        with patch.dict(os.environ, {config.ADAPTER_DIR_ENV: str(adapter.parent)}), \
+                redirect_stdout(io.StringIO()):
+            self.assertEqual(orch.resume(self.cfg, "lagoon", dry_run=True, hand_over=False,
+                                         line=watch.MIDTURN_LINE), 0)
+        self.assertFalse(config.seat_file("input", "lagoon").exists())
 
     def test_claude_keeps_original_words_and_times_in_order(self):
         text = "  Keep this exact: 雪\nsecond line  "
