@@ -81,9 +81,13 @@ func reached(dir string, record *run.Object) bool {
 	return record != nil && !elsewhere(filepath.Base(dir)) && !(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
 }
 
-// goesOn is whether Go's resume takes up a run it reached and did not refuse.
+// goesOn is whether Go's resume takes up a run it reached and did not refuse.  The box comes
+// first, as Python's resume checks it before it reads the run's task.
 func goesOn(dir string, record *run.Object) bool {
-	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil || box.Check() != nil {
+	if box.Check() != nil {
+		return false
+	}
+	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil {
 		return false
 	}
 	return driverHere() && !(record.Truthy("repo") && helper.May()) && (loop.Pickup(dir, record) || loop.Woken(record))

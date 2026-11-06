@@ -28,6 +28,10 @@ func Active(record *Object) bool { return stateIn(record, active) }
 func Failed(record *Object) bool { return stateIn(record, failed) }
 func Ended(record *Object) bool  { return stateIn(record, ended) }
 
+// GoingState is whether the record's state word is one that resumes itself, Python's GOING,
+// whatever the tick has admitted of it (Going).
+func GoingState(record *Object) bool { return stateIn(record, goes) }
+
 // FailedState is whether a run that ended in that state word delivered nothing, not by choice.
 func FailedState(state string) bool { return slices.Contains(failed, state) }
 

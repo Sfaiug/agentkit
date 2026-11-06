@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -125,19 +126,8 @@ func Resident(pid int) (int64, bool) {
 const Marker = "AGENTKIT_RUN"
 
 // Marked are the pids whose environment carries the run's marker, or one below it, except
-// this process and its ancestors: found by environment, so a child that left its process
-// group is still one of the run's.  No marker marks none: every marker is a path, so all of
-// every run's processes would be below an empty one.
+// this process and its ancestors: a sweep from inside a run must not end the run that asked.
 func Marked(marker string) []int {
-	if marker == "" {
-		return nil
-	}
-	want := []byte(Marker + "=" + marker)
-	below := []byte(Marker + "=" + marker + "/")
-	entries, err := os.ReadDir("/proc")
-	if err != nil {
-		return nil
-	}
 	skip := map[int]bool{}
 	for pid := os.Getpid(); pid > 0 && !skip[pid]; {
 		skip[pid] = true
@@ -147,10 +137,27 @@ func Marked(marker string) []int {
 		}
 		pid = stat.Parent
 	}
+	return slices.DeleteFunc(Carrying(marker), func(pid int) bool { return skip[pid] })
+}
+
+// Carrying are the pids whose environment carries the run's marker, or one below it, this
+// process and its ancestors among them: found by environment, so a child that left its process
+// group is still one of the run's.  No marker marks none: every marker is a path, so all of
+// every run's processes would be below an empty one.
+func Carrying(marker string) []int {
+	if marker == "" {
+		return nil
+	}
+	want := []byte(Marker + "=" + marker)
+	below := []byte(Marker + "=" + marker + "/")
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil
+	}
 	var found []int
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
-		if err != nil || skip[pid] {
+		if err != nil {
 			continue
 		}
 		environ, err := os.ReadFile("/proc/" + entry.Name() + "/environ")

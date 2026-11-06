@@ -17,8 +17,9 @@ import (
 )
 
 // Report says all of it and is the exit: 2 for a config Python's config.load refuses, after what
-// it reads without one, 1 where the tick reads as hung. False, with nothing said, where a read is
-// one Go cannot make. The first lines come out before the efforts, which ask each harness.
+// it reads without one, 1 where the tick reads as hung or a dead run has outlasted two ticks.
+// False, with nothing said, where a read is one Go cannot make. The first lines come out before
+// the efforts, which ask each harness.
 func Report(out, errOut io.Writer) (int, bool) {
 	health, stuck, read := tick.Health()
 	if !read {
@@ -28,8 +29,13 @@ func Report(out, errOut io.Writer) (int, bool) {
 	if refused == nil && (config.MayRent() || !askable(harnesses)) {
 		return 0, false
 	}
+	runs, dead, read := census(tick.Grace())
+	if !read {
+		return 0, false
+	}
 	fmt.Fprintln(out, host.SliceLine())
 	fmt.Fprintln(out, "tick  "+health)
+	fmt.Fprintln(out, "runs  "+runs)
 	var wrong []string
 	if refused == nil {
 		for _, machine := range machines.Known() {
@@ -46,7 +52,7 @@ func Report(out, errOut io.Writer) (int, bool) {
 	}
 	fmt.Fprintln(out, strings.Join(wrong, "\n"))
 	fmt.Fprintln(out, "rented machines: "+rented())
-	if stuck {
+	if stuck || dead {
 		return 1, true
 	}
 	return 0, true
