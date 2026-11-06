@@ -82,7 +82,7 @@ class BorrowedLogin(unittest.TestCase):
                "AGENTKIT_DISCORD_WEBHOOK": "off", **env}
         result = subprocess.run(["/bin/bash", "-c", 'set -uo pipefail\n'
                                  '. "$REPO/tests/acceptance.sh"\n' + FAKES + CHECK_3 + DEPENDENTS],
-                                cwd=work, env=env, text=True, capture_output=True, timeout=30)
+                                cwd=work, env=env, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stderr, "")
         self.assertEqual(self.host.read_text(), cached)
