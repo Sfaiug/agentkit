@@ -90,6 +90,34 @@ def seat_token_usage(entry, cursor):
                 model if isinstance(model, str) else None, counts)
 
 
+def turn_usage(out):
+    """The turn's last result's counts, as `Harness.turn_usage` gives them.
+
+    `modelUsage` counts its subagents too, and totals every turn of its session; a result
+    without it counts this turn's own `usage`, under no model.
+    """
+    from . import last_entry
+    try:
+        result = last_entry(Path(out) / "events.jsonl", lambda entry: entry.get("type") == "result")
+    except OSError:
+        return None
+    if result is None:
+        return None
+
+    def counts(usage, keys):
+        usage = usage if isinstance(usage, dict) else {}
+        return tuple(value if type(value := usage.get(key)) is int and value >= 0 else 0
+                     for key in keys)
+
+    models = result.get("modelUsage")
+    if isinstance(models, dict) and models:
+        return result.get("session_id"), {model: counts(usage, (
+            "inputTokens", "cacheCreationInputTokens", "cacheReadInputTokens", "outputTokens"))
+            for model, usage in models.items()}
+    return None, {None: counts(result.get("usage"), (
+        "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))}
+
+
 # Lines no one said here: bookkeeping, a compaction's summary, a subagent's, view-only ones.
 UNSAID = ("isMeta", "isCompactSummary", "isSidechain", "isVisibleInTranscriptOnly")
 

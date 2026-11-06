@@ -170,6 +170,21 @@ CREATE TABLE IF NOT EXISTS meter_readings (
     PRIMARY KEY (provider, account, meter, at)
 )
 `
+	turnUsageSchema = `
+CREATE TABLE IF NOT EXISTS turn_usage (
+    turn TEXT,
+    run_id TEXT,
+    role TEXT,
+    account TEXT,
+    model TEXT,
+    began REAL,
+    at REAL,
+    input INTEGER,
+    cache_write INTEGER,
+    cache_read INTEGER,
+    output INTEGER
+)
+`
 )
 
 // The columns each table gained after it was first made, in the order Python adds them.
@@ -336,7 +351,7 @@ func (db *DB) migrate(recounted bool) (err error) {
 	}
 	for _, schema := range []string{runsSchema, phasesSchema, checksSchema, testRedsSchema,
 		conflictsSchema, reviewsSchema, findingsSchema, ownerSchema, donesSchema, doneRunsSchema,
-		meterReadingsSchema} {
+		meterReadingsSchema, turnUsageSchema} {
 		if err := db.exec(schema); err != nil {
 			return err
 		}

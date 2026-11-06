@@ -300,9 +300,13 @@ def _home(away, harness, cwd, out_dir, home):
             gitcall.git(cwd, "read-tree", "--reset", "-u", left, env=index)
             gitcall.git(cwd, "read-tree", "HEAD")
         for name, data in files.items():
-            if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log"):
-                (out_dir / name[4:]).parent.mkdir(parents=True, exist_ok=True)
-                (out_dir / name[4:]).write_bytes(data)
+            path = out_dir / name[4:]
+            # a file that came home unchanged keeps its time: the `harness` receipt's is when
+            # the turn began
+            if name.startswith("out/") and name not in ("out/events.jsonl", "out/stderr.log") \
+                    and not (path.is_file() and path.read_bytes() == data):
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
         session = session_of(out_dir)
         globs = [place.split("/") for place in _conversation(harness, session)]
         real = Path(home).resolve()
