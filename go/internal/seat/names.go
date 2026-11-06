@@ -39,7 +39,7 @@ func (names Names) Held(name string) bool {
 // Taken is whether no new seat may have that name, as orch.taken_names reads it; false for known
 // where only Python's listing can say.
 func (names Names) Taken(name string) (taken, known bool) {
-	if names.Held(name) || names.seats[name] != "" {
+	if _, seat := names.seats[name]; seat || names.Held(name) {
 		return true, true
 	}
 	target, _, err := config.ResolveSession(name)
