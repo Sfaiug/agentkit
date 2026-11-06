@@ -25,6 +25,7 @@ test_key_antigravity_words
 test_key_background_work_holds_the_account
 test_key_auth_reads_login
 test_key_base_proof
+test_key_aux_session_closed
 test_key_base_target_differ
 test_key_board_checks
 test_key_board_findings
@@ -53,6 +54,7 @@ test_key_config_screen_edits
 test_key_config_scope
 test_key_conflict_wait
 test_key_dash_led_attach
+test_key_dead_seat_retired
 test_key_doctor_effort
 test_key_doctor_tick_line
 test_key_done_seat_question_refused
@@ -73,6 +75,7 @@ test_key_fixer_dispute_run
 test_key_flaky_executor
 test_key_followup_plan_line
 test_key_followups_nonblocking
+test_key_forgotten_seat_side_sessions_close
 test_key_fork_delivery
 test_key_fresh_gate_menu_scripts
 test_key_gc_collects
