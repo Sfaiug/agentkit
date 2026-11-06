@@ -19,13 +19,15 @@ func Declared(marker string) func(now float64) bool {
 // DeclaredIn is whether any of those pids, read in the /proc at proc, is a `timeout N` still
 // inside its N seconds, Python's worker.declared_in.
 func DeclaredIn(proc string, pids []int, now float64) bool {
+	boot := booted()
 	for _, pid := range pids {
 		said, err := os.ReadFile(proc + "/" + strconv.Itoa(pid) + "/cmdline")
 		if err != nil {
 			continue
 		}
 		seconds := timeoutSeconds(strings.Split(string(said), "\x00"))
-		if born, ok := ReadIdentityIn(proc, pid); ok && seconds > 0 && now-born.StartedAt < seconds {
+		if stat, ok := ReadStatIn(proc, pid); ok && !stat.Exited() && seconds > 0 &&
+			now-boot-float64(stat.Start)/clockTicks < seconds {
 			return true
 		}
 	}
