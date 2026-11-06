@@ -40,7 +40,7 @@ func TestABlankHealthFrameChangesOnlyWhatAHookDecides(t *testing.T) {
 	write(t, path, before)
 	health := func() {
 		t.Helper()
-		if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+		if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}, false); !carried || err != nil {
 			t.Fatal(carried, err)
 		}
 	}
@@ -62,7 +62,7 @@ func TestABlankHealthFrameStillPublishesItsGoingRun(t *testing.T) {
 	write(t, stateFile(home, "plan-acme.md"), doneLine)
 	runRecord(t, home, "r-build", map[string]any{"state": "running"})
 	drawn(t, home, "acme", "")
-	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}, false); !carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	if word, _ := Published("acme"); word != "working" {

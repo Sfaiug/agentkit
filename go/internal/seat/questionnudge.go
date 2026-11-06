@@ -24,6 +24,9 @@ func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sig
 	if back, err := facts.goesBack(); err != nil || !back {
 		return found, err
 	}
+	if seat.dry != nil { // the owner's answer and the reminder are Python's dry tick's to say
+		return found, errDry
+	}
 	if _, _, err := answerWritten(state, seat.Name, seconds(time.Now()), 0); err != nil {
 		return found, err
 	}

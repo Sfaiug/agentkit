@@ -12,9 +12,10 @@ import (
 
 // usageAhead is the meters, read with no lock held, where the seat's usage may be waited on as its
 // record stands: it ends on its window refusing the turn, as its look would read it, or the one
-// subscription of the model it names is spent (spentAlone); nil for none Go reads, false for neither.
-// Health decides again from the model its look follows.
-func usageAhead(state, name string, models map[string]config.Model) (*usages.Readings, bool) {
+// subscription of the model it names is spent (spentAlone); nil for none Go reads or for a dry
+// look, as collecting them keeps them, false for neither. Health decides again from the model its
+// look follows.
+func usageAhead(state, name string, models map[string]config.Model, dry bool) (*usages.Readings, bool) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
 		return nil, false
@@ -25,6 +26,9 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 	said, kept := reader.RecordedError(record)
 	if refused, _ := harness.Refusal(own, said); (!known || !kept || !refused) && !spentAlone(model, models[model]) {
 		return nil, false
+	}
+	if dry {
+		return nil, true
 	}
 	readings, err := usages.Collected()
 	if err != nil {

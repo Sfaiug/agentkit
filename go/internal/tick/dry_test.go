@@ -5,12 +5,14 @@ package tick
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"testing"
 	"time"
 
 	"agentkit/internal/run"
+	"agentkit/internal/tmux"
 )
 
 // A home holding nothing but the PRs it follows is answered, its GitHub passes run dry where gh is
@@ -97,5 +99,48 @@ case "$*" in *"pr view"*) exec echo '{"state": "MERGED"}' ;; esac
 echo '{"items": [{"pull_request": {"html_url": "https://github.com/other/app/pull/1"}}]}'`)
 	if Dry(&out) || out.Len() > 0 {
 		t.Fatalf("a merged pull request printed %q", &out)
+	}
+}
+
+// The seat health row runs its own step dry: of a seat stopped with its plan open, the dry tick
+// says the `continue` the real one would type, and types, keeps and locks nothing.
+func TestDryTickSaysItWouldContinueAnOpenPlan(t *testing.T) {
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("no tmux installed")
+	}
+	ak, _ := idleHome(t, "echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
+	home := filepath.Dir(ak)
+	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
+	put(t, filepath.Join(ak, "state", "session-acme.json"), run.Line(run.Fields("orchestrator", "opus", "workers", []any{"opus"},
+		"cwd", filepath.Join(home, "work", "acme"), "created", 1799000000, "conversation", "conv-acme", "id_source", "launcher", "resumable", true, "session_title", "acme")))
+	put(t, filepath.Join(ak, "state", "plan-acme.md"), "- [ ] Ship it · check: `true` · acme · written 2026-10-23 09:00\n")
+	screen := filepath.Join(home, "screen")
+	put(t, screen, "The patch is ready.\n────────\n❯\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n")
+	t.Cleanup(func() { tmux.Ask(tmux.Own(), "kill-server") })
+	if err := tmux.Spawn(tmux.Own(), os.Getenv("PATH"), "new-session", "-d", "-s", "acme", "-x", "80", "-y", "24", "sh", "-c", "cat "+screen+"; read _"); err != nil {
+		t.Fatal(err)
+	}
+	pane, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "=acme:", "#{pane_id}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmux.Ask(tmux.Own(), "set-option", "-t", "=acme:", tmux.Mark, "1")
+	tmux.Ask(tmux.Own(), "set-option", "-t", "=acme:", tmux.HarnessPane, pane)
+	for deadline := time.Now().Add(10 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if shown, _ := tmux.Ask(tmux.Own(), "capture-pane", "-p", "-t", pane); bytes.Contains([]byte(shown), []byte("The patch is ready.")) {
+			break
+		} else if time.Now().After(deadline) {
+			t.Fatalf("never drew the screen: %q", shown)
+		}
+	}
+	before := files(t, home)
+	var out bytes.Buffer
+	if !Dry(&out) || out.String() != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n"+
+		"would resume acme, stopped with work open, no question and no run, with 'continue'\n"+
+		"gh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
+		t.Fatalf("printed %q", &out)
+	}
+	if after := files(t, home); !reflect.DeepEqual(after, before) {
+		t.Fatal("the dry tick changed HOME")
 	}
 }

@@ -61,6 +61,7 @@ type Seat struct {
 	reader harness.Reader
 	path   string
 	seen   sight
+	dry    *dryLook // Health's look that acts on nothing, where it is one
 }
 
 // A Home is what Read knows: the seats with rows, in Python's order, and the seat of every
@@ -541,8 +542,12 @@ func (seat *Seat) announced(state string, now time.Time, models map[string]confi
 	return seat.published(state, now, models)
 }
 
-// published is announced's word and bar, what its last answer moved left as it is.
+// published is announced's word and bar, what its last answer moved left as it is; a dry look
+// publishes nothing.
 func (seat *Seat) published(state string, now time.Time, models map[string]config.Model) error {
+	if seat.dry != nil {
+		return nil
+	}
 	path := filepath.Join(state, "seat-"+seat.Name+".json")
 	previous, _ := run.ReadJSON(path)
 	if previous == nil {

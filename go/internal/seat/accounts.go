@@ -67,9 +67,9 @@ func AccountIdle(live Live) bool {
 }
 
 // MoveAccount is seat_account's two prompt-time moves. Refusals, pending recovery, owner input
-// and turns in flight are left at this point, before a relaunch writes anything; a move waits for
-// the input field to read empty (fieldWaits).
-func MoveAccount(live Live, log func(string)) (carried bool, err error) {
+// and turns in flight are left at this point, before a relaunch writes anything, as is a move a
+// dry look would make; a move waits for the input field to read empty (fieldWaits).
+func MoveAccount(live Live, dry bool, log func(string)) (carried bool, err error) {
 	if accountKept(live.File) {
 		return false, nil
 	}
@@ -117,6 +117,9 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 	}
 	if len(moves) == 0 || !spent && len(holding(live.Name)) > 0 { // what it holds is asked only where it could go
 		return !spent, nil
+	}
+	if dry { // the move is Python's dry tick's to say
+		return false, nil
 	}
 	_, record, err := config.ResolveSession(live.Name)
 	if err != nil {

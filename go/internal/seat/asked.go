@@ -128,6 +128,9 @@ func (seat Seat) askKeptBack(found sight) error {
 	if !Kept(seat.Name) || found.state == "asking" || !found.composerOpen(seat.own) {
 		return nil
 	}
+	if seat.dry != nil {
+		return errDry
+	}
 	if err := TurnEnded(seat.Name); err != nil {
 		return err
 	}

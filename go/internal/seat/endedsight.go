@@ -26,21 +26,25 @@ func (seat Seat) keepExited(state string, found sight) (sight, error) {
 }
 
 // A death discovered after listing is still a gone seat the health row carries.
-// Publish it without consulting a live-screen predicate; revival reads it later.
-func (home Home) healthDied(state, name string, now time.Time) (bool, error) {
+// Publish it without consulting a live-screen predicate; revival reads it later. A dry look
+// keeps and publishes nothing of it.
+func (home Home) healthDied(state, name string, now time.Time, dry bool) (bool, error) {
 	for at := range home.Seats {
 		seat := &home.Seats[at]
 		if seat.Name != name {
 			continue
 		}
 		seat.live, seat.held = false, true
+		if dry {
+			return true, nil
+		}
 		if _, err := seat.keepExited(state, sight{}); err != nil {
 			return false, err
 		}
 		if err := seat.goneAt(state, at+1, now); err != nil {
 			return false, err
 		}
-		return home.healthGone(state, name, now)
+		return home.healthGone(state, name, now, false)
 	}
 	return false, nil
 }

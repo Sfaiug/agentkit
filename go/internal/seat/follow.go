@@ -2,7 +2,6 @@ package seat
 
 import (
 	"maps"
-	"path/filepath"
 	"slices"
 
 	"agentkit/internal/config"
@@ -132,7 +131,7 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	if to.chosen == "" {
 		return nil
 	}
-	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
+	file := seat.file(state)
 	// the record the answer was read from, run by that orchestrator by then, that it still counts for
 	read := func(data *run.Object, orchestrator string) bool {
 		return data.Str("orchestrator") == orchestrator && data.Str("conversation") == to.conversation && data.Str("cwd") == to.cwd &&
@@ -140,7 +139,7 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	}
 	if to.chosen != seat.Orchestrator {
 		orchestrate := set([]field{{"orchestrator", to.chosen}})
-		if err := update(state, seat.Name, func(data *run.Object) bool {
+		if err := seat.edit(state, func(data *run.Object) bool {
 			if !read(data, seat.Orchestrator) || !orchestrate(data) {
 				return false
 			}
@@ -153,7 +152,7 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	if to.effort == "" {
 		return nil
 	}
-	return update(state, seat.Name, func(data *run.Object) bool {
+	return seat.edit(state, func(data *run.Object) bool {
 		efforts := orchestratingAt(data, to.chosen, to.effort, models)
 		if !read(data, to.chosen) || run.Equal(efforts, data.Get("efforts")) {
 			return false

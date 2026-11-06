@@ -32,7 +32,7 @@ func TestAMoveWaitsForAnEmptyInputFieldButWhereAksEditorCarriesASpentAccountsDra
 					t.Fatal("seat unread")
 				}
 				before := stateFiles(t, home)
-				carried, err := MoveAccount(lives[0], func(string) {})
+				carried, err := MoveAccount(lives[0], false, func(string) {})
 				if carried != (used < 100 || !editor) || err != nil {
 					t.Fatal(carried, err)
 				}

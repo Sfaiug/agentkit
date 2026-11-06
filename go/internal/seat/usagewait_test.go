@@ -23,7 +23,7 @@ func TestAWaitIsDecidedFromTheModelTheLookFollows(t *testing.T) {
 				run.Fields(spent, run.Fields("meters", []any{}, "resets", 0, "exhausted_until", seconds(time.Now())+3600)))))
 			drawn(t, home, "acme", grokTrust)
 			before := stateFiles(t, home)
-			if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); carried || err != nil {
+			if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}, false); carried || err != nil {
 				t.Fatalf("carried=%v, err=%v", carried, err)
 			}
 			if after := stateFiles(t, home)["seat-acme.json"]; after != before["seat-acme.json"] {
