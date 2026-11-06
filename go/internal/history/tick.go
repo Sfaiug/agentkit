@@ -70,9 +70,9 @@ func Agree(log func(string)) bool {
 	return true
 }
 
-// running is the ids of the rows still running, as Python's history.running reads them, and
-// whether Go read them as they stand: not where SQLite cannot answer (a journal to roll back,
-// tables to make), nor while the tokens wait for Python's one-time repair, which Python's
+// running is the ids of the rows still running, as Python's history.running reads them, none in a
+// history without runs, and whether Go read them as they stand: not where SQLite cannot answer (a
+// journal to roll back), nor while the tokens wait for Python's one-time repair, which Python's
 // connect brings about first.
 func running() ([]string, bool) {
 	if _, err := os.Stat(Path()); err != nil {
@@ -83,6 +83,9 @@ func running() ([]string, bool) {
 		return nil, false
 	}
 	defer db.Close()
+	if have, err := db.columns("runs"); err != nil || len(have) == 0 {
+		return nil, err == nil
+	}
 	rows, err := db.rows("SELECT run_id FROM runs WHERE final_state='running'")
 	if err != nil {
 		return nil, false

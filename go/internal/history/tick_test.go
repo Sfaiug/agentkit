@@ -46,8 +46,13 @@ func TestAgreeLeavesToPythonWhatItsEndingWritesMore(t *testing.T) {
 
 // A history whose tokens wait for Python's one-time repair, or that SQLite cannot read as it
 // stands, is Python's to sync though no row of it runs: Python's connect brings it round first.
+// One without runs runs none.
 func TestAgreeLeavesToPythonAHistoryToBringRound(t *testing.T) {
 	home(t)
+	write(t, "CREATE TABLE notes (body TEXT)")
+	if !Agree(nil) {
+		t.Fatal("left a history without runs to Python")
+	}
 	older(t, "INSERT INTO runs (run_id, final_state) VALUES ('fix-api', 'pass')")
 	put(t, filepath.Join(filepath.Dir(Path()), "runs", "fix-api", "round-1", "executor", "events.jsonl"), "{}\n")
 	if Agree(nil) {
