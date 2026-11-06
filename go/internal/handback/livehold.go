@@ -11,7 +11,7 @@ import (
 )
 
 // heldForLive is Python's merge_waits_for_live: a merge awaiting its live check holds its ending,
-// to say both in one line (CarriesLive), unless its seat owes a line none of its other going runs
+// to say both in one line, unless its seat owes a line none of its other going runs
 // serves, or another such run is going and the seat's `ak wait` names something else. A line
 // already in the composer keeps its Enter.
 func heldForLive(record *run.Object) (bool, error) {
@@ -28,18 +28,20 @@ func heldForLive(record *run.Object) (bool, error) {
 	return seat.WaitNames(run.Seat(record), record)
 }
 
-// CarriesLive is Python's carries_live: the run's ending, still to be said, says in its one line
-// that its change went live after it.
-func CarriesLive(record *run.Object) (bool, error) {
-	if !record.Truthy("live_at") {
-		return false, nil
+// liveEnding is how a delivery's ending meets its change going live, as Python's announce and
+// hand_back decide it: held until it does (merge_waits_for_live), or saying in its one line that
+// it did (carries_live).  An error where Go cannot read what decides it as Python does.
+func liveEnding(record *run.Object) (held, live bool, err error) {
+	if held, err = heldForLive(record); held || err != nil || !record.Truthy("live_at") {
+		return held, false, err
 	}
-	return carries(record)
+	live, err = carries(record)
+	return false, live, err
 }
 
-// carries is CarriesLive for a merge passing its live check now, before live_at is written: its
-// ending is owed, its seat still has to hear it went live (Python's live_owed), and no live
-// notice waits in a composer but in the ending's own line.
+// carries is Python's carries_live, live_at aside, for a merge passing its live check now too: its
+// ending is owed, its seat still has to hear it went live (live_owed), and no live notice waits in
+// a composer but in the ending's own line.
 func carries(record *run.Object) (bool, error) {
 	if !run.OwesEnding(record, time.Now()) || !record.Truthy("merged") || record.Truthy("live_notified") ||
 		!run.Equal(record.Get("live_typed"), record.Get("handback_typed")) {

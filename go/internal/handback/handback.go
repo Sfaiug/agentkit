@@ -87,17 +87,19 @@ func Give(dir string, say func(string)) bool {
 		say(fmt.Sprintf("run %s ended: recorded, not typed", id))
 		return true
 	}
-	holds, unread := heldForLive(said)
+	holds, live, err := liveEnding(said)
+	if err != nil {
+		return false // Python's to read, as the tick leaves it (Reaches)
+	}
 	if holds {
 		if !said.Truthy("handback_pending") {
 			mark(dir, record, "handback_pending", true)
 		}
 		return false // told in one line with its change gone live, once it is
 	}
-	live, err := CarriesLive(said)
 	// a mark an earlier pass left is a line already in the composer, whose Enter is the tick's
 	line := ""
-	if !pending && unread == nil && err == nil {
+	if !pending {
 		line = handbackLine(record, dir, true, live)
 	}
 	if line != "" && !said.Truthy("handback_typed") && seat.TypeAtPrompt(session, line, nil, func(typed *run.Object) error {

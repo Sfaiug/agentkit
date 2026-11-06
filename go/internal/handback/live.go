@@ -15,7 +15,7 @@ var errUnrecorded = errors.New("its live notice could not be written down")
 
 // LiveLeft is whether telling that the merged run `record` went live is Python's: not told yet,
 // and its seat owes work, which may make the pass its to hear, unless its ending's own line says it
-// (CarriesLive); or a line typed for it waits for its Enter.
+// (carries); or a line typed for it waits for its Enter.
 func LiveLeft(record *run.Object) bool {
 	if record.Truthy("live_notified") {
 		return false
