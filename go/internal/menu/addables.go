@@ -28,11 +28,8 @@ func Addables(fresh string) ([]Addable, error) {
 	hosts, hostLabels := config.ProviderHosts()
 	var shipped []string
 	for _, provider := range lacks {
-		harnesses, err := config.ProviderHarnesses(provider)
-		if err != nil {
-			return nil, err
-		}
-		if !slices.ContainsFunc(harnesses, func(on string) bool { return slices.Contains(hosts, on) }) {
+		// the shipped default's alone: a model of the config naming a provider it lacks runs nowhere
+		if !slices.ContainsFunc(config.ShippedHarnesses(provider), func(on string) bool { return slices.Contains(hosts, on) }) {
 			shipped = append(shipped, provider)
 		}
 	}

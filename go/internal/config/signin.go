@@ -43,17 +43,8 @@ func SignsInAgain(harness, account string) bool {
 // ShippedHarness is the first harness the shipped default runs that provider's models on, "" for
 // none: what asks and signs in its logins once the config's models of it are all removed.
 func ShippedHarness(provider string) string {
-	shipped, _ := parseDocument(defaultConfig)
-	models, _ := shipped.get("models").(*table)
-	if models == nil {
-		return ""
-	}
-	for _, name := range models.keys {
-		if entry, _ := models.get(name).(*table); entry.get("provider") == provider {
-			if harness, ok := entry.get("harness").(string); ok {
-				return harness
-			}
-		}
+	if harnesses := ShippedHarnesses(provider); len(harnesses) > 0 {
+		return harnesses[0]
 	}
 	return ""
 }

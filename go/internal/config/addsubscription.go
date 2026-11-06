@@ -58,8 +58,19 @@ func ProviderHarnesses(provider string) ([]string, error) {
 		return nil, err
 	}
 	shipped, _ := parseDocument(defaultConfig)
+	return harnessesOf(provider, root, shipped), nil
+}
+
+// ShippedHarnesses is the harnesses the shipped default runs that provider's models on, each once.
+func ShippedHarnesses(provider string) []string {
+	shipped, _ := parseDocument(defaultConfig)
+	return harnessesOf(provider, shipped)
+}
+
+// harnessesOf is the harnesses the models of docs, in their order, run that provider's models on.
+func harnessesOf(provider string, docs ...*table) []string {
 	var harnesses []string
-	for _, doc := range []*table{root, shipped} {
+	for _, doc := range docs {
 		models, _ := doc.get("models").(*table)
 		for _, name := range present(models) {
 			entry, _ := models.get(name).(*table)
@@ -68,7 +79,7 @@ func ProviderHarnesses(provider string) ([]string, error) {
 			}
 		}
 	}
-	return harnesses, nil
+	return harnesses
 }
 
 // ShippedModel is the shipped default's first model of that provider: its harness and its name

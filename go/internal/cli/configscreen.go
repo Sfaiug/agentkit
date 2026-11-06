@@ -110,12 +110,6 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
 			return false
 		}
-		if key.Name == "enter" && view.Row == len(c.Names)+1 {
-			if !menuSubscriptions(keyboard, painter) {
-				return false
-			}
-			continue
-		}
 		if key.Name == "enter" && view.Row == len(c.Names)+5 {
 			if !menuMachines(keyboard, painter) {
 				return false
@@ -123,7 +117,12 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 			continue
 		}
 		if key.Name == "enter" && view.Row >= len(c.Names) {
-			if view.Row != len(c.Names) || !menuConfigModels(keyboard, painter) {
+			// Models and Subscriptions both change the models c shows, so it reads them again
+			page := view.Row - len(c.Names)
+			switch {
+			case page == 0 && menuConfigModels(keyboard, painter):
+			case page == 1 && menuSubscriptions(keyboard, painter):
+			default:
 				return false
 			}
 			c, err = matrix.Configured()
@@ -138,7 +137,7 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 					return false
 				}
 			}
-			view.Matrix, view.Row = c, len(c.Names)
+			view.Matrix, view.Row = c, len(c.Names)+page
 			continue
 		}
 		if key.Name != "space" || view.Row >= len(c.Names) {

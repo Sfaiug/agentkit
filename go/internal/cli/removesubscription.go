@@ -56,7 +56,10 @@ func menuRemoveSubscription(cell menu.Cell, keyboard *terminal.Keyboard, painter
 	} else {
 		err = config.ListAccounts(cell.Provider, slices.DeleteFunc(accounts, func(account string) bool { return account == cell.Account }), seat.KeepConfigEfforts)
 	}
-	return cmp.Or(saved(err), signedOut(cell))
+	if err != nil {
+		return saved(err) // still listed, so still signed in
+	}
+	return signedOut(cell)
 }
 
 // signedOut is that subscription signed out on this machine by its harness's adapter's `logout`
