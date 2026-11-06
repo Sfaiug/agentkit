@@ -32,7 +32,7 @@ func launchForSeat(dir string, state, origin *run.Object) (func() error, error) 
 	if err != nil {
 		return nil, err
 	}
-	policy, err := run.LaunchPolicy(origin.Str("repo"))
+	policy, err := run.TaskPolicy(origin.Str("repo"))
 	if err != nil {
 		return nil, err
 	}
