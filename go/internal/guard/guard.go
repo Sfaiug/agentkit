@@ -1,8 +1,9 @@
 // Package guard is what a seat's own tmux, gh, git, scp, rsync, sftp and ssh may do, as Python's
 // agentkit/guard.py decides it, and it hides everything behind that answer: how much of each
 // tool's arguments must be read to tell, which session a tmux target falls on, asked of the real
-// tmux, which seats ak keeps, where `~/code` and the live host are, and the file that says a seat's
-// ssh reached that host.  Its one call is Decide.
+// tmux, which seats ak keeps, where `~/code` and the live host are, the file that says a seat's
+// ssh reached that host, and which project a checkout is and how many lines its branch adds.  Its
+// one call is Decide.
 //
 // It reads a call's final argv, so it guards a seat's mistakes, not a seat that means to get
 // round it: guard.py's opening names what is out of reach, by design, and every line of that
@@ -350,9 +351,9 @@ func tmuxRefusal(args []string, real string) (string, error) {
 	return "", nil
 }
 
-// ghMerges is whether this gh call runs `pr merge`: its first two command words, past the options
+// ghCommand is a gh call's first two command words (`pr merge`, `pr create`), past the options
 // between them and -R/--repo's value, gh's one persistent value flag before a subcommand.
-func ghMerges(args []string) bool {
+func ghCommand(args []string) []string {
 	var words []string
 	for i := 0; i < len(args) && len(words) < 2; i++ {
 		switch {
@@ -362,16 +363,23 @@ func ghMerges(args []string) bool {
 			words = append(words, args[i])
 		}
 	}
-	return slices.Equal(words, []string{"pr", "merge"})
+	return words
 }
 
 // ghRefusal is why the seat may not run this gh call: merging is ak's job once a PR passes review
-// with green checks.  The one seat that may is the inbox, which `ak watch` asks before merging
-// someone else's PR.
+// with green checks, and a `gh pr create` too big for the seat is refused (prCreateRefusal).  The
+// one seat that may merge is the inbox, which `ak watch` asks before merging someone else's PR.
 func ghRefusal(args []string, _ string) (string, error) {
 	own, _, err := config.CurrentSession()
-	if err != nil || own == "" || !ghMerges(args) || own == nameNow(cmp.Or(os.Getenv("AGENTKIT_INBOX_SESSION"), "inbox")) {
+	if err != nil || own == "" {
 		return "", err
+	}
+	command := ghCommand(args)
+	if slices.Equal(command, []string{"pr", "create"}) {
+		return prCreateRefusal(args)
+	}
+	if !slices.Equal(command, []string{"pr", "merge"}) || own == nameNow(cmp.Or(os.Getenv("AGENTKIT_INBOX_SESSION"), "inbox")) {
+		return "", nil
 	}
 	return "ak refused `gh pr merge`: merging is ak's job once a PR passes review with green " +
 		"checks. Leave it to land through the line; a seat runs no `gh pr merge` of its own.", nil

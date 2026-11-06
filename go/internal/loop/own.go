@@ -138,25 +138,23 @@ func ownFirstReview(dir, repo, url, number, target, head string) (string, error)
 		return "", cmp.Or(err, errors.New("run.json cannot be read"))
 	}
 	at := &repoPlace{wt: repo}
-	lines, err := size.Added(at.git(), target, head)
-	if err != nil {
-		return "", err
-	}
-	read, carried, err := size.Reviewed(at.git(), target, head)
-	if err != nil {
-		return "", err
-	}
 	numbers, err := run.Policy(record)
 	if err != nil {
 		return "", err
 	}
-	// a seat whose limit is 0 builds nothing, so even a change adding no line is too much there,
-	// Python's seat_lines; a run with executors off is Python's (run.Carried), so a worker can
-	// always build it
-	counted := lines - carried
-	if most, limited := numbers.SeatLines.Most(); limited && (most == 0 || counted > most) {
+	counted, over, err := size.Seat(at.git(), target, head, numbers.SeatLines)
+	if err != nil {
+		return "", err
+	}
+	if over {
+		// a run with executors off is Python's (run.Carried), so a worker can always build it
+		most, _ := numbers.SeatLines.Most()
 		return fmt.Sprintf("PR #%s adds %d lines (generated files and unchanged moves aside): too big for the seat, which builds at most %d added lines. Write it as a task and launch it; a worker builds it",
 			number, counted, most), nil
+	}
+	read, _, err := size.Reviewed(at.git(), target, head)
+	if err != nil {
+		return "", err
 	}
 	budget, err := run.PolicyRounds(record)
 	if err != nil {

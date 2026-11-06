@@ -373,6 +373,7 @@ test_key_screen_holds_ps_by_its_cost
 test_key_seat_line_words
 test_key_seat_look_file
 test_key_seat_name_normalised
+test_key_seat_pr_size_at_create
 test_key_seat_reads_waiting_ending
 test_key_seat_relay
 test_key_seat_shims_installed
