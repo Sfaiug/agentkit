@@ -110,13 +110,14 @@ func cgroupPath(relative string) string {
 
 // Frozen reads the process's cgroup and its ancestors without asking the held process.
 func Frozen(pid int) bool {
+	relative, ok := processCgroup(pid)
+	return ok && frozenCgroup(relative)
+}
+
+// processCgroup is the unified cgroup holding a process, relative to the cgroup root.
+func processCgroup(pid int) (string, bool) {
 	data, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cgroup")
-	for _, line := range strings.Split(string(data), "\n") {
-		if relative, unified := strings.CutPrefix(line, "0::"); unified {
-			return frozenCgroup(relative)
-		}
-	}
-	return false
+	return unified(string(data))
 }
 
 func frozenCgroup(relative string) bool {
@@ -151,13 +152,15 @@ func cgroupContains(name string) bool {
 
 // ownCgroup is this process's unified cgroup, relative to the cgroup root.
 func ownCgroup() (string, bool) {
-	data, ok := ownCgroups()
-	if !ok {
-		return "", false
-	}
-	for _, line := range strings.Split(data, "\n") {
-		if strings.HasPrefix(line, "0::") {
-			return line[3:], true
+	data, _ := ownCgroups()
+	return unified(data)
+}
+
+// unified is the unified hierarchy's line of a cgroup membership, relative to the cgroup root.
+func unified(membership string) (string, bool) {
+	for _, line := range strings.Split(membership, "\n") {
+		if relative, found := strings.CutPrefix(line, "0::"); found {
+			return relative, true
 		}
 	}
 	return "", false

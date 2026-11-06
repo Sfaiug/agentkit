@@ -81,6 +81,7 @@ func table(t *ticking) []pass {
 		{"notification retry", true, nil, t.retryNotifications},
 		{"server hooks", false, nil, hookOptions},
 		{"seat revival", false, configured, t.revive},
+		{"seat weights", false, nil, func() error { host.Front(); return nil }},
 		{"idle sleep", false, all(configured, every(awake)), nil},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
 		// a due collection's units are Python's to clear where a user manager runs
