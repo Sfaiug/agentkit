@@ -36,9 +36,6 @@ SEAT_PHRASES = ("the best process is no process", "nothing from the past counts 
                 "nobody needs a manual", "in code, tests and comments rather than prose")
 RULES = (("Understand first", "unknown knowns, "),
          ("Understand first", "show a small prototype, or options with your pick, and let them react"),
-         ("Decide and delegate", "Three review rounds per change is the budget, counted across runs"),
-         ("Decide and delegate", "only when a default is wrong (`repo`, `from`)"),
-         ("Decide and delegate", "never `done_when_minutes`"),
          ("Decide and delegate", "Asked to improve an existing codebase, map it first"),
          ("Decide and delegate", "Runs already going are never stopped for a process change"),
          ("Decide and delegate", "`ak run stop <id> --keep` and a relaunch with `from: <branch>`, "

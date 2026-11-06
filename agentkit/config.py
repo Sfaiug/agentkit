@@ -116,9 +116,8 @@ POLICY = {
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}
 EXECUTORS_OFF = "Executors are off; the orchestrator builds every change itself."
-# How a number of rounds opens a sentence and how the round past them reads; further up, figures.
-ROUNDS_SAID = {1: ("One", "a second"), 2: ("Two", "a third"), 3: ("Three", "a fourth"),
-               4: ("Four", "a fifth"), 5: ("Five", "a sixth")}
+# How a number of rounds opens a sentence; further up, figures.
+ROUNDS_SAID = {1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five"}
 
 
 class Error(Exception):
@@ -516,7 +515,7 @@ def in_force(text, table=None):
     except Error:   # the commands that act on a config.toml refuse it; words only saying it don't
         numbers = host_policy({})
     rounds = numbers["review_rounds"]
-    opening, over = ROUNDS_SAID.get(rounds, (rounds, f"round {rounds + 1}"))
+    opening = ROUNDS_SAID.get(rounds, rounds)
     executor, orchestrator = numbers["executor_lines"], numbers["orchestrator_lines"]
     executor_size = ("no limit on added lines, tests included" if executor == "no limit" else
                      f"at most {executor} added lines with its tests; ak refuses more with `split it`")
@@ -539,7 +538,7 @@ def in_force(text, table=None):
                f"a task over {rounds} round{'' if rounds == 1 else 's'} is refused regardless.")
     resume_budget = (no_review if rounds == 0 else
                      f"--rounds raises the round limit, at most {rounds}.")
-    return Template(text).safe_substitute(numbers, Review_rounds=opening, one_over=over,
+    return Template(text).safe_substitute(numbers, Review_rounds=opening,
                                           executor_size=executor_size, orchestrator_size=orchestrator_size,
                                           run_budget=run_budget, rounds_refusal=refusal, resume_budget=resume_budget,
                                           resume_example="" if rounds == 0 else f" --rounds {rounds}",
