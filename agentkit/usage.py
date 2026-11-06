@@ -2063,14 +2063,33 @@ def render(cfg, providers, order, *, repo=None):
                       terminal.wrap(line, width)))
 
 
-def plan_weeks(cfg, providers, now):
+def plan_weeks(cfg, providers, now, over=SPENT_OVER):
     """{provider: {account: `spend.weeks`'s fit}} of each login of `providers` (`_accounts`), from
-    the readings of its shared week over the `SPENT_OVER` up to `now`."""
+    the readings of its shared week over the `over` seconds up to `now`."""
     logins = [(name, account, (shared_week(cfg, name, prov) or {}).get("name"))
               for _, name, prov, account in _accounts(cfg, providers)]
     return {name: spend.weeks(cfg, name, {account: meter for of, account, meter in logins
-                                          if of == name}, now - SPENT_OVER, now)
+                                          if of == name}, now - over, now)
             for name in providers}
+
+
+def plan_checks(cfg, providers, now):
+    """{provider: {account: [check]}} of each login of `providers` (`_accounts`): oldest first, a
+    check of each of the last seven days, the 24 hours up to `until`, that its plan rose
+    (`plan_weeks` over that day) and had a week in the seven days before -- the points it rose
+    by, `rose`, against those that week foretold for what bought them, `predicted`.  Each is
+    the plan's number as ak knew it then, against a day it had not seen."""
+    checks = {}
+    for days in range(6, -1, -1):
+        until = now - days * 86400
+        before = plan_weeks(cfg, providers, until - 86400)
+        for name, fits in plan_weeks(cfg, providers, until, 86400).items():
+            for account, (_, _, rose, spent) in fits.items():
+                week = before[name][account][1]
+                found = checks.setdefault(name, {}).setdefault(account, [])
+                if rose and week is not None:
+                    found.append({"until": until, "rose": rose, "predicted": 100 * spent / week})
+    return checks
 
 
 def main(argv):
@@ -2086,7 +2105,7 @@ def main(argv):
     order = pick_order(cfg, providers, quiet=as_json, repo=repo)
     if as_json:
         now = time.time()
-        weeks = plan_weeks(cfg, providers, now)
+        weeks, checks = plan_weeks(cfg, providers, now), plan_checks(cfg, providers, now)
         for _, name, prov, account in _accounts(cfg, providers):
             shared = shared_week(cfg, name, prov) or {}
             prov["capacity_tokens"], prov["capacity_pairs"] = holds(name, account, shared)
@@ -2095,6 +2114,7 @@ def main(argv):
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]
+            prov["plan_checks"] = checks[name][account]
         json.dump({"providers": providers, "pick_order": order,
                    "review": review_pair(cfg, providers)}, sys.stdout, indent=2)
         print()
