@@ -7,8 +7,9 @@ import (
 )
 
 // Held is the background work the tail shows running (watch.screen_holds): for each row of the
-// manifest's `held` group of a name, that name, in Claude's terms.  False where it cannot tell:
-// no `held` to read, or a screen not drawn as it reads, too narrow for it or under a dialog.
+// manifest's `held` group of a name, that name, the type a Stop's list gives such work.  False
+// where it cannot tell: no `held` to read, or a screen not drawn as it reads, too narrow for it or
+// under a dialog.
 func (r *Rules) Held(tail string) ([]string, bool) {
 	if r.held == nil {
 		return nil, false
