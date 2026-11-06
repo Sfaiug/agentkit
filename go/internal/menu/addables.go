@@ -36,7 +36,7 @@ func Addables(fresh string) ([]Addable, error) {
 	var makers []string
 	for _, provider := range shipped {
 		company, _ := harness.Company(provider)
-		makers = append(makers, cmp.Or(harness.Maker(provider), company, titled(provider)))
+		makers = append(makers, cmp.Or(harness.Maker(provider), company))
 	}
 	choices := byLabel(shipped, makers)
 	for _, host := range hosts {
@@ -51,7 +51,7 @@ func Addables(fresh string) ([]Addable, error) {
 			return nil, err
 		}
 		company, _ := harness.Company(provider)
-		names = append(names, cmp.Or(name, company, titled(provider)))
+		names = append(names, cmp.Or(name, company))
 	}
 	for _, more := range byLabel(has, names) {
 		harnesses, err := config.ProviderHarnesses(more.Provider)
