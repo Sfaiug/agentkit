@@ -420,10 +420,12 @@ def conversation(record, cwd=None):
     """The session this seat's launch reported, or None where it reported none yet; the one
     Muse's registry has since moved that launch's process to, once the registry says so, kept
     in the receipt for the seat to reopen on after that process is gone."""
+    from . import unread
     path = path_for(record)
     try:
         sid = (path / "session").read_text(encoding="utf-8") if path else ""
-    except OSError:
+    except OSError as exc:
+        unread(exc)
         return None
     if not SESSION.fullmatch(sid):
         return None
@@ -453,11 +455,16 @@ def followed(path):
     """The one session the registry has given a process of that receipt's lineage since its
     hook, while that process lives as it was then, or None: no evidence, or more than one,
     picks nothing."""
+    from . import unread
     try:
         launch = json.loads((path / "lineage").read_text())
         processes = {f"pid={pid}": (pid, birth) for pid, birth in launch["processes"]}
         earlier = set(launch["earlier"])
-    except (OSError, ValueError, TypeError, KeyError):
+    except OSError as exc:
+        unread(exc)
+        return None
+    except (ValueError, TypeError, KeyError) as exc:
+        unread(ValueError(f"{path / 'lineage'} reads as no launch lineage: {exc!r}"))
         return None
     found = {sid for sid, hint in registered() if hint in processes and sid not in earlier
              and host.process_identity(processes[hint][0]) == processes[hint][1]}

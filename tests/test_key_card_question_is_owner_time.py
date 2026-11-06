@@ -133,7 +133,10 @@ class CardQuestionIsOwnerTime(unittest.TestCase):
         seat = Seat(self.home, "gamma", screen="claude-working-pane.txt", cwd=rig.path,
                     record={"repo": str(rig.path)})
         self.hooks.prompt("go", seat)
-        # its plan done, every line ticked, with nothing from the owner since
+        # its plan done, every line ticked, with nothing from the owner since: the done check
+        # a finished plan owes (tests/test_key_done_waits_for_the_check.py) off
+        config = self.home.path / ".agentkit" / "config.toml"
+        config.write_text(config.read_text() + "\n[done_check]\non = false\n")
         self.ak(seat, "plan", "add", "parser.py is on main", "--check", "test -f parser.py")
         rig.commit({"parser.py": "parse = str.split\n"}, "the parser")
         self.ak(seat, "plan")

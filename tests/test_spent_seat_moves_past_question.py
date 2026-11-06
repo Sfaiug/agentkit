@@ -150,9 +150,14 @@ class SpentSeat(SeatAccount):
         self.assertEqual(self.went_on(), ([], watch.ACCOUNT_LINE))
 
     def test_a_wrapped_turn_prompted_since_or_done_since_stays_idle(self):
+        # done with the done check off: on, a finished plan owes it, which is no job done
+        # (tests/test_key_done_waits_for_the_check.py)
+        settings = config.HOME / "config.toml"
         cases = {"prompted": lambda: self.wrapped(self.entry(30, "user", "Thanks, stop here.")),
                  "done": lambda: (self.wrapped(),
-                                  config.plan_path(NAME).write_text("- [x] Both clips are rendered.\n"))}
+                                  config.plan_path(NAME).write_text("- [x] Both clips are rendered.\n"),
+                                  settings.write_text(settings.read_text()
+                                                      + "\n[done_check]\non = false\n"))}
         for case, arrange in cases.items():
             with self.subTest(case), patch.object(orch, "resume", return_value="resumed"):
                 arrange()

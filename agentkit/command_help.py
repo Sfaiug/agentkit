@@ -170,7 +170,8 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
              "check N puts your own test in place of line N's check, such as a review\n"
              "follow-up's probe; it must fail on the commit the line names, where its check failed.\n"
              "Listing ticks each check line that now passes on its project's default branch;\n"
-             "with every line ticked, the session's work is done.",
+             "with every line ticked, a model checks the work against what the owner asked,\n"
+             "and with nothing missing the session's work is done.",
              "ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'"),
     "update": ("usage: ak update [--dry-run]",
                "Upgrade harnesses and verify with acceptance gates; --dry-run prints the plan.",

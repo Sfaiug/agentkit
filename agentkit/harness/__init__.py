@@ -21,6 +21,7 @@ No module outside this package names a harness: the core asks
 """
 
 import contextlib
+import contextvars
 import functools
 import importlib
 import json
@@ -178,6 +179,28 @@ def last_entry(path, pick):
     return None
 
 
+# Every reader here takes a record it cannot read for one that holds nothing, except inside
+# `strictly`: there, a record that is there and cannot be read is an error (`unread`).  The done
+# check reads so, since an owner it could not read is no owner who said nothing.
+_STRICT = contextvars.ContextVar("strict", default=False)
+
+
+@contextlib.contextmanager
+def strictly():
+    held = _STRICT.set(True)
+    try:
+        yield
+    finally:
+        _STRICT.reset(held)
+
+
+def unread(exc):
+    """Raise `exc`, a record failing to read, inside `strictly`, unless it says the record is
+    not there: a record that is gone holds nothing either way."""
+    if _STRICT.get() and not isinstance(exc, FileNotFoundError):
+        raise exc
+
+
 def entries(path):
     """Complete JSON objects in a growing record; an unfinished last line can wait."""
     if not path:
@@ -212,14 +235,15 @@ def turns(path, prompt, answer):
 
 def rows(path, query, *args):
     """What `query` reads from that SQLite store, opened read-only: a harness's own database,
-    which ak never writes.  None where there is none, or it cannot be read."""
-    if not Path(path).is_file():
+    which ak never writes.  None where there is none, or it cannot be read (`unread`)."""
+    if not Path(path).exists():
         return None
     try:
         with contextlib.closing(sqlite3.connect(f"{Path(path).absolute().as_uri()}?mode=ro",
                                                 uri=True)) as db:
             return db.execute(query, args).fetchall()
-    except sqlite3.Error:
+    except sqlite3.Error as exc:
+        unread(OSError(f"cannot read {path}: {exc}"))
         return None
 
 

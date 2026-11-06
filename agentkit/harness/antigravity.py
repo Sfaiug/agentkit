@@ -50,9 +50,11 @@ def conversation(record, cwd=None):
         return mine
     # One claim at a time, from the records as they stand: a caller's copy may predate this
     # launch's claim, and another seat's may land while the fds are read.
+    from . import unread
     try:
         lock = open(config.STATE / "antigravity-claim.lock", "a")
-    except OSError:
+    except OSError as exc:
+        unread(exc)
         return None
     with lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

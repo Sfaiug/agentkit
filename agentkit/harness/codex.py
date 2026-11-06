@@ -106,6 +106,7 @@ def path_for(record):
 
 
 def read(record):
+    from . import unread
     path = path_for(record)
     if path:
         try:
@@ -114,8 +115,8 @@ def read(record):
                 data = json.load(fh)
             if isinstance(data, dict) and data.get("launch") == record["codex_launch"]:
                 return data
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            unread(exc)
     return {}
 
 
@@ -159,14 +160,17 @@ def conversation(record, cwd=None):
         return None
     if record.get("id_source") == SOURCE and record.get("conversation") != sid:
         return None
+    from . import unread
     try:
         with Path(transcript).open(encoding="utf-8") as fh:
             meta = json.loads(fh.readline())
         if (meta.get("type") == "session_meta" and meta["payload"].get("id") == sid
                 and meta["payload"].get("cwd") == receipt["cwd"]):
             return sid
-    except (OSError, ValueError, TypeError, KeyError, AttributeError):
-        pass
+    except OSError as exc:
+        unread(exc)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        unread(ValueError(f"{transcript} opens on no Codex session header: {exc!r}"))
     return None
 
 

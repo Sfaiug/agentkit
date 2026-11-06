@@ -162,7 +162,7 @@ var entries = map[string]entry{
 	},
 	"plan": {
 		"usage: ak plan | ak plan add \"OUTCOME\" --check 'COMMAND' | ak plan check N 'COMMAND'",
-		"This session's plan: each line an outcome with the check that proves it.\nadd runs the check on the project's default branch and refuses one that passes,\ndoes not finish or holds the project's checkout path (it runs in a clean one);\ncheck N puts your own test in place of line N's check, such as a review\nfollow-up's probe; it must fail on the commit the line names, where its check failed.\nListing ticks each check line that now passes on its project's default branch;\nwith every line ticked, the session's work is done.",
+		"This session's plan: each line an outcome with the check that proves it.\nadd runs the check on the project's default branch and refuses one that passes,\ndoes not finish or holds the project's checkout path (it runs in a clean one);\ncheck N puts your own test in place of line N's check, such as a review\nfollow-up's probe; it must fail on the commit the line names, where its check failed.\nListing ticks each check line that now passes on its project's default branch;\nwith every line ticked, a model checks the work against what the owner asked,\nand with nothing missing the session's work is done.",
 		"ak plan add \"each session sees its project\" --check 'python3 tests/test_x.py'",
 	},
 	"update": {

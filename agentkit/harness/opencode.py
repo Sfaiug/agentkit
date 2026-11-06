@@ -42,10 +42,12 @@ def path_for(record):
 
 def conversation(record, cwd=None):
     """The session this seat's launch reported, or None where it reported none yet."""
+    from . import unread
     path = path_for(record)
     try:
         sid = (path / "session").read_text(encoding="utf-8").strip() if path else ""
-    except OSError:
+    except OSError as exc:
+        unread(exc)
         return None
     return sid if SESSION.fullmatch(sid) else None
 
