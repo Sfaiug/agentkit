@@ -36,15 +36,13 @@ func accountMeters(t *testing.T, home string, current, other int) {
 }
 
 func TestAccountRecoveryHandsOwnerInputTurnsAndWaitsBackWithoutWriting(t *testing.T) {
-	for _, kind := range []string{"usage_wait", "usage_refusal", "midturn", "draft", "question", "flight", "recorded refusal", "no room"} {
+	for _, kind := range []string{"usage_wait", "usage_refusal", "midturn", "question", "flight", "recorded refusal", "no room"} {
 		t.Run(kind, func(t *testing.T) {
 			home := accountHome(t)
 			pane := prompting
 			switch kind {
 			case "usage_wait", "usage_refusal", "midturn":
 				write(t, stateFile(home, "seat-acme.json"), run.Line(run.Fields(kind, run.Fields("since", 1))))
-			case "draft":
-				pane = drafted
 			case "question":
 				pane = asked
 			case "flight":
@@ -80,14 +78,14 @@ func TestTheLastAccountLookDefersRecentInputAndNewBackgroundWork(t *testing.T) {
 		t.Fatal("seat unread")
 	}
 	live := lives[0]
-	if live.accountStill("acme", true) {
+	if live.accountStill("acme", true) == nil {
 		t.Fatal("a recently used terminal moved between turns")
 	}
 	write(t, stateFile(home, "hook-acme.json"), `{"event":"Stop","holds":["monitor"],"at":1800000000}`)
-	if live.accountStill("acme", true) {
+	if live.accountStill("acme", true) == nil {
 		t.Fatal("new background work was cut off")
 	}
-	if !live.accountStill("acme", false) {
+	if live.accountStill("acme", false) != nil {
 		t.Fatal("background work prevented a spent-account move")
 	}
 }

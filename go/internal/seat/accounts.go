@@ -60,7 +60,8 @@ func AccountIdle(live Live) bool {
 }
 
 // MoveAccount is seat_account's two prompt-time moves. Refusals, pending recovery, owner input
-// and turns in flight are left at this point, before a relaunch writes anything.
+// and turns in flight are left at this point, before a relaunch writes anything; a move waits for
+// the input field to read empty (fieldWaits).
 func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 	file := live.File
 	if file.Truthy("usage_wait") || file.Truthy("usage_refusal") || file.Truthy("midturn") {
@@ -69,13 +70,14 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 	if AccountIdle(live) {
 		return true, nil
 	}
+	// a draft is read under the lock, where the move waits for it
 	if live.Stall != nil || live.Login != nil ||
-		live.State != "at_prompt" || live.Draft != "" || live.WrappedUp || notify.UnansweredQuestion(live.Name) {
+		live.State != "at_prompt" && live.State != "draft" || live.WrappedUp || notify.UnansweredQuestion(live.Name) {
 		return false, nil
 	}
 	at := seatAt{live.Name, live.Own, harnessPane(live.Name)}
 	found := at.sight(at.capture())
-	if flight, _ := found.turnInFlight(live.Own); flight || !at.free(found) {
+	if flight, _ := found.turnInFlight(live.Own); flight || !at.free(found) && found.state != "draft" {
 		return false, nil
 	}
 	current, home := accountName(live.Record, "account"), accountName(live.Record, "home_account")
@@ -128,12 +130,15 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		return false, nil
 	}
 	err = under(filepath.Join(config.Home(), "state", "watch.lock"), func() error {
-		if !live.accountStill(live.Name, !spent) {
-			return errAccountChanged
+		if err := live.accountStill(live.Name, !spent); err != nil {
+			return err
 		}
 		work := hookfact.Standing(live.Name).Holds
-		back.still = func(name string) bool {
-			return live.accountStill(name, !spent) && slices.Equal(hookfact.Standing(name).Holds, work)
+		back.still = func(name string) error {
+			if !slices.Equal(hookfact.Standing(name).Holds, work) {
+				return errAccountChanged
+			}
+			return live.accountStill(name, !spent)
 		}
 		if spent && len(work) > 0 {
 			launch, _ := config.Section(live.Own, "launch")
@@ -157,36 +162,44 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 		}
 		return nil
 	})
+	if errors.Is(err, errFieldHeld) {
+		return at.fieldWaits(spent), nil
+	}
 	if errors.Is(err, errAccountChanged) {
 		return false, nil
 	}
 	return true, err
 }
 
-// accountStill is the last look under the launch's typing lock. A between-turns move also
-// requires a terminal untouched for DRAFT_STILL and no newly held background work.
-func (live Live) accountStill(name string, between bool) bool {
+// accountStill is the last look under the launch's typing lock: errFieldHeld where the input
+// field is not read whole and empty, errAccountChanged where anything else moved. A between-turns
+// move also requires a terminal untouched for DRAFT_STILL and no newly held background work.
+func (live Live) accountStill(name string, between bool) error {
 	file := revivalFile(name)
 	if name != live.Name || !live.sameRecord() ||
 		!run.Equal(file.Get("opened_at"), live.File.Get("opened_at")) || file.Truthy("stopped_at") ||
 		file.Truthy("closed_by_owner") || file.Truthy("midturn") || file.Truthy("usage_wait") ||
 		file.Truthy("usage_refusal") || notify.UnansweredQuestion(name) || !Watching(name) {
-		return false
+		return errAccountChanged
 	}
 	at := seatAt{name, live.Own, harnessPane(name)}
 	pane := at.capture()
 	found := at.sight(pane)
-	held, drawn := eyeOf(live.Own).rules.ComposerDraft(pane)
-	if !at.free(found) || !drawn || held != "" || found.stall != nil || found.login != nil || at.unread() {
-		return false
+	if !fieldEmpty(live.Own, pane) {
+		return errFieldHeld
+	}
+	if !at.free(found) || found.stall != nil || found.login != nil || at.unread() {
+		return errAccountChanged
 	}
 	if !between {
-		return true
+		return nil
 	}
 	tty, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", at.pane, "#{pane_tty}")
 	info, statErr := os.Stat(tty)
-	return err == nil && statErr == nil && terminalQuiet(info) &&
-		len(hookfact.Standing(name).Holds) == 0
+	if err != nil || statErr != nil || !terminalQuiet(info) || len(hookfact.Standing(name).Holds) > 0 {
+		return errAccountChanged
+	}
+	return nil
 }
 
 func (live Live) sameRecord() bool {

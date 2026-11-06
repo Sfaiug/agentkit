@@ -67,7 +67,7 @@ exec `+commandhelp.ShellJoin([]string{real})+` "$@"
 			write(t, stateFile(home, "hook-acme.json"), fact)
 			rulebook := stateFile(home, "rulebook-acme.md")
 			write(t, rulebook, "rules\n")
-			back := reopening{name: "acme", held: true, model: config.Model{Harness: "claude"}, still: func(string) bool {
+			back := reopening{name: "acme", held: true, model: config.Model{Harness: "claude"}, still: func(string) error {
 				off, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "=acme:", "#{pane_input_off}")
 				if err != nil || off != "1" {
 					t.Fatal("the final look accepted input", off, err)
@@ -75,7 +75,10 @@ exec `+commandhelp.ShellJoin([]string{real})+` "$@"
 				if outcome == "expired" {
 					tmux.Ask(tmux.Own(), "set-option", "-pu", "-t", "=acme:", frozenOption)
 				}
-				return outcome != "declined"
+				if outcome == "declined" {
+					return errAccountChanged
+				}
+				return nil
 			}}
 			_, err = back.launch(filepath.Join(home, ".agentkit", "state"), rulebook, []string{"sleep", "600"}, "conv-acme")
 			if (err == nil) != (outcome == "started") {
