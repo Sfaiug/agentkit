@@ -119,6 +119,11 @@ class GoKeysPieces(unittest.TestCase):
         cost = {f"tests/test_go_keys.py::{key}": seconds for key, seconds in claims.items()}
         self.assertEqual([parts for _, parts, _ in every_file.runs(self.root, cost)],
                          [["test_key_acme_slow"], ["test_key_acme", "test_key_widget"]])
+        # suite_times keeps a claim too short to measure as zero seconds.
+        cost = {"tests/test_go_keys.py::test_key_acme_slow": every_file.PIECE + 1,
+                "tests/test_go_keys.py::test_key_widget": 0.0}
+        self.assertEqual([parts for _, parts, _ in every_file.runs(self.root, cost)],
+                         [["test_key_acme_slow"], ["test_key_widget"]])
 
 
 if __name__ == "__main__":
