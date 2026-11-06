@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"slices"
 	"sync"
 	"time"
 )
@@ -25,12 +26,18 @@ var reading struct {
 	children map[int][]int
 }
 
-// processes is readProcesses's last reading, read again once held past its time; a failed reading
-// is held too.  Only read what it returns: every asker shares it.
-func processes() (map[int][]string, map[int][]int) {
+// processes is readProcesses's last reading, read again once held past its time or where it has
+// not seen one of those panes' processes: a pane newer than the reading is judged by what it runs,
+// and one the new reading has not seen either has ended.  A failed reading is held too.  Only read
+// what it returns: every asker shares it.
+func processes(panes []int) (map[int][]string, map[int][]int) {
 	reading.Lock()
 	defer reading.Unlock()
-	if reading.at.IsZero() || time.Since(reading.at) >= max(every, min(ceiling, time.Duration(float64(reading.took)/share))) {
+	unseen := slices.ContainsFunc(panes, func(pid int) bool {
+		_, seen := reading.commands[pid]
+		return reading.commands != nil && !seen
+	})
+	if unseen || reading.at.IsZero() || time.Since(reading.at) >= max(every, min(ceiling, time.Duration(float64(reading.took)/share))) {
 		began := time.Now()
 		reading.commands, reading.children = readProcesses()
 		reading.at = time.Now()

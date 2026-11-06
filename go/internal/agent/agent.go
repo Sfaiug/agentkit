@@ -27,7 +27,7 @@ func Agentless(server string, names []string) bool {
 	pids, answered := tmux.Panes(server, names)
 	patterns, err := config.Programs()
 	harness, refused := globs(patterns)
-	commands, children := processes()
+	commands, children := processes(pids)
 	return answered && err == nil && refused == nil && commands != nil && !runsAgent(pids, commands, children, harness)
 }
 
