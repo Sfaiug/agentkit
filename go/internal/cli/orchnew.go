@@ -119,9 +119,10 @@ func orchNew(name string, flags map[string]string, dryRun bool, out, errOut io.W
 	if text, unread := seat.Rulebook(name); err != nil || unread != nil || os.WriteFile(rulebook, []byte(text), 0o666) != nil {
 		return notImplemented(errOut, "orch")
 	}
-	cmd, _, ok := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
+	// a preview refused too is Python's to print
+	cmd, _, _ := adapters.Fresh(model, append(os.Environ(), "AGENTKIT_SESSION="+name, "AGENTKIT_SEAT_REPO=",
 		"AGENTKIT_RULEBOOK_DIR="+scratch, "AGENTKIT_RULEBOOK="+rulebook, "AGENTKIT_FIRST_PROMPT=", config.AccountEnv(account)))
-	if !ok {
+	if cmd == nil {
 		return notImplemented(errOut, "orch")
 	}
 	fmt.Fprintf(out, "orch: %s (%s)\nsession %s in %s (new)\nworkers %s\n", orchestrator, reason, name, cwd, strings.Join(crew, " "))

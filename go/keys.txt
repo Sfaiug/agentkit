@@ -297,6 +297,7 @@ test_key_scoreboard AnEmptyBoard
 test_key_scratch_run ScratchRun
 test_key_scratch_run
 test_key_seat_c_efforts
+test_key_seat_instructions
 test_key_screen_asks_opencode_usage_every_fifteen_minutes
 test_key_seat_line_words
 test_key_seat_look_file
