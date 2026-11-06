@@ -38,17 +38,12 @@ const sizeRule = "its first review would read more than %d added lines"
 // comment is a YAML comment closing a front matter value.
 var comment = regexp.MustCompile(`(^|` + config.SpaceClass + `)#.*`)
 
-// Prompt is the opening of a turn of that role in workspace, before its task: a review's rules
-// carry the real-users rule where the workspace's AGENTS.md says `users: real`, read as the YAML
-// word it is, its comment and quotes aside.
-func Prompt(role, workspace string) string {
-	return opening(role, workspace, Given{})
-}
-
-// opening is that as the turn was given it: `users:` read at the target the work lands on, as a
-// branch cannot switch off the rule its own review is held to, and the first review's ceiling the
-// number in force, the host's where the run holds none.
-func opening(role, workspace string, given Given) string {
+// opening is the opening of a turn of that role in workspace, before its task, as the turn was
+// given it: a review's rules carry the real-users rule where the workspace's AGENTS.md says
+// `users: real`, read as the YAML word it is, its comment and quotes aside, and read at the target
+// the work lands on, as a branch cannot switch off the rule its own review is held to; a builder's
+// say the first review's ceiling, lines.
+func opening(role, workspace string, given Given, lines int) string {
 	prompt := strings.ReplaceAll(rule(role), "{workspace}", workspace)
 	declared := ""
 	if given.UsersAt != "" {
@@ -64,13 +59,22 @@ func opening(role, workspace string, given Given) string {
 		gate := rule("gate")
 		prompt = strings.ReplaceAll(prompt, gate, gate+"\n"+rule("real-users"))
 	}
-	lines := given.ReviewLines
-	if lines == 0 {
+	return strings.ReplaceAll(prompt, fmt.Sprintf(sizeRule, config.DefaultReviewLines), fmt.Sprintf(sizeRule, lines))
+}
+
+// ceiling is the first review's ceiling a turn is told: the run's, else the host's, as Python's
+// call reads it; ErrPython where there is none, which only Python tells a builder yet.
+func ceiling(given config.Lines) (int, error) {
+	if given == (config.Lines{}) {
 		numbers, err := config.HostNumbers()
 		if err != nil {
-			return prompt
+			return 0, err
 		}
-		lines = numbers.ReviewLines
+		given = numbers.ReviewLines
 	}
-	return strings.ReplaceAll(prompt, fmt.Sprintf(sizeRule, config.DefaultReviewLines), fmt.Sprintf(sizeRule, lines))
+	lines, limited := given.Most()
+	if !limited {
+		return 0, ErrPython
+	}
+	return lines, nil
 }

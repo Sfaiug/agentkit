@@ -252,13 +252,7 @@ func (r *repoPlace) integrate(l *loop, upstream string) (bool, error) {
 	} else {
 		l.say(fmt.Sprintf("--- merge: rebasing %s onto %s (%s)", r.branch, upstream, tip[:12]))
 	}
-	if code, out, err := g.Out(integration(how, tip)...); err != nil || code != 0 {
-		r.abort(l, how, err != nil)
-		return false, cmp.Or(err, notYet(fmt.Sprintf("its %s onto %s at %s stopped on a conflict: %s", how, upstream, tip[:12], tail(out, 400)), "resolving it"))
-	}
-	// the tip the work is checked and delivered on, whatever a later fetch moves the ref to
-	r.baseSHA = tip
-	if err := l.save(func(record *run.Object) { run.SetAll(record, "base_sha", tip, "target_sha", tip) }); err != nil {
+	if err := r.integrateTip(l, upstream, how, tip); err != nil {
 		return false, err
 	}
 	if held {
@@ -611,33 +605,4 @@ func asked(dir string, args ...string) (int, string, error) {
 		err = &gitcall.Stopped{Why: said}
 	}
 	return code, said, err
-}
-
-// prBody is what the PR says of the run, Python's pr_body: the last round's summary, then how it
-// got there, its follow-ups and its notes, within GitHub's limit.
-func prBody(record *run.Object) string {
-	summaries := record.List("round_summaries")
-	last := ""
-	if len(summaries) > 0 {
-		if round, ok := summaries[len(summaries)-1].(*run.Object); ok {
-			last = gitcall.Strip(round.Str("summary"))
-		}
-	}
-	lines := []string{last, "", "---", "",
-		"- verdict: " + run.Text(record.Get("verdict")),
-		fmt.Sprintf("- rounds: %d of %s", len(summaries), run.Text(record.Get("rounds"))),
-		"- executor: " + run.Text(record.Get("executor")) + ", reviewer: " + run.Text(record.Get("reviewer")),
-		"- run: " + run.Text(record.Get("run_id"))}
-	if line := baseProofLine(record); line != "" {
-		lines = append(lines, "- "+line)
-	}
-	for _, section := range [][2]string{{"followups", "Follow-ups"}, {"notes", "Notes"}} {
-		if items := record.List(section[0]); len(items) > 0 {
-			lines = append(lines, "", "## "+section[1], "")
-			for _, item := range items {
-				lines = append(lines, "- "+strings.ReplaceAll(run.Text(item), "\n", "\n  "))
-			}
-		}
-	}
-	return githubBody(strings.Join(append(lines, ""), "\n"), record.Str("run_id"))
 }

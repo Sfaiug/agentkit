@@ -39,6 +39,7 @@ type Keyboard struct {
 	screen  bool
 	sensed  Screen
 	keyed   []byte // what was read past a key, or typed while Sense waited
+	unread  []Key  // keys a wait read and kept for the screen after it (Unread)
 	woken   [2]*os.File
 	wake    atomic.Bool
 	mu      sync.Mutex
@@ -156,6 +157,11 @@ func (k *Keyboard) ReadKey() Key {
 		}
 		if k.wake.Swap(false) {
 			return Key{Name: "wake"}
+		}
+		if len(k.unread) > 0 {
+			key := k.unread[0]
+			k.unread = k.unread[1:]
+			return key
 		}
 		first, got := k.keyedByte()
 		if !got {

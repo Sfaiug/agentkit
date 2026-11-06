@@ -42,7 +42,7 @@ MATRIX = [
     ("hand-in not-needed", 'usage: ak hand-in not-needed "WHY"', [], set()),
     ("run", "usage: ak run TASK", ["missing.md", "--exec"],
      {"--rounds", "--exec", "--review", "--anyway", "--first", "--no-worktree", "--no-merge",
-      "--bg", "--parallel", "--review-pr", "--history", "--why", "--plain", "--json",
+      "--bg", "--parallel", "--in-order", "--review-pr", "--history", "--why", "--plain", "--json",
       "--tests", "--dry-run", "--keep"}),
     ("run status", "usage: ak run status [ID]", ["MISSING", "--history"],
      {"--history", "--why", "--plain", "--json", "--tests"}),

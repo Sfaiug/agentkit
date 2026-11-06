@@ -72,6 +72,7 @@ COMMANDS = {
                            'ak hand-in not-needed "The target already fixes empty input"'),
     "run": ("""usage: ak run TASK [TASK ...] [--rounds N] [--exec MODEL] [--review MODEL]
               [--anyway] [--first] [--no-worktree] [--no-merge] [--bg] [--parallel N]
+              [--in-order]
        ak run --review-pr URL [--review MODEL] [--first] [--no-merge] [--bg]
        ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]
        ak run resume ID [--rounds N] [--bg]
@@ -87,12 +88,13 @@ $rounds_refusal
 From a seat, --exec, --review, --anyway and --first are refused: ak picks the models,
 decides what goes first and refuses a second run of a change under way.
 Several task files run as one job of independent pieces; --parallel caps it.
+--in-order starts each task once the one before it merged, and none after one that did not.
 max_runs caps the count when positive; 0 leaves host memory as the gate
 (config.toml or AK_MAX_RUNS).
 $pr_delivery
 Task size: $executor_size.
 Seat's work: $orchestrator_size.
-Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds, after.""",
+Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
             "ak run task.md --bg"),
     "run status": ("usage: ak run status [ID] [--history] [--why] [--plain] [--json] [--tests]",
                    "Show current work and result paths; --history includes older runs.\n"

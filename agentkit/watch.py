@@ -1907,6 +1907,7 @@ def screen_state(harness, tail):
     quoting a prompt cannot fake one.  A composer whose only content is dim -- a suggestion or
     placeholder -- is empty; one holding bright text is a draft.  The draft and suggestion
     rules are read out of the manifest like every other rule: their `lines` bound the window,
+    and how tall a ruled composer's own draft reaching up past it to its prompt row may be,
     their `none` marks skip them (a turn in flight owns the composer), and `at_composer`
     keeps them at the composer -- only the bottom-most prompt-marked line counts where the
     line right under it and the pane's last line are chrome, one with its own rule right
@@ -1975,9 +1976,18 @@ def screen_state(harness, tail):
             if rule["chrome"] and chrome["ruled"]:
                 # Its composer is the box `ruled_composer` finds in the rule's own rows, every
                 # row of it down to its closing rule, under the footer at the pane's bottom --
-                # or, with none drawn, a prompt row right on that bottom.
+                # or, with none drawn, a prompt row right on that bottom.  A draft taller than
+                # the rule's rows goes on above them in rows indented under its prompt row, so
+                # it is read up through those to that row (Claude Code 2.1.318 put a seven-row
+                # draft's ten up), while it is no taller than the rule's rows: a taller one may
+                # be one the harness scrolled, whose top row opens none of it (2.1.291, ten).
+                top = len(lines) - len(region)
+                while top and strip_sgr(raw_lines[top])[:1].isspace():
+                    top -= 1
+                raws, region = raw_lines[top:], lines[top:]
                 at, end = ruled_composer(chrome, raws)
-                if at is not None and not chrome_line(chrome, region[-1]):
+                if at is not None and (end - at > rule["lines"]
+                                       or not chrome_line(chrome, region[-1])):
                     at = None
                 elif at is None and re.match(prompt, region[-1]):
                     at, end = len(region) - 1, len(region)
@@ -5054,6 +5064,15 @@ def _resume_on(cfg, name, log, account, continuing, still=None):
         relaunched(name, seat_model(cfg, name)[0], line, at, account=True)
 
 
+def field_empty(harness, pane):
+    """Whether that screen's input field, read whole, holds nothing: the only one a subscription
+    move respawns a live harness over, as the respawn ends whatever it holds."""
+    # The owner, 5 Nov 2026: "the text in the input field should never be deleted ... Have the
+    # change happen as soon as the input field is empty again, then we never risk that the
+    # input gets lost."  A screen's rules can read a tall draft as an empty prompt.
+    return composer_draft(harness, pane) == ""
+
+
 def between_turns(name, harness, record, opened_at, pane=None):
     """Is that seat, looked at afresh, the one `record` and `opened_at` were read for -- not
     closed, renamed, reopened or moved since -- with its harness's pane (`pane`, or the one a
@@ -5077,7 +5096,7 @@ def between_turns(name, harness, record, opened_at, pane=None):
         return False
     pane = pane_text(seat)
     fresh = observed(name, harness, pane, seat_read(name), time.time())
-    return (quiet and bool(pane.strip()) and fresh["state"] == "at_prompt"
+    return (quiet and fresh["state"] == "at_prompt" and field_empty(harness, pane)
             and not fresh.get("holds")
             and not _turn_in_flight(harness, fresh)[0] and not pane_unread(seat))
 
@@ -5281,11 +5300,10 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
                     # the owner's text lifted and the harness respawned in one hold, as a switch does;
                     # a move nobody asked for waits while no editor of ak's lifts it, or none could
                     with notify.session_lock(name):
-                        if live.get("state") == "draft" and not (
-                                seat_editor(session, cfg)
-                                and carry_draft(session, harness, pane, harness, cfg)):
+                        if not carry_draft(session, harness, pane, harness, cfg):
                             return True     # a respawn would lose the text
-                        _resume_on(cfg, name, log, target, continuing)
+                        _resume_on(cfg, name, log, target, continuing, lambda at: field_empty(
+                            harness, pane_text(dict(session, pane=at))))
                 elif continuing and not type_into(session, keystroke(harness, cue), log,
                                                   asked=True):
                     return True

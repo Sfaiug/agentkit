@@ -14,7 +14,8 @@ import (
 
 var readingModels sync.Mutex // closing and reopening the page shares the boards' reader
 
-func menuModels(session, scope string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+// title is the name `c` gives this page; the pages it opens, `p` and a row's why, carry it too.
+func menuModels(session, title string, c *matrix.Configuration, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	type reading struct {
 		found *matrix.Matrix
 		err   error
@@ -81,7 +82,7 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 		if pointing && at >= 0 && at < len(rows) {
 			light = menu.ModelLight{Maker: rows[at].Maker, Colour: colours[rows[at].Maker]}
 		}
-		frame := menu.ModelsFrame(s, "config · recommended · "+scope, menu.ModelsSaid(s, answer, found.Rows),
+		frame := menu.ModelsFrame(s, title, menu.ModelsSaid(s, answer, found.Rows),
 			compared, len(current), found.Fetched, at, top, note, light)
 		top = frame.Top
 		painter.Write(frame.Lines, s)
@@ -116,7 +117,7 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 				pointing = false
 			}
 		case key.Name == "char" && key.Char == "p":
-			if !modelsPick("config · recommended · "+scope, found.Rows, keyboard, painter) {
+			if !modelsPick(title, found.Rows, keyboard, painter) {
 				return false
 			}
 			if compared, err = matrix.Compared(found.Rows); err != nil {
@@ -137,7 +138,7 @@ func menuModels(session, scope string, c *matrix.Configuration, keyboard *termin
 			}
 		}
 		if key.Name == "enter" && at >= 0 && at < len(rows) {
-			modelWhy(answer[roles[at]], rows[at], roles[at], keyboard, painter)
+			modelWhy(title, answer[roles[at]], rows[at], roles[at], keyboard, painter)
 		}
 	}
 }

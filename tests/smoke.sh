@@ -3526,8 +3526,8 @@ grep -q 'n new   x stop   c config   esc leave' "$WORK/overlay-popup.txt" &&
   grep -q 'esc leave' "$WORK/overlay-popup.txt" || OVERLAY=1
 # two seats holding a sleep, with nothing asked or owed: at rest
 IDLE_GLYPH=$(LC_ALL=C.UTF-8 PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
-grep -qE "1  $OV1  $FABLE +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
-grep -qE "2  $OV2  $ASTRA +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -qE "1  $OV1  $FABLE xhigh +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
+grep -qE "2  $OV2  $ASTRA xhigh +$IDLE_GLYPH idle" "$WORK/overlay-popup.txt" || OVERLAY=1
 grep -q 'p preview' "$WORK/overlay-popup.txt" && OVERLAY=1   # not offered over a running session
 # 2 switches this client to that seat, and the popup comes down behind it. switch-client, the
 # popup closing and the seat drawing its own bar are three redraws, in that order and none of
@@ -3782,7 +3782,7 @@ done
 tm kill-session -t =resume-seat 2>/dev/null
 printf '\n' | akn --dry-run >"$WORK/name-ghost.log" 2>&1 || NAME=1
 RESUME_GLYPH=$(PYTHONPATH="$REPO" python3 -c 'from agentkit import terminal; print(terminal.glyph("idle"))')
-OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' opus)
+OPUS=$("${NENV[@]}" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' opus)
 grep -qE "^ +[0-9]+  resume-seat +$OPUS +$RESUME_GLYPH idle" "$WORK/name-ghost.log" || NAME=1
 grep -q "session closed: press" "$WORK/name-ghost.log" || NAME=1
 akn orch resume-seat >"$WORK/name-reopen.log" 2>&1 || NAME=1
@@ -3969,7 +3969,7 @@ jq -e '.session == "smoke-shape" and .kind == "needs" and .text == "Which branch
   "$NSH/.agentkit/state/notify-smoke-shape.json" >/dev/null 2>&1 || SHAPE=1
 # the first frame is the records as they stand: the line that leaves goes in once the seat's
 # look has landed and drawn its row again, its question on the line under it
-ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_name(config.load(), sys.argv[1]))' astra) +! needs you"
+ROW="^ *$NUM  smoke-shape +$(HOME="$NSH" PYTHONPATH="$REPO" python3 -c 'import sys; from agentkit import config; print(config.model_at(config.load(), None, sys.argv[1], "orchestrator"))' astra) +! needs you"
 rm -f -- "$WORK/menu-shape.log"
 { for _ in $(seq 300); do grep -q 'Which branch?' "$WORK/menu-shape.log" 2>/dev/null && break
     sleep 0.1; done

@@ -87,17 +87,17 @@ class ProjectsBySeatsMade(Listing):
             Seat(home, "scribe", cwd=home.path / "code", alive=False)
             self.shows(Terminal(home, size=(100, 40)), [
                 "ATOLL2",
-                "› 1  big      Opus 5.5  ○ idle",
+                "› 1  big      Opus 5.5 xhigh  ○ idle",
                 "",
                 "acme",
-                "  2  fix-api  Opus 5.5  ○ idle",
+                "  2  fix-api  Opus 5.5 xhigh  ○ idle",
                 "",
                 "atoll",
-                "  3  atoll-b  Opus 5.5  ○ idle",
-                "  4  atoll-a  Opus 5.5  ○ idle",
+                "  3  atoll-b  Opus 5.5 xhigh  ○ idle",
+                "  4  atoll-a  Opus 5.5 xhigh  ○ idle",
                 "",
                 "not assigned yet",
-                "  5  scribe   Opus 5.5  ○ idle"])
+                "  5  scribe   Opus 5.5 xhigh  ○ idle"])
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -138,7 +138,7 @@ class TwoDigitNumbers(Listing):
 
     def test_past_nine_seats_every_number_is_two_wide(self):
         # the other cases move the highlight to the seat each opened
-        self.shows(self.term, ["acme", *(f"  {n:>2}  seat{n:02d}  Opus 5.5  ○ idle"
+        self.shows(self.term, ["acme", *(f"  {n:>2}  seat{n:02d}  Opus 5.5 xhigh  ○ idle"
                                          for n in range(1, 14))], cursor=False)
 
     def test_two_digits_typed_together_open_one_seat(self):
@@ -167,8 +167,8 @@ class FiledByItsRuns(Listing):
                             "repo": str(atoll2)})
             term = Terminal(home, size=(100, 40))
             self.shows(term, ["atoll2",
-                              "› 1  loose  Fable 5.1  ○ idle",
-                              "  2  stray  Fable 5.1  ○ idle"])
+                              "› 1  loose  Fable 5.1 xhigh  ○ idle",
+                              "  2  stray  Fable 5.1 xhigh  ○ idle"])
             term.keys("Escape")
             term.exit_code()      # read once the menu has ended, no write of its on the way
             for name in ("loose", "stray"):
