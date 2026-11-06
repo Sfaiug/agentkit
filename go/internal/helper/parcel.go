@@ -22,10 +22,43 @@ import (
 // recipe is a repository's recipe where its `suite_image:` names none.
 const recipe = "tools/helper/Containerfile"
 
-// A file is one of the repository's the parcel holds: its mode and bytes.
+// A file is one the parcel holds: its header but its name, and its bytes, read as the parcel is
+// packed from the file on disk at `from` where it names one, so a big one is never held whole.
 type file struct {
-	mode int64
+	head tar.Header
 	data []byte
+	from string
+}
+
+// made is a file of ak's making the parcel holds: of mode, dated 0.
+func made(mode int64, data []byte) file {
+	return file{head: tar.Header{Mode: mode, ModTime: time.Unix(0, 0)}, data: data}
+}
+
+// write puts f in the parcel as name, a directory's with the slash Python's tarfile gives it.
+func (f file) write(out *tar.Writer, name string) error {
+	head := f.head
+	head.Name = name
+	if head.Typeflag == tar.TypeDir {
+		head.Name += "/"
+	}
+	if f.from == "" {
+		head.Size = int64(len(f.data))
+	}
+	if err := out.WriteHeader(&head); err != nil {
+		return err
+	}
+	if f.from == "" {
+		_, err := out.Write(f.data)
+		return err
+	}
+	in, err := os.Open(f.from)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	_, err = io.CopyN(out, in, head.Size)
+	return err
 }
 
 // recipeOf is the image the suite's pieces run in and the parcel's files it is built from, Python's
@@ -70,7 +103,7 @@ func recipeOf(cwd, repo string) (string, map[string]file, error) {
 	}
 	digest := sha256.New()
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		fmt.Fprintf(digest, "%s\x00%d\x00%d\x00", name, files[name].mode, len(files[name].data))
+		fmt.Fprintf(digest, "%s\x00%d\x00%d\x00", name, files[name].head.Mode, len(files[name].data))
 		digest.Write(files[name].data)
 	}
 	return fmt.Sprintf("ak-helper-%s:%x", repo, digest.Sum(nil)[:6]), files, nil
@@ -93,12 +126,13 @@ func tracked(cwd, name string) (file, error) {
 		err = fmt.Errorf("git cat-file blob %s failed in %s", blob, cwd)
 	}
 	bits, _ := strconv.ParseInt(mode[3:], 8, 64)
-	return file{bits, data}, err
+	return made(bits, data), err
 }
 
-// pack writes the parcel: the recipe's files, the piece's script, `heads` (HEAD, then the origin
-// branch the suite compares against) and a bundle of their history the machine lacks, the whole
-// history the first time, which can outgrow memory: it goes through a file, never held whole.
+// pack writes the parcel: files, the recipe's and a turn's own (turnFiles), the piece's script,
+// `heads` (HEAD, then the origin branch the suite compares against) and a bundle of their history
+// the machine lacks, the whole history the first time, which can outgrow memory: it goes through a
+// file, never held whole.
 func (a *Away) pack(cwd string, known []string, files map[string]file, parcel io.Writer) error {
 	g := gitcall.Git{Repo: cwd}
 	revs := []string{"HEAD"}
@@ -121,14 +155,11 @@ func (a *Away) pack(cwd string, known []string, files map[string]file, parcel io
 	}
 	files = maps.Clone(files)
 	// executable, as tools/helper has it and Python's parcel sends it
-	files["piece.sh"] = file{0o755, piece}
-	files["heads"] = file{0o644, []byte(strings.Join(strings.Fields(heads), " ") + "\n")}
+	files["piece.sh"] = made(0o755, piece)
+	files["heads"] = made(0o644, []byte(strings.Join(strings.Fields(heads), " ")+"\n"))
 	out := tar.NewWriter(parcel)
 	for _, name := range slices.Sorted(maps.Keys(files)) {
-		if err := out.WriteHeader(&tar.Header{Name: name, Mode: files[name].mode, Size: int64(len(files[name].data)), ModTime: time.Unix(0, 0)}); err != nil {
-			return err
-		}
-		if _, err := out.Write(files[name].data); err != nil {
+		if err := files[name].write(out, name); err != nil {
 			return err
 		}
 	}
