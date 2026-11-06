@@ -136,20 +136,13 @@ func deadLoop(record *run.Object, now float64) bool {
 			return false
 		}
 	}
-	return !launchGrace(record, now) && !run.ProcessActive(record)
+	return !run.LaunchGrace(record, now) && !run.ProcessActive(record)
 }
 
 // scoped is whether a unit the manager holds ran that loop (turns.scope_is_real).
 func scoped(record *run.Object) bool {
 	scope := record.Str("scope")
 	return scope != "" && !strings.HasPrefix(scope, "none")
-}
-
-// goingOn is whether a live record's loop goes on as reap leaves it: its process alive, its launch
-// inside its grace, its resume ordered, or the backoff after its death being waited out.
-func goingOn(record *run.Object, now float64) bool {
-	until, holding := record.Num("resume_after")
-	return run.ProcessActive(record) || launchGrace(record, now) || run.ResumeOrdered(record, now) || holding && now < until
 }
 
 // deadPlan is _dead_plan: what the tick does with a loop whose process is gone, the deaths it

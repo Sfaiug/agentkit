@@ -10,6 +10,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
@@ -71,9 +72,17 @@ func table(t *ticking) []pass {
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
-		{"seat tokens", false, run.Historyless, nil},
-		{"history sync", false, run.Historyless, nil},
-		{"history checkpoint", false, run.Historyless, nil},
+		// seats' conversations are Python's to read into a history a seat or its sources stand in
+		{"seat tokens", false, func() bool {
+			return run.Historyless() || len(config.SeatFiles()) == 0 && !history.KeepsSeats()
+		}, nil},
+		{"history sync", false, nil, func() error {
+			if !history.Agree(t.log.line) {
+				return errLeft
+			}
+			return nil
+		}},
+		{"history checkpoint", false, nil, func() error { history.Checkpoint(); return nil }},
 		{"weekly audit", false, configured, t.audit},
 		{"typed answers", false, every(answerable), t.typedAnswers},
 		{"card transitions", false, cardsHeld, func() error { return cards(t.log.errOut, t.log.line) }},

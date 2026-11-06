@@ -21,7 +21,7 @@ func (t *ticking) endings() error {
 	var owed []ending
 	carried := run.Every(func(dir string, record *run.Object) bool {
 		if run.Active(record) {
-			return goingOn(record, epoch(t.clock()))
+			return run.GoesOn(record, epoch(t.clock()))
 		}
 		if record.Truthy("handback_typed") {
 			// Python finishes an existing line's Enter; Go must not leave it blocking the composer.

@@ -119,6 +119,13 @@ func Finish(record *run.Object, log func(string)) {
 		return
 	}
 	files, lines, rules := measured(record)
+	apply(log, ending(record.Get("run_id"), record, "task_files", files, "changed_lines", lines, "rules_bytes", rules))
+}
+
+// ending is Python's finish_run of history_ending's terms: the row of that id ended as the record
+// ends its run, with the measures given as column, value pairs, in one commit with the run time it
+// closes.
+func ending(id any, record *run.Object, measures ...any) func(*DB) error {
 	finished := record.Get("finished_at")
 	if !record.Truthy("finished_at") {
 		finished = now()
@@ -128,17 +135,18 @@ func Finish(record *run.Object, log func(string)) {
 		rounds = len(summaries)
 	}
 	var pairs []any
-	for _, pair := range [][2]any{{"repo", record.Get("repo")}, {"executor", record.Get("executor")},
-		{"reviewer", record.Get("reviewer")}, {"rounds_used", rounds}, {"final_state", record.Get("state")},
-		{"verdict", record.Get("verdict")}, {"finished_at", finished}, {"session", seat(record)},
-		{"own_orchestrator", record.Get("own_orchestrator")}, {"own_orchestrator_effort", record.Get("own_orchestrator_effort")},
-		{"task_files", files}, {"changed_lines", lines}, {"rules_bytes", rules}} {
-		if pair[1] != nil {
-			pairs = append(pairs, pair[0], pair[1])
+	given := append([]any{"repo", record.Get("repo"), "executor", record.Get("executor"),
+		"reviewer", record.Get("reviewer"), "rounds_used", rounds, "final_state", record.Get("state"),
+		"verdict", record.Get("verdict"), "finished_at", finished, "session", seat(record),
+		"own_orchestrator", record.Get("own_orchestrator"), "own_orchestrator_effort", record.Get("own_orchestrator_effort")},
+		measures...)
+	for i := 0; i < len(given); i += 2 {
+		if given[i+1] != nil {
+			pairs = append(pairs, given[i], given[i+1])
 		}
 	}
-	id, peak, started, pair := record.Get("run_id"), record.Get("peak_rss_mb"), record.Get("started_at"), reviewPair(record)
-	apply(log, func(db *DB) error {
+	peak, started, pair := record.Get("peak_rss_mb"), record.Get("started_at"), reviewPair(record)
+	return func(db *DB) error {
 		// a merge republished keeps the pair it ended with, a resume's ending records it anew
 		err := db.exec("UPDATE runs SET review_pair=? WHERE run_id=? AND finished_at IS NOT ?", pair, id, finished)
 		if err == nil {
@@ -156,7 +164,7 @@ func Finish(record *run.Object, log func(string)) {
 				"ELSE MAX(0, ?-started_at) END WHERE run_id=?", finished, id)
 		}
 		return err
-	})
+	}
 }
 
 // update is Python's history._update: the row's columns set to the values given after them, a

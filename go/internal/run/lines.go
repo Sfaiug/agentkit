@@ -159,21 +159,30 @@ func ResumeAge(record *Object, now time.Time) string {
 	return "resumed " + clock(at, "15:04") + " · continued " + what
 }
 
-// ParkedLine is the dim line under an error: its scheduled retry, or who an unscheduled one
-// waits for -- nobody, once it is its seat's.
+// ParkedLine is the dim line under an error or a wait out of any landing line: the retry the tick
+// scheduled, or who an unscheduled one waits for -- nobody, once an error is its seat's.
 func ParkedLine(record *Object, name string, now time.Time) string {
-	if record.Str("state") != "error" {
+	state := record.Str("state")
+	if state != "error" && state != "waiting" {
 		return ""
 	}
 	reason := []rune(words(firstText(record, "no reason was recorded", "error")))
 	parked := "run " + name + " parked: " + string(reason[:min(len(reason), 300)])
-	if record.Truthy("handed_back") || record.Truthy("handback_pending") || record.Truthy("recovery_acknowledged_at") {
+	if state == "error" && (record.Truthy("handed_back") || record.Truthy("handback_pending") || record.Truthy("recovery_acknowledged_at")) {
 		parked = "error: " + string(reason[:min(len(reason), 300)])
 	}
 	at, ok := record.Num("error_retry_at")
 	admission := TickAdmission(record, now)
 	switch {
-	case admission == "" || !ok:
+	case admission == "":
+		return parked
+	case state == "waiting":
+		ref := ConflictUpstream(record)
+		if wait := record.Dict("waiting_on"); wait != nil && wait.Truthy("ref") {
+			ref = Text(wait.Get("ref"))
+		}
+		return "waiting · retry after the next merge to " + ref + " · " + admission
+	case !ok:
 		return parked
 	case at <= seconds(now):
 		return "error · retry due · " + admission
