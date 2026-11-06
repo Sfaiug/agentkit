@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -225,6 +226,9 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	code, stopped, err := box.RunCheck(l.ctx, watch, []string{"bash", "-c", cmd}, env, cwd, out, progress)
 	if errors.Is(err, errors.ErrUnsupported) {
 		return ran{}, notYet("the host has no box for a check", "a check here")
+	}
+	if errors.Is(err, syscall.EAGAIN) {
+		return ran{}, err // no room to start it says nothing of the work: the tick runs it again (noroom.go)
 	}
 	if err != nil {
 		fmt.Fprintf(progress, "%s\n", err)
