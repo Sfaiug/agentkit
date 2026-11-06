@@ -296,8 +296,8 @@ func leftToPython(path string) (recounted bool, err error) {
 		return false, err
 	}
 	defer db.Close()
-	seats, err := db.rows("SELECT 1 FROM sqlite_master WHERE name = 'seat_sources'")
-	if err != nil || len(seats) > 0 {
+	seats, err := db.keepsSeats()
+	if err != nil || seats {
 		return false, cmp.Or(err, errors.New("it keeps seats' tokens, which Python ak alone reads on"))
 	}
 	return db.recounted()
@@ -321,16 +321,23 @@ func (db *DB) recounted() (bool, error) {
 }
 
 // upgrade is Python's history._connect on a database that is not Python's alone: the connection
-// made a writer as Python's waiter.connect makes one, and today's tables and columns brought in
-// in one transaction.
+// made a writer, and today's tables and columns brought in in one transaction.
 func (db *DB) upgrade(recounted bool) error {
+	if err := db.writer(); err != nil {
+		return err
+	}
+	return db.migrate(recounted)
+}
+
+// writer makes the connection a writer as Python's waiter.connect makes one.
+func (db *DB) writer() error {
 	for _, pragma := range []string{"journal_mode=WAL", "synchronous=NORMAL", "wal_autocheckpoint=0",
 		fmt.Sprintf("journal_size_limit=%d", walMax)} {
 		if err := db.exec("PRAGMA " + pragma); err != nil {
 			return err
 		}
 	}
-	return db.migrate(recounted)
+	return nil
 }
 
 // migrate makes the tables and columns the database lacks, and marks it past the tokens' repair.

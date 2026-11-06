@@ -28,14 +28,6 @@ func dated(record *run.Object, key string) (float64, bool) {
 	return record.Num(key)
 }
 
-func launchGrace(record *run.Object, now float64) bool {
-	if record.Str("state") != "queued" || !record.Truthy("launch_pending") && record.Truthy("process_identity") {
-		return false
-	}
-	at := run.FirstNumber(record, "queued_at", "started_at")
-	return now-at < 30
-}
-
 // A dry tick reads whether the dead-loop pass would say anything, which Python's says.
 func noDeadLoops() bool {
 	now := epoch(time.Now())

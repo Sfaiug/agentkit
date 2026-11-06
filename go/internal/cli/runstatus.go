@@ -262,13 +262,23 @@ func look(record *run.Object) (bool, error) {
 }
 
 // actedOn is whether Python's reap would act on the run as Go does not: end processes it left
-// behind, or reap one neither running, stalled nor ended, past what handback.Reap does, a running
-// one whose loop is gone, or a place in a landing line, which Go leaves to Python.
+// behind, reap an active run whose loop is gone, offer a wait's recovery, or reap one neither
+// active, waiting, stalled nor ended, past what handback.Reap does; or whether it holds a place in
+// a landing line, which Go leaves to Python.
 func actedOn(record *run.Object) bool {
 	_, owed := run.Reap(record)
-	state := record.Str("state")
-	return owed || state != "running" && state != "stalled" && !run.Ended(record) && !handback.Reapable(record) ||
-		state == "running" && !run.ProcessActive(record) || run.InLine(record)
+	wait := record.Dict("waiting_on")
+	switch state := record.Str("state"); {
+	case owed || run.InLine(record) || state == "waiting" && wait != nil && wait.Truthy("line"):
+		return true
+	case run.Active(record):
+		// a launch waiting for its slot is the tick's to adopt
+		return !run.GoesOn(record, seconds(time.Now())) && !(state == "queued" && record.Truthy("slot_waiting"))
+	case state == "waiting":
+		return run.NeedsRecovery(record)
+	default:
+		return state != "stalled" && !run.Ended(record) && !handback.Reapable(record)
+	}
 }
 
 // refused is whether Python ak would write or act on what the listing reads: a job it shows,
@@ -295,6 +305,11 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 		// a run with review off or no limit is Python's whole, its status too
 		if !run.Carries(entry.record) {
 			return true
+		}
+		if entry.record.Str("state") == "queued" {
+			if _, read := run.SlotNote(entry.record); !read {
+				return true
+			}
 		}
 	}
 	return false
@@ -355,12 +370,12 @@ func seconds(at time.Time) float64 {
 }
 
 // shown is whether a listing shows the run: any with --history, else all but what ended
-// over seven days ago and needs nothing more.  An admitted error still belongs to the tick.
+// over seven days ago and needs nothing more.  An admitted error or wait still belongs to the tick.
 func shown(record *run.Object, showHistory bool, now time.Time) bool {
 	state := record.Str("state")
-	live := run.Going(record, now) && state == "error"
+	live := run.Going(record, now) && (state == "error" || state == "waiting")
 	ended := run.FirstNumber(record, "finished_at", "started_at")
-	return showHistory || contains([]string{"running", "stalled", "unreadable"}, state) ||
+	return showHistory || contains([]string{"queued", "running", "stalled", "unreadable"}, state) ||
 		run.Actionable(record, now) || live || seconds(now)-ended <= run.GCAge
 }
 
@@ -547,11 +562,11 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 	record := entry.record
 	var lines []string
 	dim := func(text string) string { return "  " + screen.Styled(text, "dim") }
-	switch note := run.ParkedLine(record, entry.name(), now); {
+	switch wait, note := waitNote(record), run.ParkedLine(record, entry.name(), now); {
 	case entry.ending != "":
 		lines = append(lines, "  "+entry.ending)
-	case run.GateTurnNote(record) != "":
-		lines = append(lines, "  "+run.GateTurnNote(record))
+	case wait != "":
+		lines = append(lines, "  "+wait)
 	case run.BlockedNote(record, "!") != "":
 		lines = append(lines, dim(run.BlockedNote(record, screen.Glyph(run.Word(record, index, now)))))
 	case run.HandbackWaiting(record) != "":
@@ -560,6 +575,16 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 		lines = append(lines, dim(note))
 	}
 	return append(lines, tail(screen, record)...)
+}
+
+// waitNote is what a run waits for before it works on: a queued one its slot, a running one a
+// heavy suite turn.
+func waitNote(record *run.Object) string {
+	if record.Str("state") == "queued" {
+		note, _ := run.SlotNote(record)
+		return note
+	}
+	return run.GateTurnNote(record)
 }
 
 // tail is the notes every format ends a run's lines with: whether it goes first, what still
@@ -638,8 +663,11 @@ func details(screen terminal.Screen, entry listed, index run.Index, now time.Tim
 		lines = append(lines, "  "+stalled)
 	}
 	lines = append(lines, run.DeathLines(record)...)
-	if note := run.GateTurnNote(record); note != "" {
+	if note := waitNote(record); note != "" {
 		lines = append(lines, "  "+note)
+	}
+	if record.Truthy("slot_stall") {
+		lines = append(lines, "  "+run.Text(record.Get("slot_stall")))
 	}
 	if run.NeedsRecovery(record) {
 		lines = append(lines, "  "+run.RecoveryReason(record)+"; ak run resume "+entry.name()+" offers recovery")
@@ -671,7 +699,11 @@ func printPlain(out io.Writer, screen terminal.Screen, entry listed, why bool, m
 	if record.Truthy("branch") {
 		branch = run.Text(record.Get("branch"))
 	}
-	line := padded(name, 40) + " " + padded(run.Field(record, "state", "?"), 11) + " " + padded(run.Text(record.Get("verdict")), 5) + " " +
+	word := run.Field(record, "state", "?")
+	if word == "queued" {
+		word = "waiting"
+	}
+	line := padded(name, 40) + " " + padded(word, 11) + " " + padded(run.Text(record.Get("verdict")), 5) + " " +
 		run.ExecutorLine(record) + "/" + run.Field(record, "reviewer", "?") + "  " + branch
 	outcome, step := run.Outcome(record, models), run.StepWord(record, now)
 	if record.Truthy("extended") {
@@ -707,7 +739,7 @@ func printPlain(out io.Writer, screen terminal.Screen, entry listed, why bool, m
 	if entry.ending != "" {
 		lines = append(lines, "  "+entry.ending)
 	}
-	if note := run.GateTurnNote(record); note != "" {
+	if note := waitNote(record); note != "" {
 		lines = append(lines, "  "+note)
 	}
 	lines = append(lines, tail(screen, record)...)

@@ -174,7 +174,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"runs/fix-api/run.json":            `{"state":"waiting_login"}`,
 		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
 		"secrets/claude_oauth_token":       "",
-		"history.db":                       "",
 		"state/session-acme.json":          "{}",
 		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
