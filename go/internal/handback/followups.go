@@ -37,26 +37,13 @@ func StartFollowups(dir string, prepare func(string, *run.Object, *run.Object) (
 	if err != nil || state == nil || state.Has("followup_runs") {
 		return err
 	}
-	session, lists, err := config.ResolveSession(run.Seat(state))
-	closed, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "seat-"+session+".json"))
-	if err != nil || lists == nil || closed != nil && closed.Truthy("stopped_at") {
+	session, lists, err := seatLists(state)
+	if err != nil || lists == nil {
 		return err
 	}
-	repo := state.Str("repo")
-	if common, err := (gitcall.Git{Repo: repo}).Must("rev-parse", "--path-format=absolute", "--git-common-dir"); err == nil {
-		common = config.Resolve(common)
-		repo = filepath.Dir(common)
-		// ak's versioned checkouts share a bare repository; its live checkout owns the plan.
-		if common == config.Resolve(filepath.Join(config.Home(), "agentkit.git")) {
-			repo = filepath.Join(config.UserHome(), "agentkit")
-		}
-	}
-	repo = config.Resolve(repo)
+	repo := mainCheckout(state.Str("repo"))
 	state.Set("repo", repo)
-	fixers := true
-	if workers, ok := lists["workers"].([]any); ok && len(workers) == 0 {
-		fixers = false
-	}
+	fixers := fixers(lists)
 	runs, entries, complete := []any{}, []any{}, true
 	var starts []func() error
 	checks, commits := cmp.Or(state.Dict("followup_checks"), run.NewObject()), cmp.Or(state.Dict("followup_commits"), run.NewObject())
@@ -71,7 +58,7 @@ func StartFollowups(dir string, prepare func(string, *run.Object, *run.Object) (
 		var start func() error
 		if fixers && started == "" && !opened {
 			var child string
-			child, err = followupTask(state, item, check)
+			child, err = followupTask(state, "Fix "+config.SplitLines(item)[0], item+"\n\n"+task.FixTheCommand, check)
 			if err == nil {
 				origin := run.Fields("followup", run.Fields("run", filepath.Base(dir), "text", item,
 					"place", followupPlace(item), "check", check), "repo", repo)
@@ -143,12 +130,46 @@ func followupTaken(state *run.Object, parent, item, check string) (started strin
 			opened = true
 		}
 		if run.Seat(other) == run.Seat(state) && other.Str("repo") == state.Str("repo") && !other.Truthy("repair") &&
-			strings.TrimSpace(followup.Str("check")) == strings.TrimSpace(check) &&
-			(other.Str("state") == "running" || other.Str("state") == "queued" && other.Truthy("slot_waiting") || run.Going(other, time.Now())) {
+			strings.TrimSpace(followup.Str("check")) == strings.TrimSpace(check) && onItsWay(other) {
 			opened = true
 		}
 	}
 	return
+}
+
+// onItsWay is whether that fix run is still on its way: running, about to, or resuming itself.
+func onItsWay(record *run.Object) bool {
+	return record.Str("state") == "running" || record.Str("state") == "queued" && record.Truthy("slot_waiting") || run.Going(record, time.Now())
+}
+
+// seatLists is the seat state was launched from and its lists, none where it is closed: stopped,
+// or holding no record.
+func seatLists(state *run.Object) (string, map[string]any, error) {
+	session, lists, err := config.ResolveSession(run.Seat(state))
+	closed, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "seat-"+session+".json"))
+	if err != nil || closed != nil && closed.Truthy("stopped_at") {
+		return session, nil, err
+	}
+	return session, lists, nil
+}
+
+// fixers is whether a run can take a seat's line: its lists name executors, or none at all.
+func fixers(lists map[string]any) bool {
+	workers, ok := lists["workers"].([]any)
+	return !ok || len(workers) > 0
+}
+
+// mainCheckout is the checkout of repo's repository that owns its plan.
+func mainCheckout(repo string) string {
+	if common, err := (gitcall.Git{Repo: repo}).Must("rev-parse", "--path-format=absolute", "--git-common-dir"); err == nil {
+		common = config.Resolve(common)
+		repo = filepath.Dir(common)
+		// ak's versioned checkouts share a bare repository; its live checkout owns the plan.
+		if common == config.Resolve(filepath.Join(config.Home(), "agentkit.git")) {
+			repo = filepath.Join(config.UserHome(), "agentkit")
+		}
+	}
+	return config.Resolve(repo)
 }
 
 var followupSite = regexp.MustCompile("([^\\s`*]+):([0-9]+)\\b")
@@ -160,8 +181,9 @@ func followupPlace(item string) string {
 	return strings.TrimSpace(config.SplitLines(item)[0])
 }
 
-func followupTask(state *run.Object, item, check string) (string, error) {
-	title := "Fix " + config.SplitLines(item)[0]
+// followupTask is a new run directory holding the task of that title, its text body and its
+// done-when check, in the repository and target state names.
+func followupTask(state *run.Object, title, body, check string) (string, error) {
 	if letters := []rune(title); len(letters) > 256 {
 		title = string(letters[:255]) + "…"
 	}
@@ -178,8 +200,8 @@ func followupTask(state *run.Object, item, check string) (string, error) {
 			return "", err
 		}
 		target := strings.TrimPrefix(cmp.Or(state.Str("target"), state.Str("base")), "origin/")
-		text := fmt.Sprintf("---\nrepo: %s\nbase: origin/%s\ntarget: %s\n---\n# %s\n\n%s\n\n%s\n\n## Done when\n```bash\n%s\n```\n",
-			state.Str("repo"), target, target, title, item, task.FixTheCommand, check)
+		text := fmt.Sprintf("---\nrepo: %s\nbase: origin/%s\ntarget: %s\n---\n# %s\n\n%s\n\n## Done when\n```bash\n%s\n```\n",
+			state.Str("repo"), target, target, title, body, check)
 		if err := os.WriteFile(filepath.Join(dir, "task.md"), []byte(text), 0o666); err != nil {
 			return "", err
 		}

@@ -158,12 +158,17 @@ func (a *Away) Piece(ctx context.Context, shard string, out io.Writer) int {
 	return cmd.ProcessState.ExitCode()
 }
 
-// Flaky is whether the ended piece of shard named tests there that failed, then passed
+// Flaky is the tests the ended piece of shard named there that failed, then passed
 // (`AK_FLAKY`), from the file piece.sh gives it, never from what it printed; none where the
 // machine does not answer.
-func (a *Away) Flaky(shard string) bool {
+func (a *Away) Flaky(shard string) (names []string) {
 	code, said := ask(a.Alias, 30*time.Second, nil, "failed", a.key, a.vm(shard), "flaky")
-	return code == 0 && strings.TrimSpace(said) != ""
+	for _, line := range strings.Split(said, "\n") {
+		if line = strings.TrimSpace(line); code == 0 && line != "" && !slices.Contains(names, line) {
+			names = append(names, line)
+		}
+	}
+	return names
 }
 
 // Finish takes the suite's tree off the machine; one that does not answer clears it a day later.

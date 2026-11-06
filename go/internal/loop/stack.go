@@ -38,10 +38,7 @@ func checkTurn(turn, code string, said io.Writer) error {
 	for key, value := range env {
 		os.Setenv(key, value)
 	}
-	upstream := cmp.Or(saved.Str("target"), saved.Str("base"))
-	if !strings.HasPrefix(upstream, "origin/") {
-		upstream = "origin/" + upstream
-	}
+	upstream := lineUpstream(saved)
 	g := gitcall.Git{Repo: repo}
 	if fetched, out, err := g.Fetch("origin", "--prune"); err != nil || fetched != 0 {
 		return cmp.Or(err, fmt.Errorf("git fetch origin --prune failed in %s: %s", repo, out))
@@ -58,6 +55,15 @@ func checkTurn(turn, code string, said io.Writer) error {
 		return nil // the target's own red waits on its probes or its repair: Python's
 	}
 	return narrowLine(turn, code, repo, tip, upstream, members, said)
+}
+
+// lineUpstream is the remote branch a member of the line lands on, Python's land._upstream.
+func lineUpstream(record *run.Object) string {
+	upstream := cmp.Or(record.Str("target"), record.Str("base"))
+	if !strings.HasPrefix(upstream, "origin/") {
+		upstream = "origin/" + upstream
+	}
+	return upstream
 }
 
 // landingFixHandoff is what of a red Go's woken run does not carry, "" for none.
