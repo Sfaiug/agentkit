@@ -69,10 +69,14 @@ func table(t *ticking) []pass {
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, noSwitches, t.retire},
-		// seats' conversations are Python's to read into a history a seat or its sources stand in
-		{"seat tokens", false, func() bool {
-			return run.Historyless() || len(config.SeatFiles()) == 0 && !history.KeepsSeats()
-		}, nil},
+		// a home with no history.db is given none, where Python's row makes one: a done card is
+		// Go's to page only there, as Go writes no done's row yet (notify)
+		{"seat tokens", false, nil, func() error {
+			if !run.Historyless() && !history.SeatTokens() {
+				return errLeft
+			}
+			return nil
+		}},
 		{"history sync", false, nil, func() error {
 			if !history.Agree(t.log.line) {
 				return errLeft

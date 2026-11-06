@@ -100,6 +100,10 @@ type plugin struct {
 	tokens     func(out string) (float64, bool)
 	// turnCounts is TurnCounts': nil where a turn reports no counts by model and kind.
 	turnCounts func(out string) (any, []Counts, bool)
+	// tokenSources and tokenUsage are TokenSources' and Spends': nil where no reader counts what
+	// its seats spend.
+	tokenSources func(record *run.Object) []string
+	tokenUsage   func(entry, cursor *run.Object) (Spend, bool)
 	// failed is TurnFailed's: nil where a failed turn's stderr holds all it says of why.
 	failed func(out string, result map[string]any)
 	// registerMCP is RegisterMCP's: nil where its plugin writes no MCP entry.
