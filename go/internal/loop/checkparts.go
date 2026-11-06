@@ -103,7 +103,12 @@ func nameTests(env map[string]string, out string, only [][]string) error {
 	return os.WriteFile(env["AK_ONLY"], []byte(strings.Join(only[0], "\n")+"\n"), 0o666)
 }
 
+// testNames is the tests a report file names, one per line, read only where the check left a file
+// of its own: read outside the box, a link could reach a file the box masked, a credential.
 func testNames(path string) (names []string) {
+	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+		return nil
+	}
 	data, _ := os.ReadFile(path)
 	for _, line := range config.SplitLines(decoded(data)) {
 		if line = strings.TrimSpace(line); line != "" && !slices.Contains(names, line) {

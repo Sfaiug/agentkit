@@ -29,6 +29,25 @@ func TestSelectedTestsRequireRunAndFailureNames(t *testing.T) {
 	}
 }
 
+// A report file the check linked elsewhere names nothing: read outside the box, it could reach a
+// file the box masked.
+func TestReportLinksNameNoTests(t *testing.T) {
+	out := t.TempDir()
+	secret := filepath.Join(t.TempDir(), ".git-credentials")
+	if err := os.WriteFile(secret, []byte("https://acme:invented@example.invalid\n"), 0o666); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"AK_FAILED", "AK_FLAKY", "AK_RAN"} {
+		if err := os.Symlink(secret, filepath.Join(out, name)); err != nil {
+			t.Skip(err)
+		}
+	}
+	result := reportedTests(ran{code: 1}, out, nil, io.Discard)
+	if result.failed != nil || result.flaky != nil {
+		t.Fatalf("a linked report was read: %+v", result)
+	}
+}
+
 func TestPieceRetryConfirmsNamesOrReturnsToTheWholePiece(t *testing.T) {
 	for _, each := range []struct {
 		name  string

@@ -11,6 +11,7 @@ package loop
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -51,20 +52,12 @@ func (s *narrowingStack) flaked(selection *checkSelection, logPath string) error
 		return err
 	}
 	defer held.Close()
-	path := beside(turn, ".flakes")
-	kept, _ := run.ReadJSON(path)
-	kept, now := cmp.Or(kept, run.NewObject()), clock()
-	recent := func(key string) (found []*run.Object) {
-		for _, item := range kept.List(key) {
-			if entry, _ := item.(*run.Object); entry != nil {
-				if at, _ := entry.Num("at"); now-at < flakyWindow.Seconds() {
-					found = append(found, entry)
-				}
-			}
-		}
-		return found
+	path, now := beside(turn, ".flakes"), clock()
+	seen, repairs, kept, carried := readFlakes(path, now)
+	if !carried {
+		selection.handoff = true // the line is Python's before anything is written over
+		return nil
 	}
-	seen, repairs := recent("seen"), recent("repairs")
 	logs, tests := map[string][]any{}, []string(nil) // each test seen, its red's log first
 	sighted := func(test string, log ...any) {
 		if _, ok := logs[test]; !ok {
@@ -76,7 +69,7 @@ func (s *narrowingStack) flaked(selection *checkSelection, logPath string) error
 		sighted(test)
 	}
 	reds := []any{}
-	for _, red := range recent("red") {
+	for _, red := range kept {
 		ran, passed := selection.passed[red.Str("command")]
 		var rest []any
 		for _, test := range names(red.List("tests")) {
@@ -166,6 +159,42 @@ func (s *narrowingStack) flaked(selection *checkSelection, logPath string) error
 		return err
 	}
 	return os.Rename(path+".new", path)
+}
+
+// readFlakes is the sightings, repair holds and confirmed reds the line's `.flakes` at path keeps
+// within flakyWindow of now, those Python kept by test before files among them; not carried where
+// Python reads the file and Go cannot keep it.  One missing or holding no JSON keeps none, as to
+// Python.
+func readFlakes(path string, now float64) (seen, repairs, reds []*run.Object, carried bool) {
+	kept, err := run.ReadJSON(path)
+	if errors.Is(err, run.ErrLoneSurrogate) || errors.Is(err, run.ErrLimit) {
+		return nil, nil, nil, false
+	}
+	kept = cmp.Or(kept, run.NewObject())
+	sights, holds := slices.Clone(kept.List("seen")), slices.Clone(kept.List("repairs"))
+	byTest := cmp.Or(kept.Dict("tests"), run.NewObject())
+	for _, test := range byTest.Keys() {
+		entry := cmp.Or(byTest.Dict(test), run.NewObject())
+		for _, item := range entry.List("seen") {
+			if sight, _ := item.(*run.Object); sight != nil {
+				sights = append(sights, run.SetAll(run.Fields("test", test), pairs(sight)...))
+			}
+		}
+		if hold := entry.Dict("repair"); hold != nil {
+			holds = append(holds, run.SetAll(run.Fields("file", testFile(test)), pairs(hold)...))
+		}
+	}
+	recent := func(items []any) (found []*run.Object) {
+		for _, item := range items {
+			if entry, _ := item.(*run.Object); entry != nil {
+				if at, _ := entry.Num("at"); now-at < flakyWindow.Seconds() {
+					found = append(found, entry)
+				}
+			}
+		}
+		return found
+	}
+	return recent(sights), recent(holds), recent(kept.List("red")), true
 }
 
 // keepLog is a copy of the check's log beside it, as a later check of the tree writes over it: the

@@ -206,7 +206,7 @@ func (s *narrowingStack) check(checks []string, suite string, selection *checkSe
 	if err != nil || selection.handoff {
 		return nil, err
 	}
-	if err := s.flaked(selection, filepath.Join(s.dir, name)); err != nil {
+	if err := s.flaked(selection, filepath.Join(s.dir, name)); err != nil || selection.handoff {
 		return nil, err
 	}
 	if ok {
