@@ -19,7 +19,7 @@ ASK = """\
 # Does seat {name}'s work hold everything its owner asked of it?
 
 {workspace} holds the seat's record:
-- owner/1.md to owner/{count}.md: each message its owner wrote to it, oldest first.
+- owner/: each message its owner wrote to it, a file each, oldest first from 1.md.
 - plan.md: its plan, `- [x]` a line done and `- [ ]` one open.
 - runs/: each run it launched: its title, state, whether it merged, its PR and its task.
 
@@ -50,7 +50,7 @@ def checker(cfg, name):
 def gaps(cfg, name):
     """The findings of the checking turn that quote one of the owner's messages."""
     seat = notify.conversation_of(name)
-    if seat is None:
+    if seat is None or not seat[3]:
         raise config.Error(f"no seat named {name} whose conversation ak can read")
     said = [message["text"] for message in notify.owner_messages(name, seat)]
     if not said:
@@ -74,8 +74,10 @@ def gaps(cfg, name):
             (workspace / relative).parent.mkdir(parents=True, exist_ok=True)
             (workspace / relative).write_text(text)
         try:
-            worker.turn(cfg, model, ASK.format(name=name, workspace=workspace, count=len(said)),
-                        workspace, out, role="reviewer-scratch")
+            # an existing role, which Go's rules already hold: the reviewer's of a workspace,
+            # whose hand-in takes findings and refuses a quote its file does not hold
+            worker.turn(cfg, model, ASK.format(name=name, workspace=workspace), workspace, out,
+                        role="reviewer-scratch")
         except worker.LoginExpired as expired:
             raise config.Error(str(expired)) from None
         review = hand_in.read(out / hand_in.FILE)
