@@ -238,7 +238,8 @@ func Draw(view View, width, height int) Frame {
 		per := usageColumns(layout)
 		for at := range view.Cells {
 			n := at % per
-			frame.meters = append(frame.meters, meterSpot{len(out) + 1 + at/per, 3 + n*(cellSize+2), 2 + n*(cellSize+2) + cellSize, at})
+			first, last := terminal.Drawn(meters[at/per], 3+n*(cellSize+2), 2+n*(cellSize+2)+cellSize)
+			frame.meters = append(frame.meters, meterSpot{len(out) + 1 + at/per, first, last, at})
 		}
 		// the one the pointer is on in its colour, and what its cell has no room for under the grid
 		if pointed := frame.meterAt(view.Highlight.Pointer); pointed >= 0 {

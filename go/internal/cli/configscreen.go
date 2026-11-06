@@ -66,16 +66,21 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 		view.Top = frame.Top
 		painter.Write(frame.Lines, screen)
 		key := nextKey(c)
-		if key.Name == "wake" { // the seat's record changed: drawn again, what was said kept
+		switch {
+		case key.Name == "again": // a resize: drawn whole again, what was said and the pointer's place kept
+			painter.Forget()
+			continue
+		case key.Name == "wake": // the seat's record changed: drawn again, what was said kept
+			continue
+		case view.Away && (key.Name == "space" || key.Name == "enter"):
+			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
 			continue
 		}
-		view.Note = ""
+		view.Note, view.Away = "", false
 		level := -1
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return true
-		case key.Name == "again":
-			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
 			view.Row = max(0, view.Row-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
@@ -106,6 +111,8 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 						level = frame.Level(mouse, c.Effort(c.Names[row], column-3))
 					}
 				}
+			} else {
+				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "r":
 			if !menuModels(session, "config · recommended · "+view.Scope, c, keyboard, painter) {
