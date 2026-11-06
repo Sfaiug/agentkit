@@ -524,6 +524,11 @@ class SessionState(unittest.TestCase):
         config.save_session(self.cfg, "seat", "astra", ["opus"])
         self.now = 1000000.0
         self.stack.enter_context(patch.object(notify.time, "time", lambda: self.now))
+        # The screen's clock is strftime's own read of the wall clock, not time.time: two
+        # renders a minute apart would differ.
+        strftime = notify.time.strftime
+        self.stack.enter_context(patch.object(notify.time, "strftime", lambda form, *at: strftime(
+            form, *at or (notify.time.localtime(self.now),))))
         self.seat = {"name": "seat", "attached": False, "exited": False,
                      "created": self.now - 60, "path": str(root)}
         self.seats = [self.seat]
