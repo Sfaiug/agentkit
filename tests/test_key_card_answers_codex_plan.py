@@ -4,11 +4,12 @@ a gap may quote the pick or the note added to it, never the question.  Codex kee
 the call's output, not as a message of the owner's.
 
 The seat's rollout holds the card as a real Codex 0.167 rollout held it on 6 Nov 2026, answered
-with a pick and a note, and a second card whose call has no output; the pick's label begins as
-Codex begins a note, and stays whole.  The model's turn hands in its gaps only where its
-workspace holds the answered question, both choices with their descriptions and the pick with
-its note, and not the other card's question: one quoting the whole pick, one the note, one the
-question.  Black-box: the program `AK_BIN` names runs from outside through
+with a pick and a note, and a second card whose call has no output.  Each choice's label begins
+as Codex begins a note, and the note reads as the other choice: the pick keeps that beginning,
+the note loses it.  The model's turn hands in its gaps only where its workspace holds the
+answered question, both choices with their descriptions, and the pick and the note each on a
+line of its own, and not the other card's question: one quoting the whole pick, one the note,
+one the question.  Black-box: the program `AK_BIN` names runs from outside through
 tests/fixtures/akbin.py, on a seat of tests/fixtures/akseat.py whose launch receipt names the
 rollout, with a fake harness of fakeadapter.py for the model, as
 tests/test_key_card_answers_codex_muse.py has it for an async card.
@@ -26,8 +27,9 @@ from fixtures.akbin import AK, Home
 from fixtures.akseat import Seat
 
 QUESTION = "Which colour should the acme banner be?"
-CHOICES = {"Red": "Make the acme banner red.", "user_note: Blue": "Make the acme banner blue."}
-PICK, NOTE = "user_note: Blue", "and make the text bold"
+CHOICES = {"user_note: Red": "Make the acme banner red.",
+           "user_note: Blue": "Make the acme banner blue."}
+PICK, NOTE = "user_note: Blue", "Red"
 UNANSWERED = "Which size should the acme banner be?"
 TOKEN = "a" * 32    # the seat's launch receipt
 
@@ -61,12 +63,12 @@ class CardAnswersCodexPlan(unittest.TestCase):
                     "hook_event_name": "SessionStart", "source": "startup", "cwd": cwd}})
             akconfig.write(home, ["astra", "opus"], extra='[done_check]\nmodel = "opus"')
             # no gap at all unless the workspace holds the question, both choices with their
-            # descriptions, the pick on a line of its own and the note, and nothing of the card
+            # descriptions, the pick and the note each on a line of its own, and nothing of the card
             # whose call has no output
             sh = [f"grep -rqF -- {shlex.quote(given)} . || exit 1"
-                  for given in (QUESTION, *CHOICES, *CHOICES.values(), NOTE)]
-            sh += [f"grep -rqxF -- {shlex.quote(PICK)} . || exit 1",
-                   f"! grep -rqF -- {shlex.quote(UNANSWERED)} . || exit 1"]
+                  for given in (QUESTION, *CHOICES, *CHOICES.values())]
+            sh += [f"grep -rqxF -- {shlex.quote(given)} . || exit 1" for given in (PICK, NOTE)]
+            sh += [f"! grep -rqF -- {shlex.quote(UNANSWERED)} . || exit 1"]
             sh += [f"grep -rlF -- {shlex.quote(quote)} . | head -n 1 | while read -r file; do "
                    f"{shlex.quote(AK)} hand-in finding \"$file:1\" 'not in the work' "
                    f"'the owner asked for it' --quote {shlex.quote(quote)}; done"
