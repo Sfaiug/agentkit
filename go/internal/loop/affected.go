@@ -76,7 +76,11 @@ func (r *repoPlace) affectedSuite(l *loop) (bool, string, error) {
 	if _, err := c.Must("checkout", "--quiet", "--detach", merged); err != nil {
 		return false, "", err
 	}
-	listed, err := c.Must("diff", "--name-only", "-z", "--no-renames", tip, merged)
+	// unstripped: a first name can start with a space
+	code, listed, why, err := c.Run("diff", "--name-only", "-z", "--no-renames", tip, merged)
+	if err == nil && code != 0 {
+		err = fmt.Errorf("git diff failed in %s: %s", checkout, gitcall.Strip(why))
+	}
 	if err != nil {
 		return false, "", err
 	}
