@@ -11,8 +11,9 @@ import (
 
 // configPage is `config · <name>`, a page `c` opens (menu.config_page): `page` gives its rows,
 // asked again for every draw, false handing the page to Python; read with `c`'s keys until Esc,
-// true back where it opened.  ↑/↓, k/j, the wheel and the pointer move the highlight, which a
-// row gone from under it leaves on the row of its label, else the nearest; Space flips a mark,
+// true back where it opened.  ↑/↓, k/j, the wheel and the pointer move the highlight, the keys
+// and the wheel through each page of a row taller than the page first, and a row gone from under
+// it leaves it on the row of its label, else the nearest; Space flips a mark,
 // Enter opens what a row opens, and a click does what the row's Space does, else its Enter.
 // What a flip says stays under the rows until the next key.
 func configPage(name string, page func() ([]menu.PageRow, bool), keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
@@ -46,9 +47,9 @@ func configPage(name string, page func() ([]menu.PageRow, bool), keyboard *termi
 		case key.Name == "again":
 			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
-			view.At = max(0, view.At-1)
+			view.At, view.Top = frame.Step(-1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
-			view.At = min(len(rows)-1, view.At+1)
+			view.At, view.Top = frame.Step(1)
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
@@ -56,7 +57,7 @@ func configPage(name string, page func() ([]menu.PageRow, bool), keyboard *termi
 				if mouse.Button&1 != 0 {
 					step = 1
 				}
-				view.At = max(0, min(len(rows)-1, view.At+step))
+				view.At, view.Top = frame.Step(step)
 			} else if row, hit := frame.Hit(mouse); hit {
 				view.At = row
 				if mouse.Released && mouse.Button&3 == 0 {
