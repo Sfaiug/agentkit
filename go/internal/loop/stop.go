@@ -55,6 +55,7 @@ func StopRun(id string, keep bool, out io.Writer) error {
 	}, func() {
 		if !again {
 			recordResult(dir, state)
+			endProcesses(dir, state)
 		}
 	})
 	if err != nil {
@@ -67,15 +68,20 @@ func StopRun(id string, keep bool, out io.Writer) error {
 	return nil
 }
 
-// endStopped is what follows the record of a stop: the loop, all it started and its checkout.
-func endStopped(dir string, state *run.Object, keep bool) {
+// endProcesses is what follows the record of a stop under its lock, as Python's end holds it: the
+// loop and all it started, then the history row, which counts what the turn they were cut off in
+// spent once nothing writes it, a tick's history sync waiting on the lock till then.
+func endProcesses(dir string, state *run.Object) {
 	if pid, _ := state.Int("pid"); pid > 0 && pid != os.Getpid() && run.ProcessActive(state) {
 		host.EndTree(pid)
 	}
 	host.EndMarked(dir, io.Discard)
-	// once its workers are gone, the row counts what the turn they were cut off in spent
 	history.Finish(state, func(line string) { appendLog(dir, stamped(line)) })
 	redressStopped(state)
+}
+
+// endStopped is what follows a stop's lock, as Python's stop_checkout does: its checkout.
+func endStopped(dir string, state *run.Object, keep bool) {
 	// the checkout is still there, a live loop or a git that said no, so its branch stays with it
 	// and the record says kept, as `--keep` does
 	if !keep && !stopCheckout(dir, state, func(line string) { appendLog(dir, stamped(line)) }, false) {

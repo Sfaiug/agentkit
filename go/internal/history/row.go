@@ -190,8 +190,9 @@ func (db *DB) update(id any, pairs ...any) error {
 
 // Carried is whether history.db holds a step of the run, or of any run for "", which Python
 // records and Go does not yet: a run Python carried, whose going on is Python's, or a history of
-// runs Python kept, which a launch would join.  Where none stands it holds none; where SQLite cannot
-// say, it may.
+// runs Python kept, which a launch would join; or whether its tokens wait for Python's one-time
+// repair, which any write of a run's row makes first.  Where none stands it holds none; where
+// SQLite cannot say, it may.
 func Carried(id string) bool {
 	path := Path()
 	if _, err := os.Stat(path); err != nil {
@@ -203,7 +204,8 @@ func Carried(id string) bool {
 	}
 	defer db.Close()
 	steps, err := db.rows("SELECT 1 FROM phases WHERE ? IN ('', run_id) LIMIT 1", id)
-	return err != nil || len(steps) > 0
+	_, owed := db.recounted()
+	return err != nil || len(steps) > 0 || owed != nil
 }
 
 // unrecorded is whether the run has no row: a suite's, under its notify sink.  Go makes no
