@@ -117,7 +117,7 @@ func TestAnOlderDatabaseIsBroughtUpToTodaysTables(t *testing.T) {
 	}
 }
 
-// Where no history.db stands, Go makes none.
+// Where no history.db stands, opening it makes none: only a run's row does.
 func TestNoDatabaseIsMade(t *testing.T) {
 	home(t)
 	if db, err := Open(); db != nil || err != nil {

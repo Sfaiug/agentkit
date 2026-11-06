@@ -36,7 +36,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 	}
 	bound, unbound := config.Bind()
 	_, rules := pick.Load()
-	if unbound != nil || elsewhere() || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
+	if unbound != nil || elsewhere("") || len(bound.Workers) == 0 || !readable(slices.Collect(maps.Values(values))...) ||
 		values["--review"] != "" || !rules || !driverHere() || unreadRun() {
 		return 0, "", ErrPython
 	}
@@ -65,6 +65,7 @@ func Review(url string, values map[string]string, flags map[string]bool, out, er
 			taken = runOn(url)
 			return receipt(dir, "", values, flags, bound, "")
 		},
+		func() error { recorded(dir); return nil },
 	} {
 		if err := step(); err != nil {
 			return 0, "", err

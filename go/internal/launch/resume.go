@@ -23,7 +23,7 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), o
 	if expected != nil && !run.Equal(record, expected) {
 		return 2, loop.ErrChanged.Error(), nil
 	}
-	if !reached(record) {
+	if !reached(dir, record) {
 		return 0, "", ErrPython
 	}
 	read := record
@@ -77,8 +77,8 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), o
 }
 
 // reached is whether Go's resume reads that run at all: anything else is Python's before a refusal.
-func reached(record *run.Object) bool {
-	return record != nil && !elsewhere() && !(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
+func reached(dir string, record *run.Object) bool {
+	return record != nil && !elsewhere(filepath.Base(dir)) && !(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
 }
 
 // goesOn is whether Go's resume takes up a run it reached and did not refuse.

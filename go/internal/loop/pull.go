@@ -13,6 +13,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/task"
@@ -186,6 +187,7 @@ func (l *loop) reviewPull() error {
 	if record, err = run.Read(l.dir); record == nil {
 		return cmp.Or(err, errors.New("run.json cannot be read"))
 	}
+	history.Start(record, l.say)
 	place := pullFrom(record)
 	l.place, l.workspace, l.title, l.budget, l.rnd = place, wt, title, 1, 1
 	l.usersAt, l.reviewLines = place.upstream(), numbersOf(record)
