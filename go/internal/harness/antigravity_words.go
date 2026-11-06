@@ -1,9 +1,6 @@
 package harness
 
 import (
-	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 
@@ -14,10 +11,9 @@ import (
 var antigravityKept = regexp.MustCompile(`^antigravity-claim\.lock$`)
 var antigravityConversation = regexp.MustCompile(`^[\pL\pN_-]+$`)
 
-// antigravityRecord admits launcher screens without a conversation store to read for their
-// last answer (antigravity.py `owned`, `store`, `running`). Learned conversations stay Python's
-// even after their store is gone: the listing only follows ids in `conversation`. This decision
-// belongs to its reconciliation boundary, even if a store appears before the word is published.
+// antigravityRecord admits launcher conversations, their last answer read from their store
+// (antigravity.py `owned`, `store`, `running`). Learned conversations stay Python's even after
+// their store is gone: the listing only follows ids in `conversation`.
 func antigravityRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["antigravity"]
 	conversation := record.Str("conversation")
@@ -34,6 +30,5 @@ func antigravityRecord(_ string, record *run.Object) (plugin, bool) {
 	if !antigravityConversation.MatchString(conversation) {
 		return own, true
 	}
-	_, err := os.Stat(filepath.Join(config.UserHome(), ".gemini", "antigravity-cli", "conversations", conversation+".db"))
-	return own, errors.Is(err, fs.ErrNotExist)
+	return antigravityStored(own, conversation, filepath.Join(config.UserHome(), ".gemini", "antigravity-cli", "conversations", conversation+".db"))
 }

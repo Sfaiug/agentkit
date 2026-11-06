@@ -21,7 +21,7 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 	}
 	model := record.Str("orchestrator")
 	own := models[model].Harness
-	reader, known := harness.For(own).Reconciled(name, record)
+	reader, known := seatReader(name, record, models)
 	said, kept := reader.RecordedError(record)
 	if refused, _ := harness.Refusal(own, said); (!known || !kept || !refused) && !spentAlone(model, models[model]) {
 		return nil, false

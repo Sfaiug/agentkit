@@ -55,7 +55,7 @@ func TestAntigravityStoreIsReadAtTheListingBoundary(t *testing.T) {
 			record(t, home, "aaa", map[string]any{"id_source": nil})
 			files := stateFiles(t, home)
 			if _, known := Looking(time.Now()); known {
-				t.Fatal("the next listing took a store Python reads")
+				t.Fatal("the next listing took a store it cannot read")
 			}
 			if after := stateFiles(t, home); !maps.Equal(files, after) {
 				t.Fatal("handing over changed the home")

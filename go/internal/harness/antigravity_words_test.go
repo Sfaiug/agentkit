@@ -25,7 +25,7 @@ func TestAntigravityScreenLeavesConversationEvidenceToPython(t *testing.T) {
 	}{
 		{"no evidence", `{}`, true},
 		{"unowned legacy id", `{"conversation":"conv-acme"}`, true},
-		{"launcher store", `{"conversation":"conv-acme","id_source":"launcher"}`, false},
+		{"launcher store Go cannot read", `{"conversation":"conv-acme","id_source":"launcher"}`, false},
 		{"no launcher store", `{"conversation":"conv-other","id_source":"launcher"}`, true},
 		{"invalid store id", `{"conversation":"../conv-acme","id_source":"launcher"}`, true},
 		{"pending launch", `{"antigravity_launch":"token"}`, false},
