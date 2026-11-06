@@ -46,12 +46,21 @@ def died(home, seat):
         time.sleep(0.05)
 
 
-def bar(home, word):
+def bar(home):
     """The bar's two lines as a client attached to the seat draws them, at the foot of a
-    terminal wide enough for the longest reason, once line one names `word`."""
+    terminal wide enough for the longest reason.  Read once the client has drawn and its frame
+    has held still for a second, never once it shows the word: a bar left blank then fails at
+    once, rather than when a wait for its word runs out."""
     seen = Terminal(home, "-L", SOCKET, "attach", "-r", "-t", "=acme:", size=(160, 10),
                     program=REAL_TMUX)
-    return seen.wait(lambda screen: CHIPS[word] in screen.splitlines()[-2]).splitlines()[-2:]
+    shown, since, deadline = None, time.monotonic(), time.monotonic() + 30
+    while True:
+        screen = seen.screen()
+        if screen != shown:
+            shown, since = screen, time.monotonic()
+        elif shown.strip() and time.monotonic() - since >= 1 or time.monotonic() > deadline:
+            return shown.splitlines()[-2:]
+        time.sleep(0.05)
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
@@ -78,7 +87,8 @@ class Saved(unittest.TestCase):
                 file = home.path / ".agentkit/state/seat-acme.json"
                 saved = json.loads(file.read_text()) if file.exists() else {}
                 self.assertEqual((saved.get("word"), saved.get("reason")), (word, reason))
-                _, two = bar(home, word)
+                one, two = bar(home)
+                self.assertIn(CHIPS[word], one)
                 # line two carries the reason only under `needs you`; any other word's names
                 # the seat's crew
                 if word == "needs you":
