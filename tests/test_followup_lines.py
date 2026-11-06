@@ -200,9 +200,10 @@ class Planned(Sandbox):
         plan.add(SEAT, "Write the hero", "test -f hero.txt", self.repo,
                  proven=self.base)                         # ... and an owed line still holds it
         self.assertTrue(stop.owed(SEAT))
-        # its fix lands: the check passes on the default branch and the line ticks
+        # its fix lands: the check passes on the default branch and the line ticks as its fix
+        # run delivers, which a verification leaves it to while that run is on its way
         self.land("Fix the follow-up")
-        plan.verify(SEAT)
+        plan.delivery(SEAT, "test -f feature.txt")
         [ticked, _] = plan.lines(SEAT)
         self.assertRegex(ticked, r"^- \[x\] Fix api\.py:1 - mode is wrong · check: `test -f feature\.txt` · .+ · deferred · written .+ · done [0-9a-f]{12} Fix the follow-up$")
         self.assertFalse(plan.is_open(ticked))
