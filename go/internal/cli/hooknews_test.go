@@ -14,6 +14,8 @@ func TestOwnersWords(t *testing.T) {
 		`{"prompt": 7, "message": "words"}`:       "words",
 		`{}`:                                      "",
 		`{"prompt": "see /tmp and /usr"}`:         "see /tmp and /usr",
+		`{"prompt": " /Users/acme/a.pdf"}`:        " /Users/acme/a.pdf",
+		`{"prompt": "/"}`:                         "/",
 		`{"prompt": "go", "prompt_id": "task-1"}`: "go",
 	} {
 		read, _ := run.Decode([]byte(payload))
@@ -21,7 +23,7 @@ func TestOwnersWords(t *testing.T) {
 			t.Errorf("%s: %v, want %q", payload, got, want)
 		}
 	}
-	for _, payload := range []string{`{"prompt": "/compact"}`, `{"prompt": " \n/model opus"}`, `{"message": "/compact"}`,
+	for _, payload := range []string{`{"prompt": "/compact"}`, `{"prompt": " \n/model opus"}`, `{"message": "/compact"}`, `{"prompt": "/help /Users/acme/a.pdf"}`,
 		`{"prompt": "go", "message": "/compact"}`, `{"prompt": "<task-notification>done"}`, `{"prompt": "a <task-notification> within"}`,
 		`{"prompt": " <system-reminder>later"}`, `{"prompt": "go", "prompt_id": "task-completed-1"}`,
 		`{"prompt": "go", "promptId": "subagent-completed-1"}`} {

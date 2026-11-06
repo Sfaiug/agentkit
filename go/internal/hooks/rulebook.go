@@ -12,9 +12,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/fetch"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/harness"
 	"agentkit/internal/notify"
@@ -49,25 +51,26 @@ const (
 )
 
 // PromptNews is the context a seat's prompt carries (orch.prompt_news), "" for none: only for its
-// own conversation on a harness taking context, the questions an owner's prompt may answer, then
-// its rulebook's news.  `said` is the owner's words, nil for a prompt that is not theirs.  The
-// rulebook is decided last, as it is held from its hand-over on, so nothing may fail after it.
+// own conversation on a harness taking context, the questions an owner's prompt may answer and
+// the Mac files pasted into it, then its rulebook's news.  `said` is the owner's words, nil for a
+// prompt that is not theirs.  The rulebook is decided last, as it is held from its hand-over on,
+// so nothing may fail after it.
 func (books Rulebooks) PromptNews(launched, conversation string, said *string) string {
 	name, record, kind := owned(launched, conversation)
 	if record == nil || !harness.TakesContext(kind) {
 		return ""
 	}
-	questions := ""
+	besides := ""
 	if said != nil {
-		questions = notify.AnswerContext(name, *said)
+		besides = paragraphs(notify.AnswerContext(name, *said), fetch.Pasted(*said))
 	}
-	whole := func(news string) string {
-		if questions == "" || news == "" {
-			return questions + news
-		}
-		return questions + "\n\n" + news
-	}
+	whole := func(news string) string { return paragraphs(besides, news) }
 	return whole(books.rulebookNews(name, kind, record, conversation, whole))
+}
+
+// paragraphs is the parts that say anything, a blank line apart.
+func paragraphs(parts ...string) string {
+	return strings.Join(slices.DeleteFunc(parts, func(part string) bool { return part == "" }), "\n\n")
 }
 
 // RulebookCompacted is a compaction of the seat's own conversation (orch.rulebook_compacted): it
