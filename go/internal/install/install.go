@@ -1,8 +1,9 @@
 // Package install makes a home ready for Go's ak as install.sh does for Python's.  go/install.sh
 // runs it as `ak install`, unlisted, so each step has one home here, the same on every system.
-// So far it holds install.sh's options, its step (1), the seat guards, the role's record, the
-// tick's crontab line and the install stamp; what else writes outside the home (packages,
-// harnesses, a Mac's Linux machine) is still to come.
+// So far it holds install.sh's options, its step (1), the seat guards, the old rulebook links
+// undone, the yolo defaults, the role's record, the tick's crontab line, the install stamp and
+// the phone's key; what else writes outside the home (packages, harnesses, a Mac's Linux
+// machine) is still to come.
 package install
 
 import (
@@ -27,7 +28,7 @@ const serverName = "agentkit"
 
 // Main is install.sh run with args: what it says, and its exit code.
 func Main(args []string, out, errOut io.Writer) int {
-	role, alias, refused := options(args)
+	role, alias, key, refused := options(args)
 	if refused != "" {
 		fmt.Fprintln(errOut, "install.sh: "+refused)
 		return 2
@@ -50,16 +51,23 @@ func Main(args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "ak install: a Mac's server, a Linux machine of its own, is not set up in Go yet")
 		return 3
 	}
-	if err := install(role, alias, sandboxed, out, errOut); err != nil {
+	err := install(role, alias, sandboxed, out, errOut)
+	if err == nil {
+		err = phone(key, out, errOut)
+	}
+	if err != nil {
 		fmt.Fprintln(errOut, "install.sh:", err)
+		if errors.Is(err, errNotAKey) {
+			return 2
+		}
 		return 1
 	}
 	return 0
 }
 
-// options are install.sh's: the role asked for ("" when none), a client's alias, and why
-// they are refused.
-func options(args []string) (role, alias, refused string) {
+// options are install.sh's: the role asked for ("" when none), a client's alias, the phone's
+// key, and why they are refused.
+func options(args []string) (role, alias, key, refused string) {
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--server":
@@ -73,14 +81,15 @@ func options(args []string) (role, alias, refused string) {
 		case "--link-doctrine", "--vm": // accepted for old callers, as install.sh accepts them
 		case "--phone-key":
 			if i+1 == len(args) {
-				return "", "", "--phone-key needs a public key or a file"
+				return "", "", "", "--phone-key needs a public key or a file"
 			}
-			i++ // the key is the phone key's step, which Go has yet to take over
+			i++
+			key = args[i]
 		default:
-			return "", "", "unknown option " + args[i] + " (expected --server, --client [ALIAS], --phone-key KEY|FILE)"
+			return "", "", "", "unknown option " + args[i] + " (expected --server, --client [ALIAS], --phone-key KEY|FILE)"
 		}
 	}
-	return role, alias, ""
+	return role, alias, key, ""
 }
 
 func install(role, alias string, sandboxed bool, out, errOut io.Writer) error {
@@ -140,6 +149,14 @@ func install(role, alias string, sandboxed bool, out, errOut io.Writer) error {
 	}
 	if err := guards(); err != nil {
 		fmt.Fprintf(errOut, "note: the seat guards in %s were not linked (%v); the next seat started links them\n", filepath.Join(ak, "bin"), err)
+	}
+	if err := rulebook(out); err != nil {
+		return err
+	}
+	if role == "server" {
+		if err := yolo(out, errOut); err != nil {
+			return err
+		}
 	}
 	record := filepath.Join(ak, "state", "server")
 	if role == "client" {
