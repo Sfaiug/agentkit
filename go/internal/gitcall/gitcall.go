@@ -56,11 +56,14 @@ type Stopped struct{ Why string }
 func (s *Stopped) Error() string { return s.Why }
 
 // A Git runs git in Repo ("" the current directory).  Env changes its environment: `KEY=value`
-// sets, a bare `KEY` drops.  Cap is its limit, CapSeconds where none.
+// sets, a bare `KEY` drops.  Cap is its limit, CapSeconds where none.  Ctx, where set, stops it
+// as its limit does, and a git it stopped answers with its cause: work dropped mid-way waits on
+// no git of its own.
 type Git struct {
 	Repo string
 	Env  []string
 	Cap  time.Duration
+	Ctx  context.Context
 }
 
 // environment is Python's tool_env as Env changes it: no seat's name, and no prompt.
@@ -105,7 +108,11 @@ func (g Git) Bytes(args ...string) (int, []byte, []byte, error) {
 	if g.Repo != "" {
 		args = append([]string{"-C", g.Repo}, args...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), limit)
+	within := g.Ctx
+	if within == nil {
+		within = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(within, limit)
 	defer cancel()
 	command := exec.CommandContext(ctx, "git", args...)
 	command.Cancel = func() error { return command.Process.Signal(syscall.SIGTERM) }
@@ -116,6 +123,8 @@ func (g Git) Bytes(args ...string) (int, []byte, []byte, error) {
 	err = command.Run()
 	var exit *exec.ExitError
 	switch {
+	case within.Err() != nil:
+		return 0, nil, nil, context.Cause(within)
 	case ctx.Err() != nil:
 		return timedOut, stdout.Bytes(), stderr.Bytes(), nil
 	case errors.As(err, &exit):

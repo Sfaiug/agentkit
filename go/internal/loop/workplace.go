@@ -33,6 +33,8 @@ type workplace interface {
 	verify(l *loop, path string) (bool, string, error)
 	// beforeReview is the last word before the reviewer is told anything.
 	beforeReview(l *loop) error
+	// baseProof starts the base proof beside the review where ok and the record owes one, nil otherwise.
+	baseProof(l *loop, ok bool) (*besideReview, error)
 	// view is what a reviewer is shown, what opens its text, and how its checks' heading reads, of
 	// which passed of total commands exited 0: it says on j what a later round's review reads.
 	view(l *loop, j *judging, passed, total int) (section, checks, heading string, err error)
@@ -111,6 +113,9 @@ func (scratch) verify(l *loop, path string) (bool, string, error) {
 }
 
 func (scratch) beforeReview(*loop) error { return nil }
+
+// baseProof is none: a scratch run has no base to prove on.
+func (scratch) baseProof(*loop, bool) (*besideReview, error) { return nil, nil }
 
 func (scratch) view(l *loop, _ *judging, passed, total int) (string, string, string, error) {
 	return fmt.Sprintf("## Workspace (%s)\n```\n%s\n```", l.workspace, listing(l.workspace)), "",
