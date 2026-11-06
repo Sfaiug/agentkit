@@ -13,7 +13,8 @@ The share is cut, and its files start longest first, by each test's last measure
 the record AK_TIMES holds (agentkit/suite_times.py), or one never measured by its size at the
 measured files' seconds per byte; a part, `<file>::<part>` (suite_shares.parts_of), at its
 file's measured parts' mean, its file's parts in as few runs as keep each within PIECE.
-A failing file, or one reporting no executed cases, runs once more after the pool, alone:
+A failing file, or one reporting no executed cases, is named as it ends and runs once more after
+the pool, alone:
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
 lines. Unittest's tally reports the count; other scripts print TESTS_RUN=<count> after their
@@ -189,6 +190,11 @@ def asked_parts(only, name):
     return [] if "" in listed else sorted(listed)
 
 
+def failure(code, took):
+    """Why a run that took `took` seconds and exited `code` failed, as its lines say it."""
+    return f"{f'exit {code}' if code else 'no tests ran'} after {took:.0f}s"
+
+
 def pool_limit(readings):
     """A live memory bound, serial while CPU is contended.
 
@@ -332,6 +338,9 @@ def main(root, others=None):
                     print(pass_line(name, asked, took), flush=True)
                 else:
                     again.append((name, named or asked, out))
+                    # Said now: its re-run waits for the pool, which can outlast the silence limit.
+                    print(f"RETRY {' '.join(ids(name, named or asked))}: {failure(code, took)}, "
+                          "runs again alone once the others end", flush=True)
             if path is not None:
                 readings = host.host_readings(slice_dir=orch.slice_cgroup,
                                               pressure_window=POLL, all_limits=True)
@@ -365,8 +374,7 @@ def main(root, others=None):
             else:
                 failed.append(ids(name, still or named))
                 out = rerun
-                reason = f"exit {code}" if code else "no tests ran"
-                print(f"FAIL  {' '.join(failed[-1])}: {reason} after {took:.0f}s, its last lines:")
+                print(f"FAIL  {' '.join(failed[-1])}: {failure(code, took)}, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
     passed = f"{len(todo) - len(failed)} passed" + (f" ({len(flaky)} flaky)" if flaky else "")
     print(f"test files: {passed}, {len(failed)} failed, {jobs} at once, "
