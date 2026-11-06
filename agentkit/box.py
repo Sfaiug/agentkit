@@ -69,18 +69,43 @@ def _contents(root):
     return found
 
 
-def _git(args, env, cwd, **kwargs):
-    """Ask ak's own Git: the first in a directory ak's own PATH names in full.
+def _ours(program):
+    """ak's own copy of a program: the first in a directory ak's own PATH names in full.
 
-    Its answers decide what a box hides and what it opens for writing. The command's PATH, a
-    relative entry and the current directory may each name the project's own `git`."""
-    git = shutil.which("git", path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+    Its answers decide what a box hides, opens for writing and names. The command's PATH, a
+    relative entry and the current directory may each name the project's own."""
+    return shutil.which(program, path=os.pathsep.join(filter(os.path.isabs, os.get_exec_path())))
+
+
+def _git(args, env, cwd, **kwargs):
+    git = _ours("git")
     if git is None:
         from . import config
         raise config.Error("worker box needs git in a directory PATH names in full")
     return subprocess.run([git, *args], cwd=cwd,
                           env={**env, "GIT_TERMINAL_PROMPT": "0", "GH_PROMPT_DISABLED": "1"},
                           capture_output=True, text=True, timeout=10, **kwargs)
+
+
+def _go_cache(env):
+    """The build cache `go env GOCACHE` names outside the box, where one is there, or None."""
+    go = _ours("go")
+    if go is None:
+        return None
+    try:
+        # Go starts by writing its telemetry under HOME, making a missing one, so it answers in
+        # a read-only view of the host. Local: ak's own Go answers, never a toolchain it would
+        # fetch; from /, no go.mod is read.
+        named = subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", "--dev", "/dev",
+                                "--", go, "env", "GOCACHE"], cwd="/", capture_output=True,
+                               timeout=10, env={**env, "GOTOOLCHAIN": "local"}).stdout
+        # A path is bytes, any of them its own: only Go's line end is not.
+        named = Path(os.fsdecode(named.removesuffix(b"\n")))
+        # `off`, empty or relative: Go keeps no cache.
+        return named.resolve(strict=True) if named.is_absolute() else None
+    except (OSError, RuntimeError, subprocess.SubprocessError):
+        # No answer, or nothing where it points.
+        return None
 
 
 def _homes(env, cwd):
@@ -295,7 +320,9 @@ def _own(scratch, clean, cwd, writable, hidden):
 
 
 def _bind(own, writable, homes=()):
-    """Mount HOME overlays, private and writable places, parents first so deeper mounts win."""
+    """Mount HOME overlays, private and writable places, parents first so deeper mounts win;
+    and say whether HOME overlays alone show a path and all beneath it, so that what is written
+    through it goes when the box ends."""
     from . import config, retention
     readonly = {config.REPO} if config.REPO.is_dir() else set()
     try:
@@ -325,7 +352,14 @@ def _bind(own, writable, homes=()):
               or binds[parent] / path.relative_to(parent) != binds[path]):
             args.extend(["--ro-bind" if path in readonly - writable else "--bind",
                          str(binds[path]), str(path)])
-    return args
+
+    def overlaid(path):
+        # The deepest place mounted at or above path shows it, and a place mounted beneath shows
+        # its own: a writable one there keeps what is written through path.
+        shown = next((place for place in (path, *path.parents) if place in binds), None)
+        return shown in overlays and all(place in overlays for place in binds
+                                         if path in place.parents)
+    return args, overlaid
 
 
 @contextmanager
@@ -382,7 +416,7 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
         cmd.extend(["--tmpfs", str(path), "--remount-ro", str(path)] if path in folders else
                    ["--dev-bind", "/dev/null", str(path)])
     if out_dir is None:
-        cmd[at:at] = _bind({}, writable, homes)
+        cmd[at:at] = _bind({}, writable, homes)[0]
         yield [*cmd, "--", *argv], clean, {}
         return
     report = Path(out_dir).resolve() / PROCESSES
@@ -447,11 +481,20 @@ def command(argv, env, out_dir=None, *, cwd=None, state=(), places=(), logins=()
     with tempfile.TemporaryDirectory(prefix=".box-", dir=Path(out_dir).resolve()) as scratch:
         try:
             # Short aliases allow Unix sockets even when out has a long run id.
-            cmd[at:at] = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
+            mounts, overlaid = _bind(_own(scratch, clean, cwd, writable, targets), writable, homes)
+            cmd[at:at] = mounts
             clean["TMPDIR"] = "/var/tmp"
             if not home_overlay:
                 # Go caches builds under HOME, read-only here: a turn's build failed (5 Nov 2026).
                 clean["GOCACHE"] = "/var/tmp/go-build"
+            elif "GOCACHE" not in clean:
+                # A check's throwaway HOME shows the account's warm cache, but a command moving
+                # HOME, as tasks ask of every manual run, left it and compiled the standard
+                # library past its own timeout (6 Nov 2026). Naming it mounts nothing, so what the
+                # box hides stays hidden and what Go writes there goes with the overlay.
+                cache = _go_cache(clean)
+                if cache and overlaid(cache) and folders.isdisjoint((cache, *cache.parents)):
+                    clean["GOCACHE"] = str(cache)
             yield [*cmd, "--info-fd", str(write), "--", *argv], clean, {
                 "pass_fds": (write,), "stop": stop, "began": report.exists,
                 "declared": declared}
