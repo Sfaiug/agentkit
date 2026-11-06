@@ -3,17 +3,16 @@
 static checks (STATIC_CHECKS) run.
 
 AGENTS.md runs this beside smoke.sh, so a file no task happened to list cannot go red on main
-unseen.  It is no part of smoke.sh.  Each test runs once, a file whole or with other parts of
-its file, in a process of its own from the checkout's root with no stdin, and without the
-caller's AGENTKIT_*/AK_* variables: a file started from inside a run must not pass for part of
-it (AGENTKIT_RUN, AK_RUN_DEPTH, AK_PARENT_RUN ...).  As many run at once as live memory fits;
-waiting files can outnumber cores. Before each start it samples CPU pressure, running one file
-at a time while it is high, and rereads host and cgroup headroom.
-The share is cut by tests, and its runs start longest first, by each test's last measured
-seconds, the record AK_TIMES holds (agentkit/suite_times.py) by test ID: a file, one never
-measured by its size at the measured files' seconds per byte, or a part of one, `<file>::<part>`
-(the Go keys check's claims, suite_shares.parts_of), one never measured at its file's measured
-parts' mean.  A file's parts take as few runs as keep each within PIECE seconds.
+unseen.  It is no part of smoke.sh.  Each test runs once, its file in a process of its own from the
+checkout's root with no stdin, and without the caller's AGENTKIT_*/AK_* variables: a file
+started from inside a run must not pass for part of it (AGENTKIT_RUN, AK_RUN_DEPTH,
+AK_PARENT_RUN ...).  As many run at once as live memory fits; waiting files can outnumber
+cores. Before each start it samples CPU pressure, running one file at a time while it is high,
+and rereads host and cgroup headroom.
+The share is cut, and its files start longest first, by each test's last measured seconds,
+the record AK_TIMES holds (agentkit/suite_times.py), or one never measured by its size at the
+measured files' seconds per byte; a part, `<file>::<part>` (suite_shares.parts_of), at its
+file's measured parts' mean, its file's parts in as few runs as keep each within PIECE.
 A failing file, or one reporting no executed cases, runs once more after the pool, alone:
 landing.py passes a descriptor that reads end-of-file once its other parts have ended, and
 the re-run waits for that too; failing again it fails the whole and is named with its last
@@ -36,7 +35,6 @@ whole run too; AK_ONLY set, they are checked only where it lists them.
 """
 
 import ast
-import math
 import os
 import re
 import subprocess
@@ -258,10 +256,10 @@ def runs(root, cost):
         else:
             found.append((root / name, [], seconds))
     for name, parts in parted.items():
-        # Cut as shares are, so its runs come out even: one more until each fits.  A share
-        # of none is no run: a file given no part runs all of them.
-        for count in range(min(len(parts), math.ceil(sum(parts.values()) / PIECE)) or 1,
-                           len(parts) + 1):
+        # Cut as shares are, so its runs come out even, one more until each fits; a share of
+        # none is no run: a file given no part runs all of them.
+        least = min(len(parts), int(sum(parts.values()) // PIECE)) or 1
+        for count in range(least, len(parts) + 1):
             owners = shares(parts, count)
             cut = [[part for part in parts if owners[part] == run] for run in range(1, count + 1)]
             if all(sum(parts[part] for part in run) <= PIECE for run in cut):

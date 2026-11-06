@@ -43,13 +43,11 @@ def claims(root):
     return [line.split() for line in (Path(root) / "go/keys.txt").read_text().splitlines()]
 
 
-GO_KEYS = "tests/test_go_keys.py"
-
-
 def parts_of(root, name):
     """The parts the test file `name` is cut into, `<file>::<part>` each: the Go keys check's
     claims, by their key files' names as its arguments take them; any other file runs whole."""
-    return list(dict.fromkeys(claim[0] for claim in claims(root))) if name == GO_KEYS else []
+    return (list(dict.fromkeys(claim[0] for claim in claims(root)))
+            if name == "tests/test_go_keys.py" else [])
 
 
 def shares(costs, total):

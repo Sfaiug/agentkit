@@ -1,20 +1,20 @@
 """Every answer key Go's ak claims passes on Go, judged from a tree without Python ak.
 
-go/keys.txt lists the claims (suite_shares.claims), one key file per line in name order, so
-milestones landing side by side add theirs at lines apart, each followed, where Go passes only
-part of it, by the classes or tests it passes as unittest names them.  go/bin/ak is built in a
-copy of the checkout's files that leaves out agentkit/, and each claim runs there, so a key that
-imports agentkit, or hands Python code that does, fails.  Only what it lists runs: every key
-against Go would cost every landing the deadlines of each key whose verb Go lacks.
+go/keys.txt lists the claims, one key file per line in name order, so milestones landing side by
+side add theirs at lines apart, each followed, where Go passes only part of it, by the classes
+or tests it passes as unittest names them.  go/bin/ak is built in a copy of the
+checkout's files that leaves out agentkit/, and each claim runs there, so a key that imports
+agentkit, or hands Python code that does, fails.  Only what it lists runs: every key against Go
+would cost every landing the deadlines of each key whose verb Go lacks.
 
     python3 tests/test_go_keys.py [test_key_name ...]
 
 Key file names keep it to those files' claims, and one go/keys.txt does not list fails; without
-names every claim runs.  With AK_BIN set it judges that program, a relative name read from the
-checkout, instead of building.  The suite runs it a piece at a time, each piece the claims it
-names, cut by their measured seconds (every_file.py): each failing claim is named by its key
-file's name in the file FAILED_PARTS names, so every_file.py's re-run, and a narrowing step on
-that claim, run it alone, and each passing one's seconds in the file PART_TIMES names.
+names every claim runs, as the suite's pieces of it name theirs (every_file.py).  With
+AK_BIN set it judges that program, a relative name read from the checkout, instead of building.
+Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
+takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
+Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
 """
 
 import json
