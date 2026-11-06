@@ -230,6 +230,25 @@ CREATE TABLE IF NOT EXISTS done_runs (
     run_id TEXT
 )
 """
+# Each meter of every fresh reading a probe or a worker turn took (`usage._keep`), as read and
+# at the moment it was measured: state/usage.json keeps only the latest reading, and setting a
+# plan's meter against the tokens spent on it takes the readings over time.  `account` is
+# `default` for the usual login; `source` is `probe` or `turn`.  A reading kept already, the same
+# meter at the same moment, adds nothing.
+METER_READINGS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS meter_readings (
+    provider TEXT,
+    account TEXT,
+    meter TEXT,
+    used REAL,
+    resets_at REAL,
+    window_secs REAL,
+    at REAL,
+    source TEXT,
+    PRIMARY KEY (provider, account, meter, at)
+)
+"""
+READINGS_KEPT_FOR = 35 * 86400     # five weeks
 
 
 def path():
@@ -261,6 +280,7 @@ def _connect(*, readonly=False):
     connection.execute(OWNER_SCHEMA)
     connection.execute(DONES_SCHEMA)
     connection.execute(DONE_RUNS_SCHEMA)
+    connection.execute(METER_READINGS_SCHEMA)
     for table, migrations in (("runs", MIGRATIONS), ("phases", PHASE_MIGRATIONS),
                               ("reviews", REVIEW_MIGRATIONS), ("owner", OWNER_MIGRATIONS),
                               ("dones", DONE_MIGRATIONS)):
@@ -361,6 +381,20 @@ def _write(fn, log=None):
         except Exception:
             pass
         return None
+
+
+def keep_readings(rows):
+    """Add `meter_readings` rows, each its columns in order, and drop those past five weeks;
+    no row to add writes nothing."""
+    if not rows:
+        return
+
+    def keep(connection):
+        connection.executemany("INSERT OR IGNORE INTO meter_readings VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                               rows)
+        connection.execute("DELETE FROM meter_readings WHERE at < ?",
+                           (time.time() - READINGS_KEPT_FOR,))
+    _write(keep)
 
 
 def sandbox(repo):
