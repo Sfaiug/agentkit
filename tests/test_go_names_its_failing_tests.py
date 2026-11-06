@@ -5,7 +5,7 @@ path and none of its tests; a step by what it checks, the vet of the caller's ow
 them.  Given parts it runs just those after the toolchain check, a step on its platform, a named
 test with no event failing as not there; without, every part in its order.  The caller's GOFLAGS
 hold in every run it makes; a vet they ask as JSON fails by what it finds, never by the `{}` of a
-package it finds nothing in.
+package it finds nothing in, and a build by its exit code alone, whatever it prints.
 
 Offline: the real test_go.py runs with a fake `go` first on PATH, on the platform ACME_HOST
 names, noting each call and its GOFLAGS, whose `test -json` prints the events a test hands it,
@@ -21,8 +21,8 @@ import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 # A vet or build is noted by its platform, a build's output path being a temporary one; either
-# fails where ACME_BROKEN names its call, a test run where its events hold a failure; a vet
-# prints ACME_VETTED.
+# fails where ACME_BROKEN names its call, a test run where its events hold a failure; either
+# prints ACME_PRINTS.
 GO = '''#!/bin/sh
 case "$1" in
 vet|build) call="go $1 $GOOS/$GOARCH" ;;
@@ -30,11 +30,10 @@ vet|build) call="go $1 $GOOS/$GOARCH" ;;
 esac
 echo "$call" >>"$ACME_LOG"
 echo "$GOFLAGS" >>"$ACME_FLAGS"
-[ "$1" = vet ] && printf %s "$ACME_VETTED"
 case "$1" in
 env) printf '{"GOROOT": "%s", "GOOS": "%s", "GOARCH": "%s"}\n' "$ACME_ROOT" "${ACME_HOST%/*}" "${ACME_HOST#*/}" ;;
 test) cat "$ACME_EVENTS"; ! grep -q '"Action":"fail"' "$ACME_EVENTS" ;;
-*) case "$ACME_BROKEN" in *"$call"*) echo "$call broke" >&2; exit 1 ;; esac ;;
+*) printf %s "$ACME_PRINTS"; case "$ACME_BROKEN" in *"$call"*) echo "$call broke" >&2; exit 1 ;; esac ;;
 esac
 '''
 GOFMT = '''#!/bin/sh
@@ -45,9 +44,11 @@ printf %s "$ACME_UNFORMATTED"
 GOFLAGS = "-skip=TestWidget -count=2"
 ACME, WIDGET = "agentkit/internal/acme", "agentkit/internal/widget"
 TOOLCHAIN = "go env -json GOROOT GOOS GOARCH"
-# vet's -json exits 0 whatever it finds, printing an object a package: `{}` where it finds nothing.
+# Under GOFLAGS=-json vet exits 0 whatever it finds, printing an object a package, `{}` where it
+# finds nothing; a passing build prints what its flags ask, as -gcflags=-m does.
 CLEAN = "{}\n{}\n"
 FOUND = '{"agentkit/internal/acme": {"printf": [{"posn": "acme.go:5:27", "message": "wrong type"}]}}\n'
+BUILT = '{"ImportPath":"agentkit/cmd/ak","Action":"build-output","Output":"can inline main\\n"}\n'
 # t.Fatal in a subtest ends its run `fail`, then its test's, then its package's.
 FATAL = r'''{"Action":"start","Package":"agentkit/internal/acme"}
 {"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
@@ -151,12 +152,12 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertEqual((code, parts, calls), (1, ["vet linux/arm64"],
                                                 [TOOLCHAIN, "go vet linux/arm64"]), out)
 
-    def test_a_vet_as_json_fails_by_what_it_finds_not_by_a_package_it_finds_nothing_in(self):
-        code, out, parts, _ = self.checked("vet linux/arm64", ACME_VETTED=CLEAN)
-        self.assertEqual((code, parts), (0, []), out)
-        code, out, parts, _ = self.checked("vet linux/arm64", ACME_VETTED=CLEAN + FOUND)
-        self.assertEqual((code, parts), (1, ["vet linux/arm64"]), out)
-        self.assertIn("wrong type", out)
+    def test_a_json_vet_fails_by_what_it_finds_and_a_build_by_its_exit_code_alone(self):
+        for part, prints, expected in (("vet linux/arm64", CLEAN, (0, [])),
+                                       ("vet linux/arm64", CLEAN + FOUND, (1, ["vet linux/arm64"])),
+                                       ("build linux/arm64", BUILT, (0, []))):
+            code, out, parts, _ = self.checked(part, ACME_PRINTS=prints)
+            self.assertEqual((code, parts), expected, out)
 
     def test_the_callers_own_platform_go_ships_on_is_vetted_first_and_once(self):
         _, out, _, calls = self.checked(host="darwin/arm64")
