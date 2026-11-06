@@ -56,7 +56,7 @@ type reopening struct {
 	model                                 config.Model
 	opened, held                          bool
 	account, line                         string
-	still                                 func(string) bool
+	still                                 func(string) error
 	moving                                *seatMove
 }
 
@@ -382,8 +382,8 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 				return err
 			}
 			defer frozen.thaw()
-			if !seat.still(current) {
-				return errAccountChanged
+			if err := seat.still(current); err != nil {
+				return err
 			}
 		}
 		perform := func() error {
