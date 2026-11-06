@@ -155,6 +155,46 @@ def user_messages(record, cwd, conversation):
             yield kept
 
 
+# What a card's result records as the pick of a question the owner only wrote notes on (2.1.318).
+NOTES_ONLY = "(notes only)"
+
+
+def answers(record, cwd, conversation):
+    """Each question the owner answered on an AskUserQuestion card, from the result Claude Code
+    records beside the questions and options the seat wrote: the options picked, comma-separated,
+    or the words typed, then the notes added, then any free text written in place of a pick.  A
+    card that closed itself while the owner was away (`afkTimeoutMs`) holds nothing of theirs."""
+    from . import entries, moment
+    cards = set()
+    for entry in entries(transcript(record, cwd, conversation)):
+        said = []
+        try:    # a line of any other shape answers nothing
+            parts = [part for part in entry["message"]["content"] if isinstance(part, dict)]
+            cards.update(part["id"] for part in parts if part.get("type") == "tool_use"
+                         and part.get("name") == "AskUserQuestion")
+            result, at = entry.get("toolUseResult"), moment(entry.get("timestamp"))
+            card = any(part.get("type") == "tool_result" and part.get("tool_use_id") in cards
+                       for part in parts)
+            if not card or at is None or result.get("afkTimeoutMs"):
+                continue
+            picks, notes = result.get("answers", {}), result.get("annotations", {})
+            for asked in result["questions"]:
+                question = asked["question"]
+                pick = picks.get(question)
+                words = [text for text in (None if pick == NOTES_ONLY else pick,
+                                           notes.get(question, {}).get("notes"),
+                                           result.get("response"))
+                         if isinstance(text, str) and text.strip()]
+                if words:
+                    said.append({"at": at, "question": question, "answer": "\n".join(words),
+                                 "choices": [{"label": option["label"],
+                                              "description": option.get("description", "")}
+                                             for option in asked.get("options") or ()]})
+        except (AttributeError, KeyError, TypeError):
+            continue
+        yield from said
+
+
 def error(record, cwd, conversation):
     """The API error Claude Code recorded as that conversation's last message, "" where none
     ends it, or None where it has no transcript.
