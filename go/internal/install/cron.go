@@ -41,10 +41,16 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	line := fmt.Sprintf("*/3 * * * * PATH=%s %s watch >>%s 2>&1 %s", cronWord(path),
 		cronWord(config.Resolve(executable)), cronWord(filepath.Join(config.Home(), "tmp", "watch.log")),
 		cronTag)
-	// what a failing `crontab -l` printed counts too: an account with no table yet has none
 	listed, err := exec.Command("crontab", "-l").Output()
 	if errors.Is(err, exec.ErrNotFound) {
 		fmt.Fprintln(errOut, "note: no crontab here; run `ak watch` every three minutes some other way")
+		return nil
+	}
+	// every crontab exits 1 for an account with no table yet; any other failure is a table it
+	// could not read, and writing would replace the owner's jobs with ak's line alone
+	var exit *exec.ExitError
+	if err != nil && !(errors.As(err, &exit) && exit.ExitCode() == 1) {
+		fmt.Fprintln(errOut, "note: the crontab could not be read, so the ak watch cron is not installed; `crontab -l` says why")
 		return nil
 	}
 	current := strings.TrimRight(string(listed), "\n")
