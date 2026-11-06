@@ -1788,9 +1788,11 @@ def workers(cfg):
     return session["workers"] if session else list(cfg["defaults"]["workers"])
 
 
-def reviewers(cfg):
-    """An omitted reviewer selection uses that same record's workers, never another seat's."""
-    selection = active_session(cfg) or cfg["defaults"]
+def reviewers(cfg, seat=None):
+    """The reviewers `seat` marks, else the seat this runs in, else [defaults]'s.  An omitted
+    reviewer selection uses that same record's workers, never another seat's."""
+    selection = ((load_session(cfg, seat, required=False) if seat else active_session(cfg))
+                 or cfg["defaults"])
     return list(selection.get("reviewers", selection["workers"]))
 
 

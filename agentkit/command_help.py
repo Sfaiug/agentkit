@@ -115,7 +115,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                "Collect inactive temporary state and old merged checkouts; --dry-run only plans.",
                "ak run gc --dry-run"),
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
-       ak orch list [--why] | ak orch why NAME
+       ak orch list [--why] | ak orch why NAME | ak orch check SEAT
        ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
        ak orch project [SEAT] CHECKOUT | ak orch rules CODE""",
              "Start or attach to a named orchestrator session; a new one opens only from a terminal.\n"
@@ -133,6 +133,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                  "Explain one seat's state: the authority, the rule or hook event,\n"
                  "the evidence line and when that state began.",
                  "ak orch why parser-fix"),
+    "orch check": ("usage: ak orch check SEAT",
+                   "Ask one model whether a seat's work holds everything its owner asked of it.\n"
+                   "Exits 1 naming each gap in the owner's words, 0 with none, 2 if it could not check.",
+                   "ak orch check parser-fix"),
     "orch stop": ("usage: ak orch stop NAME",
                   "Stop a session and keep it, its number reopening it; stop it again to remove it.",
                   "ak orch stop parser-fix"),
