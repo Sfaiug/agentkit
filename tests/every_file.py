@@ -22,6 +22,9 @@ reads by the running interpreter's rules), and import only from the standard lib
 repository, including files smoke.sh already ran. A file failing again is also named in the
 file AK_FAILED names, and one passing it in AK_FLAKY's; with AK_ONLY set only the files its
 file lists run, whatever the share, smoke.sh's among them, each named in the file AK_RAN names.
+A file may name its failing parts, one per line, in the file AK_FAILED_PARTS names: it is then
+named `<file>::<part>`, one ID per part, and its re-run gives it just those parts as its
+arguments, as a run does for the `<file>::<part>` IDs AK_ONLY lists.
 The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
 whole run too; AK_ONLY set, they are checked only where it lists them.
 
@@ -133,7 +136,9 @@ def smoke_runs(smoke, offline):
     return names
 
 
-def run_file(root, path, env):
+def run_file(root, path, env, parts=(), failed=None):
+    """Run the file for `parts`, its arguments, all of it where there are none; `failed`, a
+    list, gets the parts it names as failing."""
     began = time.monotonic()
     # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
     # not reach another file's sandbox; their bytecode is the piece's own (`env`).
@@ -141,11 +146,32 @@ def run_file(root, path, env):
     # A process the file leaves behind may still write here as it goes: that fails no file.
     with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp",
                                      ignore_cleanup_errors=True) as sandbox:
-        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox)
-        proc = subprocess.run([sys.executable, str(path.relative_to(root))], cwd=root,
+        # Made only by a file naming a part: every other file's HOME starts as empty as before.
+        named = Path(sandbox, "failed-parts")
+        child_env = dict(env, HOME=sandbox, TMPDIR=sandbox, AK_FAILED_PARTS=str(named))
+        proc = subprocess.run([sys.executable, str(path.relative_to(root)), *parts], cwd=root,
                               env=child_env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        if failed is not None and named.is_file():
+            failed.extend(part for part in named.read_text().splitlines() if part)
     return proc.returncode, proc.stdout.decode(errors="replace"), time.monotonic() - began
+
+
+def ids(name, parts):
+    """The test IDs of the file `name` run for `parts`: `<file>::<part>` each, else its own."""
+    return [f"{name}::{part}" for part in parts] or [str(name)]
+
+
+def pass_line(name, parts, took):
+    # A part's seconds are not the file's: the shares are cut by whole files' times.
+    return f"PASS  {' '.join(ids(name, parts))}" if parts else suite_times.passed(name, took)
+
+
+def asked_parts(only, name):
+    """The parts of the file `name` that AK_ONLY's IDs, `only`, list as `<file>::<part>`;
+    none, so all of it runs, where they list the file whole."""
+    listed = {test.partition("::")[2] for test in only or () if test.partition("::")[0] == name}
+    return [] if "" in listed else sorted(listed)
 
 
 def pool_limit(readings):
@@ -214,8 +240,10 @@ def main(root, others=None):
     skip = set(STATIC_CHECKS) | (smoke_runs((tests / "smoke.sh").read_text(),
                                             os.environ.get("AGENTKIT_SMOKE_OFFLINE", "0") == "1")
                                  if only is None else set())
+    files = {test.partition("::")[0] for test in only or ()}
     todo = sorted(path for path in tests.glob("test_*.py") if path.stem not in skip
-                  and (only is None or str(path.relative_to(root)) in only))
+                  and (only is None or str(path.relative_to(root)) in files))
+    parts = {path: asked_parts(only, str(path.relative_to(root))) for path in todo}
     cost = costs(root, todo)
     if only is None:
         # Exclude everything smoke runs before dividing the rest, regardless of its piece.
@@ -244,19 +272,22 @@ def main(root, others=None):
             for done in list(running):
                 if not done.done():
                     continue
-                name = running.pop(done).relative_to(root)
+                file, named = running.pop(done)
+                name = file.relative_to(root)
                 code, out, took = done.result()
                 if code == 0 and cases_run(out) > 0:
-                    print(suite_times.passed(name, took), flush=True)
+                    print(pass_line(name, parts[file], took), flush=True)
                 else:
-                    again.append((name, out))
+                    again.append((name, named or parts[file], out))
             if path is not None:
                 readings = host.host_readings(slice_dir=orch.slice_cgroup,
                                               pressure_window=POLL, all_limits=True)
                 # One start per sample lets its startup show in the next CPU reading;
                 # submitting every file at once would bypass later pressure and memory changes.
                 if len(running) < pool_limit(readings):
-                    running[pool.submit(run_file, root, path, env)] = path
+                    named = []
+                    running[pool.submit(run_file, root, path, env, parts=parts[path],
+                                        failed=named)] = path, named
                     jobs = max(jobs, len(running))
                     path = next(pending, None)
             if running:
@@ -268,25 +299,28 @@ def main(root, others=None):
         # for it, so each failed file first runs once more with no other file beside it.
         if again and others is not None:
             os.read(others, 1)  # end-of-file: what landing.py ran beside the pool has ended
-        for name, out in again:
-            code, rerun, took = run_file(root, root / name, env)
+        # A file that named its failing parts runs just those again: one part's time, not all.
+        for name, named, out in again:
+            still = []
+            code, rerun, took = run_file(root, root / name, env, parts=named, failed=still)
             if code == 0 and cases_run(rerun) > 0:
-                flaky.append(str(name))
-                print(suite_times.passed(name, took))
-                print(f"flaky: {name} failed, then passed on its re-run")
+                flaky.append(ids(name, named))
+                print(pass_line(name, named, took))
+                print(f"flaky: {' '.join(flaky[-1])} failed, then passed on its re-run")
             else:
-                failed.append(name)
+                failed.append(ids(name, still or named))
                 out = rerun
                 reason = f"exit {code}" if code else "no tests ran"
-                print(f"FAIL  {name}: {reason} after {took:.0f}s, its last lines:")
+                print(f"FAIL  {' '.join(failed[-1])}: {reason} after {took:.0f}s, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
     passed = f"{len(todo) - len(failed)} passed" + (f" ({len(flaky)} flaky)" if flaky else "")
     print(f"test files: {passed}, {len(failed)} failed, {jobs} at once, "
           f"{time.monotonic() - began:.0f}s")
-    name_failed(failed)
-    name_failed(flaky, "AK_FLAKY")
+    name_failed(test for tests in failed for test in tests)
+    name_failed((test for tests in flaky for test in tests), "AK_FLAKY")
     if only is not None:
-        name_failed((str(path.relative_to(root)) for path in todo), "AK_RAN")
+        ran = {str(path.relative_to(root)) for path in todo}
+        name_failed((test for test in only if test.partition("::")[0] in ran), "AK_RAN")
     return 1 if failed else 0
 
 

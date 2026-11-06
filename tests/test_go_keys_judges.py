@@ -50,6 +50,7 @@ class Judges(unittest.TestCase):
         (self.root / "agentkit/__init__.py").touch()
         shutil.copy(TESTS / "test_go_keys.py", self.root / "tests")
         shutil.copy(TESTS / "test_go.py", self.root / "tests")
+        shutil.copy(TESTS / "suite_shares.py", self.root / "tests")
         for name, body in KEYS.items():
             (self.root / "tests" / f"{name}.py").write_text(body)
 
