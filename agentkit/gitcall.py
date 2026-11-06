@@ -1116,13 +1116,23 @@ def make_worktree(repo, run_id, slug, base):
                     taken.add(ref[len("refs/heads/"):])
     except (OSError, ValueError, subprocess.SubprocessError):
         pass
-    branch, suffix = f"ak/{slug}", 1
-    while branch in taken or git(repo, "rev-parse", "--verify", "--quiet",
-                                 f"refs/heads/{branch}", check=False):
-        suffix += 1
-        branch = f"ak/{slug}-{suffix}"
+    # One run names a branch at a time, the repository's `refs` locked from the look to the
+    # branch made: two runs of one title started together would both find a name free, and the
+    # second fail to make it.  Its checkout comes after, so a slow one holds no other run.
+    common = git(repo, "rev-parse", "--path-format=absolute", "--git-common-dir")
+    refs = os.open(Path(common, "refs"), os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fcntl.flock(refs, fcntl.LOCK_EX)
+        branch, suffix = f"ak/{slug}", 1
+        while branch in taken or git(repo, "rev-parse", "--verify", "--quiet",
+                                     f"refs/heads/{branch}", check=False):
+            suffix += 1
+            branch = f"ak/{slug}-{suffix}"
+        git(repo, "branch", branch, base)
+    finally:
+        os.close(refs)
     wt = config.WT / run_id
-    code, out = add_worktree(repo, wt, "-b", branch, base)
+    code, out = add_worktree(repo, wt, branch)
     if code:
         raise config.Error(f"git worktree add {wt} failed in {repo}: {out}")
     return wt, branch
