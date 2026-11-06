@@ -56,8 +56,11 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	if err != nil && !errors.Is(err, fs.ErrNotExist) || keptBack(file) {
 		return Seat{}, nil, false
 	}
+	if seat.reader, known = seatReader(name, record, models); !known {
+		return Seat{}, nil, false
+	}
 	if complaint == "" { // a record Python cannot read moves nothing
-		if seat.follow, known = follows(record, file, models, offered, harness.For(own)); !known {
+		if seat.follow, known = follows(record, file, models, offered, seat.reader); !known {
 			return Seat{}, nil, false
 		}
 	}

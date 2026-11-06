@@ -337,7 +337,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 	if readers == nil {
 		// This is Go's orch.records boundary: all evidence is frozen before Announce or
 		// Explain writes any record. Reads under announce locks reuse it, never reconcile again.
-		reader, known = harness.For(own).Reconciled(name, record)
+		reader, known = seatReader(name, record, models)
 	} else {
 		known = cached && reader.Name == own
 	}
