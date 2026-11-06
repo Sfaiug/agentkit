@@ -5149,22 +5149,24 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
     def low(account):
         return usage.model_low(cfg, model, {provider: readings.get(account, {})})
 
-    lines = content_lines(harness, pane_tail(pane))
-    line = recorded_error(harness, name)
-    if line is None:
-        line = output_line(lines)
-        # The pane and not the line: its colours say whose words they are.  What it ignores is
-        # health()'s to log, as before.
-        mark = stalled_on(harness, pane, name, lambda _: None) if line else None
-        if mark:
-            # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line above it.
-            line = error_said(harness, lines[:-1] + [line])
-        outcome = failed_on(harness, [line])[0] if mark else None
-        cue = line
-    else:
-        outcome = orch.harness_plugin(harness).failure(line)[0]
+    def failure(pane):
+        """The error the seat's last turn ended on, its kind, and what starts it again."""
+        lines = content_lines(harness, pane_tail(pane))
+        line = recorded_error(harness, name)
+        if line is None:
+            line = output_line(lines)
+            # The pane and not the line: its colours say whose words they are.  What it ignores
+            # is health()'s to log, as before.
+            mark = stalled_on(harness, pane, name, lambda _: None) if line else None
+            if mark:
+                # A bare trailer (`Goal stalled`) is told apart, and dated, by the error line
+                # above it.
+                line = error_said(harness, lines[:-1] + [line])
+            return line, failed_on(harness, [line])[0] if mark else None, line
         # What starts it again is still the screen's to say: no record holds a goal's trailer.
-        cue = error_said(harness, lines)
+        return line, orch.harness_plugin(harness).failure(line)[0], error_said(harness, lines)
+
+    line, outcome, cue = failure(pane)
     refusal = outcome in (SPENT, LIMITED)
     if (not refusal and not waiting and live.get("state") in ("at_prompt", "draft")
             and not _turn_in_flight(harness, live)[0]):
@@ -5253,14 +5255,26 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         # dim suggestion the owner accepts says the same words as their draft.
         return strip_sgr(text), screen_state(harness, text)
 
+    # A turn begun since the wait and not refused is the owner's, answered by its account:
+    # no limit cut it, so it is never continued, reopened under or typed into.
+    flight, began = _turn_in_flight(harness, live)
+    own_turn = (flight and not refusal and waiting is not None
+                and isinstance(began, (int, float)) and began > waiting["since"])
     with state_lock():
         # Slow meters must not undo a stop, rename, manual open or another launch.
         current_seat = orch.find(name)
         if (seat_closed_by_owner(name) or config.session_records().get(name) != record
                 or seat_read(name).get("opened_at") != live.get("opened_at")
-                or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)
-                or said(pane_text(current_seat)) != said(pane)):
+                or not current_seat or any(current_seat.get(key) for key in orch.CLOSED)):
             return True
+        if own_turn and target is not None:
+            # Ending a wait types nothing: a pane redrawn meanwhile, as a working harness's
+            # spinner is every second, never keeps it, but a refusal of that turn since does.
+            if target == current and failure(pane_text(current_seat))[1] not in (SPENT, LIMITED):
+                seat_write(name, usage_wait=None, usage_refusal=observed or None)
+            return True       # a move to another account waits for that turn's end
+        if said(pane_text(current_seat)) != said(pane):
+            return True       # nor typing
         if refusal and not waiting and not spent(current):
             # The host may have slept through the deadline. Never replace that old
             # refusal with a new shared-cache park; retry it once in the existing pane.
@@ -5288,18 +5302,9 @@ def seat_account(cfg, session, harness, provider, pane, dry_run, log):
         if refusal:
             observed = {"line": line, "at": now, "handled": True}
             seat_write(name, usage_refusal=observed)
-        # A turn begun since the wait and not refused is the owner's, answered by its account:
-        # no limit cut it, so it is never continued, reopened under or typed into.
-        flight, began = _turn_in_flight(harness, live)
-        own_turn = (flight and not refusal and waiting is not None
-                    and isinstance(began, (int, float)) and began > waiting["since"])
         continuing = bool((waiting or {}).get("continue") or refusal
                           or flight and not own_turn or limit_ended(harness, name))
         if target is not None:
-            if own_turn:
-                if target == current:
-                    seat_write(name, usage_wait=None, usage_refusal=observed or None)
-                return True       # a move to another account waits for that turn's end
             try:
                 if owned:
                     # the owner's text lifted and the harness respawned in one hold, as a switch does;
