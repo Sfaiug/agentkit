@@ -42,6 +42,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -7433,34 +7434,47 @@ def awaiting_live(state, now=None):
     return bool((state.get("health") or {}).get("command"))
 
 
-@contextmanager
 def live_lock():
-    """Whether this process holds the lock of the home's one live follower (`follow_live`)
-    while inside: False where another holds it."""
-    with (config.RUNS / ".live.lock").open("a") as lock:
-        try:
-            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-        else:
-            yield True
+    """The descriptor of the home's live follower lock, held: one process at a time decides
+    whether a follower runs, a merge to start one or a follower to end.  Only closing it lets
+    go, and the end of its process does."""
+    lock = os.open(config.RUNS / ".live.lock", os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(lock, fcntl.LOCK_EX)
+    return lock
+
+
+def live_follower(lock, pid=None):
+    """The pid of the follower `lock`'s file names while that process lives, None for none; it
+    names `pid` first where one is given (`record.process_owner`)."""
+    if pid is not None:
+        os.ftruncate(lock, 0)
+        os.pwrite(lock, json.dumps(run_record.process_owner(pid)).encode(), 0)
+    try:
+        named = json.loads(os.pread(lock, 4096, 0) or b"null")
+    except ValueError:
+        return None
+    return named["pid"] if isinstance(named, dict) and run_record.process_active(named) else None
 
 
 def start_live_probe(run_dir):
     """Hand this merge to the home's one live follower, which finds it on its record, and start
-    that follower where none holds its lock; a missed start leaves the tick as backstop."""
+    that follower where none runs; a missed start leaves the tick as backstop."""
     env = config.child_env()
     for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
                 config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
         env.pop(key, None)
     env["AK_RUN_DEPTH"] = "0"
     try:
-        with live_lock() as free:
-            if not free:
-                return
-        orch.start_in_slice([sys.executable, str(config.REPO / "bin/ak"), "watch", "--live"],
-                            f"agentkit-live-{time.time_ns()}", env, run_dir / "live.log",
-                            target_slice=orch.run_slice_name())
+        lock = live_lock()
+        try:
+            if live_follower(lock) is None:
+                # named before another merge looks: a follower still starting is the follower
+                live_follower(lock, orch.start_in_slice(
+                    [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live"],
+                    f"agentkit-live-{time.time_ns()}", env, run_dir / "live.log",
+                    target_slice=orch.run_slice_name()))
+        finally:
+            os.close(lock)
     except (OSError, config.Error):
         pass  # the tick still follows it
 
@@ -7468,52 +7482,73 @@ def start_live_probe(run_dir):
 def follow_live():
     """The home's one live follower, however many merges wait: one each held 6.4 GB of a
     15 GB host for 27 merges (6 Nov 2026).  It follows each run `live_followed` names, as the
-    tick would, probed `LIVE_INTERVAL` after its own last probe ends, and ends once none is left.
+    tick would, due `LIVE_INTERVAL` after its own last probe ends, and ends once none is left.
 
     Health and its notice run here; updating agentkit's live checkout remains the tick's go_live.
     """
+    lock = live_lock()
+    try:
+        if live_follower(lock) not in (None, os.getpid()):
+            return 0
+        live_follower(lock, os.getpid())
+    finally:
+        os.close(lock)
     seen, due = {}, {}  # by run: when first seen merged before its ending; its next probe
     while True:
-        with live_lock() as free:
-            if not free:
-                return 0
-            while (pause := follow_pass(seen, due)) is not None:
-                time.sleep(pause)
-        # The last look comes after letting go: a merge that found the lock held is seen in it,
-        # and one that finds it free starts a follower of its own.
+        while (pause := follow_pass(seen, due)) is not None:
+            time.sleep(pause)
+        lock = live_lock()
         records, now = run_record.runs(), time.time()
         if not any(live_followed(run_dir, st, records, seen, now) for run_dir, st in records):
+            # The lock stays held until this process is gone: a merge waiting on it starts
+            # the next follower only then, and one before it was in this look.
             return 0
+        os.close(lock)
 
 
 def follow_pass(seen, due):
-    """One pass of the live follower, on one read of every record (`records`), probing each of
-    its runs that is due: the seconds until the next is, None for no run left."""
-    records, began = run_record.runs(), time.time()
-    probes, left = {"clock": (began, began)}, []
+    """One pass of the live follower, on one read of every record (`records`): each followed
+    run that is due goes in a thread of its own (`follow_run`), so a pass lasts as long as its
+    slowest run, not all of theirs together.  The seconds until the next, None for no run left."""
+    records, now = run_record.runs(), time.time()
+    followed, turns = [], []
     for run_dir, st in records:
-        if not live_followed(run_dir, st, records, seen, began):
+        if not live_followed(run_dir, st, records, seen, now):
             continue
-        now = time.time()
-        if due.get(run_dir.name, 0) <= now:
-            st = run_record.read_state(run_dir)     # its own, which following changes
-            if not st or st.get("finished_at") is None:
-                # A merge precedes its ending; delivery must see that stable attempt.
-                due[run_dir.name] = now + 1
-            else:
-                try:
-                    if sha := after_merge_sha(st.get("pr"), st, print):
-                        health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
-                                                    now, False, print, probes, records)
-                        if health and health[0] == "passed" and handback.carries_live(st):
-                            handback.announce(st, run_dir, print, records=records)
-                except PASS_ERRORS as exc:     # one run's error ends no other run's following
-                    print(f"WARN run {run_dir.name}'s health could not be followed: {exc}")
-                due[run_dir.name] = time.time() + LIVE_INTERVAL
-                if not live_followed(run_dir, st, records, seen, time.time()):
-                    continue
-        left.append(due[run_dir.name])
+        followed.append(run_dir.name)
+        if due.get(run_dir.name, 0) > now:
+            continue
+        if st.get("finished_at") is None:
+            # A merge precedes its ending; delivery must see that stable attempt.
+            due[run_dir.name] = now + 1
+        else:
+            turns.append(threading.Thread(target=follow_run,
+                                          args=(run_dir, now, records, seen, due)))
+    for turn in turns:
+        turn.start()
+    for turn in turns:
+        turn.join()
+    left = [due[name] for name in followed if name in due]
     return max(0, min(left) - time.time()) if left else None
+
+
+def follow_run(run_dir, now, records, seen, due):
+    """A followed run's probe and line, judged at its pass's `now` as the tick judges its runs,
+    so another run's slow probe spends none of its window.  It is due again `LIVE_INTERVAL`
+    after this ends, and dropped from `due` once no longer followed."""
+    st = run_record.read_state(run_dir)     # its own, which following changes
+    try:
+        if st and (sha := after_merge_sha(st.get("pr"), st, print)):
+            health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"), now,
+                                        False, print, {"clock": (time.time(), now)}, records)
+            if health and health[0] == "passed" and handback.carries_live(st, records):
+                handback.announce(st, run_dir, print, records=records)
+    except PASS_ERRORS as exc:     # one run's error ends no other run's following
+        print(f"WARN run {run_dir.name}'s health could not be followed: {exc}")
+    finally:
+        due[run_dir.name] = time.time() + LIVE_INTERVAL
+        if not (st and live_followed(run_dir, st, records, seen, time.time())):
+            del due[run_dir.name]
 
 
 def live_followed(run_dir, st, records, seen, now):
@@ -7677,7 +7712,8 @@ def live_passed(run_dir, st, now, log, records=None):
                                       live_note=handback.ROUTINE_NOTE)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
-        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):
+        if (handback.carries_live(st, records)
+                or not st.get("live_typed") and handback.rides(st, records)):
             # its ending, still to be said, carries it, or it rides on the seat's next prompt
             # (`handback.riding`)
             return "passed", None, None

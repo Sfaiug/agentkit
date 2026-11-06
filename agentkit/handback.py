@@ -1102,13 +1102,14 @@ def live_owed(state, records=None):
                 and (ends_wait(state, records) or rides(state, records)))
 
 
-def carries_live(state):
+def carries_live(state, records=None):
     """Whether this run's hand-back carries its change gone live after it, in its one line
     (`hand_back`): its ending is still to be said, and no live notice waits in a composer but
     in that line, whose mark is then both lines' (`live_typed`).  A prompt the line starts
     passes over this run, whose lock the typing holds (`riding`), so a live notice typed alone
-    there would reach the seat before its merge."""
-    return (owes_ending(state) and live_owed(state)
+    there would reach the seat before its merge.  Read only, from `records` where the caller
+    has a census."""
+    return (owes_ending(state) and live_owed(state, records)
             and state.get("live_typed") == state.get("handback_typed"))
 
 
