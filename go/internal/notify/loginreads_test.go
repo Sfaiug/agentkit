@@ -26,8 +26,8 @@ func TestAFailedLoginEndKeepsItsAnswerAndWaitsBeforeAskingAgain(t *testing.T) {
 			last := run.Fields("email", "owner@acme.test", "plan", "pro", "ends", clock()+10*86400, "checked_at", 1)
 			write(path, run.Encode(run.Fields("test", run.Fields("default", last))))
 			write(filepath.Join(adapters, "claude.sh"), "#!/bin/sh\n"+script+"\n")
-			if quiet, err := QuietLogins(); !quiet || err != nil {
-				t.Fatal(quiet, err)
+			if _, err := RefreshLogins(clock()); err != nil {
+				t.Fatal(err)
 			}
 			stored, err := run.ReadJSON(path)
 			if err != nil {
@@ -44,8 +44,8 @@ func TestAFailedLoginEndKeepsItsAnswerAndWaitsBeforeAskingAgain(t *testing.T) {
 			}
 			// If the failure was not dated, this newly available expiry would be read.
 			write(filepath.Join(adapters, "claude.sh"), "#!/bin/sh\necho '{\"ends\":1}'\n")
-			if quiet, err := QuietLogins(); !quiet || err != nil {
-				t.Fatal("asked again inside the cadence", quiet, err)
+			if kept, err := RefreshLogins(clock()); err != nil || number(kept.Dict("test").Dict("default"), "ends") == 1 {
+				t.Fatal("asked again inside the cadence", err)
 			}
 		})
 	}

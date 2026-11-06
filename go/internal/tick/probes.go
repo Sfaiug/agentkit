@@ -4,7 +4,6 @@ import (
 	"errors"
 
 	"agentkit/internal/config"
-	"agentkit/internal/notify"
 	"agentkit/internal/seat"
 	"agentkit/internal/worker"
 )
@@ -28,12 +27,4 @@ func quietLogin(live seat.Live) bool {
 	}
 	answered, _, _ := worker.Login(adapter, env, "seat")
 	return !answered
-}
-
-func loginReminder() error {
-	quiet, err := notify.QuietLogins()
-	if !quiet && err == nil {
-		return errLeft
-	}
-	return err
 }
