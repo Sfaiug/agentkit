@@ -1,12 +1,16 @@
 package loop
 
-import "context"
+import (
+	"context"
+
+	"agentkit/internal/gitcall"
+)
 
 // A besideReview is a check run beside the review, Python's beside_review: started with the
 // review, so the review never waits on it, and joined before its result is recorded.  It runs on a
-// loop of its own whose stop is the check's alone, as a box ends every process it holds: a review
-// that ends otherwise drops it, stopping its processes and waiting for them, and adopts nothing,
-// so a resume starts it again.
+// loop of its own whose stop is the check's alone, which ends its boxes and its gits (l.git): a
+// review that ends otherwise drops it, stopping its processes and waiting for them, and adopts
+// nothing, so a resume starts it again.
 type besideReview struct {
 	stop    context.CancelFunc
 	done    chan struct{}
@@ -44,4 +48,10 @@ func (b *besideReview) drop() {
 		b.stop()
 		<-b.done
 	}
+}
+
+// git is git in repo with env changed, stopped with the loop: a check dropped beside the review
+// waits on none of its own.
+func (l *loop) git(repo string, env ...string) gitcall.Git {
+	return gitcall.Git{Repo: repo, Env: env, Ctx: l.ctx}
 }

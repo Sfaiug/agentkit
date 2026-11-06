@@ -162,7 +162,7 @@ func (r *repoPlace) filesScope() (string, error) {
 // changedTests is the branch's changed tests: test-shaped paths, and with named every file a
 // done-when command names, removed paths too, as renaming a test out of discovery must show.
 func (r *repoPlace) changedTests(l *loop, head string, named bool) ([]string, error) {
-	listed, err := r.git().Must("diff", "--name-only", "-z", "--no-renames", r.baseSHA+"..."+head)
+	listed, err := l.git(r.wt).Must("diff", "--name-only", "-z", "--no-renames", r.baseSHA+"..."+head)
 	if err != nil {
 		return nil, err
 	}
@@ -253,11 +253,11 @@ func (r *repoPlace) failsOnBase(l *loop) (string, error) {
 	if len(cmds) == 0 {
 		return "the task has no check of its own that runs each round", nil
 	}
-	head, err := r.git().Must("rev-parse", "HEAD")
+	head, err := l.git(r.wt).Must("rev-parse", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	listed, err := r.git().Must("diff", "--name-only", "-z", "--no-renames", r.baseSHA+"..."+head)
+	listed, err := l.git(r.wt).Must("diff", "--name-only", "-z", "--no-renames", r.baseSHA+"..."+head)
 	if err != nil {
 		return "", err
 	}
@@ -311,16 +311,16 @@ func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, n
 	}
 	defer os.RemoveAll(tmp)
 	checkout := filepath.Join(tmp, "checkout")
-	if _, err := r.git().Must("clone", "--quiet", "--shared", "--no-checkout", r.wt, checkout); err != nil {
+	if _, err := l.git(r.wt).Must("clone", "--quiet", "--shared", "--no-checkout", r.wt, checkout); err != nil {
 		return nil, err
 	}
-	c := gitcall.Git{Repo: checkout}
+	c := l.git(checkout)
 	if _, err := c.Must("checkout", "--quiet", "--detach", r.baseSHA); err != nil {
 		return nil, err
 	}
 	// what the branch deleted goes first, so a file it put where a folder was takes that place;
 	// the paths come from a file, as a branch can change more than one command line holds
-	listed, err := r.git().Must("diff", "--name-only", "-z", "--no-renames", "--diff-filter=D", r.baseSHA+"..."+head)
+	listed, err := l.git(r.wt).Must("diff", "--name-only", "-z", "--no-renames", "--diff-filter=D", r.baseSHA+"..."+head)
 	if err != nil {
 		return nil, err
 	}
@@ -333,7 +333,7 @@ func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, n
 			kept = append(kept, each)
 		}
 	}
-	literal := gitcall.Git{Repo: checkout, Env: []string{"GIT_LITERAL_PATHSPECS=1"}}
+	literal := l.git(checkout, "GIT_LITERAL_PATHSPECS=1")
 	for _, part := range []struct {
 		names   []string
 		command []string
@@ -360,7 +360,7 @@ func (r *repoPlace) replay(l *loop, cmds []string, head string, laid []string, n
 	for _, role := range []string{"AUTHOR", "COMMITTER"} {
 		who = append(who, "GIT_"+role+"_NAME=agentkit", "GIT_"+role+"_EMAIL=agentkit@localhost", "GIT_"+role+"_DATE="+when)
 	}
-	if _, err := (gitcall.Git{Repo: checkout, Env: who}).Must("-c", "core.hooksPath="+os.DevNull, "commit", "--quiet", "--no-gpg-sign", "--allow-empty", "-m", "files of "+head+" over "+r.baseSHA); err != nil {
+	if _, err := l.git(checkout, who...).Must("-c", "core.hooksPath="+os.DevNull, "commit", "--quiet", "--no-gpg-sign", "--allow-empty", "-m", "files of "+head+" over "+r.baseSHA); err != nil {
 		return nil, err
 	}
 	path := filepath.Join(l.dir, name)
