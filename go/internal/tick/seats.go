@@ -73,11 +73,14 @@ func stays(live seat.Live) bool {
 	return seat.AccountIdle(live)
 }
 
-// health is the seat health row (watch.health): each seat looked at and its word published, as the
-// later rows read it, while the look is all the row does there, or keeps the stall its screen
-// shows in its first minutes; the first it would do more at ends the tick there, before its
-// publish.  A stall held of a seat whose record is gone is Python's to forget.
+// health is the seat health row (watch.health): the worker tokens polled, then each seat looked at
+// and its word published, as the later rows read it, while the look is all the row does there, or
+// keeps the stall its screen shows in its first minutes; the first it would do more at ends the
+// tick there, before its publish.  A stall held of a seat whose record is gone is Python's to forget.
 func (t *ticking) health() error {
+	if err := t.pollTokens(); err != nil {
+		return err
+	}
 	names, known := seat.Seats(time.Now())
 	stalls := t.state.Dict("stalls")
 	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) {

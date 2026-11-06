@@ -67,7 +67,7 @@ func firstLapse() (int64, string, bool) {
 		logins, _ := config.Words(name, "worker", "logins")
 		if adapter, err := config.LoginAdapter(name); len(logins) > 0 && err == nil {
 			adapters[name] = adapter
-			worker.Login(adapter, append(slices.Clip(env), "AGENTKIT_PROVIDER="+strings.Join(providers(name), " ")), "seat")
+			worker.Login(adapter, append(slices.Clip(env), "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(name), " ")), "seat")
 		}
 	}
 	home, err := os.MkdirTemp(filepath.Join(config.Home(), "tmp"), "lend-")
@@ -99,17 +99,4 @@ func firstLapse() (int64, string, bool) {
 		}
 	}
 	return first, whose, whose != ""
-}
-
-// providers is each provider whose offered models the config runs on that harness, once, as
-// Python's config.harness_providers: what a question about the harness as a whole asks about.
-func providers(harness string) []string {
-	offered, _ := config.Offered()
-	var found []string
-	for _, name := range offered {
-		if model, err := config.ModelNamed(name); err == nil && model.Harness == harness && !slices.Contains(found, model.Provider) {
-			found = append(found, model.Provider)
-		}
-	}
-	return found
 }

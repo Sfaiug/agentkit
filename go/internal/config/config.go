@@ -481,6 +481,19 @@ func Offered() ([]string, error) {
 	return offered(root), nil
 }
 
+// HarnessProviders is each provider whose offered models the config runs on that harness, once, as
+// Python's config.harness_providers: what a question about the harness as a whole asks about.
+func HarnessProviders(harness string) []string {
+	offered, _ := Offered()
+	var found []string
+	for _, name := range offered {
+		if model, err := ModelNamed(name); err == nil && model.Harness == harness && !slices.Contains(found, model.Provider) {
+			found = append(found, model.Provider)
+		}
+	}
+	return found
+}
+
 func offered(root *table) []string {
 	var harnesses []string
 	under := map[string][]string{}

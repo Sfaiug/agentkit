@@ -348,7 +348,8 @@ func stopped(seat *run.Object) (bool, bool) {
 // quiet is whether watch.json holds nothing a seat's word reads but what Go reads: what
 // watch.forget leaves where the watch kept nothing else, every map but the alert generations, the
 // heads the tick reviewed, a merge's break and stalls nothing is typed past yet empty, beside the
-// boot the tick last saw, the record of how the last tick went and when the last tick ended whole.
+// boot the tick last saw, the record of how the last tick went, when the last tick ended whole
+// and worker tokens none of which is dead.
 func quiet(path string) bool {
 	data, err := run.ReadJSON(path)
 	if err != nil || data == nil {
@@ -356,7 +357,7 @@ func quiet(path string) bool {
 	}
 	data.Delete("boot_resume") // the seats the tick reopened after the boot it last saw
 	for _, key := range data.Keys() {
-		if key == "boot_id" || key == "tick" || key == "tick_completed_at" {
+		if key == "boot_id" || key == "tick" || key == "tick_completed_at" || key == "worker_tokens" && !newsOnEverySeat(filepath.Dir(path)) {
 			continue
 		}
 		held := data.Dict(key)

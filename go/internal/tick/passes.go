@@ -2,9 +2,6 @@ package tick
 
 import (
 	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
 
 	"agentkit/internal/browser"
 	"agentkit/internal/config"
@@ -44,10 +41,10 @@ func table(t *ticking) []pass {
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, all(configured, every(func(live seat.Live) bool { return !midturn(live, false) })), nil},
 		{"login resume", true, noLoginResume, nil},
-		// a declared worker token is asked of its harness, and a run's parked login is on its run
+		// a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
-		{"seat health", true, all(configured, tokenless, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
+		{"seat health", true, all(configured, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
 		{"switched turns", false, configured, accountTurns},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
@@ -57,7 +54,7 @@ func table(t *ticking) []pass {
 		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads
 		{"usage refresh", true, configured, t.wet(refreshUsage)},
 		{"login reminder", false, nil, t.remindLogins},
-		{"token reminder", false, nil, nil},
+		{"token reminder", false, nil, t.remindTokens},
 		{"exhausted resume", true, noExhaustedResume, nil},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
 		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
@@ -150,18 +147,3 @@ func all(reads ...func() bool) func() bool {
 
 // configured is whether the config loads; Python's passes that load it warn where it does not.
 func configured() bool { return config.Check() == nil }
-
-// tokenless is whether secrets holds no declared worker token, the one secret seat health reads
-// (watch.poll_worker_token).
-func tokenless() bool {
-	tokens, err := config.WorkerTokens()
-	if err != nil {
-		return false
-	}
-	for _, token := range tokens {
-		if _, err := os.Stat(filepath.Join(config.Home(), "secrets", token[1])); !errors.Is(err, fs.ErrNotExist) {
-			return false
-		}
-	}
-	return true
-}
