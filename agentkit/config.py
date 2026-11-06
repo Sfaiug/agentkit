@@ -1242,7 +1242,7 @@ SEAT_FILES = {
     "input": "jsonl",    # each line ak typed, with its source and conversation
     "rulebook": "md",    # the rulebook its orchestrator was started on
     "verify": "lock",    # held by one verification of its plan at a time (`plan.verifying`)
-    "unverified": "txt",  # there while a delivery is owed a verification of its plan begun after it (`plan.settle`)
+    "unverified": "txt",  # how many deliveries are owed a verification of its plan begun after them (`plan._owed`)
     # written by nothing since deliveries stopped waiting for verifications: named so a stop and the daily
     # collector still take those a host holds from before, as they take every other file of a gone seat
     "verified": "txt",

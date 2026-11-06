@@ -1118,9 +1118,9 @@ def settle_delivered_line(state, log):
     line ticks where its fix is on the default branch, and is the seat's own where its check
     still fails or could not run.  Any other run runs every open line's (`plan.verify_delivered`),
     so a line its merge proved ticks before the seat hears of it, and a plan it finished reads
-    done (`plan.finished`) with nobody declaring it.  Neither waits where another process
-    verifies: that one runs again for this delivery once it ends, the lines ticking then, and
-    this ending goes on to its follow-ups."""
+    done (`plan.finished`) with nobody declaring it -- unless another process verifies: that one
+    runs again for this delivery once it lets go, the lines ticking then, and this ending goes
+    on to its follow-ups."""
     check, session = (state.get("followup") or {}).get("check"), transitions.launched_session(state)
     if not (session and transitions.delivered(state)):
         return

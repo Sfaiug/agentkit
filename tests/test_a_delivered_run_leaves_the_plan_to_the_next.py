@@ -1,6 +1,6 @@
 """Runs delivered while a verification of their seat's plan checks never wait for it: they leave
-each line to one more verification begun after them, which the one checking runs once it ends,
-and which a verifier killed meanwhile leaves to the next delivery."""
+each line to one more verification begun after them, which the one checking runs once it lets go,
+and which a verifier killed meanwhile leaves to the next delivery, a fix run's too."""
 
 from contextlib import contextmanager
 from pathlib import Path
@@ -53,9 +53,11 @@ class ADeliveredRunLeavesThePlanToTheNext(Sandbox):
                 patch.object(plan, "place", lambda name, project: self.root), patch.object(plan, "fails", fails):
             with self.assertRaises(SystemExit):
                 plan.verify_delivered("fix-api")
-            self.assertTrue(plan.verify_delivered("fix-api"))      # the next delivery
+            # the next delivery is a fix run's, its own line ticked meanwhile: it checks nothing
+            # of its own, and lets go of the lock to what the killed one owed
+            plan.delivery("fix-api", "test -f fix.txt")
         # the four leave the line to one more check, not four; the killed one leaves it to the
-        # next delivery, and the last delivery's to one more after it, which checks the new check
+        # fix run, and the last delivery's to one more after it, which checks the new check
         self.assertEqual(checks, ["test -f feature.txt"] * 3 + ["test -s feature.txt"])
 
 

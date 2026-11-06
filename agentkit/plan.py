@@ -393,32 +393,31 @@ def taken(name, line, delivered=False):
 
 def delivery(name, check):
     """A fix run of the seat delivered `check`'s line -- merged, or found it not needed: that
-    line's check runs (`verify_delivered`), ticking it where its fix is on the default branch.
-    Where its check still fails, or could not run, no run has it and the seat owes it, which
-    the line then says too, its deferred mark dropped as `recheck` drops it: built by the seat,
-    the done lists it (`outcomes`), never taking it for that delivery's work (`taken`).
-    Where another process verifies, the line waits, deferred still, for the verification that
-    one then owes this delivery: ticked there, it is the run's work; a fix that failed leaves
-    it marked, though the seat owes it all the same (`owed`)."""
+    line's check runs, ticking it where its fix is on the default branch.  Where its check
+    still fails, or could not run, no run has it and the seat owes it, which the line then says
+    too, its deferred mark dropped as `recheck` drops it: built by the seat, the done lists it
+    (`outcomes`), never taking it for that delivery's work (`taken`).  Then what deliveries
+    left owed meanwhile (`settle`)."""
     try:
-        # that line's check alone: the seat's others are its own
-        if not verify_delivered(name, check):
-            return
+        # waits for whoever verifies: the line's deferred mark is settled here, from this
+        # check's result, which an owed verification of every line would have to carry
+        with verifying(name):
+            _verify_held(name, check)       # that line's check alone: the seat's others are its own
     except config.Error:
         pass        # unchecked: the line stays open
     mine = {line.strip() for line in lines(name) if deferred(line)
             and (LINE.match(line.strip())["check"] or "").strip() == check.strip()
             and owed(name, line)}
-    if not mine:
-        return
-    with held(name) as current:
-        text = lines(current)
-        for at, line in enumerate(text):
-            if line.strip() in mine:
-                found = LINE.match(line.strip())
-                lead = len(line) - len(line.lstrip())
-                text[at] = line[:lead + found.start("deferred")] + line[lead + found.end("deferred"):]
-        write(current, text)
+    if mine:
+        with held(name) as current:
+            text = lines(current)
+            for at, line in enumerate(text):
+                if line.strip() in mine:
+                    found = LINE.match(line.strip())
+                    lead = len(line) - len(line.lstrip())
+                    text[at] = line[:lead + found.start("deferred")] + line[lead + found.end("deferred"):]
+            write(current, text)
+    settle(name)
 
 
 def undone(line, found):
@@ -512,32 +511,32 @@ def verify(name):
     return left
 
 
-def verify_delivered(name, check=None):
-    """`verify` -- of the lines holding `check` alone, where one is given -- for a run that just
-    delivered, never waiting for another process's: where one verifies, this delivery is owed
-    a verification begun after it (`settle`), which that one runs once it ends, every open line
-    on main as it is by then.  Whether it verified here.  Delivered runs once waited for the
-    lock in their endings, their follow-ups not handed on and their memory held: 14 behind one
-    verification of 81 lines, the oldest for 81 minutes (6 Nov 2026)."""
+def verify_delivered(name):
+    """`verify` for a run that just delivered, a fix run aside (`delivery`), never waiting for
+    another process's: where one verifies, this delivery is counted owed a verification begun
+    after it (`settle`), which that one runs once it lets go, every open line on main as it is
+    by then.  Whether it verified here.  Delivered runs once waited for the lock in their
+    endings, their follow-ups not handed on and their memory held: 14 behind one verification
+    of 81 lines, the oldest for 81 minutes (6 Nov 2026)."""
     with verifying(name, wait=False) as mine:
         if mine:
-            _verify_held(name, check)
+            _verify_held(name)
         else:
             with held(name) as current:
-                config.seat_file("unverified", current).touch()
+                _owe(current, 1)
     settle(name)
     return mine
 
 
 def settle(name):
     """Verify every open line again while a delivery is owed a verification begun after it,
-    unless another process verifies: that one settles once it ends.  Asked again after each
-    release, so a delivery that found the lock held is never left owed with nobody verifying.
-    A verifier that dies leaves it to the next delivery or `ak plan`, either verifying every
-    line on main as it is by then."""
+    unless another process verifies: that one settles once it lets go.  Every process asks
+    once it lets go of the lock, and a delivery once it counted itself owed, so none is left
+    owed with nobody verifying.  A verifier that dies or errors leaves it to the next delivery
+    or `ak plan`, either verifying every line on main as it is by then."""
     while True:
         with held(name) as current:
-            if not config.seat_file("unverified", current).exists():
+            if not _owed(current):
                 return
         with verifying(name, wait=False) as mine:
             if not mine:
@@ -545,13 +544,35 @@ def settle(name):
             _verify_held(name)
 
 
+def _owed(current):
+    """How many deliveries are owed a verification of the seat's plan begun after them, under
+    its lock (`held`).  A count, not a mark: a verification takes off only those it read as it
+    began, so one counted while it checked stays owed."""
+    try:
+        return int(config.seat_file("unverified", current).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return 0
+
+
+def _owe(current, more):
+    """Count `more` deliveries owed -- fewer, for a verification that finished -- under the
+    plan's lock (`held`); the file goes with the last.  Written whole, so a process killed
+    meanwhile never leaves a count nothing reads."""
+    path, left = config.seat_file("unverified", current), _owed(current) + more
+    if left > 0:
+        fresh = path.with_name(path.name + ".new")
+        fresh.write_text(f"{left}\n", encoding="utf-8")
+        fresh.replace(path)
+    else:
+        path.unlink(missing_ok=True)
+
+
 def _verify_held(name, check=None):
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
-        if check is None:
-            # before it fetches: main then holds every delivery owed so far (`settle`)
-            config.seat_file("unverified", current).unlink(missing_ok=True)
+        # read as it begins, before it fetches: main then holds each delivery counted so far
+        counted = 0 if check else _owed(current)
     for line in snapshot:
         found = LINE.match(line.strip())
         if (found and found["check"] and is_open(line)
@@ -586,6 +607,8 @@ def _verify_held(name, check=None):
             write(current, text)
         # only lines ticked here: one replaced while its check ran was never ticked
         ticks = [passing[bare] for bare in map(identity, present) if bare in passing]
+        if counted:
+            _owe(current, -counted)     # finished: those it read as it began are checked
     for repo, found, commit in ticks:
         retire(repo, found, commit)
     return [line.strip() for line in text if is_open(line)]
