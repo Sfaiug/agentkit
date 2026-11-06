@@ -91,15 +91,47 @@ def seat_token_usage(entry, cursor):
 
 
 def turn_usage(out):
-    """The turn's last result's counts, as `Harness.turn_usage` gives them.
+    """The turn's own counts, as `Harness.turn_usage` gives them: those `_reported` gives, less,
+    where they total its session, the session's total before the turn began, never below 0.
+    That is the latest earlier such total in the run, plus what each of the session's turns
+    since spent alone."""
+    out = Path(out)
+    reported = _reported(out)
+    if reported is None:
+        return None
+    session, totals, counts = reported
+    try:
+        began = (out / "harness").stat().st_mtime
+    except OSError:
+        began = None
+    if not totals or session is None or began is None:
+        return counts
+    earlier = []
+    for receipt in out.parent.parent.glob("round-*/*/harness"):
+        try:
+            at = receipt.stat().st_mtime
+        except OSError:
+            continue
+        if at < began and (found := _reported(receipt.parent)) and found[0] == session:
+            earlier.append((at, found))
+    zero, before = (0,) * 4, {}
+    for _, (_, totalled, spent) in sorted(earlier, key=lambda pair: pair[0]):
+        before = spent if totalled else {model: tuple(map(sum, zip(
+            before.get(model, zero), spent.get(model, zero)))) for model in {**before, **spent}}
+    return {model: tuple(max(0, now - then) for now, then in zip(numbers, before.get(model, zero)))
+            for model, numbers in counts.items()}
 
-    `modelUsage` counts its subagents too, and totals every turn of its session; a result
-    without it counts this turn's own `usage`, under no model.  A turn with no result, killed
-    before Claude Code wrote one, counts its own messages from its stream and its session's
-    transcripts.
+
+def _reported(out):
+    """(the session the turn in `out` ran in, whether its counts total that session rather than
+    the turn alone, {model: counts}), or None where it reported none.
+
+    Its last result's `modelUsage` counts its subagents too, and totals every turn of its
+    session, a killed one's too; a result without it counts this turn's own `usage`, under no
+    model.  A turn with no result, killed before Claude Code wrote one, counts its own messages
+    from its stream and its session's transcripts.
     """
     from . import last_entry
-    out = Path(out)
     try:
         result = last_entry(out / "events.jsonl", lambda entry: entry.get("type") == "result"
                             or (entry.get("type"), entry.get("subtype")) == ("system", "init"))
@@ -117,18 +149,18 @@ def turn_usage(out):
 
     models = result.get("modelUsage")
     if isinstance(models, dict) and models:
-        return result.get("session_id"), {model: counts(usage, (
+        return result.get("session_id"), True, {model: counts(usage, (
             "inputTokens", "cacheCreationInputTokens", "cacheReadInputTokens", "outputTokens"))
             for model, usage in models.items()}
-    return None, {None: counts(result.get("usage"), (
+    return result.get("session_id"), False, {None: counts(result.get("usage"), (
         "input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "output_tokens"))}
 
 
 def _transcript_usage(out, init):
-    """(None, {model: counts}) of the turn's own messages, each at the most a line counts it:
-    those its stream names, and those the transcripts of the session `init` names hold from the
-    turn's `harness` receipt to its last event, the span history keeps the turn under; None
-    where none is found.
+    """(the session `init` names, False, {model: counts}) of the turn's own messages, each at
+    the most a line counts it: those its stream names, and those the session's transcripts hold
+    from the turn's `harness` receipt to its last event, the span history keeps the turn under;
+    None where none is found.
 
     The stream counts a message's input and cache but only its first chunk of output; the
     transcript keeps each message's final counts, and a resumed session's earlier turns too.  A
@@ -171,7 +203,7 @@ def _transcript_usage(out, init):
     totals = {}
     for _, model, counts in messages.values():
         totals[model] = tuple(map(sum, zip(totals.get(model, (0,) * 4), counts)))
-    return None, totals
+    return init.get("session_id"), False, totals
 
 
 # Lines no one said here: bookkeeping, a compaction's summary, a subagent's, view-only ones.
