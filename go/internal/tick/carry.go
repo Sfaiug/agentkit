@@ -16,6 +16,7 @@ import (
 	"agentkit/internal/gh"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 const authoredSearch = "search/issues?q=is:pr+is:open+author:@me&per_page=100"
@@ -80,6 +81,7 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (bool, error) {
 		return false, nil
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
+	seat.Stderr = t.log.errOut
 	if len(report) > 0 {
 		t.report = report[0]
 	}
