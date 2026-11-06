@@ -242,7 +242,8 @@ func startLine(turn string, said io.Writer) {
 		}
 		return
 	}
-	ready := slices.ContainsFunc(lineMembers(filepath.Base(turn)), func(m member) bool {
+	members := lineMembers(filepath.Base(turn))
+	ready := slices.ContainsFunc(members, func(m member) bool {
 		return m.record.Str("state") == "waiting" && !run.ProcessActive(m.record)
 	})
 	held.Close()
@@ -257,7 +258,7 @@ func startLine(turn string, said io.Writer) {
 			return slices.Contains([]string{host.Marker, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE", "AK_RUN_DEPTH",
 				"AGENTKIT_JOB_DIR", "AGENTKIT_SESSION", "AGENTKIT_UNATTENDED"}, key)
 		})
-		err = detach(beside(turn, ".log"), append(env, "AK_RUN_DEPTH=0"), "run", "--lander", filepath.Base(turn))
+		err = land(turn, members, append(env, "AK_RUN_DEPTH=0"))
 	}
 	if err != nil {
 		fmt.Fprintf(said, "WARN could not start lander for %s: %v\n", filepath.Base(turn), err)

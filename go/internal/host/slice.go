@@ -32,7 +32,7 @@ func setProperty(unit, property string) (int, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "systemctl", "--user", "set-property", "--runtime", unit, property)
-	command.Env = busEnv()
+	command.Env = busEnv(os.Environ())
 	err := command.Run()
 	var exited *exec.ExitError
 	switch {
@@ -44,16 +44,23 @@ func setProperty(unit, property string) (int, error) {
 	return 0, err
 }
 
-// busEnv is this environment with the user manager's bus in it, Python's orch.bus_env: a tick
-// from cron has no session, and a caller's own says where its manager is.
-func busEnv() []string {
-	env := os.Environ()
-	runtime, set := os.LookupEnv("XDG_RUNTIME_DIR")
+// busEnv is env with the user manager's bus in it, Python's orch.bus_env: a tick from cron has no
+// session, and a caller's own says where its manager is.
+func busEnv(env []string) []string {
+	lookup := func(key string) (found string, set bool) {
+		for _, pair := range env { // the last of a name, the one exec hands on
+			if name, value, _ := strings.Cut(pair, "="); name == key {
+				found, set = value, true
+			}
+		}
+		return found, set
+	}
+	runtime, set := lookup("XDG_RUNTIME_DIR")
 	if !set {
 		runtime = fmt.Sprintf("/run/user/%d", os.Getuid())
 		env = append(env, "XDG_RUNTIME_DIR="+runtime)
 	}
-	if _, set := os.LookupEnv("DBUS_SESSION_BUS_ADDRESS"); !set {
+	if _, set := lookup("DBUS_SESSION_BUS_ADDRESS"); !set {
 		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
 	}
 	return env
