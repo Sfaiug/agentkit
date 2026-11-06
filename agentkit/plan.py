@@ -503,51 +503,47 @@ def verify(name):
     ticked, naming that commit, each check from a clean checkout of it.  The results are
     written onto the plan as it reads after the checks, each onto its own line however another
     listing ticked it meanwhile, so a line added meanwhile stays and these results are the ones
-    the open lines are counted from.  Then what deliveries left owed meanwhile (`settle`).
-    Returns the plan's open lines its own verification left."""
+    the open lines are counted from.  Then, where it checked every line, what deliveries left
+    owed meanwhile (`settle`).  Returns the plan's open lines its own verification left."""
     with verifying(name):
-        left = _verify_held(name)
-    settle(name)
+        left, whole = _verify_held(name)
+    if whole:
+        settle(name)
     return left
 
 
 def verify_delivered(name):
     """`verify` for a run that just delivered, a fix run aside (`delivery`), never waiting for
-    another process's: where one verifies, this delivery is counted owed a verification begun
-    after it (`settle`), which that one runs once it lets go, every open line on main as it is
-    by then.  Whether it verified here.  Delivered runs once waited for the lock in their
+    another process's: the delivery counts itself owed a verification begun after it, which it
+    runs where none runs (`settle`), and which the one verifying runs once it lets go, every
+    open line on main as it is by then.  Delivered runs once waited for the lock in their
     endings, their follow-ups not handed on and their memory held: 14 behind one verification
     of 81 lines, the oldest for 81 minutes (6 Nov 2026)."""
-    with verifying(name, wait=False) as mine:
-        if mine:
-            _verify_held(name)
-        else:
-            with held(name) as current:
-                _owe(current, 1)
+    with held(name) as current:
+        _owe(current, 1)
     settle(name)
-    return mine
 
 
 def settle(name):
     """Verify every open line again while a delivery is owed a verification begun after it,
     unless another process verifies: that one settles once it lets go.  Every process asks
     once it lets go of the lock, and a delivery once it counted itself owed, so none is left
-    owed with nobody verifying.  A verifier that dies or errors leaves it to the next delivery
-    or `ak plan`, either verifying every line on main as it is by then."""
+    owed with nobody verifying.  A verifier that dies, errors or could not check a line leaves
+    it to the next delivery or `ak plan`, either verifying every line on main as it is by then:
+    trying again at once would only repeat what failed."""
     while True:
         with held(name) as current:
             if not _owed(current):
                 return
         with verifying(name, wait=False) as mine:
-            if not mine:
+            if not (mine and _verify_held(name)[1]):
                 return
-            _verify_held(name)
 
 
 def _owed(current):
     """How many deliveries are owed a verification of the seat's plan begun after them, under
-    its lock (`held`).  A count, not a mark: a verification takes off only those it read as it
-    began, so one counted while it checked stays owed."""
+    its lock (`held`).  A count, not a mark: a verification that checked every line takes off
+    only those it read as it began, so one counted while it checked stays owed."""
     try:
         return int(config.seat_file("unverified", current).read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -555,7 +551,7 @@ def _owed(current):
 
 
 def _owe(current, more):
-    """Count `more` deliveries owed -- fewer, for a verification that finished -- under the
+    """Count `more` deliveries owed -- fewer, for a verification that checked them -- under the
     plan's lock (`held`); the file goes with the last.  Written whole, so a process killed
     meanwhile never leaves a count nothing reads."""
     path, left = config.seat_file("unverified", current), _owed(current) + more
@@ -568,6 +564,8 @@ def _owe(current, more):
 
 
 def _verify_held(name, check=None):
+    """`verify` under the lock: (the plan's open lines it left, whether it checked each line it
+    took in to a verdict)."""
     checks = {}
     with held(name) as current:
         snapshot = lines(current)
@@ -579,10 +577,11 @@ def _verify_held(name, check=None):
                 and (check is None or found["check"].strip() == check.strip())):
             # lines alike are one check, run once: its result is every one of theirs
             checks.setdefault(found["project"], {})[identity(line)] = found
-    results, passing = {}, {}
+    results, passing, whole = {}, {}, True
     for project_, group in checks.items():
         repo = place(name, project_)
         if repo is None:
+            whole = False       # not on this host: what deliveries are owed is still owed
             continue
         written = project_.rpartition("#")[2] if "#" in project_ else None
         with default_branch(repo) as (commit, env, checkout):
@@ -593,7 +592,7 @@ def _verify_held(name, check=None):
                         passed = ((not written or holds(tree, written, "HEAD"))
                                   and not fails(tree, found["check"], env))
                 except config.Error:
-                    passed = False
+                    passed = whole = False      # no checkout, or unfinished: no verdict
                 results[bare] = ticked(f"- [ ] {bare}", commit if passed else None)
                 if passed:
                     passing[bare] = (repo, found, commit)
@@ -607,11 +606,11 @@ def _verify_held(name, check=None):
             write(current, text)
         # only lines ticked here: one replaced while its check ran was never ticked
         ticks = [passing[bare] for bare in map(identity, present) if bare in passing]
-        if counted:
-            _owe(current, -counted)     # finished: those it read as it began are checked
+        if counted and whole:
+            _owe(current, -counted)     # those it read as it began are checked
     for repo, found, commit in ticks:
         retire(repo, found, commit)
-    return [line.strip() for line in text if is_open(line)]
+    return [line.strip() for line in text if is_open(line)], whole
 
 
 def retire(repo, found, commit):
