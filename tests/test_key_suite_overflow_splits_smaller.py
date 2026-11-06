@@ -16,9 +16,11 @@ cgroup's memory as a kernel does: a piece needs 600 MiB, RAM stops at the cap, w
 it goes to swap up to the swap cap, and past both the cgroup runs out.
 """
 
+import ctypes
 import json
 import os
 import socket
+import struct
 import sys
 import threading
 from pathlib import Path
@@ -33,6 +35,8 @@ from fixtures.gitrig import Rig
 MB = 1024 ** 2
 BASE, NEED, UNCAPPED = 100, 600, 1 << 20    # MiB
 READINGS = {"cpus": 64, "free_mb": 4100, "mem_total_mb": 16384, "slice_cpu_pressure": 0}
+IN_CLOSE_NOWRITE, IN_Q_OVERFLOW = 0x10, 0x4000    # inotify(7)
+LIBC = ctypes.CDLL(None, use_errno=True)
 SUITE = """import os, socket, time
 def say(word):
     with socket.socket(socket.AF_UNIX) as kernel:
@@ -42,7 +46,6 @@ def say(word):
 say("start")
 while say("wait") == b"n":
     time.sleep(0.1)
-time.sleep(4)    # ak samples a cgroup's memory once a second a piece
 say("end")
 """
 # The Mac: on battery until a piece runs here, then room for two pieces, which it takes and
@@ -74,9 +77,9 @@ os.execv({ak!r}, [{ak!r}, *sys.argv[1:]])
 class Kernel:
     """One cgroup's memory as its pieces start and end; `passes` holds the pieces of each
     pass that ran on this host. A piece ends only once each piece of its pass started here or
-    went to the helper (`took`): on a busy host one box starts seconds after another, and a
-    pass's pieces hold their memory at once, none left waiting for a place here. Beside a
-    helper, on `battery` until a piece runs here."""
+    went to the helper (`took`) and ak then read the memory they hold: however late a box
+    starts or ak's sampler runs on a busy host, ak sees the pass's pieces at once, and none
+    waits for a place here. Beside a helper, on `battery` until a piece runs here."""
 
     def __init__(self, unit, cap, swap_cap, battery=None):
         self.unit, self.cap, self.swap_cap = unit, cap, swap_cap
@@ -87,6 +90,11 @@ class Kernel:
         self.listener.bind(self.address)
         self.listener.listen(64)
         self.held()
+        # A sample of ak's reads memory.current, then memory.swap.current: how many were done
+        self.reads = LIBC.inotify_init1(os.O_NONBLOCK | os.O_CLOEXEC)
+        assert LIBC.inotify_add_watch(self.reads, bytes(unit / "memory.swap.current"),
+                                      IN_CLOSE_NOWRITE) >= 0, os.strerror(ctypes.get_errno())
+        self.closed = self.owed = 0
         self.thread = threading.Thread(target=self.serve)
         self.thread.start()
 
@@ -94,6 +102,7 @@ class Kernel:
         self.listener.shutdown(socket.SHUT_RDWR)    # wakes its accept, as a close does not
         self.thread.join()
         self.listener.close()
+        os.close(self.reads)
 
     def serve(self):
         while True:
@@ -109,15 +118,35 @@ class Kernel:
                         self.placed = set()
                     self.passes[-1] += 1
                     self.running += 1
+                    self.held()
                     if self.battery:
                         self.battery.unlink(missing_ok=True)
                 elif word == "end":
                     self.running -= 1
+                    self.held()
+                self.count()
+                pieces = int(shard.split("/")[1])
                 if word in ("start", "took"):
                     self.placed.add(shard)
-                self.held()
-                piece.sendall(b"n" if word == "wait" and
-                              len(self.placed) < int(shard.split("/")[1]) else b".")
+                    if len(self.placed) == pieces:
+                        # ak's watch over each piece samples one at a time, so at most `pieces`
+                        # samples begun before now end after it: one more is a sample begun
+                        # since, which saw every piece held
+                        self.owed = self.closed + pieces + 1
+                piece.sendall(b"n" if word == "wait" and (
+                    len(self.placed) < pieces or self.closed < self.owed) else b".")
+
+    def count(self):
+        while True:
+            try:
+                events = os.read(self.reads, 4096)
+            except BlockingIOError:
+                return
+            # a file's events carry no name; one repeating an unread one merges into it, so
+            # `closed` never counts more samples than ak took
+            for _, mask, _, _ in struct.iter_unpack("iIII", events):
+                assert not mask & IN_Q_OVERFLOW
+                self.closed += 1
 
     def held(self):
         need = BASE + self.running * NEED
