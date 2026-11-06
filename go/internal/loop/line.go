@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"agentkit/internal/config"
@@ -242,7 +243,8 @@ func startLine(turn string, said io.Writer) {
 		}
 		return
 	}
-	ready := slices.ContainsFunc(lineMembers(filepath.Base(turn)), func(m member) bool {
+	members := lineMembers(filepath.Base(turn))
+	ready := slices.ContainsFunc(members, func(m member) bool {
 		return m.record.Str("state") == "waiting" && !run.ProcessActive(m.record)
 	})
 	held.Close()
@@ -257,14 +259,18 @@ func startLine(turn string, said io.Writer) {
 			return slices.Contains([]string{host.Marker, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE", "AK_RUN_DEPTH",
 				"AGENTKIT_JOB_DIR", "AGENTKIT_SESSION", "AGENTKIT_UNATTENDED"}, key)
 		})
-		err = detach(beside(turn, ".log"), append(env, "AK_RUN_DEPTH=0"), "run", "--lander", filepath.Base(turn))
+		err = land(turn, members, append(env, "AK_RUN_DEPTH=0"))
 	}
 	if err != nil {
 		fmt.Fprintf(said, "WARN could not start lander for %s: %v\n", filepath.Base(turn), err)
 	}
 }
 
-// detach starts this program with args in a session of its own, appending to log.
+// wakesUnderWay are the wakes this lander started that have not yet handed their runs on: a
+// service's manager stops all that is left in it when the lander ends (CheckLine).
+var wakesUnderWay sync.WaitGroup
+
+// detach starts this program with args in a session of its own, appending to log, as a wake.
 func detach(log string, env []string, args ...string) error {
 	self, err := os.Executable()
 	if err != nil {
@@ -280,7 +286,8 @@ func detach(log string, env []string, args ...string) error {
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	go cmd.Wait() // a zombie still answers as alive
+	wakesUnderWay.Add(1)
+	go func() { cmd.Wait(); wakesUnderWay.Done() }() // a zombie still answers as alive
 	return nil
 }
 
@@ -339,6 +346,9 @@ func resume(dir string, record *run.Object) error {
 // lander already holding it keeps, members are checked on the stack ahead and woken on their
 // verdict, a verdict saved for it is published again, and anything else waits for Python's.
 func CheckLine(name string, out io.Writer) int {
+	// last, the line let go: each wake's `ak run resume` ends once its run's driver is in a unit
+	// of its own, so nothing of theirs is left in the lander's when that ends
+	defer wakesUnderWay.Wait()
 	host.Lower()
 	turn := filepath.Join(run.Runs(), name)
 	code := ourCode() // read as the pass starts: an update installed during a check is not this pass's

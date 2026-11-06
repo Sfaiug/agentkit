@@ -29,6 +29,12 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
+	// a wake's `ak run resume`, which says where AK_TEST_WAKE_ENDED names that it ended, a moment on
+	if len(os.Args) == 4 && os.Args[1] == "run" && os.Args[2] == "resume" {
+		time.Sleep(200 * time.Millisecond)
+		os.WriteFile(os.Getenv("AK_TEST_WAKE_ENDED"), nil, 0o644)
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 

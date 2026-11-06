@@ -92,7 +92,7 @@ func Start(dir string, out io.Writer, detached bool) error {
 			return err
 		}
 		run.SetAll(record, "state", "running", "slot_waiting", false, "launch_pending", false, "pid", pid,
-			"process_identity", Identity(pid), "scope", "none", "scope_reason", "no user systemd manager")
+			"process_identity", Identity(pid))
 		if waiting {
 			run.SetAll(record, "state", "queued", "slot_waiting", true)
 		}
@@ -108,7 +108,6 @@ func Start(dir string, out io.Writer, detached bool) error {
 		failedStart(dir, reason)
 		return errors.New(reason)
 	}
-	appendLog(dir, stamped("scope: none (no user systemd manager)"))
 	fmt.Fprintf(out, "%s\n%s\n", filepath.Base(dir), filepath.Join(dir, "result.md"))
 	return nil
 }
@@ -121,18 +120,12 @@ func Identity(pid int) any {
 	return nil
 }
 
-// spawn starts the run's driver, writing to the run's log, and reaps it when it ends: a zombie
-// still answers as alive.
+// spawn starts the run's driver, writing to the run's log, in the run's own unit.
 func spawn(dir string, detached bool, record *run.Object) (int, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return 0, err
 	}
-	log, err := os.OpenFile(filepath.Join(dir, "log.txt"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
-	if err != nil {
-		return 0, err
-	}
-	defer log.Close()
 	cmd := exec.Command(self, "run", DriveFlag, dir)
 	if record.Truthy("followup") {
 		cmd.Env, err = siblingEnv(record)
@@ -140,15 +133,7 @@ func spawn(dir string, detached bool, record *run.Object) (int, error) {
 			return 0, err
 		}
 	}
-	cmd.Stdout, cmd.Stderr = log, log
-	if detached {
-		cmd.SysProcAttr = host.Detached()
-	}
-	if err := cmd.Start(); err != nil {
-		return 0, err
-	}
-	go cmd.Wait()
-	return cmd.Process.Pid, nil
+	return place(dir, cmd, detached, record)
 }
 
 // Follow shows out what the run's log holds past offset until its driver is gone, then answers

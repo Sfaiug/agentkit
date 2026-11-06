@@ -74,3 +74,17 @@ func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 		t.Fatalf("woke %v once the run ahead left, want fix-2", got)
 	}
 }
+
+// A lander outlives the wakes it starts, as a service's manager stops all that is left in it when
+// the lander ends.
+func TestALanderOutlivesTheWakesItStarts(t *testing.T) {
+	dir := t.TempDir()
+	ended := filepath.Join(dir, "ended")
+	if err := detach(filepath.Join(dir, "log.txt"), append(os.Environ(), "AK_TEST_WAKE_ENDED="+ended), "run", "resume", "fix-api"); err != nil {
+		t.Fatal(err)
+	}
+	wakesUnderWay.Wait()
+	if _, err := os.Stat(ended); err != nil {
+		t.Error("the lander would end before its wake did")
+	}
+}
