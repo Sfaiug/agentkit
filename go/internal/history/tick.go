@@ -35,11 +35,15 @@ func (db *DB) keepsSeats() (bool, error) {
 // to the end its run reached, as a row's own ending can be lost (a write that failed, a process
 // killed before it).  A run whose record has ended gives its row that ending, as Finish writes it
 // but for what git measures; one whose directory is gone ends as unknown; one still going, or
-// started again before the write, ends its row itself.  False, having written nothing, where an
-// ending is Python ak's to write: a record Go cannot read as Python does, a merge's landing breaks,
-// or tokens waiting for Python's one-time repair.
+// started again before the write, ends its row itself.  False, having written nothing, where the
+// sync is Python ak's: a history SQLite cannot read, or whose tokens wait for Python's one-time
+// repair, running rows or none; or an ending Python writes more of, a record Go cannot read as
+// Python does, or a merge's landing breaks.
 func Agree(log func(string)) bool {
-	ids, writable := running()
+	ids, read := running()
+	if !read {
+		return false
+	}
 	type due struct {
 		id             string
 		saved, endedAs *run.Object
@@ -60,30 +64,28 @@ func Agree(log func(string)) bool {
 			dues = append(dues, due{id, run.NewObject(), run.Fields("state", "unknown")})
 		}
 	}
-	if len(dues) > 0 && !writable {
-		return false
-	}
 	for _, each := range dues {
 		agree(each.id, each.saved, each.endedAs, log)
 	}
 	return true
 }
 
-// running is the ids of the rows still running, none where SQLite cannot answer, as Python's
-// history.running reads them, and whether Go can write their endings: not while the tokens wait
-// for Python's one-time repair, which its write makes first.
+// running is the ids of the rows still running, as Python's history.running reads them, and
+// whether Go read them as they stand: not where SQLite cannot answer (a journal to roll back,
+// tables to make), nor while the tokens wait for Python's one-time repair, which Python's
+// connect brings about first.
 func running() ([]string, bool) {
 	if _, err := os.Stat(Path()); err != nil {
 		return nil, true
 	}
 	db, err := connect(Path(), sqlite3.OPEN_READONLY)
 	if err != nil {
-		return nil, true
+		return nil, false
 	}
 	defer db.Close()
 	rows, err := db.rows("SELECT run_id FROM runs WHERE final_state='running'")
 	if err != nil {
-		return nil, true
+		return nil, false
 	}
 	var ids []string
 	for _, row := range rows {

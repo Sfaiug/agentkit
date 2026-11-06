@@ -44,6 +44,21 @@ func TestAgreeLeavesToPythonWhatItsEndingWritesMore(t *testing.T) {
 	}
 }
 
+// A history whose tokens wait for Python's one-time repair, or that SQLite cannot read as it
+// stands, is Python's to sync though no row of it runs: Python's connect brings it round first.
+func TestAgreeLeavesToPythonAHistoryToBringRound(t *testing.T) {
+	home(t)
+	older(t, "INSERT INTO runs (run_id, final_state) VALUES ('fix-api', 'pass')")
+	put(t, filepath.Join(filepath.Dir(Path()), "runs", "fix-api", "round-1", "executor", "events.jsonl"), "{}\n")
+	if Agree(nil) {
+		t.Fatal("carried tokens owed their repair")
+	}
+	put(t, Path(), "not a database")
+	if Agree(nil) {
+		t.Fatal("carried a history SQLite cannot read")
+	}
+}
+
 // Seats' tokens are read where history.db keeps their sources, and where SQLite cannot say.
 func TestKeepsSeatsReadsTheirSources(t *testing.T) {
 	home(t)
