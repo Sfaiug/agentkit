@@ -32,10 +32,10 @@ func museConfig(account string) string {
 	return filepath.Join(home, ".config")
 }
 
-// museAuth is muse.sh `auth`: a login is its auth.json holding anything, as Muse records a key
+// museAuth is muse.sh `auth` on that login: its auth.json holding anything, as Muse records a key
 // and no expiry; another provider needs none, and a META_API_KEY set is the usual login's own.
-func museAuth(_ config.Login, _ bool) Answer {
-	account := os.Getenv("AGENTKIT_ACCOUNT")
+func museAuth(login config.Login, _ bool) Answer {
+	account := login.Account
 	if provider := os.Getenv("AGENTKIT_MUSE_PROVIDER"); provider != "" && provider != "meta" {
 		return Answer{Yes: true, Line: "muse: the " + provider + " provider needs no login"}
 	}

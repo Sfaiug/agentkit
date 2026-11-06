@@ -133,7 +133,21 @@ func (seat Seat) look(state string, now float64) (sight, error) {
 	}
 	pane, exited := harnessScreen(seat.Name)
 	found, previous := observed(state, seat.Name, seat.reader, pane, now)
+	if err := seat.keepHolds(state, found); err != nil {
+		return found, err
+	}
 	return seat.keep(state, pane, exited, found, previous, now)
+}
+
+// keepHolds keeps the background work the capture shows running where it shows the list at all:
+// unread work is no evidence none runs, so the last read stands (watch.observed).  Kept before
+// anything acts on the look, as Python's look keeps it: a relaunch after clears it, and nothing
+// puts the ended process's work back.
+func (seat Seat) keepHolds(state string, found sight) error {
+	if !found.heldRead {
+		return nil
+	}
+	return writeSeat(state, seat.Name, []field{{"holds", modelList(found.holds)}})
 }
 
 // keep is what a capture found kept as watch.live_state keeps it.  A blank capture says nothing of
@@ -149,9 +163,6 @@ func (seat Seat) keep(state, pane string, exited bool, found sight, previous *ru
 	fields := []field{{"state", found.state}, {"since", found.since}, {"began", found.began}, {"authority", found.authority},
 		{"rule", found.rule}, {"evidence", found.evidence}, {"hooked", orNone(found.hooked)}, {"hooked_at", found.hookedAt}, {"hooked_event", orNone(found.hookedEvent)},
 		{"interrupted", found.interrupted}, {"stall", found.stall}, {"login", found.login}}
-	if found.heldRead {
-		fields = append(fields, field{"holds", modelList(found.holds)})
-	}
 	return found, writeSeat(state, seat.Name, append(fields, turnMarks(seen.rules, tail, found, previous, now)...))
 }
 

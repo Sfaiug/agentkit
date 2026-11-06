@@ -20,7 +20,10 @@ import (
 // A login that lapsed where only a turn of its harness renews it gets that turn first.
 func Auth(name string, args []string, out, errOut io.Writer) int {
 	seat := len(args) > 0 && args[0] == "seat"
-	login, _, err := config.Account(name)
+	login, kept, err := config.Account(name)
+	if !kept { // a harness keeping no [account] table still answers for the login the call names
+		login.Account = os.Getenv("AGENTKIT_ACCOUNT")
+	}
 	answer, ok := harness.Auth(name, login, seat)
 	if err != nil || !ok {
 		return refused(name, "auth", err, errOut)
