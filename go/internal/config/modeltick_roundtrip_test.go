@@ -21,7 +21,7 @@ func TestMultipleModelTicksKeepPreExistingReferencesThroughEveryRemoval(t *testi
 			}
 			original, _ := parseDocument(before)
 			for _, index := range order {
-				if err := ticks.Tick("acme", []string{"m1", "m2"}[index], []string{"Two", "Three"}[index], []string{"low", "high"}, noKeep); err != nil {
+				if err := ticks.Tick("acme", []string{"m1", "m2"}[index], []string{"Two", "Three"}[index], []string{"low", "high"}, nil, noKeep); err != nil {
 					t.Fatal(err)
 				}
 				data, _ := os.ReadFile(path)

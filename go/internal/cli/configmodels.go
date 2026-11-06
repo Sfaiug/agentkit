@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"agentkit/internal/config"
-	modelListing "agentkit/internal/listing"
 	"agentkit/internal/menu"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
@@ -22,7 +21,7 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 	if err != nil {
 		return false
 	}
-	catalogs := map[string][]modelListing.Choice{}
+	catalogs := map[string][]throughChoice{}
 	at, choice, top, opened, note := 0, 0, 0, false, ""
 	version := update.Build()
 	if version == "" {
@@ -45,8 +44,8 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 			rows = append(rows, menu.ModelRow{Name: name, Value: value, Colour: colour})
 			if opened && i == at {
 				cursor = len(rows) + choice
-				for _, model := range catalogs[harness] {
-					rows = append(rows, menu.ModelRow{Name: model.Label, Choice: true, Marked: len(ticks.Names(harness, model.ID)) > 0})
+				for _, each := range catalogs[harness] {
+					rows = append(rows, each.modelRow(harness, ticks))
 				}
 			}
 		}
@@ -80,6 +79,9 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 					choice = row - at - 1
 					if mouse.Released && mouse.Button&3 == 0 {
 						key.Name = "space"
+						if catalogs[harness][choice].model == nil {
+							key.Name = "enter" // a provider's click logs in to it
+						}
 					}
 				} else {
 					if opened && row > at {
@@ -101,20 +103,24 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 			}
 		}
 		if key.Name == "enter" {
-			if opened {
+			if opened && catalogs[harness][choice].model != nil {
 				opened = false
 				continue
 			}
-			providers, err := config.Section(harness, "providers")
-			if err != nil {
-				return false
-			}
-			if _, hosts := providers["label"].(string); hosts {
-				return false // provider login choices still need Python before any model is saved
+			if opened { // a provider to log in to: its models are listed once it is
+				provider := catalogs[harness][choice].provider
+				verb := adapterVerbs(keyboard, painter, harness, []string{"login"}, "", provider.ID, false)
+				painter.Forget()
+				if verb != "" {
+					note = notAdded(harness, verb, provider.Name)
+					continue
+				}
+				delete(catalogs, harness)
 			}
 			if _, read := catalogs[harness]; !read {
-				choices, err := waitConfigCatalog(harness, "config · models", nil, keyboard, painter)
+				choices, err := modelsList(harness, keyboard, painter)
 				if err == context.Canceled {
+					opened = false
 					continue
 				}
 				catalogs[harness] = choices
@@ -123,22 +129,27 @@ func menuConfigModels(keyboard *terminal.Keyboard, painter *terminal.Painter) bo
 				}
 			}
 			if len(catalogs[harness]) == 0 {
+				opened = false
 				if note == "" {
 					note = "its catalog lists no model"
 				}
 				continue
 			}
+			if opened { // asked again after a login: the highlight stays on a choice
+				choice = min(choice, len(catalogs[harness])-1)
+				continue
+			}
 			opened, choice = true, 0
-			for i, model := range catalogs[harness] {
-				if len(ticks.Names(harness, model.ID)) > 0 {
+			for i, chosen := range catalogs[harness] {
+				if chosen.modelRow(harness, ticks).Marked {
 					choice = i
 					break
 				}
 			}
 		}
-		if key.Name == "space" && opened {
-			model := catalogs[harness][choice]
-			if err := ticks.Tick(harness, model.ID, model.Label, model.Efforts, seat.KeepConfigEfforts); err != nil {
+		if key.Name == "space" && opened && catalogs[harness][choice].model != nil {
+			chosen := catalogs[harness][choice]
+			if err := ticks.Tick(harness, chosen.model.ID, chosen.model.Label, chosen.model.Efforts, chosen.under(), seat.KeepConfigEfforts); err != nil {
 				note = err.Error()
 			} else {
 				models, _ = config.Models()
