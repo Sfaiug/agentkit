@@ -20,12 +20,11 @@ var tickLogins = []string{"auth_out", "gh_out", "worker_tokens"}
 // (watch.logged_out); anything but a recorded no blocks nothing, and a seat nobody is in, or one no
 // record names a harness for, has no login to ask about.
 func loginOut(facts climbing) (*answer, error) {
-	saved, err := tickFound(facts.state)
-	if err != nil {
-		return nil, err
+	if facts.tick == nil {
+		return nil, ErrUnread
 	}
-	answers := saved.Dict("auth_out")
-	if answers == nil && saved.Truthy("auth_out") {
+	answers := facts.tick.Dict("auth_out")
+	if answers == nil && facts.tick.Truthy("auth_out") {
 		return nil, ErrUnread // Python's `.get` on it raises
 	}
 	if facts.gone != nil || facts.own == "" || answers == nil {
@@ -46,32 +45,22 @@ func loginOut(facts climbing) (*answer, error) {
 
 // everySeatsNews: [1b] gh logged out, the one login no harness owns, and [1c] a dead worker token,
 // each every seat's word on any harness, as any seat's next delivery or turn fails on it.  A token
-// only nearing its day is a line on the ak screen, never a word.
+// only nearing its day is a line on the ak screen, never a word.  A dead token's word begins again
+// where a replaced file is still dead (watch.token_episode_restarted).
 func everySeatsNews(facts climbing) (*answer, error) {
-	saved, err := tickFound(facts.state)
-	if err != nil {
-		return nil, err
+	if facts.tick == nil {
+		return nil, ErrUnread
 	}
-	if saved.Truthy("gh_out") {
-		gh := saved.Dict("gh_out")
+	if facts.tick.Truthy("gh_out") {
+		gh := facts.tick.Dict("gh_out")
 		if gh == nil {
 			return nil, ErrUnread // Python's `.get` on it raises
 		}
 		return &answer{word: "needs you", reason: "GitHub is logged out: run `gh auth login -p https -w`", since: gh.Get("at")}, nil
 	}
-	reason, at, err := deadToken(saved)
-	if reason == "" {
-		return nil, err
-	}
-	return &answer{word: "needs you", reason: reason, since: at}, nil
-}
-
-// deadToken is the first dead worker token's reason, by harness, and since when the tick found it
-// dead (watch.token_alert of watch.token_dead): none while every token lives.
-func deadToken(saved *run.Object) (string, any, error) {
-	tokens := saved.Dict("worker_tokens")
+	tokens := facts.tick.Dict("worker_tokens")
 	if tokens == nil {
-		return "", nil, nil
+		return nil, nil
 	}
 	keys := tokens.Keys()
 	slices.Sort(keys)
@@ -83,36 +72,22 @@ func deadToken(saved *run.Object) (string, any, error) {
 		harness, named := record.Get("harness").(string)
 		remedy, given := record.Get("remedy").(string)
 		if !named || !given {
-			return "", nil, ErrUnread // Python words whatever value they hold
+			return nil, ErrUnread // Python words whatever value they hold
 		}
-		return harness + " worker token expired: " + remedy, record.Get("at"), nil
+		return &answer{word: "needs you", reason: harness + " worker token expired: " + remedy, since: record.Get("at"), anew: true}, nil
 	}
-	return "", nil, nil
+	return nil, nil
 }
 
-// restarted is when a dead token's episode began again, for a word standing on its reason since
-// before then: a replaced file still dead is a new episode, never the old one continued
-// (watch.token_episode_restarted).
-func restarted(reason string, wordSince any) (any, bool) {
-	saved, err := tickFound(filepath.Join(config.Home(), "state"))
-	if err != nil {
-		return nil, false
-	}
-	dead, at, _ := deadToken(saved)
-	began, dated := run.Num(at)
-	since, sinced := run.Num(wordSince)
-	return at, dead != "" && dead == reason && dated && sinced && began > since
-}
-
-// tickFound is watch.json as the last tick left it, empty where none stands; ErrUnread where it holds
-// no object Go reads.
-func tickFound(state string) (*run.Object, error) {
+// tickFound is watch.json as the last tick left it, the one reading of it a climb reads: empty
+// where none stands, nil where it holds no object Go reads.
+func tickFound(state string) *run.Object {
 	saved, err := run.ReadJSON(filepath.Join(state, "watch.json"))
 	if errors.Is(err, fs.ErrNotExist) {
-		return run.NewObject(), nil
+		return run.NewObject()
 	}
-	if err != nil || saved == nil {
-		return nil, ErrUnread
+	if err != nil {
+		return nil
 	}
-	return saved, nil
+	return saved
 }

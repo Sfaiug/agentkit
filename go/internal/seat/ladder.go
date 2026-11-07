@@ -18,6 +18,7 @@ type climbing struct {
 	server           string // the tmux server its session is on
 	mine             []ran
 	file, notice     *run.Object
+	tick             *run.Object // watch.json, read once for the whole climb (tickFound)
 	found            sight
 	now              float64
 	gone             *Seat
@@ -26,13 +27,15 @@ type climbing struct {
 
 // An answer is a rung's: the seat's word, why and since when, whether that why is the question
 // the seat's screen or notice asks, which its bar does not repeat, when one out of usage comes
-// back (`resumes_at`), which its bar says, and whether only what the seat waits on gives it.
+// back (`resumes_at`), which its bar says, whether only what the seat waits on gives it, and
+// whether its since begins the word again where it stood since before then.
 type answer struct {
 	word, reason string
 	since        any
 	question     bool
 	back         any
 	waits        bool
+	anew         bool
 }
 
 // A rung decides the seat, nil where it passes the seat on, or says with ErrUnread that Go does not
@@ -72,7 +75,7 @@ func climbingOf(state string, seat Seat, found sight, now float64) climbing {
 		file = run.NewObject()
 	}
 	return climbing{state: state, name: seat.Name, own: seat.own, server: seat.server(), mine: seat.mine, file: file,
-		notice: notify.Last(seat.Name), found: found, now: now}
+		notice: notify.Last(seat.Name), tick: tickFound(state), found: found, now: now}
 }
 
 // readable follows the same ladder as the word: a going run already decides the seat
@@ -102,7 +105,7 @@ func (seat *Seat) decided(state string, found sight, now float64, attached bool)
 	if err != nil {
 		return err
 	}
-	seat.Word, seat.reason, seat.since, seat.question, seat.back = said.word, said.reason, said.since, said.question, said.back
+	seat.Word, seat.reason, seat.since, seat.question, seat.back, seat.anew = said.word, said.reason, said.since, said.question, said.back, said.anew
 	seat.seen = found
 	seat.unsent = ""
 	if found.state == "draft" && !attached && found.composerOpen(seat.own) && !found.typedByAk {
@@ -150,7 +153,7 @@ func onItsScreen(facts climbing) (*answer, error) {
 	if facts.found.state != "asking" {
 		return nil, nil
 	}
-	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil, false}, nil
+	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil, false, false}, nil
 }
 
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it
@@ -165,7 +168,7 @@ func ownQuestion(facts climbing) (*answer, error) {
 			return nil, err
 		}
 	}
-	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil, false}, nil
+	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil, false, false}, nil
 }
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is

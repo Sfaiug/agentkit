@@ -59,7 +59,7 @@ func (home Home) cardAnswer(name string, now time.Time) (word, reason string, si
 	if (at < 0 || seat.looked()) && seat.decided(state, keptSight(file), seconds(now), false) != nil {
 		return "", "", nil
 	}
-	return seat.Word, seat.reason, begun(file, seat.Word, seat.reason, seat.since, now)
+	return seat.Word, seat.reason, begun(file, seat.Word, seat.since, seat.anew, now)
 }
 
 // Unheld is whether nothing of that seat is left on the host but what it said (watch.seat_closed of
@@ -85,13 +85,15 @@ func keptSight(file *run.Object) sight {
 }
 
 // begun is since when a word stands (watch.session_state): from where the seat's file dates it, for
-// the word it holds, unless a dead token's new episode began it again; from now, for another; and
-// from the rung's own evidence where it held none.
-func begun(previous *run.Object, word, reason string, since any, now time.Time) any {
+// the word it holds, unless the rung's evidence begins it again later (answer.anew); from now, for
+// another; and from the rung's own evidence where it held none.
+func begun(previous *run.Object, word string, since any, anew bool, now time.Time) any {
 	switch {
 	case run.Equal(previous.Get("word"), word):
-		if at, again := restarted(reason, previous.Get("word_since")); again {
-			return at
+		began, dated := run.Num(since)
+		held, sinced := run.Num(previous.Get("word_since"))
+		if anew && dated && sinced && began > held {
+			return since
 		}
 		if previous.Has("word_since") {
 			return previous.Get("word_since")
