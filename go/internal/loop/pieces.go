@@ -209,7 +209,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			on.hold.Grow(ctx, func() bool { return waiting.waits() > 0 }, func() { place(nil) })
+			on.hold.Grow(ctx, func() bool { return waiting.waits() > 0 }, waiting.over, func() { place(nil) })
 		}()
 	}
 	started.Wait()
