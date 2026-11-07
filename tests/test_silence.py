@@ -43,21 +43,22 @@ class Clock:
         return self.now
 
 
-class Output:
-    """Advance ten minutes each time `path` is found grown: only output spends time, however
+class Output(Clock):
+    """Advance ten minutes on a tick that finds `path` grown: only output spends time, however
     slowly a busy host prints or polls. Silence is twenty: output the watchdog misses, landing
     between this look and its own, is a step behind, never two. Past `until`, `past` is made,
-    for a command printing until then."""
+    for a command printing until then: the command starts at 0, so it runs a step past it."""
 
     def __init__(self, path, until=float("inf")):
-        self.path, self.until, self.past = path, until, path.with_name("past")
-        self.now, self.size = 0, 0
+        super().__init__(600, self.grew)
+        self.path, self.until, self.past, self.size = path, until, path.with_name("past"), 0
+
+    def grew(self):
+        size, self.size = self.size, self.path.stat().st_size if self.path.exists() else 0
+        return size != self.size
 
     def __call__(self):
-        size = self.path.stat().st_size if self.path.exists() else 0
-        if size != self.size:
-            self.now, self.size = self.now + 600, size
-        if self.now > self.until:
+        if super().__call__() > self.until:
             self.past.touch()
         return self.now
 
