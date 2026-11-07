@@ -6,9 +6,12 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -47,10 +50,38 @@ func inChild(t *testing.T) bool {
 	return false
 }
 
+// A driver started where the task table is full already ends as one whose table fills does, its
+// log saying so and its run the tick's, where its runtime would die starting the threads it holds.
+func TestADriverStartedWithNoRoomLeavesTheRunToTheTick(t *testing.T) {
+	if os.Getenv("AK_NOROOM_CHILD") != "" {
+		leaveNoRoom(t)
+		t.Fatalf("the driver went on, to %d", drive(os.Getenv("AGENTKIT_RUN"), nil))
+	}
+	l := rig(t, time.Minute)
+	child := exec.Command(os.Args[0], "-test.run=^"+t.Name()+"$", "-test.v")
+	child.Env = append(os.Environ(), "AK_NOROOM_CHILD=1")
+	said, err := child.CombinedOutput()
+	if err == nil {
+		t.Skipf("the process limit leaves room to start a process here\n%s", said)
+	}
+	log, _ := os.ReadFile(filepath.Join(l.dir, "log.txt"))
+	if child.ProcessState.ExitCode() != 75 || !strings.Contains(string(log), noRoom) {
+		t.Fatalf("%v\n%s\n%s", err, said, log)
+	}
+}
+
 // fillTable leaves this process, its threads held as the driver's are, the room a full task table
-// leaves it: none to start a thread or process.
+// leaves it.
 func fillTable(t *testing.T) {
-	holdThreads()
+	if err := holdThreads(); err != nil {
+		t.Fatal(err)
+	}
+	leaveNoRoom(t)
+}
+
+// leaveNoRoom leaves this process the room a full task table leaves it: none to start a thread or
+// process.
+func leaveNoRoom(t *testing.T) {
 	var limit unix.Rlimit
 	if err := unix.Getrlimit(unix.RLIMIT_NPROC, &limit); err != nil {
 		t.Fatal(err)
