@@ -37,7 +37,7 @@ func sweepBehind(none bool, latest *atomic.Pointer[reading], wake func()) (<-cha
 		go func() {
 			again, lines, _ := swept()
 			if again != nil {
-				latest.Store(again)
+				show(latest, again)
 			}
 			said = lines
 			close(done)

@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"syscall"
@@ -80,8 +81,10 @@ func fillTable(t *testing.T) {
 }
 
 // leaveNoRoom leaves this process the room a full task table leaves it: none to start a thread or
-// process.
+// process.  One thread at a time runs it first, as holdThreads has the driver: a collection under
+// way on every core would start threads the table has no room for, a death before any driver ran.
 func leaveNoRoom(t *testing.T) {
+	runtime.GOMAXPROCS(1)
 	var limit unix.Rlimit
 	if err := unix.Getrlimit(unix.RLIMIT_NPROC, &limit); err != nil {
 		t.Fatal(err)
