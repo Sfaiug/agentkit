@@ -222,13 +222,18 @@ func titleOf(path, text string) string {
 
 // freeDir is the run's directory under that id, `-N` after it where the id is taken.
 func freeDir(id string) (string, error) {
-	dir := filepath.Join(run.Runs(), id)
-	taken, err := exists(dir)
+	return free(filepath.Join(run.Runs(), id))
+}
+
+// free is the path, `-N` after it where the path is taken.
+func free(path string) (string, error) {
+	named := path
+	taken, err := exists(path)
 	for n := 2; taken && err == nil; n++ {
-		dir = filepath.Join(run.Runs(), id+"-"+strconv.Itoa(n))
-		taken, err = exists(dir)
+		path = named + "-" + strconv.Itoa(n)
+		taken, err = exists(path)
 	}
-	return dir, err
+	return path, err
 }
 
 // logger says a line on out and in the run's log.  A reader that stops reading ends the reading,

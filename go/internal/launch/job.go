@@ -54,16 +54,16 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 		}
 		tasks = append(tasks, l)
 	}
-	for _, l := range tasks {
-		if flags["--anyway"] {
-			break
-		}
-		found, err := rivals(l.place.repo, l.path, l.named, l.cmds)
-		if err != nil {
-			return 0, "", err
-		}
-		if len(found) > 0 {
-			return 2, l.path + ": " + underWayRefusal(found, false), nil
+	// a change under way is asked of every task once each passed the rest (job_create)
+	if !flags["--anyway"] {
+		for _, l := range tasks {
+			found, err := rivals(l.place.repo, l.path, l.named, l.cmds)
+			if err != nil {
+				return 0, "", err
+			}
+			if len(found) > 0 {
+				return 2, l.path + ": " + underWayRefusal(found, false), nil
+			}
 		}
 	}
 	var asked any // the receipt keeps --parallel as given, None for none
@@ -128,16 +128,8 @@ func (j *jobRun) create(tasks []*launching, parallel any) error {
 	if err := os.MkdirAll(job.Jobs(), 0o777); err != nil {
 		return err
 	}
-	named := filepath.Join(job.Jobs(), time.Now().Format("20060102-150405-")+task.Slug(tasks[0].named))
-	j.dir = named
-	for n := 2; ; n++ {
-		if taken, err := exists(j.dir); err != nil || !taken {
-			if err != nil {
-				return err
-			}
-			break
-		}
-		j.dir = named + "-" + strconv.Itoa(n)
+	if j.dir, err = free(filepath.Join(job.Jobs(), time.Now().Format("20060102-150405-")+task.Slug(tasks[0].named))); err != nil {
+		return err
 	}
 	if err := os.Mkdir(j.dir, 0o777); err != nil {
 		return err
@@ -191,8 +183,8 @@ func (j *jobRun) carry() (int, error) {
 			if j.parallel > 0 && running >= j.parallel {
 				break
 			}
-			if left, err := j.begin(task, ended); left != "" || err != nil {
-				return j.leave(left), err
+			if begun, err := j.begin(task, ended); !begun || err != nil {
+				return j.leave(), err
 			}
 			running++
 		}
@@ -205,8 +197,8 @@ func (j *jobRun) carry() (int, error) {
 		select {
 		case e := <-ended:
 			running--
-			if left, err := j.settle(e); left != "" || err != nil {
-				return j.leave(left), err
+			if settled, err := j.settle(e); !settled || err != nil {
+				return j.leave(), err
 			}
 		case <-time.After(jobTick):
 		}
@@ -220,25 +212,28 @@ func (j *jobRun) carry() (int, error) {
 
 // begin starts the task as Python's job_start_task does, its file read again and judged as it
 // reads now: a run of its own, its receipt naming the job, filed on the job's before its driver
-// starts apart, and followed until it ends.  What leaves the job where Go does not start it.
-func (j *jobRun) begin(task *run.Object, ended chan<- ending) (string, error) {
+// starts apart, and followed until it ends.  False, saying why, where Go does not start it.
+func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
 	name := task.Str("name")
 	l, _, why, err := j.task(task.Str("task_file"))
 	switch {
 	case errors.Is(err, ErrPython):
-		return name + ": not started", nil
+		why = "not started"
 	case err != nil:
-		return "", err
+		return false, err
 	case l == nil:
-		return name + ": " + why, nil
 	case l.reason != "":
-		return name + ": " + l.reason, nil
+		why = l.reason
 	case parks(l):
-		return name + ": waiting for budget", nil
+		why = "waiting for budget"
+	}
+	if why != "" {
+		j.say(name + ": " + why)
+		return false, nil
 	}
 	run.SetAll(task, "state", "running", "started_at", run.Float(seconds()))
 	if err := job.Save(j.dir, j.receipt); err != nil {
-		return "", err
+		return false, err
 	}
 	log, unstopped, err := l.make(j.out)
 	if err == nil {
@@ -252,52 +247,54 @@ func (j *jobRun) begin(task *run.Object, ended chan<- ending) (string, error) {
 		}
 	}
 	if errors.Is(err, ErrStopped) || errors.Is(err, loop.ErrStopped) {
-		return name + ": stopped", nil
+		j.say(name + ": stopped")
+		return false, nil
 	}
 	if err != nil {
-		return "", err
+		return false, err
 	}
 	go func() { ended <- ending{task, l.dir, loop.Await(l.dir, func() {})} }()
-	return "", nil
+	return true, nil
 }
 
-// settle is the task's ending, as Python's job_ladder takes up a run that merged or passed: the
-// task keeps who built and reviewed it, and its word and line.  What leaves the job for any other.
-func (j *jobRun) settle(e ending) (string, error) {
-	name, word := e.task.Str("name"), classify(e.record)
-	if !run.Ended(e.record) || word != "merged" && word != "passed" {
-		state := "gone"
-		if e.record != nil {
-			state = run.Text(e.record.Get("state"))
-		}
-		return fmt.Sprintf("%s: %s %s", name, filepath.Base(e.dir), state), nil
+// settle takes up the task's ending as Python's job_ladder does, its exit line first: a run that
+// merged or passed settles the task, which keeps who built and reviewed it, its word and its line.
+// False for any other, which Python's ladder takes up.
+func (j *jobRun) settle(e ending) (bool, error) {
+	name, id := e.task.Str("name"), filepath.Base(e.dir)
+	if e.record == nil {
+		j.say(fmt.Sprintf("%s: %s cannot be read", name, id))
+		return false, nil
 	}
 	for _, role := range []string{"executor", "reviewer"} {
 		if e.record.Truthy(role) {
 			e.task.Set(role, e.record.Get(role))
 		}
 	}
-	merged := "not merged"
+	word, code, merged := classify(e.record), 1, "not merged"
+	if word == "merged" || word == "passed" {
+		code = 0
+	}
 	if e.record.Truthy("merged") {
 		merged = "merged"
 	}
-	j.say(fmt.Sprintf("%s exit 0: %s %s %s %s", name, filepath.Base(e.dir), run.Text(e.record.Get("state")),
+	j.say(fmt.Sprintf("%s exit %d: %s %s %s %s", name, code, id, run.Text(e.record.Get("state")),
 		run.Text(e.record.Get("verdict")), merged))
+	if code != 0 || !run.Ended(e.record) {
+		return false, nil
+	}
 	run.SetAll(e.task, "state", word, "finished_at", run.Float(seconds()), "verdict_line", verdictLine(name, word, e.record))
 	if err := job.Save(j.dir, j.receipt); err != nil {
-		return "", err
+		return false, err
 	}
 	j.say(e.task.Str("verdict_line"))
-	return "", nil
+	return true, nil
 }
 
 // leave ends this launcher as one that died leaves its job, every run it started going on as it
 // goes, for `ak run resume`, whose ladder takes up what this one does not; the exit status.
-func (j *jobRun) leave(what string) int {
-	if what != "" {
-		j.say(what)
-		j.say(fmt.Sprintf("job %s: this launcher ends here; ak run resume %s to continue, ak run stop %s to end it", j.id(), j.id(), j.id()))
-	}
+func (j *jobRun) leave() int {
+	j.say(fmt.Sprintf("job %s: this launcher ends here; ak run resume %s to continue, ak run stop %s to end it", j.id(), j.id(), j.id()))
 	return 1
 }
 
