@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
+	"agentkit/internal/handover"
 	"agentkit/internal/job"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
@@ -56,7 +57,10 @@ func launchRun(args []string, out, errOut io.Writer) int {
 	var reason string
 	var err error
 	switch url := parsed.values["--review-pr"]; {
-	case runSubcommand(args) || problem != "":
+	case runSubcommand(args): // what main dispatches no further, `show`
+		handover.Runs("run " + args[0])
+		return notImplemented(errOut, "run")
+	case problem != "":
 		return notImplemented(errOut, "run")
 	case url != "":
 		code, reason, err = launch.Review(url, parsed.values, parsed.flags, out, errOut)

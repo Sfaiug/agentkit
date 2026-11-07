@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
+	"agentkit/internal/handover"
 	"agentkit/internal/host"
 	"agentkit/internal/seat"
 	"agentkit/internal/terminal"
@@ -98,6 +99,7 @@ func validateOrch(args []string) string {
 func orchOpen(args []string, out, errOut io.Writer) int {
 	// validateOrch reads nothing after `ended` or `front`: they read their own
 	if len(args) > 0 && args[0] == "ended" {
+		handover.Runs("orch ended")
 		return orchEnded(args[1:], out, errOut)
 	}
 	if len(args) > 0 && args[0] == "front" {

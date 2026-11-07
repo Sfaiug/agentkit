@@ -12,18 +12,17 @@ func init() { commands["watch"] = watch }
 // another holding the lock; every other tick comes in a later milestone.  A tick that could not
 // save watch.json fails, as Python's does.
 func watch(args []string, out, errOut io.Writer) int {
+	left, failed := "", false
 	if len(args) > 0 {
-		if tick.Dry(out) {
-			return 0
-		}
-		return notImplemented(errOut, "watch")
+		left = tick.Dry(out)
+	} else {
+		left, failed = tick.Carry(out, errOut, auditScoreboard(out))
 	}
-	carried, failed := tick.Carry(out, errOut, auditScoreboard(out))
 	if failed {
 		return 1
 	}
-	if carried {
+	if left == "" {
 		return 0
 	}
-	return notImplemented(errOut, "watch")
+	return handOver(errOut, "watch", left)
 }

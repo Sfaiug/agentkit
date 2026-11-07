@@ -6,19 +6,22 @@ import (
 
 	"agentkit/internal/adapters"
 	"agentkit/internal/config"
+	"agentkit/internal/handover"
 	"agentkit/internal/hooks"
 	"agentkit/internal/seat"
 )
 
 // adapter carries out what an adapter stub under go/adapters hands over: `ak adapter <root>
-// <harness> <verb> [<arg>...]`, root being the checkout the stub sits in.  It never exits 3,
-// which an adapter's `interactive` answers to mean it cannot pin the session.
+// <harness> <verb> [<arg>...]`, root being the checkout the stub sits in.  It exits 3 for a hook
+// whose case it hands over, and where an adapter's `interactive` answers that it cannot pin the
+// session, which hands nothing over.
 func adapter(args []string, out, errOut io.Writer) int {
 	if len(args) < 3 {
 		fmt.Fprintln(errOut, "usage: ak adapter <root> <harness> <verb> [<arg>...]")
 		return 2
 	}
 	root, harness, verb, rest := args[0], args[1], args[2], args[3:]
+	handover.Runs("adapter " + harness + " " + verb)
 	switch verb {
 	case "interactive":
 		return adapters.Interactive(root, harness, rest, out, errOut)

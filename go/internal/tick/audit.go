@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -16,14 +17,14 @@ import (
 type AuditReport func(time.Time) (lines []string, loss string)
 
 // audit carries the audit seat's line into it, as Python's watch.tell_audit: the week's, its
-// report written with no history database (weekly), else a stall's (stuck), each through the same
+// report written with a bare history (weekly), else a stall's (stuck), each through the same
 // steps (tellAudit). A fresh seat uses the same launch as an owner's.
 func (t *ticking) audit() error {
 	roles, on, err := config.Audit()
 	if err != nil || !on {
 		return err
 	}
-	if !run.Historyless() {
+	if !history.Bare() {
 		return errLeft
 	}
 	file := statePath("audit.json")

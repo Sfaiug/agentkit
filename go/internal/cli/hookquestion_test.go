@@ -82,12 +82,12 @@ func TestAQuestionCardIsRefusedKeptOrLeftToPython(t *testing.T) {
 	project := " · ~/code/acme#0123456789ab"
 	written := " · written 2026-10-20 09:00"
 	write("plan-acme.md", "- [x] z · check: `true`"+project+written+" · done 0123456789ab init\n- [ ] y · check: `true`"+project+" · deferred"+written+"\n")
-	if code, out := card(""); code != leftToPython || out != "" || kept() != "" {
+	if code, out := card(""); code != 3 || out != "" || kept() != "" {
 		t.Fatalf("a deferred line: %d %q", code, out)
 	}
 	write("plan-acme.md", "- [x] Merge the parser\n")
 	write("session-acme.json", `{"orchestrator": "no such model", "cwd": "/code/acme", "conversation": "conv-1"}`)
-	if code, out := card(""); code != leftToPython || out != "" {
+	if code, out := card(""); code != 3 || out != "" {
 		t.Fatalf("a harness Go does not read: %d %q", code, out)
 	}
 }
@@ -128,7 +128,7 @@ func TestAStopReadsTheSameRefusalFromTheSeatsConversation(t *testing.T) {
 		t.Fatalf("the owner wrote since: %d %q", code, out)
 	}
 	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "no such model", "cwd": "/code/acme", "conversation": "conv-1"}`)
-	if code, out := stop(); code != leftToPython || out != "" {
+	if code, out := stop(); code != 3 || out != "" {
 		t.Fatalf("a harness Go does not read: %d %q", code, out)
 	}
 }

@@ -281,7 +281,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	defer gh.Serve(l.say, l.wait)()
-	err := l.admitQueued()
+	err := WaitSlot(ctx, dir)
 	if err == nil {
 		err = l.adopt()
 	}
@@ -626,6 +626,8 @@ func (l *loop) finish(err error) int {
 	switch {
 	case errors.Is(err, errStop):
 		return 1
+	case errors.Is(err, ErrLeft):
+		return 3
 	case err != nil && (l.ctx.Err() != nil || errors.Is(err, worker.ErrInterrupted)):
 		// killed, it is an ordinary dead loop, as Python's is, for `ak run resume` to carry on
 		return 1
