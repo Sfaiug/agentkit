@@ -393,6 +393,7 @@ test_key_rounds_is_a_setting
 test_key_rulebook_news
 test_key_rulebook_news_too_long
 test_key_rulebook_retold
+test_key_rules_live_in_their_refusals
 test_key_run_background
 test_key_run_clean
 test_key_run_depth_refused

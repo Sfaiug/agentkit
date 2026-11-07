@@ -11,7 +11,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
-	"agentkit/internal/handback"
 	"agentkit/internal/history"
 	"agentkit/internal/loop"
 	"agentkit/internal/pick"
@@ -23,8 +22,7 @@ import (
 // ownReview launches a review from a session, Python's review_pr_main where the run has a session
 // name: Go's where it is the seat's own pull request, by this host's GitHub login, landed on PASS
 // unless launched with --no-merge.  One of somebody else's pull request it leaves to Python,
-// deciding so before it writes anything.  A refusal is printed where the seat typed it, so it is
-// handed back.
+// deciding so before it writes anything.
 func ownReview(url string, numbersIn config.Numbers, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	session, record, unnamed := config.CurrentSession()
 	_, pointer := record[config.Renamed]
@@ -43,13 +41,6 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		return 0, "", err
 	}
 	log, unstopped := logger(dir, out), guarded(dir, out)
-	refused := func(why string) (int, string, error) {
-		code, reason, err := refuse(dir, why, "", log)
-		if err == nil {
-			err = handback.PrintedAtLaunch(dir, func(line string) { log(line) })
-		}
-		return code, reason, err
-	}
 	taken := ""
 	for _, step := range []func() error{
 		config.EnsureDirs,
@@ -73,7 +64,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		}
 	}
 	if taken != "" {
-		return refused(fmt.Sprintf("run %s on %s has not ended; `ak wait %s`, then launch again if it is still needed", taken, url, taken))
+		return refuse(dir, fmt.Sprintf("run %s on %s has not ended; `ak wait %s`, then launch again if it is still needed", taken, url, taken), "", log)
 	}
 	if err := unstopped(func(receipt *run.Object) {
 		// the writer the reviewer's independence is judged against, captured once: a session
@@ -100,7 +91,7 @@ func ownReview(url string, numbersIn config.Numbers, values map[string]string, f
 		if err != nil {
 			why = err.Error()
 		}
-		return refused(why)
+		return refuse(dir, why, "", log)
 	}
 	code, err := underWay(dir, []string{"--- preflight",
 		fmt.Sprintf("repo: %s/%s | base: %s | target: %s | merge: squash", pull.Owner, pull.Name, pull.Base, pull.Base),
