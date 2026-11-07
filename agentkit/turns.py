@@ -905,10 +905,8 @@ def resume_failed(out_dir, killed, text, harness, asked=True, failures_only=Fals
     return asked and not (text or "").strip() and worker.said_nothing(out_dir)
 
 
-def note_turn_meters(cfg, name, out_dir, account, before=(), role="executor"):
-    """The meters the turn in `out_dir` reported about the account it ran on are the reading,
-    and what it spent beside how far it moved them from `before` is a pair of what a window
-    holds in tokens (`usage.record_pairs`).
+def note_turn_meters(cfg, name, out_dir, account):
+    """The meters the turn in `out_dir` reported about the account it ran on are the reading.
 
     Best effort and never the turn's failure: a harness that says nothing leaves the
     endpoint's reading alone.
@@ -916,17 +914,9 @@ def note_turn_meters(cfg, name, out_dir, account, before=(), role="executor"):
     from . import usage     # here, not at the top: usage reaches turns
     try:
         entry = config.model(cfg, name)
-        plugin = harness_plugin(entry["harness"])
-        meters = plugin.turn_meters(out_dir)
-        tokens = plugin.tokens(out_dir) if before else None
-    except (config.Error, OSError, ValueError, TypeError, AttributeError):
-        return
-    try:
+        meters = harness_plugin(entry["harness"]).turn_meters(out_dir)
         if meters:
             usage.record_turn_meters(cfg, entry["provider"], meters, account)
-        role = "reviewer" if role.startswith("reviewer") else "executor"
-        usage.record_pairs(cfg, name, account, before, tokens, meters,
-                           run_id=Path(out_dir).parent.parent.name, role=role)
     except (config.Error, OSError, ValueError, TypeError, AttributeError, KeyError):
         pass
 
@@ -1010,7 +1000,6 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
         nonlocal account, span, last_dir, last_sid
         run_record.stop_check(run_dir)
         account = usage.account(cfg, entry["provider"], model=name)[0]
-        before = usage.reading(entry["provider"], account)
         began = time.time()
         named = env if account is None else {**env, **config.account_env(account)}
         if session and session == last_sid and last_dir is not None:
@@ -1031,7 +1020,7 @@ def call_retrying(cfg, name, body, workspace, out_dir, role, session, log, limit
             span = (began, time.time())
         finally:
             memory_cap_note(run_dir, log)     # however the turn ended
-        note_turn_meters(cfg, name, target, account, before, role)
+        note_turn_meters(cfg, name, target, account)
         last_dir, last_sid = target, result[2] or session
         return result
 

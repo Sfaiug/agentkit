@@ -87,9 +87,9 @@ func unitless(record *run.Object) bool {
 	return !record.Truthy("scope") || record.Str("scope") == "none"
 }
 
-// point is whether the run was cut off where Go goes on from, Python's rounds and continuation: a
-// retry directory and an answer with no closing are Python's roads, but for the refusal a run
-// waits out on a provider's window, which is no answer.
+// point is whether the run was cut off where Go goes on from, Python's rounds and continuation: an
+// answer with no closing is Python's road, but for the refusal a run waits out on a provider's
+// window, which is no answer.
 func point(dir string, record *run.Object) bool {
 	rounds, known := record.Int("rounds")
 	spent := len(record.List("round_summaries"))
@@ -108,8 +108,7 @@ func point(dir string, record *run.Object) bool {
 				return false
 			}
 		}
-		return err == nil && numbered && round <= left && pending.Has("summary") && len(pending.List("failed")) == 0 &&
-			!retried(filepath.Join(dir, fmt.Sprintf("round-%d", round)))
+		return err == nil && numbered && round <= left && pending.Has("summary") && len(pending.List("failed")) == 0
 	}
 	if spent >= rounds || spent > 0 && !exists(filepath.Join(filepath.Dir(record.Str("findings_file")), "findings.json")) {
 		return false
@@ -118,18 +117,12 @@ func point(dir string, record *run.Object) bool {
 	if !isDir(round) {
 		return true
 	}
-	if retried(round) || len(roleDirs(round, func(entry os.DirEntry) bool { return strings.HasPrefix(entry.Name(), "reviewer") })) > 0 {
+	if len(roleDirs(round, func(entry os.DirEntry) bool { return strings.HasPrefix(entry.Name(), "reviewer") })) > 0 {
 		return false
 	}
 	name, _, _ := openWorker(round)
 	refused := run.ExhaustedWait(record) == "window"
-	return name != "" && (refused || !exists(filepath.Join(latestTurn(round, name), "final.md"))) || answered(round) != ""
-}
-
-// retried is whether Python's retries wrote in that round, which Go does not read on.
-func retried(round string) bool {
-	found, _ := filepath.Glob(filepath.Join(round, "*-retry*"))
-	return len(found) > 0
+	return name != "" && (refused || !spoke(latestTurn(round, name))) || answered(round) != ""
 }
 
 // pairReady is whether the saved pair goes on as it is, which leaves no pick to make: a model that

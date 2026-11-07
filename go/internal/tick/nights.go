@@ -11,7 +11,7 @@ import (
 const nightEvery = 3600
 
 // noNights is whether no checkout's default branch declares a night read.
-func noNights() bool { return noneDeclares("nightly", false) }
+func noNights() bool { return noneDeclares("nightly") }
 
 // nights is the night reads row where no checkout declares one (nightly.tick): each checkout's
 // hourly read, which reads nothing, stamped in state/nightly.json. One the fetch just gave a

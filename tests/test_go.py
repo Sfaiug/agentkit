@@ -6,10 +6,11 @@ Its parts are `fmt`, `vet <platform>` for the caller's own platform and each Go'
 the module's tests, and `build <platform>` for each it ships on, a platform as Go names it
 (`linux/amd64`); without arguments it checks each, in that order.
 The module's tests take most of 15 minutes on a loaded host and one of them seconds, so each
-failing part is named in the file FAILED_PARTS names, and every_file.py's re-run and each
-narrowing step give it just those as its arguments: a Go test as `<package>.<Test>`, its
-top-level test, runs alone in its package; a package as its import path runs whole; a step runs
-by its name, on its platform wherever this runs.
+failing part is named in the file FAILED_PARTS names, each passing one's seconds in the file
+PART_TIMES names, and every_file.py's re-run and each narrowing step give it just those as its
+arguments: a Go test as `<package>.<Test>`, its top-level test, runs alone in its package; a
+package as its import path runs whole; a step runs by its name, on its platform wherever this
+runs.
 """
 
 import json
@@ -19,10 +20,11 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
-from suite_shares import name_failed
+from suite_shares import name_failed, name_timed
 
 GO = Path(__file__).resolve().parents[1] / "go"
 # The landing suite reaches nothing beyond loopback: never fetch a toolchain or a module,
@@ -90,7 +92,8 @@ def step(part, gofmt, out, **judge):
 
 def tested(part, **env):
     """The failing parts of the module's tests `part` names, and what they printed: a test
-    alone in its package, else the package or pattern whole."""
+    alone in its package, else the package or pattern whole; None for a test this tree does not
+    hold, as one only a later change adds, which ran nowhere and so names no failing part."""
     # A Go name holds no dot, nor does an import path of module agentkit; `./...` is every package.
     test = re.fullmatch(r"(.+)\.(\w+)", part)
     # No deadline: a busy host only slows a package, and the landing's silence watch ends a
@@ -103,7 +106,7 @@ def tested(part, **env):
     # A run whose events name nothing that failed, as one go itself refused, fails as `part`.
     names = failing(events) or ([part] if done.returncode else [])
     if test and not names and part not in map(about, events):
-        return [part], f"{part} is not there: no test of {test[1]} runs by that name\n"
+        return None, f"{part} is not there: no test of {test[1]} runs by that name\n"
     # Build output belongs to a package that failed to build.
     printed = "".join(event.get("Output", "") for event in events
                       if event["Action"] == "build-output"
@@ -127,7 +130,7 @@ class Go(unittest.TestCase):
         goenv = json.loads(found.stdout)
         gofmt = Path(goenv["GOROOT"], "bin", "gofmt")
         host = f"{goenv['GOOS']}/{goenv['GOARCH']}"
-        failed, shown = [], []
+        failed, absent, shown, took = [], [], [], {}
         with tempfile.TemporaryDirectory(prefix="ak-go-") as out:
             # Vetted for each platform, tests and all, before any test runs: a test file calling
             # a helper behind a build tag of its own compiles on one platform and fails another's
@@ -137,12 +140,19 @@ class Go(unittest.TestCase):
             for part in sys.argv[1:] or dict.fromkeys(
                     ["fmt", f"vet {host}", *(f"vet {name}" for name in PLATFORMS),
                      "./...", *(f"build {name}" for name in PLATFORMS)]):
+                began = time.monotonic()
                 names, printed = step(part, gofmt, out, **judge) or tested(part, **judge)
-                if names:
+                if names is None:
+                    absent.append(part)
+                    shown.append(printed)
+                elif names:
                     failed += names
                     shown.append(f"--- {' '.join(names)}\n{printed}")
+                else:
+                    took[part] = time.monotonic() - began
         name_failed(failed, "FAILED_PARTS")
-        self.assertFalse(failed, "".join(shown))
+        name_timed(took)
+        self.assertFalse(failed + absent, "".join(shown))
 
 
 if __name__ == "__main__":

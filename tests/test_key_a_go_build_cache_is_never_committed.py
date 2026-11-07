@@ -5,6 +5,8 @@ points GOCACHE inside the checkout leaves thousands of cache files there under w
 chose, and committing them refused a run on its size before any review.  So the leftover commit
 leaves out every directory holding the README Go writes at a build cache's root, with everything
 below it, names it in the run's log with the other junk, and leaves it in place, unstaged.
+The log names it even when the project's .gitignore does, which hides it from Git's list of
+untracked files.
 Black-box: the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a
 project from gitrig.py, with scripted harnesses from fakeadapter.py.
 """
@@ -35,11 +37,13 @@ LEFTOVER = {"write": {"retry.txt": "hello\n", **CACHE},
 
 
 class AGoBuildCacheIsNeverCommitted(unittest.TestCase):
+    PROJECT = {}                        # what the project's main holds besides the rig's own
+
     @classmethod
     def setUpClass(cls):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
-        cls.rig = Rig(cls.home, "widgets")
+        cls.rig = Rig(cls.home, "widgets", files=cls.PROJECT)
         akconfig.write(cls.home, ["opus", "astra"])
         fakeadapter.install(cls.home, claude=LEFTOVER, codex="pass")
         task = taskfile.write(cls.home, cls.rig.path, "Add retry file")
@@ -50,7 +54,8 @@ class AGoBuildCacheIsNeverCommitted(unittest.TestCase):
     def test_the_run_branch_holds_the_work_and_not_the_cache(self):
         self.assertEqual(self.done.code, 0, self.done.out + self.done.err)
         self.assertEqual((self.state["state"], self.state["verdict"]), ("pass", "PASS"))
-        self.assertEqual(self.rig.files(BRANCH, remote=False), [".keep", "AGENTS.md", "retry.txt"])
+        self.assertEqual(self.rig.files(BRANCH, remote=False),
+                         sorted([".keep", "AGENTS.md", "retry.txt", *self.PROJECT]))
 
     def test_the_log_names_the_cache_as_left_out(self):
         lines = {line.split("] ", 1)[-1]
@@ -64,6 +69,10 @@ class AGoBuildCacheIsNeverCommitted(unittest.TestCase):
             self.assertEqual((worktree / relative).read_text(), text)
         self.assertEqual(self.home.run("git", "-C", str(worktree), "ls-files", "--stage",
                                        "--", "tools").out, "")
+
+
+class AnIgnoredGoBuildCacheIsNamedToo(AGoBuildCacheIsNeverCommitted):
+    PROJECT = {".gitignore": "tools/warm/\n"}
 
 
 if __name__ == "__main__":

@@ -116,7 +116,7 @@ func Draw(view View, width, height int) Frame {
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
 	cursor := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0)
-	frame := Frame{cursor: cursor, width: width, height: height, order: seatOrder(view.Seats, view.Switches)}
+	frame := Frame{cursor: cursor, hidden: view.Highlight.Hidden, width: width, height: height, order: seatOrder(view.Seats, view.Switches)}
 	saidRoom := max(1, sized.room-(2+sized.num+2))
 	said := map[string]int{}
 	opens := 0

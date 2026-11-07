@@ -57,7 +57,7 @@ func table(t *ticking) []pass {
 		{"token reminder", false, nil, t.remindTokens},
 		{"exhausted resume", true, all(configured, unseated, t.dryly(noExhaustedResume)), t.wet(t.exhaustedResume)},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
-		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
+		{"waiting resume", true, nil, t.waiting},
 		{"old endings", false, nil, func() error {
 			if !handback.MarkHistory(t.log.line) {
 				return errLeft
@@ -68,7 +68,7 @@ func table(t *ticking) []pass {
 		{"job handbacks", false, nil, t.jobHandbacks},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
-		{"switch retirement", false, noSwitches, t.retire},
+		{"switch retirement", false, checkoutsSeen, t.retire},
 		// seats' conversations are Python's to read into a history a seat or its sources stand in
 		{"seat tokens", false, func() bool {
 			return run.Historyless() || len(config.SeatFiles()) == 0 && !history.KeepsSeats()

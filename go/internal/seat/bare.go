@@ -1,8 +1,6 @@
 package seat
 
 import (
-	"errors"
-	"io/fs"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -24,9 +22,7 @@ import (
 // read there: the owner's stop, or a question kept back, which no look at it ever asks.
 func bareSeat(state, name, server string, mine []ran, now time.Time) (Seat, bool) {
 	started, err := tmux.Ask(server, "display-message", "-p", "-t", "="+name+":", "#{session_created}")
-	file, unread := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	if err != nil || unread != nil && !errors.Is(unread, fs.ErrNotExist) || unread == nil && (file == nil ||
-		!only(file, slices.Concat(seatFields, lookFields)) || file.Truthy("stopped_at") || file.Truthy("closed_by_owner") || file.Get("unasked") != nil) {
+	if file, known := seatRead(state, name); err != nil || !known || !bareFile(file) {
 		return Seat{}, false
 	}
 	created, err := strconv.Atoi(started)
@@ -39,6 +35,11 @@ func bareSeat(state, name, server string, mine []ran, now time.Time) (Seat, bool
 		return Seat{}, false
 	}
 	return seat, true
+}
+
+// bareFile is whether a bare seat's file, nil for none, holds nothing Go leaves to Python there.
+func bareFile(file *run.Object) bool {
+	return file == nil || !file.Truthy("stopped_at") && !file.Truthy("closed_by_owner") && file.Get("unasked") == nil
 }
 
 // server is the tmux server holding the seat (orch.seat_socket): ak's own, or the default one for a

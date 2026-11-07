@@ -301,8 +301,9 @@ func TestASaveKeepsWhatOthersWroteSince(t *testing.T) {
 func TestThroughSaysWhatARowDid(t *testing.T) {
 	idleHome(t, answers)
 	var out bytes.Buffer
-	now, tick := time.Unix(100, 0), &ticking{log: newLog(&out, io.Discard)}
-	tick.clock = func() time.Time { return now }
+	now, tick, still := time.Unix(100, 0), &ticking{log: newLog(&out, io.Discard)}, stepClock
+	t.Cleanup(func() { stepClock = still })
+	stepClock = func() time.Time { return now }
 	takes := func(took time.Duration, err error) func() error {
 		return func() error {
 			now = now.Add(took)
@@ -381,6 +382,21 @@ func TestWhatTheSearchFinds(t *testing.T) {
 				t.Error("the tick ended unrecorded")
 			}
 		})
+	}
+}
+
+// A tick whose step the host takes over a second over prints what it prints when the step is quick.
+func TestAStepSlowOnTheHostLeavesATestsOutputAlone(t *testing.T) {
+	said := func(script string) string {
+		idleHome(t, script)
+		var out bytes.Buffer
+		if !carries(&out, io.Discard) {
+			t.Fatalf("left it to Python, printing %q", out.String())
+		}
+		return out.String()
+	}
+	if slow, quick := said("sleep 1.1; "+answers), said(answers); slow != quick {
+		t.Errorf("printed %q where a quick tick prints %q", slow, quick)
 	}
 }
 
