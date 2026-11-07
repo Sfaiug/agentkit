@@ -83,22 +83,22 @@ func admit(id string, first bool, seat string) (*admission, error) {
 // decide is a poll for the run's slot as Python's gate.claim_slot decides it, under the slots lock:
 // a run of a run, and every run under the tests' `AK_MAX_RUNS=0`, goes in outright; any other waits
 // for those ahead of it in line and, unless it goes first, for the count, then for the host's room
-// (ask).  ErrPython wherever Go would judge it otherwise, before anything is read that writes:
-// readings of the live host rather than AK_HOST_READINGS; a seat's run in line beside another, or
-// held, whose turns and place there are Python's; a run outside a suite's home held, whose wait
-// history.db counts, which Go writes none of; a run stalled first in line, which Python lets past
-// the gates; a queue, a poll, a config or a run Go reads otherwise than Python.
+// (ask), on the host's readings, read only where it is asked, as Python's gate._host_admits reads
+// them.  ErrPython wherever Go would judge it otherwise, before anything is read that writes: a
+// seat's run in line beside another, or held, whose turns and place there are Python's; a run
+// outside a suite's home held, whose wait history.db counts, which Go writes none of; a run stalled
+// first in line, which Python lets past the gates; a queue, a poll, a config or a run Go reads
+// otherwise than Python.
 func decide(record *run.Object) (*admission, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" || record.Truthy("run_depth") {
 		return &admission{in: true, outright: true}, nil
 	}
 	at := now()
 	poll, polled := slotPoll()
-	readings, injected := host.Injected()
 	limit, unread := config.MaxRuns()
 	saved, read := queued()
 	holders, waiting, alone := places(record)
-	if !polled || !injected || unread != nil || !read || !alone {
+	if !polled || unread != nil || !read || !alone {
 		return nil, ErrPython
 	}
 	waiting = append(waiting, record)
@@ -118,6 +118,7 @@ func decide(record *run.Object) (*admission, error) {
 	case saved.stalled(a.id, at, poll):
 		return nil, ErrPython
 	default:
+		readings := host.Read()
 		minimum, maximum, err := readings.Limits(first)
 		if err != nil {
 			return nil, ErrPython
