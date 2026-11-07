@@ -17,6 +17,7 @@ import (
 
 // TestMain answers this test program started as `ak run`, as the tick starts its own program for
 // a review: each start's words kept in $HOME/launches, and run `review` printed as `--bg` prints it.
+// It holds the step timer's clock still, so a step the host's load slows prints nothing a test reads.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "run" {
 		kept, err := os.OpenFile(filepath.Join(os.Getenv("HOME"), "launches"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
@@ -27,6 +28,7 @@ func TestMain(m *testing.M) {
 		fmt.Printf("review\n%s\n", filepath.Join(os.Getenv("HOME"), ".agentkit", "runs", "review", "result.md"))
 		os.Exit(0)
 	}
+	stepClock = func() time.Time { return time.Time{} }
 	os.Exit(m.Run())
 }
 

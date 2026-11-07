@@ -50,9 +50,9 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 	}
 	// asked before any pass, where Python asks after them: no row says whether Go carries the
 	// GitHub passes, and the tick begins with the asking
-	began := time.Now()
+	began, asking := time.Now(), stepClock()
 	user, why, unasked := gh.JSON(run.Runs(), "api", "user")
-	asked := time.Since(began)
+	asked := stepClock().Sub(asking)
 	if unasked != nil || config.EnsureDirs() != nil {
 		return false, false
 	}
@@ -144,11 +144,15 @@ func (t *ticking) through(passes []pass) bool {
 	return true
 }
 
+// stepClock is what a step's time is read from, as Python reads time.monotonic: a clock of its own,
+// which this package's tests hold still, since a loaded host makes any step slow.
+var stepClock = time.Now
+
 // timed runs a step and counts how long it took.
 func (t *ticking) timed(name string, step func() error) error {
-	start := t.clock()
+	start := stepClock()
 	err := step()
-	t.took(name, t.clock().Sub(start))
+	t.took(name, stepClock().Sub(start))
 	return err
 }
 
