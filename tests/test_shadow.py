@@ -1,4 +1,4 @@
-"""tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of six fake
+"""tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
 every byte and modification time; and where no box can be built, nothing runs."""
 
@@ -26,6 +26,9 @@ MORE = (
     # an extended attribute alone, of a file Python leaves be: its mode, time and bytes stay
     ("home", shlex.quote(sys.executable) + " -c 'import os, sys; os.setxattr(sys.argv[1], "
              '"user.acme", b"go")\' "$HOME/.gitconfig"'),
+    # ... and of HOME itself, whose mode the box's upper layer does not share unless made to
+    ("home", shlex.quote(sys.executable) + " -c 'import os, sys; os.setxattr(sys.argv[1], "
+             '"user.acme", b"go")\' "$HOME"'),
     ("page", 'echo "a page only go sent" >>"$AK_NOTIFY_SINK_LOG"'),
     ("call", "tmux send-keys -t acme Enter 2>/dev/null"),
 )
