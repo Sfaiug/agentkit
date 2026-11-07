@@ -25,12 +25,14 @@ import (
 var errSibling = errors.New("a sibling piece was stopped")
 
 // A piece is one share of a suite as it ran: its output, how it ended, the output of a first go its
-// re-run decided, nil for none, where it ran, and when its next go was asked for.
+// re-run decided, nil for none, and how that go failed as its flaky record says, "" for "failed",
+// where it ran, and when its next go was asked for.
 type piece struct {
 	shard  string
 	out    *os.File
 	ended  ran
 	failed []byte
+	how    string
 	there  *helper.Away // the helper it ran on, nil for here
 	asked  float64
 }
@@ -42,14 +44,15 @@ type piece struct {
 // turn is taken, in as many as this host fits at once.  Each has its share `AK_SHARD=k/N`, its own
 // silence window and the list's deadline, its output added to progress under its own header as it
 // ends, and is told when it holds a turn.  A piece red on the helper, whose offline VM fails a
-// command that needs this host, runs here after the others, which decides (there).  A red piece
-// here goes once more alone after the others, which decides it, a pass then said by a `flaky:`
-// record unless the kernel killed it for memory (starved.go); one stopped at its limit stops the
-// rest.  A whole go after the others runs on a turn here, taken first where the suite holds none,
-// and a go told it holds one that answers busy never ran: its first beside the others or any go
-// after, it goes again alone once its turn was given back for a poll (again).  Each go leaves its
-// row in history under rows where it ran, those on the helper dropped where it hands the suite on.
-// The suite ends as its first red piece did, and hands on what handedOn says.
+// command that needs this host, runs here after the others, the tests it named there first, which
+// decides (helperReds).  A red piece here goes once more alone after the others, which decides it,
+// a pass then said by a `flaky:` record unless the kernel killed it for memory (starved.go); one
+// stopped at its limit stops the rest.  A whole go after the others runs on a turn here, taken
+// first where the suite holds none, and a go told it holds one that answers busy never ran: its
+// first beside the others or any go after, it goes again alone once its turn was given back for a
+// poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
+// dropped where it hands the suite on.  The suite ends as its first red piece did, and hands on
+// what handedOn says.
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace and cost measured
 // for its next run.
@@ -224,21 +227,17 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		}
 		return settle(at, why, only)
 	}
+	if err := l.helperReds(ctx, all, path, rerun); err != nil {
+		return ran{}, "", err
+	}
 	for _, at := range all {
+		if at.failed != nil {
+			continue // its tests named on the suite helper decided it (helperReds)
+		}
 		if err := settle(at, pieceRetry, nil); err != nil {
 			return ran{}, "", err
 		}
 		if at.there != nil && at.ended.code != 0 && ctx.Err() == nil {
-			// its go here takes its place in the suite's output: a copy keeps what it printed there
-			kept, err := os.CreateTemp(l.dir, stem(path)+"-helper-failed-*.log")
-			if err == nil {
-				_, err = io.Copy(kept, io.NewSectionReader(at.out, 0, 1<<62))
-				kept.Close()
-			}
-			if err != nil {
-				return ran{}, "", err
-			}
-			l.say(fmt.Sprintf("WARN AK_SHARD=%s failed on the suite helper; what it printed there: %s", at.shard, kept.Name()))
 			why := "helper " + at.there.Alias + " " + helper.Failure(at.ended.code)
 			at.there = nil
 			if err := rerun(at, why, nil); err != nil {
@@ -258,7 +257,11 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		if err != nil {
 			return ran{}, "", err
 		}
-		if err := retryTests(at, rerun); err != nil {
+		decided, err := retryTests(at, rerun)
+		if err == nil && !decided {
+			err = rerun(at, pieceRetry, nil)
+		}
+		if err != nil {
 			return ran{}, "", err
 		}
 		at.failed = failed
@@ -316,7 +319,7 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 			if err != nil {
 				return ran{}, "", err
 			}
-			record, err := l.flakyRecord(fmt.Sprintf("%s (AK_SHARD=%s)", cmd, at.shard), at.failed, again, path, int(share))
+			record, err := l.flakyRecord(fmt.Sprintf("%s (AK_SHARD=%s)", cmd, at.shard), cmp.Or(at.how, "failed"), at.failed, again, path, int(share))
 			if err != nil {
 				return ran{}, "", err
 			}
