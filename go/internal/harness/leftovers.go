@@ -3,6 +3,7 @@ package harness
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"unicode"
@@ -28,9 +29,18 @@ func ConfigEntries() []ConfigEntry {
 }
 
 // A Store is where a harness that never ends a conversation itself keeps them: the harness, a
-// folder, and the pattern under it of one conversation's file, or its folder where the pattern
-// ends in `/`.
-type Store struct{ Harness, Root, Pattern string }
+// folder, the pattern under it of one conversation's file, or its folder where the pattern ends
+// in `/`, and what that name matches whole, its first group the conversation's id.
+type Store struct {
+	Harness, Root, Pattern string
+	ID                     *regexp.Regexp
+}
+
+var (
+	anyName     = regexp.MustCompile(`^(.+)$`)
+	agyFile     = regexp.MustCompile(`^(.+)\.db$`)
+	rolloutFile = regexp.MustCompile(`^rollout-.+-([0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})\.jsonl$`)
+)
 
 // ConversationStores is every such harness's stores, in the plugins' order: agy 1.4.4's default
 // home; ~/.codex/sessions and each Codex seat's sessions and archived sessions, kept apart; each
@@ -38,24 +48,25 @@ type Store struct{ Harness, Root, Pattern string }
 // folder's names in order, read as the caller's plan reads: HOME's own access time stays.
 func ConversationStores(list func(folder string) []string) []Store {
 	home := config.UserHome()
-	stores := []Store{{"antigravity", filepath.Join(home, ".gemini", "antigravity-cli", "conversations"), "*.db"}}
+	stores := []Store{{"antigravity", filepath.Join(home, ".gemini", "antigravity-cli", "conversations"), "*.db", agyFile}}
 	rollouts := "*/*/*/rollout-*.jsonl"
-	stores = append(stores, Store{"codex", filepath.Join(home, ".codex", "sessions"), rollouts})
+	stores = append(stores, Store{"codex", filepath.Join(home, ".codex", "sessions"), rollouts, rolloutFile})
 	for _, seat := range listed(list, filepath.Join(home, ".codex", "agentkit-seats"), func(path string) bool {
 		info, err := os.Stat(path)
 		return err == nil && info.IsDir()
 	}) {
-		stores = append(stores, Store{"codex", filepath.Join(seat, "sessions"), rollouts}, Store{"codex", filepath.Join(seat, "archived_sessions"), rollouts})
+		stores = append(stores, Store{"codex", filepath.Join(seat, "sessions"), rollouts, rolloutFile},
+			Store{"codex", filepath.Join(seat, "archived_sessions"), rollouts, rolloutFile})
 	}
 	grok := append([]string{filepath.Join(home, ".grok")}, listed(list, home, func(path string) bool {
 		return strings.HasPrefix(filepath.Base(path), ".grok-")
 	})...)
 	for _, each := range grok {
 		if info, err := os.Lstat(filepath.Join(each, "sessions")); err != nil || info.Mode()&os.ModeSymlink == 0 {
-			stores = append(stores, Store{"grokbuild", filepath.Join(each, "sessions"), "*/*/"})
+			stores = append(stores, Store{"grokbuild", filepath.Join(each, "sessions"), "*/*/", anyName})
 		}
 	}
-	return append(stores, Store{"muse", filepath.Join(share(), "muse", "sessions"), "[0-9]*/[0-9]*/[0-9]*/*/"})
+	return append(stores, Store{"muse", filepath.Join(share(), "muse", "sessions"), "[0-9]*/[0-9]*/[0-9]*/*/", anyName})
 }
 
 // An Idle is a conversation a harness keeps as rows of its own database and never ends itself:

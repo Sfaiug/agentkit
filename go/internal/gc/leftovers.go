@@ -1,6 +1,7 @@
 package gc
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -428,7 +429,8 @@ func isText(value any) bool {
 
 // conversations is each conversation a harness keeps as rows of its own database that it names
 // idle for a run directory's age, by its id, then each one a harness keeps in files and never
-// ends itself that nobody wrote to for as long and nobody holds open (gc.stale_conversations).
+// ends itself that nobody wrote to for as long and nobody holds open; never one a seat holds
+// (gc.stale_conversations).
 func (r *reads) conversations() []Item {
 	idle, known := harness.IdleConversations(r.now - runAge)
 	if !known {
@@ -436,8 +438,10 @@ func (r *reads) conversations() []Item {
 	}
 	var found []Item
 	for _, each := range idle {
-		why := fmt.Sprintf("untouched for %d days", int(runAge/day))
-		found = append(found, Item{"remove", "conversation", each.ID, why, takeIdle(each)})
+		if r.free(each.Harness, each.ID) {
+			why := fmt.Sprintf("untouched for %d days", int(runAge/day))
+			found = append(found, Item{"remove", "conversation", each.ID, why, takeIdle(each)})
+		}
 	}
 	paths := r.every()
 	if paths == nil {
@@ -448,12 +452,108 @@ func (r *reads) conversations() []Item {
 		return names
 	}) {
 		for _, path := range glob(store.Root, store.Pattern) {
-			if why := r.conversationStale(path, paths); why != "" {
-				found = append(found, Item{"remove", "conversation", path, why, takeConversation(store.Harness, path)})
+			why := r.conversationStale(path, paths)
+			if named := store.ID.FindStringSubmatch(filepath.Base(path)); why != "" && named != nil && r.free(store.Harness, named[1]) {
+				found = append(found, Item{"remove", "conversation", path, why, takeConversation(store.Harness, path, named[1])})
 			}
 		}
 	}
 	return found
+}
+
+// free is whether no seat holds that conversation of that harness (gc.conversation_free), the
+// seats read once, and only once one would go: a seat's harness may write down what it follows.
+func (r *reads) free(name, conversation string) bool {
+	if r.holds == nil {
+		r.holds = r.seatsHold()
+	}
+	return !r.holds(name, conversation)
+}
+
+// seatsHold is whether a seat holds that conversation of that harness, the seats' records read as
+// they are now (gc.held_conversations): its current one and each it left; every one of a harness
+// a seat of which cannot say which it holds; and every one at all where a record does not read
+// whole or a seat's harness is no name.  A record Go reads otherwise than Python does makes the
+// plan Python's.
+func (r *reads) seatsHold() func(name, conversation string) bool {
+	every := func(string, string) bool { return true }
+	state := filepath.Join(config.Home(), "state")
+	entries, err := os.ReadDir(state)
+	if errors.Is(err, fs.ErrNotExist) {
+		entries, err = nil, nil // no state yet, so no seat
+	}
+	if err != nil {
+		return every
+	}
+	held, unknown := map[string]bool{}, map[string]bool{}
+	// hold is what a seat's record says of one of its conversations: false where its harness is no name
+	hold := func(own, conversation any) bool {
+		name, _ := own.(string)
+		id, _ := conversation.(string)
+		switch {
+		case name == "":
+			return false
+		case id != "":
+			held[id] = true
+		default:
+			unknown[name] = true
+		}
+		return true
+	}
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), "session-") || !strings.HasSuffix(entry.Name(), ".json") {
+			continue
+		}
+		path := filepath.Join(state, entry.Name())
+		data, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) && !present(path) {
+			continue // gone since the listing
+		}
+		value, decoded := run.DecodeLimited(data)
+		if errors.Is(decoded, run.ErrLoneSurrogate) || errors.Is(decoded, run.ErrLimit) {
+			r.python = true
+		}
+		record, _ := value.(*run.Object)
+		if err != nil || decoded != nil || !utf8.Valid(data) || record == nil {
+			return every
+		}
+		if record.Has(config.Renamed) {
+			if _, pointer := record.Get(config.Renamed).(string); pointer && len(record.Keys()) == 1 {
+				continue // a rename's pointer
+			}
+			return every
+		}
+		left, listed := record.Get("left").([]any)
+		if !listed && record.Has("left") {
+			return every
+		}
+		for _, was := range left {
+			if was, ok := was.(*run.Object); !ok || !hold(was.Get("harness"), was.Get("conversation")) {
+				return every
+			}
+		}
+		// the conversation it is on, as every reader of a seat's record hands it to its harness
+		own, conversation := seatHarness(record), ""
+		if own != "" {
+			var fields map[string]any
+			json.Unmarshal(data, &fields)
+			conversation, _ = harness.Owned(own, fields)
+		}
+		if !hold(own, conversation) {
+			return every
+		}
+	}
+	return func(name, conversation string) bool { return held[conversation] || unknown[name] }
+}
+
+// seatHarness is the harness a seat's record orchestrates on, "" where the config names none
+// (orch.seat_harness).
+func seatHarness(record *run.Object) string {
+	model, err := config.ModelNamed(record.Str("orchestrator"))
+	if err != nil {
+		return ""
+	}
+	return model.Harness
 }
 
 // glob is what Python's Path.glob finds under root, in Path order: each `*` any name, dot names
