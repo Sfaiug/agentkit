@@ -176,10 +176,11 @@ def _costs(rated, lineup, cfg, shares):
                                     if matches else (None, config.company(cfg, row.get("maker"))))
             row.update(board_cost=row["cost"], cost_rule="board")
             priced.append((role, row, provider, points))
-    prices = {provider: usage.price(cfg, provider)
-              for _, _, provider, points in priced if points is not None}
-    if not prices:
+    if all(points is None for *_, points in priced):
         return "board_dollars"
+    # every provider your runs measured, though no row the boards rate is its measured model
+    prices = {provider: usage.price(cfg, provider) for name, provider, _ in models
+              if shares.get(name)}
     known = [price for price in prices.values() if price is not None]
     mean = sum(known) / len(known) if known else None
     samples = []    # (role, provider, measured cost, board dollars)

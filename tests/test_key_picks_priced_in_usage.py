@@ -203,6 +203,24 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertAlmostEqual(self.row("echo", prices={"acme": 200})["cost"],
                                20 * dollars(2.5, 200) / 62)
 
+    def test_a_measured_provider_has_its_price_though_the_boards_rate_none_of_its_rows(self):
+        held = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
+        for board in held.values():
+            for row in board["rows"]:
+                if row["model"] == "Dune":     # its price a token kept, so its build still counts
+                    row["values"] = {key: value for key, value in row["values"].items()
+                                     if key not in ("aa.frontierCode20", "aa.terminalBench40",
+                                                    "aa.omniscience", "arena.agent",
+                                                    "aa.automationBenchPartialScore")}
+        self.home.write(".agentkit/state/boards.json", held)
+        answer = self.answer(prices={"bolt": 100})
+        self.assertAlmostEqual(answer["task_usage"]["dune"]["high"]["executor"], 2)
+        self.assertEqual({answer[role]["cost_unit"] for role in ("orchestrate", "execute",
+                                                                 "review")}, {"money"})
+        anvil = next(row for row in answer["execute"]["front"] if row["release"] == "anvil-1"
+                     and row["effort"] == "high")
+        self.assertAlmostEqual(anvil["cost"], dollars(.2, 100))   # acme, at bolt's price
+
     def test_the_models_column_names_the_unit_every_role_is_in(self):
         self.assertRegex(self.command(), r"quality +week %\n +orchestrator +Anvil high +90\.0 +"
                                          r"≈0\.20%\n +executor +Anvil high +90\.0 +0\.20%\n")
