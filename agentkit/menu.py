@@ -5022,10 +5022,9 @@ def page_body(rows, at=None, moves=None):
 def config_page(name, page, move=True):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
     or with a note of the row's own after, said instead of the page's while the row is pointed,
-    and blocks of lines drawn as they are under it, each whole and in order while the
-    highlighted row fits beside them, after that -- and the note under them, asked again for
-    every draw, drawn as page_body draws them and read with `c`'s keys until Esc, the key line
-    saying what the arrows `move` (terminal.keys).
+    and lines of its own after that, drawn under the rows, ↓ and ↑ paging them as a tall row's
+    -- and the note under them, asked again for every draw, drawn as page_body draws them and
+    read with `c`'s keys until Esc, the key line saying what the arrows `move` (terminal.keys).
     It comes up as `c` does as it opens, its name writing itself out in the header
     (motion.Clock), and a mark leading a value fills or empties as it flips (motion.toggled);
     one gone back to from a list or a field is drawn as it is.
@@ -5045,7 +5044,7 @@ def config_page(name, page, move=True):
     Enter closing it, first picking the highlighted choice unless `several`; or an act's word,
     Enter or a click calling `pick()`, "" doing nothing.  Esc closes the list.  What a call
     returns is said under the rows, over the note, until the next key."""
-    here, top, said, opened, title = ("row", 0), 0, "", None, f"config · {name}"
+    here, top, said, opened, title, pointed = ("row", 0), 0, "", None, f"config · {name}", None
     rows, listed = [], []              # the page and open list's choices, as last asked
     clock = motion.Clock(page=True)   # it comes up as `c` does, and its marks move as `c`'s
 
@@ -5094,15 +5093,15 @@ def config_page(name, page, move=True):
         # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
         places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else cells)
                   for line, (row, cells) in places.items()}
+        # the pointed row's lines under the rows, its own: ↓ and ↑ turn their pages before they
+        # leave it, as a tall row's (matrix_key), from the row each time the pointer comes to it
+        top = min(top, next(line for line, (row, _) in places.items() if row[:2] == here[:2])
+                  ) if here[1] != pointed else top
+        places.update((len(body) + number, (here[:2], [])) for number in range(len(under)))
+        body, pointed = [*body, *under], here[1]
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter, move=move)
         below = note_lines("\n".join(filter(None, (said, note))))
-        # a row's blocks only while the page keeps room for the highlighted row beside them, the
-        # other rows paging: never pushed off the screen, and a later block gives way first
-        for block in under:
-            if page_room([*below, *block], keys) < sum(row == here for row, _ in places.values()):
-                break
-            below += block
         act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
                                         clock=clock, moves=moves, under=below)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
@@ -5554,34 +5553,64 @@ def limits_value(cfg):
         for key, (_, short, unit, _) in LIMIT_NAMES.items())
 
 
+def bar_chart(heading, bars):
+    """`heading`, then a line of each of `bars` -- (name, share, word, *cells) -- its share of a
+    line full (terminal.share_line, in `word`'s colour) taking the room the cells after it leave,
+    each cell aligned right, folding under its name where shorter than a plan bar's ever is."""
+    room = terminal.layout_width()
+    widths = [max(map(len, cells)) for cells in [*zip(*bars)][3:]]
+    wide = max((len(name) for name, *_ in bars), default=0)
+    size = room - 4 - sum(2 + width for width in widths)
+    size, folded = max(1, size - wide * (size - wide >= 8)), size - wide < 8
+    lines = ["", *("  " + part for part in terminal.wrap(heading, room - 2))]
+    for name, share, word, *cells in bars:
+        tail = "  ".join([terminal.share_line(share, size, word),
+                          *(f"{cell:>{width}}" for cell, width in zip(cells, widths))]).rstrip()
+        lines += [f"  {name}", f"    {tail}"] if folded else [f"  {name:<{wide}}  {tail}"]
+    return lines
+
+
 def rounds_chart(runs):
-    """How `runs` (history.round_endings) ended, drawn under `Review rounds`' note: the evidence
+    """How `runs` (history.round_endings) ended, drawn under `Review rounds`: the evidence
     its number is set from (the owner's design of 5 Nov 2026).  Under a heading, a bar of each
     ending -- each round from round 1, or a merge with review off, up to the last a run merged
     in, then `failed` -- its share of the runs (terminal.share_line) taking the room the columns
     after it leave: its count, that share as a whole percent and its median hours from start to
-    finish.  Below 60 columns each bar folds under its ending."""
+    finish (bar_chart)."""
     if not runs:
-        return ["", "  no finished runs yet"]
-    room, merged = terminal.layout_width(), [ending for *_, ending in runs if ending is not None]
+        return bar_chart("no finished runs yet", [])
+    merged = [ending for *_, ending in runs if ending is not None]
     endings = [*((f"merged in round {n}" if n else "merged with no review", n, "done")
                  for n in range(min([*merged, 1]), max([*merged, 0]) + 1)),
                ("failed", None, "FAIL")]
     hours = [[(end - start) / 3600 for start, end, ending in runs if ending == at]
              for _, at, _ in endings]
-    numbers = [(str(len(each)), f"{round(100 * len(each) / len(runs))}%",
-                f"median {median(each):.1f} h" if each else "") for each in hours]
-    widths = [max(len(row[n]) for row in numbers) for n in range(3)]
-    wide, folded = max(len(name) for name, _, _ in endings), room < 60
-    size = max(1, room - (4 if folded else 4 + wide) - 6 - sum(widths))
-    lines = ["", *("  " + part for part in terminal.wrap(
-        f"how your {len(runs)} run{'s' * (len(runs) != 1)} ended, since "
-        + time.strftime("%-d %b", time.localtime(runs[0][0])), room - 2))]
-    for (name, _, word), each, (count, share, held) in zip(endings, hours, numbers):
-        tail = (f"{terminal.share_line(len(each) / len(runs), size, word)}  "
-                f"{count:>{widths[0]}}  {share:>{widths[1]}}  {held}").rstrip()
-        lines += [f"  {name}", f"    {tail}"] if folded else [f"  {name:<{wide}}  {tail}"]
-    return lines
+    return bar_chart(f"how your {len(runs)} run{'s' * (len(runs) != 1)} ended, since "
+                     + time.strftime("%-d %b", time.localtime(runs[0][0])),
+                     [(name, len(each) / len(runs), word, str(len(each)),
+                       f"{round(100 * len(each) / len(runs))}%",
+                       f"median {median(each):.1f} h" if each else "")
+                      for (name, _, word), each in zip(endings, hours)])
+
+
+def size_chart(runs, limit, step, heading, noun=""):
+    """How changes of each size did (`runs`, history.first_review_sizes) under a line limit, the
+    evidence it is set from (the owner's design of 5 Nov 2026): under `heading`, a bar of each
+    `step` lines below `limit`, then one from it up marked `over`, of what ran under a higher one;
+    with none, up to the largest.  Each: its share passed, as a whole percent, and its count."""
+    if not runs:
+        return bar_chart(f"{heading} · none yet", [])
+    dash, limited = "–" if terminal.utf8() else "-", type(limit) is int
+    counted = f"{len(runs)} {noun}{'s' * (len(runs) != 1)}" if noun else str(len(runs))
+    top = limit if limited else (max(size for _, size, _ in runs) // step + 1) * step
+    sizes = [*((f"{low}{dash}{min(low + step, top) - 1}", low, min(low + step, top), "")
+               for low in range(0, top, step)), *[(f"{top}+", top, float("inf"), "over")] * limited]
+    held = [[passed for _, size, passed in runs if low <= size < high] for _, low, high, _ in sizes]
+    return bar_chart(f"{heading} · {counted} since "
+                     + time.strftime("%-d %b", time.localtime(runs[0][0])),
+                     [(name, sum(each) / max(1, len(each)), "done",
+                       f"{round(100 * sum(each) / len(each))}%" if each else "", str(len(each)),
+                       over) for (name, _, _, over), each in zip(sizes, held)])
 
 
 def limit_step(key, held, step):
@@ -5666,19 +5695,27 @@ def lines_said(key, reviewed, held):
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
     (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves, then under `Review rounds` how the runs ended
-    (rounds_chart) and under each what those runs would have done at its value (rounds_said,
-    lines_said), read as the page opens and said again as the value moves.  ← and → move the
-    pointed one a step (limit_step), saved to config.toml at once where config.host_policy
-    takes it.  The owner's design of 5 Nov 2026."""
+    it means and the board rows it moves, then under each how its runs did (rounds_chart,
+    size_chart) and what they would have done at its value (rounds_said, lines_said), read as
+    the page opens and said again as the value moves.  ← and → move the pointed one a step
+    (limit_step), saved to config.toml at once where config.host_policy takes it.  The owner's
+    design of 5 Nov 2026."""
     ended, reviewed = history.round_endings(), history.first_reviews()
+    builds, own = history.first_review_sizes()
+    charts = {"review_rounds": lambda _: rounds_chart(ended),
+              "executor_lines": lambda limit: size_chart(
+                  builds, limit, 100, "how often a build passed its first review, by size",
+                  "build"),
+              "orchestrator_lines": lambda limit: size_chart(
+                  own, limit, 25, "how often an orchestrator's own pull request merged in its "
+                  "first round, by size")}
 
     def under(key, held):      # the row's chart, then what its runs would have done at `held`
         said = (rounds_said(ended, held) if key == "review_rounds"
                 else lines_said(key, reviewed, held))
         room = terminal.layout_width() - 2
-        return [*([rounds_chart(ended)] if key == "review_rounds" else []),
-                *([["", *("  " + part for part in terminal.wrap(said, room))]] if said else [])]
+        return [*charts[key](held),
+                *(["", *("  " + part for part in terminal.wrap(said, room))] if said else [])]
 
     def take(key, value):
         try:

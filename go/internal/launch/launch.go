@@ -395,9 +395,6 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 			}
 		}
 		suite = run.DeclaredSuite(at.repo, spelled)
-		if namesChanged.MatchString(suite) {
-			return refuse("", "", ErrPython) // its suite runs every round, narrowed: Python's
-		}
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))

@@ -6,8 +6,8 @@ package loop
 // surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
 // (flakes.go). Named tests that failed probe the stacks between on the suite helpers, many at
 // once (probes.go), and only the step that decides the blame runs here. Probes on a machine ak may
-// rent, reviews of PRs other than a seat's own, changed-file suites and target repairs stay with
-// Python, as do integration or rules refusals on a stack.
+// rent, reviews of PRs other than a seat's own and target repairs stay with Python, as do
+// integration or rules refusals on a stack.
 
 import (
 	"context"
@@ -178,7 +178,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 			return stacks, err
 		}
 		stack.checks, err = landingChecks(m, checkout.path, tip)
-		if err != nil || slices.ContainsFunc(stack.checks, namesChanged.MatchString) {
+		if err != nil {
 			checkout.close()
 			return stacks[:len(stacks)-1], err
 		}

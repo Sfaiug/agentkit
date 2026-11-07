@@ -33,6 +33,11 @@ const Making = "ak is making this checkout"
 // a commit in, so gc may take it.
 const ScratchMark = "ak-lander-scratch"
 
+// Stamp is ak's own temporary commits' author and date, Python's STAMP: identical trees and
+// parents give every attempt the same commit.
+var Stamp = []string{"GIT_AUTHOR_NAME=ak", "GIT_AUTHOR_EMAIL=ak@localhost", "GIT_COMMITTER_NAME=ak",
+	"GIT_COMMITTER_EMAIL=ak@localhost", "GIT_AUTHOR_DATE=2000-01-01T00:00:00Z", "GIT_COMMITTER_DATE=2000-01-01T00:00:00Z"}
+
 // CapSeconds is how many seconds a git may take, Python's TOOL_CAP.
 const CapSeconds = 120
 
