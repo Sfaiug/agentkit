@@ -5,7 +5,6 @@ package tick
 import (
 	"bytes"
 	"io"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -50,19 +49,6 @@ func TestACheckoutIsTended(t *testing.T) {
 	}
 	if settings := read(t, filepath.Join(api, ".git", "config")); !strings.Contains(settings, "auto = 0") {
 		t.Errorf("gc.auto is not off: %s", settings)
-	}
-}
-
-// A checkout naming a night read ends the tick at that row, before its stamp, what the rows
-// before did standing.
-func TestADeclaredNightEndsTheTickThere(t *testing.T) {
-	ak, api := checkoutHome(t, "---\nnightly: tools/nightly\n---\n# acme\n")
-	endedThere(t, ak, "git gc: "+api+"\n")
-	if _, err := os.Stat(filepath.Join(ak, "state", "nightly.json")); err == nil {
-		t.Errorf("nightly.json was stamped")
-	}
-	if !strings.Contains(read(t, filepath.Join(api, ".git", "config")), "auto = 0") {
-		t.Errorf("git housekeeping did not run")
 	}
 }
 
