@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -270,8 +271,8 @@ func TestGoogleListsWhatAkRentsAndGivesOneBack(t *testing.T) {
 	}
 
 	// A reply cut short, in its body or its header, fails that call alone; once Google does not
-	// answer, with no connection, one closed before any reply or a reply stalled past a call's
-	// time, every later call fails in its words, asking nothing.
+	// answer, with no connection, a certificate refused, one closed before any reply or a reply
+	// stalled past a call's time, every later call fails in its words, asking nothing.
 	answer("GET "+path, reply{200, ours, 1})
 	if err := GiveBack(machine); fmt.Sprint(err) != "asking Google failed: unexpected EOF" {
 		t.Errorf("cut short: %v", err)
@@ -307,7 +308,11 @@ func TestGoogleListsWhatAkRentsAndGivesOneBack(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer stalled.Close()
-	for _, silent := range []string{closed.URL, hanging(""), stalled.URL} {
+	untrusted := httptest.NewUnstartedServer(http.NotFoundHandler())
+	untrusted.Config.ErrorLog = log.New(io.Discard, "", 0) // its refused handshake
+	untrusted.StartTLS()
+	defer untrusted.Close()
+	for _, silent := range []string{closed.URL, untrusted.URL, hanging(""), stalled.URL} {
 		unanswered = nil
 		t.Setenv("AK_GOOGLE_URL", silent)
 		_, err := Rented()

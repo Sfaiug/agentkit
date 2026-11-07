@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -16,18 +15,18 @@ import (
 // fails in the same words, asking nothing, so a process waits out one timeout, no more.
 var unanswered error
 
-// failure is a call failing, in plain words: where Google did not answer at all, with no
-// connection, a timeout, or a connection closed before any reply, every later call's too; a reply
-// it gave, cut short or malformed, fails this call alone.
-func failure(err error) error {
+// failure is a call failing, in plain words: where no byte of a reply came, for no connection, a
+// refused handshake or one closed or timed out first, or the connection broke or timed out after,
+// every later call's too, as Python's OSError; a reply cut short or malformed fails this call alone.
+func failure(err error, replied bool) error {
 	var asked *url.Error
 	if errors.As(err, &asked) {
 		err = asked.Err
 	}
 	said := fmt.Errorf("asking Google failed: %w", err)
-	var dropped *net.OpError
+	var broken *net.OpError
 	var late net.Error
-	if errors.As(err, &dropped) || errors.As(err, &late) && late.Timeout() || errors.Is(err, io.EOF) {
+	if !replied || errors.As(err, &broken) || errors.As(err, &late) && late.Timeout() {
 		unanswered = said
 	}
 	return said

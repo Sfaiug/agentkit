@@ -8,6 +8,7 @@ package googlecloud
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"crypto"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -21,6 +22,7 @@ import (
 	"io/fs"
 	"maps"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -28,6 +30,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"agentkit/internal/config"
@@ -312,17 +315,20 @@ func call(method, address, token string, sent, answer any) error {
 		body, err = json.Marshal(sent)
 		header.Set("Content-Type", "application/json")
 	}
+	var replied atomic.Bool // a byte of Google's reply came
+	traced := httptrace.WithClientTrace(context.Background(),
+		&httptrace.ClientTrace{GotFirstResponseByte: func() { replied.Store(true) }})
 	var request *http.Request
 	if err == nil {
-		request, err = http.NewRequest(method, address, bytes.NewReader(body))
+		request, err = http.NewRequestWithContext(traced, method, address, bytes.NewReader(body))
 	}
 	if err != nil {
-		return failure(err)
+		return fmt.Errorf("asking Google failed: %w", err)
 	}
 	request.Header = header
 	response, err := client.Do(request)
 	if err != nil {
-		return failure(err)
+		return failure(err, replied.Load())
 	}
 	defer response.Body.Close()
 	// all of it: a reply cut short of its length, or more after its JSON, is no answer
@@ -339,7 +345,7 @@ func call(method, address, token string, sent, answer any) error {
 		err = json.Unmarshal(data, answer)
 	}
 	if err != nil {
-		return failure(err)
+		return failure(err, replied.Load())
 	}
 	return nil
 }
