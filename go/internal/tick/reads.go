@@ -21,10 +21,6 @@ func statePath(name string) string { return filepath.Join(config.Home(), "state"
 // cardless is whether no seat's card waits to be retired.
 func cardless() bool { return len(config.SeatRecords("card")) == 0 }
 
-// noRenting is whether ak may rent no machine and no suite noted one it needs, a note the pass
-// takes even so.
-func noRenting() bool { return !config.MayRent() && missing(statePath("google-cloud-need")) }
-
 // noLoginsToEnd is whether the pass stops short of logind: only a server install.sh stamped
 // with a user manager asks it.
 func noLoginsToEnd() bool { return missing(statePath("installed-at")) || !host.UserManager() }
