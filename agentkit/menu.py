@@ -3303,9 +3303,10 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     """The models screen's lines, and the row each says, the row `at` marked, or the legend
     (LEGEND_ROW): {line: (row, [])}.
 
-    Per role (models_said), a blank line between two, its head, beside the first with rows the
-    columns' heads, then its lines: a row's mark in MARK cells, its name, its effort as `c` draws
-    one -- its cells, then its word, in one column after the most cells any row has -- its line
+    Per role (models_said), a blank line between two, its head, beside it the columns' heads
+    where it has rows in another unit than the last role with rows (the first with rows always),
+    then its lines: a row's mark in MARK cells, its name, its effort as `c` draws one -- its
+    cells, then its word, in one column after the most cells any row has -- its line
     (terminal.share_line), taking the room the other columns leave, then its quality, cost and
     notes, these one under another in a column as wide as the widest.  Every line is QUIET and
     every name plain but a row of the maker `lit`, (maker, colour): its line in the colour, its
@@ -3341,7 +3342,7 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
     before = before if wide else 4                            # folded, the line under the name
     size = max(8, room - before - after)
     under = 2 + MARK + 2 + 2 if wide else 6                   # 2 cells in from a row's name
-    first = next((number for number, (_, lines, _) in enumerate(said) if lines), None)
+    shown = None                                             # the last role with rows' unit
     lines, places = [], {}
 
     def put(line, here=None):
@@ -3362,7 +3363,8 @@ def models_body(said, compared, total, fetched, at=None, moves=None, lit=None):
         here = None
         if number:
             put("")
-        headings = number == first or (said_lines and number and unit != said[number - 1][2])
+        headings = bool(said_lines) and unit != shown
+        shown = unit if said_lines else shown
         if not (headings and wide):
             put("  " + head)
         if headings:
