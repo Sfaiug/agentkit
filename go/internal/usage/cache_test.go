@@ -46,10 +46,11 @@ func TestAReadWritesTheProvidersAndAccountsConfigListsAsItWrites(t *testing.T) {
 	if err := os.MkdirAll(state(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// swapped while the read asked: acme's account three for two, and its provider crate for brine
+	// swapped while the read asked: acme's account three for two and four, its provider crate for
+	// brine; only two has been read since
 	listed := "[models.anvil]\nharness='echo'\nmodel='anvil-1'\neffort='high'\nprovider='acme'\n" +
 		"[models.bale]\nharness='echo'\nmodel='bale-1'\neffort='high'\nprovider='brine'\n" +
-		"[providers.acme]\nmode='subscription'\naccounts=['default','two']\n[providers.brine]\nmode='subscription'\n"
+		"[providers.acme]\nmode='subscription'\naccounts=['default','two','four']\n[providers.brine]\nmode='subscription'\n"
 	if err := os.WriteFile(filepath.Join(home, ".agentkit", "config.toml"), []byte(listed), 0o600); err != nil {
 		t.Fatal(err)
 	}
