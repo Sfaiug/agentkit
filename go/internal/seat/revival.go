@@ -51,6 +51,9 @@ func (home Home) Revivals() []Revival {
 		}
 		state := filepath.Join(config.Home(), "state")
 		back, canOpen := comingBack(state, each.Name, record, each.held, false)
+		if canOpen { // as the run revival's reopen carries it
+			_, canOpen = back.goesOn(How{})
+		}
 		supported := each.supportsRunRevival(record)
 		seats = append(seats, Revival{Name: each.Name, Live: each.live, Closed: each.closed || each.asleep,
 			CanOpen: canOpen, Supported: supported, Fresh: back.conversation == "" || !back.opened, File: file,

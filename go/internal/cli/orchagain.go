@@ -19,6 +19,6 @@ func orchAgain(name string, dryRun, forced bool, out, errOut io.Writer) (int, bo
 	if !dryRun && !seat.Tidy(time.Now()) {
 		return notImplemented(errOut, "orch"), true
 	}
-	known, err := seat.Reopen(name, seat.How{DryRun: dryRun, Terminal: terminal.Attachable()}, out, errOut)
+	known, err := seat.Reopen(name, seat.How{DryRun: dryRun, Terminal: terminal.Attachable(), Owner: true}, out, errOut)
 	return orchAnswer("orch", "", known, err, out, errOut), true
 }
