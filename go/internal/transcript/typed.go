@@ -14,6 +14,6 @@ func Typed(name string, record map[string]any, named string) (conversation any, 
 		}
 		return owned, typed, true
 	}
-	path, known := harness.Conversation(name, record)
-	return record["conversation"], Prompts(name, path), known
+	names, known := harness.ReadBy(name, record)
+	return record["conversation"], Prompts(name, names...), known
 }

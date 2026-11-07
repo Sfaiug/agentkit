@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// Conversation is the file the conversation a seat's record names is read by, as that harness
-// keeps it (its plugin's `transcript`), "" where the record names none; false where Go does not
-// read that harness's conversations yet.
+// Conversation is the file that harness keeps the conversation a seat's record names in (its
+// plugin's `transcript`), "" where the record names none; false where Go does not read that
+// harness's conversations yet.
 func Conversation(name string, record map[string]any) (string, bool) {
 	if hook := plugins[name].conversation; hook != nil {
 		return hook(record), true

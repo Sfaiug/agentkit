@@ -36,9 +36,10 @@ type plugin struct {
 	// it reads the owner's own status command from where Go prints the line (StatusFiles).
 	report func(model string) (string, error)
 	status []string
-	// conversation is the file a seat's record says its conversation is read by, "" for none, and
-	// sources TokenSources'.
+	// conversation is the file a seat's record says its conversation is kept in, "" for none,
+	// readBy ReadBy's where ak gives that file a name of its own beside, and sources TokenSources'.
 	conversation func(record map[string]any) string
+	readBy       func(record map[string]any) []string
 	sources      func(record map[string]any) ([]string, bool)
 	// owns is whether the record vouches for that conversation as the seat's own (orch.owns), and
 	// resumable whether the seat owns one it may resume, where its own evidence says so, not its
