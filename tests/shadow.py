@@ -71,24 +71,18 @@ call(446, ruleset, 0)
 os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
 """
 # A run in its box: the program, then all it detached, which bwrap's init would kill as the
-# program ends, waited out till only that init and this shell are left.  The shell keeps the cap,
-# by /proc/uptime in hundredths of a second, and past it kills all but the two and marks the run
-# capped: only it outlives the kill to reap the program.  So the program runs in the background,
-# with the INT and QUIT a background job ignores given back.  The shell then becomes a Python
-# that writes down its children's peak memory, which exec keeps: a child's peak starts from its
-# parent's, some 20 MB for this script.
-WAIT = """python=$1 box=$2 cap=$3; shift 3
-read up _ </proc/uptime; end=$((${up%.*}${up#*.} + cap * 100))
-env --default-signal=INT,QUIT "$@" & program=$!
-while set -- /proc/[0-9]*; [ $# -gt 2 ]; do
-    read up _ </proc/uptime
-    [ "${up%.*}${up#*.}" -lt $end ] || { kill -KILL -1; : >"$box/capped"; break; }
-    sleep 0.1
-done
-wait $program; code=$?
+# program ends, waited out till only that init and this shell are left.  The shell then becomes a
+# Python that writes down its children's peak memory, which exec keeps: a child's peak starts
+# from its parent's, some 20 MB for this script.  The shell's own words, as its `Killed` for what
+# is killed at the cap, go nowhere: only the program's are compared.  dash says it on the killed
+# command's stderr, so the program is a subshell that becomes it.
+WAIT = """python=$1 peak=$2; shift 2
+exec 3>&2 2>/dev/null
+("$@" 2>&3 3>&-); code=$?
+while set -- /proc/[0-9]*; [ $# -gt 2 ]; do sleep 0.1; done
 exec "$python" -I -c 'import resource, sys
 print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
-sys.exit(int(sys.argv[1]))' "$code" >"$box/peak"
+sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 """
 
 
@@ -135,16 +129,20 @@ def run(label, program, argv, home, scratch):
     inside = folder / "box"
     began = time.monotonic()
     with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
-        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable, inside,
-                                 str(CAP), program, *argv],
+        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable,
+                                 inside / "peak", program, *argv],
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
     try:
-        code = proc.wait()
-    finally:
-        proc.kill()     # this script was stopped: the box goes with it
-        proc.wait()
-    if (inside / "capped").exists():
+        code = proc.wait(CAP)
+    except subprocess.TimeoutExpired:
         code = f"none (killed at {CAP // 60} minutes)"
+        end = time.monotonic() + 10     # for the shell to write down the peak
+        while proc.poll() is None and time.monotonic() < end:
+            _halt(proc.pid)
+            time.sleep(0.1)
+    finally:
+        proc.kill()     # past that, or this script was stopped: the box goes with it
+        proc.wait()
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
     record = inside / "handover"
@@ -156,6 +154,30 @@ def run(label, program, argv, home, scratch):
                 home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
                 call={f"{name} {shlex.join(json.loads(text))}" for name in FAKES
                       for text in _lines(inside / "logs" / f"{name}.log")})
+
+
+def _halt(bwrap):
+    """Kill all that `bwrap`'s box runs but its init and the shell waiting in it, boxed pids 1 and
+    2, from here, out of the box's reach, and wake that shell, which what it ran may have stopped.
+    What it detached is still below that init, by the parents /proc names."""
+    parent, boxed = {}, {}
+    for status in Path("/proc").glob("[0-9]*/status"):
+        try:
+            fields = {key: value.split() for key, _, value in
+                      (line.partition(":") for line in status.read_text().splitlines())}
+        except OSError:
+            continue    # ended meanwhile
+        pid = int(status.parent.name)
+        parent[pid], boxed[pid] = int(fields["PPid"][0]), fields["NSpid"][1:2]
+    under = {bwrap}
+    while more := {pid for pid, up in parent.items() if up in under} - under:
+        under |= more
+    for pid in under - {bwrap}:
+        if boxed[pid] != ["1"]:
+            try:
+                os.kill(pid, signal.SIGCONT if boxed[pid] == ["2"] else signal.SIGKILL)
+            except ProcessLookupError:
+                pass    # ended meanwhile
 
 
 def _lines(path):
