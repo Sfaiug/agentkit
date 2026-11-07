@@ -3223,15 +3223,6 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-# The models screen, `r recommended` on `c`: what each role uses, `▸` moving only up and down
-# from role to role; `p` lists your companies, their models turned on or off on it and others
-# added (company_list, company_add).
-MODELS_KEYS = {"answer": ("↑↓ role   ⏎ why   p models   r take   esc back",
-                          "up/down role   enter why   p models   r take   esc back"),
-               "list": ("↑↓ company   ←→ model   ␣ on or off   a add a company   esc done",
-                        "up/down company   left/right model   space on or off   "
-                        "a add a company   esc done"),
-               "add": ("↑↓ company   ⏎ add   esc back", "up/down company   enter add   esc back")}
 UNITS = {"share": "week %", "money": "plan $", "board_dollars": "a task"}   # matrix._costs's
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
 # the why's words: what a row does in each role, and each measure's evaluation by its name
@@ -3324,8 +3315,7 @@ def models_body(said, at=None):
 
 
 def models_read(compared, total, fetched):
-    """How many of the `total` listed models of your companies (matrix.ours) are `compared`
-    and when the boards were read, dim, broken only at ` · `."""
+    """How many of your companies' `total` models are `compared`, and when the boards were read."""
     read = time.localtime(fetched or 0)
     every = len(compared) == total
     parts = [f"comparing {'all' if every else f'{len(compared)} of'} {total} models",
@@ -3380,9 +3370,8 @@ def models_why(found, role, row):
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
     of `selected` uses (models_body) over models_read until Esc, the boards read as it opens
-    (matrix.refresh), the rule gliding until they land.  ↑/↓ move `▸`; ⏎ or a click opens the
-    why (models_why) of the row the role uses, else of its first choice, until Esc.  `p` lists
-    your companies (company_list); `r` takes each role's take (takes, take_advice)."""
+    (matrix.refresh).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of the row the role
+    uses, else of its first choice.  `p` lists companies (company_list); `r` takes (take_advice)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
     here, top, note = ("row", "orchestrate"), 0, ""
     title = f"config · recommended · {session or NEW_SEATS}"
@@ -3402,8 +3391,8 @@ def models_screen(cfg, session, selected, providers):
             used = matrix.uses(cfg, selected, answer)
             said = models_said(cfg, answer, used)
         body, places = models_body(said, None if terminal.away() else here[1])
-        act, here, _, top = matrix_key(title, body, places, rows, here, top, note,
-                                       MODELS_KEYS["answer"][not terminal.utf8()], marks=0,
+        keys = terminal.keys("p models", "r take", "esc back", enter="why", move=("role",))
+        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
                                        under=["", *models_read(compared, total,
                                                                held.get("fetched_at"))],
                                        clock=clock, began=fetch and fetch.began,
@@ -3516,7 +3505,9 @@ def company_list(cfg, title):
         body, places = companies_body(makers, yours, off, None if terminal.away() else here,
                                       column)
         act, here, clicked, top = matrix_key(
-            title, body, places, rows, here, top, note, MODELS_KEYS["list"][not terminal.utf8()],
+            title, body, places, rows, here, top, note, terminal.keys(
+                "a add a company", "esc done", space="on or off", enter=None,
+                move=("company", "model")),
             marks=1 + max(map(len, makers.values()), default=0), keyed=column,
             over=[*("  " + part for part in terminal.wrap(
                 "ak uses only the models that are on. Space turns one on or off, or, on a "
@@ -3567,7 +3558,7 @@ def company_add(title, makers, yours):
                 for row, line in zip(rows, body)]
         act, here, _, top = matrix_key(f"{title} · add a company", body, {
             line: (row, []) for line, row in enumerate(rows)}, rows, here, top, "",
-            MODELS_KEYS["add"][not terminal.utf8()], marks=0)
+            terminal.keys("esc back", enter="add", move=("company",)), marks=0)
         if act == "back" or act == "enter" and here:
             return None if act == "back" else here[1]
 

@@ -6,7 +6,7 @@ Screen, a temporary HOME), from a model's mark up onto a meter, over the For lin
 model's effort, through every row under the models, and into Subscriptions' page.
 The main screen's line is pinned by tests/test_menu_keys.py, the past sessions' by
 tests/test_key_past_sessions_by_day.py and the features' by tests/test_features_screen.py.  Every other
-key line is built by `terminal.keys`; the few still spelled by hand are counted here.
+key line is built by `terminal.keys`, none spelled by hand.
 """
 
 import ast
@@ -21,17 +21,9 @@ from agentkit import terminal  # noqa: E402
 from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, RIGHT, UP,  # noqa: E402
                                 Screen, highlighted, on_effort, on_mark)
 
-# Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
-SPELLED = {
-    "menu.py MODELS_KEYS": "the models screen: only ↑↓ move its `▸` from role to role, and on "
-                           "its company list ↑↓ and ←→ move between companies and models, as "
-                           "their tasks spell them",
-}
-
-
 def spelled():
-    """Where agentkit spells a key line (a ` move   ` phrase) itself: the module's top-level name
-    holding it, docstrings aside; a line of `↑↓` keys is one too."""
+    """Where agentkit spells a key line (a ` move   ` or `↑↓ ` phrase) itself: the module's
+    top-level name holding it, docstrings aside."""
     found = set()
     for path in sorted((REPO / "agentkit").rglob("*.py")):
         tree = ast.parse(path.read_text())
@@ -41,7 +33,7 @@ def spelled():
             docs = {id(node.body[0].value) for node in ast.walk(top)
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and ast.get_docstring(node)}
             if any(isinstance(node, ast.Constant) and isinstance(node.value, str)
-                   and (" move   " in f" {node.value}" or "↑↓" in node.value)
+                   and (" move   " in f" {node.value}" or "↑↓ " in node.value)
                    and id(node) not in docs
                    for node in ast.walk(top)):
                 name = getattr(top, "name", None) or top.targets[0].id
@@ -78,9 +70,8 @@ class OneKeyLine(unittest.TestCase):
                      or "config " in lines[0])
         screen.leave()
 
-    def test_only_the_screens_named_spell_their_own_key_line(self):
-        self.assertLessEqual(len(SPELLED), 1)
-        self.assertEqual(spelled(), set(SPELLED))
+    def test_no_screen_spells_its_own_key_line(self):
+        self.assertEqual(spelled(), set())
 
 
 if __name__ == "__main__":
