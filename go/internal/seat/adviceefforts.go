@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"agentkit/internal/config"
@@ -41,14 +42,23 @@ func savingEfforts(inFile []string, models map[string]config.Model, offered []st
 		}
 	}()
 	return save(func() error {
-		paths := config.SeatRecords("session")
-		locks := make([]string, len(paths))
-		for i, path := range paths {
-			locks[i] = filepath.Join(filepath.Dir(path), "."+strings.TrimSuffix(filepath.Base(path), ".json")+".lock")
-		}
-		var err error
-		if held, err = take(locks); err != nil {
-			return err
+		var paths []string
+		// until the records listed are the records once their locks are held: a rename that
+		// lands before then moves a record to a name not listed
+		for listed := false; !listed; {
+			for _, file := range held {
+				file.Close()
+			}
+			paths = config.SeatRecords("session")
+			locks := make([]string, len(paths))
+			for i, path := range paths {
+				locks[i] = filepath.Join(filepath.Dir(path), "."+strings.TrimSuffix(filepath.Base(path), ".json")+".lock")
+			}
+			var err error
+			if held, err = take(locks); err != nil {
+				return err
+			}
+			listed = slices.Equal(config.SeatRecords("session"), paths)
 		}
 		for _, path := range paths {
 			before, err := os.ReadFile(path)
