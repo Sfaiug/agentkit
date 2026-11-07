@@ -70,6 +70,7 @@ type Home struct {
 	models  map[string]config.Model
 	readers recordReaders
 	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
+	drawn   bool      // the ak screen draws it (MenuRead), where a seat out of usage is Python's to draw
 }
 
 type recordReaders map[string]harness.Reader
@@ -293,10 +294,8 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if !known || !only(record, slices.Concat(recordFields, launchKeys, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
 		return Seat{}, false
 	}
-	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	fields := slices.Concat(seatFields, lookFields)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) || err == nil && (previous == nil || !only(previous, fields)) ||
-		!live && previous != nil && previous.Get("unasked") != nil {
+	previous, known := seatRead(state, name)
+	if !known || !live && previous != nil && previous.Get("unasked") != nil {
 		return Seat{}, false
 	}
 	if seat.Warning == "" && !seat.unowned { // only an owned conversation can move its record
@@ -451,14 +450,8 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 // Announce publishes the listing using the evidence frozen by reading, under Python's locks.
 func (home Home) Announce(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
-	for at, seat := range home.Seats {
-		if seat.live { // its look decides its word, which every reader of this home reads
-			looked, err := lookedLive(state, seat.Name, home.runs, home.readers)
-			if err != nil {
-				return err
-			}
-			home.Seats[at] = looked
-		}
+	if err := home.announceLive(state); err != nil { // their looks decide their words, which every reader of this home reads
+		return err
 	}
 	if err := reconcile(state, home.records, true); err != nil {
 		return err
