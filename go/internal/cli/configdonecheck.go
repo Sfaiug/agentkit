@@ -30,7 +30,10 @@ func menuDoneCheck(keyboard *terminal.Keyboard, painter *terminal.Painter) bool 
 		}
 		checker, on, err := config.DoneCheck()
 		models, listed := config.Models()
-		if err != nil || listed != nil {
+		// a config Go binds otherwise than Python is Python's to save (seat.KeepConfigEfforts):
+		// handed over as the page opens, before anything is written
+		_, unbound := config.Bind()
+		if err != nil || listed != nil || unbound != nil {
 			return nil, false
 		}
 		rows = []menu.PageRow{
