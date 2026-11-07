@@ -252,8 +252,10 @@ func (t *ticking) say(text, address, session string) (said, carried bool) {
 		// Python's editor types past
 		return false, !unmarked
 	}
-	if !kept(nil) {
-		return false, true // the next tick reads it sent, and takes the mark off then
+	// a mark on the run comes off, or the next tick reads the line sent and takes it off then; a
+	// line sent with none kept is settled now, as nothing would hold a second copy back
+	if record.Has("decision_typed") && !kept(nil) {
+		return false, true
 	}
 	t.log.line("told the " + name + " seat: " + text)
 	return true, true
