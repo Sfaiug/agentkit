@@ -121,6 +121,9 @@ func OwnRefusal(dir string, pull *gh.Pull) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if why := unanswered(repo, pull.Head); why != "" {
+		return why, nil
+	}
 	return ownFirstReview(dir, repo, l.pull, pull.Number, target, pull.Head)
 }
 
@@ -398,7 +401,7 @@ func (l *loop) ownRound() error {
 	// preflight refused it before the launch; here again on the head checked out, which may have moved
 	if why, err := ownFirstReview(l.dir, repo, l.pull, pull.Number, targetSHA, pull.Head); err != nil {
 		return err
-	} else if why != "" {
+	} else if why = cmp.Or(unanswered(repo, pull.Head), why); why != "" {
 		return &blocked{why, "## Blocked\n\n" + why}
 	}
 	l.cmds = cmds
