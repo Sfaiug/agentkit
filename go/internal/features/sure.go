@@ -53,7 +53,8 @@ func decode(out []byte) (any, error) {
 // spell is a switch's id as Python's str() spells it, and whether Go knows that spelling: a string
 // as it is and an integer in its digits, whole however large.  A string holding U+FFFD is not
 // known, as Go's reader writes that for what Python's keeps (a lone surrogate) or replaces
-// otherwise (bytes not UTF-8); nor is another kind of value, which Go prints as it does.
+// otherwise (bytes not UTF-8); nor is another kind of value, which Go prints as it does, a number
+// with a fraction or an exponent as the float it is, as the switches screen has always shown it.
 func spell(id any) (string, bool) {
 	switch id := id.(type) {
 	case string:
@@ -62,7 +63,11 @@ func spell(id any) (string, bool) {
 		if id == "-0" {
 			return "0", true // json.loads reads it as the int 0
 		}
-		return string(id), !strings.ContainsAny(string(id), ".eE")
+		if !strings.ContainsAny(string(id), ".eE") {
+			return string(id), true
+		}
+		float, _ := id.Float64()
+		return fmt.Sprint(float), false
 	}
 	return fmt.Sprint(id), false
 }
