@@ -82,7 +82,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	// News owns the next prompt, including results arriving while we wait for the typing lock.
 	newsOwed := func(latest climbing) bool {
 		now := time.Now()
-		runs, known := lookRuns(nil, now)
+		runs, known := lookRuns(nil)(now)
 		if !known {
 			return true
 		}
