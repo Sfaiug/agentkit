@@ -571,8 +571,10 @@ def main(argv):
         print()
         return 0
     seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
-    body, _ = menu.models_body(menu.models_said(cfg, found, uses(cfg, seat, found)))
-    print("\n".join([*body, "", *menu.models_read(marked, len(ours(cfg)),
+    used = uses(cfg, seat, found)
+    body, _ = menu.models_body(menu.models_said(cfg, found, used))
+    bars = [line for role in found for line in menu.models_bars(found[role], role, used[role][2])]
+    print("\n".join([*body, *bars, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
                       *(["", *live_lines(own)] if own else [])]))
     return 0

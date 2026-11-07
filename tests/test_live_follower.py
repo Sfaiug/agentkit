@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from fixtures.sandbox import Sandbox
-from agentkit import config, orch, record, watch
+from agentkit import config, orch, record, sleep, watch
 
 T0, SEAT, WINDOW = 2000000, "fix-api", watch.AFTER_MERGE_WINDOW
 TAKES = {("slow", "health"): 30, ("live", "deployed"): 5}     # what a run's probe takes
@@ -83,6 +83,71 @@ class LiveFollower(Sandbox):
         self.assertEqual(self.began["red"], [("health", T0 + at) for at in (0, 15, 30, 45)])
         live = record.read_state(config.RUNS / "live")
         self.assertEqual((live["live_at"], live["deployed_at"]), (T0 + 40, T0 + 5))
+
+    def test_one_read_of_the_records_serves_every_run_an_interval(self):
+        """Three runs live and owed their line by a seat owing work, `three` its ending too, their
+        windows ending 15 s apart: whichever asks first in an interval reads every run's record,
+        the rest take it, up to the last look that finds the last window past."""
+        # its seat up and working, so `three`'s ending is handed back at each look and never in
+        for module, name, fake in ((orch, "watching", lambda _name: True),
+                                   (sleep, "wake", lambda *_a, **_kw: True),
+                                   (watch, "untyped", lambda *_a, **_kw: ("working", False))):
+            self.stack.enter_context(patch.object(module, name, fake))
+        reads, every = [], record.runs
+        self.stack.enter_context(patch.object(
+            record, "runs", lambda: reads.append(self.clock.now) or every()))
+        config.plan_path(SEAT).write_text("- [ ] the parser parses\n")
+        for at, name in enumerate(("one", "two", "three"), 1):
+            (config.RUNS / name).mkdir()
+            record.save_state(config.RUNS / name, {
+                "run_id": name, "state": "pass", "merged": True, "merge_sha": "a" * 40,
+                "pr": "https://github.com/acme/widget/pull/7", "launched_session": SEAT,
+                "repo": str(self.root), "finished_at": T0 - WINDOW + 15 * at, "live_at": T0,
+                "health": {}, "deployed": None,
+                **({"handback_pending": True} if name == "three"
+                   else {"handed_back": T0, "reported": True})})
+            watch.start_live_probe(config.RUNS / name)
+        self.assertEqual(watch.live_follower("one"), 0)
+        self.assertEqual(reads, [T0 + at for at in (0, 15, 30, 45, 60)])
+        self.assertFalse(any(record.read_state(config.RUNS / name).get("live_notified")
+                             for name in ("one", "two", "three")))
+
+    def test_a_run_stopped_since_the_read_is_not_taken_for_going(self):
+        """`other`, serving the seat's one line, is going as `seed`'s ask reads the records and
+        stops before `target` goes live: its seat, whose harness takes no prompt context, is told,
+        never left with that notice recorded as routine."""
+        config.save_session(self.cfg, SEAT, "grok", ["astra"], {"cwd": str(self.root)})
+        config.plan_path(SEAT).write_text(
+            "- [ ] verify api · check: `false` · acme · written 2026-10-23 09:00\n")
+        other = config.RUNS / "other"
+        other.mkdir()
+        record.save_state(other, {"run_id": "other", "state": "running", "launched_session": SEAT,
+                                  "plan_line": "verify api · written 2026-10-23 09:00"})
+        read, every, typed = threading.Event(), record.runs, []
+
+        def probe(*_a, **_kw):
+            self.assertTrue(read.wait(10), "seed never read the records")
+            with record.record(other) as current:
+                current["state"] = "stopped"
+            return True, ""
+
+        for module, name, fake in (
+                (record, "runs", lambda: (every(), read.set())[0]),
+                (watch, "health_command", probe),
+                (watch, "type_at_prompt", lambda seat, *_a, **_kw: typed.append(seat["name"]))):
+            self.stack.enter_context(patch.object(module, name, fake))
+        for name, fields in (("seed", {"live_at": T0, "health": {}}),
+                             ("target", {"health": {"command": "probe"}})):
+            (config.RUNS / name).mkdir()
+            record.save_state(config.RUNS / name, {
+                "run_id": name, "state": "pass", "merged": True, "merge_sha": "a" * 40,
+                "pr": "https://github.com/acme/widget/pull/7", "launched_session": SEAT,
+                "repo": str(self.root), "finished_at": T0 - WINDOW + 15, "handed_back": T0,
+                "reported": True, "deployed": None, **fields})
+            watch.start_live_probe(config.RUNS / name)
+        self.assertEqual(watch.live_follower("seed"), 0)
+        self.assertIn(SEAT, typed)
+        self.assertFalse(record.read_state(config.RUNS / "target").get("live_note"))
 
 
 if __name__ == "__main__":

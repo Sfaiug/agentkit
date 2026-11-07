@@ -61,26 +61,32 @@ HAIR = (([("acme-cheap-1", "high", .899999998), ("acme-best-1", "high", .90)],
           ("acme-other-1", "max", "beaten", "acme-best-1")]))
 
 
+def hold(home, rows):
+    """`home`'s boards holding `rows`, each (release, name, effort, share of every measure, cost
+    a task), and the retired row of tests/test_key_models_answer.py's boards alone besides."""
+    held = boards()
+    for board in held.values():
+        board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]
+    for release, name, effort, share, cost in rows:
+        held["artificialanalysis.ai"]["rows"].append(aa(release, name, effort, {
+            "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
+            "aa.terminalBench40": share, "aa.omniscience": 100 * share,
+            "aa.automationBenchPartialScore": share,
+            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
+               for slug in EVALUATIONS}}))
+        held["arena.ai"]["rows"].append({"model": name, "effort": effort,
+                                        "values": {"arena.agent": share}})
+    home.write(".agentkit/state/boards.json", held)
+
+
 def answer(rows, runs):
-    """`ak models --json` over the boards holding `rows`, each (release, name, effort, share
-    of every measure, cost a task), its one harness running release `runs` at `high`."""
+    """`ak models --json` over the boards holding `rows` (hold), its one harness running
+    release `runs` at `high`."""
     with Home() as home:
         fake = fakeadapter.install(home, claude="pass")["claude"]
         fake.answer("models", f"{runs}\t{runs}\thigh\n")
         akconfig.write(home, {"mine": {"harness": "claude", "model": runs}})
-        held = boards()
-        for board in held.values():
-            board["rows"] = [row for row in board["rows"] if row["model"] == "Old 1"]
-        for release, name, effort, share, cost in rows:
-            held["artificialanalysis.ai"]["rows"].append(aa(release, name, effort, {
-                "aa.intelligenceIndex": 50, "aa.frontierCode20": share,
-                "aa.terminalBench40": share, "aa.omniscience": 100 * share,
-                "aa.automationBenchPartialScore": share,
-                **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
-                   for slug in EVALUATIONS}}))
-            held["arena.ai"]["rows"].append({"model": name, "effort": effort,
-                                            "values": {"arena.agent": share}})
-        home.write(".agentkit/state/boards.json", held)
+        hold(home, rows)
         done = home.ak("models", "--json", env=ENV)
         assert done.code == 0, done.out + done.err
         return json.loads(done.out)

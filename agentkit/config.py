@@ -1253,6 +1253,7 @@ SEAT_FILES = {
     # collector still take those a host holds from before, as they take every other file of a gone seat
     "verified": "txt",
     "checked": "txt",    # what its last done check finding no gap read (`done_check.keep`)
+    "owed": "json",      # whether its finished plan owed that check when last asked, beside what that read (`done_check.owed`)
     "pictures": "jsonl", # each picture of a screen it kept for its done check (`done_check.look`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
     # seat, and a change may still be told against it (`orch.rulebook_change`)
