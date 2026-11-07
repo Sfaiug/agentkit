@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -64,6 +65,29 @@ func TestEnsureDirs(t *testing.T) {
 	}
 	if info, err := os.Stat(state); err != nil || info.Mode() != shared.Mode() {
 		t.Fatalf("a failed EnsureDirs left state changed: %v %v", info, err)
+	}
+}
+
+// Callers making a fresh home at once each succeed, the folders above it included: one made by
+// another caller between a look and a Mkdir is still a folder.
+func TestEnsureDirsAtOnce(t *testing.T) {
+	for range 20 {
+		home := filepath.Join(t.TempDir(), "acme", "home")
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		errs := make(chan error, 16)
+		var done sync.WaitGroup
+		for range cap(errs) {
+			done.Add(1)
+			go func() { defer done.Done(); errs <- EnsureDirs() }()
+		}
+		done.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 }
 

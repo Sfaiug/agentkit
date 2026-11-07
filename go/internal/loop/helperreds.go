@@ -13,8 +13,8 @@ import (
 // there.  The helper's runner stops at its first failure, naming that one test, so passing alone
 // says nothing of the tests it never reached: the whole piece then runs here and decides, a pass
 // a flake of the helper (handedOn), and of the tests it named there where memory killed them alone.
-// What a piece that named tests printed there is its first failed go (failed); one that named none
-// runs here whole next (pieces).
+// What each printed there is its first failed go (failed): one that named tests leaves its helper,
+// and one that named none keeps it until it runs here whole next (pieces).
 func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun func(*piece, string, []string) error) error {
 	var named, whole []*piece
 	unseen := map[*piece][]string{} // the tests a piece named there that memory killed here alone
@@ -36,8 +36,9 @@ func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun 
 			return err
 		}
 		l.say(fmt.Sprintf("WARN AK_SHARD=%s failed on the suite helper; what it printed there: %s", at.shard, kept.Name()))
+		at.failed, at.how = printed, "failed on the suite helper "+at.there.Alias
 		if len(at.ended.failed) > 0 {
-			at.failed, at.how = printed, "failed on the suite helper "+at.there.Alias
+			at.there = nil
 			named = append(named, at)
 		}
 	}
@@ -46,7 +47,6 @@ func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun 
 			return nil
 		}
 		tests := at.ended.failed
-		at.there = nil
 		decided, err := retryTests(at, rerun)
 		if err != nil {
 			return err

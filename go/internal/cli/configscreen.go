@@ -142,6 +142,12 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			}
 			continue
 		}
+		if key.Name == "enter" && view.Row == len(c.Names)+6 {
+			if !menuLimits(keyboard, painter) {
+				return false
+			}
+			continue
+		}
 		if key.Name == "enter" && view.Row >= len(c.Names) {
 			// Models and Subscriptions both change the models c shows, so it reads them again
 			page := view.Row - len(c.Names)

@@ -6,6 +6,7 @@ login's settings through a link (adapters/claude.sh's `share`).
 
 from pathlib import Path
 import codecs
+import fcntl
 import json
 import math
 import os
@@ -408,7 +409,9 @@ def reconcile(record):
 
 
 def capture(launched, payload, pid):
-    """Only the seat's interactive process can report its replacement conversation.
+    """Only the seat's interactive process can report its replacement conversation: a new one
+    after /clear, or an earlier one of its directory after /resume, which Claude Code (2.1.319)
+    goes on appending to in place.
 
     Run while the hook's parent is still alive: an inherited seat name and pane alone
     cannot distinguish a nested Claude from the one the owner is talking to.
@@ -416,7 +419,8 @@ def capture(launched, payload, pid):
     from .. import config, notify, orch
     if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(payload, dict)
             or payload.get("agent_id") or payload.get("agent_type")
-            or payload.get("hook_event_name") != "SessionStart" or payload.get("source") != "clear"):
+            or payload.get("hook_event_name") != "SessionStart"
+            or payload.get("source") not in ("clear", "resume")):
         return
     conversation, transcript = payload.get("session_id"), payload.get("transcript_path")
     if (not isinstance(conversation, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation)
@@ -425,19 +429,29 @@ def capture(launched, payload, pid):
     record = config.session_records().get(config.resolve_session(launched), {})
     if orch.seat_harness(record) != "claude" or record.get("conversation") == conversation:
         return
-    with notify.session_lock(launched) as name:
-        record = config.session_records().get(name, {})
+    # one seat claims a conversation at a time: two resuming the same one would each see it free
+    with notify.session_lock(launched) as name, \
+            (config.STATE / "conversations.lock").open("a") as claims:
+        fcntl.flock(claims, fcntl.LOCK_EX)
+        records = config.session_records()
+        record = records.pop(name, {})
         if (orch.seat_harness(record) != "claude" or not record.get("cwd")
                 or record.get("conversation") == conversation
                 or not resumable(record, record.get("cwd"), record.get("conversation"))
-                or Path(transcript).resolve() != transcript_path(record, conversation).resolve()):
+                or Path(transcript).resolve() != transcript_path(record, conversation).resolve()
+                # another seat's, current or left: its owner's words are that seat's to check
+                or any(conversation in (other.get("conversation"),
+                                        *(was.get("conversation") for was in other.get("left", [])))
+                       for other in records.values())):
             return
         session = orch.find(name)
         if session and orch.owns_hook(session, pid, is_process):
             # the conversation left stays the seat's, for its done check to read the owner's
-            # words in (`notify.conversations_of`), under the harness that keeps it
-            config.update_session(name, conversation=conversation, id_source=SOURCE,
-                                  left=notify.left(record, "claude", record["conversation"]))
+            # words in (`notify.conversations_of`), under the harness that keeps it; one it
+            # resumes is its current one again, read once
+            config.update_session(name, conversation=conversation, id_source=SOURCE, left=[
+                was for was in notify.left(record, "claude", record["conversation"])
+                if was["conversation"] != conversation])
 
 
 def is_process(words):

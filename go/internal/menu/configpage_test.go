@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -55,6 +56,26 @@ func TestAnOpenListFoldsPagesAndPointsAtItsChoices(t *testing.T) {
 		}
 		if row, choice, _ := frame.Step(1); row != 0 || choice != 28 {
 			t.Fatalf("a step left the list at %d: %d %d", width, row, choice)
+		}
+	}
+}
+
+// A value as short as a cell beside a label that leaves it none folds under its label, never cut:
+// its row takes a second line, and no line is wider than the terminal.
+func TestAValueBesideALabelThatLeavesItNoRoomFolds(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	const label = "Max lines per orchestrator task"
+	view := Page{Name: "limits", Rows: []PageRow{{Label: "Review rounds", Value: "3"}, {Label: label, Value: "50"}}}
+	for width := 20; width <= 40; width++ {
+		frame := ConfigPage(screenAt(t, strconv.Itoa(width)), view)
+		folded := width < 2+len(label)+2+1 // the room the widest label leaves beside it holds no cell
+		if got := slices.Index(frame.lines, pageEntry{1, -1}) == 2; got != folded {
+			t.Errorf("at %d columns 3 folded: %v, want %v", width, got, folded)
+		}
+		for _, line := range frame.Lines {
+			if terminal.Cells(line) > width {
+				t.Errorf("a line is wider than %d columns: %q", width, line)
+			}
 		}
 	}
 }

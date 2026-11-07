@@ -207,7 +207,7 @@ def gaps(cfg, name):
     try:
         with harness.strictly():
             seats = notify.conversations_of(name)
-            if not seats or not seats[-1][3]:
+            if not seats:
                 raise config.Error(f"no seat named {name} whose conversation ak can read")
             owner = owner_words(name, seats)
             pictures = [*harness.entries(config.seat_file("pictures", name))]

@@ -96,7 +96,7 @@ func Keep(checkout string, found map[string]float64) {
 func has(checkout, test string) bool {
 	file, _, _ := strings.Cut(test, "::")
 	if !filepath.IsAbs(file) {
-		file = filepath.Join(checkout, file)
+		file = checkout + string(filepath.Separator) + file // its `..` left for Stat to take after links
 	}
 	info, err := os.Stat(file)
 	return err == nil && info.Mode().IsRegular()

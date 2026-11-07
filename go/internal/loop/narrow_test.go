@@ -48,7 +48,7 @@ func TestDeliveryRedRetainsItsFixReceipt(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, _ := run.Read(dir)
-	if err := narrowLine("", "", "", "", "", []member{{dir, saved}}, io.Discard); err != nil {
+	if err := narrowLine("", "", "", &lineTarget{}, []member{{dir, saved}}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	current, _ := run.Read(dir)
@@ -60,9 +60,8 @@ func TestDeliveryRedRetainsItsFixReceipt(t *testing.T) {
 // A member not ready (land.check_line) keeps its place and holds nothing behind it; a handoff
 // leaves the rest to Python's lander.
 func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
-	passedOver := map[string]bool{"active": true, "missing-review": true, "delivery-red": true, "review-pr-moved": true, "repair-moved": true}
-	for _, kind := range []string{"conflict", "review-pr", "repair", "active", "missing-review", "rules", "delivery-red",
-		"review-pr-moved", "repair-moved"} {
+	passedOver := map[string]bool{"active": true, "missing-review": true, "delivery-red": true, "review-pr-moved": true}
+	for _, kind := range []string{"conflict", "review-pr", "active", "missing-review", "rules", "delivery-red", "review-pr-moved"} {
 		t.Run(kind, func(t *testing.T) {
 			_, repo := repoRig(t)
 			t.Setenv("AK_HOST_READINGS", `{"cpus":4,"load":0,"free_mb":16000}`)
@@ -97,8 +96,8 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 					"waiting_on", run.Fields("line", filepath.Base(turn), "joined", n))
 				if n == 2 {
 					switch kind {
-					case "review-pr", "repair", "review-pr-moved", "repair-moved":
-						record.Set(strings.ReplaceAll(strings.TrimSuffix(kind, "-moved"), "-", "_"), true)
+					case "review-pr", "review-pr-moved":
+						record.Set("review_pr", true)
 					case "active":
 						run.SetAll(record, "pid", os.Getpid(), "process_identity", Identity(os.Getpid()))
 					case "missing-review":
@@ -125,7 +124,7 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if err := narrowLine(turn, "", repo.repo, tip, "main", members, io.Discard); err != nil {
+			if err := narrowLine(turn, "", repo.repo, &lineTarget{upstream: "main", tip: tip, green: map[string]bool{}}, members, io.Discard); err != nil {
 				t.Fatal(err)
 			}
 			first, _ := run.Read(members[0].dir)
@@ -160,7 +159,7 @@ func TestNarrowingWaitsForAMissingReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	saved, _ := run.Read(dir)
-	if err := narrowLine("", "", "", "", "", []member{{dir, saved}}, io.Discard); err != nil {
+	if err := narrowLine("", "", "", &lineTarget{}, []member{{dir, saved}}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -5517,16 +5517,15 @@ def rounds_said(runs, held):
     return f"No run has gone past {last} round{'s' * (last != 1)}, so your runs can't say."
 
 
-def lines_said(key, reviewed, held):
-    """What the first reviews (history.first_reviews) of `key`'s changes would have done at
-    `held` lines: those of `held` lines or more -- where the owner's design of 5 Nov 2026 splits
-    them -- split, for builds under `executor_lines`, or made tasks, for orchestrators' own pull
-    requests under `orchestrator_lines`, and how often their first review passed, or round 1
-    merged them, beside the rest; off, or past the largest, what they can't say.  None with
-    none."""
+def lines_said(key, runs, held):
+    """What `key`'s changes would have done at `held` lines, `runs` the ones its size_chart
+    draws (history.first_review_sizes): those of `held` lines or more -- where the owner's design
+    of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
+    orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
+    passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
+    say.  None with none."""
     own = key == "orchestrator_lines"
-    sizes = [(lines, merged if own else passed)
-             for lines, mine, passed, merged in reviewed if mine == own]
+    sizes = [(lines, passed) for _, lines, passed in runs]
     if not sizes:
         return None
     if held == 0:
@@ -5561,8 +5560,9 @@ def config_limits(cfg):
     the page opens and said again as the value moves.  ← and → move the pointed one a step
     (limit_step), saved to config.toml at once where config.host_policy takes it.  The owner's
     design of 5 Nov 2026."""
-    ended, reviewed = history.round_endings(), history.first_reviews()
+    ended = history.round_endings()
     builds, own = history.first_review_sizes()
+    sized = {"executor_lines": builds, "orchestrator_lines": own}
     charts = {"review_rounds": lambda _: rounds_chart(ended),
               "executor_lines": lambda limit: size_chart(
                   builds, limit, 100, "how often a build passed its first review, by size",
@@ -5573,7 +5573,7 @@ def config_limits(cfg):
 
     def under(key, held):      # the row's chart, then what its runs would have done at `held`
         said = (rounds_said(ended, held) if key == "review_rounds"
-                else lines_said(key, reviewed, held))
+                else lines_said(key, sized[key], held))
         room = terminal.layout_width() - 2
         return [*charts[key](held),
                 *(["", *("  " + part for part in terminal.wrap(said, room))] if said else [])]

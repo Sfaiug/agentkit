@@ -155,21 +155,36 @@ func own(checkout string, words ...string) (any, string) {
 	if err != nil {
 		return nil, words[0] + ": " + config.PyError(err)
 	}
-	return run(checkout, env, words...)
+	return run(context.Background(), checkout, env, words...)
 }
 
 // run is the project's features command with words after it, in env, as Python's
 // gitcall.project_answer runs a project's own command: its JSON answer, or nil and the one line
-// saying why.  It runs in the checkout, reading nothing, in a session of its own, without the
-// seat's name (owner_env): an ssh in it never reads the keys, nor is it a seat reaching the live
-// host.  One past the wait is killed with everything it started, so a `set` said to have failed
-// never lands after.
-func run(checkout string, env []string, words ...string) (any, string) {
+// saying why.
+func run(ctx context.Context, checkout string, env []string, words ...string) (any, string) {
+	out, why := output(ctx, checkout, env, words...)
+	if why != "" {
+		return nil, why
+	}
+	// read as Python reads it, so an id is the text Python's str() makes of it
+	answer, err := record.Decode(out)
+	if err != nil {
+		return nil, words[0] + " answered no JSON"
+	}
+	return answer, ""
+}
+
+// output is what that command printed, as Python decodes it, or nil and the one line saying why
+// it answered nothing.  It runs in the checkout, reading nothing, in a session of its own, without
+// the seat's name (owner_env): an ssh in it never reads the keys, nor is it a seat reaching the
+// live host.  One past the wait is killed with everything it started, so a `set` said to have
+// failed never lands after, as is one running when ctx ends.
+func output(ctx context.Context, checkout string, env []string, words ...string) ([]byte, string) {
 	what, command := words[0], gitcall.Declared(checkout, "features")
 	if command == "" {
 		return nil, "AGENTS.md names no features command"
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), wait)
+	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command+" "+commandhelp.ShellJoin(words))
 	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then
@@ -196,10 +211,5 @@ func run(checkout string, env []string, words ...string) (any, string) {
 	case err != nil:
 		return nil, what + ": " + config.PyError(err)
 	}
-	// read as Python reads it, so an id is the text Python's str() makes of it
-	answer, err := record.Decode([]byte(gitcall.Decoded(out.String())))
-	if err != nil {
-		return nil, what + " answered no JSON"
-	}
-	return answer, ""
+	return []byte(gitcall.Decoded(out.String())), ""
 }
