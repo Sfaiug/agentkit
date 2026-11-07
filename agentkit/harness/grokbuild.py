@@ -112,7 +112,7 @@ def running(record, cwd, conversation):
 
 
 def read_by(record, cwd, conversation):
-    """The durable UI record its messages are read from (`messages`), None where it has none."""
+    """The durable UI record its messages and answers are read from, None where it has none."""
     where = cwd or record.get("cwd")
     return session_dir(where, conversation) / "updates.jsonl" if conversation and where else None
 
@@ -167,11 +167,8 @@ def answers(record, cwd, conversation):
     update, whose result holds the only record of their answers (`given`).  A dismissed card's
     result is another message, which answers nothing."""
     from . import entries, moment
-    where = cwd or record.get("cwd")
-    if not conversation or not where:
-        return
     asked = {}
-    for entry in entries(session_dir(where, conversation) / "updates.jsonl"):
+    for entry in entries(read_by(record, cwd, conversation)):
         said = []
         try:    # a line of any other shape answers nothing
             params, update = entry["params"], entry["params"]["update"]
