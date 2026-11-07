@@ -19,7 +19,6 @@ func Carried(name string, model config.Model, preview bool) bool {
 	if preview {
 		return true
 	}
-	_, known := harness.Opens(model.Harness)
 	_, err := config.Models()
-	return known && err == nil && unclaimed(filepath.Join(config.Home(), "state"), name)
+	return harness.OpensAnew(model.Harness) && err == nil && unclaimed(filepath.Join(config.Home(), "state"), name)
 }

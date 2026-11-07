@@ -27,19 +27,19 @@ type agyAnswered struct {
 	at            float64
 }
 
-// antigravityStored is the reconciled plugin of a record whose launcher gave it that conversation:
-// its last answer read from its store once, for the whole listing, a store landing or growing
-// while it waits to publish the word the next listing's; no answer where it has no store, nor for
-// a record owning another conversation by the time it is asked.  False where the store is there
-// and Go cannot read it: Python's look reads that as no answer and leaves the seat on its old
-// model, so Go hands the seat over before anything is written.
+// antigravityStored is the reconciled plugin of a record owning that conversation: its last answer
+// read from its store once, for the whole listing, a store landing or growing while it waits to
+// publish the word the next listing's; no answer where it has no store, nor for a record owning
+// another conversation by the time it is asked.  False where the store is there and Go cannot read
+// it: Python's look reads that as no answer and leaves the seat on its old model, so Go hands the
+// seat over before anything is written.
 func antigravityStored(own plugin, conversation, path string) (plugin, bool) {
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		return own, true
 	}
 	answered, known := antigravityAnswered(path)
 	own.answer = func(current *run.Object) (any, any, any, bool) {
-		if answered == nil || current.Str("id_source") != "launcher" || current.Str("conversation") != conversation {
+		if answered == nil || antigravityKnown(current) != conversation {
 			return nil, nil, nil, false
 		}
 		return answered.model, answered.effort, run.Float(answered.at), true

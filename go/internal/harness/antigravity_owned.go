@@ -52,23 +52,16 @@ func antigravityLearn(record *run.Object) string {
 	defer claiming.Close()
 	learned.Lock()
 	defer learned.Unlock()
-	owns := func(kept *run.Object) string {
-		if mine := antigravityMine(kept); mine != "" {
-			return mine
-		}
-		launch, _ := kept.Get("antigravity_launch").(string)
-		return learned.by[launch]
-	}
 	name, seat, others := antigravitySeats(token)
 	if name == "" {
 		return ""
 	}
-	if mine := owns(seat); mine != "" {
+	if mine := antigravityOwns(seat); mine != "" {
 		return mine
 	}
 	held := antigravityHeld(token)
 	for _, other := range others {
-		delete(held, owns(other))
+		delete(held, antigravityOwns(other))
 	}
 	if open := slices.Collect(maps.Keys(held)); len(open) == 1 {
 		learned.by[token] = open[0]

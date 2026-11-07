@@ -6,19 +6,19 @@ import (
 	"agentkit/internal/run"
 )
 
-var antigravityKept = regexp.MustCompile(`^antigravity-claim\.lock$`)
+// antigravityKept is the claim's lock, and the folder adapters/antigravity.sh makes each launch's
+// agent and hooks in, which no seat's word hangs on.
+var antigravityKept = regexp.MustCompile(`^antigravity(?:-claim\.lock)?$`)
 var antigravityConversation = regexp.MustCompile(`^[\pL\pN_-]+$`)
 
-// antigravityRecord admits launcher conversations, their last answer read from their store
-// (antigravity.py `owned`, `store`, `running`), and a launch that learns none. A learned
-// conversation stays Python's, even after its store is gone, as does one a launch would learn now,
-// before it is written down: the listing only follows ids in `conversation`.
+// antigravityRecord admits the conversation the seat owns, its launcher's or the one its launch's
+// own agy holds open, learned once here, and its last answer read from its store (antigravity.py
+// `conversation`, `store`, `running`): the seat may resume it, and its status line reports for it.
 func antigravityRecord(_ string, record *run.Object) (plugin, bool) {
 	own := plugins["antigravity"]
-	conversation := record.Str("conversation")
-	if record.Str("id_source") != "launcher" || conversation == "" {
-		return own, antigravityLearn(record) == ""
-	}
+	own.owning = antigravityKnown
+	own.resumable = func(current *run.Object) bool { return antigravityKnown(current) != "" }
+	conversation := antigravityLearn(record)
 	path := antigravityStore(conversation)
 	if path == "" {
 		return own, true
