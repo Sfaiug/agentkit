@@ -150,7 +150,7 @@ func aRunOfItsOwn(facts climbing) (*answer, error) {
 }
 
 func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
-func runsGoing(facts climbing) (*answer, error)   { return waitedOn(goneRuns(facts)) }
+func runsGoing(facts climbing) (*answer, error)   { return facts.besideUsage(waitedOn(goneRuns(facts))) }
 func liveCheck(facts climbing) (*answer, error)   { return waitedOn(runsAwaitingLive(facts)) }
 
 // everySeatsNews: the login no harness owns, or a worker token, dead.
@@ -186,8 +186,7 @@ func ownQuestion(facts climbing) (*answer, error) {
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is
 // in or the owner closed, or one the wait leaves its own word (keepsOwnWord).  ErrUnread where its
-// word hangs on what Go does not read: a move to another account that failed, a wait its runs or
-// its `ak wait` stand beside, a plan that may be done unprompted, or a refusal kept with no wait.
+// word hangs on what Go does not read: a wait with no reason or start, or a refusal kept with no wait.
 func usage(facts climbing) (*run.Object, error) {
 	if facts.gone != nil || facts.file.Truthy("closed_by_owner") {
 		return nil, nil
@@ -199,27 +198,28 @@ func usage(facts climbing) (*run.Object, error) {
 	if wait == nil {
 		return nil, ErrUnread
 	}
-	if _, said := wait.Get("reason").(string); !said || !wait.Has("since") || !wait.Truthy("until") ||
-		len(facts.mine) > 0 || facts.file.Get("wait") != nil {
+	if _, said := wait.Get("reason").(string); !said || !wait.Has("since") {
 		return nil, ErrUnread
 	}
-	if keepsOwnWord(facts.name, facts.file, wait) {
-		return nil, nil
-	}
-	if mayRestDone(facts.name) {
-		return nil, ErrUnread
+	if keeps, err := keepsOwnWord(facts, wait); keeps || err != nil {
+		return nil, err
 	}
 	return wait, nil
 }
 
+// moveFailed: a move to another account that failed, which no wait ends by itself, so neither its
+// runs nor its `ak wait` going says the owner was not needed.
 func moveFailed(facts climbing) (*answer, error) {
-	_, err := usage(facts)
-	return nil, err
+	wait, err := usage(facts)
+	if wait == nil || wait.Truthy("until") {
+		return nil, err
+	}
+	return &answer{word: "needs you", reason: wait.Str("reason"), since: wait.Get("since")}, nil
 }
 
 // usageWait: its subscription ran out, and ak resumes it when the usage comes back.
 func usageWait(facts climbing) (*answer, error) {
-	wait, err := usage(facts)
+	wait, err := outOfUsage(facts)
 	if wait == nil {
 		return nil, err
 	}
@@ -240,7 +240,7 @@ func waitGoing(facts climbing) (*answer, error) {
 	if _, dated := wait.Num("at"); dated {
 		since = wait.Get("at")
 	}
-	return waitedOn(&answer{word: "working", reason: "waiting on " + on, since: since}, nil)
+	return facts.besideUsage(waitedOn(&answer{word: "working", reason: "waiting on " + on, since: since}, nil))
 }
 
 // turnRunning: a turn in flight, past three hours saying so and keeping the word.
@@ -272,15 +272,17 @@ func alert(facts climbing) (*answer, error) {
 	return &answer{word: "needs you", reason: config.Fold(facts.notice.Str("text")), since: facts.notice.Get("time")}, nil
 }
 
-// telling: ak still has to tell it its wait is over (watch.news_owed).  A line a revive owes it stops
-// its reading (`stopped`), and an ending of its runs aRunOfItsOwn, before this is reached.
+// telling: ak still has news to type into it at its quiet prompt, which a look read.  A line a
+// revive owes it stops its reading (`stopped`) before this is reached.
 func telling(facts climbing) (*answer, error) {
-	wait := facts.file.Dict("wait")
-	if wait == nil || !wait.Truthy("over") || wait.Truthy("told") || facts.found.authority == "" ||
-		facts.found.state != "at_prompt" && facts.found.state != "draft" {
-		return endingNews(facts)
+	if facts.found.authority == "" || facts.found.state != "at_prompt" && facts.found.state != "draft" {
+		return nil, nil
 	}
-	return &answer{word: "working", reason: fmt.Sprintf("telling it its wait on %v is over", wait.Get("on")), since: facts.found.began}, nil
+	news := facts.news()
+	if news == "" {
+		return nil, nil
+	}
+	return &answer{word: "working", reason: news, since: facts.found.began}, nil
 }
 
 // stillOwed: nothing running, asked or owed it news, it is the owner's while its plan owes a line,

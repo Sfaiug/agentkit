@@ -121,10 +121,10 @@ func TestAFramesLookIsTakenUnderTheAnnounceLock(t *testing.T) {
 
 func TestWhatCameWhileAFramesLookWaitedWritesNothing(t *testing.T) {
 	for name, each := range map[string]struct{ seat, file string }{
-		"the owner's stop mark":       {"beta", `{"stopped_at": 1, "closed_by_owner": true}`},
-		"a wait on its usage":         {"beta", `{"usage_wait": {"reason": "spent", "since": 1}}`},
-		"a field Go never read":       {"beta", `{"acme_only": true}`},
-		"a bare seat's kept question": {"bare", `{"unasked": {"questions": [{"id": "q", "text": "Which one?", "at": 1}]}}`},
+		"the owner's stop mark":             {"beta", `{"stopped_at": 1, "closed_by_owner": true}`},
+		"a usage refusal kept with no wait": {"beta", `{"usage_refusal": {"line": "spent", "at": 1}}`},
+		"a field Go never read":             {"beta", `{"acme_only": true}`},
+		"a bare seat's kept question":       {"bare", `{"unasked": {"questions": [{"id": "q", "text": "Which one?", "at": 1}]}}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := sandbox(t)

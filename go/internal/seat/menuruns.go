@@ -72,7 +72,7 @@ func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ra
 
 func viewRun(record *run.Object, now time.Time) (runView, bool) {
 	state := record.Str("state")
-	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" && state != "stalled" {
+	if !run.Active(record) && !run.Ended(record) && state != "waiting" && state != "interrupted" && state != "stalled" && state != "exhausted" {
 		return runView{}, false
 	}
 	for _, field := range []string{"waiting_on", "gate_turn", "transient_wait", "process_identity", "lease_wait", "health"} {
@@ -89,8 +89,8 @@ func viewRun(record *run.Object, now time.Time) (runView, bool) {
 		return view, true
 	}
 	view := runView{going: run.Going(record, now), live: awaitingLive(record, now)}
-	// Other parked recovery still needs Python's reader; a parked error or merge wait is rung 3's (runParked).
-	if !view.going && state != "error" && run.NeedsRecovery(record) {
+	// Other parked recovery still needs Python's reader; a parked error, exhausted run or merge wait is rung 3's (runParked).
+	if !view.going && state != "error" && state != "exhausted" && run.NeedsRecovery(record) {
 		return runView{}, false
 	}
 	stage := map[string]int{"executor": 0, "done-when": 0, "reviewer": 1, "merge": 2}[record.Str("step")]
