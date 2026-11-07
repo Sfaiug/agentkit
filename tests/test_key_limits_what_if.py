@@ -7,8 +7,9 @@ after that round and the F failed would have gone back to their orchestrator; at
 back; at M + 1, a guess that it would go as round M did, those merged in M over those and F;
 further, the runs can't say.
 
-The line limits read the first reviews of runs that ended passed, failed or blocked, not
-stopped: their size, whether an orchestrator's own pull request or a build, and whether it
+The line limits read the runs their size bars count, the first reviews of runs that ended
+passed, failed or blocked, not stopped, nor a review of a pull request no orchestrator of yours
+wrote: their size, whether an orchestrator's own pull request or a build, and whether it
 passed in round 1, for a build, or merged in round 1, for an own pull request -- a pass that
 merged nothing (--no-merge) passed and did not merge.  At a value between 0 and the largest,
 those of that many lines or more, as the size bars split them, would have been split, or made
@@ -48,6 +49,10 @@ UNMERGED = {None: 200, "fable": 40}
 # (final_state, rounds_used, first_review_lines, own): none counted, each would move a number
 LEFT_OUT = [("stopped", 1, 900, None), ("running", 2, 700, None), ("error", 1, 800, None),
             ("stopped", 1, 300, "fable")]
+# reviews of a pull request no orchestrator of yours wrote, (final_state, rounds_used,
+# first_review_lines): no build nor own pull request, as the size bars leave them out, each
+# moving a number if counted; neither merged nor failed, so the rounds chart leaves them out
+REVIEWS = [("pass", 1, 500), ("blocked", 2, 20)]
 # 25 runs: merged in round 1 10, round 2 5, round 3 3 (M), and 7 failed (F)
 ROUNDS = {
     0: "Off: no reviewer, so a change lands when its checks pass. None of your runs went that "
@@ -94,14 +99,17 @@ def counted():
 def write_runs(home):
     rows = [*counted(), *(("pass", 1, None, size, own) for own, size in UNMERGED.items()),
             *((state, rounds, None, size, own) for state, rounds, size, own in LEFT_OUT)]
+    named = [*(("fix-api", row) for row in rows),
+             *(("review-pr-api", (state, rounds, None, size, None))
+               for state, rounds, size in REVIEWS)]
     connection = sqlite3.connect(home.path / ".agentkit/history.db")
     try:
         connection.execute(f"CREATE TABLE runs ({', '.join(COLUMNS)})")
         connection.executemany(
             f"INSERT INTO runs VALUES ({', '.join('?' * len(COLUMNS))})",
-            [(f"20261001-1200-fix-api-{number}", "acme", state, rounds, lines, size, own,
+            [(f"20261001-1200-{name}-{number}", "acme", state, rounds, lines, size, own,
               START + number * 3600, None if state == "running" else START + number * 3600 + 600)
-             for number, (state, rounds, lines, size, own) in enumerate(rows)])
+             for number, (name, (state, rounds, lines, size, own)) in enumerate(named)])
         connection.commit()
     finally:
         connection.close()

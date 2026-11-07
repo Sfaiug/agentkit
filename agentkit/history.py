@@ -1252,36 +1252,17 @@ def round_endings():
         return []
 
 
-def first_reviews():
-    """The first reviews of runs that ended with a verdict on the work (`record.JUDGED`), for
-    `Limits` (menu.lines_said): (the lines it read, whether the change was an orchestrator's own
-    pull request, whether the run passed in round 1, whether it merged in round 1) each -- a
-    pass need not merge, as with --no-merge; [] where the database cannot answer."""
-    try:
-        with _LOCK:
-            connection = _connect(readonly=True)
-            try:
-                return connection.execute(
-                    "SELECT first_review_lines, own_orchestrator IS NOT NULL, "
-                    "final_state = 'pass' AND rounds_used IS 1, "
-                    "changed_lines IS NOT NULL AND rounds_used IS 1 FROM runs "
-                    "WHERE first_review_lines IS NOT NULL AND final_state IN "
-                    f"({', '.join('?' * len(record.JUDGED))}) AND {REAL_WORK}",
-                    record.JUDGED).fetchall()
-            finally:
-                connection.close()
-    except (OSError, sqlite3.Error, TypeError, ValueError):
-        return []
-
-
 def first_review_sizes():
-    """For `Limits`' line limits (menu.size_chart), of the finished runs REAL_WORK counts:
-    (builds, own pull requests), each (started_at, first_review_lines, passed) in start order: a
-    build reviews no pull request, passed in round 1; an own pull request (kind `seat PR` or
-    own_orchestrator set) is a change's runs, its biggest first review, one merged in round 1."""
+    """For `Limits`' line limits, its bars (menu.size_chart) and the words under them
+    (menu.lines_said) the same runs: of those REAL_WORK counts that ended with a verdict on the
+    work (`record.JUDGED`), (builds, own pull requests), each (started_at, first_review_lines,
+    passed) in start order: a build is no own pull request and reviews none, passed in round 1;
+    an own pull request (kind `seat PR` or own_orchestrator set) is a change's runs, its biggest
+    first review, one merged in round 1 -- a pass need not merge, as with --no-merge."""
     _ensure_migrated()        # a history from before runs had a kind holds sized runs too
+    own = "(kind IS 'seat PR' OR COALESCE(own_orchestrator, '') <> '')"
     # REAL_WORK last: it reads a run's record, which the columns spare most rows
-    counted = f"finished_at IS NOT NULL AND {REAL_WORK}"
+    counted = f"final_state IN ({', '.join('?' * len(record.JUDGED))}) AND {REAL_WORK}"
     try:
         with _LOCK:
             connection = _connect(readonly=True)
@@ -1289,14 +1270,15 @@ def first_review_sizes():
                 return (connection.execute(
                             "SELECT started_at, first_review_lines, rounds_used IS 1 AND "
                             "final_state IS 'pass' FROM runs WHERE first_review_lines IS NOT NULL "
-                            "AND COALESCE(\"change\", '') NOT LIKE '%#%' AND run_id NOT LIKE "
-                            f"'%-review-pr-%' AND {counted} ORDER BY started_at").fetchall(),
+                            f"AND NOT {own} AND COALESCE(\"change\", '') NOT LIKE '%#%' AND run_id "
+                            f"NOT LIKE '%-review-pr-%' AND {counted} ORDER BY started_at",
+                            record.JUDGED).fetchall(),
                         connection.execute(
                             "SELECT MIN(started_at), MAX(first_review_lines), "
                             "MAX(changed_lines IS NOT NULL AND rounds_used IS 1) FROM runs "
-                            f"WHERE (kind IS 'seat PR' OR own_orchestrator <> '') AND {counted} "
-                            "GROUP BY COALESCE(\"change\", run_id) "
-                            "HAVING MAX(first_review_lines) IS NOT NULL ORDER BY 1").fetchall())
+                            f"WHERE {own} AND {counted} GROUP BY COALESCE(\"change\", run_id) "
+                            "HAVING MAX(first_review_lines) IS NOT NULL ORDER BY 1",
+                            record.JUDGED).fetchall())
             finally:
                 connection.close()
     except (OSError, sqlite3.Error, TypeError, ValueError):
