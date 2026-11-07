@@ -39,7 +39,7 @@ func antigravityStored(own plugin, conversation, path string) (plugin, bool) {
 	}
 	answered, known := antigravityAnswered(path)
 	own.answer = func(current *run.Object) (any, any, any, bool) {
-		if answered == nil || antigravityKnown(current) != conversation {
+		if answered == nil || own.owning(current) != conversation {
 			return nil, nil, nil, false
 		}
 		return answered.model, answered.effort, run.Float(answered.at), true
