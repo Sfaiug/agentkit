@@ -80,26 +80,27 @@ func EnsureDirs() (err error) {
 		}
 		above = append([]string{dir}, above...)
 	}
+	// Each folder is looked at only after its Mkdir fails, as Python's exist_ok does: another
+	// caller may make it between an earlier look and this Mkdir.
 	for _, dir := range above {
-		if err := os.Mkdir(dir, 0o777); err != nil {
+		if err := os.Mkdir(dir, 0o777); err == nil {
+			undo = append(undo, func() { os.Remove(dir) })
+		} else if info, statErr := os.Stat(dir); statErr != nil || !info.IsDir() {
 			return err
 		}
-		undo = append(undo, func() { os.Remove(dir) })
 	}
 	for _, place := range append([]string{""}, places...) {
 		dir := filepath.Join(Home(), place)
-		before, statErr := os.Stat(dir)
 		if err := os.Mkdir(dir, 0o700); err == nil {
 			undo = append(undo, func() { os.Remove(dir) })
-		} else if statErr != nil || !before.IsDir() {
+		} else if before, statErr := os.Stat(dir); statErr != nil || !before.IsDir() {
 			return err
+		} else {
+			// its whole mode: Chmod sets the setuid, setgid and sticky bits too
+			undo = append(undo, func() { os.Chmod(dir, before.Mode()) })
 		}
 		if err := os.Chmod(dir, 0o700); err != nil {
 			return err
-		}
-		if statErr == nil {
-			// its whole mode: Chmod sets the setuid, setgid and sticky bits too
-			undo = append(undo, func() { os.Chmod(dir, before.Mode()) })
 		}
 	}
 	return nil
