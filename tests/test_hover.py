@@ -454,22 +454,18 @@ class Screens(Sandbox):
         self.assertEqual(highlighted(screens[-1]), [])
 
     def test_the_models_screen_draws_no_highlight_off_every_row(self):
-        role = next(iter(menu.quality.ROLES))
-        row = {"release": "alpha", "effort": "high", "maker": "Acme", "name": "Alpha"}
-        said = [("orch", [(menu.pointed(role, row), "★ pick", "Alpha", [], "high", 1.0,
-                           "100.0", "$1.00", [], "Acme")], "a task")]
-        for name, value in (("stored", {"lineup": [row]}), ("refresh", ({}, None)),
-                            ("answer", {role: {"pick": row}})):
+        said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"), "a task")
+                for role in menu.quality.ROLES]
+        for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", {}), ("uses", {})):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
         self.stack.enter_context(patch.object(menu, "models_said", return_value=said))
-        # the pointer on the header lights no row, and a key brings it back where it was, the
-        # row's line, growing in as the screen opens, at its length
+        # the pointer on the header puts `▸` out, and a key brings it back where it was
         screens = run(lambda: menu.models_screen(self.cfg, None, {}, {}), move(1, 1), b"\x1b[A",
                       ESC)[1]
-        named = lambda grid: [line.split()[1] for line in highlighted(grid)]
+        highlighted = lambda grid: [line for line in texts(grid) if "▸" in line]
         self.assertEqual(len(highlighted(screens[0])), 1)
         self.assertEqual(highlighted(screens[1]), [])
-        self.assertEqual(named(screens[2]), named(screens[0]))
+        self.assertEqual(highlighted(screens[2]), highlighted(screens[0]))
 
     def test_a_screens_key_line_lights_the_item_under_the_pointer(self):
         def screen():

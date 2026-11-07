@@ -131,4 +131,6 @@ def scan(cfg, log, now=None):
         write(state)
         log(f"stuck: {line}")
         return setting, state
+    if told != (state.get("told") or []):
+        write({**state, "told": told})
     return None

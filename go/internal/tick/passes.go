@@ -11,7 +11,6 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
-	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
@@ -67,10 +66,7 @@ func table(t *ticking) []pass {
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, checkoutsSeen, t.retire},
-		// seats' conversations are Python's to read into a history a seat or its sources stand in
-		{"seat tokens", false, func() bool {
-			return run.Historyless() || len(config.SeatFiles()) == 0 && !history.KeepsSeats()
-		}, nil},
+		{"seat tokens", false, nil, seatTokens},
 		{"history sync", false, nil, func() error {
 			if !history.Agree(t.log.line) {
 				return errLeft

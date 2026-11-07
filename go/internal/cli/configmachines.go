@@ -102,10 +102,10 @@ func workWords(machine machines.Machine) (string, bool) {
 	return strings.Join(words, ", "), known
 }
 
-// saved is what a page says of a save: nothing where it held.
+// saved is what a page says of a save, Python's menu._saved: nothing where it held.
 func saved(err error) string {
 	if err != nil {
-		return "config: " + err.Error()
+		return "config: " + config.PyError(err)
 	}
 	return ""
 }

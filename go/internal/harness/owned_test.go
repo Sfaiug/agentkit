@@ -11,6 +11,8 @@ func TestOwnedConversation(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	plugins["unread"] = plugin{}
+	t.Cleanup(func() { delete(plugins, "unread") })
 	token := strings.Repeat("a", 32)
 	receipt := filepath.Join(home, ".agentkit", "state", "opencode-launch-"+token)
 	if err := os.MkdirAll(receipt, 0o700); err != nil {
@@ -33,7 +35,7 @@ func TestOwnedConversation(t *testing.T) {
 		{"a receipt that names no launch", "codex", map[string]any{"codex_launch": "r"}, "", true},
 		{"no report, whatever the record names", "opencode", map[string]any{"conversation": "c", "id_source": "launcher"}, "", true},
 		{"the session its launch reported", "opencode", map[string]any{"opencode_launch": token}, "ses_Acme", true},
-		{"a store Go has no plugin for", "antigravity", map[string]any{}, "", false},
+		{"a store Go has no plugin for", "unread", map[string]any{"conversation": "c", "id_source": "launcher"}, "", false},
 		{"an adapter alone", "echo", map[string]any{"conversation": "c", "id_source": "launcher"}, "c", true},
 	} {
 		if conversation, known := Owned(each.harness, each.record); conversation != each.conversation || known != each.known {

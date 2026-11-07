@@ -136,10 +136,10 @@ func TestFreshReopenKeepsItsAccount(t *testing.T) {
 	home := accountHome(t)
 	accountAdapter(t, home, "printf '%s' \"$AGENTKIT_ACCOUNT\" > \"$HOME/adapter-account\"\necho 'sleep 600'\n")
 	back := reopening{name: "acme", account: "second", model: config.Model{Harness: "claude"}}
-	cmd, conversation, known := back.command(nil)
+	cmd, conversation, err := back.command(nil)
 	account, _ := os.ReadFile(filepath.Join(home, "adapter-account"))
-	if !known || conversation == "" || string(account) != "second" || cmd[1] != "AGENTKIT_ACCOUNT=second" {
-		t.Fatal(cmd, conversation, string(account), known)
+	if err != nil || conversation == "" || string(account) != "second" || cmd[1] != "AGENTKIT_ACCOUNT=second" {
+		t.Fatal(cmd, conversation, string(account), err)
 	}
 }
 

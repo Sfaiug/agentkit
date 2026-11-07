@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 from fixtures.clock import Clock
 from fixtures.sandbox import REPO, Sandbox
-from agentkit import config, notify, orch, statusbar, watch
+from agentkit import config, done_check, hand_in, notify, orch, statusbar, watch, worker
 from agentkit.harness import claude
 
 SEAT = "acme-fix"
@@ -219,6 +219,26 @@ class SeatMove(Sandbox):
         self.assertEqual(self.record()["account"], "night")
         self.assertIn("Email a receipt", [message["text"] for seat in notify.conversations_of(SEAT)
                                           for message in notify.owner_messages(SEAT, seat)])
+
+    def test_a_seat_moved_onto_a_conversation_not_named_yet_is_checked_on_the_one_it_left(self):
+        # a fresh OpenCode seat names its conversation at its first prompt
+        path = claude.transcript_path(self.record(), OWN)
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"type": "user", "timestamp": "2026-11-05T10:00:00Z",
+                                    "message": {"role": "user", "content": "Email a receipt"}})
+                        + "\n")
+        self.assertEqual(self.move("mimo"), "")
+        read = []
+
+        def turn(_cfg, _model, _ask, workspace, out, **_kw):
+            read.append((workspace / "owner/1.md").read_text())
+            out.mkdir(parents=True)
+            (out / hand_in.FILE).write_text(json.dumps({"kind": "turn", "role": "reviewer-scratch"})
+                                            + "\n" + json.dumps({"kind": "done"}) + "\n")
+        with patch.object(done_check, "checker", return_value="opus"), \
+                patch.object(worker, "turn", side_effect=turn):
+            self.assertEqual(done_check.gaps(self.cfg, SEAT), [])
+        self.assertEqual(read, ["Email a receipt"])
 
     def test_a_conversation_its_harness_cannot_resume_opens_fresh_with_the_handover(self):
         config.update_session(SEAT, id_source=None)     # nothing the launcher handed out

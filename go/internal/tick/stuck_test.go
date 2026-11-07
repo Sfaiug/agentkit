@@ -74,6 +74,24 @@ func TestAStallsTypedLineGoesBeforeTheWeeksThroughTheSameSteps(t *testing.T) {
 	}
 }
 
+// A stall told leaves `told` on file once it ends, though nothing new is stuck.
+func TestAnEndedStallLeavesToldOnFile(t *testing.T) {
+	ak := stallHome(t)
+	if err := os.Remove(filepath.Join(ak, "runs", ".slots.queue")); err != nil {
+		t.Fatal(err)
+	}
+	put(t, filepath.Join(ak, "state", "audit.json"), `{"week":"2026-W45","line":"this week","typed":null,"delivered":1}`)
+	stall := filepath.Join(ak, "state", "stuck.json")
+	put(t, stall, `{"about":"the stall of the slot queue","line":"ak stalled","typed":null,"delivered":1,"told":["slot:x"]}`)
+	tick := &ticking{clock: func() time.Time { return stallNow }, log: newLog(io.Discard, io.Discard)}
+	if err := tick.audit(); err != nil {
+		t.Fatal(err)
+	}
+	if state, _ := run.ReadJSON(stall); state == nil || len(state.List("told")) != 0 || state.Str("line") != "ak stalled" {
+		t.Fatal(read(t, stall))
+	}
+}
+
 // A stall Go does not read leaves the tick to Python before a stall's line is written, though
 // the slot queue's is due.
 func TestAStallGoDoesNotReadIsLeftBeforeAnythingIsWritten(t *testing.T) {

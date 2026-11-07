@@ -74,6 +74,13 @@ class FirstInLineHalfAnHour(unittest.TestCase):
         self.polls(API, [API, WEB], NOW - 60, NOW + 30)
         self.assertIsNone(self.told(NOW + 30))
 
+    def test_a_wait_told_leaves_told_once_it_ends(self):
+        self.polls(API, [API, WEB], NOW - 1830, NOW)
+        self.told(NOW)
+        self.polls(API, [WEB], NOW + 30, NOW + 30)     # let in, it hands first place on
+        self.assertIsNone(self.told(NOW + 60))
+        self.assertEqual(stuck.read()["told"], [])
+
     def test_a_first_that_never_polls_is_a_stall_the_run_behind_it_finds(self):
         self.polls(WEB, [API, WEB], NOW - 3000, NOW)
         self.assertEqual(self.found(NOW), [f"slot:{API}:{NOW - 3000}"])

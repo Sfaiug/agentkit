@@ -20,11 +20,14 @@ import (
 // its choices alone: Space flips one, the list staying open, and Enter closes it, in a list that
 // picks one first picking the lit choice, or on a choice that acts acts, the list asked again; Esc
 // closes it, and so does a click on a row.  A row's field opens under it, typed in until Enter
-// gives the row what was typed or Esc shuts it, nothing given (fieldKey).  What a flip, an act or
-// a field says stays under the rows until the next key.  The page comes up as it opens and moves
-// on its clock (menu.ConfigPage), a key ending what moves, and one gone back to is drawn as it is.
-func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
-	view, clock := menu.Page{Name: name, Note: note}, &motion.Clock{}
+// gives the row what was typed or Esc shuts it, nothing given (fieldKey).  ← and → step a row that
+// steps, and so does a click on their arrow; `move`, where given, names what ↑↓ and ←→ each move
+// (menu.Page.Move).  The pointer off every row puts the highlight out, a key bringing it back where
+// it was, Space, Enter, ← or → doing nothing more.  What a flip, a step, an act or a field says
+// stays under the rows until the next key.  The page comes up as it opens and moves on its clock
+// (menu.ConfigPage), a key ending what moves, and one gone back to is drawn as it is.
+func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard *terminal.Keyboard, painter *terminal.Painter, move ...string) bool {
+	view, clock := menu.Page{Name: name, Note: note, Move: move}, &motion.Clock{}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
 	defer frame.Stop()
 	defer painter.Forget()
@@ -58,6 +61,13 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 			frame.Stop()
 		}
 		key := keyboard.ReadKey()
+		if view.Away && slices.Contains([]string{"space", "enter", "left", "right"}, key.Name) {
+			view.Away = false // pressed with no highlight drawn: it only comes back where the keys left it
+			continue
+		}
+		if key.Name != "wake" && key.Name != "again" {
+			view.Away = false
+		}
 		if key.Name != "wake" && key.Name != "again" && key.Name != "pointer" {
 			clock.Finish() // a key, not the pointer, ends what moves on its last frame
 			view.Said = ""
@@ -96,13 +106,22 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 					if lit(view).Flip != nil {
 						key.Name = "space"
 					}
+					if by := drawn.Arrow(mouse); by != 0 {
+						key.Name = map[int]string{-1: "left", 1: "right"}[by]
+					}
 				}
+			} else {
+				view.Away = true
 			}
 		}
 		if len(rows) == 0 {
 			continue
 		}
 		switch row := lit(view); {
+		case (key.Name == "left" || key.Name == "right") && row.Step != nil:
+			if take := row.Step(map[string]int{"left": -1, "right": 1}[key.Name]); take != nil {
+				view.Said = take()
+			}
 		case key.Name == "space" && row.Flip != nil:
 			view.Said = row.Flip()
 			if view.Choices != nil && !openList(&view) {
