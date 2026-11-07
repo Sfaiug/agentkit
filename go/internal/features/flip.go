@@ -33,7 +33,7 @@ func Flip(checkout, feature string, column int) string {
 	found.flips[feature]++
 	asked := found.flips[feature]
 	held.Unlock()
-	answer, why := run(checkout, "set", feature, Heads[column], value)
+	answer, why := own(checkout, "set", feature, Heads[column], value)
 	answered, _ := switches([]any{answer})
 	if len(answered) == 0 || answered[0].ID != feature {
 		return cmp.Or(why, "set answered no row")
