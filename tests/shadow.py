@@ -71,15 +71,24 @@ call(446, ruleset, 0)
 os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
 """
 # A run in its box: the program, then all it detached, which bwrap's init would kill as the
-# program ends, waited out till only that init and this shell are left.  The shell then becomes a
-# Python that writes down its children's peak memory, which exec keeps: a child's peak starts
-# from its parent's, some 20 MB for this script.
-WAIT = """python=$1 peak=$2; shift 2
-"$@"; code=$?
-while set -- /proc/[0-9]*; [ $# -gt 2 ]; do sleep 0.1; done
+# program ends, waited out till only that init and this shell are left.  The shell keeps the cap,
+# by /proc/uptime in hundredths of a second, and past it kills all but the two and marks the run
+# capped: only it outlives the kill to reap the program.  So the program runs in the background,
+# with the INT and QUIT a background job ignores given back.  The shell then becomes a Python
+# that writes down its children's peak memory, which exec keeps: a child's peak starts from its
+# parent's, some 20 MB for this script.
+WAIT = """python=$1 box=$2 cap=$3; shift 3
+read up _ </proc/uptime; end=$((${up%.*}${up#*.} + cap * 100))
+env --default-signal=INT,QUIT "$@" & program=$!
+while set -- /proc/[0-9]*; [ $# -gt 2 ]; do
+    read up _ </proc/uptime
+    [ "${up%.*}${up#*.}" -lt $end ] || { kill -KILL -1; : >"$box/capped"; break; }
+    sleep 0.1
+done
+wait $program; code=$?
 exec "$python" -I -c 'import resource, sys
 print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
-sys.exit(int(sys.argv[1]))' "$code" >"$peak"
+sys.exit(int(sys.argv[1]))' "$code" >"$box/peak"
 """
 
 
@@ -126,16 +135,16 @@ def run(label, program, argv, home, scratch):
     inside = folder / "box"
     began = time.monotonic()
     with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
-        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable,
-                                 inside / "peak", program, *argv],
+        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable, inside,
+                                 str(CAP), program, *argv],
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
     try:
-        code = proc.wait(CAP)
-    except subprocess.TimeoutExpired:
-        code = f"none (killed at {CAP // 60} minutes)"
+        code = proc.wait()
     finally:
-        proc.kill()     # past its cap, or this script was stopped: the box goes with it
+        proc.kill()     # this script was stopped: the box goes with it
         proc.wait()
+    if (inside / "capped").exists():
+        code = f"none (killed at {CAP // 60} minutes)"
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
     record = inside / "handover"
