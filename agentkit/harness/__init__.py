@@ -181,13 +181,14 @@ def last_entry(path, pick):
 
 # Every reader here takes a record it cannot read for one that holds nothing, except inside
 # `strictly`: there, a record that is there and cannot be read is an error (`unread`).  The done
-# check reads so, since an owner it could not read is no owner who said nothing.
-_STRICT = contextvars.ContextVar("strict", default=False)
+# check reads so, since an owner it could not read is no owner who said nothing.  It is one read
+# of them, too: what any of its readers parsed, the next one asking takes (`once`).
+_STRICT = contextvars.ContextVar("strict", default=None)     # inside it, {key: what was parsed}
 
 
 @contextlib.contextmanager
 def strictly():
-    held = _STRICT.set(True)
+    held = _STRICT.set({})
     try:
         yield
     finally:
@@ -197,8 +198,19 @@ def strictly():
 def unread(exc):
     """Raise `exc`, a record failing to read, inside `strictly`, unless it says the record is
     not there: a record that is gone holds nothing either way."""
-    if _STRICT.get() and not isinstance(exc, FileNotFoundError):
+    if _STRICT.get() is not None and not isinstance(exc, FileNotFoundError):
         raise exc
+
+
+def once(key, parse):
+    """`parse()`; inside `strictly`, what it gave the first reader there asking for `key`, so only
+    read."""
+    found = _STRICT.get()
+    if found is None:
+        return parse()
+    if key not in found:
+        found[key] = parse()
+    return found[key]
 
 
 def _names(path):
@@ -529,6 +541,14 @@ class Harness:
         """The conversation this seat owns: by default the one its record was launched with."""
         hook = self._hook("conversation")
         return hook(record, cwd) if hook else record.get("conversation")
+
+    def claim(self, record, cwd=None):
+        """(The conversation `conversation` gives while each file its proof reads is as it is
+        now, those files): claimed, the proof not made, for a harness whose proof reads the
+        conversation itself, as Codex's reads its rollout's first line.  By default what
+        `conversation` gives, and no file."""
+        hook = self._hook("claim")
+        return hook(record, cwd) if hook else (self.conversation(record, cwd), [])
 
     def resumable(self, record, cwd, conversation):
         """Whether that conversation may be resumed: by default only a launcher-issued id."""

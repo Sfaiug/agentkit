@@ -96,24 +96,26 @@ def owed(name, text):
     """Whether the seat, its plan `text` holding lines and every one done, owes a done check:
     one is on, the owner wrote a message or answered a question card in one of its
     conversations, and no check that found no gap read what they have said and what the plan
-    holds now (`fingerprint`).  A record ak cannot read holds the seat.  Their words are read only
-    for such a plan, and only where what an answer was kept from changed since (`asked`): ak asks
-    for every seat it draws.  Nothing here makes a check."""
+    holds now (`fingerprint`).  A record ak cannot read holds the seat.  Their words are read, and
+    the seat's conversation proven its, only for such a plan, and only where what an answer was
+    kept from changed since (`asked`): ak asks for every seat it draws.  Nothing here makes a
+    check."""
     if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
         return False
     try:
         if not on(config.load()):
             return False
         with harness.strictly():
-            seats = notify.conversations_of(name)
+            proof = []      # the files proving the conversation claimed, read on a miss alone
+            claimed = notify.conversations_of(name, proof=proof)
             try:
                 kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
             except FileNotFoundError:
                 kept = None
-            read, path = asked(name, seats, text, kept), config.seat_file("owed", name)
+            read, path = asked(name, claimed, proof, text, kept), config.seat_file("owed", name)
             if (was := answered(path, read)) is not None:
                 return was
-            owner = owner_words(name, seats)
+            owner = owner_words(name, notify.conversations_of(name))
     except (OSError, ValueError, config.Error):
         return True
     answer = bool(owner) and fingerprint(owner, text) != kept      # none with no conversation
@@ -128,22 +130,23 @@ def owed(name, text):
     return answer
 
 
-def asked(name, seats, text, kept):
+def asked(name, seats, proof, text, kept):
     """What `owed` answers from, short of the owner's words, as a digest: the plan's `text`, what
-    a check `kept`, and the file each of the seat's conversations `seats` is read from, by each
-    of its names, with its identity, size and modification time, the seat's typing receipts' too,
-    which tell ak's lines in it from the owner's, and the directories of the code that reads
-    them, which an update of ak replaces.  Taken before their words are read, so a file written
-    meanwhile reads changed next time.  None where a conversation's harness keeps it in no file
-    of its own (`Harness.read_by`): that one is read every time."""
+    a check `kept`, the seat's conversations `seats` as their harnesses claim them and the file
+    each is read from, by each of its names, with its identity, size and modification time, and
+    so each file a proof of those claims reads (`proof`), the seat's typing receipts, which tell
+    ak's lines in it from the owner's, and the directories of the code that reads them, which an
+    update of ak replaces.  Taken before their words are read, so a file written meanwhile reads
+    changed next time.  None where a conversation's harness keeps it in no file of its own
+    (`Harness.read_by`): that one is read every time."""
     files = [config.seat_file("input", config.resolve_session(name)), Path(__file__).parent,
-             Path(harness.__file__).parent]
+             Path(harness.__file__).parent, *proof]
     conversations = []
-    for plugin, record, cwd, conversation in seats:
-        names = plugin.read_by(record, cwd, conversation)
+    for plugin, *seat in seats:
+        names = plugin.read_by(*seat)
         if names is None:
             return None
-        conversations.append([plugin.name, conversation])
+        conversations.append([plugin.name, seat[-1]])
         files += names
     stamps = []
     for path in files:

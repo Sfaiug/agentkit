@@ -29,7 +29,7 @@ def chat(closing):
     plugin = SimpleNamespace(name="fake", said=lambda *_a: [{"who": "model", "text": closing()}],
                              reads_messages=False, user_messages=lambda *_a, **_k: [],
                              answers=lambda *_a: [], read_by=lambda *_a: None)
-    return lambda _name: (plugin, {}, None, "conv")
+    return lambda _name, **_kw: (plugin, {}, None, "conv")
 
 
 def cursor_row(pane):

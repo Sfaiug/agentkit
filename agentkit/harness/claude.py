@@ -288,15 +288,19 @@ def answers(record, cwd, conversation):
 
 def owner(record, cwd, conversation):
     """(`user_messages`, `answers`) of that conversation, by the first of its transcript's names
-    there (`read_by`), from one parse of it while it is unchanged (`parsed`): the done check asks
-    for both."""
-    from .. import parsed
-    for name in read_by(record, cwd, conversation) or ():
-        try:
-            return parsed.read(name, _owner)
-        except FileNotFoundError:
-            continue        # gone since it was named: the next name is the same file
-    return [], []
+    there (`read_by`), from one parse of it in one read of the done check's (`harness.once`),
+    which asks for both."""
+    from . import once
+    names = read_by(record, cwd, conversation) or []
+
+    def parse():
+        for name in names:
+            try:
+                return _owner(name)
+            except FileNotFoundError:
+                continue        # gone since it was named: the next name is the same file
+        return [], []
+    return once((_owner, *names), parse)
 
 
 def _owner(path):
