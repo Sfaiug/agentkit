@@ -115,7 +115,7 @@ def first_lapse():
 
 
 def main(argv):
-    """`ak lend`, and this module run as a program: see Usage above."""
+    """`ak lend`: see Usage above."""
     subscriptions = argv[0] == "--subscriptions"
     home = Path(argv[subscriptions])
     try:
@@ -129,4 +129,7 @@ def main(argv):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    # `ak lend` itself, so this entry takes every command's first steps too: an old host
+    # config's keys are migrated before its subscriptions are read.
+    os.execv(sys.executable, [sys.executable, str(config.REPO / "bin" / "ak"), "lend",
+                              *sys.argv[1:]])
