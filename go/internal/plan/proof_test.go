@@ -16,7 +16,8 @@ import (
 )
 
 // An integer id is compared in its digits, as Python's str() spells it; a list holding another kind
-// of id, or one Go's reader refuses where Python's may read it, is Python's before anything is written.
+// of id, NaN or Infinity anywhere, or what Go's reader refuses where Python's may read it, is
+// Python's before anything is written.
 func TestAProofGateSpellsIdsAsPythonOrHandsOver(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("USERPROFILE", os.Getenv("HOME"))
@@ -28,18 +29,21 @@ func TestAProofGateSpellsIdsAsPythonOrHandsOver(t *testing.T) {
 	}
 	since := time.Now().UTC().AddDate(0, 0, -3).Format(time.RFC3339)
 	row := func(id, more string) string {
-		return `[{"id": ` + id + `, "everyone": true, "everyone_since": "` + since + `"` + more + `}]`
+		return `{"id": ` + id + `, "everyone": true, "everyone_since": "` + since + `"` + more + `}`
 	}
+	listed := func(items ...string) string { return "[" + strings.Join(items, ", ") + "]" }
 	// each list, and the switch whose check it refuses; "" where it hands over
 	for list, refused := range map[string]string{
-		row("1000000", ""):  "1000000",
-		row("-0", ""):       "0",
-		row("1e6", ""):      "",
-		row("true", ""):     "",
-		row("null", ""):     "",
-		row("NaN", ""):      "",
-		row(`"\ud800"`, ""): "",
-		row("1000000", `, "n": `+strings.Repeat("9", 641)): "",
+		listed(row("1000000", "")):                                 "1000000",
+		listed(row("-0", "")):                                      "0",
+		listed(row("1e6", "")):                                     "",
+		listed(row("true", "")):                                    "",
+		listed(row("null", "")):                                    "",
+		listed(row("1000000", `, "share": NaN`)):                   "",
+		listed(row("1000000", ""), "-Infinity"):                    "",
+		listed(row("1000000", ""), `{"metadata": Infinity}`):       "",
+		listed(row(`"\ud800"`, "")):                                "",
+		listed(row("1000000", `, "n": `+strings.Repeat("9", 641))): "",
 	} {
 		if os.WriteFile(filepath.Join(checkout, "list.json"), []byte(list), 0o644) != nil {
 			t.Fatal("no list")

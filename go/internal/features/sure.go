@@ -2,6 +2,7 @@ package features
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 
@@ -13,10 +14,11 @@ import (
 var ErrPython = errors.New("a switch list Go does not read as Python surely does")
 
 // List is the rows the checkout's `list` answers now (menu.switch_rows), nil for no list: a
-// command that fails, or answers past its wait or ctx, answers none.  ErrPython where Go's reader
-// refuses what Python's may read (a lone surrogate, or a number or nesting Python's limits decide),
-// or where a row's id is neither a string nor an integer: only those Go compares as Python's str()
-// spells them.
+// command that fails, or answers past its wait or ctx, answers none.  Go judges only plain JSON,
+// each id a string or an integer, which it compares as Python's str() spells them; ErrPython for
+// the rest, Python's to judge: an answer Go's reader refuses where Python's may read it (a lone
+// surrogate, or a number or nesting Python's limits decide), one holding NaN or Infinity, which
+// Python's json reads and JSON does not hold, or one with a row whose id is another kind of value.
 func List(ctx context.Context, checkout string) ([]*record.Object, error) {
 	env, err := config.ChildEnv()
 	if err != nil {
@@ -25,7 +27,8 @@ func List(ctx context.Context, checkout string) ([]*record.Object, error) {
 	out, _ := output(ctx, checkout, env, "list")
 	answer, err := record.DecodeLimited(out)
 	rows, _ := objects(answer)
-	if errors.Is(err, record.ErrLoneSurrogate) || errors.Is(err, record.ErrLimit) || slices.ContainsFunc(rows, unspelled) {
+	if errors.Is(err, record.ErrLoneSurrogate) || errors.Is(err, record.ErrLimit) || err == nil && !json.Valid(out) ||
+		slices.ContainsFunc(rows, unspelled) {
 		return nil, ErrPython
 	}
 	return rows, nil
