@@ -62,10 +62,7 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 	if err != nil {
 		return 0, "", err
 	}
-	err = firstPoll(record)
-	if err == nil {
-		err = loop.Reopen(dir, read, order)
-	}
+	err = loop.Reopen(dir, read, order)
 	if err == nil {
 		if noted != nil {
 			noted()
@@ -103,7 +100,7 @@ func goesOn(dir string, read, record *run.Object) bool {
 	if _, _, err := task.Read(filepath.Join(dir, "task.md")); err != nil || config.Check() != nil {
 		return false
 	}
-	return driverHere() && !(record.Truthy("repo") && helper.May()) &&
+	return driverHere() && !(record.Truthy("repo") && helper.May()) && pollsHere(record) &&
 		(loop.Pickup(dir, record) || loop.Woken(record) || loop.Unstarted(record) && launchStands(dir, record) ||
 			loop.Raised(dir, read, record))
 }
