@@ -1,16 +1,20 @@
 """tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of seven fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
-every byte and modification time; and where no box can be built, nothing runs."""
+every byte and modification time; a box's HOME starts as the home is; and where no box can be
+built, nothing runs."""
 
+import os
 from pathlib import Path
 import shlex
 import shutil
+import struct
 import sys
 import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures.akbin import REPO, Home, boxable
+import shadow
 
 SHADOW = REPO / "tests" / "shadow.py"
 COMMAND = ("usage",)    # one that writes under HOME: ak's folders and its probes' locks
@@ -90,6 +94,17 @@ class Shadowed(unittest.TestCase):
                 more = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
                 code, found, said = self.shadow("--go", self.fake(name, GO.format(more)), env=env)
                 self.assertEqual((code, found), outcome, said)
+
+    def test_a_box_starts_its_home_as_the_home_is(self):
+        # a read-only home with an attribute of its own, boxed in a folder whose default ACL each
+        # folder made in it inherits
+        home, scratch = (Path(tempfile.mkdtemp(dir=self.fakes)) for _ in range(2))
+        os.setxattr(home, "user.acme", b"home")
+        home.chmod(0o500)
+        os.setxattr(scratch, "system.posix_acl_default", struct.pack("<I", 2) + b"".join(
+            struct.pack("<HHI", tag, 7, 0xFFFFFFFF) for tag in (1, 4, 32)))
+        _, _, folder = shadow.box(home, scratch)
+        self.assertEqual(shadow.touched(folder / "upper", home), set())
 
     def test_where_no_box_can_be_built_nothing_runs(self):
         ran = self.fakes / "ran"

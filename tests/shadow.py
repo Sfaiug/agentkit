@@ -111,11 +111,15 @@ def box(home, scratch):
         (folder / part).mkdir(parents=True, mode=0o700)
     # The box's HOME shows the mode and extended attributes of the upper layer's folder, not the
     # home's, so that folder starts as the home: a run then changes HOME only where it changes it.
-    upper = folder / "upper"
-    upper.chmod(stat.S_IMODE(home.stat().st_mode))
-    for name, value in _attributes(home).items():
+    # Its attributes become the home's exactly, a default ACL it inherited from `scratch` gone, and
+    # the mode comes last: an attribute of the user's is written only to a folder it may write.
+    upper, attributes = folder / "upper", _attributes(home)
+    for name in _attributes(upper).keys() - attributes.keys():
+        os.removexattr(upper, name)
+    for name, value in attributes.items():
         if value is not None:
             os.setxattr(upper, name, value)
+    upper.chmod(stat.S_IMODE(home.stat().st_mode))
     for name in FAKES:
         fake = inside / "bin" / name
         fake.write_text(akbin.REFUSE.format(python=shlex.quote(sys.executable), name=name,
