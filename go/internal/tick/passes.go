@@ -89,9 +89,10 @@ func table(t *ticking) []pass {
 		{"seat weights", false, nil, func() error { host.Front(); return nil }},
 		{"idle sleep", false, configured, t.sleep},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
-		// a due collection's units are Python's to clear where a user manager runs
-		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
-			gc.Schedule(t.log.line)
+		{"collection", false, nil, func() error {
+			if !gc.Schedule(t.log.line) {
+				return errLeft
+			}
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},
