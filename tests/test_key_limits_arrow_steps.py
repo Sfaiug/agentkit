@@ -5,7 +5,8 @@ value between steps, as written by hand, moves to the next step in the arrow's d
 neither arrow moves past an end.  The pointed row shows its value as `◂ value ▸`, a side's arrow
 left out at that end, a click on one moving it as its key does, and the key line reads
 `↑↓ limit   ←→ value   esc back`.  With the pointer off every row, the first ← or → only
-brings the highlight back, as Enter and Space do.
+brings the highlight back, as Enter and Space do.  A pointed value too wide beside its label, as
+on 40 cells, folds under it whole, never an arrow parted from it.
 
 The owner's design of 5 Nov 2026.  Black-box: the program `AK_BIN` names, in a person's
 terminal (tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py,
@@ -55,11 +56,11 @@ class ArrowSteps(unittest.TestCase):
         cls.addClassCleanup(cls.home.close)
         fakeadapter.install(cls.home, claude="pass", codex="pass")
 
-    def limits(self, settings=None):
-        """`config · limits` from `c`, in a window of its own, over a config.toml setting
-        `settings`."""
+    def limits(self, settings=None, width=100):
+        """`config · limits` from `c`, in a window `width` cells wide of its own, over a
+        config.toml setting `settings`."""
         akconfig.write(self.home, MODELS, settings=settings)
-        term = Terminal(self.home, size=(100, 40), env={"NO_COLOR": "1"})
+        term = Terminal(self.home, size=(width, 40), env={"NO_COLOR": "1"})
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
         term.wait("esc leave")
@@ -139,6 +140,17 @@ class ArrowSteps(unittest.TestCase):
                     term.type(f"\x1b[<0;{column};{row_at}M\x1b[<0;{column};{row_at}m")
                     self.pointed(term, name, value)
                 term.keys("j")
+
+    def test_on_40_cells_a_value_too_wide_beside_its_label_folds_under_it_whole(self):
+        # five cells beside the label once held `◂ 300`, its `▸` alone on the line under it
+        term = self.limits(width=40)
+        for name, value in ((NAMES[1], "◂ 300 ▸"), (NAMES[2], "◂ 50 ▸")):
+            with self.subTest(name=name):
+                term.keys("j")
+                shown = lines(term.wait(f"› {name}"))
+                at = next(number for number, line in enumerate(shown)
+                          if line.startswith(f"› {name}"))
+                self.assertEqual(shown[at:at + 2], [f"› {name}", f"    {value}"])
 
     def test_with_the_highlight_hidden_the_first_arrow_only_brings_it_back(self):
         for arrow, value in (("Left", 2), ("Right", 4)):

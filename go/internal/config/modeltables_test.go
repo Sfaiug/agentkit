@@ -8,8 +8,8 @@ import (
 )
 
 // A model taken out on Models and back brings its provider's table back as the page keeps it: as the
-// page opened, or as the page first took a model in under a provider a host lists, whatever changed
-// in the config since (menu.models_page's `tables`).
+// page opened, or as the page first took a model of it in or out, whatever changed in the config
+// since (menu.models_page's `tables`).
 func TestATableComesBackAsThePageKeptIt(t *testing.T) {
 	path := rememberIn(t, tickModels+`
 [models.zen]
@@ -86,12 +86,18 @@ usage_model = 'zen'
 		changed("name = \"Nova Cloud\"", "name = \"Nova\"")
 	}
 
-	// a free provider and its model another open page put in: the table this page keeps no copy of
-	// stays, so the model comes back with it as it was
+	// a free provider and its model another open page put in: out takes the table as it was, and
+	// another page's save in between cannot lose what comes back
 	changed("[providers.fuel]", "[models.vega]\nharness = 'acme'\nmodel = 'vega/v1'\neffort = 'high'\nprovider = 'vega'\n\n"+
 		"[providers.vega]\nmode = 'free'\nusage_model = 'vega'\nmetadata = {nested = [{values = [1, 2]}]}\n\n[providers.fuel]")
 	other := provider("vega")
 	tick("vega/v1", "Vega", nil)
+	if got := provider("vega"); got != nil {
+		t.Fatalf("a free provider stayed without a model: %v", got)
+	}
+	if err := RememberDefaults("one", []string{"one"}, nil, noKeep); err != nil {
+		t.Fatal(err)
+	}
 	tick("vega/v1", "Vega", nil)
 	if got := provider("vega"); !reflect.DeepEqual(got, other) {
 		t.Fatalf("vega came back as %v, want %v", got, other)

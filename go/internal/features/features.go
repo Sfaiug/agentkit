@@ -1,6 +1,6 @@
 // Package features reaches a production project's feature switches, live data in the project,
 // through the one command its AGENTS.md names under `features:` (Python's menu.switches): `list`
-// prints every feature, each `you` and `everyone`.
+// prints every feature, each `you` and `everyone`, and `set <id> you|everyone on|off` flips one.
 package features
 
 import (
@@ -64,6 +64,8 @@ var (
 type entry struct {
 	Reading
 	asked time.Time
+	set   time.Time      // when a flip's answer last stood in the rows
+	flips map[string]int // each feature's flips asked, the last of them the one drawn
 }
 
 // Named is whether the checkout's AGENTS.md names a features command.
@@ -86,25 +88,31 @@ func Read(checkout string, every time.Duration) Reading {
 	return found.Reading
 }
 
-// Landed is told once a list has landed since it was last read from: what draws the switches
-// draws again.
+// Landed is told once a list or a flip has landed since it was last read from: what draws the
+// switches draws again.
 func Landed() <-chan struct{} { return landed }
+
+func land() {
+	select {
+	case landed <- struct{}{}:
+	default:
+	}
+}
 
 func list(checkout string, found *entry) {
 	answer, why := own(checkout, "list")
 	rows, listed := switches(answer)
 	held.Lock()
-	found.Asking = time.Time{}
-	if listed {
+	switch {
+	case found.set.After(found.Asking): // a flip answered while this was asked: this list is older than it
+	case listed:
 		found.Rows, found.Why = rows, "" // a new list, never the old one changed: a reading keeps its own
-	} else {
+	default:
 		found.Why = cmp.Or(why, "list answered no list")
 	}
+	found.Asking = time.Time{}
 	held.Unlock()
-	select {
-	case landed <- struct{}{}:
-	default:
-	}
+	land()
 }
 
 // objects is the rows a `list` answered, each an object with an id, as Python's

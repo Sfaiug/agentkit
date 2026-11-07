@@ -32,13 +32,6 @@ func lives() ([]seat.Live, error) {
 	return read, nil
 }
 
-// healthy is whether the health row's look at the seat is all it does (watch.health): nothing it
-// stopped on to type past or ask about, no login to ask after, its pane named, its title its own,
-// no notice to answer by its output, and no account to move it to or off.
-func healthy(live seat.Live) bool {
-	return healthReady(live) && live.Refused == "" && stays(live)
-}
-
 // refused is whether the health row's look, and the wait on its usage the refusal its record ends
 // on puts it in, are all the row does there (watch.seat_account), which a dry tick says it would.
 func refused(live seat.Live) bool { return live.Refused != "" && looked(live) }
@@ -69,6 +62,7 @@ func stays(live seat.Live) bool {
 // and its word published, as the later rows read it, while the look is all the row does there, or
 // keeps the stall its screen shows in its first minutes; the first it would do more at ends the
 // tick there, before its publish.  A stall held of a seat whose record is gone is Python's to forget.
+// A dry tick's look acts on nothing and says what it would type.
 func (t *ticking) health() error {
 	if err := t.pollTokens(); err != nil {
 		return err
@@ -90,7 +84,7 @@ func (t *ticking) health() error {
 			kept, line, keeps = seat.KeepStall(live, held, epoch(time.Now()))
 			owner = live.Name
 			return keeps
-		}, t.log.line)
+		}, t.log.line, t.dry)
 		if err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}

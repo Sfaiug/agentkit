@@ -31,6 +31,9 @@ func (seat Seat) nudgeQuestion(state string, found sight, log func(string)) (sig
 	if err != nil || reminder == "" {
 		return found, err
 	}
+	if drying != nil { // the reminder is Python's dry tick's to say
+		return found, errDry
+	}
 	episode, err := stopEpisode(seat.own, facts.file)
 	if err != nil {
 		return found, err
