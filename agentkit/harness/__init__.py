@@ -361,8 +361,9 @@ def config_entries():
 def conversation_stores():
     """Where each harness that never ends a conversation itself keeps them, as [{"harness": its
     name, "root": a folder, "pattern": the glob under it, at its depth, of one conversation's
-    file or folder}], from every plugin that keeps any, each in as many folders as it keeps.
-    `ak gc` ends one nobody wrote to for 30 days, as Claude Code ends its own."""
+    file or folder, "id": a regex that name fullmatches, its first group the conversation's id}],
+    from every plugin that keeps any, each in as many folders as it keeps.  `ak gc` ends one
+    nobody wrote to for 30 days, as Claude Code ends its own, unless a seat holds it."""
     return [{"harness": module.__name__.rpartition(".")[2], **store}
             for module in _plugins("conversation_stores") for store in module.conversation_stores()]
 

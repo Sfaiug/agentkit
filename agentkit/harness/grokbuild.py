@@ -273,8 +273,8 @@ def conversation_stores():
     # tmp_listdir, not glob: planning leaves HOME's atime alone.
     homes = [Path.home() / name for name in (".grok", *(name for name in gc.tmp_listdir(Path.home())
                                                         if name.startswith(".grok-")))]
-    return [{"root": home / "sessions", "pattern": "*/*/"} for home in homes
-            if not (home / "sessions").is_symlink()]
+    return [{"root": home / "sessions", "pattern": "*/*/", "id": re.compile("(.+)")}
+            for home in homes if not (home / "sessions").is_symlink()]
 
 
 def end_conversation(path, ends):
