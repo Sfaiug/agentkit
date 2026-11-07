@@ -52,13 +52,14 @@ type piece struct {
 // first beside the others or any go after, it goes again alone once its turn was given back for a
 // poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
 // dropped where it hands the suite on.  The suite ends as its first red piece did, and hands on
-// what handedOn says.
+// what handedOn says, its cost raised where it ran out of memory (overflowed).
 //
-// What Python does beyond that is not Go's yet and differs here: the suite's pace and cost measured
-// for its next run.
+// What Python does beyond that is not Go's yet and differs here: the suite's pace and the cost it
+// held measured for its next run.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
 	asked := clock() // each piece's first go is asked for now, a later one as the one before it ends
 	cpus, memory := suiteCost(l.dir, cwd, cmd)
+	ooms := host.MemoryEvent("oom")
 	away, here := on.away, on.here
 	count := host.Pieces(cpus, memory)
 	places := count
@@ -99,7 +100,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 			where = "on " + at.there.Alias
 		}
 		l.say(fmt.Sprintf("AK_SHARD=%s %s", at.shard, where))
-		kills, flaky := host.OOMKills(), at.ended.flaky // the tests its earlier goes saw fail, then pass
+		kills, flaky := host.MemoryEvent("oom_kill"), at.ended.flaky // the tests its earlier goes saw fail, then pass
 		if left := time.Until(*deadline); left <= 0 {
 			at.ended = ran{code: 124, stopped: "ceiling"}
 		} else {
@@ -266,7 +267,11 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		}
 		at.failed = failed
 	}
-	return l.handedOn(cmd, all, path)
+	ended, text, err := l.handedOn(cmd, all, path)
+	if err == nil {
+		err = overflowed(suitePath(l.dir, cwd, cmd), ooms, memory)
+	}
+	return ended, text, err
 }
 
 // handedOn is how the pieces ended as one command, and what they hand on: the green pieces, then
@@ -330,19 +335,24 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 }
 
 // suiteCost is one piece's cores and memory as a finished run of the suite measured them, Python's
-// gate.suite_cost, a heavy suite's first estimate for what none measured: keyed on the repository's
-// main checkout and the command.
+// gate.suite_cost, a heavy suite's first estimate for what none measured.
 func suiteCost(dir, cwd, cmd string) (float64, float64) {
-	repo := cwd
-	if record, _ := run.Read(dir); record != nil {
-		repo = cmp.Or(record.Str("repo"), cwd)
-	}
-	key := sha256.Sum256([]byte(config.Resolve(repo) + "\n" + cmd))
-	kept, _ := run.ReadJSON(filepath.Join(config.Home(), "state", fmt.Sprintf("suite-%x.json", key)))
+	kept, _ := run.ReadJSON(suitePath(dir, cwd, cmd))
 	if kept == nil {
 		kept = run.NewObject()
 	}
 	cpus, _ := kept.Num("cpus")
 	memory, _ := kept.Num("mem_mb")
 	return host.Cost(cpus, memory)
+}
+
+// suitePath is where the suite's cost is kept, Python's gate.suite_cost: keyed on the repository's
+// main checkout and the command.
+func suitePath(dir, cwd, cmd string) string {
+	repo := cwd
+	if record, _ := run.Read(dir); record != nil {
+		repo = cmp.Or(record.Str("repo"), cwd)
+	}
+	key := sha256.Sum256([]byte(config.Resolve(repo) + "\n" + cmd))
+	return filepath.Join(config.Home(), "state", fmt.Sprintf("suite-%x.json", key))
 }
