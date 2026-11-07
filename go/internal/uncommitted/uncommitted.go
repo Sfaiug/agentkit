@@ -44,13 +44,14 @@ func Paths(g gitcall.Git) ([]string, error) {
 	return names(tracked, untracked), nil
 }
 
-// Junk matches names, not targets: a dependency symlink is junk even when git ignores only
-// directories.
-func Junk(path string) bool {
+// Junk is whether path in wt is a test sandbox, a run lock, a dependency tree or a Go build cache,
+// Python's leftover_junk.  Names match, not targets: a dependency symlink is junk even when git
+// ignores only directories.
+func Junk(wt, path string) bool {
 	parts := strings.Split(strings.TrimRight(path, "/"), "/")
 	return strings.HasPrefix(parts[0], SandboxPrefix) || slices.ContainsFunc(parts, func(part string) bool {
 		return part == run.RecoveryLock || part == "delivery.lock" || part == "node_modules" || part == "venv" || part == ".venv"
-	})
+	}) || goBuildCache(wt, path)
 }
 
 // Committable is the dirty paths a commit of the checkout would take and the leftover junk it
@@ -64,7 +65,7 @@ func Committable(g gitcall.Git, artifacts map[string]bool) (real, left []string,
 		if artifacts[path] {
 			continue
 		}
-		ignored := Junk(path)
+		ignored := Junk(g.Repo, path)
 		if !ignored {
 			code, _, err := g.Out("check-ignore", "-q", "--", path)
 			if err != nil {
@@ -105,8 +106,9 @@ func Add(g gitcall.Git, selected []string) error {
 
 // Tree is the tree of the commit the loop makes of the checkout's uncommitted work, Python's
 // leftover_tree: HEAD's, with the committable paths as the checkout holds them and the junk staged
-// as deleted gone, built in an index of its own, as the loop builds its commit.
-func Tree(g gitcall.Git, artifacts map[string]bool) (string, error) {
+// as deleted gone, built in an index of its own, as the loop builds its commit.  That index file,
+// index, is then the checkout's as the loop leaves it (leave), for the reads Git makes in one.
+func Tree(g gitcall.Git, artifacts map[string]bool, index string) (string, error) {
 	real, left, err := Committable(g, artifacts)
 	if err != nil {
 		return "", err
@@ -116,13 +118,8 @@ func Tree(g gitcall.Git, artifacts map[string]bool) (string, error) {
 		return "", err
 	}
 	staged := names(deleted)
-	gone := slices.DeleteFunc(left, func(path string) bool { return !slices.Contains(staged, path) })
-	tmp, err := os.MkdirTemp("", "ak-index-")
-	if err != nil {
-		return "", err
-	}
-	defer os.RemoveAll(tmp)
-	private := gitcall.Git{Repo: g.Repo, Env: append(slices.Clone(g.Env), "GIT_INDEX_FILE="+filepath.Join(tmp, "index")), Cap: g.Cap}
+	gone := slices.DeleteFunc(slices.Clone(left), func(path string) bool { return !slices.Contains(staged, path) })
+	private := gitcall.Git{Repo: g.Repo, Env: append(slices.Clone(g.Env), "GIT_INDEX_FILE="+index), Cap: g.Cap}
 	if _, err := private.Must("read-tree", "HEAD"); err != nil {
 		return "", err
 	}
@@ -134,5 +131,9 @@ func Tree(g gitcall.Git, artifacts map[string]bool) (string, error) {
 			return "", err
 		}
 	}
-	return private.Must("write-tree")
+	tree, err := private.Must("write-tree")
+	if err != nil {
+		return "", err
+	}
+	return tree, leave(g, private, index, real, slices.DeleteFunc(left, func(path string) bool { return slices.Contains(gone, path) }))
 }

@@ -1,6 +1,7 @@
 """Choose the declared suite's checks for its mode and divide them, and name those that failed,
 without changing a check or keeping shared timing state."""
 
+import json
 import os
 from pathlib import Path
 import re
@@ -35,6 +36,13 @@ def name_failed(tests, file="AK_FAILED"):
     if os.environ.get(file):
         with open(os.environ[file], "a") as fh:
             fh.writelines(f"{test}\n" for test in tests)
+
+
+def name_timed(times):
+    """Write a test file's passing parts' seconds, `times`, to the file PART_TIMES names, if it
+    names one, as every_file.py asks of each file it runs."""
+    if os.environ.get("PART_TIMES"):
+        Path(os.environ["PART_TIMES"]).write_text(json.dumps(times))
 
 
 def claims(root):
@@ -86,7 +94,8 @@ LIVE_CHECKS = {"1", "2", "3", "3a", "4", "4b", "4c", "4d", "5", "6", "6b", "6d",
                "31a", "31d"}
 # The checks that read the checkout alone and take seconds: tests/landing.py runs them first in
 # every share and stops there when one fails; every_file.py leaves them to it.
-STATIC_CHECKS = ("test_dead_code", "test_boundaries", "test_modules_say_what_they_are", "test_docs")
+STATIC_CHECKS = ("test_dead_code", "test_boundaries", "test_modules_say_what_they_are", "test_docs",
+                 "test_keys_run_ak_from_outside")
 
 
 def smoke_blocks(source):

@@ -5,28 +5,48 @@ import (
 	"io/fs"
 	"os"
 
+	"agentkit/internal/features"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
-// retireEvery is how often the switch lists are read, Python's retire.EVERY.
-const retireEvery = 3600
+const (
+	retireEvery = 3600  // how often the switch lists are read, Python's retire.EVERY
+	retireAgain = 86400 // a checkout whose lines were written is read again this long after
+)
 
-// noSwitches is whether no checkout names a command for its feature switches: its AGENTS.md as
-// written, which Python's retire.hand reads, and its default branch's.
-func noSwitches() bool { return noneDeclares("features", true) }
-
-// retire is the switch retirement row where no checkout names its switches (retire.hand): the
-// hourly read of the lists, which reads none, stamped in its record.
+// retire is the switch retirement row (retire.hand): once every retireEvery, each checkout not
+// written for retireAgain whose AGENTS.md names a features command gets an open line, in a seat
+// filed under it, for each switch its list shows proven or on for everyone with no everyone_since.
+// Every list, plan and word is read before a line is written, so one Go does not read as Python
+// does leaves the row to Python with nothing done.
 func (t *ticking) retire() error {
 	record, err := retireRecord()
 	if err != nil {
 		return err
 	}
-	now := epoch(t.clock())
-	if asked, _ := record.Num("asked"); 0 <= now-asked && now-asked < retireEvery {
+	now := t.clock()
+	if asked, _ := record.Num("asked"); 0 <= epoch(now)-asked && epoch(now)-asked < retireEvery {
 		return nil
 	}
-	record.Set("asked", now)
+	checkouts, _ := seat.Checkouts()
+	var hands []handing
+	for _, checkout := range checkouts {
+		if at, _ := record.Num(checkout); 0 <= epoch(now)-at && epoch(now)-at < retireAgain || !features.Named(checkout) {
+			continue
+		}
+		hand, err := handed(checkout, now)
+		if err != nil {
+			return err
+		}
+		hands = append(hands, hand)
+	}
+	record.Set("asked", epoch(now))
+	for _, hand := range hands {
+		if t.hand(hand) {
+			record.Set(hand.checkout, epoch(now))
+		}
+	}
 	return replaceFile(statePath("retire.json"), run.Encode(record)+"\n")
 }
 

@@ -647,9 +647,12 @@ def update_agentkit(progress=None, pull=True):
                     say("update: agentkit: origin/main moves here once its tests/live.sh passed")
                     return 0
                 say(f"update: {directory} goes to {target[:12]}")
+                owed = pending.exists()
                 pending.touch()     # a tick cut off once it is swapped in still owes the install
                 why = versions.switch(directory, target)
                 if why:
+                    if not owed:    # nothing was swapped in, so the version live owes nothing new
+                        pending.unlink(missing_ok=True)
                     say(f"update: {why}")
                     return 1
                 continue

@@ -222,10 +222,11 @@ def end_conversation(session, ends):
     return True
 
 
-def messages(conversation):
+def _session_rows(conversation):
     """opencode.db keeps a session's messages as rows in order, a subagent's in its own session:
-    a user row's `text`, an assistant row's text parts beside its reasoning and tool parts, each
-    yielded as (who, when it was written in Unix seconds, its text).  None where there is none."""
+    each user and assistant row as (its type, when it was written in milliseconds, its data, and
+    an assistant row's parts beside it -- text, reasoning, tool calls).  None where there is
+    none."""
     from . import rows
     if not isinstance(conversation, str) or not SESSION.fullmatch(conversation):
         return None
@@ -234,20 +235,30 @@ def messages(conversation):
                  " AND type IN ('user', 'assistant') ORDER BY seq", conversation)
     if found is None:
         return None
-    said = []
+    read = []
     for kind, created, data in found:
         try:
             message = json.loads(data)
         except (TypeError, ValueError):
             continue
         message = message if isinstance(message, dict) else {}
-        if kind == "user":
-            text = message.get("text")
-        else:
-            parts = message.get("content")
-            parts = parts if isinstance(parts, list) else []
-            text = "\n".join(part["text"] for part in parts if isinstance(part, dict)
-                             and part.get("type") == "text" and isinstance(part.get("text"), str))
+        parts = message.get("content") if kind == "assistant" else None
+        read.append((kind, created, message, [part for part in parts if isinstance(part, dict)]
+                     if isinstance(parts, list) else []))
+    return read
+
+
+def messages(conversation):
+    """A user row's `text` and an assistant row's text parts, each as (who, when it was written
+    in Unix seconds, its text).  None where there is none."""
+    found = _session_rows(conversation)
+    if found is None:
+        return None
+    said = []
+    for kind, created, message, parts in found:
+        text = message.get("text") if kind == "user" else "\n".join(
+            part["text"] for part in parts
+            if part.get("type") == "text" and isinstance(part.get("text"), str))
         if isinstance(text, str) and text:
             # OpenCode stamps its rows in milliseconds.
             at = created / 1000 if isinstance(created, (int, float)) else None
@@ -266,6 +277,30 @@ def user_messages(record, cwd, conversation):
         kept = user_message(at, text) if who == "user" else None
         if kept:
             yield kept
+
+
+def answers(record, cwd, conversation):
+    """Each question the owner answered on a card of OpenCode's `question` tool, which keeps
+    their answers in the call's own state, not as a message of theirs: one list per question,
+    in the order asked -- the label picked, the words typed instead, or the labels ticked, joined
+    as OpenCode's reply to the model joins them -- dated when they submitted the card.  A
+    question left unanswered holds an empty list, and a card put down with Esc ends `error`."""
+    for *_, parts in _session_rows(conversation) or ():
+        for part in parts:
+            try:    # a part of any other shape answers nothing
+                state, at = part["state"], part["time"]["completed"]
+                if (part["type"] != "tool" or part["name"] != "question"
+                        or state["status"] != "completed" or not isinstance(at, (int, float))):
+                    continue
+                for asked, given in zip(state["input"]["questions"], state["metadata"]["answers"]):
+                    if isinstance(given, list):
+                        yield {"at": at / 1000, "question": asked["question"],
+                               "answer": ", ".join(given), "choices": [
+                                   {"label": option["label"],
+                                    "description": option.get("description", "")}
+                                   for option in asked.get("options") or ()]}
+            except (AttributeError, KeyError, TypeError):
+                continue
 
 
 def running(record, cwd, conversation):

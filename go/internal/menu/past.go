@@ -43,7 +43,7 @@ func DrawPast(s terminal.Screen, past []PastSeat, h Highlight, now time.Time, co
 	}
 	width := max(1, min(columns, 100))
 	num, name, project, clock, count := len(strconv.Itoa(len(past))), 1, 0, 0, 7
-	f := Frame{width: columns, height: height, cursor: h.Cursor}
+	f := Frame{width: columns, height: height, cursor: h.Cursor, hidden: h.Hidden}
 	for _, each := range past {
 		_, when := pastWhen(each.Closed, now)
 		name = max(name, terminal.Cells(each.Name))

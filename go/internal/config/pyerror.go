@@ -17,8 +17,7 @@ func PyError(err error) string {
 	if !errors.As(err, &errno) {
 		return err.Error()
 	}
-	text := errno.Error()
-	said := fmt.Sprintf("[Errno %d] %s%s", int(errno), strings.ToUpper(text[:1]), text[1:])
+	said := fmt.Sprintf("[Errno %d] %s", int(errno), Strerror(errno))
 	var link *os.LinkError
 	var path *os.PathError
 	switch {
@@ -28,4 +27,15 @@ func PyError(err error) string {
 		said += ": " + commandhelp.Quote(path.Path)
 	}
 	return said
+}
+
+// Strerror is err as Python's OSError.strerror says it, PyError without its number and path:
+// `No such file or directory`.
+func Strerror(err error) string {
+	var errno syscall.Errno
+	if !errors.As(err, &errno) {
+		return err.Error()
+	}
+	text := errno.Error()
+	return strings.ToUpper(text[:1]) + text[1:]
 }

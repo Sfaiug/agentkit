@@ -111,7 +111,7 @@ var entries = map[string]entry{
 		"ak run gc --dry-run",
 	},
 	"orch": {
-		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME | ak orch check SEAT\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE",
+		"usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]\n       ak orch list [--why] | ak orch why NAME | ak orch check SEAT | ak orch look FILE\n       ak orch stop NAME | ak orch rename [--auto] [OLD] NEW\n       ak orch project [SEAT] CHECKOUT | ak orch rules CODE",
 		"Start or attach to a named orchestrator session; a new one opens only from a terminal.\n--dry-run prints the launch plan.",
 		"ak orch parser-fix",
 	},
@@ -134,6 +134,11 @@ var entries = map[string]entry{
 		"usage: ak orch check SEAT",
 		"Ask one model whether a seat's work holds everything its owner asked of it.\nExits 1 naming each gap in the owner's words, 0 with none, 2 if it could not check.",
 		"ak orch check parser-fix",
+	},
+	"orch look": {
+		"usage: ak orch look FILE",
+		"Keep a picture of a screen this seat's work changed, an image or a text capture\nof a terminal screen, as it is now: its done check sees each one kept.",
+		"ak orch look chart.png",
 	},
 	"orch stop": {
 		"usage: ak orch stop NAME",

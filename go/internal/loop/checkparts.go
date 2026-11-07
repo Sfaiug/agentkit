@@ -145,21 +145,21 @@ func reportedTests(result ran, out string, only [][]string, output io.Writer) ra
 
 const pieceRetry = "command is not sent to the suite helper (piece retry)"
 
-// A named retry confirms only tests both run and failed; one the kernel killed for memory is the
-// host's red (starved.go). An inconclusive retry needs the piece again; tests passing alone
-// failed, then passed, whatever the piece does next.  Each go keeps the names the goes before it
-// had (pieces.go's attempt).
-func retryTests(at *piece, attempt func(*piece, string, []string) error) error {
-	if tests := at.ended.failed; len(tests) > 0 {
-		if err := attempt(at, "its failed tests alone", tests); err != nil {
-			return err
-		}
-		if at.ended.code == 0 {
-			at.ended.flaky = append(at.ended.flaky, tests...)
-		}
-		if at.ended.stopped != "" || at.ended.starved || len(at.ended.confirmed) > 0 {
-			return nil
-		}
+// retryTests runs alone the tests the piece's last go named failed, if any: whether that decided
+// the piece.  A named retry confirms only tests both run and failed; one the kernel killed for
+// memory is the host's red (starved.go). An inconclusive retry needs the piece again; tests passing
+// alone failed, then passed, whatever the piece does next.  Each go keeps the names the goes before
+// it had (pieces.go's attempt).
+func retryTests(at *piece, attempt func(*piece, string, []string) error) (bool, error) {
+	tests := at.ended.failed
+	if len(tests) == 0 {
+		return false, nil
 	}
-	return attempt(at, pieceRetry, nil)
+	if err := attempt(at, "its failed tests alone", tests); err != nil {
+		return false, err
+	}
+	if at.ended.code == 0 {
+		at.ended.flaky = append(at.ended.flaky, tests...)
+	}
+	return at.ended.stopped != "" || at.ended.starved || len(at.ended.confirmed) > 0, nil
 }

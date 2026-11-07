@@ -8,10 +8,11 @@ import (
 	"agentkit/internal/run"
 )
 
-// raise is the order of `ak run resume <id> --rounds asked` on the FAIL at its round budget that
-// record is, Python's resume_run: its budget at asked, with the review and the delivery note its
-// last attempt left gone; or why it is refused: its change has no round left, or asked does not
-// raise its budget within what the change has.  Any other run is Python's (ErrPython).
+// raise is the order of `ak run resume <id> --rounds asked` (asked 0 for none) on the FAIL at its
+// round budget that record is, Python's resume_run: its budget at asked, with the review and the
+// delivery note its last attempt left gone; or why it is refused: its change has no round left, or
+// asked does not raise its budget within what the change has.  Any other run is Python's
+// (ErrPython).
 func raise(dir string, record *run.Object, asked int) (func(*run.Object), string, error) {
 	if !run.AtBudget(record) {
 		return nil, "", ErrPython

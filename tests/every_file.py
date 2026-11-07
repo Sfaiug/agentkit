@@ -28,8 +28,11 @@ A file may name its failing parts, one per line, in the file FAILED_PARTS names 
 as none reaches a file): it is then named `<file>::<part>`, one ID per part, and its re-run
 gives it just those parts as its arguments, as a run does for the `<file>::<part>` IDs AK_ONLY
 lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds.
-The imports are a test of their own, IMPORTS, named as run and as failed like a file, in a
-whole run too; AK_ONLY set, they are checked only where it lists them.
+A part is named as run only where a run of its file named it failing or timed it, and a run
+failing with no part named fails each part it did not time: a file given a part it does not
+hold, as one only a later change adds, fails naming and timing none.  The imports are a test of
+their own, IMPORTS, named as run and as failed like a file, in a whole run too; AK_ONLY set, they
+are checked only where it lists them.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -325,6 +328,7 @@ def main(root, others=None):
     pending = iter(todo)
     path, parts, _ = next(pending, (None,) * 3)
     began, again, failed, flaky, jobs = time.monotonic(), [], [], [], 0
+    ran = {str(path.relative_to(root)) for path, _, _ in todo}
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
@@ -335,6 +339,7 @@ def main(root, others=None):
                 name = file.relative_to(root)
                 code, out, took = done.result()
                 print(timed_lines(name, asked, timed), end="", flush=True)
+                ran.update(ids(name, [*named, *timed]))
                 if code == 0 and cases_run(out) > 0:
                     print(pass_line(name, asked, took), flush=True)
                 else:
@@ -368,12 +373,13 @@ def main(root, others=None):
             code, rerun, took = run_file(root, root / name, env, parts=named, failed=still,
                                          timed=timed)
             print(timed_lines(name, named, timed), end="")
+            ran.update(ids(name, [*still, *timed]))
             if code == 0 and cases_run(rerun) > 0:
                 flaky.append(ids(name, named))
                 print(pass_line(name, named, took))
                 print(f"flaky: {' '.join(flaky[-1])} failed, then passed on its re-run")
             else:
-                failed.append(ids(name, still or named))
+                failed.append(ids(name, still or [part for part in named if part not in timed]))
                 out = rerun
                 print(f"FAIL  {' '.join(failed[-1])}: {failure(code, took)}, its last lines:")
             print("\n".join(f"      {line}" for line in out.splitlines()[-TAIL:]), flush=True)
@@ -383,8 +389,7 @@ def main(root, others=None):
     name_failed(test for tests in failed for test in tests)
     name_failed((test for tests in flaky for test in tests), "AK_FLAKY")
     if only is not None:
-        ran = {str(path.relative_to(root)) for path, _, _ in todo}
-        name_failed((test for test in only if test.partition("::")[0] in ran), "AK_RAN")
+        name_failed((test for test in only if test in ran), "AK_RAN")
     return 1 if failed else 0
 
 

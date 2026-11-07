@@ -132,6 +132,9 @@ func Answered(name string, at float64, typed *float64, ask func(current string) 
 		if notice != nil && notice.Get("watcher") == true {
 			return nil
 		}
+		if notice == nil {
+			return ScreenAnswered(current, at)
+		}
 		card, err := readObject(seatFile("card", current, "json"))
 		if err != nil && !errors.Is(err, errNotObject) {
 			return err
@@ -141,18 +144,6 @@ func Answered(name string, at float64, typed *float64, ask func(current string) 
 		}
 		isNeeds := card.Str("word") == "needs you"
 		since, dated := card.Num("since")
-		if notice == nil {
-			if !isNeeds {
-				return nil
-			}
-			if dated && at > since {
-				if err := retire(card); err != nil {
-					return err
-				}
-			}
-			card.Set("answered_at", run.Float(at))
-			return writeCard(current, card)
-		}
 		answered := notice.Copy()
 		answered.Set("answered_at", run.Float(at))
 		if !resolved(answered) {
@@ -170,4 +161,24 @@ func Answered(name string, at float64, typed *float64, ask func(current string) 
 		return nil
 	})
 	return done, err
+}
+
+// ScreenAnswered is the owner answering at `at`, with no notice of the seat's standing, under its
+// notice lock, which the caller holds: the needs you only the screen said is what was answered, and
+// its card keeps the answer, retired where it went up before it.
+func ScreenAnswered(name string, at float64) error {
+	card, err := readObject(seatFile("card", name, "json"))
+	if err != nil && !errors.Is(err, errNotObject) {
+		return err
+	}
+	if card == nil || card.Str("word") != "needs you" {
+		return nil
+	}
+	if since, dated := card.Num("since"); dated && at > since {
+		if err := retire(card); err != nil {
+			return err
+		}
+	}
+	card.Set("answered_at", run.Float(at))
+	return writeCard(name, card)
 }

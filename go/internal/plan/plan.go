@@ -245,11 +245,15 @@ func listed(lines []string) (at []int) {
 
 // verify runs each open check line's check on its project's default branch as fetched now and
 // ticks those that pass there, naming the commit; a line ticked by hand that nothing proved
-// opens again.  The checks run outside the plan's lock, and the results go onto the plan as it
-// reads after them, each onto its own line, so a line added meanwhile stays.
+// opens again.  Checking every line (no check given), it leaves out a deferred one whose fix
+// run is running or about to (`taken` with followupMoving).  The checks run outside the plan's
+// lock, and the results go onto the plan as it reads after them, each onto its own line, so a
+// line added meanwhile stays.
 func verify(ctx context.Context, name, check string) error {
+	var seat string
 	var snapshot []string
 	if err := notify.Held(ctx, name, func(current string) (err error) {
+		seat = current
 		snapshot, err = read(current)
 		return err
 	}); err != nil {
@@ -264,6 +268,17 @@ func verify(ctx context.Context, name, check string) error {
 		line, ok := parse(text)
 		if _, done := results[line.bare]; !ok || line.Check == "" || check != "" && line.Check != check || line.proven() || done {
 			continue // lines alike are one check, run once
+		}
+		if check == "" && line.Deferred {
+			// that run's delivery checks it; a paused one may deliver hours later, so a fix
+			// landing meanwhile ticks its line here
+			moving, err := taken(seat, line, followupMoving)
+			if err != nil {
+				return err
+			}
+			if moving {
+				continue
+			}
 		}
 		on, seen := branches[line.Project]
 		if !seen {

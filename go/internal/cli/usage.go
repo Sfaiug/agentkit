@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"agentkit/internal/matrix"
 	"agentkit/internal/pick"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
@@ -38,7 +39,7 @@ func usageAnswer(args []string, out, errOut io.Writer) int {
 		order = append(order, name)
 	}
 	answer := run.NewObject()
-	answer.Set("providers", readings.Shown())
+	answer.Set("providers", readings.Shown(matrix.Listed))
 	answer.Set("pick_order", order)
 	answer.Set("review", nil)
 	if executor, reviewer, ok := rules.Pair(readings); ok {

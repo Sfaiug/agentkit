@@ -346,7 +346,7 @@ func goTurn(model string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := worker.Adapter(entry); errors.Is(err, worker.ErrPython) {
+	if _, err := worker.Adapter(entry, ""); errors.Is(err, worker.ErrPython) {
 		return errLeft
 	}
 	return nil
@@ -387,11 +387,16 @@ func readyReviewer(name string, record map[string]any) (string, error) {
 	return order[0], nil
 }
 
-// cardShown is an answer's file: the question and choices the seat wrote, then the owner's answer.
+// cardShown is an answer's file: the question and choices the seat wrote, each choice's
+// description after its label where it has one, then the owner's answer.
 func cardShown(card harness.Card) string {
 	shown := "The seat asked on its question card: " + card.Question + "\n"
 	for _, choice := range card.Choices {
-		shown += "- " + choice.Label + ": " + choice.Description + "\n"
+		shown += "- " + choice.Label
+		if choice.Description != "" {
+			shown += ": " + choice.Description
+		}
+		shown += "\n"
 	}
 	return shown + "\nThe owner answered:\n" + card.Answer + "\n"
 }

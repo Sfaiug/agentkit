@@ -54,6 +54,36 @@ def transcript_path(record, conversation):
     return directory / "projects" / project(record["cwd"]) / f"{conversation}.jsonl"
 
 
+def kept(conversation):
+    """ak's own name for that conversation's transcript, which the tick gives it (`keep`)."""
+    from .. import config
+    return config.STATE / "conversations" / f"claude-{conversation}.jsonl"
+
+
+def keep(record, cwd, conversation):
+    """Give that conversation's transcript ak's own name (`kept`) where it has none yet: a hard
+    link, the same file, so what Claude wrote stays after its `cleanupPeriodDays` delete its
+    own.  Claude appends a transcript in place, so a link made once stays the file it writes;
+    it is never replaced, and one of a transcript Claude writes anew keeps the old file.
+    Nothing is kept where no link can be made, as across two filesystems."""
+    if not record.get("cwd"):
+        return
+    try:
+        kept(conversation).parent.mkdir(parents=True, exist_ok=True)
+        os.link(transcript_path(record, conversation), kept(conversation))
+    except OSError:
+        pass        # no transcript yet, a link made already, or none can be made
+
+
+def read_by(record, conversation):
+    """The names that conversation's transcript is read by, in order (`harness.entries`):
+    Claude's own while it is there, then ak's (`kept`), the same file Claude deleted.  None
+    where the seat has no conversation or no checkout."""
+    if conversation and record.get("cwd"):
+        return [transcript_path(record, conversation), kept(conversation)]
+    return None
+
+
 def transcript(record, cwd, conversation):
     """The transcript the new orchestrator reads the last exchange from.
 
@@ -233,15 +263,14 @@ def answer(entry):
 
 def said(record, cwd, conversation):
     from . import turns
-    if not conversation or not record.get("cwd"):
-        return None
+    names = read_by(record, conversation)
     # a conversation nobody typed into has no file yet: it said nothing
-    return turns(transcript_path(record, conversation), prompt, answer) or []
+    return (turns(names, prompt, answer) or []) if names else None
 
 
 def user_messages(record, cwd, conversation):
     from . import entries, user_message
-    for entry in entries(transcript(record, cwd, conversation)):
+    for entry in entries(read_by(record, conversation)):
         kept = user_message(entry.get("timestamp"), prompt(entry))
         if kept:
             yield kept
@@ -259,7 +288,7 @@ def answers(record, cwd, conversation):
     a subagent's card among them, holds no answer of the owner's."""
     from . import entries, moment
     cards = set()
-    for entry in entries(transcript(record, cwd, conversation)):
+    for entry in entries(read_by(record, conversation)):
         if any(entry.get(key) for key in UNSAID):
             continue
         said = []
@@ -407,9 +436,8 @@ def capture(launched, payload, pid):
         if session and orch.owns_hook(session, pid, is_process):
             # the conversation left stays the seat's, for its done check to read the owner's
             # words in (`notify.conversations_of`), under the harness that keeps it
-            config.update_session(name, conversation=conversation, id_source=SOURCE, left=[
-                *record.get("left", []), {"harness": "claude",
-                                          "conversation": record["conversation"]}])
+            config.update_session(name, conversation=conversation, id_source=SOURCE,
+                                  left=notify.left(record, "claude", record["conversation"]))
 
 
 def is_process(words):

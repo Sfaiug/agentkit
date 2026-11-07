@@ -19,9 +19,10 @@ import (
 // Enter.  A row's list opens under it, the highlight on its first marked choice and moving through
 // its choices alone: Space flips one, the list staying open, and Enter closes it, in a list that
 // picks one first picking the lit choice, or on a choice that acts acts, the list asked again; Esc
-// closes it, and so does a click on a row.  What a flip or an act says stays under the rows until
-// the next key.  The page comes up as it opens and moves on
-// its clock (menu.ConfigPage), a key ending what moves, and one gone back to is drawn as it is.
+// closes it, and so does a click on a row.  A row's field opens under it, typed in until Enter
+// gives the row what was typed or Esc shuts it, nothing given (fieldKey).  What a flip, an act or
+// a field says stays under the rows until the next key.  The page comes up as it opens and moves
+// on its clock (menu.ConfigPage), a key ending what moves, and one gone back to is drawn as it is.
 func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	view, clock := menu.Page{Name: name, Note: note}, &motion.Clock{}
 	frame := time.AfterFunc(time.Hour, keyboard.Wake) // each draw sets it to its next frame
@@ -38,6 +39,8 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 		}
 		if at := slices.IndexFunc(rows, func(row menu.PageRow) bool { return row.Label == label }); at >= 0 {
 			view.At = at
+		} else {
+			view.Typed = nil // a field goes with its row
 		}
 		view.Rows, view.At = rows, max(0, min(view.At, len(rows)-1))
 		screen := keyboard.Screen()
@@ -58,6 +61,10 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 		if key.Name != "wake" && key.Name != "again" && key.Name != "pointer" {
 			clock.Finish() // a key, not the pointer, ends what moves on its last frame
 			view.Said = ""
+		}
+		if view.Typed != nil && key.Name != "eof" && key.Name != "again" {
+			fieldKey(&view, key)
+			continue
 		}
 		open := view.Choices != nil
 		switch {
@@ -120,6 +127,8 @@ func configPage(name, note string, page func() ([]menu.PageRow, bool), keyboard 
 			}
 			view.Lists++
 			view.Choice = max(0, slices.IndexFunc(view.Choices, func(choice menu.PageRow) bool { return choice.On && choice.Flip != nil }))
+		case key.Name == "enter" && row.Field != nil:
+			view.Typed = new(string)
 		case key.Name == "enter" && row.Open != nil:
 			if !row.Open() {
 				return false

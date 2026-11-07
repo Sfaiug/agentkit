@@ -21,7 +21,7 @@ type List struct {
 // Frame is the list drawn: the choice the highlight is on lit while the pointer is not away from
 // it, and the key line naming what Enter does there; nothing is lit while it is on no choice.
 func (l List) Frame(s terminal.Screen, h Highlight) Frame {
-	frame := Frame{order: l.Choices, width: s.Width(), height: s.Height(), spots: make([]string, 2+len(l.Over))}
+	frame := Frame{order: l.Choices, hidden: h.Hidden, width: s.Width(), height: s.Height(), spots: make([]string, 2+len(l.Over))}
 	if slices.Contains(l.Choices, h.Cursor) {
 		frame.cursor = h.Cursor
 	}

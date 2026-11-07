@@ -1,8 +1,8 @@
 // Package handin owns a worker turn's record file, the one $AK_HAND_IN names: the loop opens it
 // with the turn's row, and each `ak hand-in` appends one row.  It hides what each role may hand
-// in, the site and evidence checks, a first build's count, a proof's run and its excerpt, the lock
-// held from the first read to the append, and the row appended, as Python's json.dumps(row) writes
-// it.  Hand decides in Python's hand_in.main order; what Go cannot do as Python does is ErrPython.
+// in, the site and evidence checks, a builder's workspace held to its scope, the change rules and a
+// first build's count, a proof's run and its excerpt, the lock held from the first read to the
+// append, and the row appended, as Python's json.dumps(row) writes it.  Hand decides in Python's hand_in.main order; what Go cannot do as Python does is ErrPython.
 package handin
 
 import (
@@ -129,7 +129,7 @@ func Hand(args []string) error {
 		err = t.answered()
 	}
 	if err == nil && row.Str("kind") == "done" && !strings.HasPrefix(t.role, "reviewer") {
-		if err = t.oversize(); err == nil {
+		if err = t.checkWorkspace(filepath.Dir(path)); err == nil {
 			err = t.checksPass(filepath.Dir(path))
 		}
 	}

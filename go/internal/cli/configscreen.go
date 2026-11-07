@@ -19,8 +19,9 @@ import (
 )
 
 // menuConfig uses the popup's seat, never the main screen's highlighted row. An ordinary
-// window edits what new seats take. False leaves a key beyond this milestone to the shadow build.
-func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
+// window edits what new seats take, and `a` gives them to the seats `main` reads as rows.
+// False leaves a key beyond this milestone to the shadow build.
+func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	c, err := matrix.Configured()
 	if err != nil || len(c.Names) == 0 {
 		return false
@@ -119,7 +120,9 @@ func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, 
 				return false
 			}
 		case key.Name == "char" && key.Char == "a" && view.Fresh:
-			return false
+			if !applyDefaults(&view, main, keyboard, painter) {
+				return false
+			}
 		}
 		if key.Name == "enter" && view.Row == len(c.Names)+3 {
 			if !menuAudit(keyboard, painter) {
@@ -208,7 +211,7 @@ func configNames(selected *run.Object, key string) []string {
 }
 
 func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
-	discord, cloud := menu.ConfigServices(time.Now())
+	discord, cloud := menu.ConfigServices()
 	setting, on, err := config.Audit()
 	audit := ""
 	if err != nil {

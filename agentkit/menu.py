@@ -3030,13 +3030,14 @@ DONE_CHECK = ("row", "Done check")   # on or off, and the model that makes it (d
 MACHINES = ("row", "Machines")
 LIMITS = ("row", "Limits")       # config.POLICY's numbers (config_limits)
 # Each of config.POLICY's numbers on `Limits`: its name there, how `Limits`' value on `c` says
-# it, before the number and its unit after, and the values its list offers.  Owner, 3 Nov 2026:
-# the keys' own names were unclear to users.
+# it, before the number and its unit after, and the steps ← and → move it through (limit_step).
+# Owner, 3 Nov 2026: the keys' own names were unclear to users; 5 Nov 2026: "The executor cap
+# moves in steps of 100, the orchestrator's in steps of 25."
 LIMIT_NAMES = {"review_rounds": ("Review rounds", "review", "rounds", range(0, 6)),
                "executor_lines": ("Max lines per executor task", "executor", "lines",
-                                (0, 100, 200, 300, 500, 1000, 2000, "no limit")),
+                                  (*range(0, 1001, 100), "no limit")),
                "orchestrator_lines": ("Max lines per orchestrator task", "orchestrator", "lines",
-                              (0, 10, 25, 50, 100, 200, "no limit"))}
+                                      (*range(0, 201, 25), "no limit"))}
 # What a subscription offers, each where it applies (subscription_acts), and without UTF-8:
 # its meter, on the ak screen and on `c` alike, the first two; its row on `Subscriptions` all.
 # Its list or line opens lit on the first, where offered, and on nothing else: `spend a reset`
@@ -4071,7 +4072,8 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
     on nothing, the cell it is on lit.  `act` is `back` for Esc or a click on `esc back`, None when the screen wants drawing again -- a
     resize, the pointer, or `timeout` seconds with no key -- a character key's character, its
     key-line item's too (`r recommended`), and any other key's name, `enter` a click on `⏎`'s
-    and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark.
+    and `space` one on `␣`'s, `left` and `right` one on an arrow of `lead`, a page mark, or on
+    a cell that is `left` or `right`.
     `began` says since when what `body` was read from was being fetched, or None, looked at
     before reading it, so one landing since is never missed; while `going()`, the rule under the
     header glides (`motion.fetching`) and the read ends, None, once it lands.
@@ -4115,7 +4117,9 @@ def matrix_key(title, body, places, rows, here, top, note, keys, timeout=None, m
                     or len(item) == 1 and item.isalpha()
                     else ""), here, None, top
         act = "enter" if here[0] in ("row", "usage") else ""      # a row runs its step
-        if column is not None:
+        if column in ("left", "right"):
+            act = column          # an arrow drawn on a row (config_page's step)
+        elif column is not None:
             act = "space" if column < marks else key.col - spot.first
     if act in ("esc", "eof"):
         return "back", here, column, top
@@ -4963,11 +4967,12 @@ def opened_line(told, kind, texts, on, room):
 
 
 def page_body(rows, at=None, moves=None):
-    """The lines of a page `c` opens and the row each is, {line: (row, [])}: of `rows`,
+    """The lines of a page `c` opens and the row each is, {line: (row, cells)}: of `rows`,
     (row, label, value) each, its label and then its
     value, lined up past the widest label as `c`'s own rows are, or with no label a choice of a
     list opened under the row above it, indented as `add a subscription`'s are.  A value is
-    text, or parts, (text, kind) each, a space apart, wrapped at a word under itself as `c`'s
+    text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
+    cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
     indented as a choice; `at` is the row lit, and `moves` is handed each mark leading a value
     (`■`, `□`, `●`, `○`) as config_body hands its own."""
@@ -4980,7 +4985,7 @@ def page_body(rows, at=None, moves=None):
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
         if label is not None and any(terminal.cells(word) > left
-                                     for text, _ in parts for word in text.split()):
+                                     for text, *_ in parts for word in text.split()):
             # a word too wide beside the label: the value folds under it, never cut in a word
             line = "  " + terminal.cut(label, room - 2)
             places[len(lines)] = (row, [])
@@ -4989,34 +4994,43 @@ def page_body(rows, at=None, moves=None):
         if moves is not None and not isinstance(value, str) and value[0][0] in motion.HALF:
             moves.append((len(lines), ("mark", row), value[0][0], motion.toggled(
                 value[0][0], 3, value[0][1], row == at, terminal.cells(lead))))
-        for text, kind in parts:
+        indent = terminal.cells(lead)
+        for text, kind, *cell in parts:
             for piece in terminal.wrap(text, left):
                 if used and used + 1 + terminal.cells(piece) > left:
                     wrapped, used = [*wrapped, []], 0
-                wrapped[-1].append(terminal.styled(piece, kind) if kind else piece)
                 used += bool(used) + terminal.cells(piece)
+                first = indent + used - terminal.cells(piece) + 1
+                wrapped[-1].append((terminal.styled(piece, kind) if kind else piece,
+                                    [(first, indent + used, *cell)] if cell else []))
         for number, parts in enumerate(wrapped):
-            line = ((lead if number == 0 else " " * terminal.cells(lead)) + " ".join(parts)).rstrip()
-            places[len(lines)] = (row, [])
+            line = ((lead if number == 0 else " " * indent)
+                    + " ".join(piece for piece, _ in parts)).rstrip()
+            places[len(lines)] = (row, [spot for _, cells in parts for spot in cells])
             lines.append(terminal.highlight(line, number == 0 and not folded) if row == at
                          else line)
     return lines, places
 
 
 @terminal.clicks_its_own
-def config_page(name, page):
+def config_page(name, page, move=True):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
     or with a note of the row's own after, said instead of the page's while the row is pointed,
-    and lines drawn as they are under it, where the highlighted row fits beside them, after that
-    -- and the note under them, asked again for every draw, drawn as page_body draws them and
-    read with `c`'s keys until Esc.  It comes up as `c` does as it opens, its name writing
-    itself out in the header (motion.Clock), and a mark leading a value fills or empties as it
-    flips (motion.toggled); one gone back to from a list or a field is drawn as it is.
+    and blocks of lines drawn as they are under it, each whole and in order while the
+    highlighted row fits beside them, after that -- and the note under them, asked again for
+    every draw, drawn as page_body draws them and read with `c`'s keys until Esc, the key line
+    saying what the arrows `move` (terminal.keys).
+    It comes up as `c` does as it opens, its name writing itself out in the header
+    (motion.Clock), and a mark leading a value fills or empties as it flips (motion.toggled);
+    one gone back to from a list or a field is drawn as it is.
 
     A row's act is None for a row that only shows; a mark, ("mark", flip), Space or a click
-    flipping it, optionally a third item, a field Enter opens; a list, (choices, several),
-    Enter or a click opening it under the row, coming up there (motion.fading), the highlight
-    on the first choice marked; or a field, Enter or a click calling it with `draw`,
+    flipping it, optionally a third item, a field Enter opens; a step, ("step", near, take), ←
+    and → calling `take(near(-1))` and `take(near(1))`, nothing where `near` gives None, an
+    end, and the lit row's value drawn `◂ value ▸`, each arrow where it moves; a list,
+    (choices, several), Enter or a click opening it under the row, coming up there
+    (motion.fading), the highlight on the first choice marked; or a field, Enter or a click
+    calling it with `draw`,
     which draws the page with lines under the row and returns the screen row of the first, as
     terminal.field takes it.  `choices()` gives (value, pick, mark) each, asked as the list
     opens and again after each pick, so a reading that moves underneath never moves the
@@ -5029,23 +5043,35 @@ def config_page(name, page):
     rows, listed = [], []              # the page and open list's choices, as last asked
     clock = motion.Clock(page=True)   # it comes up as `c` does, and its marks move as `c`'s
 
+    def kind(act):                    # a mark's or a step's word, else None
+        return act[0] if isinstance(act, tuple) and isinstance(act[0], str) else None
+
     def does(row):                    # what Space and Enter do on `row` (terminal.keys)
         if len(row) == 3:
             mark = listed[row[2]][2]
             return ((None, mark) if isinstance(mark, str)
                     else ("mark", "close" if opened[2] else "pick"))
         act = rows[row[1]][2]
-        if act is None:
+        if act is None or kind(act) == "step":
             return None, None
-        return (("mark", "open" if len(act) == 3 else None)
-                if isinstance(act, tuple) and act[0] == "mark" else (None, "open"))
+        return (("mark", "open" if len(act) == 3 else None) if kind(act) == "mark"
+                else (None, "open"))
+
+    def stepping(value, near):        # a lit step's value, an arrow each side it moves to
+        left, right = ("◂", "▸") if terminal.utf8() else ("<", ">")
+        first, *rest = [(value, None)] if isinstance(value, str) else value
+        return [*([(left, "dim", "left")] if near(-1) is not None else []), first,
+                *([(right, "dim", "right")] if near(1) is not None else []), *rest]
     while True:
         label = rows[here[1]][0] if rows else None
         rows, note = page()
         if not opened:                # a pick removed the last row: the highlight on the new last
             here = ("row", next((number for number, row in enumerate(rows) if row[0] == label),
                                  min(here[1], len(rows) - 1)))
-        drawn = [(("row", number), label, value) for number, (label, value, *_) in enumerate(rows)]
+        drawn = [(("row", number), label,
+                  stepping(value, act[1]) if kind(act) == "step" and here == ("row", number)
+                  and not terminal.away() else value)
+                 for number, (label, value, act, *_) in enumerate(rows)]
         # the pointed row's own note and lines, none while the pointer is off every row
         note, under = ((*rows[here[1]][3:], ())[:2] if len(rows[here[1]]) > 3
                        and not terminal.away() else (note, ()))
@@ -5060,15 +5086,17 @@ def config_page(name, page):
         moves += [(line, ("opened",), opened[0], motion.fading(body[line], motion.OPEN))
                   for line, (row, _) in places.items() if len(row) == 3]
         # a click on what a mark's line draws acts as Space does (matrix_key's `marks`)
-        places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else [])
-                  for line, (row, _) in places.items()}
+        places = {line: (row, [(1, terminal.width(), 0)] if does(row)[0] else cells)
+                  for line, (row, cells) in places.items()}
         space, enter = does(here)
-        keys = terminal.keys("esc back", space=space, enter=enter)
+        keys = terminal.keys("esc back", space=space, enter=enter, move=move)
         below = note_lines("\n".join(filter(None, (said, note))))
-        # a row's lines only where the page keeps room for the highlighted row beside them, the
-        # other rows paging: never pushed off the screen
-        if page_room([*below, *under], keys) >= sum(row == here for row, _ in places.values()):
-            below += under
+        # a row's blocks only while the page keeps room for the highlighted row beside them, the
+        # other rows paging: never pushed off the screen, and a later block gives way first
+        for block in under:
+            if page_room([*below, *block], keys) < sum(row == here for row, _ in places.values()):
+                break
+            below += block
         act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
                                         clock=clock, moves=moves, under=below)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
@@ -5081,6 +5109,11 @@ def config_page(name, page):
             if not opened:
                 return
             here, opened = ("row", opened[0]), None
+        elif (act in ("left", "right") and len(here) == 2 and kind(rows[here[1]][2]) == "step"
+              and not terminal.unseen()):      # unseen, it only brings the highlight back
+            _, near, take = rows[here[1]][2]
+            value = near(1 if act == "right" else -1)
+            said = "" if value is None else take(value) or ""
         elif not (act == "space" and space or act == "enter" and enter):
             continue
         elif len(here) == 3:
@@ -5545,14 +5578,101 @@ def rounds_chart(runs):
     return lines
 
 
+def limit_step(key, held, step):
+    """`key`'s step (LIMIT_NAMES) next from `held` up, `step` 1, or down, -1, `no limit` over
+    every number: one between steps, as typed by hand, moves onto the next; None past an end."""
+    rank = lambda value: (value == "no limit", value)
+    return next((value for value in LIMIT_NAMES[key][3][::step]
+                 if (rank(held) < rank(value) if step > 0 else rank(value) < rank(held))), None)
+
+
+def rounds_said(runs, held):
+    """What `runs` (history.round_endings) would have done at `held` review rounds, said under
+    rounds_chart, M the last round one merged in and F the number that failed.  Off, how many
+    went that way; under M, those merged after `held`, and F, back to their orchestrator sooner;
+    at M, F back; one past M, a guess that F merge at the share round M merged of its merges and
+    F; further, nothing they can say.  None with no run."""
+    if not runs:
+        return None
+    merged = [ending for *_, ending in runs if ending is not None]
+    failed, last = len(runs) - len(merged), max([*merged, 0])
+    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
+                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+    if held == 0:
+        bare = merged.count(0)
+        return "Off: no reviewer, so a change lands when its checks pass. " + (
+            f"{bare} of your runs went that way." if bare
+            else "None of your runs went that way, so they can't say how it would go.")
+    if held < last:
+        later = sum(ending > held for ending in merged)
+        return (f"The {later} change{'s' * (later != 1)} that merged after round {held} would have "
+                "gone back to their orchestrator instead" + (
+                    f", and the {failed} that failed would have gone back after round {held}"
+                    if failed else "") + ".")
+    if held == last:
+        return (f"{failed} change{'s' * (failed != 1)} ({round(100 * failed / len(runs))}%) went "
+                f"back to their orchestrator after {held} round{'s' * (held != 1)}.")
+    if held == last + 1 and last and failed:
+        kept = merged.count(last)
+        return (f"If a {nth(held)} round went like the {nth(last)}, where "
+                f"{round(100 * kept / (kept + failed))}% merged, about "
+                f"{round(failed * kept / (kept + failed))} of those {failed} would have merged. "
+                "No run has had one, so this is a guess.")
+    return f"No run has gone past {last} round{'s' * (last != 1)}, so your runs can't say."
+
+
+def lines_said(key, reviewed, held):
+    """What the first reviews (history.first_reviews) of `key`'s changes would have done at
+    `held` lines: those of `held` lines or more -- where the owner's design of 5 Nov 2026 splits
+    them -- split, for builds under `executor_lines`, or made tasks, for orchestrators' own pull
+    requests under `orchestrator_lines`, and how often their first review passed, or round 1
+    merged them, beside the rest; off, or past the largest, what they can't say.  None with
+    none."""
+    own = key == "orchestrator_lines"
+    sizes = [(lines, merged if own else passed)
+             for lines, mine, passed, merged in reviewed if mine == own]
+    if not sizes:
+        return None
+    if held == 0:
+        return ("Off: orchestrators build nothing themselves, so every one of their "
+                f"{len(sizes)} own pull request{'s' * (len(sizes) != 1)} would have been a task."
+                if own else
+                "Off: executors build nothing, so your runs can't say how that would go.")
+    over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
+    if not over:
+        return (f"Your largest {'own pull request' if own else 'build'} was "
+                f"{max(lines for lines, _ in sizes)} lines, so your runs can't say how bigger "
+                "ones would go.")
+    under = [passed for lines, passed in sizes if lines < held]
+    rate = lambda each: f"{round(100 * sum(each) / len(each))}%"
+    were, rest = "was" if len(over) == 1 else "were", (
+        f", and {rate(under)} below {held} lines" if under else "")
+    if own:
+        return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} "
+                f"{held} lines or more and would have been "
+                f"{'a task' if len(over) == 1 else 'tasks'}. "
+                f"Round 1 merged {rate(over)} of them{rest}.")
+    return (f"{len(over)} of your {len(sizes)} builds ({round(100 * len(over) / len(sizes))}%) "
+            f"{were} {held} lines or more and would have been split. Their first review passed "
+            f"{rate(over)} of the time{rest}.")
+
+
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
     (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves, and under `Review rounds`' how the runs ended
-    (rounds_chart), read as the page opens.  Enter opens its choices and the value in force, `●`,
-    each config.host_policy takes; Space or Enter on one saves it to config.toml at once."""
-    on, off = ("●", "○") if terminal.utf8() else ("*", ".")
-    ended = history.round_endings()
+    it means and the board rows it moves, then under `Review rounds` how the runs ended
+    (rounds_chart) and under each what those runs would have done at its value (rounds_said,
+    lines_said), read as the page opens and said again as the value moves.  ← and → move the
+    pointed one a step (limit_step), saved to config.toml at once where config.host_policy
+    takes it.  The owner's design of 5 Nov 2026."""
+    ended, reviewed = history.round_endings(), history.first_reviews()
+
+    def under(key, held):      # the row's chart, then what its runs would have done at `held`
+        said = (rounds_said(ended, held) if key == "review_rounds"
+                else lines_said(key, reviewed, held))
+        room = terminal.layout_width() - 2
+        return [*([rounds_chart(ended)] if key == "review_rounds" else []),
+                *([["", *("  " + part for part in terminal.wrap(said, room))]] if said else [])]
 
     def take(key, value):
         try:
@@ -5563,27 +5683,21 @@ def config_limits(cfg):
         cfg[key] = value
         return _saved(cfg, cfg, before)
 
-    def choices(key):         # the list a number's row opens
-        held = config.host_policy(cfg)[key]
-        return [([(on, "accent") if value == held else (off, "dim"), (limit_shown(value), None)],
-                 lambda value=value: take(key, value), value == held)
-                for value in sorted({*LIMIT_NAMES[key][3], held},
-                                    key=lambda value: (value == "no limit", value))]
-
     def page():
         numbers = config.host_policy(cfg)
         return [(LIMIT_NAMES[key][0],
                  [(limit_shown(numbers[key]), None),
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
-                 (lambda key=key: choices(key), False),
+                 ("step", lambda step, key=key: limit_step(key, numbers[key], step),
+                  lambda value, key=key: take(key, value)),
                  ("A change lands on its checks; no reviewer." if key == "review_rounds" and numbers[key] == 0
                   else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
                   else "The orchestrator builds nothing; executors build every change."
                   if key == "orchestrator_lines" and numbers[key] == 0
                   else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."),
-                 *([rounds_chart(ended)] if key == "review_rounds" else []))
+                 under(key, numbers[key]))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
-    config_page("limits", page)
+    config_page("limits", page, move=("limit", "value"))
 
 
 def show_config(dry_run=False, keyboard=None, session=None):

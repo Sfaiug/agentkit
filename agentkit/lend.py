@@ -12,7 +12,7 @@ the caller's config's subscriptions, on a provider it runs, that has one, where 
 that account reads it, and says which, for the caller to list in its HOME's config.  Only when
 asked: a HOME whose config lists none would hold a copy no turn reads.
 
-Usage: python3 -m agentkit.lend [--subscriptions] <home>
+Usage: ak lend [--subscriptions] <home>, or python3 -m agentkit.lend [--subscriptions] <home>
     a line per harness lent, its name and the files it placed, by their path in <home>, and with
     --subscriptions a last line, the JSON {provider: account} of each lent by name; exit 1
     saying why where a lend failed or a place it takes in <home> is taken.
@@ -114,9 +114,10 @@ def first_lapse():
         return None
 
 
-if __name__ == "__main__":
-    subscriptions = sys.argv[1] == "--subscriptions"
-    home = Path(sys.argv[1 + subscriptions])
+def main(argv):
+    """`ak lend`, and this module run as a program: see Usage above."""
+    subscriptions = argv[0] == "--subscriptions"
+    home = Path(argv[subscriptions])
     try:
         lent, _, *named = into(home, subscriptions)
     except FAILED as exc:
@@ -125,3 +126,7 @@ if __name__ == "__main__":
         print(harness, *(path.relative_to(home) for path in files))
     for accounts in named:
         print(json.dumps(accounts))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

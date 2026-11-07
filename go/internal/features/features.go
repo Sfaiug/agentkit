@@ -19,6 +19,7 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/host"
+	record "agentkit/internal/run"
 )
 
 // Every is how old a project's last `list` grows before the menu asks again.
@@ -31,8 +32,7 @@ var wait = 20 * time.Second
 type Switch struct {
 	ID, Name      string
 	You, Everyone bool
-	Fixed         bool   // the project does not let you switch it for yourself
-	Since         string // when it last went on for everyone, as `everyone_since` writes it; "" for none
+	Fixed         bool // the project does not let you switch it for yourself
 }
 
 // A Reading is a project's switches as they stand: the rows its `list` last answered, nil before
@@ -91,7 +91,7 @@ func Read(checkout string, every time.Duration) Reading {
 func Landed() <-chan struct{} { return landed }
 
 func list(checkout string, found *entry) {
-	answer, why := run(context.Background(), checkout, "list")
+	answer, why := own(checkout, "list")
 	rows, listed := switches(answer)
 	held.Lock()
 	found.Asking = time.Time{}
@@ -107,67 +107,85 @@ func list(checkout string, found *entry) {
 	}
 }
 
-// switches is the rows a `list` answered, each with an id; false for no list.
-func switches(answer any) ([]Switch, bool) {
+// objects is the rows a `list` answered, each an object with an id, as Python's
+// menu.switch_rows keeps them; false for no list.
+func objects(answer any) ([]*record.Object, bool) {
 	listed, ok := answer.([]any)
 	if !ok {
 		return nil, false
 	}
-	rows := []Switch{}
+	rows := []*record.Object{}
 	for _, each := range listed {
-		row, ok := each.(map[string]any)
-		id, named := row["id"]
-		if !ok || !named {
-			continue
+		if row, ok := each.(*record.Object); ok && row.Has("id") {
+			rows = append(rows, row)
 		}
-		name, _ := row["name"].(string)
-		you, _ := row["you"].(bool)
-		everyone, _ := row["everyone"].(bool)
-		since, _ := row["everyone_since"].(string)
-		spelled, _ := spell(id)
-		rows = append(rows, Switch{ID: spelled, Name: cmp.Or(name, spelled), You: you, Everyone: everyone,
-			Fixed: row["you_switchable"] == false, Since: since})
 	}
 	return rows, true
 }
 
-// run is the project's features command with words after it, as Python's gitcall.project_answer
-// runs a project's own command: its JSON answer (decode), or nil and the one line saying why.
-func run(ctx context.Context, checkout string, words ...string) (any, string) {
-	out, why := output(ctx, checkout, words...)
+// switches is the rows a `list` answered, each with an id; false for no list.
+func switches(answer any) ([]Switch, bool) {
+	listed, ok := objects(answer)
+	if !ok {
+		return nil, false
+	}
+	rows := []Switch{}
+	for _, row := range listed {
+		id := record.Text(row.Get("id"))
+		you, _ := row.Get("you").(bool)
+		everyone, _ := row.Get("everyone").(bool)
+		rows = append(rows, Switch{ID: id, Name: cmp.Or(row.Str("name"), id), You: you, Everyone: everyone,
+			Fixed: row.Get("you_switchable") == false})
+	}
+	return rows, true
+}
+
+// own is the project's features command run in ak's own environment, as the menu and the tick
+// run it.
+func own(checkout string, words ...string) (any, string) {
+	env, err := config.ChildEnv()
+	if err != nil {
+		return nil, words[0] + ": " + config.PyError(err)
+	}
+	return run(context.Background(), checkout, env, words...)
+}
+
+// run is the project's features command with words after it, in env, as Python's
+// gitcall.project_answer runs a project's own command: its JSON answer, or nil and the one line
+// saying why.
+func run(ctx context.Context, checkout string, env []string, words ...string) (any, string) {
+	out, why := output(ctx, checkout, env, words...)
 	if why != "" {
 		return nil, why
 	}
-	answer, err := decode(out)
+	// read as Python reads it, so an id is the text Python's str() makes of it
+	answer, err := record.Decode(out)
 	if err != nil {
 		return nil, words[0] + " answered no JSON"
 	}
 	return answer, ""
 }
 
-// output is what the project's features command with words after it printed, or nil and the one
-// line saying why it answered nothing.  It runs in the checkout, reading nothing, in a session of
-// its own, without the seat's name (owner_env): an ssh in it never reads the keys, nor is it a
-// seat reaching the live host.  One past the wait is killed with everything it started, so a
-// `set` said to have failed never lands after, as is one running when ctx ends.
-func output(ctx context.Context, checkout string, words ...string) ([]byte, string) {
+// output is what that command printed, as Python decodes it, or nil and the one line saying why
+// it answered nothing.  It runs in the checkout, reading nothing, in a session of its own, without
+// the seat's name (owner_env): an ssh in it never reads the keys, nor is it a seat reaching the
+// live host.  One past the wait is killed with everything it started, so a `set` said to have
+// failed never lands after, as is one running when ctx ends.
+func output(ctx context.Context, checkout string, env []string, words ...string) ([]byte, string) {
 	what, command := words[0], gitcall.Declared(checkout, "features")
 	if command == "" {
 		return nil, "AGENTS.md names no features command"
-	}
-	env, err := config.ChildEnv()
-	if err != nil {
-		return nil, what + ": " + config.PyError(err)
 	}
 	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command+" "+commandhelp.ShellJoin(words))
 	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then
-	cmd.Env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
+	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
 	var out, said bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &said
 	stop := host.Group(cmd)
-	if err = cmd.Start(); err == nil {
+	err := cmd.Start()
+	if err == nil {
 		// past the wait its session goes, even once the shell is gone: what it started may still
 		// hold the output open, and exec stops watching the deadline when the shell exits
 		defer context.AfterFunc(ctx, stop)()
@@ -185,5 +203,5 @@ func output(ctx context.Context, checkout string, words ...string) ([]byte, stri
 	case err != nil:
 		return nil, what + ": " + config.PyError(err)
 	}
-	return out.Bytes(), ""
+	return []byte(gitcall.Decoded(out.String())), ""
 }

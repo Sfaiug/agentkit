@@ -77,9 +77,8 @@ func Cached() *run.Object {
 
 // Collect is the boards' rows, each board asked once a day (refresh asks now), as the cache holds
 // them: {board: {"asked_at", "fetched_at", "rows", "error", "build"}}.  The day counts from
-// asked_at, answered or not; build is ak's build asking.  keep is asked of the boards as asked
-// before the cache is written: its error writes nothing and is returned.
-func Collect(refresh bool, now float64, build string, keep func(*run.Object) error) (*run.Object, error) {
+// asked_at, answered or not; build is ak's build asking.
+func Collect(refresh bool, now float64, build string) (*run.Object, error) {
 	if err := os.MkdirAll(filepath.Dir(path()), 0o777); err != nil {
 		return nil, err
 	}
@@ -111,9 +110,6 @@ func Collect(refresh bool, now float64, build string, keep func(*run.Object) err
 			answer.Set("error", strings.Join(strings.FieldsFunc(err.Error(), config.Space), " "))
 		}
 		cache.Set(board, answer)
-	}
-	if err := keep(cache); err != nil {
-		return nil, err
 	}
 	return cache, WriteJSON(path(), cache)
 }

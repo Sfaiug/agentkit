@@ -8,12 +8,9 @@ import (
 	"time"
 
 	"agentkit/internal/commandhelp"
-	"agentkit/internal/config"
 	"agentkit/internal/features"
+	record "agentkit/internal/run"
 )
-
-// proven is how long a switch is on for everyone before it is proven: Python's retire.PROVEN.
-const proven = 14 * 24 * time.Hour
 
 // unproven refuses the check Python's retirement writes for a proven switch while the project's
 // switch list dates that proof in the future, as Python's retire.vet_check does: ak plans that
@@ -25,8 +22,7 @@ func unproven(ctx context.Context, checkout, check string) error {
 		return nil
 	}
 	id := words[len(words)-2]
-	if check != `python3 -c "import sys; sys.path.insert(0, `+commandhelp.Quote(config.Repo())+
-		`); from agentkit import retire; retire.check_main()" `+commandhelp.ShellJoin([]string{id})+" proven" {
+	if check != features.Check(id, true) {
 		return nil
 	}
 	rows, err := features.List(ctx, checkout)
@@ -35,11 +31,12 @@ func unproven(ctx context.Context, checkout, check string) error {
 	}
 	for _, row := range rows {
 		// when it last went on for everyone, as Python's retire.since reads it: each Z +00:00
-		at, dated := fromISO(strings.ReplaceAll(row.Since, "Z", "+00:00"))
-		if row.ID == id && row.Everyone && dated && time.Since(at) < proven {
+		since, _ := row.Get("everyone_since").(string)
+		at, dated := fromISO(strings.ReplaceAll(since, "Z", "+00:00"))
+		if record.Text(row.Get("id")) == id && row.Get("everyone") == true && dated && time.Since(at) < features.Proven {
 			return fmt.Errorf("%s's switch %s is not yet proven; ak plans this line itself into a seat at work once it "+
 				"is proven on %s; the seat holds no line for it before then",
-				filepath.Base(checkout), id, at.Add(proven).UTC().Format(time.DateOnly))
+				filepath.Base(checkout), id, at.Add(features.Proven).UTC().Format(time.DateOnly))
 		}
 	}
 	return nil

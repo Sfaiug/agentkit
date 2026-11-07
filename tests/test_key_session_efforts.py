@@ -1,9 +1,11 @@
 """Each seat and its runs run at the efforts its record holds, their receipts saying so; a new
 seat on an old one's name, and a record from before, at its entries', the latter kept once a
-fresh window's `c` changes one, the shipped config's too.  Black-box: `AK_BIN` on a gitrig.py
+fresh window's `c` changes one, the shipped config's too, and one renamed while that waits for
+it.  Black-box: `AK_BIN` on a gitrig.py
 project, akseat.py seats, an akterm.py terminal and fakeadapter.py harnesses, judged by the
 effort each turn or launch is handed."""
 
+import fcntl
 import json
 import sys
 from pathlib import Path
@@ -107,6 +109,69 @@ class SeatsFromBefore(unittest.TestCase):
     def test_with_no_model_tables(self):
         (self.home.path / ".agentkit/config.toml").write_text("# no tables: the shipped config\n")
         self.keeps_its_effort()
+
+
+@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+class RenamedWhileTheStepWaits(unittest.TestCase):
+    """A rename holds the seat's lock while it waits for the new name's, held here, so a step of
+    Fable's build effort on a fresh window's `c`, `xhigh` to `max`, waits for the seat's lock."""
+
+    def setUp(self):
+        self.home = Home()
+        self.addCleanup(self.home.close)
+        self.rig = Rig(self.home, "widgets")
+        self.fakes = fakeadapter.install(self.home, claude="work", codex="pass")
+        akconfig.write(self.home, {"fable": "claude", "astra": "codex"})
+
+    def test_the_seat_builds_at_its_effort_under_its_new_name(self):
+        config = self.home.path / ".agentkit/config.toml"
+        term = Terminal(self.home, "attach", "--overlay", size=(100, 30), env={"NO_COLOR": "1"})
+        term.wait("esc leave")
+        term.keys("c")
+        term.wait(lambda screen: "For  new seats" in screen and "Fable 5.1" in screen)
+        Seat(self.home, "atoll-ran", model="fable", cwd=self.rig.path, planned=True,
+             record={"reviewers": ["astra"]})
+        state = self.home.path / ".agentkit/state"
+        old, new = state / ".session-atoll-ran.lock", state / ".session-atoll-moved.lock"
+        before = config.read_bytes()
+        with new.open("a") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            rename = self.home.spawn("orch", "rename", "atoll-ran", "atoll-moved")
+            until(lambda: locked(old) or rename.poll() is not None)
+            self.assertIsNone(rename.poll(), self.home.log("spawn-1.err").read_text())
+            term.keys("Right", "Right", "Right")
+            term.wait("␣ step")
+            term.keys("Space")
+            until(lambda: waited_for(old))
+        self.assertEqual(rename.wait(timeout=30), 0, self.home.log("spawn-1.err").read_text())
+        until(lambda: config.read_bytes() != before)
+        self.assertEqual(akconfig.read(self.home)["models"]["fable"]["exec_effort"], "max")
+        self.assertEqual(run_in(self, "atoll-moved", "Build after the move")[1], {"xhigh"})
+
+
+def until(holds, bound=30):
+    deadline = time.monotonic() + bound
+    while not holds():
+        assert time.monotonic() < deadline, "never came to hold"
+        time.sleep(0.05)
+
+
+def locked(path):
+    """Is that record lock held?  Asked by taking it at once, let go as soon as taken."""
+    with path.open("a") as file:
+        try:
+            fcntl.flock(file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            return True
+        return False
+
+
+def waited_for(path):
+    """Does a process wait for that lock, as Linux's /proc/locks lists it: a "->" row on its
+    inode."""
+    inode = str(path.stat().st_ino)
+    return any("->" in row.split() and row.split()[-3].rsplit(":", 1)[1] == inode
+               for row in Path("/proc/locks").read_text().splitlines())
 
 
 if __name__ == "__main__":

@@ -27,6 +27,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, update
 
 INSTALL = """#!/bin/sh
+[ "$1" != --prepare ] || exit 0
 d="$(dirname "$0")/.."
 [ ! -e "$d/broken" ] || failed=1
 echo installed >>"$d/installs"

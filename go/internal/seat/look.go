@@ -87,12 +87,8 @@ func Look(launched, pid string, heard *Prompt) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	name, _, err := config.ResolveSession(launched)
-	if err != nil {
-		return
-	}
-	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}")
-	if err != nil || said != server+"\t"+name {
+	name, own := inPane(launched)
+	if !own {
 		return
 	}
 	state := filepath.Join(config.Home(), "state")
@@ -107,6 +103,19 @@ func Look(launched, pid string, heard *Prompt) {
 	if _, err := lookedLive(state, name, home.runs, home.readers); errors.Is(err, ErrUnread) {
 		lookAgain(state, name)
 	}
+}
+
+// inPane is the name that seat goes by now, and whether this process runs in its own pane, on the
+// seat's own server, as watch.hook_look checks: a harness under some other tmux, or a test's sandbox
+// with a seat's name in its environment, never moves a real seat's bar or answers its question.
+func inPane(launched string) (string, bool) {
+	_, server, pane, ok := paneOf()
+	name, _, err := config.ResolveSession(launched)
+	if !ok || err != nil {
+		return "", false
+	}
+	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{socket_path}\t#{session_name}")
+	return name, err == nil && said == server+"\t"+name
 }
 
 // lookAgain decides a seat tmux holds gone and tells what it finds, the deciding and its clock

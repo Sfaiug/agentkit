@@ -131,16 +131,22 @@ class RoundsChart(unittest.TestCase):
             with self.subTest(ending=ending):
                 self.assertRegex(shown, SHOWN.format(ending, count, share), shown)
 
+    def test_the_chart_stays_as_the_value_moves(self):
+        self.addCleanup(akconfig.write, self.home, MODELS)      # → saves a value
+        term = opened(self, (100, 40))
+        term.wait(HEADING)
+        term.keys("Right")
+        term.wait(lambda screen: "◂ 4 ▸ default 3" in screen and HEADING in screen)
+
     def test_on_a_short_terminal_the_chart_shows_beside_the_pointed_row(self):
         term = opened(self, (40, 24))       # the other rows paged off
         self.assertIn("› Review rounds", term.wait(HEADING))
-        term.keys("Enter")
-        self.assertRegex(term.wait("⏎ pick"), r"(?m)^› +● 3$")
 
-    def test_on_a_shorter_terminal_an_open_list_keeps_its_highlight_on_screen(self):
+    def test_on_a_shorter_terminal_a_moved_value_keeps_its_row_on_screen(self):
+        self.addCleanup(akconfig.write, self.home, MODELS)      # → saves a value
         term = opened(self, (40, 20))
-        term.keys("Enter")
-        self.assertRegex(term.wait("⏎ pick"), r"(?m)^› +● 3$")
+        term.keys("Right")
+        self.assertRegex(term.wait("◂ 4 ▸"), r"(?m)^› Review rounds\n +◂ 4 ▸ default 3$")
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")

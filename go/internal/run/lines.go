@@ -314,8 +314,11 @@ func changeOf(record *Object) any {
 }
 
 // roundsSpent is the rounds a run spent: each with a verdict, and the one under way on a run
-// still going.
+// still going; none where review is off.
 func roundsSpent(record *Object, now time.Time) int {
+	if ReviewOff(record) {
+		return 0
+	}
 	recorded := len(record.List("round_summaries"))
 	begun := FirstNumber(record, "step_round")
 	if pending := record.Dict("review_pending"); pending != nil {
