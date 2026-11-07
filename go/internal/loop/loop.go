@@ -740,7 +740,7 @@ func settle(dir string) *run.Object {
 		return nil
 	}
 	said := stampedLog{dir}
-	record = finishSeat(dir, record)
+	record = FinishSeat(dir, record)
 	if record == nil {
 		return nil
 	}

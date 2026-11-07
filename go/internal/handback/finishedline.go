@@ -12,9 +12,18 @@ import (
 )
 
 // handbackLine is Python's handback_line: every ending uses its decision or delivery line, a
-// delivery's ending with `live` saying its change went live too.  A shortened notice is saved
-// whole before any keys are sent, under Give's delivery lock.
+// maintainer's merge kept as the run's hand-back its notice, and a delivery's ending with `live`
+// saying its change went live too.  A shortened notice is saved whole before any keys are sent,
+// under Give's delivery lock.
 func handbackLine(record *run.Object, dir string, save, live bool) string {
+	gone := ""
+	if live {
+		gone = " " + liveSentence(record, dir)
+	}
+	action := "Decide the next step." + gone
+	if notice := record.Str("merge_handback"); notice != "" {
+		return seatNotice(record, dir, notice+gone, "run "+filepath.Base(dir)+": the maintainer decided on its PR.", action, save)
+	}
 	word, why, move, detail := Decision(record, dir, run.Delivery(record, run.Models()))
 	if move != "" {
 		whole := run.Decision(record, dir, word, sentences(why, utf8.RuneCountInString(why)+1), move+detail, false)
@@ -27,15 +36,18 @@ func handbackLine(record *run.Object, dir string, save, live bool) string {
 	if record.Truthy("scratch") && record.Truthy("worktree") {
 		workspace = " Workspace: " + record.Str("worktree") + "."
 	}
-	ending, action := "run "+filepath.Base(dir)+" finished "+word, "Decide the next step."
-	if live {
-		action += " " + liveSentence(record, dir)
-	}
+	ending := "run " + filepath.Base(dir) + " finished " + word
 	whole := fmt.Sprintf("%s: %s. Result: %s.%s %s", ending, why, filepath.Join(dir, "result.md"), workspace, action)
+	return seatNotice(record, dir, whole, ending+".", action, save)
+}
+
+// seatNotice is Python's seat_notice: a line that fits is told whole, else a compact one from
+// brief and action points to result.md, which holds the whole first; "" where neither fits.
+func seatNotice(record *run.Object, dir, whole, brief, action string, save bool) string {
 	if fits(whole) {
 		return whole
 	}
-	parts := []string{ending + ".", "Result: " + shortPath(filepath.Join(dir, "result.md")) + "."}
+	parts := []string{brief, "Result: " + shortPath(filepath.Join(dir, "result.md")) + "."}
 	if count := len(record.List("followups")); count > 0 {
 		parts = append(parts, fmt.Sprintf("%d review follow-ups in full in result.md.", count))
 	}

@@ -237,6 +237,7 @@ test_key_login_resume WorktreeGone
 test_key_login_words
 test_key_macbridge_off_macos
 test_key_machines_measured
+test_key_maintainer_decision
 test_key_manifest_errors
 test_key_menu_ascii
 test_key_menu_colour_depth
