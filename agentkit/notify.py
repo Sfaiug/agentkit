@@ -1617,7 +1617,7 @@ def conversations_of(name):
         return []
     record = seat[1]
     # each read under the record as it was then: none of the current launch's evidence, which
-    # names the conversation it is on now (a Codex thread is read through its launch's receipt)
+    # names the conversation it is on now (a harness may read one through its launch's receipt)
     then = {key: value for key, value in record.items() if key not in harness.LAUNCH_KEYS}
     gone = [{**then, **was} for was in record.get("left", [])]
     return [*((orch.harness_plugin(was["harness"]), was, was.get("cwd"), was["conversation"])
