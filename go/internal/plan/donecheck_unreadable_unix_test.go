@@ -12,11 +12,11 @@ import (
 )
 
 // A transcript that cannot be read as the owner's messages are read keeps a finished plan's done
-// check owed, as Python's does (harness.unread in harness.strictly), though it reads again for
-// its turns and cards straight after.  The first read fails because the transcript is a folder.
-// The seat's typing receipts are a pipe that the reader opens only once that read is over. Until
-// then it holds the test's writer, which puts the transcript back before the receipts end, so
-// every later read finds it whole.
+// check owed, as Python's does (harness.unread in harness.strictly), though it reads whole for its
+// turns and cards straight after.  The first read fails on a folder in the transcript's place; the
+// seat's typing receipts are a pipe, which the reader opens only after that read, and the test's
+// writer, let in by that open, puts the transcript back before it ends them, so every later read
+// finds it whole.
 func TestAnUnreadableOwnerMessageKeepsTheCheckOwed(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -54,7 +54,7 @@ func TestAnUnreadableOwnerMessageKeepsTheCheckOwed(t *testing.T) {
 			}
 		}()
 		read()
-		// a reader that ends before the receipts lets the writer in, as they are opened
+		// a read that ended before the receipts lets the writer in itself
 		if reader, err := os.OpenFile(receipts, os.O_RDONLY|syscall.O_NONBLOCK, 0); err == nil {
 			defer reader.Close()
 		} else if !errors.Is(err, fs.ErrNotExist) {
