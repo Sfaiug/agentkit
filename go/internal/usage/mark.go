@@ -10,16 +10,20 @@ import (
 // provider: long enough that nothing hands the same work straight back to it.
 const dryFor = 3600.0
 
-// MarkExhausted parks a provider that has just refused a worker until it says it can work
-// again, the deadline it recorded, Python's usage.mark_exhausted: until is the harness's own "try
-// again at", 0 where its refusal named none, else the soonest of the provider's own windows still
-// to roll over, dryFor at most where no meter shows the refusal, as a window with room did not
-// refuse.  The mark sits in the snapshot beside the meters, so every later pick in every run reads it.
-func MarkExhausted(provider string, until float64) float64 {
+// MarkExhausted parks a provider, or that account of it ("" for the provider), that has just
+// refused a worker until it says it can work again, the deadline it recorded, Python's
+// usage.mark_exhausted: until is the harness's own "try again at", 0 where its refusal named none,
+// else the soonest of its own windows still to roll over, dryFor at most where no meter shows the
+// refusal, as a window with room did not refuse.  The mark sits in the snapshot beside the meters,
+// so every later pick in every run reads it; an account's is its own.
+func MarkExhausted(provider, account string, until float64) float64 {
 	now := clock()
 	prov := run.NewObject()
 	if readings, err := Collected(); err == nil {
 		prov = object(readings.providers.Get(provider))
+	}
+	if account != "" {
+		prov = object(object(prov.Get("accounts")).Get(account))
 	}
 	said := until > now
 	if !said {
@@ -45,14 +49,24 @@ func MarkExhausted(provider string, until float64) float64 {
 		until = math.Min(until, now+dryFor)
 	}
 	change := func(providers *run.Object, _ float64) *run.Object {
-		record := object(providers.Get(provider))
+		old := object(providers.Get(provider))
+		accounts, record := object(old.Get("accounts")), old
+		if account != "" {
+			record = object(accounts.Get(account))
+		}
 		if len(record.Keys()) == 0 {
 			record = prov.Copy()
 		}
 		// a credit spent since refused the week it replaced, which that credit has lifted
 		if spent, _ := number(record.Get("reset_spent_at")); spent < now {
 			run.SetAll(record, "exhausted_until", run.Float(until), "exhausted_at", run.Float(now), "exhausted_ends", ends, "exhausted_by", shownBy(by))
-			providers.Set(provider, record)
+			if account == "" {
+				providers.Set(provider, record)
+			} else {
+				accounts.Set(account, record)
+				old.Set("accounts", accounts)
+				providers.Set(provider, old)
+			}
 		}
 		return record
 	}
