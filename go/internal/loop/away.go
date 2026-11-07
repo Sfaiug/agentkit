@@ -10,8 +10,8 @@ import (
 	"agentkit/internal/host"
 )
 
-// gatePoll is how often a suite on a helper asks the helpers again while a piece of it waits,
-// Python's GATE_POLL.
+// gatePoll is how often a suite asks the helpers again while a piece of it waits, Python's
+// GATE_POLL.
 const gatePoll = 15 * time.Second
 
 // there runs one piece of a suite there (onHelper), the tests it named flaky there kept, and a red
@@ -49,9 +49,10 @@ func (l *loop) onHelper(away *helper.Away, shard string, limit time.Duration, ou
 }
 
 // grow asks the helpers again each poll while a piece waits, Python's ask: a suite one takes runs
-// waiting pieces on its VMs too, each started by start, so a suite that began on little room grows
-// into what frees.  It never waits on an answer past the last waiting piece: one that comes later
-// finishes the helper it joined.  What it joined is finished once their pieces end.
+// waiting pieces on its VMs too, each started by start, so a suite that began on little room there,
+// or on a turn here, grows into what frees.  It never waits on an answer past the last waiting
+// piece: one that comes later finishes the helper it joined.  What it joined is finished once their
+// pieces end.
 func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *piece, start func(*helper.Away)) (joined []*helper.Away) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
