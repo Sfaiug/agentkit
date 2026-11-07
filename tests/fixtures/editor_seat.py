@@ -71,7 +71,7 @@ class EditorSeat(Seats):
         name = args[args.index("-b") + 1] if "-b" in args else None
         target = args[args.index("-t") + 1] if "-t" in args else ""
         pane = target if target.startswith("%") else PANE
-        if args[0] == "display-message" and args[-1].startswith("#{pane_id}\t"):
+        if args[0] == "display-message" and args[-1] == "#{pane_id}\t#{pane_pid}\t#{pane_tty}":
             return 0, f"{pane}\t4242\t{self.tty}"
         if args[0] == "show-options":
             said = self.ask
