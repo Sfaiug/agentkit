@@ -231,7 +231,14 @@ def _state(path):
             with path.open("rb") as opened:
                 digest = hashlib.file_digest(opened, "sha256").digest()
         except PermissionError:
-            digest = None   # its mode, changed or not, is all there is to tell
+            # A run may change the bytes of a file its user cannot read, then put back its mode
+            # and time.  Root of a user namespace of the script's own reads past the mode of a
+            # file whose owner and group are its user's; bytes even it cannot read are taken to
+            # differ.
+            with subprocess.Popen(["unshare", "--map-root-user", "cat", "--", path],
+                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as cat:
+                digest = hashlib.file_digest(cat.stdout, "sha256").digest()
+            digest = digest if cat.returncode == 0 else object()
         return *state, found.st_mtime_ns, digest
     except (FileNotFoundError, NotADirectoryError, PermissionError):
         # none there, gone while it was read (the home is live), or in a home folder its user
