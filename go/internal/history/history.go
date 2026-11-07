@@ -303,8 +303,11 @@ func leftToPython(path string) (recounted bool, err error) {
 	return db.recounted()
 }
 
-// recounted is whether Python's one-time recount of the tokens is done, an error where it is owed:
-// it reads the turns' event files, which only Python ak can.
+// errOwed is a history whose tokens wait for Python's one-time recount: it reads the turns' event
+// files, which only Python ak can.
+var errOwed = errors.New("its tokens wait for Python ak's one-time repair")
+
+// recounted is whether Python's one-time recount of the tokens is done, errOwed where it is owed.
 func (db *DB) recounted() (bool, error) {
 	version, err := db.rows("PRAGMA user_version")
 	if err != nil {
@@ -315,7 +318,7 @@ func (db *DB) recounted() (bool, error) {
 		return true, nil
 	}
 	if repair, err := db.repairs(); err != nil || repair {
-		return false, cmp.Or(err, errors.New("its tokens wait for Python ak's one-time repair"))
+		return false, cmp.Or(err, errOwed)
 	}
 	return false, nil
 }

@@ -9,13 +9,13 @@ import (
 	"agentkit/internal/run"
 )
 
-// keepsHistory is whether Go's tick writes history.db, as Python's tick does: not on a home without
-// one, which only a suite's lacks, since one made would leave the rest of the tick to Python;
-// errLeft, before anything is written, where Go cannot write it as it stands, which Python's first
-// write repairs.
+// keepsHistory is whether Go's tick writes history.db, as Python's tick does: not on a home whose
+// history is bare (history.Bare), which only a suite's is, since a row written would leave the rest
+// of the tick to Python; errLeft, before anything is written, where Go cannot write it as it
+// stands, which Python's first write repairs.
 func keepsHistory() (bool, error) {
 	switch {
-	case run.Historyless():
+	case history.Bare():
 		return false, nil
 	case !history.Writable():
 		return false, errLeft
