@@ -7,7 +7,8 @@ that began before the move, the tick that made it among them, leaves it however 
 Black-box, the Home built as tests/test_key_update_ff.py builds it: ~/agentkit's first version
 has a bin/ak of its own, `HOLDING`, which runs the program from the folder it began in, at
 first waiting there while `HOLD` names a file that is there, so a tick begins before a move and
-runs on after it; the commits after it hold the program as it is.
+runs on after it; the commits after it hold the program as it is.  A tick sweeps /tmp, so the
+whole file runs in one box with a /tmp of its own (`rerun_boxed`).
 """
 
 from collections import namedtuple
@@ -21,7 +22,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import Home
+from fixtures.akbin import Home, rerun_boxed
 from fixtures.akinstall import Install
 
 # the first version's bin/ak: the program beside it, run in the folder this began in, whatever
@@ -115,4 +116,5 @@ class AMoveIsFinalOnceItsVersionTicks(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    rerun_boxed()
     unittest.main()

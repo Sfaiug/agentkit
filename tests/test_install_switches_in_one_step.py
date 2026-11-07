@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import signal
 import sys
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -181,11 +182,30 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.assertEqual(self.go_live(), [f"agentkit is live at {third[:12]}"])
         self.live(third)
 
-    def test_a_client_keeps_nothing(self):
-        (config.STATE / "server").write_text("acme\n")
-        self.go_live(final=False)
+    def test_a_tick_of_the_version_replaced_ending_mid_move_leaves_its_link(self):
+        real, ending = versions.exchange, []
+
+        def exchange(one, other):
+            # the tick before the move completes between its link and its exchange
+            ending.append(threading.Thread(target=versions.final))
+            ending[0].start()
+            ending[0].join(1)
+            real(one, other)
+        with patch.object(config, "BEGAN", os.stat(self.clone)), \
+                patch.object(versions, "exchange", exchange):
+            self.go_live(final=False)
+        ending[0].join()
         self.live(self.new)
-        self.assertIsNone(versions.kept())
+        self.assertIsNotNone(versions.kept())
+
+    def test_a_client_keeps_nothing_and_a_move_a_server_left_it_holds_nothing(self):
+        self.go_live(final=False)
+        (config.STATE / "server").write_text("acme\n")
+        left = os.readlink(config.TMP / versions.KEEP)
+        third = self.push("third")
+        self.go_live(final=False)
+        self.live(third)
+        self.assertEqual(os.readlink(config.TMP / versions.KEEP), left)     # none of its own
 
     def test_an_adoption_cut_off_between_its_renames_is_finished(self):
         (self.clone / ".git").rename(versions.repository())

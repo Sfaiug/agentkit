@@ -92,11 +92,18 @@ def checkout(code=None):
         yield path
 
 
+def keep_link():
+    """Where a move keeps the version it replaced; None on a client, which runs no tick that could
+    make its moves final, so keeps nothing, a link a server left it included."""
+    return None if config.server_alias() else config.TMP / KEEP
+
+
 def kept():
     """The version the last move replaced, while that move is not final: the folder of the bin/ak
-    `KEEP` links to, else None."""
+    `keep_link` names, else None."""
+    link = keep_link()
     try:
-        return Path(os.readlink(config.TMP / KEEP)).parents[1]
+        return Path(os.readlink(link)).parents[1] if link else None
     except OSError:
         return None
 
@@ -106,12 +113,15 @@ def final():
     that began from the folder at ~/agentkit now proves that version runs: one that began before
     the move, the tick that made it among them, ran the version it replaced."""
     from . import update     # here, not at the top: it imports this module
-    try:
-        live = os.stat(update.agentkit_dir())
-    except OSError:
+    link = keep_link()
+    if not (link and config.BEGAN and os.path.lexists(link)):
         return
-    if config.BEGAN and os.path.samestat(config.BEGAN, live):
-        (config.TMP / KEEP).unlink(missing_ok=True)
+    with holding():     # as `switch` holds it from a move's link to its exchange
+        try:
+            if os.path.samestat(config.BEGAN, os.stat(update.agentkit_dir())):
+                link.unlink(missing_ok=True)
+        except OSError:
+            pass        # no ~/agentkit: nothing of it ran
 
 
 def enter(path):
@@ -337,19 +347,20 @@ def switch(live, commit):
     if code:
         remove(new)
         return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}"
-    keep = config.TMP / KEEP
+    keep = keep_link()
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         keep_times(live, new, commit)
-        if not config.server_alias():   # a client runs no tick that could make its moves final
-            # before the exchange, which leaves the version replaced at `new`: a move cut off
-            # right after it is kept too
-            keep.parent.mkdir(parents=True, exist_ok=True)
-            keep.symlink_to(new / "bin" / "ak")
-        exchange(live, new)
+        with holding():     # a tick of the version replaced, completing between them, would take it
+            if keep:
+                # before the exchange, which leaves the version replaced at `new`: a move cut
+                # off right after it is kept too
+                keep.parent.mkdir(parents=True, exist_ok=True)
+                keep.symlink_to(new / "bin" / "ak")
+            exchange(live, new)
     except OSError as exc:
         if kept() == new:       # nothing was replaced
-            keep.unlink()
+            keep.unlink(missing_ok=True)
         remove(new)
         return f"{new} could not be swapped in for {live}: {exc}"
     repair(live, new)
