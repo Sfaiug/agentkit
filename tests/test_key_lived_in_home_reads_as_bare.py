@@ -5,12 +5,12 @@ The owner's `~/.agentkit/state` holds far more than seats: on 7 Nov 2026, 825 en
 kinds, among them the suite's timings, the helper's memory, the warm menu's socket, Google Cloud's
 records, the update's checks, the browser's tabs, the usage's pairs, a seat's done-check pictures,
 the owner's notes and kinds nothing writes any more.  No seat's word, row or card reads them.  So
-a home with two seats at their claude prompts is read bare, a first look's writes let through
-before the answers kept, then again beside one entry of each kind, named and shaped as its writer
-leaves it: each read's exit code, stderr and lines, and each seat file's word and reason, are the
-bare home's, and every entry is left as it was.  Only what moves with the clock is left out: a
-listed seat's age, which is tmux's since the seat's session began, the age in `since:`, and of
-the screen all but its seat rows.  No tick runs: its passes write far more than a seat's word.
+a home with two seats at their claude prompts, made an hour back, is read bare, a first look's
+writes let through before the answers kept, then again beside one entry of each kind, named and
+shaped as its writer leaves it: each read's exit code, stderr and lines, and each seat file's word
+and reason, are the bare home's, and every entry is left as it was.  Only what moves with the
+clock is left out: the age in `since:`, and of the screen all but its seat rows.  No tick runs:
+its passes write far more than a seat's word.
 Black-box: the program `AK_BIN` names runs beside tests/fixtures/akseat.py's seats, and this test
 fails against `/bin/false`.
 """
@@ -36,6 +36,14 @@ STATE = ".agentkit/state"
 LIST, SCREEN = ("orch", "list"), ()
 READS = (LIST, *(("orch", "why", name) for name in SEATS), SCREEN)
 WIDE = {"COLUMNS": "100"}
+# The Home's tmux, as on a host whose seats were opened an hour back: the start it gives of a
+# session, which a listed seat's age is, an hour earlier, so the age reads `1h` at every read.
+EARLIER = """#!%s -I
+import os, sys
+tmux = %r
+os.execv(tmux, [tmux, *(word.replace("#{session_created}", "#{e|-:#{session_created},3600}")
+                        for word in sys.argv[1:])])
+"""
 
 # Each entry as its writer names and shapes it.  Only one whose name carries a seat names one,
 # acme; every other names another repository, run or login.
@@ -154,9 +162,6 @@ def steady(argv, out):
     """The lines of a read that do not move with the clock."""
     if argv == SCREEN:
         return [line for line in out.splitlines() if set(line.split()) & set(SEATS)]
-    if argv == LIST:    # a live seat's age is tmux's, since its session began
-        return [line.rsplit(None, 1)[0] if line.split()[:1] in ([name] for name in SEATS)
-                else line for line in out.splitlines()]
     return [line.partition(" (")[0] if line.lstrip().startswith("since:") else line
             for line in out.splitlines()]
 
@@ -199,6 +204,8 @@ class LivedInHome(unittest.TestCase):
     def setUpClass(cls):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
+        os.replace(home.bin / "tmux", home.root / "tmux")
+        home.fake("tmux", EARLIER % (sys.executable, str(home.root / "tmux")))
         akconfig.write(home, ["opus"])
         made = int(time.time()) - 3600
         for at, name in enumerate(SEATS):
@@ -218,10 +225,11 @@ class LivedInHome(unittest.TestCase):
         for argv in READS:
             code, err, _ = self.bare[argv]
             self.assertEqual(code, 0, f"ak {' '.join(argv)}: {err}")
-        for argv in (LIST, SCREEN):
-            shown = self.bare[argv][2]
-            self.assertLessEqual(set(SEATS), {word for line in shown for word in line.split()},
-                                 shown)
+        listed = {line.split()[0]: line.split()[-1] for line in self.bare[LIST][2] if line.strip()}
+        self.assertEqual({name: listed.get(name) for name in SEATS}, dict.fromkeys(SEATS, "1h"),
+                         self.bare[LIST][2])
+        shown = self.bare[SCREEN][2]
+        self.assertLessEqual(set(SEATS), {word for line in shown for word in line.split()}, shown)
 
     def test_orch_list_answers_as_on_the_bare_home(self):
         self.assertEqual(self.lived[LIST], self.bare[LIST])
