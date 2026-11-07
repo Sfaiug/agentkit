@@ -466,8 +466,11 @@ func (l *loop) open() error {
 	files := task.Files(text)
 	l.place = placeOf(record)
 	l.reviewLines = numbersOf(record)
-	if repo, isRepo := l.place.(*repoPlace); isRepo {
-		repo.title, repo.files = l.title, files
+	switch place := l.place.(type) {
+	case *repoPlace:
+		place.title, place.files = l.title, files
+	case scratch:
+		l.place = scratch{files}
 	}
 	if l.prior {
 		l.takeUp(record)
