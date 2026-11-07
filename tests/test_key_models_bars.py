@@ -1,10 +1,10 @@
 """Under the role lines, `r recommended` on `c` draws the role `▸` is on as bars: its choices,
 then as many of its `others`, best first, as fill five places, shaded, side by side, cheapest on
 the left and the dearer taller; on each its cost, under it its quality, its name wrapped at words
-in its column, on 40 cells and on 100, and its effort, and under a shaded one its why; `━` under
-the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints every role's
-in turn under its role lines, and on 40 cells, where five places leave its labels too little
-room, the last of `others` gives its place up and every line stays on the screen.
+in its column, on 40 cells and on 100, and its effort, and under a shaded one its why led by `░`;
+`━` under the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints
+every role's in turn under its role lines, and on 40 cells, its costs $100 and more, all five
+with every line on the screen.
 
 Black-box: `AK_BIN` in a terminal of 40 rows (tests/fixtures/akterm.py) and as `ak models`, a
 fake harness running three of the releases, each for a role of [defaults], the boards held as
@@ -32,8 +32,8 @@ ROWS = [("acme-low-1", "Acme Low 1", 85, 1),          # far below: an other the 
         ("acme-dear-1", "Acme Dear 1", 95, 6),         # beaten by Step
         ("acme-top-1", "Acme Top 1", 100, 8)]
 # What each role draws, left to right: name, quality, cost, shaded with its why or solid (None)
-BARS = [("Acme Base 1", "92.0", "≈$2.00", None), ("Acme Long Name 1", "92.5", "≈$3.00", "close"),
-        ("Acme Step 1", "96.0", "≈$4.00", None), ("Acme Dear 1", "95.0", "≈$6.00", "beaten"),
+BARS = [("Acme Base 1", "92.0", "≈$2.00", None), ("Acme Long Name 1", "92.5", "≈$3.00", "░ close"),
+        ("Acme Step 1", "96.0", "≈$4.00", None), ("Acme Dear 1", "95.0", "≈$6.00", "░ beaten"),
         ("Acme Top 1", "100.0", "≈$8.00", None)]
 HEADING = "{} · three choices · two more shaded"
 # [defaults]: each role runs another of the choices
@@ -45,8 +45,8 @@ STANDS = {"█": 8, "░": 8, **{glyph: n for n, glyph in enumerate("▁▂▃�
 
 def bars(text, word):
     """The bars under the heading `word` begins, left to right, each {name, lines it takes,
-    quality, cost, eighths it stands, shaded, why, effort, marked}, read down to the blank line
-    under them; a column reaches from its bar's left edge to the next bar's."""
+    quality, cost, eighths it stands, shaded, why from its `░` on, effort, marked}, read down to
+    the blank line under them; a column reaches from its bar's left edge to the next bar's."""
     shown = [line.rstrip() for line in text.split("\n")]
     head = next(n for n, line in enumerate(shown) if line.strip().startswith(word + " · "))
     standing = lambda line: any(c in STANDS for c in line)
@@ -61,8 +61,9 @@ def bars(text, word):
         stands = [STANDS.get(cell[0], 0) if len(set(cell)) == 1 else 0 for cell in chart]
         top = next(n for n, eighths in enumerate(stands) if eighths)
         quality, *rest = under
+        at = next((n for n, cell in enumerate(rest) if cell.startswith("░")), len(rest))
+        rest, why = rest[:at], " ".join(rest[at:]) or None
         shaded = any("░" in cell for cell in chart)
-        why = rest.pop() if shaded else None
         effort = rest.pop()
         marked = bool(rest) and set(rest[-1]) == {"━"}
         names = rest[:-1] if marked else rest
@@ -74,21 +75,22 @@ def bars(text, word):
 
 def drawn(text, word):
     """What `word`'s bars say: each one's (name, quality, cost, why, effort), left to right,
-    whether each stands taller than the one on its left, and the names marked; None before
-    they are drawn."""
+    whether each with a why is shaded and only those, whether each stands taller than the one on
+    its left, and the names marked; None before they are drawn."""
     try:
         found = bars(text, word)
     except (StopIteration, ValueError, IndexError):
         return None
     return ([(bar["name"], bar["quality"], bar["cost"], bar["why"], bar["effort"])
              for bar in found],
+            all(bar["shaded"] == (bar["why"] is not None) for bar in found),
             all(left["eighths"] < right["eighths"] for left, right in zip(found, found[1:])),
             [bar["name"] for bar in found if bar["marked"]])
 
 
 def want(word):
     """BARS, cheapest on the left and the dearer taller, the row `word`'s role uses marked."""
-    return [(*bar, "high") for bar in BARS], True, [USES[word]]
+    return [(*bar, "high") for bar in BARS], True, True, [USES[word]]
 
 
 def held(home, rows):
@@ -151,15 +153,18 @@ class ModelsBars(unittest.TestCase):
         for word in USES:
             self.assertEqual(drawn(done.out, word), want(word), done.out)
 
-    def test_on_40_cells_labels_too_wide_for_five_places_take_one_and_stay_on_the_screen(self):
-        with Home() as home:      # each cost fiftyfold, $100 to $400: eight cells on its top
+    def test_on_40_cells_costs_of_100_and_more_draw_all_five_on_the_screen(self):
+        with Home() as home:      # each cost fiftyfold, in whole dollars from $100 on
             held(home, [(*row, 50 * cost) for *row, cost in ROWS])
             done = home.ak("models", env={**ENV, "COLUMNS": "40"})
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual([line for line in done.out.split("\n") if len(line) > 40], [], done.out)
+        costs = ["≈$100", "≈$150", "≈$200", "≈$300", "≈$400"]
         for word in USES:
-            self.assertEqual([bar["name"] for bar in bars(done.out, word)],
-                             ["Acme Base 1", "Acme Step 1", "Acme Dear 1", "Acme Top 1"], done.out)
+            found = bars(done.out, word)
+            self.assertEqual([(bar["name"], bar["cost"]) for bar in found],
+                             [(name, cost) for (name, *_), cost in zip(BARS, costs)], done.out)
+            self.assertEqual([bar["name"] for bar in found if bar["marked"]], [USES[word]])
 
 
 if __name__ == "__main__":
