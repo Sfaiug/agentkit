@@ -25,20 +25,40 @@ from agentkit import task as taskfile
 class Clock:
     """Advance only on the watchdog's ticks, leaving real child processes to run.
 
-    Time stands still until `started()`: a busy host may need seconds to start a command's box.
+    Time stands still until `ready()`, whatever the test's command must have done by its stop:
+    a busy host may need seconds to start a command's box, exec its child or print.
     """
 
-    def __init__(self, step, started=lambda: True):
+    def __init__(self, step, ready=lambda: True):
         self.owner = threading.current_thread()
-        self.step, self.now, self.started = step, 0, started
+        self.step, self.now, self.ready = step, 0, ready
         self.seen = set()
 
     def __call__(self):
         current = threading.current_thread()
         if current is not self.owner:
-            if current in self.seen and self.started():
+            if current in self.seen and self.ready():
                 self.now += self.step
             self.seen.add(current)
+        return self.now
+
+
+class Output:
+    """Advance ten minutes each time `path` is found grown: only output spends time, however
+    slowly a busy host prints or polls. Silence is twenty: output the watchdog misses, landing
+    between this look and its own, is a step behind, never two. Past `until`, `past` is made,
+    for a command printing until then."""
+
+    def __init__(self, path, until=float("inf")):
+        self.path, self.until, self.past = path, until, path.with_name("past")
+        self.now, self.size = 0, 0
+
+    def __call__(self):
+        size = self.path.stat().st_size if self.path.exists() else 0
+        if size != self.size:
+            self.now, self.size = self.now + 600, size
+        if self.now > self.until:
+            self.past.touch()
         return self.now
 
 
@@ -70,10 +90,20 @@ class Silence(unittest.TestCase):
     def printed(self, line):
         return lambda: line in (self.root / "donewhen.log").read_bytes()
 
-    def emitted(self, out):
-        """Whether every attempt at the turn in `out`, retries too, has emitted an event."""
-        return lambda: all((attempt / "events.jsonl").exists()
-                           for attempt in out.parent.glob(f"{out.name}*"))
+    def running(self, *argv):
+        """Whether a process under this one runs `argv` yet."""
+        def check():
+            table = watch._proc_table()
+            return any(table.get(pid, (0, "", []))[2] == [*argv]
+                       for child, _ in watch.loop_children(os.getpid())
+                       for pid in watch.descendants(child))
+        return check
+
+    def silent(self, out, written):
+        """Whether the first attempt at the turn in `out` has written to `written`, unretried:
+        time is the silent attempt's alone, so no host is too slow for a retry to answer."""
+        return lambda: (out / written).is_file() and (out / written).stat().st_size > 0 \
+            and not out.with_name(f"{out.name}-retry1").exists()
 
     def gate(self, commands, clock):
         logs = []
@@ -143,8 +173,7 @@ class Silence(unittest.TestCase):
 
     def test_silence_stop_names_the_sleeping_child(self):
         path = self.root / "donewhen.log"
-        ok, text, logs = self.gate(["touch up; sleep 600 & wait"],
-                                   Clock(600, (self.root / "up").exists))
+        ok, text, logs = self.gate(["sleep 600 & wait"], Clock(600, self.running("sleep", "600")))
         self.assertFalse(ok, text)
         self.assertEqual(len(logs), 1)
         detail = logs[0].split("(last output: (no output))", 1)[1]
@@ -176,7 +205,7 @@ class Silence(unittest.TestCase):
     def test_background_child_holding_output_does_not_escape_silence(self):
         child = self.root / "child.lock"
         cmd = f"flock -x {shlex.quote(str(child))} sleep 600 &"
-        ok, text, logs = self.gate([cmd], Clock(600, child.exists))
+        ok, text, logs = self.gate([cmd], Clock(600, self.running("sleep", "600")))
         self.assertFalse(ok, text)
         self.assertIn("20 min of silence", logs[0])
         self.assertRegex(logs[0], r"; still running: sleep 600 \(\d+s\)$")
@@ -185,8 +214,9 @@ class Silence(unittest.TestCase):
 
     def test_chatty_command_past_silence_total_is_not_killed(self):
         # No newline: any output counts, and it reaches the gate log before exit.
-        cmd = self.command("import time\nfor _ in range(35):\n print('.', end='', flush=True)\n time.sleep(.1)")
-        clock = Clock(600, self.printed(b"\n."))
+        clock = Output(self.root / "donewhen.log", until=60 * record.SILENCE_MINUTES)
+        cmd = self.command(f"import os, time\nwhile not os.path.exists({str(clock.past)!r}):\n"
+                           " print('.', end='', flush=True)\n time.sleep(.1)")
         ok, text, logs = self.gate([cmd], clock)
         self.assertTrue(ok, text)
         self.assertGreater(clock.now, 60 * record.SILENCE_MINUTES)
@@ -195,8 +225,10 @@ class Silence(unittest.TestCase):
 
     def test_ceiling_kills_a_command_that_prints_forever(self):
         cmd = self.command("import time\nwhile True:\n print('still going', flush=True)\n time.sleep(.05)")
-        clock = Clock(3600 * record.CEILING_HOURS / 3, self.printed(b"\nstill going\n"))
-        ok, text, logs = self.gate([cmd, "echo never"], clock)
+        clock = Output(self.root / "donewhen.log")
+        # thirty-six steps of output reach the ceiling, each a poll apart at least
+        with patch.object(worker, "ACTIVITY_POLL", .05):
+            ok, text, logs = self.gate([cmd, "echo never"], clock)
         self.assertFalse(ok)
         self.assertGreaterEqual(clock.now, 3600 * record.CEILING_HOURS)
         self.assertIn("6h ceiling", logs[0])
@@ -235,9 +267,14 @@ class Silence(unittest.TestCase):
         self.assertEqual(self.starting(Clock(30), Mock(side_effect=PermissionError)), ["silence"])
 
     def test_a_declared_bound_holds_until_its_very_end(self):
-        proc = subprocess.Popen(["timeout", "100", "sleep", "100"])
+        proc = subprocess.Popen(["timeout", "100", "sh", "-c", "echo; exec sleep 100"],
+                                stdout=subprocess.PIPE)
         self.addCleanup(proc.wait)
         self.addCleanup(proc.terminate)     # which `timeout` passes on to its `sleep`
+        self.addCleanup(proc.stdout.close)
+        # Popen returns as the child starts its exec, its /proc argv maybe still this process's;
+        # once `timeout` runs its command, its argv is its own
+        proc.stdout.readline()
         for age, held in ((99.9, True), (100, False)):
             with self.subTest(age=age), patch.object(host, "process_age", return_value=age):
                 self.assertEqual(worker.within_declared_timeout(proc.pid), held)
@@ -251,7 +288,8 @@ class Silence(unittest.TestCase):
         # two levels under the sandbox, as a round's out dir sits under its run: the turn reads
         # the run directory as the out dir's grandparent, and one level up here is the checkout
         out = self.root / "turns" / "executor"
-        with patch.object(worker.time, "monotonic", side_effect=Clock(600, self.emitted(out))), \
+        with patch.object(worker.time, "monotonic",
+                          side_effect=Clock(600, self.silent(out, "events.jsonl"))), \
                 patch.object(turns, "TRANSIENT_BACKOFF", (0, 0)):
             code, text, sid, dead = turns.call_retrying(
                 cfg, "fixture", "do it", self.root, out, "executor", None, logs.append)
@@ -267,24 +305,12 @@ class Silence(unittest.TestCase):
         cfg = self.adapter(
             "time.sleep(2.2)\n"
             "for _ in range(300):\n"
-            " if (out / 'past-ceiling').exists(): break\n"
+            " if (out / 'past').exists(): break\n"
             " with (out / 'events.jsonl').open('a') as fh: fh.write('{\"type\":\"event\"}\\n')\n"
             " time.sleep(.1)\n"
             "(out / 'final.md').write_text('## Summary\\nFinished')\n")
         out = self.root / "turns" / "executor"
-        events = out / "events.jsonl"
-        now, written = 0, 0
-
-        def clock():
-            nonlocal now, written
-            size = events.stat().st_size if events.exists() else 0
-            # Only observed output advances time, so a slow startup cannot spend silence.
-            if size != written:
-                now, written = now + 600, size
-            if now > 3600 * record.CEILING_HOURS:
-                (out / "past-ceiling").touch()
-            return now
-
+        clock = Output(out / "events.jsonl", until=3600 * record.CEILING_HOURS)
         with patch.object(worker.time, "monotonic", side_effect=clock), \
                 patch.object(worker, "ACTIVITY_POLL", .05), \
                 patch.object(turns, "transient_wait", side_effect=AssertionError(
@@ -294,7 +320,7 @@ class Silence(unittest.TestCase):
                 "executor", None, lambda _: None)
         self.assertEqual((code, dead), (0, False))
         self.assertIn("Finished", text)
-        self.assertGreater(now, 3600 * record.CEILING_HOURS)
+        self.assertGreater(clock.now, 3600 * record.CEILING_HOURS)
 
     def test_run_json_records_new_fields_and_removes_old_fields(self):
         state = {"done_when_minutes": 45, "turn_hours": 3, "stall_minutes": 60}
@@ -426,7 +452,7 @@ class Silence(unittest.TestCase):
                 cfg["models"]["fixture"]["harness"] = harness
                 out = self.root / harness / "executor"
                 with patch.object(worker.time, "monotonic",
-                                  side_effect=Clock(600, self.emitted(out))), \
+                                  side_effect=Clock(600, self.silent(out, "tool-output.log"))), \
                         patch.object(turns, "TRANSIENT_BACKOFF", (0, 0, 0, 0, 0)):
                     code, text, _, dead = turns.call_retrying(
                         cfg, "fixture", "do it", self.root, out, "executor", None, lambda _: None)
