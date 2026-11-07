@@ -136,7 +136,7 @@ func typable(own string) bool {
 		return false
 	}
 	chrome, err := config.Section(own, "screen")
-	_, _, known := script.Typed(own, nil)
+	_, _, known := script.Typed(own, nil, "")
 	return err == nil && chrome["cursor"] != true && known
 }
 
