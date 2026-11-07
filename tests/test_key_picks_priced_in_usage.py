@@ -168,7 +168,7 @@ class PicksPricedInUsage(unittest.TestCase):
         shown = self.command()
         self.assertRegex(shown, "quality +a task")
         self.assertRegex(shown, "quality +week %")
-        self.assertIn("0.30%", shown)
+        self.assertRegex(shown, r"\n +executor +Anvil high +90\.0 +0\.20%\n")   # its week share
 
     def test_a_role_after_an_empty_one_heads_its_own_unit(self):
         # Echo, compared alone, lacks two of execute's three measures: no builds between

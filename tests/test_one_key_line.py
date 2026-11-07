@@ -23,14 +23,15 @@ from test_config_matrix import (DOWN, ENTER, ESC, NEW_KEYS, RIGHT, UP,  # noqa: 
 
 # Key lines spelled outside terminal.keys, where each is, and why it is still spelled there.
 SPELLED = {
-    "menu.py MODELS_KEYS": "the models screen: only ↑↓ move its pointer, and on its company list "
-                           "↑↓ and ←→ move between companies and models, as their tasks spell them",
+    "menu.py MODELS_KEYS": "the models screen: only ↑↓ move its `▸` from role to role, and on "
+                           "its company list ↑↓ and ←→ move between companies and models, as "
+                           "their tasks spell them",
 }
 
 
 def spelled():
     """Where agentkit spells a key line (a ` move   ` phrase) itself: the module's top-level name
-    holding it, docstrings aside."""
+    holding it, docstrings aside; a line of `↑↓` keys is one too."""
     found = set()
     for path in sorted((REPO / "agentkit").rglob("*.py")):
         tree = ast.parse(path.read_text())
@@ -40,7 +41,8 @@ def spelled():
             docs = {id(node.body[0].value) for node in ast.walk(top)
                     if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and ast.get_docstring(node)}
             if any(isinstance(node, ast.Constant) and isinstance(node.value, str)
-                   and " move   " in f" {node.value}" and id(node) not in docs
+                   and (" move   " in f" {node.value}" or "↑↓" in node.value)
+                   and id(node) not in docs
                    for node in ast.walk(top)):
                 name = getattr(top, "name", None) or top.targets[0].id
                 found.add(f"{path.relative_to(REPO / 'agentkit')} {name}")
