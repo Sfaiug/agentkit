@@ -1,5 +1,6 @@
 """tests/test_go_keys.py judges a claim by what ran: on a made-up checkout with its own
-go/keys.txt, a claim that fails, skips, runs no test or reaches Python ak fails and is named."""
+go/keys.txt, a claim that fails, skips, runs no test or reaches Python ak fails and is named, and
+a key it does not list fails, named as not there."""
 
 import os
 from pathlib import Path
@@ -60,10 +61,10 @@ class Judges(unittest.TestCase):
         (self.root / "go/keys.txt").write_text("".join(f"{key}\n" for key in keys))
         base = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
         # A PYTHONPATH of the caller's leading to agentkit must not reach a claim, and the claims
-        # failing here are no failing parts of this file (every_file.py's FAILED_PARTS).
+        # failing or not there here are no parts of this file (every_file.py's FAILED_PARTS).
         return subprocess.run([sys.executable, self.root / "tests/test_go_keys.py", *asked],
                               env={**base, "AK_BIN": "/bin/true", "PYTHONPATH": str(self.root),
-                                   "FAILED_PARTS": "", **env},
+                                   "FAILED_PARTS": "", "NOT_THERE": "", **env},
                               text=True, capture_output=True, timeout=120)
 
     def test_what_the_claim_names_is_what_runs(self):
@@ -87,9 +88,11 @@ class Judges(unittest.TestCase):
         keys = ["test_key_passes Acme", "test_key_fails"]
         self.assertEqual(self.judged("test_key_passes", keys=keys).returncode, 0)
         self.assertEqual(self.judged("test_key_fails", keys=keys).returncode, 1)
-        done = self.judged("test_key_passes", "test_key_skips", keys=keys)
+        absent = self.root / "absent"
+        done = self.judged("test_key_passes", "test_key_skips", keys=keys, NOT_THERE=str(absent))
         self.assertEqual(done.returncode, 1)
         self.assertIn("{'test_key_skips'} is not false", done.stderr)
+        self.assertEqual(absent.read_text().split(), ["test_key_skips"])
 
     def test_with_no_ak_bin_it_builds_in_the_copy(self):
         bin_dir = self.root / "path"

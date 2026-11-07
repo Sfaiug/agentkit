@@ -424,9 +424,6 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 				}
 			}
 			if err == nil {
-				err = retypeOwed(current)
-			}
-			if err == nil {
 				err = seat.receipted(current)
 			}
 			if err == nil {

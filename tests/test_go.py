@@ -10,7 +10,8 @@ failing part is named in the file FAILED_PARTS names, each passing one's seconds
 PART_TIMES names, and every_file.py's re-run and each narrowing step give it just those as its
 arguments: a Go test as `<package>.<Test>`, its top-level test, runs alone in its package; a
 package as its import path runs whole; a step runs by its name, on its platform wherever this
-runs.
+runs.  A test or package this tree does not hold fails this file all the same, named in the file
+NOT_THERE names: a narrowing step counts that tree as passing it.
 """
 
 import json
@@ -162,6 +163,7 @@ class Go(unittest.TestCase):
                 else:
                     took[part] = time.monotonic() - began
         name_failed(failed, "FAILED_PARTS")
+        name_failed(absent, "NOT_THERE")
         name_timed(took)
         self.assertFalse(failed + absent, "".join(shown))
 

@@ -136,10 +136,10 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // reads it. Both ok and the account decision run before that capture is kept and its word
 // published, so unsupported recovery leaves no publish behind. The account decision may reopen
 // the seat through its shared launch path; a refusal its record ends on, or its one subscription
-// spent, is instead waited on, the wait written before the publish (waitOnUsage). False where
-// either decision leaves work to Python. A dry look decides as the real one and acts on nothing
-// (dryLook), and says through log the `continue` it would type; a seat it would do anything else
-// at, or cannot decide, is not carried.
+// spent, is instead waited on, and a wait the owner's own turn ends is ended, either written before
+// the publish (waitOnUsage). False where either decision leaves work to Python. A dry look decides
+// as the real one and acts on nothing (dryLook), and says through log the `continue` it would type;
+// a seat it would do anything else at, or cannot decide, is not carried.
 func Health(name string, ok func(Live) bool, log func(string), dry bool) (bool, error) {
 	if !dry {
 		return health(name, ok, log)
@@ -213,10 +213,11 @@ func health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 		if !blank && seat.follow.chosen != "" {
 			model = seat.follow.chosen
 		}
-		if due := live.Refused != "" || spentAlone(model, home.models[model]); due || ahead {
-			// watch.seat_account waits it out whatever the screen shows: behind a blank one, Python's,
-			// as is one watch.lock was taken ahead for, or not, on a model the look no longer follows:
-			// no wait is written without that lock, and no account moved under it, as the move takes it
+		if due := live.Refused != "" || spentAlone(model, home.models[model]) || waitStands(live.File); due || ahead {
+			// watch.seat_account waits it out, or ends its wait, whatever the screen shows: behind a
+			// blank one, Python's, as is one watch.lock was taken ahead for, or not, on a model the look
+			// no longer follows: no wait is written without that lock, and no account moved under it,
+			// as the move takes it
 			if carried = due && readings != nil && !blank; carried {
 				wait, carried = seat.waitOnUsage(state, live, model, found, readings, now, log)
 			}

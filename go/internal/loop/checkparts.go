@@ -29,8 +29,8 @@ type testReport struct {
 
 // A checkSelection is what a landing check is asked to run, and what it saw: the tests that
 // failed, then passed, every command's repeated reds (as `.flakes` keeps them, but for tree, time
-// and log), and each command that passed with the tests it ran, nil for all; and the history rows
-// it left, taken back where it is handed on.
+// and log), each command that passed with the tests it ran, nil for all, and each piece's goes'
+// exits; and the history rows it left, taken back where it is handed on.
 type checkSelection struct {
 	shard   string
 	tests   []string
@@ -40,6 +40,7 @@ type checkSelection struct {
 	flaky   []string
 	reds    []*run.Object
 	passed  map[string][]string
+	exits   [][]*int
 }
 
 func selectedCheck(selections []*checkSelection) *checkSelection {
@@ -62,7 +63,7 @@ func (s *checkSelection) observe(command string, result ran) {
 	if s == nil {
 		return
 	}
-	s.flaky = append(s.flaky, result.flaky...)
+	s.flaky, s.exits = append(s.flaky, result.flaky...), append(s.exits, result.exits...)
 	if len(result.reds) > 0 {
 		s.reds = append(s.reds, run.Fields("command", command, "tests", toList(result.reds)))
 	}
@@ -138,7 +139,7 @@ func reportedTests(result ran, out string, only [][]string, output io.Writer) ra
 	}
 	if result.code == 0 && len(missing) > 0 {
 		fmt.Fprintf(output, "[not named as run (AK_RAN): %s]\n", strings.Join(missing, " "))
-		result.code = 1
+		result.code, result.unnamed = 1, true
 	}
 	return result
 }

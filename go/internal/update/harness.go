@@ -93,8 +93,10 @@ func upgradeHeld(env []string, repo string, plans []plan, before map[string]stri
 		return 1
 	}
 	move.Close()
+	// `ak update` asked first, so this refusal is the background's, which says Python's repr of
+	// the config.Error update.upgrade raises
 	if _, err := liveGate(repo); err != nil {
-		fmt.Fprintf(errOut, "update: %s\n", err)
+		fmt.Fprintf(errOut, "update: Error(%s)\n", commandhelp.Quote(err.Error()))
 		return 1
 	}
 	log, err := os.CreateTemp(tmp, "update-"+time.Now().Format("20060102-150405")+"-*.log")

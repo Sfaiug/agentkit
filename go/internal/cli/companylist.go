@@ -12,13 +12,15 @@ import (
 // menuCompanyList is `p` on the models screen, `<title> · models` (menu.company_list), until Esc:
 // ↑/↓ move between your companies and `+ add a company`, ←/→ between a company's name and its
 // models, ⏎ on a company does nothing, and Space or a click on a cell turns it on or off
-// (turned).  Esc drops each company left with none on (dropped).  What to say back on the models
-// screen, or ""; false where Python ak takes it over, having written nothing: `a`, Space, ⏎ or a
-// click on `+ add a company` add a company, and a change Go cannot save (seat.SaveWhole).
+// (turned).  `a`, or Space, ⏎ or a click on `+ add a company`, adds one all on (companyAdded), the
+// keys landing on its name.  Esc drops each company left with none on (dropped).  What to say back
+// on the models screen, or ""; false where Python ak takes it over, having written nothing: a
+// change Go cannot save (seat.SaveWhole).
 func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *terminal.Painter) (string, bool) {
 	view := menu.CompanyListView{Title: title + " · models"}
 	var was []matrix.Company // the rows last drawn, so the keys stay on their company
 	drawn := false           // or on `+ add a company`, though none was drawn above it
+	var clicks terminal.Clicks
 	defer painter.Forget()
 	for {
 		rows := matrix.Stored().Rows // the boards may land meanwhile, as Python reads them per key
@@ -74,10 +76,11 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 			view.Column = min(models, view.Column+1)
 		case key.Name == "char" && key.Char == "a",
 			(key.Name == "space" || key.Name == "enter") && view.Row == len(shown):
-			return "", false
+			key.Name = "add"
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			view.Row = max(0, min(len(shown), view.Row+key.Mouse.Notches))
 		case key.Name == "pointer":
+			clicked := clicks.Click(key.Mouse)
 			row, column, hit := frame.Hit(key.Mouse)
 			if !hit {
 				view.Away = true
@@ -87,12 +90,22 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 			if column >= 0 { // off its cells the column stays
 				view.Column = column
 			}
-			clicked := key.Mouse.Released && key.Mouse.Button&3 == 0
 			if clicked && row == len(shown) {
-				return "", false
+				key.Name = "add"
 			}
 			if clicked && column >= 0 {
 				key.Name = "space"
+			}
+		}
+		if key.Name == "add" {
+			var added string
+			var carried bool
+			clicks = terminal.Clicks{} // a press held into the page was that page's
+			if view.Note, added, carried = companyAdded(view, keyboard, painter); !carried {
+				return "", false
+			}
+			if added != "" { // the keys land on its name, the row it takes as drawn again
+				was, view.Row, view.Column = append(was, matrix.Company{Maker: added}), len(was), 0
 			}
 		}
 		if key.Name == "space" {

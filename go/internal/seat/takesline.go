@@ -7,7 +7,7 @@ func TakesLine(name string) bool {
 	if !typable(own) {
 		return false
 	}
-	pane, _, found := linePane(name, "")
+	pane, _, _, found := linePane(name, "")
 	at := seatAt{name, own, pane}
 	return found && at.open() && at.settled()
 }
