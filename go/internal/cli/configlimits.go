@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"fmt"
 	"math"
-	"slices"
 	"strings"
 
 	"agentkit/internal/config"
@@ -17,32 +16,12 @@ import (
 // menuLimits is `Limits` on `c` (menu.config_limits): each of config's numbers a row under its
 // plain name (limitNames), its value and `default N` where that is not ak's default, and its own
 // note, what it means and the board rows it moves; under `Review rounds`' how the runs ended, read
-// as the page opens.  Enter opens its choices, ● the value in force, and a pick saves it to
-// config.toml at once.  The rows are read once and again after each save, as Python's page reads
-// the config it holds.
+// as the page opens.  ← and → move the pointed one a step (limitStep), saved to config.toml at
+// once.  The rows are read once and again after each save, as Python's page reads the config it
+// holds.
 func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	ended := history.RoundEndings()
 	var rows []menu.PageRow // as last read
-	choices := func(at int) ([]menu.PageRow, bool) {
-		numbers, err := config.HostNumbers()
-		if err != nil {
-			return nil, false
-		}
-		limit := numbers.Limits()[at]
-		values := slices.Clone(limitNames[limit.Key].offered)
-		if !slices.Contains(values, limit.Value) {
-			values = append(values, limit.Value)
-		}
-		slices.SortFunc(values, func(a, b any) int { return cmp.Compare(limitRank(a), limitRank(b)) })
-		var list []menu.PageRow
-		for _, value := range values {
-			list = append(list, menu.PageRow{Value: limitShown(value), On: value == limit.Value, Flip: func() string {
-				rows = nil
-				return saved(config.SaveLimit(limit.Key, value, seat.KeepConfigEfforts))
-			}})
-		}
-		return list, true
-	}
 	return configPage("limits", "", func() ([]menu.PageRow, bool) {
 		if rows != nil {
 			return rows, true
@@ -51,10 +30,19 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		if err != nil {
 			return nil, false
 		}
-		for at, limit := range numbers.Limits() {
+		for _, limit := range numbers.Limits() {
 			words := limitNames[limit.Key]
 			row := menu.PageRow{Label: words.name, Value: limitShown(limit.Value), Note: words.off,
-				List: func() ([]menu.PageRow, bool) { return choices(at) }}
+				Step: func(by int) func() string {
+					value := limitStep(limit.Key, limit.Value, by)
+					if value == nil {
+						return nil
+					}
+					return func() string {
+						rows = nil
+						return saved(config.SaveLimit(limit.Key, value, seat.KeepConfigEfforts))
+					}
+				}}
 			if limit.Value != limit.Default {
 				row.Aside = fmt.Sprint("default ", limit.Default)
 			}
@@ -67,10 +55,25 @@ func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 			rows = append(rows, row)
 		}
 		return rows, true
-	}, keyboard, painter)
+	}, keyboard, painter, "limit", "value")
 }
 
-// limitRank orders a list's values: the numbers up, then a line limit's "no limit".
+// limitStep is `key`'s step (limitNames) next from `held`, up for `by` 1 and down for -1, Python's
+// menu.limit_step: one between steps, as typed by hand, moves onto the next; nil past an end.
+func limitStep(key string, held any, by int) any {
+	steps := limitNames[key].steps
+	for i := range steps {
+		if by < 0 {
+			i = len(steps) - 1 - i
+		}
+		if cmp.Compare(limitRank(steps[i]), limitRank(held)) == by {
+			return steps[i]
+		}
+	}
+	return nil
+}
+
+// limitRank orders a limit's values: the numbers up, then a line limit's "no limit".
 func limitRank(value any) int {
 	if number, whole := value.(int); whole {
 		return number

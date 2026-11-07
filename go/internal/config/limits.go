@@ -3,7 +3,6 @@ package config
 import (
 	"fmt"
 	"math/big"
-	"os"
 	"path/filepath"
 )
 
@@ -31,25 +30,16 @@ func (n Numbers) Limits() []Limit {
 // a whole number or "no limit" (menu.config_limits' take): refused, naming the file and nothing
 // written, where host_policy would refuse the numbers it leaves.  `keep` is as RememberDefaults's.
 func SaveLimit(key string, value any, keep func() error) error {
-	path := filepath.Join(Home(), "config.toml")
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	file, err := parseDocument(string(data))
-	if err != nil {
-		return err
-	}
 	if number, whole := value.(int); whole {
 		value = big.NewInt(int64(number))
 	}
-	return saveConfig(file, func(root *table) error {
+	return saveConfig(fileTable, func(root *table) error {
 		root.put(key, value)
 		if _, err := policyIn(func(key string) (any, bool) {
 			value, set := root.values[key]
 			return value, set
 		}, defaults); err != nil {
-			return fmt.Errorf("%s: %w", path, err)
+			return fmt.Errorf("%s: %w", filepath.Join(Home(), "config.toml"), err)
 		}
 		return nil
 	}, keep)
