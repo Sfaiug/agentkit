@@ -385,7 +385,7 @@ def session_logs(session):
 def conversation_stores():
     """Each session's folder: Muse ends none (in 1.4.11 a `session_retention_days` of 1 left a
     session five days old, and no command removes one)."""
-    return [{"root": sessions(), "pattern": "[0-9]*/[0-9]*/[0-9]*/*/"}]
+    return [{"root": sessions(), "pattern": "[0-9]*/[0-9]*/[0-9]*/*/", "id": re.compile("(.+)")}]
 
 
 def end_conversation(path, ends):
