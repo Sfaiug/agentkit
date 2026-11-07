@@ -154,7 +154,7 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			return nil
 		}
 	}
-	// the history row is told a break as it is told, and Go keeps no history
+	// the history row is told a break as it is told, which Go does not write yet
 	if !run.Historyless() {
 		return errLeft
 	}

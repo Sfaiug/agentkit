@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/history"
 	"agentkit/internal/run"
 )
 
@@ -45,8 +46,9 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 	}
 }
 
-// A deployment, on the run or declared at its merge's commit, a home keeping history, and a pass
-// its seat may be owed, known before or probed now, are Python's, left before anything is written.
+// A deployment, on the run or declared at its merge's commit, and a pass its seat may be owed,
+// known before or probed now, are Python's, left before anything is written: a probe's row is
+// taken back, as Python probes again.
 func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
 	deployed := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\ndeployed: true\n---\n"))
 	for name, each := range map[string]struct {
@@ -55,9 +57,8 @@ func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
 	}{
 		"deployment":          {fields: `"merge_sha": "abc", "health": {}, "deployed": "true"`},
 		"declared deployment": {fields: `"repo": "/srv/acme"`},
-		"history":             {fields: `"merge_sha": "abc", "health": {"command": "true"}, "deployed": null`, history: true},
 		"owed pass":           {fields: `"live_at": 1, "health": {}, "deployed": null, "launched_session": "acme"`},
-		"owed probe pass":     {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`},
+		"owed probe pass":     {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`, history: true},
 		"typed probe pass":    {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "live_typed": {"line": "run fix-api is live."}`},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -65,13 +66,16 @@ func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
 				*contents/AGENTS.md?ref=abc*) echo '{"encoding": "base64", "content": "`+deployed+`"}';; esac`)
 			put(t, filepath.Join(ak, "state", "plan-acme.md"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
 			if each.history {
-				put(t, filepath.Join(ak, "history.db"), "")
+				history.Start(run.Fields("run_id", "fix-api"), nil)
 			}
 			path := filepath.Join(ak, "runs", "fix-api", "run.json")
 			before := fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", %s}`, time.Now().Unix(), each.fields)
 			put(t, path, before)
 			if err := checking(t, io.Discard).mergeChecks(); !errors.Is(err, errLeft) || read(t, path) != before {
 				t.Fatalf("%v: %s", err, read(t, path))
+			}
+			if rows := history.Look().Select("SELECT command FROM checks"); len(rows) > 0 {
+				t.Fatalf("a probe's row stayed: %v", rows)
 			}
 		})
 	}
