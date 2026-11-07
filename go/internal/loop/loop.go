@@ -127,7 +127,7 @@ func spawn(dir string, detached bool, record *run.Object) (int, error) {
 		return 0, err
 	}
 	cmd := exec.Command(self, "run", DriveFlag, dir)
-	if record.Truthy("followup") {
+	if record.Truthy("followup") || record.Truthy("night") {
 		cmd.Env, err = siblingEnv(record)
 		if err != nil {
 			return 0, err
