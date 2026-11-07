@@ -124,6 +124,12 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 				return false
 			}
 		}
+		if key.Name == "enter" && view.Row == len(c.Names)+2 {
+			if !menuDiscord(keyboard, painter) {
+				return false
+			}
+			continue
+		}
 		if key.Name == "enter" && view.Row == len(c.Names)+3 {
 			if !menuAudit(keyboard, painter) {
 				return false
