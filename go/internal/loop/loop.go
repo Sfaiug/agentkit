@@ -127,7 +127,7 @@ func spawn(dir string, detached bool, record *run.Object) (int, error) {
 		return 0, err
 	}
 	cmd := exec.Command(self, "run", DriveFlag, dir)
-	if record.Truthy("followup") {
+	if record.Truthy("followup") || record.Truthy("night") {
 		cmd.Env, err = siblingEnv(record)
 		if err != nil {
 			return 0, err
@@ -740,7 +740,7 @@ func settle(dir string) *run.Object {
 		return nil
 	}
 	said := stampedLog{dir}
-	record = finishSeat(dir, record)
+	record = FinishSeat(dir, record)
 	if record == nil {
 		return nil
 	}

@@ -60,14 +60,21 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if pane == "" {
 		pane = "=" + name + ":"
 	}
-	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}")
-	pane, born, _ := strings.Cut(said, "\t")
+	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}\t#{pane_pid}")
+	fields := append(strings.Split(said, "\t"), "", "")
+	pane = fields[0]
 	if err != nil || !paneID.MatchString(pane) {
 		return false
 	}
 	text := keyed(line)
+	// The birth is in whole seconds and a pane respawned in place keeps it: the pane's process
+	// tells a harness started since, its composer empty, from the one the line went into.
+	mark := run.Fields("line", text, "seat", created(fields[1]))
+	if pid, err := strconv.Atoi(fields[2]); err == nil {
+		mark.Set("pid", pid)
+	}
 	at := seatAt{name, own, pane}
-	if typed != nil && run.Equal(typed, run.Fields("line", text, "seat", created(born))) {
+	if typed != nil && run.Equal(typed, mark) {
 		return at.finishTyped(text, stale, log)
 	}
 	if held, drawn := at.composer(); !drawn || held != "" || !at.takesLine() {
@@ -98,7 +105,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 			log("WARN could not type into the " + current + " seat: " + tail(out+err.Error(), 200))
 			return errUntyped
 		}
-		if err := receipt(run.Fields("line", text, "seat", created(born))); err != nil {
+		if err := receipt(mark); err != nil {
 			return err
 		}
 		time.Sleep(keyGap)

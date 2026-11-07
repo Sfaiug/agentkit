@@ -106,6 +106,16 @@ class LinePastOwnersText(EditorSeat):
         self.tick()                     # the text back into the composer it emptied
         self.assertEqual((self.sent, self.composer, self.told()), ([LINE], DRAFT, True))
 
+    def test_a_line_its_enter_left_unsent_gets_it_in_its_pane_while_the_owner_selects_another(self):
+        marks = []
+        with patch.object(watch, "_send_enter", return_value=False):
+            self.assertFalse(watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg,
+                                                  receipt=marks.append))
+        self.assertEqual((self.composer, marks[0]["pane"]), (LINE, PANE))
+        self.selected = "%9"            # another pane, another process
+        watch.type_at_prompt(self.seat, LINE, lambda _: None, cfg=self.cfg, typed=marks[0])
+        self.assertEqual(self.sent, [LINE])
+
     def test_a_line_the_screen_never_drew_is_told_by_its_editor_never_by_that_screen(self):
         self.buffers.update(kept(aside_editor.GIVEN))   # given back, its screen still empty
         self.show("")

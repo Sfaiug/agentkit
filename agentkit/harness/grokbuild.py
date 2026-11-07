@@ -1,5 +1,5 @@
-"""Grok Build's shared settings, launcher-issued conversation, pinned session title and
-the sessions nobody wrote to for 30 days."""
+"""Grok Build's shared settings, launcher-issued conversation followed to each session its own
+process runs a prompt in, pinned session title and the sessions nobody wrote to for 30 days."""
 
 import fcntl
 import json
@@ -14,6 +14,7 @@ from urllib.parse import quote
 from .. import config
 from . import LAUNCHER
 
+SOURCE = "grokbuild-hook"   # `id_source`: a session the seat's own Grok ran a prompt in (`follow`)
 # An answered `ask_user_question` card's result, around the owner's answers (`given`).
 ANSWERED = ("User has answered your questions: ",
             ". You can now continue with the user's answers in mind.")
@@ -80,6 +81,30 @@ def share_settings(usual, directory):
 def session_dir(cwd, conversation):
     home = Path(os.environ.get("GROK_HOME") or Path.home() / ".grok")
     return home / "sessions" / quote(str(cwd), safe="") / str(conversation)
+
+
+def follow(launched, payload, pid):
+    """A prompt the seat's own Grok ran in another session than its record's moves the seat
+    there (`claim`), whoever typed it: in 1.0.46 only a prompt names the session /new, Ctrl+N or
+    /dashboard went to, so every session the seat ran one in stays its own, read whichever its
+    words landed in, and the last is the one its screen showed last."""
+    from .. import orch
+    from . import claim
+    if isinstance(payload, dict) and payload.get("hook_event_name") == "UserPromptSubmit":
+        claim(launched, "grokbuild", payload.get("session_id"), payload.get("transcript_path"),
+              lambda record, session: session_dir(record["cwd"], session) / "updates.jsonl",
+              pid, lambda words: orch.program(words) == "grok", id_source=SOURCE)
+
+
+def resumable(record, cwd, conversation):
+    """A session the launcher issued, or one the seat's own Grok ran a prompt in (`follow`)."""
+    return bool(conversation) and record.get("id_source") in (LAUNCHER, SOURCE)
+
+
+def reconcile(record):
+    return ({"conversation": None, "resumable": False}
+            if record.get("conversation") and not resumable(record, None, record["conversation"])
+            else {})
 
 
 def transcript(record, cwd, conversation):
@@ -250,7 +275,7 @@ def title_ready(record, state):
 def session_title(record):
     """Only a manual title in this conversation's summary can name or confirm the seat."""
     conversation, cwd = record.get("conversation"), record.get("cwd")
-    if not conversation or not cwd or record.get("id_source") != LAUNCHER:
+    if not cwd or not resumable(record, cwd, conversation):
         return None
     try:
         data = json.loads((session_dir(cwd, conversation) / "summary.json").read_text(

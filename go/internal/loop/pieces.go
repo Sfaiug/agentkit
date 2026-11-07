@@ -26,7 +26,7 @@ var errSibling = errors.New("a sibling piece was stopped")
 
 // A piece is one share of a suite as it ran: its output, how it ended, the output of a first go its
 // re-run decided, nil for none, and how that go failed as its flaky record says, "" for "failed",
-// where it ran, and when its next go was asked for.
+// where it ran, when its next go was asked for, and each go's exit (blame.go's went).
 type piece struct {
 	shard  string
 	out    *os.File
@@ -35,6 +35,7 @@ type piece struct {
 	how    string
 	there  *helper.Away // the helper it ran on, nil for here
 	asked  float64
+	exits  []*int
 }
 
 // pieces runs cmd, which names AK_SHARD, in pieces, Python's gate.run_suite, where its placement on
@@ -120,7 +121,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
-			at.asked = clock()
+			at.asked, at.exits = clock(), went(at.exits, at.ended, err)
 		}
 		if errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
@@ -318,6 +319,9 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 			status = "ran out of memory"
 		}
 		ended.flaky, ended.reds = append(ended.flaky, at.ended.flaky...), append(ended.reds, at.ended.confirmed...)
+		if len(at.exits) > 0 {
+			ended.exits = append(ended.exits, at.exits)
+		}
 		if at.ended.stopped != "" {
 			status = "killed at the limit"
 			if at.ended.stopped != "sibling" && ended.stopped == "" {

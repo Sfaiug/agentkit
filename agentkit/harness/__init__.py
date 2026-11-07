@@ -22,6 +22,7 @@ No module outside this package names a harness: the core asks
 
 import contextlib
 import contextvars
+import fcntl
 import functools
 import importlib
 import json
@@ -324,6 +325,52 @@ def issued(name, conversation, **fields):
                           id_source=LAUNCHER if conversation else None, before=None, **fields)
 
 
+@contextlib.contextmanager
+def claims():
+    """Held while a seat claims a conversation (`claim`) and while a seat is renamed
+    (`orch.rename`): two claiming one would each see it free, and a claim names its seat."""
+    with (config.STATE / "conversations.lock").open("a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX)
+        yield
+
+
+def claim(launched, harness, conversation, transcript, filed, pid, is_client, **fields):
+    """The seat launched as `launched`, on `harness`, goes on in that conversation, `fields`
+    beside it, where a hook whose parent is `pid` reported it with `transcript`: only from the
+    seat's own interactive process (`orch.owns_hook`, by `is_client`), with that conversation's
+    own file for the seat (`filed`), and no other seat's record naming it, its own or one it left.
+    The one left stays the seat's for its done check (`notify.conversations_of`); one it goes
+    back to is its current one again, read once.  No seat's lock, which a delivery holds while it
+    types the very prompt a hook may report: the seat's name holds under `claims` instead."""
+    from .. import notify, orch
+    if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(conversation, str)
+            or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation) or conversation.startswith("-")
+            or not isinstance(transcript, str)):
+        return
+    if config.session_records().get(config.resolve_session(launched), {}).get(
+            "conversation") == conversation:
+        return      # the seat's already: decided without waiting on a rename
+    with claims():
+        name = config.resolve_session(launched)
+        records = config.session_records()
+        record = records.pop(name, {})
+        if (orch.seat_harness(record) != harness or not record.get("cwd")
+                or record.get("conversation") == conversation
+                or not load(harness).resumable(record, record["cwd"], record.get("conversation"))
+                or Path(transcript).resolve() != Path(filed(record, conversation)).resolve()
+                or any(conversation in (other.get("conversation"),
+                                        *(was.get("conversation") for was in other.get("left", [])))
+                       for other in records.values())):
+            return
+        session = orch.find(name)
+        if session and orch.owns_hook(session, pid, is_client):
+            left = [was for was in notify.left(record, harness, record["conversation"])
+                    if was["conversation"] != conversation]
+            while (config.update_session(name, conversation=conversation, left=left, **fields)
+                   is None and config.resolve_session(name) != name):
+                name = config.resolve_session(name)     # moved meanwhile: written where it went
+
+
 def recorded_conversations(record):
     """Ids already proven by a seat record; `owned` must neither discover nor claim one."""
     return [record.get("conversation"), *(module.owned(record) for module in _plugins("owned"))]
@@ -596,6 +643,13 @@ class Harness:
             return hook(name, cwd, conversation)
         issued(name, conversation)
         return {}
+
+    def follow(self, launched, payload, pid):
+        """The seat goes on in the conversation its own process went to, as that hook's payload
+        says (`claim`); by default it stays on the one it was launched on."""
+        hook = self._hook("follow")
+        if hook:
+            hook(launched, payload, pid)
 
     def title_command(self, name):
         """The line that changes a seat's launch title, or None for a harness without one."""

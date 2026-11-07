@@ -34,7 +34,7 @@ func drivable(values map[string]string, bound config.Binding) error {
 	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
 	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !box.Supported ||
-		usage.Check() != nil && !loop.Unstaffed(rules) || accountTurns() && !loop.Parks(rules, named) {
+		usage.Check() != nil && loop.Unstaffed(rules) == "" || accountTurns() && !loop.Parks(rules, named) {
 		return ErrPython
 	}
 	return nil

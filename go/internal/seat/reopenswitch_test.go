@@ -11,11 +11,11 @@ import (
 
 func TestMoveRetiresQueuedSwitchesOnlyAfterRestart(t *testing.T) {
 	for _, queue := range []struct {
-		name, before, after, reset string
+		name, before, after string
 	}{
-		{"mixed", `[{"line":"/model claude-fable","switch":true,"pane":"%1","id":"old"},{"line":"continue the endpoint","id":"keep","typed":{"pane":"%1"}},{"line":"/effort high","switch":true,"pane":"%1","typed":{"pane":"%1"}}]`, `[{"line":"continue the endpoint","id":"keep"}]`, `[{"line":"/model claude-fable","switch":true,"pane":"%1","id":"old"},{"line":"continue the endpoint","id":"keep"},{"line":"/effort high","switch":true,"pane":"%1"}]`},
-		{"switches", `[{"line":"/model claude-fable","switch":true,"pane":"%1"}]`, `null`, ""},
-		{"ordinary", `[{"line":"continue the endpoint","id":"keep"}]`, `[{"line":"continue the endpoint","id":"keep"}]`, ""},
+		{"mixed", `[{"line":"/model claude-fable","switch":true,"pane":"%1","id":"old"},{"line":"continue the endpoint","id":"keep","typed":{"pane":"%1"}},{"line":"/effort high","switch":true,"pane":"%1","typed":{"pane":"%1"}}]`, `[{"line":"continue the endpoint","id":"keep","typed":{"pane":"%1"}}]`},
+		{"switches", `[{"line":"/model claude-fable","switch":true,"pane":"%1"}]`, `null`},
+		{"ordinary", `[{"line":"continue the endpoint","id":"keep"}]`, `[{"line":"continue the endpoint","id":"keep"}]`},
 	} {
 		for _, start := range []bool{false, true} {
 			name := "refused"
@@ -32,12 +32,10 @@ func TestMoveRetiresQueuedSwitchesOnlyAfterRestart(t *testing.T) {
 				if !known || (err == nil) != start {
 					t.Fatal("move result", known, err)
 				}
+				// Nothing is reset before the respawn, as a receipt names the process its line
+				// went into, which no new harness runs under: a refused attempt still owes every
+				// line as it was, the old switch commands included.
 				want := queue.before
-				// Receipts are reset before respawn; a refused attempt still owes
-				// every instruction and id, including the old switch commands.
-				if queue.reset != "" {
-					want = queue.reset
-				}
 				if start {
 					want = queue.after
 				}

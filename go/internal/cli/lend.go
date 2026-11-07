@@ -26,11 +26,13 @@ func lendHome(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "lend")
 	}
 	host.Mark("ak lend")
-	// Ctrl-C takes back what was lent, as Python's KeyboardInterrupt does on its way out
+	// Ctrl-C takes back what was lent, as Python's KeyboardInterrupt does on its way out; after,
+	// it ends ak at once, nothing left to take back, even with a full stdout blocking a print
 	interrupt, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer stop()
 	loan, err := lend.Into(interrupt, args[0], subscriptions)
-	if interrupt.Err() != nil {
+	interrupted := interrupt.Err() != nil
+	stop()
+	if interrupted {
 		fmt.Fprintln(errOut, "\nak lend: interrupted")
 		return 130
 	}

@@ -116,7 +116,7 @@ func table(t *ticking) []pass {
 		{"project rules", false, checkoutsSeen, t.fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},
 		{"alive checks", false, nil, t.alive},
-		{"night reads", false, noNights, t.nights},
+		{"night reads", false, nil, t.nights},
 		{"live update", false, liveUpdateIdle, t.liveUpdate},
 		{"harness upgrade", false, nil, t.harnessUpgrade},
 	}

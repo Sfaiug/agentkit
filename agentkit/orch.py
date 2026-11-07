@@ -54,7 +54,7 @@ from pathlib import Path
 
 from . import aside_editor, command_help, config, gitcall, guard, host, look, matrix, open_runs, owner, plan, retention, staffing, terminal, transitions, update, usage, versions
 from . import record as run_record
-from .harness import LAUNCH_KEYS, LAUNCHER, entries, load as harness_plugin
+from .harness import LAUNCH_KEYS, LAUNCHER, claims, entries, load as harness_plugin
 
 # tmux refuses a client message past 16 KiB, its header included ("command too long"): the most
 # one call's words may hold, with room left for that header
@@ -3431,6 +3431,7 @@ def rename(old, new, log=print, *, auto=False):
         # An old name of this seat follows its pointer to the lock we already hold, until its
         # record moves back there: then a writer reaching it takes that name's own lock.
         locks.enter_context(notify.session_lock(new) if target != old else notify.name_lock(new))
+        locks.enter_context(claims())    # no seat claims a conversation under the old name
         # A legacy seat stays on its own server when renamed.
         server = seat_socket(session)
         rc, out = tmux_out("rename-session", "-t", f"={old}", new, socket=server)

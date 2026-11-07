@@ -59,18 +59,38 @@ var (
 // and why the launch is refused, "" for a run that went on.
 func Task(path string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
 	data, err := os.ReadFile(path)
-	if err != nil || !utf8.Valid(data) {
+	bound, unbound := bind()
+	if err != nil || !utf8.Valid(data) || unbound != nil {
 		return 0, "", ErrPython
 	}
-	text := task.Text(data)
-	meta, cmds, err := task.Read(path)
-	bound, unbound := bind()
-	if err != nil || unbound != nil || python(path, values, bound) {
-		return 0, "", ErrPython
+	seated, _, _ := Seat()
+	_, code, why, err := launcher{seat: seated, bound: bound}.launch(path, task.Text(data), values, flags, out, errOut)
+	return code, why, err
+}
+
+// A launcher is who makes a launch and what its receipt binds: a seat's or the owner's `ak run`,
+// or the tick's for no seat (Night), whose receipt says why the tick made it.  The tick's is
+// Python's launch_for_seat: its run descends from nothing that made it, it asks no project
+// contract, which only `ak run` asks (require_project_contract), it writes its task's files once
+// the launch is known to be Go's, and it makes its pick first, refusing one no launch can make
+// before a driver starts, since nobody follows its run to hear the driver say so.
+type launcher struct {
+	seat   string         // the seat whose launch it is, "" for none
+	bound  config.Binding // the lists and efforts its receipt binds
+	origin *run.Object    // why the tick made it, nil for `ak run`
+	files  [][2]string    // the tick's task files, path and text; `ak run`'s task is written already
+}
+
+// launch is the launch of the task at path, text being what it says, as Task says, and the run's
+// directory, "" where it made none.
+func (l launcher) launch(path, text string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (string, int, string, error) {
+	meta, cmds, err := task.Parse(path, text)
+	if err != nil || python(path, values, l.bound) {
+		return "", 0, "", ErrPython
 	}
 	// read before the receipt, as Python's capture_launch does: a refusal here leaves no run
 	if _, err := config.MaxRuns(); err != nil {
-		return 2, err.Error(), nil
+		return "", 2, err.Error(), nil
 	}
 	stem := filepath.Base(path)
 	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
@@ -79,41 +99,66 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 	named := task.Title(text, stem)
 	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(named))
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
 	copied := filepath.Join(dir, "task.md")
-	reason, warning, place, err := preflight(meta, cmds, path, copied, named, values, flags, bound)
+	reason, warning, place, err := l.preflight(meta, cmds, path, copied, named, values, flags)
 	var outright *refusedOutright
 	if errors.As(err, &outright) {
-		return 2, outright.why, nil
+		return "", 2, outright.why, nil
 	}
 	defer place.admitted.release()
 	if err != nil {
-		return 0, "", err
+		return "", 0, "", err
 	}
-	seated, _, _ := Seat()
 	log, unstopped := logger(dir, out), guarded(dir, out)
 	logged := filepath.Join(dir, "log.txt")
 	title := task.Title(text, "task")
 	for _, step := range []func() error{
 		config.EnsureDirs,
+		l.write,
 		func() error { return os.Mkdir(dir, 0o777) },
 		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
 		func() error { return os.WriteFile(logged, nil, 0o666) },
-		func() error { return receive(dir, path, values, flags, bound, seated, place.admitted) },
+		func() error { return receive(dir, l.receipt(dir, path, values, flags), place.admitted) },
 		func() error { recorded(dir); return nil },
-		func() error { seat.Redress(seated); return nil }, // the seat's bar says it from the start
+		func() error { seat.Redress(l.seat); return nil }, // the seat's bar says it from the start
 		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
 	} {
 		if err := step(); err != nil {
-			return 0, "", err
+			return "", 0, "", err
 		}
 	}
-	if reason == "" {
-		code, err := drive(dir, meta, place, warning, flags, seated, unstopped, log, out, errOut)
-		return code, "", err
+	if reason == "" && l.origin != nil {
+		reason = unstaffed(l.bound) // the tick's pick, made first
 	}
-	return refuse(dir, reason, warning, log)
+	if reason == "" {
+		code, err := drive(dir, meta, place, warning, flags, l.seat, unstopped, log, out, errOut)
+		return dir, code, "", err
+	}
+	code, why, err := refuse(dir, reason, warning, log)
+	return dir, code, why, err
+}
+
+// receipt is the launch's first record: what `ak run` records, with why the tick made it.
+func (l launcher) receipt(dir, path string, values map[string]string, flags map[string]bool) *run.Object {
+	record := run.Capture(dir, path, values, flags, l.bound, l.seat)
+	if l.origin != nil {
+		for _, key := range l.origin.Keys() {
+			record.Set(key, l.origin.Get(key))
+		}
+		run.SetAll(record, "run_depth", l.depth(), "parent_run", nil)
+	}
+	return record
+}
+
+// depth is the run depth of the launch's run: this process's for `ak run`, none for the tick's.
+func (l launcher) depth() int {
+	if l.origin != nil {
+		return 0
+	}
+	depth, _ := runDepth()
+	return depth
 }
 
 // freeDir is the run's directory under that id, `-N` after it where the id is taken.
@@ -226,7 +271,8 @@ func elsewhere(id string) bool {
 func surroundings(id string) bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	return capped != nil || memory != nil || gated() || unread(id)
+	depth, _ := runDepth()
+	return capped != nil || memory != nil || gated(depth) || unread(id)
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python for a launch, or
@@ -236,8 +282,8 @@ func surroundings(id string) bool {
 // decides left to its admission, which opens history.db only once Go goes on with the launch; a home
 // HOME does not name, or text Python would write with a lone surrogate.
 func unread(id string) bool {
-	_, known := runDepth()
-	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !gated() && history.Carried(id) ||
+	depth, known := runDepth()
+	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !gated(depth) && history.Carried(id) ||
 		os.Getenv("HOME") == "" || !known ||
 		!readable(run.Runs(), os.Getenv("AK_PARENT_RUN"), os.Getenv("AK_NOTIFY_SINK"))
 }
@@ -310,15 +356,18 @@ func checkout(meta map[string]string, path, copied string) (string, string, erro
 // names a checkout that is none; ErrPython where the checkout is Python's to find, or the
 // numbers Python's to carry (numbers).
 func Budget(path string) (int, error) {
-	repo := ""
 	if meta, _, err := task.Read(path); err == nil {
-		found, refused, err := checkout(meta, path, path)
-		if err != nil {
-			return 0, ErrPython
-		}
-		if refused == "" {
-			repo = found
-		}
+		return roundsFor(path, meta)
+	}
+	numbers, err := numbers("", false)
+	return numbers.Rounds, err
+}
+
+// roundsFor is Budget of the task at path whose front matter is meta, written there or not yet.
+func roundsFor(path string, meta map[string]string) (int, error) {
+	repo, _, err := checkout(meta, path, path) // a refused checkout is none: repo ""
+	if err != nil {
+		return 0, ErrPython
 	}
 	numbers, err := numbers(repo, false)
 	return numbers.Rounds, err
@@ -331,10 +380,10 @@ func Budget(path string) (int, error) {
 // where Python's gate decides the launch, a refusal it ends as a run in error, whose receipt Python
 // writes queued for its slot.  A run it passes is admitted before it finds its base, which may
 // write origin/HEAD.
-func preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool, bound config.Binding) (string, string, place, error) {
+func (l launcher) preflight(meta map[string]string, cmds []string, path, copied, title string, values map[string]string, flags map[string]bool) (string, string, place, error) {
 	var at place
 	refuse := func(reason, warning string, err error) (string, string, place, error) {
-		if reason != "" && gated() {
+		if reason != "" && gated(l.depth()) {
 			err = ErrPython
 		}
 		return reason, warning, at, err
@@ -349,23 +398,23 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 	} else if err != nil {
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
-	// a change under way is refused next, as Python's already_under_way is
+	// a change under way is refused next, as Python's already_under_way is; only an owner's own
+	// `ak run` may start a second run regardless
 	found, err := rivals(repo, path, title, cmds)
-	owner, _, _ := Seat()
 	if err != nil {
 		return refuse("", "", err)
 	} else if len(found) > 0 && !flags["--anyway"] {
-		return refuse("", "", &refusedOutright{underWayRefusal(found, owner != "")})
+		return refuse("", "", &refusedOutright{underWayRefusal(found, l.seat != "" || l.origin != nil)})
 	} else if len(found) > 0 {
 		at.alongside = found[0].id
 	}
 	// then the contract, which a task cannot supply, as Python's require_project_contract is
-	if why := gitcall.ContractRefusal(repo); why != "" {
+	if why := gitcall.ContractRefusal(repo); why != "" && l.origin == nil {
 		return refuse("", "", &refusedOutright{why})
 	}
 	// a seat's launch is judged up to its queue, asked last before anything is created
-	if owner != "" {
-		if err := seatQueue(owner); err != nil {
+	if l.seat != "" {
+		if err := seatQueue(l.seat); err != nil {
 			return refuse("", "", err)
 		}
 	}
@@ -419,7 +468,7 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 	}
 	if later == "" {
 		// all that leaves a launch to Python is settled before anything is written
-		if err := drivable(values, bound); err != nil {
+		if err := drivable(values, l.bound); err != nil {
 			return refuse("", "", err)
 		}
 		// a repository run is Python's where its landing, a rented machine or a model turn may go to
@@ -428,11 +477,11 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 			return refuse("", "", ErrPython)
 		}
 	}
-	if later != "" && (at.repo == "" || gated()) {
+	if later != "" && (at.repo == "" || gated(l.depth())) {
 		return refuse(later, "", nil)
 	}
 	// copied is the run's own task.md: its folder names the run
-	if at.admitted, err = admit(filepath.Base(filepath.Dir(copied)), flags["--first"], owner); err != nil || at.repo == "" {
+	if at.admitted, err = admit(filepath.Base(filepath.Dir(copied)), flags["--first"], l.seat, l.depth()); err != nil || at.repo == "" {
 		return refuse("", "", err)
 	}
 	warning := ""
@@ -519,20 +568,16 @@ func slotPoll() (float64, bool) {
 
 // receive writes the launch's receipt under the slots lock: in the hold its admission took, claiming
 // the slot it was let into, else in one of its own.
-func receive(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string, admitted *admission) error {
+func receive(dir string, record *run.Object, admitted *admission) error {
 	if admitted != nil {
-		return admitted.claim(dir, run.Capture(dir, path, values, flags, bound, seat))
+		return admitted.claim(dir, record)
 	}
 	slots, err := holdSlots()
 	if err != nil {
 		return err
 	}
 	defer slots.Close()
-	return receipt(dir, path, values, flags, bound, seat)
-}
-
-func receipt(dir, path string, values map[string]string, flags map[string]bool, bound config.Binding, seat string) error {
-	return run.Create(dir, run.Capture(dir, path, values, flags, bound, seat))
+	return run.Create(dir, record)
 }
 
 // sink is the notify sink a launch is under, which keeps it out of history.
