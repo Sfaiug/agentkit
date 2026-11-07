@@ -459,9 +459,6 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
-	if slices.ContainsFunc(at.once, namesShard.MatchString) {
-		return refuse("", "", ErrPython) // a landing check in pieces is Python's lander's
-	}
 	later := task.ChecksRefusal(at.every)
 	switch from := meta["from"]; {
 	case later != "" || from == "":
