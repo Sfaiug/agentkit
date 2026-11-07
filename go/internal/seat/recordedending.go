@@ -65,17 +65,8 @@ func startedSince(mine *run.Object, since float64) bool {
 // EndsWait is whether this ending ends the explicit wait its seat named, or leaves
 // nothing recorded to let the seat's turn end while its plan still owes work.
 func EndsWait(name string, census []*run.Object, ending *run.Object) (bool, error) {
-	file, err := run.ReadJSON(seatFile(name))
-	if err != nil && !os.IsNotExist(err) {
-		return false, err
-	}
-	if file != nil {
-		if wait := file.Dict("wait"); wait != nil && !wait.Truthy("told") {
-			id, pr := ending.Str("run_id"), ending.Str("pr")
-			if id != "" && (id == wait.Str("on") || id == wait.Str("run")) || pr != "" && pr == wait.Str("on") {
-				return true, nil
-			}
-		}
+	if named, err := WaitNames(name, ending); named || err != nil {
+		return named, err
 	}
 	_, record, err := config.ResolveSession(name)
 	if err != nil {
@@ -83,4 +74,19 @@ func EndsWait(name string, census []*run.Object, ending *run.Object) (bool, erro
 	}
 	ends, _, err := RecordedEnding(name, census, record, false)
 	return !ends, err
+}
+
+// WaitNames is whether the seat's `ak wait`, not yet told, names this ending's run or pull request.
+func WaitNames(name string, ending *run.Object) (bool, error) {
+	file, err := run.ReadJSON(seatFile(name))
+	if err != nil && !os.IsNotExist(err) {
+		return false, err
+	}
+	if file != nil {
+		if wait := file.Dict("wait"); wait != nil && !wait.Truthy("told") {
+			id, pr := ending.Str("run_id"), ending.Str("pr")
+			return id != "" && (id == wait.Str("on") || id == wait.Str("run")) || pr != "" && pr == wait.Str("on"), nil
+		}
+	}
+	return false, nil
 }

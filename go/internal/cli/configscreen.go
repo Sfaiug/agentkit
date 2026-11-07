@@ -19,7 +19,7 @@ import (
 )
 
 // menuConfig uses the popup's seat, never the main screen's highlighted row. An ordinary
-// window edits only defaults. False leaves a key beyond this milestone to the shadow build.
+// window edits what new seats take. False leaves a key beyond this milestone to the shadow build.
 func menuConfig(session string, cells []menu.Cell, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	c, err := matrix.Configured()
 	if err != nil || len(c.Names) == 0 {

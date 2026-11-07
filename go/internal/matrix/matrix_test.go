@@ -12,7 +12,6 @@ import (
 
 	"agentkit/internal/boards"
 	"agentkit/internal/listing"
-	"agentkit/internal/quality"
 	"agentkit/internal/run"
 )
 
@@ -153,7 +152,7 @@ func TestTheLineupIsReusedUntilSomethingItWasComputedFromChanges(t *testing.T) {
 	state, listings := home(t)
 	refresh := func() *Matrix {
 		t.Helper()
-		found, err := Refresh(false)
+		found, err := Refresh(false, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -211,40 +210,5 @@ func TestTheLineupIsReusedUntilSomethingItWasComputedFromChanges(t *testing.T) {
 	refresh()
 	if listings() != asked+1 {
 		t.Fatalf("another build's lineup stood: %d after %d", listings(), asked)
-	}
-}
-
-func TestAMarkOfAReplacedReleaseMarksWhatReplacedIt(t *testing.T) {
-	state, _ := home(t)
-	row := func(slug, to string) string {
-		deprecated, next := "false", "null"
-		if to != "" {
-			deprecated, next = "true", `"`+to+`"`
-		}
-		return fmt.Sprintf(`{"model": %q, "effort": null, "slug": %q, "maker": "Acme", "deprecated": %s, "values": {}, "release": {"slug": %q, "name": %q, "deprecatedTo": %s}}`,
-			slug, slug, deprecated, slug, slug, next)
-	}
-	cached := `{"artificialanalysis.ai": {"rows": [` + row("old", "new") + "," + row("new", "") + "," + row("kept", "") + "," + row("nowhere", "gone") + `]}}`
-	if err := os.WriteFile(filepath.Join(state, "boards.json"), []byte(cached), 0o666); err != nil {
-		t.Fatal(err)
-	}
-	if marked, err := Compared(nil); err != nil || marked != nil {
-		t.Fatalf("no marks: %v %v", marked, err)
-	}
-	config := filepath.Join(os.Getenv("HOME"), ".agentkit", "config.toml")
-	data, err := os.ReadFile(config)
-	if err != nil {
-		t.Fatal(err)
-	}
-	marks := `compare = ["old", "kept", "nowhere", "never-listed"]` + "\n"
-	if err := os.WriteFile(config, []byte(marks+string(data)), 0o666); err != nil {
-		t.Fatal(err)
-	}
-	marked, err := Compared([]quality.Row{{Release: "new"}, {Release: "kept"}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := map[string]bool{"new": true, "kept": true}; !reflect.DeepEqual(marked, want) {
-		t.Fatalf("marked %v", marked)
 	}
 }

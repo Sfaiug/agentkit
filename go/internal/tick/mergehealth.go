@@ -30,7 +30,8 @@ type probe struct {
 // `health:` probed, a pass making it live and a failure kept with its output for the next tick,
 // each told nobody; past it, the failure kept is its break.  Go keeps no history, which Python
 // writes from the first step, nor follows a deployment, and a pass its seat may be owed is
-// Python's to tell: each is decided before the one write, and left before anything is written.
+// Python's to tell but where the run's ending, still to be said, says it (handback.LiveLeft): each
+// is decided before the one write, and left before anything is written.
 func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string)) error {
 	if !run.Historyless() {
 		return errLeft

@@ -84,7 +84,7 @@ func SaveAdvice(name string, selected *run.Object, steps []config.EffortStep) (*
 			}
 			return names
 		}
-		err = savingAdviceEfforts(bound.Models, models, offered, func(keep func() error) error {
+		err = savingEfforts(bound.Models, models, offered, tryLocks, func(keep func() error) error { // a busy record refuses the save intact
 			return config.RememberDefaults(next.Str("orchestrator"), names("workers"), names("reviewers"), keep, taken...)
 		})
 		return next, err

@@ -23,7 +23,7 @@ func adapter(args []string, out, errOut io.Writer) int {
 	case "interactive":
 		return adapters.Interactive(root, harness, rest, out, errOut)
 	case "seat":
-		return adapters.Seat(harness, rest, errOut, seat.Follow(harness), seat.StartLook)
+		return adapters.Seat(harness, rest, errOut, seat.Follow(harness), seat.LookNow, seat.StartLook)
 	case "run":
 		return adapters.Turn(harness, rest, errOut)
 	case "auth":
