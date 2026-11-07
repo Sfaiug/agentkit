@@ -34,7 +34,12 @@ func antigravityStore(conversation string) string {
 	if !antigravityConversation.MatchString(conversation) {
 		return ""
 	}
-	return filepath.Join(config.UserHome(), ".gemini", "antigravity-cli", "conversations", conversation+".db")
+	return filepath.Join(antigravityConversations(), conversation+".db")
+}
+
+// antigravityConversations is the folder agy keeps every login's conversations in.
+func antigravityConversations() string {
+	return filepath.Join(config.UserHome(), ".gemini", "antigravity-cli", "conversations")
 }
 
 // antigravitySaid is that conversation as agy shows it, oldest first: each user input and
