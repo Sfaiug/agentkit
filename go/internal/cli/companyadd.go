@@ -35,6 +35,7 @@ func companyAdded(view menu.CompanyListView, keyboard *terminal.Keyboard, painte
 // picks the row the keys are on, or Esc goes back: that row, or -1.
 func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Keyboard, painter *terminal.Painter) int {
 	at, top, away := 0, 0, false
+	var clicks terminal.Clicks
 	for {
 		screen := keyboard.Screen()
 		frame := menu.CompanyAddFrame(screen, title, others, at, top, away)
@@ -64,11 +65,12 @@ func menuCompanyAdd(title string, others []matrix.Company, keyboard *terminal.Ke
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			at = max(0, min(len(others)-1, at+key.Mouse.Notches))
 		case key.Name == "pointer":
+			clicked := clicks.Click(key.Mouse)
 			row, _, hit := frame.Hit(key.Mouse)
 			if away = !hit; hit {
 				at = row
 			}
-			if hit && key.Mouse.Released && key.Mouse.Button&3 == 0 {
+			if hit && clicked {
 				return at
 			}
 		}

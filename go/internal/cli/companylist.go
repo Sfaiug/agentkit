@@ -20,6 +20,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 	view := menu.CompanyListView{Title: title + " · models"}
 	var was []matrix.Company // the rows last drawn, so the keys stay on their company
 	drawn := false           // or on `+ add a company`, though none was drawn above it
+	var clicks terminal.Clicks
 	defer painter.Forget()
 	for {
 		rows := matrix.Stored().Rows // the boards may land meanwhile, as Python reads them per key
@@ -79,6 +80,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		case key.Name == "pointer" && key.Mouse.Button&64 != 0:
 			view.Row = max(0, min(len(shown), view.Row+key.Mouse.Notches))
 		case key.Name == "pointer":
+			clicked := clicks.Click(key.Mouse)
 			row, column, hit := frame.Hit(key.Mouse)
 			if !hit {
 				view.Away = true
@@ -88,7 +90,6 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 			if column >= 0 { // off its cells the column stays
 				view.Column = column
 			}
-			clicked := key.Mouse.Released && key.Mouse.Button&3 == 0
 			if clicked && row == len(shown) {
 				key.Name = "add"
 			}
@@ -99,6 +100,7 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		if key.Name == "add" {
 			var added string
 			var carried bool
+			clicks = terminal.Clicks{} // a press held into the page was that page's
 			if view.Note, added, carried = companyAdded(view, keyboard, painter); !carried {
 				return "", false
 			}
