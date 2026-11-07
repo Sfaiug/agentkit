@@ -36,10 +36,11 @@ elif verb == 'run':
 elif verb == 'failed' and args[2] == 'failed':
     print(*named.get('/'.join(args[1].rsplit('-', 2)[1:]), []), sep='\\n')
 """
-# Each go here marks its start and end around the line's runner; `{then}` may change its `code`.
+# Each go here marks its start and end around the line's runner, which logs the tests it runs
+# alone as its words; `{then}` may change its `code`.
 GOES = """storage=$(git rev-parse --git-common-dir)
 echo "start $(date +%s)" >>"$storage/marks"
-sh run.sh "$@"; code=$?
+sh run.sh $(cat "${AK_ONLY:-/dev/null}"); code=$?
 {then}echo "end $(date +%s)" >>"$storage/marks"
 exit $code
 """
@@ -95,7 +96,7 @@ class RedTestsRerunAtOnce(unittest.TestCase):
         the turn; the piece then runs whole and its member lands.  Each go's marks."""
         line, waiting, marks = self.land({"1/2": ["a.sh"]}, {"t/a.sh": test, "t/b.sh": "true\n"},
                                          then)
-        self.assertEqual(waiting, [("alone", "")] * alone)
+        self.assertEqual(waiting, [("alone", "a.sh")] * alone)
         self.assertEqual(line.runs()[:alone + 1], [*waiting, ("piece", "1/2", "")])
         self.assertIn("land", line.verdict(1))
         return marks
@@ -105,15 +106,15 @@ class RedTestsRerunAtOnce(unittest.TestCase):
                                      {"t/a.sh": RED, "t/b.sh": RED})
         self.assertIsNone(waiting, line.runs())
         # a.sh confirming the stack red, then the target's tip passing it: b.sh never went alone
-        self.assertEqual(line.runs(), [("alone", "")] * 2)
+        self.assertEqual(line.runs(), [("alone", "a.sh")] * 2)
         red = line.verdict(1)["fix"]
         self.assertEqual((red["piece"], red["tests"]), ("1/2", ["a.sh"]))
 
     def test_named_tests_go_before_a_piece_that_named_none_waits_for_a_turn(self):
         line, waiting, _ = self.land({"1/2": [], "2/2": ["b.sh"]},
                                      {"t/a.sh": "true\n", "t/b.sh": RED})
-        self.assertEqual(waiting, [("alone", "")])
-        self.assertEqual(line.runs()[:2], [("alone", ""), ("piece", "1/2", "")])
+        self.assertEqual(waiting, [("alone", "b.sh")])
+        self.assertEqual(line.runs()[:2], [("alone", "b.sh"), ("piece", "1/2", "")])
         red = line.verdict(1)["fix"]
         self.assertEqual((red["piece"], red["tests"]), ("2/2", ["b.sh"]))
 
