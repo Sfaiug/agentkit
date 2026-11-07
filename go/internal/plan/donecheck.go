@@ -45,7 +45,7 @@ func checkOwed(name string, lines []string) (bool, error) {
 	had, err := notify.Conversations(name)
 	var owner []Said
 	if err == nil {
-		_, owner, err = OwnerWords(had)
+		_, owner, err = OwnerWords(had, true)
 	}
 	switch {
 	case errors.Is(err, notify.ErrUnread):
@@ -65,8 +65,8 @@ func checkOwed(name string, lines []string) (bool, error) {
 // gave on its question cards.  Read strictly (harness.strictly): Answered reads each conversation
 // whole, so one there that cannot be read is an error, though notify.Conversations reads it as
 // holding no message; one that is gone holds none.  notify.ErrUnread where Go does not read a
-// conversation's answers as Python does.
-func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
+// conversation's answers, or, strictly, reads a record naming them less strictly than Python does.
+func OwnerWords(had []notify.Conversation, strictly bool) ([][]harness.Turn, []Said, error) {
 	var owner []Said
 	for _, each := range had {
 		for _, message := range each.Messages {
@@ -75,7 +75,7 @@ func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
 	}
 	said := make([][]harness.Turn, len(had))
 	for i, each := range had {
-		turns, cards, known, err := harness.Answered(each.Harness, each.Record)
+		turns, cards, known, err := harness.Answered(each.Harness, each.Record, strictly)
 		if !known {
 			return nil, nil, notify.ErrUnread
 		} else if err != nil {

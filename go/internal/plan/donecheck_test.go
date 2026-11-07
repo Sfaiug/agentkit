@@ -51,7 +51,7 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	keep := func() {
 		t.Helper()
 		had, err := notify.Conversations("acme")
-		_, owner, owned := OwnerWords(had)
+		_, owner, owned := OwnerWords(had, true)
 		if err != nil || owned != nil {
 			t.Fatal(err, owned)
 		}
@@ -80,6 +80,10 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "astra", "cwd": "/code/acme", "conversation": "thread-1"}`)
 	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
 		t.Errorf("a harness whose answers Go does not read: %v", err)
+	}
+	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "spark", "cwd": "/code/acme", "muse_launch": "`+strings.Repeat("a", 32)+`"}`)
+	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
+		t.Errorf("a harness whose receipt Go reads less strictly than Python: %v", err)
 	}
 }
 

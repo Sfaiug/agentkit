@@ -64,7 +64,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			pick("acme", picked("layout", "Compact"))}, nil},
 	} {
 		museLogs(t, "acme", append(each.entries, museEvent("kind", "started", "prompt", "Lay out acme."))...)
-		said, cards, known, err := Answered("muse", record)
+		said, cards, known, err := Answered("muse", record, false)
 		if !known || err != nil || !reflect.DeepEqual(cards, each.want) || !reflect.DeepEqual(said, []Turn{{"user", "Lay out acme."}}) {
 			t.Errorf("%s: %v %v %+v %+v, want %+v", each.why, known, err, said, cards, each.want)
 		}
@@ -78,7 +78,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if said, _, _, err := Answered("muse", record); err != nil || len(said) != 1 {
+	if said, _, _, err := Answered("muse", record, false); err != nil || len(said) != 1 {
 		t.Errorf("a stray file: %+v %v", said, err)
 	}
 	for _, hidden := range []string{log, filepath.Dir(log), filepath.Dir(filepath.Dir(log)), sessions} {
@@ -86,7 +86,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, readable := os.ReadFile(log)
-		_, _, _, err := Answered("muse", record)
+		_, _, _, err := Answered("muse", record, false)
 		if err := os.Chmod(hidden, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -100,7 +100,7 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 	if err := os.Mkdir(log, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, _, err := Answered("muse", record); err == nil {
+	if _, _, _, err := Answered("muse", record, false); err == nil {
 		t.Error("a log that cannot be read holds nothing")
 	}
 }
