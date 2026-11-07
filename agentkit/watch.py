@@ -4541,6 +4541,13 @@ def carry_draft(session, harness, pane, to, cfg=None):
                 and _edit(session, where, "line") in ("line", "unsent"))
 
 
+def _mark(session, text):
+    """The mark of `text` typed into that pinned seat (`pinned`): the seat's tmux birth, and its
+    pane's process where tmux says it."""
+    return {"line": text, "seat": session.get("created"),
+            **({"pid": session["pid"]} if "pid" in session else {})}
+
+
 def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark: None, *,
                    source="ak", stale=lambda held: False):
     """One line into a seat, and only while its harness sits at its own prompt.
@@ -4581,12 +4588,15 @@ def type_at_prompt(session, text, log, cfg=None, typed=None, receipt=lambda mark
     answer, which only the owner's own prompt gives (`notify.progress`).  A line `too_long`
     refuses is never typed, only logged; one typed before that still gets its Enter.
     """
-    session = pinned(session)
     text = terminal_mod.keyed(text)    # as `type_checked` types it: marks match
-    mark = {"line": text, "seat": session.get("created"),
-            **({"pid": session["pid"]} if "pid" in session else {})}
-    if isinstance(typed, dict) and typed.get("pane") and typed == dict(mark, pane=typed["pane"]):
-        return _line_left(dict(session, pane=typed["pane"]), text, log, cfg, stale)
+    if isinstance(typed, dict) and typed.get("pane"):
+        # ak's editor's line is in the pane its mark names, whichever the owner selects since:
+        # it is that pane's process the mark names
+        there = pinned(dict(session, pane=typed["pane"]))
+        if typed == dict(_mark(there, text), pane=typed["pane"]):
+            return _line_left(there, text, log, cfg, stale)
+    session = pinned(session)
+    mark = _mark(session, text)
     if typed == mark:
         with notify.session_lock(session["name"]) as held:
             if stale(held):
