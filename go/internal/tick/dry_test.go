@@ -39,7 +39,7 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 	dry := func(want bool) string {
 		t.Helper()
 		var out bytes.Buffer
-		if Dry(&out) != want || !want && out.Len() > 0 {
+		if (Dry(&out) == "") != want || !want && out.Len() > 0 {
 			t.Fatalf("answered %v, printing %q", !want, out.String())
 		}
 		return out.String()
@@ -84,7 +84,7 @@ func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 		"episode", "done-1", "session", "acme", "kind", "done", "created_at", epoch(time.Now()), "status", "pending")))
 	before := files(t, filepath.Dir(ak))
 	var out bytes.Buffer
-	if !Dry(&out) || out.String() != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n"+
+	if Dry(&out) != "" || out.String() != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n"+
 		"would retry notification card (pending)\ngh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
 		t.Fatalf("printed %q", &out)
 	}
@@ -93,7 +93,7 @@ func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 	}
 	unread := filepath.Join(ak, "state", "notification-outbox", "zz.json")
 	put(t, unread, "")
-	if out.Reset(); Dry(&out) || out.Len() > 0 {
+	if out.Reset(); Dry(&out) == "" || out.Len() > 0 {
 		t.Fatalf("a later unreadable event printed %q", &out)
 	}
 	if err := os.Remove(unread); err != nil {
@@ -102,7 +102,7 @@ func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 	gh(`[ "$*" = "api user" ] && exec echo '{"login": "acme"}'
 case "$*" in *"pr view"*) exec echo '{"state": "MERGED"}' ;; esac
 echo '{"items": [{"pull_request": {"html_url": "https://github.com/other/app/pull/1"}}]}'`)
-	if Dry(&out) || out.Len() > 0 {
+	if Dry(&out) == "" || out.Len() > 0 {
 		t.Fatalf("a merged pull request printed %q", &out)
 	}
 }
@@ -119,7 +119,7 @@ func TestDryTickSaysItWouldContinueAnOpenPlan(t *testing.T) {
 	drawn(t, home, "The patch is ready.\n────────\n❯\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n")
 	before := files(t, home)
 	var out bytes.Buffer
-	if !Dry(&out) || out.String() != continued {
+	if Dry(&out) != "" || out.String() != continued {
 		t.Fatalf("printed %q", &out)
 	}
 	if after := files(t, home); !reflect.DeepEqual(after, before) {
@@ -156,7 +156,7 @@ func TestDryDiscoveryLeavesAMuseReceiptAsItWas(t *testing.T) {
 	drawn(t, home, "The patch is ready.\n────────\n❯\n────────\nspark · high · acme · YOLO\n")
 	before := files(t, home)
 	var out bytes.Buffer
-	if !Dry(&out) || out.String() != continued {
+	if Dry(&out) != "" || out.String() != continued {
 		t.Fatalf("printed %q", &out)
 	}
 	if after := files(t, home); !reflect.DeepEqual(after, before) {
@@ -220,7 +220,7 @@ func TestDryScreenHoldsAreNeverSaved(t *testing.T) {
 				"\n? for shortcuts              agentkit (GPT-OSS 120B (Medium))  /agents · 1 task(s) · /tasks\n")
 			before := files(t, home)
 			var out bytes.Buffer
-			if Dry(&out) != each.carried {
+			if (Dry(&out) == "") != each.carried {
 				t.Fatalf("carried %v, printing %q", !each.carried, &out)
 			}
 			if after := files(t, home); !reflect.DeepEqual(after, before) {

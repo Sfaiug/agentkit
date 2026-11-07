@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handover"
 	"agentkit/internal/run"
 )
 
@@ -51,7 +52,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	machine := role == "server" && mac() && !sandboxed
 	if machine && unbrewed() {
 		fmt.Fprintln(errOut, "ak install: Homebrew, which Lima comes from, is not installed by Go yet")
-		return 3
+		return handover.Exit("install", handover.Here(0))
 	}
 	if machine {
 		role, alias = "client", machineAlias

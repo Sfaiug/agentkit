@@ -77,7 +77,7 @@ func seatState(payload []byte, out io.Writer) int {
 	// goes to.
 	heard, carried := heardAnswer(event, at, seat)
 	if !carried {
-		return leftToPython
+		return leftToPython("seat-state")
 	}
 	// `ak orch rename` leaves a pointer at the old name, and the harness carries its launch
 	// name for its whole life.

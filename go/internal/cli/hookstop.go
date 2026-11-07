@@ -43,7 +43,7 @@ func orchestratorStop(payload []byte, out io.Writer) int {
 	harness := config.SeatHarness(name)
 	back, err := stopHeld(launched, name, record, harness, event)
 	if err != nil {
-		return leftToPython
+		return leftToPython("orchestrator-stop")
 	}
 	if back == "" {
 		seat.TurnEnded(name)

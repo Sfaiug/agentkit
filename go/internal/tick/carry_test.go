@@ -64,8 +64,8 @@ func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 // carries is whether a tick was carried out whole: Go did not leave it to Python, and it saved
 // watch.json.
 func carries(out, errOut io.Writer) bool {
-	carried, failed := Carry(out, errOut)
-	return carried && !failed
+	left, failed := Carry(out, errOut)
+	return left == "" && !failed
 }
 
 func put(t *testing.T, path, content string) {
