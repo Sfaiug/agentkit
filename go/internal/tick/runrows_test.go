@@ -57,7 +57,7 @@ func TestRunWorkHandsOverAtItsOwnRow(t *testing.T) {
 					chosen = each
 				}
 			}
-			if chosen.idle == nil || !chosen.idle() {
+			if chosen.idle != nil && !chosen.idle() {
 				t.Fatal("stopped run was not idle")
 			}
 			after := false

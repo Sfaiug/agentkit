@@ -1,14 +1,11 @@
 package config
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"unicode"
-
-	"agentkit/internal/lock"
 )
 
 // firstKey is a statement's first key component, bare or quoted, after its indent.
@@ -23,9 +20,8 @@ func MigratePolicy() {
 	if _, root := policyFile(path); root == nil {
 		return
 	}
-	// Lock the directory, which survives replacing the file, as Python's does, then read again:
-	// another first command may already have renamed it.
-	held, err := lock.Wait(context.Background(), Home())
+	// Lock, then read again: another first command may already have renamed it.
+	held, err := editing()
 	if err != nil {
 		return
 	}

@@ -62,12 +62,16 @@ class LeftoverJunk(unittest.TestCase):
     def test_a_go_build_cache_stays_out_and_a_fifo_readme_never_holds_the_sweep(self):
         signal.alarm(60)                # a sweep waiting for the FIFO's writer fails, never hangs
         self.addCleanup(signal.alarm, 0)
-        repo = self.repo()
-        cache = self.go_cache(repo, "tools/warm/")
-        os.mkfifo(repo / "tools" / "README")        # no writer ever opens it
-        (repo / "app.py").write_text("value = 2\n")
-        self.assert_swept(repo, cache)
-        self.assertEqual((repo / cache[1]).read_text(), GO_README)
+        for ignored in (False, True):   # an ignored cache is still named as left out
+            with self.subTest(ignored=ignored):
+                repo = self.repo()
+                if ignored:
+                    (repo / ".git" / "info" / "exclude").write_text("tools/warm/\n")
+                cache = self.go_cache(repo, "tools/warm/")
+                os.mkfifo(repo / "tools" / "README")        # no writer ever opens it
+                (repo / "app.py").write_text("value = 2\n")
+                self.assert_swept(repo, cache)
+                self.assertEqual((repo / cache[1]).read_text(), GO_README)
 
     def test_a_go_build_cache_at_the_checkout_root_stays_out(self):
         # GOCACHE may name the checkout itself

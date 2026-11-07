@@ -34,7 +34,7 @@ esac
 case "$*" in
   *respawn-pane*) cat "$HOME/.agentkit/state/session-acme.json" > "$HOME/at-launch"; [ -e "$HOME/respawns" ] ;;
   *list-sessions*) printf 'acme\t1\n' ;;
-  *'#{pane_id} #{pane_dead}') printf '%%1 %s\n' "$MOVE_PANE_DEAD" ;;
+  *'#{pane_dead}') printf '%s\n' "$MOVE_PANE_DEAD" ;;
   *list-panes*) printf 'acme\t0\n' ;;
   *capture-pane*) [ ! -f "$HOME/screen" ] || cat "$HOME/screen" ;;
   *show-options*) echo '%1' ;;
