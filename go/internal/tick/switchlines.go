@@ -51,7 +51,7 @@ func handed(checkout string, now time.Time) (handing, error) {
 		if err != nil {
 			return hand, errLeft
 		}
-		if each := (switchDue{run.Text(row.Get("id")), at, on}); on && now.Sub(at) >= proven {
+		if each := (switchDue{run.Text(row.Get("id")), at, on}); on && now.Sub(at) >= features.Proven {
 			proved = append(proved, each)
 		} else if !on && row.Get("everyone") == true {
 			undated = append(undated, each)

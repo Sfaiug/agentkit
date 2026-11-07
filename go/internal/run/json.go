@@ -134,8 +134,8 @@ func Num(value any) (float64, bool) {
 	return parsed, true
 }
 
-// integral is whether Python reads the number as an int.
-func integral(value Number) bool {
+// Integral is whether Python reads the number as an int.
+func Integral(value Number) bool {
 	return !strings.ContainsAny(string(value), ".eEIN")
 }
 
@@ -163,7 +163,7 @@ func Float(value float64) Number {
 // written is a number as json.dumps writes what Python read of it: an int's digits, a
 // float's repr.
 func written(value Number) string {
-	if integral(value) {
+	if Integral(value) {
 		whole, _ := new(big.Int).SetString(string(value), 10)
 		return whole.String() // -0 is 0
 	}
@@ -402,9 +402,9 @@ func (p *parser) value(depth int) (any, error) {
 	switch {
 	case found == nil:
 		return nil, p.fail("Expecting value", p.at)
-	case p.limited && integral(Number(found)) && digits > config.MinDigits:
+	case p.limited && Integral(Number(found)) && digits > config.MinDigits:
 		return nil, ErrLimit
-	case integral(Number(found)) && digits > config.MaxDigits:
+	case Integral(Number(found)) && digits > config.MaxDigits:
 		return nil, fmt.Errorf("Exceeds the limit (%d digits) for integer string conversion: value has %d digits; use sys.set_int_max_str_digits() to increase the limit", config.MaxDigits, digits)
 	}
 	p.at += len(found)

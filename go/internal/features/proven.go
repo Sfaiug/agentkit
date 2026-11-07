@@ -1,6 +1,7 @@
 package features
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strconv"
@@ -11,6 +12,10 @@ import (
 	"agentkit/internal/config"
 	record "agentkit/internal/run"
 )
+
+// Proven is how long a switch is on for everyone before it is proven, Python's retire.PROVEN: the
+// owner's two weeks.
+const Proven = 14 * 24 * time.Hour
 
 // ErrStamp is an `everyone_since` Go cannot read as Python's datetime.fromisoformat reads it.
 var ErrStamp = errors.New("an everyone_since Go cannot read as Python does")
@@ -94,7 +99,7 @@ func Checked(tree, check string, env []string) (passed, ours bool) {
 	if commandhelp.ShellJoin([]string{id})+" "+kind != words || kind != "proven" && kind != "unproven" {
 		return false, false
 	}
-	answer, _ := run(tree, env, "list")
+	answer, _ := run(context.Background(), tree, env, "list")
 	rows, listed := objects(answer)
 	if !listed {
 		return false, true
