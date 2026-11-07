@@ -9,17 +9,26 @@ import (
 	"agentkit/internal/run"
 )
 
-// mergeRows is where history.db keeps a followed merge, as Python's after_merge_health does: its
-// probe's checks row on the merge commit, under its run's directory.  None on a home without a
-// history, which only a suite's lacks: Go's tick makes none, as Python's first write would, since
-// one made would leave the rest of the tick to Python.  errLeft where Go cannot write the history
-// as it stands, which Python's first write repairs.
-func mergeRows(each *merge) (*history.Checked, error) {
+// keepsHistory is whether Go's tick writes history.db, as Python's tick does: not on a home without
+// one, which only a suite's lacks, since one made would leave the rest of the tick to Python;
+// errLeft, before anything is written, where Go cannot write it as it stands, which Python's first
+// write repairs.
+func keepsHistory() (bool, error) {
 	switch {
 	case run.Historyless():
-		return nil, nil
+		return false, nil
 	case !history.Writable():
-		return nil, errLeft
+		return false, errLeft
+	}
+	return true, nil
+}
+
+// mergeRows is where history.db keeps a followed merge, as Python's after_merge_health does: its
+// probe's checks row on the merge commit, under its run's directory; none where the tick keeps no
+// history.
+func mergeRows(each *merge) (*history.Checked, error) {
+	if keeps, err := keepsHistory(); !keeps {
+		return nil, err
 	}
 	return &history.Checked{Run: each.name, Kind: "health", Tree: each.sha}, nil
 }
@@ -30,11 +39,11 @@ func keepMerge(rows *history.Checked, record *run.Object, passed bool, say func(
 	if rows == nil {
 		return
 	}
-	var live any
+	pairs := []any{"merge_sha", rows.Tree}
 	if passed {
-		live = record.Get("live_at")
+		pairs = append(pairs, "live_at", record.Get("live_at"))
 	}
-	history.Followed(cmp.Or(record.Str("run_id"), rows.Run), rows.Tree, live, say)
+	history.Update(cmp.Or(record.Str("run_id"), rows.Run), say, pairs...)
 }
 
 // probeExit is how a probe ended as its row keeps it: its exit as Python's returncode says it,

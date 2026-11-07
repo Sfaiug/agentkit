@@ -112,6 +112,32 @@ func tables(t *testing.T) string {
 	return said
 }
 
+// A seat that comes to owe a pass while its probe runs has the pass recorded, as Python records it,
+// and told by nobody: the next tick, reading it owed before it writes, hands its telling over.
+func TestMergeChecksRecordAPassOwedSinceItsProbe(t *testing.T) {
+	ak, _ := idleHome(t, "")
+	home := filepath.Dir(ak)
+	put(t, filepath.Join(home, "plan"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
+	path := filepath.Join(ak, "runs", "fix-api", "run.json")
+	put(t, path, fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "merge_sha": "abc", "repo": "/", `+
+		`"health": {"command": "cp \"$HOME/plan\" \"$HOME/.agentkit/state/plan-acme.md\""}, "deployed": null, "launched_session": "acme"}`, time.Now().Unix()))
+	older(t, "ALTER TABLE runs DROP COLUMN no_review")
+	if err := checking(t, io.Discard).mergeChecks(); err != nil {
+		t.Fatal(err)
+	}
+	kept, _ := run.ReadJSON(path)
+	db := history.Look()
+	probes := db.Select("SELECT exit FROM checks WHERE run_id='fix-api' AND kind='health'")
+	db.Close()
+	if !kept.Truthy("live_at") || kept.Has("live_notified") || len(probes) != 1 || probes[0]["exit"] != int64(0) {
+		t.Fatalf("%v: %s", probes, run.Line(kept))
+	}
+	before, schema := read(t, path), tables(t)
+	if err := checking(t, io.Discard).mergeChecks(); !errors.Is(err, errLeft) || read(t, path) != before || tables(t) != schema {
+		t.Fatalf("%v: %s", err, read(t, path))
+	}
+}
+
 // What a merge's commit declares is read on GitHub where its checkout lacks the commit, and kept;
 // its `health:` passing there, given the commit, makes the run live, recorded and never typed.
 func TestMergeHealthFoundOnGitHubGoesLive(t *testing.T) {

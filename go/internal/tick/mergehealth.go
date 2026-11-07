@@ -31,8 +31,10 @@ type probe struct {
 // each told nobody; past it, the failure kept is its break; and history.db keeps its commit, its
 // probes and when it went live (mergeRows).  Go follows no deployment, and a pass its seat may be
 // owed is Python's to tell but where the run's ending, still to be said, says it
-// (handback.LiveLeft): each is decided before the one write, and left before anything is written:
-// where the probe keeps a row, written as it starts, a pass it may find is left before it runs.
+// (handback.LiveLeft).  Each is decided before this merge's first write, and left there: the one
+// write, or where the probe keeps a row, written as it starts, the probe.  A seat that comes to owe
+// a pass after that has it recorded, as Python records it, and the next tick, reading it owed
+// first, hands its telling over.
 func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string)) error {
 	rows, err := mergeRows(each)
 	if err != nil {
@@ -59,6 +61,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	if found.Has("health") {
 		health = healthOf(found)
 	}
+	owed := handback.LiveLeft(record)
 	verdict, probed := "", (*probe)(nil)
 	switch command := run.Text(health.Get("command")); {
 	case record.Truthy("live_at"):
@@ -77,7 +80,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	default:
 		said, ran := probes[[2]string{key, each.sha}]
 		if !ran {
-			if rows != nil && handback.LiveLeft(record) {
+			if owed && rows != nil {
 				return errLeft
 			}
 			said.passed, said.output = healthCommand(record.Str("repo"), each.sha, command, healthTimeout, rows)
@@ -88,8 +91,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 			verdict = "passed"
 		}
 	}
-	if verdict == "passed" && handback.LiveLeft(record) {
-		rows.Drop(nil) // a seat that came to owe it during the probe: Python probes again
+	if verdict == "passed" && owed {
 		return errLeft
 	}
 	if len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil {
@@ -119,8 +121,8 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	}
 	keepMerge(rows, record, verdict == "passed", say)
 	if verdict == "passed" {
-		if left, err := handback.Live(dir, record, now, say); left || err != nil {
-			return cmp.Or(err, errLeft)
+		if err := handback.Live(dir, record, now, say); err != nil {
+			return err
 		}
 	}
 	each.verdict = verdict

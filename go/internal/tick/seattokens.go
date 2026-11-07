@@ -8,17 +8,16 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
 	"agentkit/internal/history"
-	"agentkit/internal/run"
 )
 
 // seatTokens is Python's seat_tokens.read where no seat has spent anything it could count yet:
 // history.db keeps each seat's sources, to be read from their start, where a seat or a source
 // kept stands.  errLeft, having written nothing, where a seat's harness keeps its tokens where Go
-// does not look, or a source holds lines, which Python counts.  A home without a history keeps
-// none: Go's tick makes none (mergeRows).
+// does not look, or a source holds lines, which Python counts.  None where the tick keeps no
+// history.
 func seatTokens() error {
-	if run.Historyless() {
-		return nil
+	if keeps, err := keepsHistory(); !keeps {
+		return err
 	}
 	var sources []history.Source
 	seats := 0
