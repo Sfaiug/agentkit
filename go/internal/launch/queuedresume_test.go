@@ -94,25 +94,32 @@ func TestAQueuedRunResumedAfterItsLauncherDiedKeepsItsPlace(t *testing.T) {
 	}
 }
 
-// A waiter whose resume the gate leaves to Python, on the live host's readings, is handed over
-// before anything is written: its repository gets no origin/HEAD from its launch's preflight.
+// A waiter the gate holds where no suite's sink marks it, whose wait history.db would count, is
+// Python's, as in any real home: its resume hands it over before anything is written, its
+// repository getting no origin/HEAD from the launch's preflight, which passes as it stands.
 func TestAResumeTheGateLeavesToPythonWritesNothing(t *testing.T) {
 	home := queuedHome(t)
 	repo, origin := filepath.Join(home, "acme"), filepath.Join(home, "origin.git")
+	write(t, filepath.Join(repo, "AGENTS.md"), "---\nusers: none\ntests: none\nhealth: none\n---\n")
 	for _, args := range [][]string{{"init", "--bare", "--initial-branch=main", origin}, {"init", "--initial-branch=main", repo},
-		{"-C", repo, "-c", "user.name=Acme", "-c", "user.email=acme@example.invalid", "commit", "--allow-empty", "-m", "Initial"},
+		{"-C", repo, "add", "AGENTS.md"}, {"-C", repo, "-c", "user.name=Acme", "-c", "user.email=acme@example.invalid", "commit", "-m", "Initial"},
 		{"-C", repo, "remote", "add", "origin", origin}, {"-C", repo, "push", "--quiet", "origin", "main"}} {
 		if said, err := exec.Command("git", args...).CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v %s", args, err, said)
 		}
 	}
-	waiter(t, "acme", time.Hour, died(t), repo)
-	t.Setenv("AK_HOST_READINGS", "")
+	held(t, "held")
+	t.Setenv("AK_NOTIFY_SINK", "")
+	receipt := waiter(t, "acme", time.Hour, died(t), repo)
 	before := files(t, home)
 	if _, _, err := Resume("acme", 0, true, io.Discard, io.Discard); !errors.Is(err, ErrPython) {
 		t.Fatalf("not handed over: %v", err)
 	}
 	untouched(t, home, before)
+	t.Setenv("AK_NOTIFY_SINK", "dry-run")
+	if !launchStands(filepath.Join(run.Runs(), "acme"), receipt) {
+		t.Fatal("its launch would not start as it stands")
+	}
 }
 
 // queuedHome is a gated home whose runs Go can drive: a box, models with adapters, no seat, and no
