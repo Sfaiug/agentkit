@@ -1,6 +1,7 @@
 package history
 
 import (
+	"errors"
 	"strings"
 
 	"github.com/ncruces/go-sqlite3"
@@ -33,20 +34,20 @@ func Bare() bool {
 	return err == nil
 }
 
-// Owed is whether history.db stands with its tokens waiting for Python's one-time repair, before
-// which Go writes no row, so a fresh reading Go took would never be kept; true where SQLite cannot
-// say.
+// Owed is whether history.db's tokens wait for Python's one-time repair (errOwed), before which Go
+// writes no row, so a fresh reading Go took would never be kept.  One SQLite cannot read owes
+// nothing: Python's writes fail there as Go's do.
 func Owed() bool {
 	if run.Historyless() {
 		return false
 	}
 	db, err := connect(Path(), sqlite3.OPEN_READONLY)
 	if err != nil {
-		return true
+		return false
 	}
 	defer db.Close()
 	_, err = db.recounted()
-	return err != nil
+	return errors.Is(err, errOwed)
 }
 
 // KeepReadings is Python's history.keep_readings: meter_readings rows added, each its values in

@@ -8,8 +8,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// A history whose tokens wait for Python's repair owes it, as one SQLite cannot read may: a reading
-// Go took there would never be kept.  None standing, or Go's own, owes nothing.
+// A history whose tokens wait for Python's repair owes it: a reading Go took there would never be
+// kept.  None standing, Go's own, or one SQLite cannot read, where Python's writes fail as Go's do,
+// owes nothing.
 func TestAHistoryOwedPythonsRepairIsOwed(t *testing.T) {
 	home(t)
 	if Owed() {
@@ -25,7 +26,12 @@ func TestAHistoryOwedPythonsRepairIsOwed(t *testing.T) {
 		t.Fatal("tokens waiting for Python's repair not owed")
 	}
 	os.WriteFile(Path(), []byte("not a database"), 0o600)
-	if !Owed() {
-		t.Fatal("an unreadable database not owed")
+	if Owed() {
+		t.Fatal("an unreadable database owed")
+	}
+	os.Remove(Path())
+	os.Mkdir(Path(), 0o700)
+	if Owed() {
+		t.Fatal("a directory owed")
 	}
 }
