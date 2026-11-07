@@ -22,12 +22,13 @@ import (
 // newest passing one is handed back to fix, once.  The break is kept in watch.json until a seat
 // at its prompt is told it, however long past its window, with its composer mark, so a line whose
 // Enter did not land gets its Enter and is never typed twice; one told stays told until a later
-// merge passes, or no red is left.
+// merge passes, or no red is left.  A dry tick writes no run and types nothing: it says the break
+// it would hand back.
 func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 	episodes := t.state.Dict("after_merge")
 	var expired []string
 	for _, each := range merges {
-		if each.verdict == "failed" && !inWindow(each.record, now) {
+		if each.verdict == "failed" && !inWindow(each.record, now) && !t.dry {
 			expired = append(expired, each.name)
 		}
 	}
@@ -92,7 +93,7 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 		switch {
 		case pending.Str("source") != "health" || pending.Str("line") == "" || pending.Str("sha") == "" || !ok || pending.Str("run") == "":
 			// a line typed before is finished before its receipt goes
-			if mark := pending.Dict("typed"); mark != nil && mark.Truthy("line") {
+			if mark := pending.Dict("typed"); mark != nil && mark.Truthy("line") && !t.dry {
 				if name := marked(seat.Up(), mark); name != "" {
 					switch handback.Tell(name, mark.Str("line"), mark, func(*run.Object) error { return nil }, t.log.line) {
 					case "":
@@ -159,13 +160,16 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 	if err != nil {
 		return err
 	}
-	name := pending.Str("run")
+	name, check, target := pending.Str("run"), pending.Get("check"), cmp.Or(pending.Str("target"), "main")
+	if t.dry {
+		t.log.line(fmt.Sprintf("would hand run %s back for %s on %s: %s", name, run.Text(check), target, pending.Str("line")))
+		return nil
+	}
 	told, err := t.tellBreak(name, pending.Str("session"), key, pending.Str("line"), pending.Dict("typed"), func(mark *run.Object) error {
 		pending.Set("typed", mark)
 		t.keep()
 		return nil
 	})
-	check, target := pending.Get("check"), cmp.Or(pending.Str("target"), "main")
 	switch {
 	case err != nil:
 		return err

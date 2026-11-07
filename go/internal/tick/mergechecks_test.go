@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,51 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 	first := read(t, path)
 	if checking(t, io.Discard).mergeChecks() != nil || read(t, path) != first {
 		t.Fatal("a kept commit was written again")
+	}
+}
+
+// A dry tick's merge checks decide each merge as the real ones do, its commit read off GitHub, and
+// say what they would probe, record and hand back: they save no commit, run no probe and write
+// nothing.  A merge Go does not follow hands the whole dry tick over, nothing printed.
+func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
+	const pr = "https://github.com/acme/api/pull/1"
+	for name, each := range map[string]struct {
+		fields, watch, said string
+		ago                 int64
+		left                bool
+	}{
+		"undeclared": {fields: `"health": {}, "deployed": null`},
+		"probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`,
+			said: `would check run fix-api's live product: touch "$HOME/probed"` + "\n"},
+		"live": {fields: `"live_at": 1, "health": {}, "deployed": null`, said: "would record, not type: run fix-api is live: " + pr + ".\n"},
+		"break": {fields: `"health": {"command": "false", "output": "down\n\nstill down"}`, ago: 4 * 3600,
+			said: "would hand run fix-api back for health: false on main: health: false failed on main after this merge. " + pr + "; down; still down. Fix the target.\n"},
+		// told already: the real tick lets its run's failure go
+		"told break": {fields: `"health": {"command": "false", "output": "down"}`, ago: 4 * 3600,
+			watch: `{"after_merge": {"github.com/acme/api": {"notified": "abc", "at": 1, "run": "fix-api"}}}`},
+		"deployment": {fields: `"health": {}, "deployed": "true"`, left: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';; *) `+loggedOut+`;; esac`)
+			put(t, filepath.Join(ak, "runs", "fix-api", "run.json"), fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": %q, %s}`,
+				time.Now().Unix()-each.ago, pr, each.fields))
+			if each.watch != "" {
+				put(t, filepath.Join(ak, "state", "watch.json"), each.watch)
+			}
+			before := files(t, filepath.Dir(ak))
+			want := "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n" + each.said +
+				"gh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n"
+			if each.left {
+				want = ""
+			}
+			var out bytes.Buffer
+			if carried := Dry(&out); carried == each.left || out.String() != want {
+				t.Fatalf("carried %v, printing %q", carried, &out)
+			}
+			if !reflect.DeepEqual(files(t, filepath.Dir(ak)), before) {
+				t.Fatal("the dry tick changed HOME")
+			}
+		})
 	}
 }
 

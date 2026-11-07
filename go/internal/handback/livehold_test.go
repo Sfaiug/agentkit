@@ -20,7 +20,7 @@ func TestASeatlessMergeGoneLiveIsRecordedAtOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	var said []string
-	if err := Live(dir, record, seconds(), func(line string) { said = append(said, line) }); err != nil {
+	if err := Live(dir, record, seconds(), func(line string) { said = append(said, line) }, false); err != nil {
 		t.Fatal(err)
 	}
 	after, _ := run.Read(dir)

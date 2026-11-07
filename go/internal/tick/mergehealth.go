@@ -3,6 +3,7 @@ package tick
 import (
 	"cmp"
 	"encoding/base64"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
@@ -34,8 +35,9 @@ type probe struct {
 // (handback.LiveLeft).  Each is decided before this merge's first write, and left there: the one
 // write, or where the probe keeps a row, written as it starts, the probe.  A seat that comes to owe
 // a pass after that has it recorded, as Python records it, and the next tick, reading it owed
-// first, hands its telling over.
-func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string)) error {
+// first, hands its telling over.  A dry tick decides the same, runs no probe and makes no write: it
+// says what it would check and record.
+func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string), dry bool) error {
 	rows, err := mergeRows(each)
 	if err != nil {
 		return err
@@ -83,6 +85,12 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 			if owed && rows != nil {
 				return errLeft
 			}
+			if dry {
+				// the probe is the project's own command, which may act
+				say(fmt.Sprintf("would check run %s's live product: %s", each.name, command))
+				verdict = "pending"
+				break
+			}
 			said.passed, said.output = healthCommand(record.Str("repo"), each.sha, command, healthTimeout, rows)
 			probes[[2]string{key, each.sha}] = said
 		}
@@ -94,7 +102,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	if verdict == "passed" && owed {
 		return errLeft
 	}
-	if len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil {
+	if !dry && (len(found.Keys()) > 0 || record.Str("merge_sha") != each.sha || probed != nil) {
 		err := run.Change(dir, func(current *run.Object) error {
 			for _, name := range found.Keys() {
 				current.Set(name, found.Get(name))
@@ -119,9 +127,11 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 		}
 		each.record = record
 	}
-	keepMerge(rows, record, verdict == "passed", say)
+	if !dry {
+		keepMerge(rows, record, verdict == "passed", say)
+	}
 	if verdict == "passed" {
-		if err := handback.Live(dir, record, now, say); err != nil {
+		if err := handback.Live(dir, record, now, say, dry); err != nil {
 			return err
 		}
 	}

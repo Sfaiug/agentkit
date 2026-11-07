@@ -34,7 +34,7 @@ var errLeft = errors.New("left to Python")
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
-		{"merge checks", true, t.dryly(noMergeWork), t.wet(t.mergeChecks)},
+		{"merge checks", true, nil, t.mergeChecks},
 		{"boot resume", true, configured, t.bootResume},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
