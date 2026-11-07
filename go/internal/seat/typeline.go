@@ -60,11 +60,21 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if pane == "" {
 		pane = "=" + name + ":"
 	}
-	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}\t#{pane_pid}")
+	pin := func(target string) (string, error) {
+		return tmux.Ask(tmux.Own(), "display-message", "-p", "-t", target, "#{pane_id}\t#{session_created}\t#{pane_pid}")
+	}
+	said, err := pin(pane)
 	fields := append(strings.Split(said, "\t"), "", "")
 	pane = fields[0]
 	if err != nil || !paneID.MatchString(pane) {
 		return false
+	}
+	// A launch holding the send lock may respawn the pane while this pass waits for it: under the
+	// lock, the pane answers its pin as it did, its process among it, or the pass is stale.
+	held := stale
+	stale = func(current string) bool {
+		again, err := pin(pane)
+		return held(current) || err != nil || again != said
 	}
 	text := keyed(line)
 	// The birth is in whole seconds and a pane respawned in place keeps it: the pane's process
