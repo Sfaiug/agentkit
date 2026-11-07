@@ -42,7 +42,8 @@ def boards():
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class CompanyList(unittest.TestCase):
+class Opened(unittest.TestCase):
+    """The Home these boards and harnesses are in, and opening and reading its company list."""
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
@@ -77,6 +78,8 @@ class CompanyList(unittest.TestCase):
         held = akconfig.read(self.home)
         return held.get("companies"), held.get("models_off")
 
+
+class CompanyList(Opened):
     def test_p_lists_the_defaults_companies_with_their_listed_models_on(self):
         _, shown = self.open()
         self.assertTrue(shown[0].startswith(TITLE), shown[0])

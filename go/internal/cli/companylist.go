@@ -18,6 +18,7 @@ import (
 func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	view := menu.CompanyListView{Title: title + " · models"}
 	var was []matrix.Company // the rows last drawn, so the keys stay on their company
+	drawn := false           // or on `+ add a company`, though none was drawn above it
 	defer painter.Forget()
 	for {
 		rows := matrix.Stored().Rows // the boards may land meanwhile, as Python reads them per key
@@ -32,10 +33,10 @@ func menuCompanyList(title string, keyboard *terminal.Keyboard, painter *termina
 		if view.Row < len(was) {
 			maker := was[view.Row].Maker
 			view.Row = max(0, slices.IndexFunc(shown, func(one matrix.Company) bool { return one.Maker == maker }))
-		} else if was != nil {
+		} else if drawn {
 			view.Row = len(shown)
 		}
-		was = shown
+		was, drawn = shown, true
 		models := 0
 		if view.Row < len(shown) {
 			models = len(shown[view.Row].Models)
