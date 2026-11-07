@@ -2,8 +2,9 @@
 tests first: each halfway step runs them alone, a pass, each named as run, moving the search
 deeper, and the stack right behind the deepest one they pass in is the member that turned them
 red.  A confirmed failure moves the search earlier.  It fixes; the stack just below it, checked
-whole, lands, and the rest rebuild and land in the same pass.  An inconclusive step gets its whole check, as without them -- a test a later
-member added is not there yet -- so an empty run there alone blames no one.
+whole, lands, and the rest rebuild and land in the same pass.  An inconclusive step gets its
+whole check, as without them -- a test a later member added is not there yet -- so an empty run
+there alone blames no one; one whose suite names that test as not there passes it.
 
 Offline: real Git and checks, the suite a shell runner that runs only those asked for and
 names each it runs and each that fails, sandbox records, fake processes and wakes.
@@ -30,6 +31,9 @@ FILES = ('if [ -n "$AK_ONLY" ]; then tests=$(cat "$AK_ONLY"); else tests=$(ls te
          ': "$AK_SHARD"; code=0; for t in $tests; do [ -f "$t" ] || continue; '
          'echo "$t" >> "${AK_RAN:-/dev/null}"; bash "$t" || '
          '{ echo "$t" >> "${AK_FAILED:-/dev/null}"; code=1; }; done; exit $code')
+# FILES, a listed test the tree does not hold failing the run, named as not there.
+ABSENT = FILES.replace("|| continue;",
+                       '|| { echo "$t" >> "${AK_NOT_THERE:-/dev/null}"; code=1; continue; };')
 
 
 def on(*members):
@@ -101,6 +105,17 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2), ["test_new.sh"]),        # not there yet: runs none, proves nothing
             (on(1, 2), None),                   # its whole check: green
             (on(1, 2, 3), ["test_new.sh"]),      # confirmed red, right behind green
+            (on(1, 2, 4), None)])               # rebuilt, whole
+        self.assertEqual(fix["tests"], ["test_new.sh"])
+
+    def test_a_stack_whose_suite_names_the_red_test_not_there_passes_it(self):
+        checked, fix = self.narrow(ABSENT, {"test_existing.sh": "exit 0\n"}, 4, 3,
+                                   {"test_new.sh": "exit 1\n"})
+        self.assertEqual(checked, [
+            (on(1, 2, 3, 4), None),             # the deepest, whole: red on test_new.sh
+            (on(1, 2), ["test_new.sh"]),        # not there: it passes, deeper
+            (on(1, 2, 3), ["test_new.sh"]),     # confirmed red, behind its pass
+            (on(1, 2), None),                   # just below it, whole: green
             (on(1, 2, 4), None)])               # rebuilt, whole
         self.assertEqual(fix["tests"], ["test_new.sh"])
 

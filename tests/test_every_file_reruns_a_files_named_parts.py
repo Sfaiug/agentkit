@@ -1,7 +1,8 @@
 """A test file that names its failing parts is named `<file>::<part>` by tests/every_file.py, its
 re-run runs just those parts, each with the seconds it timed, and AK_ONLY listing one runs the file
-for that part alone, named as run only where a run named it failing or timed it; the Go keys
-check given a claim's name runs it alone, and names it failing.
+for that part alone, named as run only where a run named it failing or timed it, and as not there
+where the file names it so; the Go keys check given a claim's name runs it alone, and names it
+failing.
 
 Offline: the real every_file.py runs on a temporary checkout of a stand-in noting each run's
 parts, with injected host readings; the real Go key files judge stand-in keys with AK_BIN set.
@@ -21,7 +22,7 @@ from agentkit import suite_times
 
 # Notes the parts each run runs, all three without arguments; fix_api fails on the first
 # ACME_FAILING_RUNS runs and is named in the file FAILED_PARTS names, the others timed; a part it
-# does not hold fails it, named and timed by neither.
+# does not hold fails it, named in the file NOT_THERE names alone.
 STAND_IN = '''import json, os, pathlib, sys
 log = pathlib.Path(os.environ["ACME_LOG"])
 runs = len(log.read_text().splitlines()) if log.exists() else 0
@@ -33,6 +34,8 @@ failing = [part for part in parts
            if part == "fix_api" and runs < int(os.environ["ACME_FAILING_RUNS"])]
 with open(os.environ["FAILED_PARTS"], "a") as fh:
     fh.writelines(f"{part}\\n" for part in failing)
+with open(os.environ["NOT_THERE"], "a") as fh:
+    fh.writelines(f"{part}\\n" for part in parts if part not in held)
 open(os.environ["PART_TIMES"], "w").write(
     json.dumps({p: 1.5 for p in parts if p in held and p not in failing}))
 print(f"TESTS_RUN={len(parts)}")
@@ -71,6 +74,7 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         env = dict(self.base, HOME=str(self.root), ACME_LOG=str(self.root / "ran.log"),
                    ACME_FAILING_RUNS=str(failing_runs), AK_FAILED=str(self.root / "failed"),
                    AK_FLAKY=str(self.root / "flaky"), AK_RAN=str(self.root / "ran"),
+                   AK_NOT_THERE=str(self.root / "not-there"),
                    AK_CGROUP_FILE=str(self.root / "no-cgroup"),
                    AK_TIMES='{"tests/test_acme.py::acme": 1}',    # listed parts share a run
                    AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}')
@@ -102,17 +106,19 @@ class EveryFileRerunsAFilesNamedParts(unittest.TestCase):
         self.assertEqual(self.read("ran.log"), ["fix_api", "fix_api"])
         self.assertEqual((self.read("ran"), self.read("failed")), ([PART], [PART]))
 
-    def test_a_listed_part_the_file_does_not_hold_is_never_named_as_run(self):
-        # As a test only a later change adds: on a tree without it, its red proves nothing, and
-        # one passing beside it is named as run, never as failed.
+    def test_a_listed_part_the_file_does_not_hold_is_named_not_there_never_as_run(self):
+        # As a test only a later change adds: a tree without it passes it, and one passing
+        # beside it is named as run, never as failed.
         proc = self.every_file(failing_runs=0, only=[PART, GONE])
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
-        self.assertEqual((self.read("ran"), self.read("failed")), ([PART], [GONE]))
+        self.assertEqual((self.read("ran"), self.read("failed"), self.read("not-there")),
+                         ([PART], [GONE], [GONE]))
 
     def test_a_listed_part_failing_beside_one_the_file_does_not_hold_is_named_as_run(self):
         proc = self.every_file(failing_runs=2, only=[PART, GONE])
         self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
-        self.assertEqual((self.read("ran"), self.read("failed")), ([PART], [PART]))
+        self.assertEqual((self.read("ran"), self.read("failed"), self.read("not-there")),
+                         ([PART], [PART], [GONE]))
 
     def test_the_go_keys_check_given_a_claims_name_runs_that_claim_alone(self):
         for name in ("test_go_keys.py", "test_go.py", "suite_shares.py"):
