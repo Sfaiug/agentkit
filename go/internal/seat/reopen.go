@@ -229,7 +229,7 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 		return reopening{}, false
 	}
 	model, known := atOwnEfforts(model, orchestrator, record)
-	conversation, owned := harness.Owned(model.Harness, record)
+	conversation, owned := harness.Owning(model.Harness, record)
 	cwd, _ := record["cwd"].(string)
 	info, unseen := os.Stat(cwd)
 	account, _ := record["account"].(string)

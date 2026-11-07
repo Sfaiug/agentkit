@@ -27,6 +27,6 @@ func moveRestarts(name string, was, next config.Model, record map[string]any) bo
 			return false
 		}
 	}
-	conversation, known := harness.Owned(was.Harness, record)
+	conversation, known := harness.Owning(was.Harness, record)
 	return known && conversation == ""
 }

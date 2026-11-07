@@ -2,6 +2,7 @@ package harness
 
 import (
 	"bytes"
+	"context"
 	"maps"
 	"os"
 	"path/filepath"
@@ -9,52 +10,65 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
 
-// antigravityOwned is the conversation the seat owns (antigravity.py `conversation`).
-func antigravityOwned(record map[string]any) string {
-	data := run.Fields("id_source", record["id_source"], "conversation", record["conversation"], "antigravity_launch", record["antigravity_launch"])
-	if seen, ok := record["antigravity_open"].(map[string]any); ok {
-		data.Set("antigravity_open", run.Fields("launch", seen["launch"], "conversation", seen["conversation"]))
+// antigravityOwned reads the conversation the seat owns, learned where its launch's own agy holds
+// one open, and written down where it claims (antigravity.py `conversation`).
+func antigravityOwned(claim bool) func(record map[string]any) string {
+	return func(record map[string]any) string {
+		data := run.Fields("id_source", record["id_source"], "conversation", record["conversation"], "antigravity_launch", record["antigravity_launch"])
+		if seen, ok := record["antigravity_open"].(map[string]any); ok {
+			data.Set("antigravity_open", run.Fields("launch", seen["launch"], "conversation", seen["conversation"]))
+		}
+		return antigravityLearn(data, claim)
 	}
-	return antigravityOpen(data)
 }
 
-// antigravityOpen is the conversation the record gives the seat, else the one store its launch's
-// own agy holds open, less those other seats own: none for none, nor a guess between two; "" for
-// none.  Python's claim writes that one down beside the launch's token, so it outlives the
-// process; Go only asks, as each of its readers may yet hand the seat over or run dry, and nothing
-// is written before that.  The records are read as they stand: a caller's copy may predate a claim.
-func antigravityOpen(record *run.Object) string {
+// antigravityLearn is the conversation the record gives the seat, else the one store its launch's
+// own agy holds open, less those other seats own: none for none, nor a guess between two.  A claim
+// writes that one down beside the launch's token, so it outlives the process and a stale launch's
+// is never a later one's; a listing or an admission only asks, writing nothing.  "" for none.
+func antigravityLearn(record *run.Object, claim bool) string {
 	mine := antigravityMine(record)
 	token, launched := record.Get("antigravity_launch").(string)
 	if mine != "" || !launched {
 		return mine
 	}
-	found, others := false, map[string]bool{}
+	if claim {
+		// One claim at a time, from the records as they stand: a caller's copy may predate this
+		// launch's claim, and another seat's may land while the fds are read.
+		held, err := lock.Wait(context.Background(), filepath.Join(config.Home(), "state", "antigravity-claim.lock"))
+		if err != nil {
+			return ""
+		}
+		defer held.Close()
+	}
+	name, others := "", map[string]bool{}
 	for _, path := range config.SeatFiles() {
 		kept, _ := run.ReadJSON(path)
 		if kept == nil || kept.Has(config.Renamed) {
 			continue
 		}
-		if !found && kept.Get("antigravity_launch") == token {
-			found, mine = true, antigravityMine(kept)
+		if name == "" && kept.Get("antigravity_launch") == token {
+			name, mine = strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "session-"), ".json"), antigravityMine(kept)
 		} else {
 			others[antigravityMine(kept)] = true
 		}
 	}
-	if !found || mine != "" {
+	if name == "" || mine != "" {
 		return mine
 	}
 	held := antigravityHeld(token)
 	for other := range others {
 		delete(held, other)
 	}
-	if open := slices.Collect(maps.Keys(held)); len(open) == 1 {
-		return open[0]
+	open := slices.Collect(maps.Keys(held))
+	if len(open) != 1 || claim && antigravitySaw(name, run.Fields("launch", token, "conversation", open[0])) != nil {
+		return ""
 	}
-	return ""
+	return open[0]
 }
 
 // antigravityMine is what that record alone says its seat owns: a launcher's id, or the one its
@@ -93,4 +107,26 @@ func antigravityHeld(token string) map[string]bool {
 		}
 	}
 	return held
+}
+
+// antigravitySaw writes what the launch saw into the seat's record as config.update_session does:
+// under the record's lock, into a record still there and no rename pointer.
+func antigravitySaw(name string, seen *run.Object) error {
+	state := filepath.Join(config.Home(), "state")
+	held, err := lock.Wait(context.Background(), filepath.Join(state, ".session-"+name+".lock"))
+	if err != nil {
+		return err
+	}
+	defer held.Close()
+	path := filepath.Join(state, "session-"+name+".json")
+	record, _ := run.ReadJSON(path)
+	if record == nil || record.Has(config.Renamed) {
+		return nil
+	}
+	record.Set("antigravity_open", seen)
+	tmp := strings.TrimSuffix(path, ".json") + ".tmp"
+	if err := os.WriteFile(tmp, []byte(run.Encode(record)+"\n"), 0o666); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }

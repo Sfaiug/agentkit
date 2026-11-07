@@ -44,8 +44,9 @@ type plugin struct {
 	owns      func(record *run.Object, conversation string) bool
 	resumable func(record *run.Object) bool
 	// owned is the conversation its own evidence names, which its harness reported (Python's
-	// plugin `conversation`).
-	owned func(record map[string]any) string
+	// plugin `conversation`), and claim that answer written down where its harness learns it as
+	// it is asked.
+	owned, claim func(record map[string]any) string
 	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
 	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
