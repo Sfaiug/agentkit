@@ -22,6 +22,10 @@ func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "adapter" {
 		os.Exit(Main(os.Args[1:], os.Stdout, os.Stderr))
 	}
+	// the look a hook here starts after its fact: the test's sandbox may be gone before it ends
+	if len(os.Args) > 1 && os.Args[1] == "seat-look" {
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 

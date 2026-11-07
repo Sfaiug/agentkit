@@ -24,7 +24,9 @@ func TestTheSummaryShowsOnlyTheMonthsReadableSpend(t *testing.T) {
 		}
 	}
 	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
-	if got := Summary(now, true); got != "off" {
+	write("clock", fmt.Sprint(now.Unix()))
+	t.Setenv("AK_GOOGLE_CLOCK", filepath.Join(home, ".agentkit", "clock"))
+	if got := Summary(true); got != "off" {
 		t.Fatalf("unconfigured: %q", got)
 	}
 	ledger := fmt.Sprintf(`{"answered":%d,"spent":12.5,"machines":{"one":{"price":1,"until":4},"two":{"price":1,"until":4,"from":2}}}`, now.Unix())
@@ -38,10 +40,10 @@ func TestTheSummaryShowsOnlyTheMonthsReadableSpend(t *testing.T) {
 	} {
 		write("config.toml", "[google_cloud]\nactive = "+each.active+"\nmax_month = 100\n")
 		write("state/google-cloud-ledger.json", each.ledger)
-		if got := Summary(now, true); got != each.counted {
+		if got := Summary(true); got != each.counted {
 			t.Errorf("counted %s: %q, want %q", each.ledger, got, each.counted)
 		}
-		if got := Summary(now, false); got != each.said {
+		if got := Summary(false); got != each.said {
 			t.Errorf("%s: %q, want %q", each.ledger, got, each.said)
 		}
 	}

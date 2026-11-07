@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestConfigServicesShowSavedStatusWithoutRevealingSecrets(t *testing.T) {
@@ -21,24 +20,23 @@ func TestConfigServicesShowSavedStatusWithoutRevealingSecrets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	now := time.Date(2026, 11, 4, 12, 0, 0, 0, time.UTC)
-	discord, cloud := ConfigServices(now)
+	discord, cloud := ConfigServices()
 	if discord != "not connected" || cloud != "off" {
 		t.Fatalf("unconfigured: %q, %q", discord, cloud)
 	}
 	write("secrets/discord_webhook", "https://example.com/acme-secret\n")
 	write("secrets/discord_user_id", "12345678\n")
-	discord, _ = ConfigServices(now)
+	discord, _ = ConfigServices()
 	if discord != "id …5678 · webhook …secret" {
 		t.Fatal(discord)
 	}
 	write("state/discord-user.json", `{"id":"12345678","name":"acme-owner"}`)
-	discord, _ = ConfigServices(now)
+	discord, _ = ConfigServices()
 	if discord != "@acme-owner · webhook …secret" {
 		t.Fatal(discord)
 	}
 	write("secrets/discord_user_id", "87654321\n")
-	discord, _ = ConfigServices(now)
+	discord, _ = ConfigServices()
 	if discord != "id …4321 · webhook …secret" {
 		t.Fatal(discord)
 	}

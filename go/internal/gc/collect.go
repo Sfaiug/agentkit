@@ -76,13 +76,10 @@ func Collect(out io.Writer) error {
 }
 
 // Automatic is the collection the tick starts, Python's gc.gc(automatic=True): while one is due,
-// its start written to gc.log and gc.json first, every line after it to gc.log.  ErrPython,
-// before anything goes, where a user manager runs, whose failed and test units Python's
-// forget_failed_units and stop_test_units clear, and where goTakes says so.
+// its start written to gc.log and gc.json first, every line after it to gc.log, the user
+// manager's units cleared before the plan is taken.  ErrPython, before anything goes, where
+// goTakes says so.
 func Automatic() error {
-	if host.UserManager() {
-		return ErrPython
-	}
 	if err := goTakes(); err != nil {
 		return err
 	}
@@ -100,6 +97,7 @@ func Automatic() error {
 		}
 		c.report("gc: automatic collection started")
 		if c.failed == nil && writeJSON(stamp, run.Fields("started_at", run.Float(epoch()))) == nil {
+			clearUnits(c.report)
 			c.pass()
 		}
 	})
@@ -108,19 +106,26 @@ func Automatic() error {
 
 // Schedule is the tick's collection row (gc.schedule_gc): where the home reads without a change
 // and a collection is due, a collector of Go's own starts, detached and unmarked, to outlive the
-// tick.  One that cannot start is logged.
-func Schedule(log func(string)) {
+// tick.  One that cannot start is logged.  False, before it starts, where a user manager runs and
+// goTakes says the collection is Python's: there the tick went to Python, which clears the units
+// with it, before Go cleared them, and a detached collector's handover reaches nobody.  Elsewhere
+// the tick goes on, as it always has.
+func Schedule(log func(string)) bool {
 	probe, err := reading(config.Home(), true)
 	if err != nil {
-		return
+		return true
 	}
 	probe.Close()
 	if !Due() {
-		return
+		return true
+	}
+	if host.UserManager() && goTakes() != nil {
+		return false
 	}
 	if err := start(); err != nil {
 		log("WARN could not start retention: " + config.PyError(err))
 	}
+	return true
 }
 
 func start() error {

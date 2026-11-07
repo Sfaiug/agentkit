@@ -5,6 +5,8 @@
 #   ./install.sh --server               this machine holds the sessions and runs the `ak watch` cron
 #   ./install.sh --client [ALIAS]       this machine reaches the server over `ssh ALIAS` (default agentkit)
 #   ./install.sh --phone-key KEY|FILE   append the phone's public key with the `ak attach` forced command
+#   ./install.sh --prepare              this version ready to run, before versions.switch puts it live;
+#                                       Python's has nothing to build
 # Without a saved server record every host defaults to server; on a Mac the server is a Linux
 # machine of ak's own on it (tools/linux-machine.sh), and the Mac its client.
 # --link-doctrine and --vm are accepted for old callers and do nothing: the VM steps are
@@ -27,6 +29,7 @@ while [ $# -gt 0 ]; do
     --phone-key) [ $# -gt 1 ] || { echo "install.sh: --phone-key needs a public key or a file" >&2; exit 2; }
                  PHONE_KEY=$2; shift ;;
     --link-doctrine|--vm) ;;
+    --prepare) exit 0 ;;
     *) echo "install.sh: unknown option $1 (expected --server, --client [ALIAS], --phone-key KEY|FILE)" >&2; exit 2 ;;
   esac
   shift
@@ -701,8 +704,12 @@ case "$ROLE" in
     elif ! { current=$(crontab -l 2>/dev/null) || [ $? = 1 ]; }; then
       note "the crontab could not be read, so the ak watch cron is not installed; \`crontab -l\` says why"
     else
-      cron_line="*/3 * * * * PATH=$(cron_word "$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin")"
-      cron_line+=" $(cron_word "$REPO/bin/ak") watch >>$(cron_word "$AK/tmp/watch.log") 2>&1 $CRON_TAG"
+      # After a move, the version it replaced decides whether the move stays, from outside the
+      # new release, which may be what cannot start; whatever that keeper does, the tick runs.
+      keeper=$(cron_word "$AK/tmp/keep/ak") watch_log=$(cron_word "$AK/tmp/watch.log")
+      cron_line="*/3 * * * * export PATH=$(cron_word "$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin");"
+      cron_line+=" [ -x $keeper ] && $keeper back --when-broken >>$watch_log 2>&1;"
+      cron_line+=" $(cron_word "$REPO/bin/ak") watch >>$watch_log 2>&1 $CRON_TAG"
       wanted=$({ [ -z "$current" ] || printf '%s\n' "$current" | grep -vE -- "$CRON_MATCH" || true
                  printf '%s\n' "$cron_line"; })
       if [ "$current" = "$wanted" ]; then

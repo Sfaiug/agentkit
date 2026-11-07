@@ -116,6 +116,8 @@ type plugin struct {
 	rulebook string
 	// holds is AsksHolds'.
 	holds bool
+	// switchable is AsksSwitchable's.
+	switchable bool
 }
 
 var plugins = map[string]plugin{}

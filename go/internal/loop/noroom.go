@@ -8,7 +8,9 @@ package loop
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"runtime"
+	"sync"
 	"syscall"
 
 	"agentkit/internal/run"
@@ -38,9 +40,36 @@ func endNoRoom(dir string, err error) {
 	}
 }
 
-// oneThreadAtATime lets one thread at a time run the driver's own code: it mostly waits on its
-// children, so it loses no speed, and its runtime then wants no thread beyond those it holds when the
-// task table fills, as one per core does for its garbage collector.  A thread Go's runtime fails to
-// start kills the process, its record live but its log silent; held so, the next fork fails instead,
-// as an error endNoRoom answers.  It takes fewer of the table's tasks too.
-func oneThreadAtATime() { runtime.GOMAXPROCS(1) }
+// heldThreads is how many threads holdThreads parks: one for each of all but one of the driver's
+// calls that block at once, and one for the turn the last of them hands off.
+const heldThreads = 8
+
+// holdThreads has the driver's runtime start, before the task table can fill, the threads it later
+// wants: a thread Go's runtime fails to start kills the process, its record live but its log
+// silent; held so, the next fork fails instead, as an error endNoRoom answers.  Where the table is
+// full already, the process it starts first fails so, and it returns that error before any thread.
+// One thread at a time runs the driver's own code, which mostly waits on its children and so loses
+// no speed, and its garbage collector wants no thread per core.  But a call that blocks hands that
+// turn to another thread, one the runtime starts where none is parked: heldThreads goroutines, each
+// locked to a thread of its own until all are, leave as many parked for the process's life once
+// they let go.
+func holdThreads() error {
+	runtime.GOMAXPROCS(1)
+	if err := exec.Command("true").Run(); errors.Is(err, syscall.EAGAIN) {
+		return err
+	}
+	var held, freed sync.WaitGroup
+	held.Add(heldThreads)
+	freed.Add(heldThreads)
+	for range heldThreads {
+		go func() {
+			defer freed.Done()
+			runtime.LockOSThread()
+			held.Done()
+			held.Wait()
+			runtime.UnlockOSThread()
+		}()
+	}
+	freed.Wait()
+	return nil
+}

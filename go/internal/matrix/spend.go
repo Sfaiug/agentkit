@@ -42,6 +42,11 @@ type spend struct {
 	ours   map[[2]string]bool   // whether a harness runs models of a provider alone
 }
 
+// spending is a spend of history.db, through a connection that cannot write, at held's prices.
+func spending(held *run.Object) *spend {
+	return &spend{db: history.Look(), index: indexOf(boards.Current(held)), prices: map[string][]float64{}, ours: map[[2]string]bool{}}
+}
+
 // A spent row is one of a login's rows: its harness ("" where unknown), model, tokens and counts,
 // known false where one is.
 type spent struct {
@@ -80,7 +85,7 @@ func shares(held *run.Object) (*run.Object, error) {
 			accounts = append(accounts, login)
 		}
 	}
-	s := &spend{db: history.Look(), index: indexOf(boards.Current(held)), prices: map[string][]float64{}, ours: map[[2]string]bool{}}
+	s := spending(held)
 	defer s.db.Close()
 	weeks := s.weeks(accounts, float64(time.Now().UnixNano())/1e9)
 	type task struct{ run, role string }
@@ -277,9 +282,11 @@ func (s *spend) listed(provider, account string, since, until float64) (float64,
 	return dollars + unpriced*dollars/priced, true
 }
 
-// rows are the login's rows that ended between since and until, Python's spend._rows: a seat row's
-// harness is its event's text before the first `:`, a turn row's the one its turn's harness
-// receipt names; a seat row's tokens are its own, a turn row's its counts summed.
+// rows are the login's rows between since and until, Python's spend._rows: a seat row at its at, a
+// turn row the share of its span, from its began to its at, that falls between them, one with no
+// began at its at.  A seat row's harness is its event's text before the first `:`, a turn row's
+// the one its turn's harness receipt names; a seat row's tokens are its own, a turn row's its
+// counts summed.
 func (s *spend) rows(account string, since, until float64) []spent {
 	var found []spent
 	for _, row := range s.db.Select("SELECT event, model, tokens, "+counts+" FROM seat_usage "+
@@ -288,14 +295,26 @@ func (s *spend) rows(account string, since, until float64) []spent {
 		harness, _, _ := strings.Cut(row.Text("event"), ":")
 		found = append(found, counted(row, harness, tokens))
 	}
-	for _, row := range s.db.Select("SELECT turn, model, "+counts+" FROM turn_usage "+
-		"WHERE account = ? AND at >= ? AND at <= ?", account, since, until) {
+	for _, row := range s.db.Select("SELECT turn, model, COALESCE(began, at) AS began, at, "+counts+" FROM turn_usage "+
+		"WHERE account = ? AND at >= ? AND COALESCE(began, at) <= ?", account, since, until) {
+		began, _ := row.Num("began")
+		at, _ := row.Num("at")
+		share := 1.0
+		if at > began {
+			share = (min(at, until) - max(began, since)) / (at - began)
+		}
+		if share == 0 { // it only touches the time at an end: none of it was spent then
+			continue
+		}
 		harness := ""
 		if turn := row.Text("turn"); turn != "" {
 			receipt, _ := os.ReadFile(filepath.Join(turn, "harness"))
 			harness = strings.TrimSpace(string(receipt))
 		}
 		each := counted(row, harness, 0)
+		for i := range each.counts {
+			each.counts[i] *= share
+		}
 		each.tokens = quality.Sum(each.counts)
 		found = append(found, each)
 	}

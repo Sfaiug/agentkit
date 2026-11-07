@@ -101,6 +101,23 @@ class Judges(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
         self.assertFalse((self.root / "go/bin").exists())
 
+    def test_a_build_that_fails_names_each_claim_asked(self):
+        bin_dir = self.root / "path"
+        bin_dir.mkdir()
+        (bin_dir / "go").write_text("#!/bin/sh\necho 'acme.go:1:1: undefined: acme' >&2\nexit 1\n")
+        (bin_dir / "go").chmod(0o755)
+        parts = self.root / "parts"
+        keys = ["test_key_passes Acme", "test_key_fails"]
+        for asked, named in (((), ["test_key_passes", "test_key_fails"]),
+                             (("test_key_fails",), ["test_key_fails"])):
+            with self.subTest(asked=asked):
+                parts.write_text("")
+                done = self.judged(*asked, keys=keys, AK_BIN="", FAILED_PARTS=str(parts),
+                                   PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+                self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+                self.assertIn("undefined: acme", done.stderr)
+                self.assertEqual(parts.read_text().split(), named)
+
     def test_a_host_without_go_fails(self):
         done = self.judged(keys=["test_key_passes Acme"], AK_BIN="", PATH=str(self.root / "path"))
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)

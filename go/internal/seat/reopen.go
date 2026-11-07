@@ -46,8 +46,9 @@ var (
 // to hand over, without which the seat's way in is said instead.  Detached is a waking with nobody
 // at it (orch.resume's): a seat tmux still holds is left as it is, and one whose recorded directory
 // is gone refused.  Its dry run says nothing to anyone, only whether Go carries the waking, so it
-// leaves Python what the launch would.
-type How struct{ DryRun, Terminal, Detached bool }
+// leaves Python what the launch would.  Owner is the owner's own reopen, which goes on with what
+// the seat's end cut off (goesOn).
+type How struct{ DryRun, Terminal, Detached, Owner bool }
 
 // A reopening is what a seat comes back as, read from its record.
 type reopening struct {
@@ -109,12 +110,20 @@ func Reopen(name string, how How, out, errOut io.Writer) (bool, error) {
 	if !known {
 		return false, nil
 	}
+	line, known := seat.goesOn(how)
+	if !known {
+		return false, nil
+	}
 	if err := reopenProject(record, how.DryRun); err != nil {
 		return true, err
 	}
+	at := seconds(time.Now())
 	settled, known, err := seat.relaunch(how.DryRun, out)
 	if !known || err != nil || how.DryRun {
 		return known, err
+	}
+	if err := seat.goOn(settled, line, at); err != nil {
+		return true, err
 	}
 	return true, handOver(settled, how, out, errOut)
 }
@@ -219,8 +228,8 @@ func handOver(name string, how How, out, errOut io.Writer) error {
 // comingBack is what the seat comes back as, or false where Go does not carry that out: a record it
 // would refuse or reconcile; a conversation only its harness's own evidence or store can name; a
 // login the provider does not list; a folder gone; an unnamed seat.
-// A launch also leaves Python a harness whose launch Go does not carry, a checkout's git,
-// a seat cut off that its relaunch tells so, and queued account moves or editor sends.
+// A launch also leaves Python a harness whose launch Go does not carry, a checkout's git, and queued
+// account moves or editor sends.
 func comingBack(state, name string, record map[string]any, held, dryRun bool) (reopening, bool) {
 	orchestrator, _ := record["orchestrator"].(string)
 	models, err := config.Models()
@@ -253,7 +262,7 @@ func comingBack(state, name string, record map[string]any, held, dryRun bool) (r
 	_, opens := harness.Opens(model.Harness)
 	_, checkout := os.Lstat(filepath.Join(cwd, ".git"))
 	if !opens || checkout == nil || err != nil && !errors.Is(err, fs.ErrNotExist) ||
-		!owedReadable(file) || cutOff(name, model.Harness, file) {
+		!owedReadable(file) {
 		return reopening{}, false
 	}
 	return seat, true
@@ -423,6 +432,9 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			}
 			if err == nil {
 				err = retypeOwed(current)
+			}
+			if err == nil {
+				err = seat.receipted(current)
 			}
 			if err == nil {
 				if len(extra) > 0 {

@@ -27,7 +27,8 @@ from . import LAUNCHER, issued
 
 # `steps.step_type`, and where each keeps its words in its payload: a user input's text, and
 # a planner response's answer -- its thinking (3) and tool calls (7) are fields beside that.
-USER, MODEL = 14, 15
+# A question card `ask_question` put up keeps its answer in its own step (`answers`).
+USER, MODEL, CARD = 14, 15, 132
 WORDS = {USER: ("user", 19, 2), MODEL: ("model", 20, 1)}
 LAUNCH_ENV = "AGENTKIT_ANTIGRAVITY_LAUNCH"
 PROC = Path("/proc")
@@ -142,6 +143,26 @@ def user_messages(record, cwd, conversation):
         kept = at is not None and user_message(at, words(USER, payload))
         if kept:
             yield kept
+
+
+def answers(record, cwd, conversation):
+    """Each question the owner answered on an `ask_question` card, dated when they answered it:
+    its step's metadata 8, a Timestamp.  agy 1.5.2 keeps the card as answered in its payload's
+    147 -> 2 -> 22, each question a 1 there holding its words (1), each choice (2: its id 1, its
+    label 2), the id of the one picked (4) and the words written in (5).  A question with
+    neither, as Esc leaves one, answers nothing."""
+    for _kind, metadata, payload in steps(conversation, CARD) or ():
+        at = timestamp(field(metadata, 8))
+        if at is None:
+            continue
+        for asked in fields(field(field(field(payload, 147), 2), 22), 1):
+            choices = [(field(choice, 1), decoded(field(choice, 2))) for choice in fields(asked, 2)]
+            picked = field(asked, 4)
+            given = [label for named, label in choices if picked is not None and named == picked]
+            given = "\n".join(filter(None, [*given, decoded(field(asked, 5))]))
+            if given:
+                yield {"at": at, "question": decoded(field(asked, 1)), "answer": given,
+                       "choices": [{"label": label, "description": ""} for _, label in choices]}
 
 
 def timestamp(stamp):
@@ -281,7 +302,13 @@ def there(path):
 
 
 def field(message, number):
-    """That length-delimited field of a protocol buffer message, as bytes, or None."""
+    """That length-delimited field of a protocol buffer message, as bytes, or None: its first."""
+    return next(fields(message, number), None)
+
+
+def fields(message, number):
+    """Each length-delimited field of that number in a protocol buffer message, as bytes, in
+    order, up to where it no longer reads."""
     at = 0
     try:
         while isinstance(message, bytes) and at < len(message):
@@ -289,16 +316,21 @@ def field(message, number):
             if key & 7 == 2:
                 size, at = varint(message, at)
                 if key >> 3 == number and at + size <= len(message):
-                    return message[at:at + size]
+                    yield message[at:at + size]
                 at += size
             elif key & 7 == 0:
                 at = varint(message, at)[1]
             elif key & 7 in (1, 5):
                 at += 8 if key & 7 == 1 else 4
             else:
-                return None
+                return
     except IndexError:
-        return None
+        return
+
+
+def decoded(data):
+    """A field's bytes as text, or None where there is no field."""
+    return None if data is None else data.decode(errors="replace")
 
 
 def varint(message, at):

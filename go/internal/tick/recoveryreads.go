@@ -7,11 +7,6 @@ import (
 	"agentkit/internal/run"
 )
 
-// Login resume asks authentication only of a run parked on it.
-func noLoginResume() bool {
-	return run.Every(func(_ string, record *run.Object) bool { return record.Str("state") != "waiting_login" })
-}
-
 // Seat health reads parked logins and recovery alongside the seat's own evidence.
 func noRunHealthWork() bool {
 	return run.Every(func(_ string, record *run.Object) bool {

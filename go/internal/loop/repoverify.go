@@ -130,33 +130,6 @@ func (r *repoPlace) followTarget(l *loop) error {
 	return r.setBase(l, fork)
 }
 
-// filesScope is the failure for paths outside the task's `files:` pathspecs, "" for none.
-func (r *repoPlace) filesScope() (string, error) {
-	if len(r.files) == 0 {
-		return "", nil
-	}
-	diff := []string{"diff", "--name-only", "--no-renames", "-z", r.baseSHA + "...HEAD"}
-	changed, err := r.git().Must(diff...)
-	if err != nil {
-		return "", fmt.Errorf("files: %w", err)
-	}
-	inside, err := r.git().Must(append(append([]string{}, diff...), append([]string{"--"}, r.files...)...)...)
-	if err != nil {
-		return "", fmt.Errorf("files: %w", err)
-	}
-	var outside []string
-	for _, each := range paths(changed) {
-		if !slices.Contains(paths(inside), each) {
-			outside = append(outside, each)
-		}
-	}
-	slices.Sort(outside)
-	if len(outside) == 0 {
-		return "", nil
-	}
-	return "outside files: " + strings.Join(outside, ", "), nil
-}
-
 // changedTests is the branch's changed tests: test-shaped paths, and with named every file a
 // done-when command names, removed paths too, as renaming a test out of discovery must show.
 func (r *repoPlace) changedTests(l *loop, head string, named bool) ([]string, error) {

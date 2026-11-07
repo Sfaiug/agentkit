@@ -14,10 +14,9 @@ import (
 // Python's GATE_POLL.
 const gatePoll = 15 * time.Second
 
-// there runs one piece of a suite there (onHelper), the tests it named flaky there kept.  A green
-// piece is Go's, and a red one that named no failed tests, which runs here next (pieces): one that
-// named some, one lost or turned away there, or one stopped, is Python's, which runs those tests
-// alone here or sends it on to the next machine.
+// there runs one piece of a suite there (onHelper), the tests it named flaky there kept, and a red
+// one's that it named failed, which run here next (helperReds).  One lost or turned away there, or
+// one stopped, is Python's, which sends it on to the next machine or runs it again alone.
 func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *os.File) (ran, error) {
 	code, stopped, err := l.onHelper(away, shard, limit, out)
 	if err != nil {
@@ -26,10 +25,14 @@ func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *
 	if stopped != "" {
 		return ran{}, fmt.Errorf("%w: AK_SHARD=%s on %s was stopped for %s", helper.ErrPython, shard, away.Alias, stopped)
 	}
-	if helper.Gone(code) || code != 0 && len(away.Named(shard, "failed")) > 0 {
+	if helper.Gone(code) {
 		return ran{}, fmt.Errorf("%w: AK_SHARD=%s on %s ended %d", helper.ErrPython, shard, away.Alias, code)
 	}
-	return ran{code: code, testReport: testReport{flaky: away.Named(shard, "flaky")}}, nil
+	ended := ran{code: code, testReport: testReport{flaky: away.Named(shard, "flaky")}}
+	if code != 0 {
+		ended.failed = away.Named(shard, "failed")
+	}
+	return ended, nil
 }
 
 // onHelper runs the piece of shard on the helper that took it, Python's worker.limited of

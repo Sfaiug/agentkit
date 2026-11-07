@@ -337,6 +337,9 @@ func questionKey(question string) string {
 	return casefold(config.Fold(question))
 }
 
+// QuestionKey is a question's identity, as a seat's kept questions are matched by it.
+func QuestionKey(question string) string { return questionKey(question) }
+
 func finite(value any) (float64, bool) {
 	number, ok := run.Num(value)
 	return number, ok && !math.IsInf(number, 0) && !math.IsNaN(number)

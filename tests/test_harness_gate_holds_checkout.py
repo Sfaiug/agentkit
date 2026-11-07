@@ -29,6 +29,7 @@ from agentkit import config, update
 
 STEP = update.step      # the real one, which the gate below wraps
 INSTALL = """#!/bin/sh
+[ "$1" != --prepare ] || exit 0
 d="$(dirname "$0")/.."
 echo began >>"$d/installs"
 while [ -e "$d/hold" ]; do sleep 0.01; done

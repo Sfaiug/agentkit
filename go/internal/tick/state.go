@@ -53,14 +53,14 @@ func generation(value any) any {
 	return run.Number("0")
 }
 
-// quiet is whether watch.json holds only what a home Go carries holds: no PR followed or login
-// kept, and no stall but one nothing is typed past yet, which the health row keeps.  Alert
-// generations are bookkeeping, kept even after an open; the heads reviewed are the incoming pass's
-// own, a merge's break the merge checks', and the worker tokens the health row's, all of which Go
-// carries.
+// quiet is whether watch.json holds only what a home Go carries holds: no login kept, and no stall
+// but one nothing is typed past yet, which the health row keeps.  Alert generations are
+// bookkeeping, kept even after an open; the heads reviewed are the incoming pass's own, the PRs
+// followed the outgoing pass's, a merge's break the merge checks', and the worker tokens the health
+// row's, all of which Go carries.
 func quiet(state *run.Object) bool {
 	for _, key := range kept {
-		if key != "seen_at" && key != "reviewed" && key != "after_merge" && len(state.Dict(key).Keys()) > 0 &&
+		if key != "seen_at" && key != "reviewed" && key != "own" && key != "after_merge" && len(state.Dict(key).Keys()) > 0 &&
 			!(key == "stalls" && seat.PlainStalls(state.Dict(key))) {
 			return false
 		}

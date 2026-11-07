@@ -1,13 +1,13 @@
-"""`python3 -m agentkit.lend --subscriptions <home>` lends a harness whose usual login has none
-to lend the first subscription its HOME's config lists, where a turn naming that account reads
-it, and prints the JSON {provider: account} of what it lent so last; without the flag it lends
-the usual logins alone, as ever.
+"""`ak lend --subscriptions <home>` lends a harness whose usual login has none to lend the first
+subscription its HOME's config lists, where a turn naming that account reads it, and prints the
+JSON {provider: account} of what it lent so last; without the flag it lends the usual logins
+alone, as ever.
 
-Black-box: the module of the checkout beside the program `AK_BIN` names, as
-tests/fixtures/hookdrive.py finds it, run in a Home of tests/fixtures/akbin.py whose only login
+Black-box: the program `AK_BIN` names, run in a Home of tests/fixtures/akbin.py whose only login
 is Antigravity's under a Google account `acme` its config lists, with every harness program a
-manifest names, and macOS's Keychain, faked to fail: OpenCode's answers that it merges no other
-config document and saved no login.
+manifest of the checkout beside it names, as tests/fixtures/hookdrive.py finds that checkout, and
+macOS's Keychain, faked to fail: OpenCode's answers that it merges no other config document and
+saved no login.
 """
 
 import json
@@ -40,10 +40,9 @@ class LendAListedSubscription(unittest.TestCase):
         self.home.write(LOGIN, {"token": {"refresh_token": "fixture-acme"}})
 
     def lend(self, *flag):
-        """What the module did lending this Home into an empty <home>, and that <home>."""
+        """What the program did lending this Home into an empty <home>, and that <home>."""
         lent = self.home.root / "lent"
-        return self.home.run(sys.executable, "-m", "agentkit.lend", *flag, str(lent),
-                             env={"PYTHONPATH": str(ROOT)}), lent
+        return self.home.ak("lend", *flag, str(lent)), lent
 
     def test_asked_it_lends_the_listed_account_and_says_so(self):
         done, lent = self.lend("--subscriptions")

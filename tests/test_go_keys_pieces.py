@@ -1,8 +1,8 @@
 """The Go keys check runs in pieces cut by its claims' measured seconds, kept as the suite keeps a
 file's (suite_times): no piece nears the silence that stops a landing, every claim of go/keys.txt
 runs in exactly one, and more claims make more pieces, none past its bound but a claim past it,
-alone.  Offline: the real every_file.py runs three shares (AK_SHARD) of a checkout of stand-in keys
-and a stand-in `go`.
+alone; AK_ONLY listing it whole, it runs in its pieces and is named as run whole.  Offline: the real
+every_file.py runs three shares (AK_SHARD) of a checkout of stand-in keys and a stand-in `go`.
 """
 
 import os
@@ -52,6 +52,16 @@ class GoKeysPieces(unittest.TestCase):
         (self.sandbox / "go").chmod(0o755)
         self.enterContext(patch.object(config, "HOME", self.sandbox / "home/.agentkit"))
 
+    def every_file(self, out, **env):
+        """The real every_file.py's run of the checkout, writing to `out`, with `env` set."""
+        kept = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
+        return subprocess.run(
+            [sys.executable, REPO / "tests/every_file.py", self.root],
+            env=dict(kept, PATH=f"{self.sandbox}{os.pathsep}{os.environ['PATH']}",
+                     AK_CGROUP_FILE=str(self.sandbox / "no-cgroup"),
+                     AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}', **env),
+            stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, text=True, timeout=600)
+
     def land(self, count, times=""):
         """For go/keys.txt's first `count` claims, handed the record `times`, the pieces each
         share runs: their claims, as `<key> <part>`, by the tree each ran in."""
@@ -61,18 +71,11 @@ class GoKeysPieces(unittest.TestCase):
         (self.root / "go/keys.txt").write_text("".join(f"{claim}\n" for claim in claims))
         for key in list(SECONDS)[:count]:
             (self.root / "tests" / f"{key}.py").write_text(KEY)
-        env = {k: v for k, v in os.environ.items() if not k.startswith(("AGENTKIT_", "AK_"))}
         output, shares = self.sandbox / "suite.log", []
         for share in ("1/3", "2/3", "3/3"):
             ran = self.sandbox / f"ran-{share[0]}.log"
             with output.open("a") as out:
-                done = subprocess.run(
-                    [sys.executable, REPO / "tests/every_file.py", self.root],
-                    env=dict(env, AK_SHARD=share, AK_TIMES=times, ACME_LOG=str(ran),
-                             PATH=f"{self.sandbox}{os.pathsep}{os.environ['PATH']}",
-                             AK_CGROUP_FILE=str(self.sandbox / "no-cgroup"),
-                             AK_HOST_READINGS='{"cpu_pressure": 0, "free_mb": 4096}'),
-                    stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, timeout=600)
+                done = self.every_file(out, AK_SHARD=share, AK_TIMES=times, ACME_LOG=str(ran))
             self.assertEqual(done.returncode, 0, output.read_text())
             pieces = {}
             for tree, key, *parts in map(str.split, ran.read_text().splitlines()
@@ -111,6 +114,17 @@ class GoKeysPieces(unittest.TestCase):
                 self.assertLessEqual(total, silence / 2, piece)
             made.append(sum(map(len, shares)))
         self.assertGreater(made[1], made[0])
+
+    def test_listed_whole_it_runs_in_its_pieces_and_is_named_as_run_whole(self):
+        (self.root / "go/keys.txt").write_text("test_key_acme_00 Acme\n")
+        (self.root / "tests/test_key_acme_00.py").write_text(KEY)
+        (self.sandbox / "only").write_text("tests/test_go_keys.py\n")
+        done = self.every_file(subprocess.PIPE, AK_ONLY=str(self.sandbox / "only"),
+                               AK_RAN=str(self.sandbox / "ran"),
+                               ACME_LOG=str(self.sandbox / "claims"))
+        self.assertEqual(done.returncode, 0, done.stdout)
+        self.assertIn("PASS  tests/test_go_keys.py::test_key_acme_00", done.stdout)
+        self.assertEqual((self.sandbox / "ran").read_text(), "tests/test_go_keys.py\n")
 
     def test_a_claim_past_the_bound_runs_alone_and_the_others_still_share(self):
         claims = {"test_key_acme_slow": every_file.PIECE + 1, "test_key_acme": 10,

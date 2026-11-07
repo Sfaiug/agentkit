@@ -12,14 +12,16 @@ import (
 	"agentkit/internal/gitcall"
 )
 
-func liveHere(repo string) bool {
+// LiveHere is whether ~/agentkit is the checkout at repo: only its own tick acts on the host's
+// install, or reads what it owes.
+func LiveHere(repo string) bool {
 	return config.Resolve(filepath.Join(config.UserHome(), "agentkit")) == repo
 }
 
 // LiveReady leaves live checks, including their recovery and hand-backs, to Python at this row.
 // A tick from another checkout never acts on the host's install.
 func LiveReady(repo string) bool {
-	if !liveHere(repo) {
+	if !LiveHere(repo) {
 		return true
 	}
 	checks, err := os.ReadDir(filepath.Join(config.Home(), "state", "live-checks"))
@@ -30,7 +32,7 @@ func LiveReady(repo string) bool {
 // only when ahead, and retry an install owed until it passes, under the same move lock.  A move
 // to an origin/main holding one waits for its check, which is Python's.
 func GoLive(repo string, say func(string)) error {
-	if !liveHere(repo) {
+	if !LiveHere(repo) {
 		return nil
 	}
 	if !LiveReady(repo) {

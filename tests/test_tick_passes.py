@@ -45,6 +45,7 @@ PASSES = (
     (jobs, "deliver_job_handbacks", "job handbacks", False),
     (watch, "wait_over", "ended waits", False),
     (seat_tokens, "read", "seat tokens", False),
+    (watch, "keep_conversations", "conversation names", False),
     (watch, "tell_audit", "weekly audit", False),
     (notify, "tick_cards", "card transitions", False),
     (watch, "revive_seats", "seat revival", False),

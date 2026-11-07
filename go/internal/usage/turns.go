@@ -10,20 +10,20 @@ import (
 	"agentkit/internal/run"
 )
 
-// Reading is the meters the snapshot holds for that provider's usual login now, Python's
-// usage.reading: what a worker turn measures how far it moved them from.
-func Reading(provider string) []any {
-	return cachedProvider(provider).List("meters")
+// Reading is the meters the snapshot holds for that login of the provider now, TurnAccount's,
+// Python's usage.reading: what a worker turn measures how far it moved them from.
+func Reading(provider, account string) []any {
+	return source{Subscription: config.Subscription{Name: provider}, account: account}.cached().List("meters")
 }
 
 // Turned keeps what the worker turn of model name in role, in out, reported about the login it ran
-// on, Python's turns.note_turn_meters: the meters it printed become that login's reading, and the
-// tokens it spent beside how far it moved the meters from before, the Reading as it began, are a
-// pair of what a window holds, recorded under the turn's model, effort, run and role.  Best effort
-// and never the turn's failure; a run Go drives runs every turn on its provider's one login.
-func Turned(name string, model config.Model, role, out string, before []any) {
+// on, TurnAccount's, Python's turns.note_turn_meters: the meters it printed become that login's
+// reading, and the tokens it spent beside how far it moved the meters from before, the Reading as
+// it began, are a pair of what a window holds, recorded under the turn's model, effort, run and
+// role.  Best effort and never the turn's failure.
+func Turned(name string, model config.Model, account, role, out string, before []any) {
 	sources, err := listed(false)
-	at := slices.IndexFunc(sources, func(src source) bool { return src.Name == model.Provider })
+	at := slices.IndexFunc(sources, func(src source) bool { return src.Name == model.Provider && src.account == account })
 	if err != nil || at < 0 {
 		return
 	}
