@@ -15,7 +15,7 @@ lies under that link or the checkout it names.
 import json
 import os
 from pathlib import Path
-import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -49,8 +49,35 @@ def checkout():
     return top, folder.relative_to(top) / Path(AK).name
 
 
-# What a word holds beside a path: a flag's `=`, a PATH's `:`, a shell line's or JSON's marks.
-APART = re.compile(r"""[\s=:'"{}\[\],;<>|()]+""")
+def strings(value):
+    """The strings in a JSON value, its keys among them."""
+    if isinstance(value, dict):
+        value = [*value, *value.values()]
+    if isinstance(value, list):
+        return [found for item in value for found in strings(item)]
+    return [value] if isinstance(value, str) else []
+
+
+def held(word):
+    """`word` whole, and each word it holds as what reads it finds it: a JSON value's strings, a
+    shell line's words, the value after a flag's or a variable's `=`, the entries of a `:` list.
+    Each is shorter than the word it is read from, or that word again, so the reading ends."""
+    found, todo = set(), [word]
+    while todo:
+        word = todo.pop()
+        if word in found:
+            continue
+        found.add(word)
+        try:
+            todo += strings(json.loads(word))
+        except ValueError:      # no JSON
+            pass
+        try:
+            todo += shlex.split(word)
+        except ValueError:      # no shell line
+            pass
+        todo += [*word.split("=", 1)[1:], *word.split(":")]
+    return found
 
 
 def named(pid, start):
@@ -71,8 +98,7 @@ def named(pid, start):
             words += Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
         except OSError:     # gone meanwhile
             continue
-        paths |= {Path(cwd, piece).resolve() for word in words
-                  for piece in APART.split(word) if piece}
+        paths |= {Path(cwd, piece).resolve() for word in words for piece in held(word) if piece}
         todo += [(child, []) for child in children.get(pid, [])]
     return paths
 
