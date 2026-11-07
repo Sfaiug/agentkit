@@ -135,32 +135,40 @@ func Answered(name string, at float64, typed *float64, ask func(current string) 
 		if notice == nil {
 			return ScreenAnswered(current, at)
 		}
-		card, err := readObject(seatFile("card", current, "json"))
-		if err != nil && !errors.Is(err, errNotObject) {
-			return err
-		}
-		if card == nil {
-			card = run.NewObject()
-		}
-		isNeeds := card.Str("word") == "needs you"
-		since, dated := card.Num("since")
-		answered := notice.Copy()
-		answered.Set("answered_at", run.Float(at))
-		if !resolved(answered) {
-			return nil
-		}
-		if isNeeds && dated && at > since {
-			if err := retire(card); err != nil {
-				return err
-			}
-		}
-		if err := writeNotice(current, answered); err != nil {
-			return err
-		}
-		done = true
-		return nil
+		whole, err := answerNotice(current, notice, at)
+		done = whole
+		return err
 	})
 	return done, err
+}
+
+// answerNotice is the owner answering at `at` every question the seat's notice standing asks, under
+// its notice lock, which the caller holds: the notice keeps the answer, and the needs you card it
+// went up on is retired.  Whether it was answered.
+func answerNotice(name string, notice *run.Object, at float64) (bool, error) {
+	card, err := readObject(seatFile("card", name, "json"))
+	if err != nil && !errors.Is(err, errNotObject) {
+		return false, err
+	}
+	if card == nil {
+		card = run.NewObject()
+	}
+	isNeeds := card.Str("word") == "needs you"
+	since, dated := card.Num("since")
+	answered := notice.Copy()
+	answered.Set("answered_at", run.Float(at))
+	if !resolved(answered) {
+		return false, nil
+	}
+	if isNeeds && dated && at > since {
+		if err := retire(card); err != nil {
+			return false, err
+		}
+	}
+	if err := writeNotice(name, answered); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 // ScreenAnswered is the owner answering at `at`, with no notice of the seat's standing, under its
