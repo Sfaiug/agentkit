@@ -5,7 +5,8 @@ files and failed on it, and nothing went live for nineteen hours.  Now each vers
 out whole beside ~/agentkit and swapped in by one rename(2) (agentkit/versions.py): a cut before
 it leaves the old version as it was, one after it leaves the new one whole and its install owed,
 and a lock in the old version's git directory is in nobody's way.  The clone a fresh install
-made is adopted at its first move, and the worktrees added from it go on working.
+made is adopted at its first move, and the worktrees added from it go on working.  Each move here
+is made final by a tick of the version it put live, as the next tick does (`versions.final`).
 test_go_live_retries_install's offline clone, its origin one commit ahead.
 """
 
@@ -50,10 +51,14 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.wt = config.WT / "fix-api"      # a run's, added from the clone before it was adopted
         git(self.clone, "worktree", "add", "-q", "--detach", str(self.wt))
 
-    def go_live(self):
+    def go_live(self, final=True):
+        """One tick's go_live, and with `final` one of the version it leaves live completing."""
         said = []
         with patch.object(gc, "tmp_processes", lambda: (self.held, {})):
             update.go_live(said.append)
+        if final:
+            with patch.object(config, "BEGAN", os.stat(self.clone)):
+                versions.final()
         return said
 
     def live(self, commit):
@@ -112,9 +117,10 @@ class InstallSwitchesInOneStep(unittest.TestCase):
                           ("swap", patch.object(versions, "exchange",
                                                 side_effect=OSError(errno.EXDEV, "cut")))):
             with self.subTest(name), cut:
-                self.go_live()
+                self.go_live(final=False)
                 self.live(self.old)
-                self.assertEqual((self.installs(), self.swapped_out()), (0, []))
+                self.assertEqual((self.installs(), self.swapped_out(), versions.kept()),
+                                 (0, [], None))
         self.assertEqual(self.go_live(), [f"agentkit is live at {self.new[:12]}"])
         self.live(self.new)
 
@@ -163,6 +169,23 @@ class InstallSwitchesInOneStep(unittest.TestCase):
         self.assertEqual(self.go_live(), [f"agentkit is live at {fourth[:12]}"])
         self.live(fourth)
         self.assertEqual(self.swapped_out(), [third])
+
+    def test_no_move_starts_before_the_last_is_final_and_what_it_owes_installs(self):
+        (self.root / "broken").write_text("")
+        self.go_live(final=False)
+        (self.root / "broken").unlink()
+        third = self.push("third")
+        self.assertEqual(self.go_live(), [])
+        self.live(self.new)
+        self.assertEqual(self.installs(), 2)
+        self.assertEqual(self.go_live(), [f"agentkit is live at {third[:12]}"])
+        self.live(third)
+
+    def test_a_client_keeps_nothing(self):
+        (config.STATE / "server").write_text("acme\n")
+        self.go_live(final=False)
+        self.live(self.new)
+        self.assertIsNone(versions.kept())
 
     def test_an_adoption_cut_off_between_its_renames_is_finished(self):
         (self.clone / ".git").rename(versions.repository())
@@ -216,6 +239,9 @@ class InstallSwitchesInOneStep(unittest.TestCase):
             raise KeyboardInterrupt     # the tick, killed the moment after its swap
         with patch.object(versions, "exchange", exchange), self.assertRaises(KeyboardInterrupt):
             self.go_live()
+        self.assertEqual(versions.kept(), next(     # made before the swap: the version replaced
+            path for path in (config.HOME / versions.VERSIONS).iterdir()
+            if git(path, "rev-parse", "HEAD") == self.new))
         # ~/agentkit's record, as that code left it: no lock, and the path of the version swapped out
         record = Path(git(self.clone, "rev-parse", "--absolute-git-dir"))
         (record / "locked").unlink()

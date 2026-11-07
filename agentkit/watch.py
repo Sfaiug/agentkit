@@ -49,7 +49,7 @@ from urllib.parse import urlsplit
 
 from . import (aside_editor, browser, command_help, config, front, gc, gitcall, handback, history,
                host, login_refusals, look, notify, orch, owner, parsed, questions, seat_tokens,
-               staffing, statusbar, transitions, turns, update, usage, worker)
+               staffing, statusbar, transitions, turns, update, usage, versions, worker)
 from . import record as run_record
 from . import sleep
 from . import terminal as terminal_mod
@@ -8657,4 +8657,5 @@ def main(argv):
                     state["tick_completed_at"] = state["tick"]["ended_at"]
                 save_state(state)
                 if not crashed:
+                    versions.final()
                     tick_notice(ended=state["tick"]["ended_at"], log=log)
