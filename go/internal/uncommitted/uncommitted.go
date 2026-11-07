@@ -33,11 +33,11 @@ func names(listed ...string) []string {
 // Paths is every uncommitted path, no ignored one, Python's dirty_paths: `--no-renames` keeps
 // both paths, so a selected commit takes a rename's deletion too.
 func Paths(g gitcall.Git) ([]string, error) {
-	tracked, err := g.Try("diff", "--no-renames", "--name-only", "-z", "HEAD")
+	tracked, err := g.RawTry("diff", "--no-renames", "--name-only", "-z", "HEAD")
 	if err != nil {
 		return nil, err
 	}
-	untracked, err := g.Try("ls-files", "--others", "--exclude-standard", "-z")
+	untracked, err := g.RawTry("ls-files", "--others", "--exclude-standard", "-z")
 	if err != nil {
 		return nil, err
 	}

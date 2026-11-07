@@ -50,9 +50,12 @@ func TestRecordGoesOutAsPythonWritesIt(t *testing.T) {
 	if got, _ := record.Num("n"); !math.IsNaN(got) {
 		t.Fatalf("NaN read as %v", got)
 	}
-	// a byte of a path no UTF-8 holds is the surrogate os.fsdecode reads it as
+	// a byte of a path no UTF-8 holds is the surrogate os.fsdecode reads it as, and back
 	if got := Encode("/tmp/caf\xff"); got != `"/tmp/caf\udcff"` {
 		t.Fatalf("got %s", got)
+	}
+	if got, err := Decode([]byte(`"/tmp/caf\udcff\udcc3\u00e9"`)); got != "/tmp/caf\xff\xc3\u00e9" || err != nil {
+		t.Fatalf("got %q, %v", got, err)
 	}
 }
 
@@ -75,7 +78,7 @@ func TestUnreadableJSONIsRefused(t *testing.T) {
 			t.Errorf("%q read", text)
 		}
 	}
-	for _, text := range []string{`"\ud800"`, `"\udcff"`, `{"\ud83d x": 1}`, `"\ude00\ud83d"`} {
+	for _, text := range []string{`"\ud800"`, `"\udc7f"`, `"\udcc3\udca9"`, `{"\ud83d x": 1}`, `"\ude00\ud83d"`} {
 		if _, err := Decode([]byte(text)); !errors.Is(err, ErrLoneSurrogate) {
 			t.Errorf("%q: %v", text, err)
 		}
