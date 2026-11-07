@@ -124,9 +124,13 @@ func TestAListingOwingTheDoneCheckIsPythonsWithNothingWritten(t *testing.T) {
 		}
 		return r
 	}, repo), "conv-1.jsonl")
-	write(chat, `{"type": "user", "timestamp": "2026-11-05T10:00:00Z", "message": {"role": "user", "content": "Ship the parser."}}`+"\n")
+	said := `{"type": "user", "timestamp": "2026-11-05T10:00:00Z", "message": {"role": "user", "content": "Ship the parser."}}` + "\n"
+	write(chat, said)
 	plan := filepath.Join(state, "plan-acme.md")
-	original := "- [ ] Ship the parser · check: `test -f parser.txt` · " + repo + "#" + base + " · written 2026-11-05 10:05 on " + base + "\n"
+	line := func(check string) string {
+		return "- [ ] Ship the parser · check: `" + check + "` · " + repo + "#" + base + " · written 2026-11-05 10:05 on " + base + "\n"
+	}
+	original := line("test -f parser.txt")
 	write(plan, original)
 	_, err := List(context.Background(), "acme")
 	if data, _ := os.ReadFile(plan); !errors.Is(err, ErrUnread) || string(data) != original {
@@ -136,5 +140,25 @@ func TestAListingOwingTheDoneCheckIsPythonsWithNothingWritten(t *testing.T) {
 	box, err := List(context.Background(), "acme")
 	if err != nil || len(box) != 1 || !strings.HasPrefix(box[0], "- [x] Ship the parser") {
 		t.Fatalf("nothing said: %q, %v", box, err)
+	}
+
+	// a delivery counted while the listing verified has it verify again (settle): there too, a
+	// plan it would leave owing the check is left unwritten, and the count with it
+	marker, owed := filepath.Join(home, "verified-once"), filepath.Join(state, "unverified-acme.txt")
+	flaky := line("test -f " + marker + " || { touch " + marker + " && echo 1 > " + owed + " && false; }")
+	for _, owner := range []string{said, ""} {
+		write(chat, owner)
+		write(plan, flaky)
+		os.Remove(marker)
+		os.Remove(owed)
+		box, err := List(context.Background(), "acme")
+		data, _ := os.ReadFile(plan)
+		count, gone := os.ReadFile(owed)
+		if owner != "" && (!errors.Is(err, ErrUnread) || string(data) != flaky || string(count) != "1\n") {
+			t.Errorf("settled, the check owed: %v, the plan now %q, %q owed", err, data, count)
+		}
+		if owner == "" && (err != nil || len(box) != 1 || !strings.HasPrefix(box[0], "- [x] Ship the parser") || gone == nil) {
+			t.Errorf("settled, nothing said: %q, %v, %q owed", box, err, count)
+		}
 	}
 }
