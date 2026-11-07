@@ -33,6 +33,9 @@ func carry(args []string, out, errOut io.Writer) int {
 	if command == "hook" { // unlisted too
 		return hook(rest, out)
 	}
+	if command == "lend" { // unlisted too
+		return lendHome(rest, out, errOut)
+	}
 	if command == "install" { // unlisted too: go/install.sh is what a person types
 		return install.Main(rest, out, errOut)
 	}
