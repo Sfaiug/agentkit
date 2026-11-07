@@ -22,7 +22,7 @@ type Conversation struct {
 // each as OwnerMessages reads them; none with no record.  ErrUnread where Go does not read one,
 // and strictly, with none of them read, where Go does not read the owner's words in one as
 // strictly as Python's done check does (harness.Reads); the error where the seat's typing
-// receipts cannot be read.
+// receipts cannot be read, and strictly where a conversation is there and cannot be read.
 func Conversations(name string, strictly bool) ([]Conversation, error) {
 	current, record, err := config.ResolveSession(name)
 	if err != nil {
