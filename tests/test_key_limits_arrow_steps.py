@@ -123,8 +123,12 @@ class ArrowSteps(unittest.TestCase):
                 self.point(term, name, 0, down=False)
                 term.keys("Left", "Right")      # ← at the bottom moves nothing: → takes the next
                 self.pointed(term, name, steps[1])
-                # → past the top moves nothing: ← takes the one under it
-                term.keys(*["Right"] * len(steps), "Left")
+                # → past the top moves nothing: ← takes the one under it.  The top is waited for
+                # before ←, as the climb shows that one too: a wait met there would leave keys
+                # unread, saving config.toml over the next subtest's.
+                term.keys(*["Right"] * len(steps))
+                self.pointed(term, name, steps[-1], up=False)
+                term.keys("Left")
                 self.pointed(term, name, steps[-2])
 
     def test_a_click_on_an_arrow_moves_the_value_as_its_key_does(self):
