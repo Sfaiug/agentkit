@@ -10,6 +10,7 @@ test_go_live_retries_install's offline clone, its origin one commit ahead.
 """
 
 import errno
+import os
 from pathlib import Path
 import sys
 import time
@@ -21,6 +22,18 @@ import test_go_live_retries_install as base
 from agentkit import config, gc, gitcall, retention, update, versions
 
 git = base.git
+
+
+def working_in(path):
+    """The processes working in `path`."""
+    found = []
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            if os.readlink(proc / "cwd") == str(path):
+                found.append(proc.name)
+        except OSError:
+            continue        # gone, a zombie, or another user's
+    return found
 
 
 class InstallSwitchesInOneStep(unittest.TestCase):
@@ -99,6 +112,17 @@ class InstallSwitchesInOneStep(unittest.TestCase):
                 self.assertEqual((self.installs(), self.swapped_out()), (0, []))
         self.assertEqual(self.go_live(), [f"agentkit is live at {self.new[:12]}"])
         self.live(self.new)
+
+    def test_a_prepare_past_its_cap_is_stopped_with_all_it_started(self):
+        version = self.root / "building"
+        version.mkdir()
+        with patch.object(versions, "CAP", 1):
+            code, _ = versions.run(["sh", "-c", "sleep 600 & wait"], version)
+        self.assertEqual(code, 1)
+        until = time.monotonic() + 30       # killed at once, and gone once a loaded host gets to it
+        while working_in(version) and time.monotonic() < until:
+            time.sleep(0.01)
+        self.assertEqual(working_in(version), [])
 
     def test_a_move_cut_off_after_the_swap_is_live_whole_and_installs_next(self):
         self.go_live()

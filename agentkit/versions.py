@@ -25,6 +25,7 @@ import fcntl
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -140,13 +141,20 @@ def git(where, *args):
 
 
 def run(cmd, cwd=None, **env):
-    """(exit code, what `cmd` said); 1 when it could not run or ran past `CAP`."""
+    """(exit code, what `cmd` said); 1 when it could not run or ran past `CAP`, which stops all it
+    started: a build left running would go on writing in the version removed for it."""
     try:
-        proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=CAP,
-                              env={**config.child_env(), **env})
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        with subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, start_new_session=True, encoding="utf-8",
+                              errors="replace", env={**config.child_env(), **env}) as proc:
+            try:
+                out, err = proc.communicate(timeout=CAP)
+            except subprocess.TimeoutExpired as exc:
+                os.killpg(proc.pid, signal.SIGKILL)     # its group while it is not waited for
+                return 1, str(exc)
+    except OSError as exc:
         return 1, str(exc)
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+    return proc.returncode, (out + err).strip()
 
 
 def owned(live):
