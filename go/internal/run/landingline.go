@@ -85,11 +85,11 @@ func LinePlace(record *Object, name string) string {
 // that place is landing.line's: not in a line holding a member that is no green delivery while a
 // seat was told its next run goes first (FirstPlaceTold), as landing.line orders such a fix.
 func LinePlaces() func(record *Object, name string) (string, bool) {
-	type line struct {
-		names []string
+	type order struct {
+		names []string // first in line first
 		read  bool
 	}
-	lines := map[string]line{}
+	lines := map[string]order{}
 	return func(record *Object, name string) (string, bool) {
 		line := LandingLine(record)
 		if line == "" {

@@ -197,14 +197,13 @@ func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*
 	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
 		return nil, nil, true
 	}
-	place := run.LinePlaces()
-	for i := range entries {
-		read := true
-		if !machine {
-			entries[i].place, read = place(entries[i].record, entries[i].name())
-		}
-		if !read {
-			return nil, nil, true
+	if !machine {
+		place := run.LinePlaces()
+		for i := range entries {
+			var read bool
+			if entries[i].place, read = place(entries[i].record, entries[i].name()); !read {
+				return nil, nil, true
+			}
 		}
 	}
 	return every, entries, false
