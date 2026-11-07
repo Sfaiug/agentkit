@@ -175,10 +175,14 @@ func command(argv []string, env map[string]string, workspace, out string, state,
 		done()
 		return nil, nil, err
 	}
-	mounts, err := binds(empty, places, overlays(homes, empty, places))
+	shown := overlays(homes, empty, places)
+	mounts, err := binds(empty, places, shown)
 	if err != nil {
 		done()
 		return nil, nil, err
+	}
+	if cache := accountCache(env, empty, places, shown, hidden); cache != "" {
+		env["GOCACHE"] = cache
 	}
 	args := append([]string{"--unshare-user", "--unshare-pid", "--as-pid-1", "--die-with-parent", "--new-session"}, walls()...)
 	args = append(append(args, mounts...), masks(hidden)...)
@@ -457,16 +461,22 @@ func masks(hidden []string) []string {
 	return args
 }
 
-// git is what ak's own Git, the first in a folder ak's own PATH names in full, never one the
-// workspace puts on the PATH, answers in workspace: its answers open places for writing and say
-// what to hide.
-func git(env map[string]string, workspace string, args ...string) (string, error) {
-	found := ""
+// ours is ak's own copy of program, the first in a folder ak's own PATH names in full, never one
+// the workspace puts on the PATH, or "": its answers decide what a box hides, opens for writing
+// and names.
+func ours(program string) string {
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if filepath.IsAbs(dir) && found == "" {
-			found, _ = exec.LookPath(filepath.Join(dir, "git"))
+		if found, err := exec.LookPath(filepath.Join(dir, program)); filepath.IsAbs(dir) && err == nil {
+			return found
 		}
 	}
+	return ""
+}
+
+// git is what ak's own Git answers in workspace: its answers open places for writing and say
+// what to hide.
+func git(env map[string]string, workspace string, args ...string) (string, error) {
+	found := ours("git")
 	if found == "" {
 		return "", errors.New("worker box needs git in a directory PATH names in full")
 	}
