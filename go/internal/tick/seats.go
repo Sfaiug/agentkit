@@ -61,7 +61,8 @@ func stays(live seat.Live) bool {
 // health is the seat health row (watch.health): the worker tokens polled, then each seat looked at
 // and its word published, as the later rows read it, while the look is all the row does there, or
 // keeps the stall its screen shows short of typing past it, asking its owner about one an hour old
-// and nothing more after; the first it would do more at ends the tick there, before its publish.
+// and nothing more after, or keeps its own login refused, asking its owner to log it in once; the
+// first it would do more at ends the tick there, before its publish.
 // A stall held of a seat whose record is gone is Python's to forget.  A dry tick's look acts on
 // nothing and says what it would type.
 func (t *ticking) health() error {
@@ -75,9 +76,19 @@ func (t *ticking) health() error {
 	}
 	for _, name := range names {
 		var kept *run.Object
-		owner, line := "", ""
-		carried, err := seat.Health(name, func(live seat.Live) bool {
+		var out *seat.Live
+		owner, line, why := "", "", ""
+		look := func(live seat.Live) bool {
 			held, _ := stalls.Get(live.Name).(*run.Object)
+			if held != nil && held.Str("kind") == "auth" { // keepLogin's, this tick: quiet hands over any other
+				return ownerWaits(live)
+			}
+			if answered, yes, said := t.loginAsked(live); answered {
+				if !yes {
+					out, why = &live, said
+				}
+				return false
+			}
 			if held != nil && held.Truthy("told") {
 				return asked(live)
 			}
@@ -88,7 +99,14 @@ func (t *ticking) health() error {
 			kept, line, keeps = seat.KeepStall(live, held, epoch(time.Now()))
 			owner = live.Name
 			return keeps
-		}, t.log.line, t.dry)
+		}
+		carried, err := seat.Health(name, look, t.log.line, t.dry)
+		// a login out is kept before the seat's word reads it, which a look again publishes
+		if out != nil && err == nil {
+			if carried, err = t.keepLogin(*out, why); carried && err == nil {
+				carried, err = seat.Health(name, look, t.log.line, t.dry)
+			}
+		}
 		if err != nil || !carried {
 			return cmp.Or(err, errLeft)
 		}
