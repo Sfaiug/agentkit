@@ -701,8 +701,12 @@ case "$ROLE" in
     elif ! { current=$(crontab -l 2>/dev/null) || [ $? = 1 ]; }; then
       note "the crontab could not be read, so the ak watch cron is not installed; \`crontab -l\` says why"
     else
-      cron_line="*/3 * * * * PATH=$(cron_word "$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin")"
-      cron_line+=" $(cron_word "$REPO/bin/ak") watch >>$(cron_word "$AK/tmp/watch.log") 2>&1 $CRON_TAG"
+      # After a move, the version it replaced decides whether the move stays, from outside the
+      # new release, which may be what cannot start; whatever that keeper does, the tick runs.
+      keeper=$(cron_word "$AK/tmp/keep/ak") watch_log=$(cron_word "$AK/tmp/watch.log")
+      cron_line="*/3 * * * * export PATH=$(cron_word "$BIN:$NPM_PREFIX/bin:/usr/local/bin:/usr/bin:/bin");"
+      cron_line+=" [ -x $keeper ] && $keeper back --when-broken >>$watch_log 2>&1;"
+      cron_line+=" $(cron_word "$REPO/bin/ak") watch >>$watch_log 2>&1 $CRON_TAG"
       wanted=$({ [ -z "$current" ] || printf '%s\n' "$current" | grep -vE -- "$CRON_MATCH" || true
                  printf '%s\n' "$cron_line"; })
       if [ "$current" = "$wanted" ]; then
