@@ -1,7 +1,8 @@
 """`ak lend --subscriptions <home>` lends a harness whose usual login has none to lend the first
 subscription its HOME's config lists, where a turn naming that account reads it, and prints the
 JSON {provider: account} of what it lent so last; without the flag it lends the usual logins
-alone, as ever.
+alone, as ever.  A host config still naming a policy key by its old name, before any other
+command has run, lends the same.
 
 Black-box: the program `AK_BIN` names, run in a Home of tests/fixtures/akbin.py whose only login
 is Antigravity's under a Google account `acme` its config lists, with every harness program a
@@ -51,6 +52,11 @@ class LendAListedSubscription(unittest.TestCase):
                          [f"antigravity {LOGIN}", json.dumps({"google": "acme"})])
         self.assertEqual(json.loads((lent / LOGIN).read_text()),
                          {"token": {"refresh_token": "fixture-acme"}})
+
+    def test_an_old_policy_key_name_lends_the_same(self):
+        config = self.home.path / ".agentkit/config.toml"
+        config.write_text("rounds = 3\n" + config.read_text())    # review_rounds' old name
+        self.test_asked_it_lends_the_listed_account_and_says_so()
 
     def test_not_asked_it_lends_no_named_account(self):
         done, lent = self.lend()
