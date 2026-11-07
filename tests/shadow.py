@@ -9,7 +9,8 @@ relative name read from the checkout, else go/bin/ak built as tests/test_go_keys
 
 What the two Python runs disagree on belongs to the moment and is never compared.  A difference
 is confirmed only if repeating the three runs straight away shows it again, else it is a flake.
-Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs), else 0.
+Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs) or a file a
+run touched cannot be read, else 0.
 Besides go/bin/ak and Go's own cache, when it builds Go, it writes nothing outside its scratch
 folder.
 """
@@ -231,19 +232,30 @@ def _state(path):
             with path.open("rb") as opened:
                 digest = hashlib.file_digest(opened, "sha256").digest()
         except PermissionError:
-            # A run may change the bytes of a file its user cannot read, then put back its mode
-            # and time.  Root of a user namespace of the script's own reads past the mode of a
-            # file whose owner and group are its user's; bytes even it cannot read are taken to
-            # differ.
-            with subprocess.Popen(["unshare", "--map-root-user", "cat", "--", path],
-                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as cat:
-                digest = hashlib.file_digest(cat.stdout, "sha256").digest()
-            digest = digest if cat.returncode == 0 else object()
+            digest = _read_as_root(path)
         return *state, found.st_mtime_ns, digest
     except (FileNotFoundError, NotADirectoryError, PermissionError):
         # none there, gone while it was read (the home is live), or in a home folder its user
         # cannot enter
         return None
+
+
+def _read_as_root(path):
+    """The sha256 of a file its user cannot read, whose bytes a run may change before putting back
+    its mode and time.  Root of a user namespace of the script's own reads past the mode of a file
+    whose owner and group are its user's; where it cannot, the runs cannot be judged."""
+    try:
+        with subprocess.Popen(["unshare", "--map-root-user", "cat", "--", path],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as cat:
+            digest = hashlib.file_digest(cat.stdout, "sha256").digest()
+        if cat.returncode == 0:
+            return digest
+    except OSError:
+        pass    # no unshare to run
+    path.lstat()    # gone since, as the home is live: none there
+    print(f"shadow: cannot read {path}, even through unshare, so whether a run changed it is "
+          "unknown", file=sys.stderr)
+    raise SystemExit(2)
 
 
 def _attributes(path):
