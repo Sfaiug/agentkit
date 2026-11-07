@@ -97,7 +97,6 @@ func Start(dir string, out io.Writer, detached bool) error {
 			run.SetAll(record, "state", "queued", "slot_waiting", true)
 		}
 		record.Delete("reservation_pending")
-		record.Delete("resume_from")
 		return nil
 	})
 	if errors.Is(started, ErrStopped) {
@@ -232,6 +231,7 @@ type loop struct {
 	findings      string    // the last review's whole text, for its fixer
 	findingsFile  string    // and where it is
 	prior         bool      // the record already names its workplace: this driver carries the run on
+	resumed       bool      // its receipt is a resume's (sayResume)
 	pull          string    // the pull request this run reviews alone, "" for a run of a task
 	voice         io.Writer // where the loop speaks, the run's log where none: a lander checks a run in its line's
 	marker        string    // what marks the processes it starts, the process's own where none: a check beside the review has its own
@@ -244,8 +244,7 @@ type loop struct {
 func Drive(dir string) int {
 	return drive(dir, func(l *loop) error {
 		switch {
-		case l.prior:
-			l.say(fmt.Sprintf("resume %s: %s", l.id, filepath.Join(dir, "task.md")))
+		case l.resumed: // said as it took its receipt up (sayResume)
 		case l.pull != "":
 			l.say(fmt.Sprintf("run %s: review of %s", l.id, l.pull))
 		default:
@@ -281,6 +280,7 @@ func drive(dir string, job func(*loop) error) (code int) {
 	defer release()
 	l := &loop{ctx: ctx, dir: dir, id: filepath.Base(dir)}
 	defer gh.Serve(l.say, l.wait)()
+	l.sayResume()
 	err := WaitSlot(ctx, dir)
 	if err == nil {
 		err = l.adopt()

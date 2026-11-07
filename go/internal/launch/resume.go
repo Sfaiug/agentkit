@@ -62,7 +62,10 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 	if err != nil {
 		return 0, "", err
 	}
-	err = loop.Reopen(dir, read, order)
+	err = firstPoll(record)
+	if err == nil {
+		err = loop.Reopen(dir, read, order)
+	}
 	if err == nil {
 		if noted != nil {
 			noted()
@@ -86,7 +89,8 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 
 // reached is whether Go's resume reads that run at all: anything else is Python's before a refusal.
 func reached(dir string, record *run.Object) bool {
-	return record != nil && !elsewhere(filepath.Base(dir)) && !(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
+	return record != nil && gateHere(record) && !ungated(filepath.Base(dir)) && !seated() &&
+		!(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
 }
 
 // goesOn is whether Go's resume takes up a run it reached and did not refuse, record being the
