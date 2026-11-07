@@ -10,9 +10,9 @@ import (
 
 const readingsKeptFor = 35 * 86400 // seconds a meter reading is kept: five weeks (READINGS_KEPT_FOR)
 
-// Bare is whether history.db holds no row of what Go leaves to Python: none stands
-// (run.Historyless), or one holding only meter readings, which a probe makes in a home with none
-// and Go keeps as Python does.  False where SQLite cannot say.
+// Bare is whether history.db is, to the tick, as if none stood: none stands (run.Historyless), or
+// one holds no row but meter readings, which a probe makes in a home with none, as only a suite's
+// is.  False where SQLite cannot say.
 func Bare() bool {
 	if run.Historyless() {
 		return true
