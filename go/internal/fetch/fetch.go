@@ -170,8 +170,8 @@ func basename(mac string) string {
 	return unsafe.ReplaceAllString(name, "_")
 }
 
-// extension is Python's Path.suffix: a name's last dot, never its first character or its last.
-func extension(name string) string {
+// Extension is Python's Path.suffix: a name's last dot, never its first character or its last.
+func Extension(name string) string {
 	if i := strings.LastIndex(name, "."); i > 0 && i < len(name)-1 {
 		return name[i:]
 	}
@@ -199,7 +199,7 @@ func ask(mac string, wait float64) (string, error) {
 	request := filepath.Join(root, "requests", ident)
 	temp := filepath.Join(root, "requests", "."+ident+".tmp")
 	inbox := filepath.Join(root, "inbox")
-	dest := filepath.Join(inbox, ident+extension(name))
+	dest := filepath.Join(inbox, ident+Extension(name))
 	missing := filepath.Join(inbox, ident+".missing")
 	ready := filepath.Join(inbox, "."+ident+".ready")
 	failed := filepath.Join(inbox, "."+ident+".error")
