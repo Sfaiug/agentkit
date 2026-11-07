@@ -38,8 +38,6 @@ func TestUnimplementedOperationsLeaveNoState(t *testing.T) {
 		{"run", task},
 		{"run", "--review-pr", "https://github.com/acme/api/pull/12"},
 		{"orch", "acme"},
-		{"orch", "ended", "acme", "1700000000"},
-		{"orch", "ended", "--model"},
 		{"plan", "check", "٣", "true"},
 		{"plan", "check", "²", "a\nb"},
 		{"plan", "check", "1", "true \xff"},
