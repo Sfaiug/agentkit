@@ -47,7 +47,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 	if !record.Truthy("live_at") && (!record.Has("health") || !record.Has("deployed")) && inside && record.Truthy("repo") {
 		// a merge that could not read its commit, or one recorded before merges did: the commit
 		// it delivered decides, as it would have there, recorded once
-		if found, err = declared(record.Str("repo"), cmp.Or(record.Str("delivery_sha"), each.sha), each.pr); err != nil {
+		if found, err = declared(record.Str("repo"), cmp.Or(record.Str("delivery_sha"), each.sha), each.pr, dry); err != nil {
 			return err
 		}
 		for _, name := range found.Keys() {
@@ -142,15 +142,20 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 // declared is what the commit sha declares, Python's merge_record: its `health:`, {} where it
 // declares none, and its `deployed:`, null for none; read in repo, else from the repository of
 // the pull request pr on GitHub; nothing where neither holds the commit, and the next tick asks
-// again.
-func declared(repo, sha, pr string) (*run.Object, error) {
-	code, _, err := gitcall.Git{Repo: repo}.Out("cat-file", "-e", sha+"^{commit}")
+// again.  A read in a partial clone fetches what the clone lacks, which a dry tick does not: it
+// reads in repo only an AGENTS.md held there whole, and any other on GitHub.
+func declared(repo, sha, pr string, dry bool) (*run.Object, error) {
+	held, env := sha+"^{commit}", []string(nil)
+	if dry {
+		held, env = sha+":AGENTS.md", []string{"GIT_NO_LAZY_FETCH=1"}
+	}
+	code, _, err := gitcall.Git{Repo: repo, Env: env}.Out("cat-file", "-e", held)
 	if err != nil {
 		return nil, err
 	}
 	var health, deployed string
 	if code == 0 {
-		health, deployed = gitcall.DeclaredAt(repo, sha, "health"), gitcall.DeclaredAt(repo, sha, "deployed")
+		health, deployed = gitcall.DeclaredAt(repo, sha, "health", env...), gitcall.DeclaredAt(repo, sha, "deployed", env...)
 	} else {
 		text, found, err := agentsOnGitHub(sha, pr)
 		if !found || err != nil {
