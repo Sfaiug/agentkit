@@ -38,10 +38,10 @@ func Owned(name string, record map[string]any) (string, bool) {
 	return conversation, true
 }
 
-// WentInto is the conversation a typing receipt's line went into (Python's Harness.went_into): the
-// one it names, else the one its launch's own evidence names, as Owned reads a record, "" while
-// that names none.  A receipt keeps that evidence where the harness had not named the conversation
-// yet, as on a fresh Muse launch.
+// WentInto is the conversation a typing receipt's line went into: the one it names, else the one
+// its launch's own evidence reported, "" while that names none.  A receipt keeps that evidence
+// where the harness had not named the conversation yet, as on a fresh Muse launch.  Python's
+// Harness.went_into follows the launch on, as by Muse's `/new`, to a conversation that took no line.
 func WentInto(name string, sent *run.Object) string {
 	launch := sent.Dict("launch")
 	if conversation := sent.Str("conversation"); conversation != "" || launch == nil {
@@ -49,6 +49,9 @@ func WentInto(name string, sent *run.Object) string {
 	}
 	var evidence map[string]any // as config.ResolveSession reads a record
 	json.Unmarshal([]byte(run.Line(launch)), &evidence)
+	if reported := plugins[name].reported; reported != nil {
+		return reported(evidence)
+	}
 	conversation, _ := Owned(name, evidence)
 	return conversation
 }
