@@ -47,14 +47,11 @@ func checkTurn(turn, code string, said io.Writer) error {
 	if err != nil {
 		return err
 	}
-	target, err := g.Must("rev-parse", tip+"^{tree}")
+	tree, err := g.Must("rev-parse", tip+"^{tree}")
 	if err != nil {
 		return err
 	}
-	if evidence(turn, "red").Has(target) {
-		return nil // the target's own red waits on its probes or its repair: Python's
-	}
-	return narrowLine(turn, code, repo, tip, upstream, members, said)
+	return narrowLine(turn, code, repo, &lineTarget{upstream: upstream, tip: tip, tree: tree, green: map[string]bool{}}, members, said)
 }
 
 // lineUpstream is the remote branch a member of the line lands on, Python's land._upstream.
@@ -167,6 +164,24 @@ func (l *loop) prefixTop(saved *run.Object, repo, tip, upstream, top string) (st
 
 type landingCheckout struct{ repo, path string }
 
+// scratchAt is a scratch checkout of commit, Python's _scratch: none where the directory cannot be
+// made, and with the text of why where git refused it.
+func scratchAt(repo, commit string) (*landingCheckout, string, error) {
+	if err := os.MkdirAll(filepath.Join(config.Home(), "wt"), 0o777); err != nil {
+		return nil, "", err
+	}
+	path, err := os.MkdirTemp(filepath.Join(config.Home(), "wt"), "land-")
+	if err != nil {
+		return nil, "", err
+	}
+	checkout := &landingCheckout{repo: repo, path: path}
+	added, out, err := addScratch(repo, path, commit)
+	if err != nil || added == 0 {
+		return checkout, "", err
+	}
+	return checkout, fmt.Sprintf("[exit %d]\nERROR: checkout of %s failed\n%s", added, commit, out), nil
+}
+
 func (c *landingCheckout) close() {
 	gitcall.Git{Repo: c.repo}.Out("worktree", "remove", "--force", c.path)
 	os.RemoveAll(c.path)
@@ -187,19 +202,15 @@ func (l *loop) stackMember(saved *run.Object, repo, tip, top, upstream string) (
 			return nil, l.fixed("lander.log", fmt.Sprintf("[exit %d]\nERROR: reviewed commit %s is unavailable\n%s", fetched, head, out), false), err
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(config.Home(), "wt"), 0o777); err != nil {
-		return nil, nil, err
-	}
-	path, err := os.MkdirTemp(filepath.Join(config.Home(), "wt"), "land-")
+	checkout, failed, err := scratchAt(repo, head)
 	if err != nil {
-		return nil, nil, err
+		return checkout, nil, err
 	}
-	checkout := &landingCheckout{repo: repo, path: path}
-	if added, out, err := addScratch(repo, path, head); err != nil || added != 0 {
-		return checkout, l.fixed("lander.log", fmt.Sprintf("[exit %d]\nERROR: checkout of %s failed\n%s", added, head, out), false), err
+	if failed != "" {
+		return checkout, l.fixed("lander.log", failed, false), nil
 	}
-	in := gitcall.Git{Repo: path}
-	how, err := (&repoPlace{wt: path, baseSHA: cmp.Or(saved.Str("base_sha"), tip)}).how(saved)
+	in := gitcall.Git{Repo: checkout.path}
+	how, err := (&repoPlace{wt: checkout.path, baseSHA: cmp.Or(saved.Str("base_sha"), tip)}).how(saved)
 	if err != nil {
 		return checkout, nil, err
 	}

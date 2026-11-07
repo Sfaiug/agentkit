@@ -9,9 +9,9 @@ package loop
 // (`.passes`) and its log (`.log`).  Its interface is join (joinLine, then releaseLine as the run
 // leaves), check (CheckLine, `ak run --lander`) and land (landFromLine, in the woken run).
 //
-// Stacks share the single member's checks and delivery; narrow.go searches a red by what failed.
-// Target repairs, reds with suite helpers and reviews of PRs other than a seat's own remain
-// Python's once this releases its lock.
+// Stacks share the single member's checks and delivery; narrow.go searches a red by what failed, and
+// a red target holds the line (redtarget.go).  Reds with suite helpers and reviews of PRs other than
+// a seat's own remain Python's once this releases its lock.
 
 import (
 	"cmp"
@@ -651,7 +651,7 @@ func note(turn string, change func(trees, red, redStacks *run.Object)) {
 	}
 	change(trees, red, redStacks)
 	for tree, old := range before {
-		if replaced := trees.Dict(tree); replaced != old && old.Str("code") != "" {
+		if replaced := trees.Dict(tree); replaced != nil && replaced != old && old.Str("code") != "" {
 			at, _ := old.Num("at")
 			if kept := passed.Dict(old.Str("code")); kept != nil {
 				earlier, _ := kept.Num("at")

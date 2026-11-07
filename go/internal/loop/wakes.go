@@ -78,10 +78,9 @@ func wakeReds(line string, woken map[string]bool, said io.Writer) {
 	}
 }
 
-// pythons is a member Go's lander leaves to Python's: a target repair's, or a review of a PR other
-// than a seat's own.
+// pythons is a member Go's lander leaves to Python's: a review of a PR other than a seat's own.
 func pythons(record *run.Object) bool {
-	return record.Truthy("review_pr") && !record.Truthy("own_pr") || record.Truthy("repair")
+	return record.Truthy("review_pr") && !record.Truthy("own_pr")
 }
 
 // A sharedOut is one writer the pass and its wake both write to.

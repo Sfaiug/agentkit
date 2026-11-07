@@ -6,7 +6,7 @@ package loop
 // surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
 // (flakes.go). Named tests that failed probe the stacks between on the suite helpers, many at
 // once (probes.go), and only the step that decides the blame runs here. Probes on a machine ak may
-// rent, reviews of PRs other than a seat's own and target repairs stay with Python, as do
+// rent and reviews of PRs other than a seat's own stay with Python, as do
 // integration or rules refusals on a stack.
 
 import (
@@ -63,10 +63,11 @@ func redBehind(wait *run.Object, members []member) bool {
 	return after != nil && slices.ContainsFunc(members, func(m member) bool { return after.Has(filepath.Base(m.dir)) })
 }
 
-// narrowLine checks the line's ready stack, Python's check_line: a member that changed or runs keeps
-// its place, a green delivery ahead in the stack, a red is the pass's wake's, a saved green wakes
-// again, and the first member with no verdict is checked with every later one ready for it.
-func narrowLine(turn, code, repo, tip, upstream string, members []member, said io.Writer) error {
+// narrowLine checks the line's ready stack on its target, Python's check_line: a member that changed
+// or runs keeps its place, a green delivery ahead in the stack, a red is the pass's wake's, a saved
+// green wakes again, and the first member with no verdict is checked with every later one ready for
+// it, as the target's red allows.
+func narrowLine(turn, code, repo string, target *lineTarget, members []member, said io.Writer) error {
 	var prefix, pending []member
 	for index, m := range members {
 		wait := m.record.Dict("waiting_on")
@@ -86,6 +87,13 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 		if pythons(m.record) {
 			return nil
 		}
+		repair, held, err := target.meet(turn, code, repo, m, said)
+		if err != nil || held {
+			return err
+		}
+		if repair != "" && repair != filepath.Base(m.dir) {
+			continue
+		}
 		if green(wait) {
 			withPrefix(prefix, func() bool { return publish(m.dir, m.record, wait, said) })
 			prefix = append(prefix, m)
@@ -96,6 +104,9 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 		}
 		pending = append(pending, m)
 		for _, later := range members[index+1:] {
+			if repair != "" {
+				break // the target's repair is checked alone on it
+			}
 			wait := later.record.Dict("waiting_on")
 			if later.record.Str("state") != "waiting" || wait.Has("fix") || wait.Has("land") || !reviewPassed(later.record) ||
 				run.ProcessActive(later.record) || !unchanged(later.dir, later.record) {
@@ -114,12 +125,12 @@ func narrowLine(turn, code, repo, tip, upstream string, members []member, said i
 		if !withCandidates(prefix, pending, func() bool { return true }) {
 			return nil
 		}
-		stacks, err := buildNarrowing(repo, tip, upstream, prefix, pending, said)
+		stacks, err := buildNarrowing(repo, target.tip, target.upstream, prefix, pending, said)
 		if err != nil || len(stacks) == 0 {
 			closeNarrowing(stacks)
 			return err
 		}
-		culprit, landed, err := narrowStacks(turn, code, tip, prefix, stacks, below, said)
+		culprit, landed, err := narrowStacks(turn, code, target, prefix, stacks, below, said)
 		closeNarrowing(stacks)
 		if err != nil || culprit < 0 {
 			return err
@@ -151,8 +162,7 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 		}
 	}
 	for _, m := range pending {
-		l := &loop{ctx: context.Background(), dir: m.dir, id: filepath.Base(m.dir), voice: said, line: landingLine(m.record),
-			silence: minutes(m.record, "silence_minutes", run.SilenceMinutes), ceiling: time.Duration(number(m.record, "ceiling_hours", run.CeilingHours) * float64(time.Hour))}
+		l := memberLoop(m, said)
 		checkout, failure, err := l.stackMember(m.record, repo, tip, top, upstream)
 		if err != nil || failure != nil {
 			if checkout != nil {
@@ -185,6 +195,13 @@ func buildNarrowing(repo, tip, upstream string, prefix, pending []member, said i
 		top = stack.head
 	}
 	return stacks, nil
+}
+
+// memberLoop is the loop the lander checks the member's trees with: its limits, saying what it does
+// in the lander's output.
+func memberLoop(m member, said io.Writer) *loop {
+	return &loop{ctx: context.Background(), dir: m.dir, id: filepath.Base(m.dir), voice: said, line: landingLine(m.record),
+		silence: minutes(m.record, "silence_minutes", run.SilenceMinutes), ceiling: time.Duration(number(m.record, "ceiling_hours", run.CeilingHours) * float64(time.Hour))}
 }
 
 func closeNarrowing(stacks []*narrowingStack) {
@@ -241,8 +258,8 @@ func (s *narrowingStack) checkTests(command, suite string, selection *checkSelec
 	return answer, err
 }
 
-func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingStack, below int, said io.Writer) (int, int, error) {
-	suite := gitcall.Suite(stacks[0].checkout.path, tip)
+func narrowStacks(turn, code string, target *lineTarget, prefix []member, stacks []*narrowingStack, below int, said io.Writer) (int, int, error) {
+	suite := gitcall.Suite(stacks[0].checkout.path, target.tip)
 	limit := host.Pieces(0, 0)
 	if pinned, _ := config.MaxGates(); pinned > 0 {
 		limit = pinned
@@ -375,8 +392,13 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 				}
 			}
 			if low+1 == index {
-				if index == 0 && len(prefix) == 0 && command == suite {
-					ok, err := stacks[index].probeTarget(tip, suite, fix)
+				// The tip answers for a red suite before anyone is blamed, as the host may have
+				// failed it; a repair lands on the red target, which is never probed for it.
+				if index == 0 && len(prefix) == 0 && command == suite && !stacks[index].record.Truthy("repair") && !target.green[fix.Str("piece")] {
+					if !valid(func() bool { return true }) {
+						return -1, accepted, nil
+					}
+					ok, err := stacks[index].probeTip(turn, code, target, suite, fix.Str("piece"), tests)
 					if err != nil || !ok {
 						return -1, accepted, err
 					}
@@ -448,21 +470,6 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 		}
 	}
 	return -1, accepted, nil
-}
-
-func (s *narrowingStack) probeTarget(tip, suite string, fix *run.Object) (bool, error) {
-	if err := s.putBack(tip); err != nil {
-		return false, err
-	}
-	selection := &checkSelection{shard: fix.Str("piece"), tests: names(fix.List("tests"))}
-	answer, err := s.check([]string{suite}, suite, "tip", selection)
-	if answer == nil && err == nil && !selection.handoff {
-		if err := s.putBack(tip); err != nil {
-			return false, err
-		}
-		answer, err = s.check([]string{suite}, suite, "tip", &checkSelection{shard: fix.Str("piece")})
-	}
-	return answer != nil && answer.Has("land"), err
 }
 
 func (s *narrowingStack) putBack(head string) error {
