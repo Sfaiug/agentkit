@@ -82,9 +82,11 @@ func (given Defaults) Apply() (string, bool) {
 		}
 		moves[name] = plan
 	}
-	reviewers := bound.Reviewers
-	if reviewers == nil {
-		reviewers = bound.Workers
+	// reviewers [defaults] does not name follow the executors, there and here alike: the record
+	// names none, rather than an empty list no seat reads
+	named, reviewers := any(nil), bound.Workers
+	if bound.Reviewers != nil {
+		named, reviewers = bound.Reviewers, bound.Reviewers
 	}
 	taken := run.NewObject()
 	for _, model := range slices.Concat([]any{given.lead}, bound.Workers, reviewers) {
@@ -93,10 +95,9 @@ func (given Defaults) Apply() (string, bool) {
 	state := filepath.Join(config.Home(), "state")
 	var said []string
 	for _, name := range given.Open {
-		// reviewers [defaults] does not name follow the executors there and here alike
 		err := update(state, name, func(data *run.Object) bool {
 			before := data.Copy()
-			fill(data, []field{{"efforts", defaultEfforts(data, taken, models)}, {"workers", bound.Workers}, {"reviewers", bound.Reviewers}})
+			fill(data, []field{{"efforts", defaultEfforts(data, taken, models)}, {"workers", bound.Workers}, {"reviewers", named}})
 			return !run.Equal(before, data)
 		})
 		if err != nil {
