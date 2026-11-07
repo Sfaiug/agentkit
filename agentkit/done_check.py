@@ -111,8 +111,8 @@ def owed(name, text):
             except FileNotFoundError:
                 kept = None
             read, path = asked(name, seats, text, kept), config.seat_file("owed", name)
-            if read and (was := answered(path)).get("read") == read:
-                return was["owed"]
+            if (was := answered(path, read)) is not None:
+                return was
             owner = owner_words(name, seats)
     except (OSError, ValueError, config.Error):
         return True
@@ -155,13 +155,14 @@ def asked(name, seats, text, kept):
     return hashlib.sha256(json.dumps([text, kept, conversations, stamps]).encode()).hexdigest()
 
 
-def answered(path):
-    """What an ask of `owed` kept there: its answer and what it read, {} for none."""
+def answered(path, read):
+    """The answer an ask of `owed` that `read` the same (`asked`) kept there, None for none."""
     try:
-        was = json.loads(path.read_text(encoding="utf-8"))
+        was = json.loads(path.read_text(encoding="utf-8")) if read else None
     except (OSError, ValueError):
-        return {}
-    return was if isinstance(was, dict) else {}
+        return None
+    return (was["owed"] if isinstance(was, dict) and was.get("read") == read
+            and isinstance(was.get("owed"), bool) else None)
 
 
 def owner_words(name, seats):

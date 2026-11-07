@@ -288,8 +288,8 @@ def answers(record, cwd, conversation):
 
 def owner(record, cwd, conversation):
     """(`user_messages`, `answers`) of that conversation, by the first of its transcript's names
-    there (`read_by`): one parse of it while it is unchanged (`parsed`), which the done check's
-    asking for both takes once."""
+    there (`read_by`), from one parse of it while it is unchanged (`parsed`): the done check asks
+    for both."""
     from .. import parsed
     for name in read_by(record, cwd, conversation) or ():
         try:
