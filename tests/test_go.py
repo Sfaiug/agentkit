@@ -93,10 +93,16 @@ def step(part, gofmt, out, **judge):
 
 def tested(part, **env):
     """The failing parts of the module's tests `part` names, and what they printed: a test
-    alone in its package, else the package or pattern whole; None for a test this tree does not
-    hold, as one only a later change adds, which ran nowhere and so names no failing part."""
+    alone in its package, else the package or pattern whole; None for a test or package this
+    tree does not hold, as one only a later change adds, which ran nowhere and so names no
+    failing part."""
     # A Go name holds no dot, nor does an import path of module agentkit; `./...` is every package.
     test = re.fullmatch(r"(.+)\.(\w+)", part)
+    # Go names a package it cannot find failing, as one that does not build: only the tree tells
+    # them apart, a package of module agentkit being a folder of go/ that holds a Go file.
+    module, _, folder = (test[1] if test else part).partition("/")
+    if module == "agentkit" and not any(GO.joinpath(folder).glob("*.go")):
+        return None, f"{part} is not there: go/{folder} holds no package\n"
     # No deadline: a busy host only slows a package, and the landing's silence watch ends a
     # hung one and names it.
     done = run("go", "test", "-json", "-timeout", "0",

@@ -3,20 +3,22 @@
 package whose test binary died, or that failed with no test of its own failing, by its import
 path and none of its tests; a step by what it checks, the vet of the caller's own platform among
 them, and each passing part's seconds in the file PART_TIMES names.  Given parts it runs just
-those after the toolchain check, a step on its platform, a named test with no event failing as
-not there, yet named and timed as no part, as it ran nowhere; without, every part in its order.
+those after the toolchain check, a step on its platform; a named test with no event failing, or
+a test or package whose package the tree does not hold, which go never runs, fails as not there,
+yet is named and timed as no part, as it ran nowhere; without, every part in its order.
 The caller's GOFLAGS hold in every run it makes; a vet fails by what it finds, shown, in text or
 as the JSON they may ask, never by the `{}` of a package it finds nothing in, and a build by its
 exit code alone, whatever it prints.
 
-Offline: the real test_go.py runs with a fake `go` first on PATH, on the platform ACME_HOST
-names, noting each call and its GOFLAGS, whose `test -json` prints the events a test hands it,
-whatever it is asked.
+Offline: the real test_go.py runs in a tree whose module holds the packages acme and widget, with
+a fake `go` first on PATH, on the platform ACME_HOST names, noting each call and its GOFLAGS,
+whose `test -json` prints the events a test hands it, whatever it is asked.
 """
 
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -45,7 +47,7 @@ echo "$GOFLAGS" >>"$ACME_FLAGS"
 printf %s "$ACME_UNFORMATTED"
 '''
 GOFLAGS = "-skip=TestWidget -count=2"
-ACME, WIDGET = "agentkit/internal/acme", "agentkit/internal/widget"
+ACME, WIDGET, GONE = (f"agentkit/internal/{name}" for name in ("acme", "widget", "gone"))
 TOOLCHAIN = "go env -json GOROOT GOOS GOARCH"
 # Under GOFLAGS=-json vet exits 0 whatever it finds, printing an object a package, `{}` where it
 # finds nothing; a passing build prints what its flags ask, as -gcflags=-m does.
@@ -83,6 +85,13 @@ WHOLE = r'''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixAp
 {"ImportPath":"agentkit/internal/widget [agentkit/internal/widget.test]","Action":"build-fail"}
 {"Action":"fail","Package":"agentkit/internal/widget","FailedBuild":"agentkit/internal/widget [agentkit/internal/widget.test]"}
 '''
+# How Go fails a package it cannot find.
+SETUP_FAILED = r'''{"ImportPath":"agentkit/internal/gone","Action":"build-output","Output":"package agentkit/internal/gone is not in std\n"}
+{"ImportPath":"agentkit/internal/gone","Action":"build-fail"}
+{"Action":"start","Package":"agentkit/internal/gone"}
+{"Action":"output","Package":"agentkit/internal/gone","Output":"FAIL\tagentkit/internal/gone [setup failed]\n"}
+{"Action":"fail","Package":"agentkit/internal/gone","FailedBuild":"agentkit/internal/gone"}
+'''
 # A passing test logs U+0085, which Go leaves unescaped inside its event's line.
 PASSES = '''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
 {"Action":"output","Package":"agentkit/internal/acme","Test":"TestFixApi","Output":"fix-api\u0085logged\\n"}
@@ -99,6 +108,14 @@ class GoNamesItsFailingTests(unittest.TestCase):
             (self.root / path).parent.mkdir(parents=True, exist_ok=True)
             (self.root / path).write_text(body)
             (self.root / path).chmod(0o755)
+        (self.root / "tests").mkdir()
+        for name in ("test_go.py", "suite_shares.py"):
+            shutil.copy(REPO / "tests" / name, self.root / "tests")
+        for package in (ACME, WIDGET):
+            folder = self.root / "go" / package.partition("/")[2]
+            folder.mkdir(parents=True)
+            (folder / f"{folder.name}.go").write_text(f"package {folder.name}\n")
+        (self.root / "go/go.mod").write_text("module agentkit\n\ngo 1.23.0\n\ntoolchain go1.23.0\n")
 
     def read(self, name):
         path = self.root / name
@@ -110,7 +127,7 @@ class GoNamesItsFailingTests(unittest.TestCase):
         for name in ("calls", "flags", "parts", "times"):
             (self.root / name).unlink(missing_ok=True)
         done = subprocess.run(
-            [sys.executable, REPO / "tests/test_go.py", *parts],
+            [sys.executable, self.root / "tests/test_go.py", *parts],
             env=dict(os.environ, PATH=f"{self.root / 'bin'}{os.pathsep}{os.environ['PATH']}",
                      GOFLAGS=GOFLAGS, ACME_LOG=str(self.root / "calls"),
                      ACME_FLAGS=str(self.root / "flags"), ACME_ROOT=str(self.root / "goroot"),
@@ -186,6 +203,15 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertEqual((code, parts, json.loads((self.root / "times").read_text())),
                          (1, [], {}), out)
         self.assertIn(f"{ACME}.TestGone is not there", out)
+
+    def test_a_given_test_or_package_whose_package_the_tree_lacks_never_runs_nor_is_named(self):
+        # Go fails a package it cannot find, as one only a later change adds, with its setup:
+        # on this tree such a part proves nothing.
+        code, out, parts, calls = self.checked(f"{GONE}.TestFixApi", GONE, events=SETUP_FAILED)
+        self.assertEqual((code, parts, calls, json.loads((self.root / "times").read_text())),
+                         (1, [], [TOOLCHAIN], {}), out)
+        self.assertIn(f"{GONE}.TestFixApi is not there", out)
+        self.assertIn(f"{GONE} is not there", out)
 
     def test_the_callers_goflags_hold_in_every_run(self):
         for parts in ((), (f"{ACME}.TestFixApi", "vet linux/arm64")):
