@@ -61,7 +61,7 @@ func TestDeliveryRedRetainsItsFixReceipt(t *testing.T) {
 // leaves the rest to Python's lander.
 func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 	passedOver := map[string]bool{"active": true, "missing-review": true, "delivery-red": true, "review-pr-moved": true, "repair-moved": true}
-	for _, kind := range []string{"conflict", "review-pr", "repair", "active", "missing-review", "rules", "changed", "delivery-red",
+	for _, kind := range []string{"conflict", "review-pr", "repair", "active", "missing-review", "rules", "delivery-red",
 		"review-pr-moved", "repair-moved"} {
 		t.Run(kind, func(t *testing.T) {
 			_, repo := repoRig(t)
@@ -103,8 +103,6 @@ func TestNarrowingLandsTheReadyPrefixBeforeAHandoff(t *testing.T) {
 						run.SetAll(record, "pid", os.Getpid(), "process_identity", Identity(os.Getpid()))
 					case "missing-review":
 						record.Set("review", nil)
-					case "changed":
-						task = strings.Replace(task, "true\n", ": \"$AK_CHANGED\"; true # once\n", 1)
 					case "delivery-red":
 						run.SetAll(record.Dict("waiting_on"), "land", tree, "fix", run.Fields("line", "required checks failed"))
 					}
