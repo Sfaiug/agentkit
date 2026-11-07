@@ -20,7 +20,7 @@ func Resume(id string, rounds int, bg bool, out, errOut io.Writer) (int, string,
 		return 0, "", ErrPython
 	}
 	if rounds == 0 && !run.AtBudget(record) {
-		return resume(id, bg, nil, nil, nil, nil, out, errOut)
+		return resume(id, bg, nil, nil, nil, out, errOut)
 	}
 	// Python reads the box and the config before it judges the budget, and refuses on them itself
 	if box.Check() != nil || config.Check() != nil {
@@ -30,7 +30,7 @@ func Resume(id string, rounds int, bg bool, out, errOut io.Writer) (int, string,
 	if err != nil || why != "" {
 		return 2, why, err
 	}
-	return resume(id, bg, record, nil, order, nil, out, errOut)
+	return resume(id, bg, record, order, nil, out, errOut)
 }
 
 // ResumeExpected adopts only the wait the tick decided to resume, as spawn_bg(expected)
@@ -40,5 +40,5 @@ func Resume(id string, rounds int, bg bool, out, errOut io.Writer) (int, string,
 // noted, where the tick gives one, writes its line in the run's log once the order has landed and
 // before the driver starts, as Python's tick notes it before its launch: the driver's lines follow.
 func ResumeExpected(id string, expected *run.Object, order func(*run.Object), noted func()) (int, string, error) {
-	return resume(id, true, expected, nil, order, noted, io.Discard, io.Discard)
+	return resume(id, true, expected, order, noted, io.Discard, io.Discard)
 }

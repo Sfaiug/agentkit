@@ -140,29 +140,42 @@ func (t *ticking) climbUnder(dir string, r *rung, now float64) (*run.Object, err
 	return climbed, nil
 }
 
-// resumeRung ends the loop and resumes the run through Go's own resume, which decides first and
-// writes the rung with its own write, so a resume left to Python leaves the loop running and
-// nothing written.
+// resumeRung resumes the run through Go's own resume, which decides first: only a resume it takes
+// has the loop ended and the rung written, under the run's lock as the other rungs are, its
+// `stall_resume_at` keeping a reap off the ended loop until the resume adopts it.
 func (t *ticking) resumeRung(dir string, record *run.Object, r rung, now float64) error {
 	id := filepath.Base(dir)
 	if r.kind == "worker" {
 		return errLeft // a stalled worker turn goes to another executor, which Python picks
 	}
-	// reap leaves the ended loop alone, and the resume adopts it
 	order := func(current *run.Object) {
 		run.SetAll(current, "stalls", append(slices.Clone(r.stalls), r.entry(t.clock(), "resumed")), "stall_resume_at", now)
 	}
-	noted := func() {
-		run.Note(dir, r.line+"; resumed", t.clock())
-		t.log.line(fmt.Sprintf("%s: %s; resumed", id, r.line))
-	}
-	end := func() {
-		if r.alive {
-			r.endLoop(record)
+	end := func() (*run.Object, error) {
+		release, err := run.Hold(dir)
+		if err != nil {
+			return nil, err
+		}
+		err = run.Change(dir, func(current *run.Object) error {
+			if !run.Equal(current, record) {
+				return loop.ErrChanged
+			}
+			r.endLoop(current)
+			order(current)
+			return nil
+		})
+		if err == nil {
+			run.Note(dir, r.line+"; resumed", t.clock())
+			t.log.line(fmt.Sprintf("%s: %s; resumed", id, r.line))
+		}
+		kept, _ := run.Read(dir) // as written, which the resume adopts
+		release()
+		if err == nil && r.alive {
 			loop.Unfollow() // the ended loop's own `ak run` ends with it, as Python's
 		}
+		return kept, err
 	}
-	code, why, err := launch.ResumeEnding(id, record, end, order, noted)
+	code, why, err := launch.ResumeEnding(id, record, order, end)
 	switch {
 	case errors.Is(err, launch.ErrPython):
 		return errLeft

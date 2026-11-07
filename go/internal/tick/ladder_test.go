@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"agentkit/internal/host"
+	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
 
@@ -169,5 +170,35 @@ func TestTheResumeRungStartsTheNewLoopOnAnOlderRecord(t *testing.T) {
 				t.Fatalf("old loop alive=%v, record:\n%s", run.ProcessActive(record), run.Line(after))
 			}
 		})
+	}
+}
+
+// A reap never finds the loop the resume rung ended unordered: the loop ends under the run's lock,
+// with the `stall_resume_at` a reap leaves alone, however long another launch holds admission
+// before the resume adopts the run.
+func TestTheResumeRungsEndedLoopIsLockedOrOrderedUntilAdopted(t *testing.T) {
+	dir, record, tick := stalledRun(t, "exit 0", run.Fields("action", "killed step"))
+	silenced(t, dir, record)
+	admission, err := lock.Try(filepath.Join(run.Runs(), ".slots.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() { done <- tick.stallRecovery() }()
+	for run.ProcessActive(record) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	current, _ := run.Read(dir)
+	if !lock.Held(filepath.Join(dir, run.RecoveryLock)) && !run.ResumeOrdered(current, epoch(time.Now())) {
+		t.Fatalf("the ended loop is open to a reap:\n%s", run.Line(current))
+	}
+	admission.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	after, _ := run.Read(dir)
+	if stalls := after.List("stalls"); run.Equal(after.Get("pid"), record.Get("pid")) || len(stalls) != 2 ||
+		stalls[1].(*run.Object).Str("action") != "resumed" {
+		t.Fatalf("no new loop:\n%s", run.Line(after))
 	}
 }
