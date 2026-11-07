@@ -16,8 +16,8 @@ import (
 
 // menuLimits is `Limits` on `c` (menu.config_limits): each of config's numbers a row under its
 // plain name (limitNames), its value and `default N` where that is not ak's default, and its own
-// note, what it means and the board rows it moves, with how the runs ended under `Review rounds`',
-// read as the page opens.  Enter opens its choices, ● the value in force, and a pick saves it to
+// note, what it means and the board rows it moves; under `Review rounds`' how the runs ended, read
+// as the page opens.  Enter opens its choices, ● the value in force, and a pick saves it to
 // config.toml at once.  The rows are read once and again after each save, as Python's page reads
 // the config it holds.
 func menuLimits(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
