@@ -14,9 +14,9 @@ type Marks struct {
 
 // SaveMachine writes config.toml as Python's config.save does with `key` of a table of machine
 // marks set to `value`: `[machines.<name>]`'s `work`, or for "" `[google_cloud]`'s, which holds
-// the cloud's `active` too.  Where the file still holds the old turns_on_machines switch, save
-// writes each of `implied`, the work it implied, in that table unless it names its own, and the
-// switch goes.  `keep` is as RememberDefaults's.  An error leaves the file as it was.
+// the cloud's `active` and `max_month` too.  Where the file still holds the old turns_on_machines
+// switch, save writes each of `implied`, the work it implied, in that table unless it names its
+// own, and the switch goes.  `keep` is as RememberDefaults's.  An error leaves the file as it was.
 func SaveMachine(name, key string, value any, implied []Marks, keep func() error) error {
 	if work, ok := value.([]string); ok {
 		value = listed(work)
