@@ -71,10 +71,10 @@ class PicksPricedInUsage(unittest.TestCase):
             history.run(None, model, ["high"], reviewed=spent(model, points))
         history.save()
 
-    def command(self, compare=None, prices=None, *args):
+    def command(self, compare=None, prices=None, *args, **marks):
         """`ak models`, comparing only the releases `compare` names where given: the rest off."""
         off = [release for release in RELEASES if release not in compare] if compare else []
-        akconfig.write(self.home, self.models,
+        akconfig.write(self.home, self.models, **marks,
                        settings={"models_off": off} if off else {},
                        providers={name: {**entry, **({"price": prices[name]} if prices
                                                     and name in prices else {})}
@@ -179,9 +179,8 @@ class PicksPricedInUsage(unittest.TestCase):
         next(row for row in held["artificialanalysis.ai"]["rows"]
              if row["model"] == "Echo")["values"].pop("aa.terminalBench40")
         self.home.write(".agentkit/state/boards.json", held)
-        shown = self.command(["echo-1"])
-        self.assertIn("builds · none", shown)
-        self.assertRegex(shown, "reviews +quality +week %")
+        shown = self.command(["echo-1"], workers=["echo"], reviewers=["bloom"])
+        self.assertRegex(shown, r"executor .* not on the boards\n +quality +week %\n +reviewer ")
 
 
 if __name__ == "__main__":

@@ -16,8 +16,7 @@ from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
 from test_key_models_answer import ENV, NOW, boards
 
-ROLES = ["                                  quality  a task",
-         *(f"    {role:<12}  acme-mid-5 low  not on the boards"
+ROLES = [*(f"    {role:<12}  acme-mid-5 low  not on the boards"
            for role in ("orchestrator", "executor", "reviewer")),
          "", f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
 OWN = ["model orch exec review", "mid   -    -    -", "bolt  -    -    -"]

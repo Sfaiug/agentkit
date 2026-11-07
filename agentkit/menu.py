@@ -3300,7 +3300,7 @@ def models_body(said, at=None):
     size = min(full, room - before - tail)        # the rows' column, only a name cut to fit it
     lines, places, unit = [], {}, None
     for role, row, after, its in said:
-        if its != unit:
+        if isinstance(after, tuple) and its != unit:     # a role with no numbers heads nothing
             unit = its
             lines.append(" " * (before + size + 2) + terminal.styled(
                 f"{'quality':>{widths[0]}}  {its:>{widths[1]}}", "dim"))
