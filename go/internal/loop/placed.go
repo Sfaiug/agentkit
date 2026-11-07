@@ -3,7 +3,6 @@ package loop
 import (
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -43,8 +42,8 @@ func place(dir string, cmd *exec.Cmd, detached bool, record *run.Object) (int, e
 	return pid, nil
 }
 
-// land starts the line's lander, `ak run --lander`, into the line's log, in a unit of its own,
-// Python's start_line: ahead of every run for the CPU, as every passed run waits behind its check,
+// land starts the line's lander (lander) into the line's log, in a unit of its own, Python's
+// start_line: ahead of every run for the CPU, as every passed run waits behind its check,
 // and capped at the most any member was capped at or peaked at, or one run's cap below the slice's
 // ceiling, the host's memory where none is set, whichever is more: never the small scope of
 // whatever started this pass.  Unlike Python's, it stops no scope of its own when it ends, and a
@@ -72,11 +71,10 @@ func land(turn string, members []member, env []string) error {
 		}
 		most = max(most, float64(capMB))
 	}
-	self, err := os.Executable()
+	cmd, err := lander(filepath.Base(turn))
 	if err != nil {
 		return err
 	}
-	cmd := exec.Command(self, "run", "--lander", filepath.Base(turn))
 	cmd.Env = env
 	unit := fmt.Sprintf("agentkit-lander-%s-%d", strings.TrimPrefix(filepath.Base(beside(turn, "")), ".merge-"), time.Now().UnixNano())
 	_, _, _, err = host.Place(cmd, beside(turn, ".log"), unit, host.Limits(int(math.Ceil(most)), host.LanderWeight), true)
