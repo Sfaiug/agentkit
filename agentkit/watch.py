@@ -1332,12 +1332,13 @@ def _pane(session):
 def pinned(session):
     """That seat held to its pane (`_pane`), by id: what is read and typed for one line goes
     to that pane, whichever pane the owner selects meanwhile; as it was where tmux cannot say.
-    With it, in the same ask, the pane's process (`pid`), where tmux says it: a harness started
-    there since, respawned in place or its session made again within the second, runs under
-    another, and so matches no mark of a line typed before (`type_at_prompt`)."""
+    With it, in the same ask, the pane's process (`pid`), where this ask has tmux say it: a
+    harness started there since, respawned in place or its session made again within the second,
+    runs under another, and so matches no mark of a line typed before (`type_at_prompt`)."""
     rc, out = orch.tmux_out("display-message", "-p", "-t", _pane(session),
                             "#{pane_id}\t#{pane_pid}", socket=orch.seat_socket(session))
     pane, _, pid = out.partition("\t")
+    session = {key: value for key, value in session.items() if key != "pid"}
     if rc != 0 or not re.fullmatch(r"%[0-9]+", pane):
         return session
     return dict(session, pane=pane, **({"pid": int(pid)} if pid.isdigit() else {}))
@@ -4549,9 +4550,9 @@ def _mark(session, text):
 
 
 def _respawned(session, stale):
-    """`stale`, or that pinned seat's pane (`pinned`) running another process than it was
-    pinned with, asked under the send lock: a launch holding the lock may respawn the pane while
-    a pass waits for it, and the harness started there has none of the pass's line."""
+    """`stale`, or that pinned seat's pane (`pinned`) not running the process it was pinned
+    with, by tmux's word, asked under the send lock: a launch holding the lock may respawn the
+    pane while a pass waits for it, and the harness started there has none of the pass's line."""
     return lambda held: stale(held) or pinned(session) != session
 
 
