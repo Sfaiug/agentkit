@@ -3,8 +3,9 @@ editor keys (`[screen] editor`) hand its composer to the real agentkit/aside_edi
 takes what that hands back at once and draws it a few reads late, and whose Enter sends what its
 composer holds, one composer for any pane ak names.  Whether it hears the keys (`deaf`), whether
 it drops a key written alone, as OpenCode opening a new session does (`opening`), the seat's
-launch, the panes of its session (PANE the one selected), unread input and when its terminal
-last took keys are the test's to set."""
+launch, the panes of its session and the one selected (PANE until a test selects another), each
+pane running its own process, unread input and when its terminal last took keys are the test's
+to set."""
 
 import os
 from unittest.mock import patch
@@ -19,7 +20,7 @@ class EditorSeat(Seats):
         self.keys, self.sent, self.buffers, self.ask, self.late = [], [], {}, None, 0
         self.opened = []        # the owner's own editor, opened where ak asked nothing
         self.deaf, self.opening, self.held = False, False, ()
-        self.launched, self.tty, self.panes = True, self.root / "tty", [PANE]
+        self.launched, self.tty, self.panes, self.selected = True, self.root / "tty", [PANE], PANE
         self.unread = False
         self.tty.write_text("")
         for target, name, fake in ((aside_editor, "launched", lambda _pid, _tty: self.launched),
@@ -70,9 +71,12 @@ class EditorSeat(Seats):
         """The seat's server, as ak and the editor in its pane ask it."""
         name = args[args.index("-b") + 1] if "-b" in args else None
         target = args[args.index("-t") + 1] if "-t" in args else ""
-        pane = target if target.startswith("%") else PANE
-        if args[0] == "display-message" and args[-1].startswith("#{pane_id}\t"):
-            return 0, f"{pane}\t4242\t{self.tty}"
+        pane = target if target.startswith("%") else self.selected
+        process = 4200 + int(pane[1:])      # each pane its own
+        if args[0] == "display-message" and args[-1] == "#{pane_id}\t#{pane_pid}":
+            return 0, f"{pane}\t{process}"
+        if args[0] == "display-message" and args[-1] == "#{pane_id}\t#{pane_pid}\t#{pane_tty}":
+            return 0, f"{pane}\t{process}\t{self.tty}"
         if args[0] == "show-options":
             said = self.ask
             if ";" in args:                 # the editor's: read and cleared in one call

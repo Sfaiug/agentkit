@@ -46,7 +46,7 @@ class RunNotice(Sandbox):
     def tmux(self, *args, **_kw):
         if args[0] == "list-buffers":
             return 0, ""      # no text ak's editor keeps
-        if args[-1] == "#{pane_id}":
+        if args[-1] == "#{pane_id}\t#{pane_pid}":
             return 1, ""      # no pane named: keys go to the seat's current one
         self.assertEqual(args[0], "send-keys")
         self.keys.append(args[-1])
