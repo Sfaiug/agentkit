@@ -71,7 +71,7 @@ var credentials = []string{"~/.config/gh/hosts.yml", "$XDG_CONFIG_HOME/gh/hosts.
 // the links among the manifest paths of logins, the workspace and its git directories, and out;
 // the files and folders hidden read empty there, as the account's credentials do.
 func Run(ctx context.Context, argv []string, env map[string]string, workspace, out string, state, logins, hidden []string, stderr *os.File) (int, map[int]string, error) {
-	file := filepath.Join(config.Resolve(out), "box-processes.json")
+	file := filepath.Join(config.Resolve(out), Report)
 	cmd, done, err := command(append([]string{exe, file}, argv...), env, workspace, out, state, logins, hidden, nil)
 	if err != nil {
 		return 0, nil, err

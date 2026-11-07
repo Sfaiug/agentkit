@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"agentkit/internal/box"
 	"agentkit/internal/handin"
 	"agentkit/internal/run"
 )
@@ -90,7 +91,7 @@ func TestAPointGoCannotPickUpFromIsPythons(t *testing.T) {
 		"a refusal waited out":      {base("state", "exhausted", "quota_dry", true), map[string]map[string]string{"executor": {"final.md": "a", "session_id": "s"}}, true},
 		"the checks cut off":        {base(), map[string]map[string]string{"executor": {"final.md": "a", handin.File: closed}}, true},
 		"a review with no pending":  {base(), map[string]map[string]string{"reviewer": {"session_id": "s"}}, false},
-		"a retry of Python's":       {base(), map[string]map[string]string{"executor": {"session_id": "s"}, "executor-retry-1": {}}, false},
+		"a try killed answering":    {base(), map[string]map[string]string{"executor": {"final.md": "a", box.Report: killed}, "executor-retry1": {"final.md": "a", box.Report: killed}}, true},
 		"a review pending":          {base("review_pending", run.Fields("round", 1, "summary", "s", "failed", []any{})), nil, true},
 		"an integration's review":   {base("review_pending", run.Fields("round", 1, "summary", "s", "reason", "why")), nil, false},
 		"a landing's review":        {base("review_pending", run.Fields("round", 1, "summary", "s", "reason", "why", "record", false)), nil, true},
