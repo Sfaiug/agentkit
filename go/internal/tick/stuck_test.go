@@ -20,9 +20,20 @@ import (
 var stallNow = time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
 
 // stallHome is a home with the audit on, its seat's record and the run first in line for a slot
-// for two hours, where the last firsts let in waited a quarter of an hour.
+// for two hours, where the last firsts let in waited a quarter of an hour.  Its path holds what a
+// pattern reads otherwise, as a home's may.
 func stallHome(t *testing.T) string {
-	ak, _ := idleHome(t, answers)
+	idle, _ := idleHome(t, answers)
+	home := filepath.Join(t.TempDir(), "acme[1")
+	ak := filepath.Join(home, ".agentkit")
+	if err := os.Mkdir(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(idle, ak); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=true\n[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n"+
 		"[providers.test]\nmode='subscription'\n")
 	put(t, filepath.Join(ak, "state", "session-audit.json"), `{"orchestrator":"opus","conversation":"conv-audit"}`)

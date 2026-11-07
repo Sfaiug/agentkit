@@ -2,6 +2,7 @@ package tick
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 
@@ -67,9 +68,13 @@ func (t *ticking) stuck(file string) (*run.Object, error) {
 // its lander lives, whose line its members name, and ~/agentkit owing a commit going live
 // (update.owed_live), read wherever this is its checkout.
 func stalls(now float64) ([]stall, error) {
-	kept, _ := filepath.Glob(filepath.Join(run.Runs(), ".merge-*.passes"))
-	for _, path := range kept {
-		passes, _ := run.ReadJSON(path)
+	// the runs folder's own entries, its path no pattern: a home may hold `[`
+	entries, _ := os.ReadDir(run.Runs())
+	for _, entry := range entries {
+		if kept, _ := filepath.Match(".merge-*.passes", entry.Name()); !kept {
+			continue
+		}
+		passes, _ := run.ReadJSON(filepath.Join(run.Runs(), entry.Name()))
 		if passes != nil && passes.Truthy("started") && len(passes.List("took")) >= stallSamples &&
 			run.ProcessActive(passes) {
 			return nil, errLeft
