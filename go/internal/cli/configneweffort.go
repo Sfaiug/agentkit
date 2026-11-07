@@ -6,10 +6,10 @@ import (
 	"agentkit/internal/seat"
 )
 
-// stepNewSeatsEffort is a fresh window's effort step, onto `word`, saved as seat.SaveNewSeatsEffort
-// saves it, the row's other shown efforts staying where they stand, as Python's config_effort
-// holds them.  What to say under the matrix, or ""; false, with nothing written, leaves the step
-// to Python.
+// stepNewSeatsEffort is a fresh window's effort step, onto `word`, on the entry new seats open at
+// (config.StepEffort), saved whole (seat.SaveWhole), the row's other shown efforts staying where
+// they stand, as Python's config_effort holds them.  What to say under the matrix, or ""; false,
+// with nothing written, leaves the step to Python.
 func stepNewSeatsEffort(c *matrix.Configuration, name string, column int, word string) (string, bool) {
 	var hold []string
 	for _, shown := range c.Columns(name) {
@@ -18,7 +18,7 @@ func stepNewSeatsEffort(c *matrix.Configuration, name string, column int, word s
 		}
 	}
 	step := config.EffortStep{Model: name, Key: config.RoleEfforts[column-3], Effort: word, Hold: hold}
-	carried, err := seat.SaveNewSeatsEffort(step)
+	carried, err := seat.SaveWhole(func(keep func() error) error { return config.StepEffort(step, keep) })
 	if !carried {
 		return "", false
 	}
