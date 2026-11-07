@@ -94,6 +94,50 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			t.Errorf("%s unreadable: no error", hidden)
 		}
 	}
+	// so is a receipt file that is there and cannot be read, or a lineage that reads as none
+	// (muse.py `conversation` and `followed`, read strictly); one that is gone reads as nothing
+	for _, each := range []struct {
+		why, file, text string
+		fails           bool
+	}{
+		{"a lineage", "lineage", `{"processes": [], "earlier": []}`, false},
+		{"a lineage that is no JSON", "lineage", "{", true},
+		{"a lineage with no processes", "lineage", `{"earlier": []}`, true},
+		{"a lineage whose process is no pair", "lineage", `{"processes": [[1]], "earlier": []}`, true},
+		{"a lineage that cannot be read", "lineage", "", true},
+		{"a session that cannot be read", "session", "", true},
+	} {
+		path := filepath.Join(receipt, each.file)
+		os.RemoveAll(path)
+		var err error
+		if each.text == "" {
+			err = os.Mkdir(path, 0o700)
+		} else {
+			err = os.WriteFile(path, []byte(each.text), 0o600)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, _, _, err := Answered("muse", record); (err != nil) != each.fails {
+			t.Errorf("%s: %v", each.why, err)
+		}
+		os.RemoveAll(path)
+		if err := os.WriteFile(filepath.Join(receipt, "session"), []byte("acme"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if said, _, _, err := Answered("muse", record); err != nil || len(said) != 1 {
+		t.Errorf("a lineage that is gone: %+v %v", said, err)
+	}
+	if err := os.Remove(filepath.Join(receipt, "session")); err != nil {
+		t.Fatal(err)
+	}
+	if said, _, _, err := Answered("muse", record); err != nil || said != nil {
+		t.Errorf("a launch that reported no session yet: %+v %v", said, err)
+	}
+	if err := os.WriteFile(filepath.Join(receipt, "session"), []byte("acme"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Remove(log); err != nil {
 		t.Fatal(err)
 	}

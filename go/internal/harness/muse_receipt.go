@@ -3,7 +3,9 @@ package harness
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -101,40 +103,61 @@ func KeepNothing() (keep func()) {
 // the receipt for the seat to reopen on after that process is gone, by any read that keeps what
 // it follows.  Muse's `/new` fires no hook.
 func museConversation(record map[string]any) string {
+	session, _ := museConversationFound(record)
+	return session
+}
+
+// museConversationFound is museConversation, and the error of a receipt file that is there and
+// cannot be read, or of a lineage that reads as none, which Python's raises where it reads
+// strictly (harness.unread): one that is gone holds nothing.
+func museConversationFound(record map[string]any) (string, error) {
 	token, _ := record["muse_launch"].(string)
 	path := museReceipt(token)
 	if path == "" {
-		return ""
+		return "", nil
 	}
 	session, err := os.ReadFile(filepath.Join(path, "session"))
-	if err != nil || !museSession.Match(session) {
-		return ""
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
 	}
-	if now := museFollowed(path); now != "" && now != string(session) {
+	if !museSession.Match(session) {
+		return "", nil
+	}
+	now, err := museFollowed(path)
+	if now != "" && now != string(session) {
 		if !unkept.Load() {
 			museWrite(path, "session", now, os.Rename)
 		}
-		return now
+		return now, nil
 	}
-	return string(session)
+	return string(session), err
 }
 
 // museFollowed is the one session the registry has given a process of that receipt's lineage
-// since its hook, while that process lives as it was then; "" for no evidence, or more than one.
-func museFollowed(path string) string {
-	data, _ := os.ReadFile(filepath.Join(path, "lineage"))
-	read, _ := run.Decode(data)
-	lineage, _ := read.(*run.Object)
-	if lineage == nil {
-		return ""
+// since its hook, while that process lives as it was then; "" for no evidence, or more than one,
+// and an error where the lineage is there and cannot be read or reads as none.
+func museFollowed(path string) (string, error) {
+	file := filepath.Join(path, "lineage")
+	data, err := os.ReadFile(file)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", nil
+	} else if err != nil {
+		return "", err
 	}
-	listed, _ := lineage.Get("processes").([]any)
-	earlier, _ := lineage.Get("earlier").([]any)
+	read, err := run.Decode(data)
+	listed, processes := field(read, "processes").([]any)
+	earlier, earliest := field(read, "earlier").([]any)
+	none := fmt.Errorf("%s reads as no launch lineage", file)
+	if err != nil || !processes || !earliest {
+		return "", none
+	}
 	births := map[string][]any{}
 	for _, each := range listed {
 		pair, _ := each.([]any)
 		if len(pair) != 2 {
-			return ""
+			return "", none
 		}
 		// a pid that is no whole number names no process, as in Python
 		if pid, err := strconv.Atoi(fmt.Sprint(pair[0])); err == nil {
@@ -149,12 +172,12 @@ func museFollowed(path string) string {
 		}
 		if birth, born := museBirth(known[0].(int)); born && run.Equal(birth, known[1]) {
 			if found != "" && found != entry[0] {
-				return ""
+				return "", nil
 			}
 			found = entry[0]
 		}
 	}
-	return found
+	return found, nil
 }
 
 // museRegistered is each (session, process) Muse's registry of live sessions lists, under its data

@@ -9,10 +9,14 @@ import (
 
 // museAnswered reads the session the seat's receipt names once for muse.py's `said` and
 // `answers`: its conversation as museSaid reads it, and each question the owner answered on one
-// of its question cards.  Unlike museSaid's, this read is the done check's: a log that may be
-// there and cannot be read is an error, never an owner who said nothing.
+// of its question cards.  Unlike museSaid's, this read is the done check's: a receipt or log that
+// may be there and cannot be read is an error, never an owner who said nothing.
 func museAnswered(record map[string]any) (said []Turn, cards []Card, err error) {
-	log, err := museLogFound(museConversation(record))
+	session, err := museConversationFound(record)
+	if err != nil {
+		return nil, nil, err
+	}
+	log, err := museLogFound(session)
 	if err != nil {
 		return nil, nil, err
 	}
