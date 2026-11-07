@@ -2,14 +2,7 @@ package worker
 
 import (
 	"embed"
-	"os"
-	"path/filepath"
-	"regexp"
 	"strings"
-
-	"agentkit/internal/config"
-	"agentkit/internal/gitcall"
-	"agentkit/internal/task"
 )
 
 // Roles are the roles a turn takes, in Python's PREAMBLES order: rules/<role>.md opens each
@@ -30,26 +23,12 @@ func rule(name string) string {
 	return strings.TrimSuffix(string(text), "\n")
 }
 
-// comment is a YAML comment closing a front matter value.
-var comment = regexp.MustCompile(`(^|` + config.SpaceClass + `)#.*`)
-
 // opening is the opening of a turn of that role in workspace, before its task, as the turn was
 // given it: a review's rules carry the real-users rule where the workspace's AGENTS.md says
-// `users: real`, read as the YAML word it is, its comment and quotes aside, and read at the target
-// the work lands on, as a branch cannot switch off the rule its own review is held to.
+// `users: real` at the target the work lands on (UsersDeclared).
 func opening(role, workspace string, given Given) string {
 	prompt := strings.ReplaceAll(rule(role), "{workspace}", workspace)
-	declared := ""
-	if given.UsersAt != "" {
-		declared = gitcall.DeclaredAt(workspace, given.UsersAt, "users")
-	} else if data, err := os.ReadFile(filepath.Join(workspace, "AGENTS.md")); err == nil {
-		declared = task.FrontValue(task.Text(data), "users")
-	}
-	users := strings.TrimFunc(comment.ReplaceAllString(declared, ""), config.Space)
-	if len(users) >= 2 && users[0] == users[len(users)-1] && strings.ContainsRune(`'"`, rune(users[0])) {
-		users = strings.TrimFunc(users[1:len(users)-1], config.Space)
-	}
-	if users == "real" {
+	if UsersDeclared(workspace, given.UsersAt) == "real" {
 		gate := rule("gate")
 		prompt = strings.ReplaceAll(prompt, gate, gate+"\n"+rule("real-users"))
 	}
