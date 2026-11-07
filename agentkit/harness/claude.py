@@ -75,6 +75,20 @@ def keep(record, cwd, conversation):
         pass        # no transcript yet, a link made already, or none can be made
 
 
+def conversation_stores():
+    """ak's names (`kept`): Claude ends its own transcripts, never these, each a second name of
+    one while Claude keeps it."""
+    copies = kept("*")
+    return [{"root": copies.parent, "pattern": copies.name,
+             "id": re.compile(r"claude-(.+)\.jsonl"), "names": 2}]
+
+
+def end_conversation(path, ends):
+    """ak's name alone: the transcript it names, while Claude keeps it, is Claude's to end."""
+    if ends():
+        os.unlink(path)
+
+
 def read_by(record, cwd, conversation):
     """The names that conversation's transcript is read by, in order (`harness.entries`):
     Claude's own while it is there, then ak's (`kept`), the same file Claude deleted.  None
