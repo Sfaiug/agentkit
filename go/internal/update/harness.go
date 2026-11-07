@@ -22,7 +22,6 @@ import (
 	"agentkit/internal/harness"
 	"agentkit/internal/host"
 	"agentkit/internal/lock"
-	"agentkit/internal/seat"
 )
 
 const swapsKept = 16 // Python's SWAPS_KEPT: the latest installs and reverts state/harness-swaps.json keeps
@@ -50,12 +49,11 @@ type upgrade struct {
 	snapshot    *snapshot // until a restore uses it up
 }
 
-// movable is whether Go moves these harnesses as Python's update.main would, asked before
-// anything is written: with no seat on record, as Go reads no seat's word yet; with no user
-// systemd manager, which would put the live gate in ak's slice; and with a snapshot Go can take.
+// movable is whether Go moves these harnesses as Python's update.upgrade would, asked before
+// anything is written: with no user systemd manager, which would put the live gate in ak's
+// slice, and with a snapshot Go can take.
 func movable(plans []plan) bool {
-	home, known := seat.Read(time.Now())
-	if !known || !home.Seatless() || host.UserManager() {
+	if host.UserManager() {
 		return false
 	}
 	at := slices.IndexFunc(plans, func(each plan) bool { return each.snapshot != nil })

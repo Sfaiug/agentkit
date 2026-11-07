@@ -31,6 +31,11 @@ func CardAnswer(name string) (word, reason string, since any) {
 	if !known {
 		return "", "", nil
 	}
+	return home.cardAnswer(name, now)
+}
+
+// cardAnswer is CardAnswer from what home read at now.
+func (home Home) cardAnswer(name string, now time.Time) (word, reason string, since any) {
 	state := filepath.Join(config.Home(), "state")
 	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
 	if file == nil {

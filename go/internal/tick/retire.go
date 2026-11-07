@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io/fs"
 	"os"
-	"time"
 
 	"agentkit/internal/features"
 	"agentkit/internal/run"
@@ -12,9 +11,8 @@ import (
 )
 
 const (
-	retireEvery = 3600                // how often the switch lists are read, Python's retire.EVERY
-	retireAgain = 86400               // a checkout whose lines were written is read again this long after
-	proven      = 14 * 24 * time.Hour // the owner's two weeks: on for everyone this long, a switch is proven
+	retireEvery = 3600  // how often the switch lists are read, Python's retire.EVERY
+	retireAgain = 86400 // a checkout whose lines were written is read again this long after
 )
 
 // retire is the switch retirement row (retire.hand): once every retireEvery, each checkout not
