@@ -2,6 +2,7 @@
 write, and name every way Go differs.
 
     python3 tests/shadow.py [--python BIN] [--go BIN|python] [--home DIR] -- <ak argv>
+    python3 tests/shadow.py [those options] --record FILE [-- <ak argv>]
 
 `--python` is this checkout's bin/ak unless named, `--home` is $HOME, and `--go` is AK_BIN, a
 relative name read from the checkout, else go/bin/ak built as tests/test_go_keys.py builds it.
@@ -9,16 +10,24 @@ relative name read from the checkout, else go/bin/ak built as tests/test_go_keys
 
 What the two Python runs disagree on belongs to the moment and is never compared.  A difference
 is confirmed only if repeating the three runs straight away shows it again, else it is a flake.
+
+`--record` writes FILE whole, once, at the end, a stop's too: for each command, whether it ran --
+one a cap or a stop cut off did not -- and what it confirmed and what flaked, and why nothing ran
+if nothing did.  Without an ak argv it shadows each of `PREVIEWS`, side by side, in half an hour
+at most, its box's probe and Go's build included, and prints a line for each in their order:
+tests/live.sh has it do so on each live check of a commit.
+
 Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs) or a file a
-run touched cannot be read, else 0.
-Besides go/bin/ak and Go's own cache, when it builds Go, it writes nothing outside its scratch
-folder.
+run touched cannot be read, 130 if stopped, else 0.
+Besides FILE, go/bin/ak and Go's own cache, when it builds Go, it writes nothing outside its
+scratch folder.
 """
 
 import argparse
 import errno
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import shlex
@@ -38,6 +47,10 @@ from test_go import ENV  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 CAP = 600   # seconds a run may take, what it detached included
+# What a live check shadows: commands that only read, which each home answers from its records.
+PREVIEWS = (("watch", "--dry-run"), ("doctor",), ("run", "gc", "--dry-run"), ("run", "status"),
+            ("orch", "list"))
+WHOLE = 30 * 60     # seconds the previews may take in all: the live check's suite waits on them
 # akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
 # Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket or a socket pair
@@ -136,9 +149,9 @@ def run(label, program, argv, home, scratch):
                                  inside / "peak", program, *argv],
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
     try:
-        code = proc.wait(CAP)
+        code, cut = proc.wait(CAP), False
     except subprocess.TimeoutExpired:
-        code = f"none (killed at {CAP // 60} minutes)"
+        code, cut = f"none (killed at {CAP // 60} minutes)", True
         end = time.monotonic() + 10     # for the shell to write down the peak
         while proc.poll() is None and time.monotonic() < end:
             _halt(proc.pid)
@@ -151,7 +164,7 @@ def run(label, program, argv, home, scratch):
     record = inside / "handover"
     said = f", handed over: {' '.join(_lines(record))}" if record.exists() else ""
     print(f"{label}: exit {code}, {seconds:.1f} s, {peak}{said}", flush=True)
-    return dict(code=code, handover=record.exists(),
+    return dict(code=code, cut=cut, handover=record.exists(),
                 line={f"{stream}: {text}" for stream in ("stdout", "stderr")
                       for text in _lines(folder / stream)},
                 home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
@@ -298,51 +311,128 @@ def differences(first, go, again):
     return found
 
 
+def shadow(argv, python, go, home, scratch):
+    """Shadow one ak command, telling how each run went as it ends: what it confirmed and what
+    flaked, each as (kind, what), and whether a cap cut off any of its runs."""
+    runs = []
+
+    def three():
+        runs.extend(run(label, program, argv, home, scratch) for label, program
+                    in (("python", python), ("go", go), ("python again", python)))
+        return differences(*runs[-3:])
+
+    first, again = three(), set()
+    if first:
+        print("repeated straight away, to confirm what differed:", flush=True)
+        again = three()
+    for kind, what in sorted(first ^ again):
+        print(f"flake {kind}: {what}")
+    for kind, what in sorted(first & again):
+        print(f"{kind}: {what}")
+    return first & again, first ^ again, any(done["cut"] for done in runs)
+
+
+def ready(go, python, home, scratch, until):
+    """The Go to run, and why nothing can run where nothing can: no box, or no Go, built by
+    `until` on the monotonic clock."""
+
+    def done(argv, **kwargs):
+        try:
+            return not subprocess.run(argv, timeout=until - time.monotonic(), **kwargs).returncode
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+
+    command, env, _ = box(home, scratch)
+    # bwrap, or the shell that finds no bwrap, says what failed
+    if not done([*command, sys.executable, "-c", ""], env=env, stdin=subprocess.DEVNULL):
+        return None, "bwrap cannot build a box here"
+    if go:
+        return python if go == "python" else os.path.abspath(go), None
+    go = str(REPO / "go" / "bin" / "ak")    # in the checkout, where Go finds it
+    # Go says why it failed, if it ran
+    if not done(["go", "build", "-o", go, "-trimpath", "./cmd/ak"], env=ENV, cwd=REPO / "go"):
+        return None, "no Go was built"
+    return go, None
+
+
+def previews(found, python, go, home, scratch, until):
+    """Put in `found` what each of PREVIEWS found by `until`, or by a stop: each is shadowed by a
+    run of this script of its own, side by side, which ends through its own `finally`."""
+    shadows = []
+    try:
+        for n, argv in enumerate(PREVIEWS):
+            written = scratch / f"{n}.json"
+            shadows.append((written, subprocess.Popen(
+                [sys.executable, __file__, "--python", python, "--go", go, "--home", home,
+                 "--record", written, "--", *argv],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)))
+        for _, proc in shadows:
+            try:
+                proc.wait(max(0, until - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                pass
+    finally:
+        for _, proc in shadows:
+            proc.terminate()
+        for _, proc in shadows:
+            proc.wait()
+        for n, (written, _) in enumerate(shadows):
+            if written.exists():
+                found[n] = json.loads(written.read_text())["previews"][0]
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--python", default=str(REPO / "bin" / "ak"))
     parser.add_argument("--go", default=os.environ.get("AK_BIN") and akbin.AK)
     parser.add_argument("--home", default=os.environ.get("HOME"))
+    parser.add_argument("--record", metavar="FILE")
     parser.add_argument("argv", nargs="*", metavar="-- <ak argv>")
     args = parser.parse_args()
     python, home = os.path.abspath(args.python), Path(args.home).resolve()
+    every = bool(args.record and not args.argv)
+    found = [dict(ak=list(argv), ran=False, differences=[], flakes=[])
+             for argv in (PREVIEWS if every else [args.argv])]
+    why = None
     # A shadow gives the host's real work way: the build and every run at nice 19.
     os.nice(19)
     # A stop ends the script through its `finally`, which removes its scratch folder.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
+    until = time.monotonic() + WHOLE if every else math.inf
     scratch = Path(tempfile.mkdtemp(prefix="shadow-", dir="/var/tmp"))
     try:
-        command, env, _ = box(home, scratch)
-        # bwrap, or the shell that finds no bwrap, says why
-        if subprocess.run([*command, sys.executable, "-c", ""], env=env,
-                          stdin=subprocess.DEVNULL).returncode:
-            print("shadow: bwrap cannot build a box here, so nothing ran", file=sys.stderr)
-            return 2
-        go = python if args.go == "python" else args.go and os.path.abspath(args.go)
-        if not go:
-            go = str(REPO / "go" / "bin" / "ak")    # in the checkout, where Go finds it
-            if subprocess.run(["go", "build", "-o", go, "-trimpath", "./cmd/ak"], env=ENV,
-                              cwd=REPO / "go").returncode:
-                return 2    # Go has said why, and nothing ran
-
-        def three():
-            return differences(*(run(label, program, args.argv, home, scratch) for label, program
-                                 in (("python", python), ("go", go), ("python again", python))))
-
-        first, again = three(), set()
-        if first:
-            print("repeated straight away, to confirm what differed:", flush=True)
-            again = three()
-        for kind, what in sorted(first ^ again):
-            print(f"flake {kind}: {what}")
-        for kind, what in sorted(first & again):
-            print(f"{kind}: {what}")
-        return 1 if first & again else 0
+        go, why = ready(args.go, python, home, scratch, until)
+        confirmed = False
+        if why:
+            print(f"shadow: {why}, so nothing ran", file=sys.stderr)
+        elif every:
+            previews(found, python, go, home, scratch, until)
+            confirmed = any(each["differences"] for each in found)
+        else:
+            confirmed, flakes, cut = shadow(args.argv, python, go, home, scratch)
+            if not cut:
+                found[0].update(ran=True, differences=sorted(confirmed), flakes=sorted(flakes))
+        for each in found if every else ():
+            print(f"shadow: ak {shlex.join(each['ak'])}: " + (
+                f"ran, differences: {len(each['differences'])}, flakes: {len(each['flakes'])}"
+                if each["ran"] else "not run"))
+        return 2 if why else 1 if confirmed else 0
+    except KeyboardInterrupt:   # a stop, as a preview's run gets at the cap, has nothing to tell
+        return 130
     finally:
+        # A second stop waits for the cleanup and the record: a preview's run is stopped by its
+        # parent and by the check's own stop alike.
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
         # Overlayfs leaves the `work` in a work folder unreadable, and an upper layer keeps the
         # modes of the home's folders it copied.  The system's chmod: the caller's PATH may lack it.
         subprocess.run(["chmod", "-R", "u+rwx", scratch], env={"PATH": os.defpath})
         shutil.rmtree(scratch)
+        # On every way out, a stop's too: what ended, and the rest not run.  Last, so a write
+        # that fails leaves no scratch behind.
+        if args.record:
+            written = Path(f"{args.record}.tmp")    # a reader finds all of it or none
+            written.write_text(json.dumps({"nothing_ran": why, "previews": found}, indent=1))
+            written.replace(args.record)
 
 
 if __name__ == "__main__":
