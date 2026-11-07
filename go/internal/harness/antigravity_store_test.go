@@ -64,7 +64,7 @@ func TestAntigravityReadsWhoTypedWhatWhenFromItsStore(t *testing.T) {
 	// the launcher's conversation, or the one its launch learned
 	for _, record := range []map[string]any{{"conversation": "conv-acme", "id_source": "launcher"},
 		{"antigravity_launch": "token", "antigravity_open": map[string]any{"launch": "token", "conversation": "conv-acme"}}} {
-		conversation, typed, known := Typed("antigravity", record)
+		conversation, typed, known := Typed("antigravity", record, "")
 		if want := []Prompt{{1_800_000_000.5, "The second one."}, {1_800_000_000.75, "Build the acme parser."}}; conversation != "conv-acme" ||
 			!slices.Equal(typed, want) || !known {
 			t.Fatalf("typed %q %v %v", conversation, typed, known)

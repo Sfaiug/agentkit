@@ -4,6 +4,7 @@ import (
 	"maps"
 
 	"agentkit/internal/config"
+	"agentkit/internal/harness"
 	"agentkit/internal/transcript"
 )
 
@@ -32,6 +33,12 @@ func Conversations(name string) ([]Conversation, error) {
 	if !listed && record["left"] != nil {
 		return nil, ErrUnread
 	}
+	// each read under the record as it was then: none of the current launch's evidence, which
+	// names the conversation it is on now
+	then := maps.Clone(record)
+	for _, key := range harness.LaunchKeys {
+		delete(then, key)
+	}
 	var had []Conversation
 	for _, each := range left {
 		entry, _ := each.(map[string]any)
@@ -40,14 +47,13 @@ func Conversations(name string) ([]Conversation, error) {
 		if kind == "" || named == "" {
 			return nil, ErrUnread // a record no /clear of Python's wrote
 		}
-		// the seat's record, naming the conversation it left
-		then := maps.Clone(record)
-		then["conversation"] = named
-		had = append(had, Conversation{Harness: kind, Record: then})
+		was := maps.Clone(then)
+		maps.Copy(was, entry)
+		had = append(had, Conversation{Harness: kind, Name: named, Record: was})
 	}
 	had = append(had, Conversation{Harness: config.SeatHarness(current), Record: record})
 	for i := range had {
-		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record); err != nil {
+		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record, had[i].Name); err != nil {
 			return nil, err
 		}
 	}
