@@ -1,16 +1,19 @@
 package launch
 
-import "agentkit/internal/config"
+import (
+	"agentkit/internal/config"
+	"agentkit/internal/usage"
+)
 
-// accountTurns is whether a turn here could go out on one of a provider's accounts, config.toml
-// listing some: Python's turn picks which (usage.account), and Go's does not yet (worker.Turn).
+// accountTurns is whether a turn here could go out on a login Go does not pick (usage.TurnAccount):
+// one of several a provider lists, which Python's turn picks.
 func accountTurns() bool {
 	subs, err := config.Subscriptions()
 	if err != nil {
 		return true
 	}
 	for _, sub := range subs {
-		if accounts, err := config.Accounts(sub.Name); err != nil || len(accounts) > 0 {
+		if _, err := usage.TurnAccount(sub.Name); err != nil {
 			return true
 		}
 	}

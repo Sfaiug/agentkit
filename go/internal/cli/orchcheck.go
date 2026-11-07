@@ -346,7 +346,7 @@ func goTurn(model string) error {
 	if err != nil {
 		return err
 	}
-	if _, err := worker.Adapter(entry); errors.Is(err, worker.ErrPython) {
+	if _, err := worker.Adapter(entry, ""); errors.Is(err, worker.ErrPython) {
 		return errLeft
 	}
 	return nil
