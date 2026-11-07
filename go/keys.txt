@@ -38,6 +38,7 @@ test_key_account_shares_settings
 test_key_add_subscription_esc_back_one_list
 test_key_agents_md_bad_key
 test_key_agents_md_cleanup
+test_key_an_answered_turn_is_over
 test_key_answer_context
 test_key_audit_line_delivered
 test_key_audit_off
