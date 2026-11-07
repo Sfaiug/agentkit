@@ -16,25 +16,20 @@ func auditUp(name string) bool {
 	return held && !slices.Contains(tmux.Dead(own), name)
 }
 
-// leftTyped is a line typed into the seat whose delivery is Python's: one in a seat not up, whose
-// composer a reopened seat no longer holds, or one ak's editor took in, its receipt naming the pane.
-func leftTyped(name string, state *run.Object) bool {
+// leftTyped is a line ak's editor took in, its receipt naming the pane, whose delivery is Python's.
+func leftTyped(state *run.Object) bool {
 	typed := state.Dict("typed")
-	return state.Truthy("typed") && (typed != nil && typed.Has("pane") || !auditUp(name))
+	return typed != nil && typed.Has("pane")
 }
 
 // tellAudit is watch.tell_audit for an audit seat with a record: one whose harness is gone comes
 // back on its own conversation, as its number opens it (orch.ensure with `saved`), and a later tick
 // types the line once it sits at its prompt.  The line goes in at its quiet prompt, its receipt
 // kept in the line's state, and is delivered once its composer reads empty; a harness Go does
-// not type into is Python's.
+// not type into is Python's.  A receipt is kept as it is across a reopen: it names the process
+// its line went into, so a new harness takes the line again and one only attached keeps it sent.
 func (t *ticking) tellAudit(name string, state *run.Object, write func() error) error {
 	if !auditUp(name) {
-		// gone since leftTyped looked: a respawn keeps the seat's birth, and with it a receipt that
-		// would read the new harness's empty composer as the line sent
-		if state.Truthy("typed") {
-			return errLeft
-		}
 		opened, err := seat.Reopen(name, seat.How{}, io.Discard, io.Discard)
 		if err == nil && !opened {
 			return errLeft
