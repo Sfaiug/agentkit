@@ -5,10 +5,11 @@ package loop
 // first-parent line is found by halving, and the run that merged it is blamed after its merge, once
 // (history.BlameMerge).  It reaches back blameReach commits at most, six steps, none older than
 // keepEvidence, the tip last, red twice already.  Each step checks its commit as the probe checked
-// the tip, the tests that failed again alone first where those decided it, the piece where none of
-// them failed there again.  Exits decide, never names: a step red on every go of a piece is red, one
-// that passes is green, and a go that failed beside one that passed is a flake, which ends the walk
-// without blame, as does a step that proves nothing.  Red at the oldest commit blames nobody.
+// the tip: the tests that failed there again alone first, where those were its red, then the piece
+// where they name no red.  Exits decide, never names: a step whose piece failed each of two goes or
+// more is red, one that passes is green, and a go that failed beside one that passed is a flake,
+// which ends the walk without blame, as does a step that proves nothing.  Red at the oldest commit
+// blames nobody.
 
 import (
 	"cmp"
