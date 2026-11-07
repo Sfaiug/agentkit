@@ -36,8 +36,8 @@ func pastWait(live Live, entry *run.Object, now float64) (*run.Object, string, b
 	if drying != nil {
 		return entry, "would notify needs: " + text + "\n" + line, true
 	}
-	// Health holds watch.lock for a stall watch.json holds untold (stallUntold).  A forget since
-	// then took the stall away, and another ask told it: either is Python's.
+	// Health holds watch.lock where watch.json held this stall untold (stallUntold), as it still
+	// does unless a forget has taken it away or another ask told it since: either is Python's.
 	asking := false
 	err := rewrite(filepath.Join(config.Home(), "state", "watch.json"), run.Encode, false, func(data *run.Object) bool {
 		held := stallOf(data, live.Name)
