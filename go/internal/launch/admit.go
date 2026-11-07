@@ -91,8 +91,8 @@ func admit(id string, first bool, seat string, depth int, followed bool) (*admis
 // for those ahead of it in line and, unless it goes first, for the count, then for the host's room
 // (ask), on the host's readings, read only where it is asked, as Python's gate._host_admits reads
 // them.  ErrPython wherever Go would judge it otherwise, before anything is read that writes: a
-// seat's run in line once a check of the install was handed back to a seat (handedBack); a queue,
-// a poll, a config or a run Go reads otherwise than Python.
+// seat's run in line once a seat was told to go first (run.FirstPlaceTold); a queue, a poll, a
+// config or a run Go reads otherwise than Python.
 func decide(record *run.Object) (*admission, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" || record.Truthy("run_depth") {
 		return &admission{in: true, outright: true}, nil
@@ -106,7 +106,7 @@ func decide(record *run.Object) (*admission, error) {
 		return nil, ErrPython
 	}
 	waiting, turns := inTurns(append([]*run.Object{record}, others...), saved.turns)
-	if slices.ContainsFunc(waiting, func(other *run.Object) bool { return other.Truthy("launched_session") }) && handedBack() {
+	if slices.ContainsFunc(waiting, func(other *run.Object) bool { return other.Truthy("launched_session") }) && run.FirstPlaceTold() {
 		return nil, ErrPython
 	}
 	a := &admission{id: record.Str("run_id"), running: len(holders), waiting: waiting, turns: turns}
