@@ -82,7 +82,7 @@ for word; do set -- "$@" "$(printf %s "$word" | sed 's/[$][$]/$/g')"; shift; don
 	} {
 		t.Run(name, func(t *testing.T) {
 			log, ran, called := placing(t, each.systemdRun, each.inManager)
-			pid, scope, reason, err := Place(work(ran), log, "agentkit-run-fix-api", []string{"-p", "MemoryMax=400M"}, each.detached)
+			pid, scope, reason, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api", []string{"-p", "MemoryMax=400M"}, each.detached)
 			if err != nil || scope != each.scope || reason != each.reason || pid != ranAs(t, ran) {
 				t.Fatalf("pid %d, %q %q %v", pid, scope, reason, err)
 			}
@@ -114,36 +114,41 @@ func TestPlacedWorkSaysItStartedAndHandsNothingOn(t *testing.T) {
 	}
 }
 
-func TestAnEarlierStartsUnitStillLoadedStartsNothing(t *testing.T) {
-	log, ran, _ := placing(t, "exit 1", true)
-	claim := filepath.Join(os.Getenv("HOME"), ".agentkit", "tmp", "agentkit-run-fix-api.placed")
-	os.MkdirAll(filepath.Dir(claim), 0o700)
-	os.WriteFile(claim, []byte("agentkit-run-fix-api.scope"), 0o644)
-	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", nil, true); err == nil || !strings.Contains(err.Error(), "from an earlier start is still in") {
-		t.Fatalf("err %v", err)
+// A program that cannot say it started where it was placed does nothing: no mark says nothing ran.
+func TestPlacedWorkThatCannotSaySoDoesNothing(t *testing.T) {
+	if ran := os.Getenv("AK_TEST_RAN"); ran != "" {
+		Placed()
+		os.WriteFile(ran, nil, 0o644)
+		return
+	}
+	ran := filepath.Join(t.TempDir(), "ran")
+	child := exec.Command(os.Args[0], "-test.run=^TestPlacedWorkThatCannotSaySoDoesNothing$")
+	child.Env = append(os.Environ(), "AK_TEST_RAN="+ran, placedEnv+"="+t.TempDir()) // a folder takes no mark
+	if child.Run() == nil {
+		t.Error("it went on without its word")
 	}
 	if _, err := os.Stat(ran); err == nil {
-		t.Error("the work started beside its earlier unit")
+		t.Error("it ran without saying so")
 	}
 }
 
 // The manager takes the service, but its client's reply is lost and the manager cannot be asked
 // about it: the work may yet come up, so nothing starts plainly and the claim stays for the next
-// start, which starts nothing either while the unit is loaded.
+// start, which, whichever unit it would go in, starts nothing either while that one is loaded.
 func TestAStartNeitherConfirmedNorEndedStartsNothingMore(t *testing.T) {
 	log, ran, called := placing(t, "exit 1", false)
 	systemctl, _ := exec.LookPath("systemctl")
 	os.WriteFile(systemctl, []byte("#!/bin/sh\nexit 1\n"), 0o755)
-	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", nil, true); err == nil || !strings.Contains(err.Error(), "is neither running in") {
+	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api-2", nil, true); err == nil || !strings.Contains(err.Error(), "is neither running in") {
 		t.Fatalf("err %v", err)
 	}
 	claim := filepath.Join(os.Getenv("HOME"), ".agentkit", "tmp", "agentkit-run-fix-api.placed")
-	if data, _ := os.ReadFile(claim); string(data) != "agentkit-run-fix-api.service" {
+	if data, _ := os.ReadFile(claim); string(data) != "agentkit-run-fix-api-2.service" {
 		t.Fatalf("claim %q", data)
 	}
 	os.WriteFile(systemctl, []byte("#!/bin/sh\necho loaded\n"), 0o755)
 	os.Remove(called)
-	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", nil, true); err == nil || !strings.Contains(err.Error(), "from an earlier start is still in") {
+	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api-3", nil, true); err == nil || !strings.Contains(err.Error(), "from an earlier start is still in") {
 		t.Fatalf("err %v", err)
 	}
 	if words, _ := os.ReadFile(called); len(words) != 0 {
@@ -151,5 +156,17 @@ func TestAStartNeitherConfirmedNorEndedStartsNothingMore(t *testing.T) {
 	}
 	if _, err := os.Stat(ran); err == nil {
 		t.Error("the work started beside a unit that may yet come up")
+	}
+}
+
+// The manager brings the service up as it is being stopped: the work said it ran, so that was its
+// start, and it starts no other.
+func TestAStartSaidAsItIsEndedIsTheOneStart(t *testing.T) {
+	log, ran, _ := placing(t, `while [ "$1" != -- ]; do case $1 in --setenv=AK_PLACED=*) echo "${1#*=*=}" >"$(dirname "$0")/mark";; esac; shift; done; exit 1`, false)
+	systemctl, _ := exec.LookPath("systemctl")
+	os.WriteFile(systemctl, []byte(`#!/bin/sh
+[ "$2" != stop ] || printf 4242 >"$(cat "$(dirname "$0")/mark")"`), 0o755)
+	if pid, scope, _, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api", nil, true); err != nil || pid != 4242 || scope != "agentkit-run-fix-api" {
+		t.Fatalf("pid %d, %q %v", pid, scope, err)
 	}
 }
