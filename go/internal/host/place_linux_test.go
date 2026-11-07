@@ -14,9 +14,9 @@ import (
 	"agentkit/internal/tmux"
 )
 
-// A manager listens; systemd-run is scripted, logging its words; this process sits in the
-// manager's own subtree where inManager.  The work writes its own pid where it says, and where
-// AK_PLACED says, as this program does (Placed).
+// A manager listens; systemd-run, of 258, is scripted, logging its words; this process sits in
+// the manager's own subtree where inManager.  The work, in a folder whose name holds a dollar,
+// writes its own pid where it says, and where AK_PLACED says, as this program does (Placed).
 func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called string) {
 	t.Setenv("HOME", t.TempDir())
 	runtime, bin, dir := t.TempDir(), t.TempDir(), t.TempDir()
@@ -28,7 +28,8 @@ func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called 
 	}
 	t.Cleanup(func() { listener.Close() })
 	called = filepath.Join(dir, "called")
-	for name, script := range map[string]string{"systemd-run": systemdRun, "systemctl": "echo loaded"} {
+	version := `[ "$1" != --version ] || { echo "systemd 258 (258.1-1)"; exit; }` + "\n"
+	for name, script := range map[string]string{"systemd-run": version + systemdRun, "systemctl": "echo loaded"} {
 		os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho \"$*\" >>"+called+"\n"+script+"\n"), 0o755)
 	}
 	t.Setenv("PATH", bin+":"+os.Getenv("PATH"))
@@ -39,7 +40,9 @@ func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called 
 	membership := filepath.Join(dir, "cgroup")
 	os.WriteFile(membership, []byte(group), 0o644)
 	t.Setenv("AK_CGROUP_FILE", membership)
-	return filepath.Join(dir, "log.txt"), filepath.Join(dir, "ran"), called
+	held := filepath.Join(dir, "${HOME}")
+	os.Mkdir(held, 0o700)
+	return filepath.Join(dir, "log.txt"), filepath.Join(held, "ran"), called
 }
 
 func work(ran string) *exec.Cmd {
@@ -65,9 +68,14 @@ func TestWorkGoesIntoItsUnitOrStartsPlainlyWhereTheManagerRefuses(t *testing.T) 
 		inManager, detached bool
 		scope, reason, warn string
 	}{
-		// from systemd 258 a scope expands its command: none of it may hold a dollar
-		"a scope the manager makes": {`while [ "$1" != -- ]; do shift; done; shift; case "$*" in *'$'*) exit 1;; esac; exec "$@"`,
+		// from 258 a scope's client expands a dollar in its command unless told not to
+		"a scope the manager makes": {`while [ "$1" != -- ]; do [ "$1" != --expand-environment=no ] || literal=yes; shift; done; shift
+case "$*" in *'$'*) [ -n "$literal" ] || exit 1;; esac; exec "$@"`,
 			true, true, "agentkit-run-fix-api", "", ""},
+		// the manager reads `$$` in a service's command as one dollar
+		"a service whose client fails once the work ran": {`while [ "$1" != -- ]; do case $1 in --setenv=AK_PLACED=*) export AK_PLACED="${1#*=*=}";; esac; shift; done; shift
+for word; do set -- "$@" "$(printf %s "$word" | sed 's/[$][$]/$/g')"; shift; done; "$@"; exit 1`,
+			false, true, "agentkit-run-fix-api", "", ""},
 		"a scope it refuses":       {"exit 1", true, true, "none", "systemd-run failed (nothing started in it)", "nothing started in it"},
 		"a service it refuses":     {"exit 1", false, true, "none", "systemd-run failed (systemd-run exited 1)", "systemd-run exited 1"},
 		"a foreground run outside": {"exit 1", false, false, "none", "started outside the user manager, which cannot move it", ""},

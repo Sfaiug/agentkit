@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +32,9 @@ const (
 // placedEnv names where placed work says it started (Placed).
 const placedEnv = "AK_PLACED"
 
-var leadingNumber = regexp.MustCompile(`^\s*(\d+)`)
+// versionNumber is the major version in what systemd says of itself: `257.13-1~deb13u1` from a
+// manager, `systemd 257 (257.13-1~deb13u1)` from a client.
+var versionNumber = regexp.MustCompile(`^\s*(?:systemd )?(\d+)`)
 
 // Limits are the `systemd-run -p` properties of a unit in the runs slice whose work holds capMB of
 // memory at most, 0 for no cap, as Python's run.run_scope_limits: its CPU weight, and an I/O
@@ -58,21 +61,38 @@ func Limits(capMB, cpuWeight int) []string {
 // manager of systemd 253 or later, by the manager's own answer, as an older systemd-run refuses
 // the whole scope over it.  Asked once per process; no answer counts as older.
 var oomPolicy = sync.OnceValue(func() bool {
-	if !UserManager() {
-		return false
+	return UserManager() && version("systemctl", "--user", "show", "-p", "Version", "--value") >= 253
+})
+
+// literal is the switch that keeps a scope's command word for word where a word holds a dollar,
+// Python's seat_scope_run: from systemd 258 a scope's client expands `${NAME}` and `$$` there, as
+// a service's manager does, unless told not to, which a client from 254 takes and an older one
+// refuses with the scope.  A command with no dollar reads the same either way, so only one with
+// a dollar has the client asked.
+func literal(work []string) []string {
+	if slices.ContainsFunc(work, func(word string) bool { return strings.Contains(word, "$") }) && clientVersion() >= 254 {
+		return []string{"--expand-environment=no"}
 	}
+	return nil
+}
+
+// clientVersion is systemd-run's own: the client expands a scope's command, and an upgrade leaves
+// the manager running the version it started with.  Asked once per process.
+var clientVersion = sync.OnceValue(func() int { return version("systemd-run", "--version") })
+
+// version is the major version a systemd program says it is, 0 where it says none.
+func version(name string, args ...string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), placeWait)
 	defer cancel()
-	show := exec.CommandContext(ctx, "systemctl", "--user", "show", "-p", "Version", "--value")
-	show.Env = busEnv(os.Environ())
-	said, _ := show.Output()
-	found := leadingNumber.FindSubmatch(said)
+	ask := exec.CommandContext(ctx, name, args...)
+	ask.Env = busEnv(os.Environ())
+	said, _ := ask.Output()
 	number := 0
-	if found != nil {
+	if found := versionNumber.FindSubmatch(said); found != nil {
 		number, _ = strconv.Atoi(string(found[1]))
 	}
-	return number >= 253
-})
+	return number
+}
 
 // Placed is this program's word, first of all, that it started where Place put it: its pid,
 // where AK_PLACED names, which only the placement's start hands it.  What it starts does not
@@ -132,11 +152,11 @@ func SliceMemoryMax() int {
 // The work says for itself whether it started (Placed): its mark means it ran, however briefly,
 // and no mark means nothing ran, so only then is it started plainly, as where no manager listens,
 // with a WARN in its log.  Neither timing nor a status tells a task that ended at once from one
-// that never began.  Where the mark goes is in the work's environment, never its command, which
-// systemd expands, a scope's from 258 and a service's always.  An attempt leaves a claim until it
-// is resolved: while the unit an earlier attempt claims is loaded, or the manager cannot say,
-// nothing starts, and where a placement can be neither confirmed nor ended neither does the plain
-// start, as a second start of the work is worse than none.
+// that never began.  Where the mark goes is in the work's environment: its command reaches it
+// word for word, a scope's kept literal and a service's dollars doubled.  An attempt leaves a
+// claim until it is resolved: while the unit an earlier attempt claims is loaded, or the manager
+// cannot say, nothing starts, and where a placement can be neither confirmed nor ended neither
+// does the plain start, as a second start of the work is worse than none.
 func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) (pid int, scope, reason string, err error) {
 	out, err := os.OpenFile(log, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
@@ -176,8 +196,8 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 	work := append([]string{cmd.Path}, cmd.Args[1:]...)
 	words, kind := []string{"--user", "--slice=" + runs, "--quiet", "--unit=" + unit}, "scope"
 	if scoped {
-		words = append(append(append(words, "--scope"), properties...), "--")
-		words = append(words, work...)
+		words = append(append(words, "--scope"), literal(work)...)
+		words = append(append(append(words, properties...), "--"), work...)
 	} else {
 		// a service starts with the manager's environment and output, so this process's go by name,
 		// and a unit's command line reads a dollar as a variable's and `$$` as one dollar
@@ -204,15 +224,9 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 	} else {
 		gone := make(chan struct{})
 		go func() { client.Wait(); close(gone) }() // a scope's client becomes the work, reaped here
-		// a scope's client waits on the manager before the work exists and goes with a scope the
-		// manager never made; a service's is gone either way, so none (nil) ends the wait early
-		var parent <-chan struct{}
 		refused := false
-		if scoped {
-			parent = gone
-		} else {
-			// gone once the manager has the unit, so its status says whether there is anything to
-			// wait for, and the mark whether the work was forked
+		if !scoped {
+			// gone once the manager has the unit or refused it, which its status says
 			select {
 			case <-gone:
 				if code := client.ProcessState.ExitCode(); code != 0 {
@@ -221,20 +235,33 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 			case <-time.After(placeWait):
 			}
 		}
-		if !refused {
-			if pid := marked(marker, parent); pid > 0 {
-				os.Remove(claim)
-				return pid, unit, "", nil
-			}
-			select {
-			case <-parent: // gone without a mark: nothing of it is left to come up
-			default:
-				if !stopPlaced(unit, scoped, client) {
-					// never said it ran, never refused, and not ended either: the manager may yet
-					// bring it up, so the claim stays for whoever tries next
-					return 0, "", "", fmt.Errorf("%s is neither running in %s.slice nor stopped", unit, tmux.Own())
-				}
-			}
+		// a scope's client waits on the manager before the work exists and goes with a scope the
+		// manager never made, and a refused service's is gone: either ends the wait for the mark,
+		// read even after a refusal, as a client can fail after its manager ran the work.  A taken
+		// service's client is gone too, so none (nil) ends that wait early.
+		var ended <-chan struct{}
+		if scoped || refused {
+			ended = gone
+		}
+		if pid := marked(marker, ended); pid > 0 {
+			os.Remove(claim)
+			return pid, unit, "", nil
+		}
+		left := true // whether anything of it may yet come up
+		select {
+		case <-gone:
+			left = !scoped // a scope's client gone without a mark took the scope with it
+		default:
+		}
+		if refused {
+			// a refused service the manager does not have never ran, nor one it cannot be asked
+			// about: where the manager refuses, the work starts plainly
+			left, _ = unitLoaded(unit + ".service")
+		}
+		if left && !stopPlaced(unit, scoped, client) {
+			// never said it ran, and not ended either: the manager may yet bring it up, so the
+			// claim stays for whoever tries next
+			return 0, "", "", fmt.Errorf("%s is neither running in %s.slice nor stopped", unit, tmux.Own())
 		}
 	}
 	os.Remove(claim)
