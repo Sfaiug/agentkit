@@ -56,13 +56,12 @@ def sealed(home, *args, **kwargs):
                     "--bind", str(home.tmux_dir), str(home.tmux_dir), "--", AK, *args, **kwargs)
 
 
-def holding(home):
-    """Each file under ~/.agentkit that holds the key and is not the seat's own transcript,
-    where Claude Code keeps it, under another name."""
-    transcripts = [*home.path.glob(".claude/projects/*/*.jsonl")]
+def holding(home, own=None):
+    """Each file under ~/.agentkit that holds the key, but a second name of `own`, the seat's
+    own transcript where Claude Code keeps it."""
     return [str(path.relative_to(home.path)) for path in (home.path / ".agentkit").rglob("*")
             if path.is_file() and KEY.encode() in path.read_bytes()
-            and not any(path.samefile(transcript) for transcript in transcripts)]
+            and not (own and path.samefile(own))]
 
 
 @unittest.skipUnless(shutil.which("bwrap") and REAL_TMUX, "needs bwrap and tmux")
@@ -87,9 +86,10 @@ class Launch(unittest.TestCase):
         # what the owner typed into the seat a minute ago, where Claude Code keeps it
         project = "".join(c if c.isascii() and c.isalnum() else "-" for c in str(seat.cwd))
         at = datetime.fromtimestamp(time.time() - 60, timezone.utc).isoformat()
-        home.write(f".claude/projects/{project}/{seat.record['conversation']}.jsonl",
-                   json.dumps({"type": "user", "timestamp": at,
-                               "message": {"role": "user", "content": SAID}}) + "\n")
+        cls.transcript = home.write(
+            f".claude/projects/{project}/{seat.record['conversation']}.jsonl",
+            json.dumps({"type": "user", "timestamp": at,
+                        "message": {"role": "user", "content": SAID}}) + "\n")
         # two of the seat's runs hold a slot each, so it has room to queue both tasks
         for n in range(2):
             sleep = subprocess.Popen(["sleep", "600"], start_new_session=True)
@@ -115,7 +115,7 @@ class Launch(unittest.TestCase):
         self.assertEqual([task["name"] for task in job["tasks"]], ["fix-api.md", "fix-ui.md"])
 
     def test_nothing_ak_keeps_holds_the_owners_words(self):
-        self.assertEqual(holding(self.home), [])
+        self.assertEqual(holding(self.home, own=self.transcript), [])
 
     def test_neither_the_receipt_nor_the_seat_record_has_words_or_a_cursor(self):
         job = json.loads(self.receipts[0].read_text())
