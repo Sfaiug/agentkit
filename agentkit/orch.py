@@ -717,14 +717,17 @@ def next_scope_unit(unit):
 
 
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
-                   properties=(), nice=False, placement=None, ends=True):
-    """Start detached work inside the slice, appending its output to `output`; its pid."""
+                   properties=(), nice=False, placement=None, ends=True, stdin=subprocess.DEVNULL):
+    """Start detached work inside the slice, appending its output to `output`; its pid.  The work
+    inherits `stdin`, which a service the manager starts could not: where no scope can be made,
+    work given one starts plainly."""
     return _start_in_slice(argv, unit, env, output, log, target_slice,
-                           properties, nice, placement, ends)[0]
+                           properties, nice, placement, ends, stdin=stdin)[0]
 
 
 def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), nice=False,
-                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None):
+                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None,
+                    stdin=subprocess.DEVNULL):
     """The placement shared by detached and foreground work; (pid, client, placed unit).
 
     A scope where this process may be moved with its child; a service, which the manager
@@ -771,7 +774,7 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
         with ExitStack() as stack:
             out = stdout if stdout is not None else stack.enter_context(open(output, "a"))
             kwargs = {"stdout": out, "stderr": subprocess.STDOUT,
-                      "stdin": subprocess.DEVNULL, "start_new_session": True,
+                      "stdin": stdin, "start_new_session": True,
                       "env": environment}
             if cwd is not None:
                 kwargs["cwd"] = cwd
@@ -801,6 +804,10 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
     config.TMP.mkdir(parents=True, exist_ok=True)
     marker.unlink(missing_ok=True)
     scoped = can_scope()
+    if not scoped and stdin != subprocess.DEVNULL:
+        set_scope("none", "a service would not inherit its stdin")
+        proc = spawn(argv, env, lower_nice=nice)
+        return proc.pid, proc, None
     # A scope has no ExecContext, so Nice=10 is rejected as a unit property.  Lower the
     # actual work command inside the scope; the service fallback keeps Nice as its property.
     witness = ["sh", "-c", f"{scope_ends(unit)} {WITNESS}" if ends and scoped else WITNESS,
