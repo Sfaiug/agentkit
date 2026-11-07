@@ -54,12 +54,6 @@ seat_state() {
 
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload" 2>/dev/null) || return 0
   [[ -n $event ]] || return 0
-  # Capture while the hook's caller still exists, before a background look can read the
-  # old conversation. Claude verifies the process and transcript; other harnesses do nothing.
-  if [[ $event = SessionStart && -n ${TMUX:-} && -n ${TMUX_PANE:-} ]]; then
-    /usr/bin/env python3 "${BASH_SOURCE[0]%/*}/../agentkit/harness/claude.py" \
-      --hook "$PPID" <<<"$payload" || true
-  fi
   [[ $event != SessionStart ]] || return 0
   if [[ -z $ts ]]; then
     ts=$(/usr/bin/env python3 -c 'import time; print(time.time())' 2>/dev/null) || ts=$(/bin/date +%s)
@@ -220,20 +214,30 @@ main() {
 # takes no context, a worker, a client that is not the seat's own conversation and every other
 # event print nothing. A compaction (a `SessionStart` from `compact`) leaves the conversation
 # holding its launch's rulebook again, which its next prompt is then told about.
+#
+# First, while the hook's caller lives and before a background look reads it, the seat goes on
+# in the conversation the event names where its own process went (`Harness.follow`): only in a
+# pane, and on a prompt only for somebody's words, never a slash command or a harness's own turn.
 news() {
-  local payload=$1 owner=$2 said=$3 jq event
+  local payload=$1 owner=$2 said=$3 jq event pid=''
   [[ -n ${AGENTKIT_SESSION:-} && ${AK_RUN_ROLE:-} != worker ]] || return 0
   jq=$(command -v jq) || return 0
   event=$("$jq" -r '.hook_event_name // empty' <<<"$payload")
   [[ $event = UserPromptSubmit || $event = SessionStart ]] || return 0
+  [[ -n ${TMUX:-} && -n ${TMUX_PANE:-} && ( $event = SessionStart || $owner = true ) ]] &&
+    pid=$PPID
   # JSON contains no literal NUL; both it and a long answer travel on stdin, never argv.
   printf '%s\0%s' "$payload" "$said" | /usr/bin/env python3 -c '
-import json, sys
+import contextlib, json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(sys.argv[1]).resolve().parents[1]))
-from agentkit import orch
+from agentkit import config, orch
 payload, said = sys.stdin.read().split("\0", 1)
 payload = json.loads(payload)
+if sys.argv[4]:
+    with contextlib.suppress(Exception):    # the seat stays put, and its news still goes
+        orch.seat_plugin(config.session_records().get(config.resolve_session(sys.argv[2]), {})
+                         ).follow(sys.argv[2], payload, int(sys.argv[4]))
 if payload.get("hook_event_name") == "SessionStart":
     if payload.get("source") == "compact":
         orch.rulebook_compacted(sys.argv[2], payload.get("session_id"))
@@ -243,7 +247,7 @@ news = orch.prompt_news(sys.argv[2], payload.get("session_id"),
 if news:
     print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
                                              "additionalContext": news}}))
-' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$owner"
+' "${BASH_SOURCE[0]}" "$AGENTKIT_SESSION" "$owner" "$pid"
 }
 
 payload=$(/bin/cat 2>/dev/null) || payload=''
