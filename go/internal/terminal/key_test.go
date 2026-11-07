@@ -59,7 +59,7 @@ func TestAScreenLeftAloneWritesNothing(t *testing.T) {
 	var out writes
 	painter, screen := NewPainter(&out), Screen{width: 4, height: 5}
 	painter.Write([]string{"ab", "abcd"}, screen)
-	if want := "\x1b[?2026h\x1b[Hab\x1b[K\nabcd\n\x1b[J\x1b[?2026l"; len(out) != 1 || out[0] != want {
+	if want := "\x1b[?2026h\x1b[1;1Hab\x1b[K\x1b[2;1Habcd\x1b[3;1H\x1b[J\x1b[?2026l"; len(out) != 1 || out[0] != want {
 		t.Fatalf("%q", out)
 	}
 	painter.Write([]string{"ab", "abcd"}, screen)
