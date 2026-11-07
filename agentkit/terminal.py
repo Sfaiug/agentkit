@@ -499,17 +499,20 @@ def key_parts(text):
 # What every key line leads with, on every screen wherever its highlight is: the arrows move it
 # -- between rows, cells and pages; then without UTF-8.
 MOVE_KEYS = ("↑↓←→ move", "arrows move")
+ARROWS = (("↑↓", "←→"), ("up/down", "left/right"))   # ... where each pair moves its own thing
 
 
 def keys(*rest, space=None, enter, move=True):
     """A screen's key line: MOVE_KEYS, left out where `move` is False
-    as nothing moves there (a field typed in), what Space does there (`space`) and what Enter
+    as nothing moves there (a field typed in), or for a pair of words what ↑↓ and ←→ each move
+    there, `↑↓ limit   ←→ value`, then what Space does there (`space`) and what Enter
     does (`enter`), each left out where None, as it does nothing there, then that screen's own keys, `rest`.  Enter has no word of its own: each screen names what it does there.  Space only
     changes the highlighted thing in place -- marks it, moves the ● to it, steps its effort --
     and a click on a mark does the same; Enter goes forward -- opens, starts, answers -- and
     never flips a mark."""
     ascii_ = not utf8()
-    named = [MOVE_KEYS[ascii_]] if move else []
+    named = ([MOVE_KEYS[ascii_]] if move is True else
+             [f"{arrows} {word}" for arrows, word in zip(ARROWS[ascii_], move or ())])
     named += [f"{'space' if ascii_ else '␣'} {space}"] if space else []
     named += [f"{'enter' if ascii_ else '⏎'} {enter}"] if enter else []
     return "   ".join((*named, *rest))
