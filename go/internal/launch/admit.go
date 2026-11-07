@@ -17,10 +17,9 @@ import (
 	"agentkit/internal/worker"
 )
 
-// gated is whether Python's gate decides this process's launch: its claim_slot lets a run's own
-// run in outright, and every run under the tests' `AK_MAX_RUNS=0`.
-func gated() bool {
-	depth, _ := runDepth()
+// gated is whether Python's gate decides the launch of a run at that depth: its claim_slot lets a
+// run's own run in outright, and every run under the tests' `AK_MAX_RUNS=0`.
+func gated(depth int) bool {
 	_, capped := config.MaxRuns()
 	return capped == nil && os.Getenv("AK_MAX_RUNS") != "0" && depth == 0
 }
@@ -53,8 +52,8 @@ type room struct {
 
 // admit is a launch's first poll for its slot, none for a launch no gate decides, ErrPython where
 // Go leaves that poll to Python (decide).
-func admit(id string, first bool, seat string) (*admission, error) {
-	if !gated() {
+func admit(id string, first bool, seat string, depth int) (*admission, error) {
+	if !gated(depth) {
 		return nil, nil
 	}
 	if err := os.MkdirAll(run.Runs(), 0o777); err != nil {

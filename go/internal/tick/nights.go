@@ -3,8 +3,6 @@ package tick
 import (
 	"cmp"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -12,21 +10,16 @@ import (
 	"strings"
 	"time"
 
-	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/launch"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
-	"agentkit/internal/task"
 )
 
 const (
 	nightEvery   = 3600             // how often a checkout's night is read, Python's nightly.EVERY
 	nightCeiling = 60 * time.Second // a read still running then fails
-	// The most names a fix run's check takes: a shell line has a limit, more failures than that
-	// usually share a cause, and the next night names what is left.
-	nightFirst = 100
 )
 
 // nights is the night reads row (nightly.tick): each checkout's night read once every nightEvery,
@@ -119,7 +112,7 @@ func (t *ticking) night(checkout string, handled any) (string, error) {
 	case tests == "":
 		err = errors.New("no tests: to check a fix by")
 	default:
-		fix, err = nightFix(checkout, started, names, tests)
+		fix, err = launch.Night(checkout, started, names, tests)
 	}
 	if errors.Is(err, launch.ErrPython) {
 		return "", errLeft
@@ -136,38 +129,4 @@ func (t *ticking) night(checkout string, handled any) (string, error) {
 func oneLine(value any) bool {
 	text, ok := value.(string)
 	return ok && len(config.SplitLines(strings.TrimFunc(text, config.Space))) == 1
-}
-
-// nightFix writes the night's fix task and the file of names its done-when exports as AK_ONLY,
-// the contract a red piece's retry uses, and starts its run on no seat (launch.Night); the run's
-// id.  Both files are named for a hash of what the night says, so a read writing them, refused or
-// not, never changes a running fix's list.
-func nightFix(checkout, started string, names []string, tests string) (string, error) {
-	said := []any{}
-	for _, name := range names {
-		said = append(said, name)
-	}
-	held := sha256.Sum256([]byte(run.Line([]any{started, said})))
-	path := filepath.Join(config.Home(), "tasks", filepath.Base(checkout), "night-"+hex.EncodeToString(held[:])[:16]+".md")
-	only := strings.TrimSuffix(path, ".md") + ".names"
-	listed := ""
-	for _, name := range names {
-		listed += "- " + name + "\n"
-	}
-	text := fmt.Sprintf("---\nrepo: %s\n---\n# Fix the tests %s's last night failed\n\n"+
-		"The night %s failed these tests:\n\n%s\n"+
-		"The command below runs the first %d at most; the next night names what is left.\n\n"+
-		"%s\n\n## Done when\n```bash\nexport AK_ONLY=%s; %s\n```\n",
-		checkout, filepath.Base(checkout), started, listed, nightFirst, task.FixTheCommand,
-		commandhelp.ShellJoin([]string{only}), tests)
-	for _, step := range []func() error{
-		func() error { return os.MkdirAll(filepath.Dir(path), 0o777) },
-		func() error { return replaceFile(only, strings.Join(names[:min(len(names), nightFirst)], "\n")+"\n") },
-		func() error { return os.WriteFile(path, []byte(text), 0o666) },
-	} {
-		if err := step(); err != nil {
-			return "", err
-		}
-	}
-	return launch.Night(path, run.Fields("night", started, "repo", checkout))
 }
