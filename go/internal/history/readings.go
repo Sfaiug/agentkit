@@ -1,6 +1,37 @@
 package history
 
+import (
+	"strings"
+
+	"github.com/ncruces/go-sqlite3"
+
+	"agentkit/internal/run"
+)
+
 const readingsKeptFor = 35 * 86400 // seconds a meter reading is kept: five weeks (READINGS_KEPT_FOR)
+
+// Bare is whether history.db holds no row of what Go leaves to Python: none stands
+// (run.Historyless), or one holding only meter readings, which a probe makes in a home with none
+// and Go keeps as Python does.  False where SQLite cannot say.
+func Bare() bool {
+	if run.Historyless() {
+		return true
+	}
+	db, err := connect(Path(), sqlite3.OPEN_READONLY)
+	if err != nil {
+		return false
+	}
+	defer db.Close()
+	tables, err := db.rows("SELECT name FROM sqlite_master WHERE type = 'table' " +
+		"AND name NOT IN ('kept', 'meter_readings') AND name NOT LIKE 'sqlite_%'")
+	for _, table := range tables {
+		held, failed := db.rows(`SELECT 1 FROM "` + strings.ReplaceAll(table.Text("name"), `"`, `""`) + `" LIMIT 1`)
+		if failed != nil || len(held) > 0 {
+			return false
+		}
+	}
+	return err == nil
+}
 
 // KeepReadings is Python's history.keep_readings: meter_readings rows added, each its values in
 // the columns' order (provider, account, meter, used, resets_at, window_secs, at, source, plan),
