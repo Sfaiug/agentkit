@@ -96,13 +96,21 @@ class Shadowed(unittest.TestCase):
                 self.assertEqual((code, found), outcome, said)
 
     def test_a_box_starts_its_home_as_the_home_is(self):
-        # a read-only home with an attribute of its own, boxed in a folder whose default ACL each
-        # folder made in it inherits
+        def acl(*entries):  # each (tag, permissions, id), as Linux keeps a POSIX ACL
+            return struct.pack("<I", 2) + b"".join(struct.pack("<HHI", *each) for each in entries)
+
         home, scratch = (Path(tempfile.mkdtemp(dir=self.fakes)) for _ in range(2))
+        anyone = 0xFFFFFFFF
+        # a read-only home with an access ACL naming its user, listed before an attribute of the
+        # user's own ...
+        os.setxattr(home, "system.posix_acl_access", acl(
+            (1, 5, anyone), (2, 5, os.getuid()), (4, 0, anyone), (16, 5, anyone), (32, 0, anyone)))
+        home.chmod(0o700)
         os.setxattr(home, "user.acme", b"home")
-        home.chmod(0o500)
-        os.setxattr(scratch, "system.posix_acl_default", struct.pack("<I", 2) + b"".join(
-            struct.pack("<HHI", tag, 7, 0xFFFFFFFF) for tag in (1, 4, 32)))
+        home.chmod(0o550)
+        # ... boxed in a folder whose default ACL each folder made in it inherits
+        os.setxattr(scratch, "system.posix_acl_default", acl(*((tag, 7, anyone)
+                                                               for tag in (1, 4, 32))))
         _, _, folder = shadow.box(home, scratch)
         self.assertEqual(shadow.touched(folder / "upper", home), set())
 
