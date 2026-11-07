@@ -161,8 +161,9 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 		} else if entry.choice >= 0 {
 			parts[0].kind = "dim" // why the list holds no choice
 		}
+		// against the room the label leaves, which a label wider than the page leaves none of
 		folded := entry.choice < 0 && slices.ContainsFunc(parts, func(p part) bool {
-			return slices.ContainsFunc(strings.Fields(p.text), func(word string) bool { return terminal.Cells(word) > left })
+			return slices.ContainsFunc(strings.Fields(p.text), func(word string) bool { return terminal.Cells(word) > room-terminal.Cells(lead) })
 		})
 		if folded {
 			line := "  " + terminal.Cut(row.Label, room-2)
