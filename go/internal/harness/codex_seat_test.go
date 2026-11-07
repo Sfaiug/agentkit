@@ -29,12 +29,16 @@ func TestCodexHooksAreTrustedAsPythonTrustsThem(t *testing.T) {
 
 // The line is adapters/codex.sh's, Go's wrapper in tools/codex-seat.py's place.
 func TestCodexSeatLine(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	rulebook := filepath.Join(t.TempDir(), "rulebook.md")
 	os.WriteFile(rulebook, []byte("rules"), 0o600)
 	t.Setenv("AGENTKIT_RULEBOOK", rulebook)
 	t.Setenv("AGENTKIT_ACCOUNT", "")
+	// the usual login's, under the account home a seat on one handed down
+	t.Setenv("CODEX_HOME", home+"/.codex-second")
 	t.Setenv("AGENTKIT_FIRST_PROMPT", "-v it's on")
-	head := "env AGENTKIT_RULEBOOK=" + rulebook + " /acme/bin/ak adapter /acme codex seat -- codex "
+	head := "env CODEX_HOME=" + home + "/.codex AGENTKIT_RULEBOOK=" + rulebook + " /acme/bin/ak adapter /acme codex seat -- codex "
 	for _, each := range []struct {
 		args []string
 		code int
@@ -51,8 +55,6 @@ func TestCodexSeatLine(t *testing.T) {
 		}
 	}
 	// an account's, in its own Codex home, which shares the usual one's conversations and config
-	home := t.TempDir()
-	t.Setenv("HOME", home)
 	t.Setenv("AGENTKIT_ACCOUNT", "work")
 	os.MkdirAll(filepath.Join(home, ".codex"), 0o700)
 	os.WriteFile(filepath.Join(home, ".codex", "config.toml"), nil, 0o600)
