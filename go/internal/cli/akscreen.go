@@ -227,10 +227,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		switch {
 		case heading:
 			frame.Stop()
-			if dry || !menuFeatures(choice, keyboard, painter) { // Python's dry run draws them once
+			if dry { // Python's dry run draws them once
 				keyboard.Give()
 				return notImplemented(errOut, "attach")
 			}
+			menuFeatures(choice, keyboard, painter)
 			model.Highlight = menu.Highlight{Cursor: choice}
 		case choice != "":
 			settle()
