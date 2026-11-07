@@ -16,9 +16,9 @@ import (
 func init() { commands["usage"] = usageAnswer }
 
 // usageAnswer answers `ak usage` as Python's usage.main does: every provider's reading, the pick
-// order and the review pair, as JSON with --json, each login with its plan (matrix.Plans), else
-// drawn (usageText).  A home whose read or pick is Python's is left to Python before anything is
-// locked or asked.
+// order and the review pair, as JSON with --json, each login with its plan (matrix.Plans) and its
+// plan_checks (matrix.Checks), else drawn (usageText).  A home whose read or pick is Python's is
+// left to Python before anything is locked or asked.
 func usageAnswer(args []string, out, errOut io.Writer) int {
 	rules, ok := pick.Load()
 	if !ok {
@@ -42,7 +42,8 @@ func usageAnswer(args []string, out, errOut io.Writer) int {
 	}
 	answer := run.NewObject()
 	now := float64(time.Now().UnixNano()) / 1e9
-	answer.Set("providers", readings.Shown(matrix.Listed, matrix.Plans(readings.Weeks(), now, matrix.SpentOver)))
+	answer.Set("providers", readings.Shown(matrix.Listed, matrix.Plans(readings.Weeks(), now, matrix.SpentOver),
+		matrix.Checks(readings.Weeks(), now)))
 	answer.Set("pick_order", order)
 	answer.Set("review", nil)
 	if executor, reviewer, ok := rules.Pair(readings); ok {

@@ -26,7 +26,7 @@ var errSibling = errors.New("a sibling piece was stopped")
 
 // A piece is one share of a suite as it ran: its output, how it ended, the output of a first go its
 // re-run decided, nil for none, and how that go failed as its flaky record says, "" for "failed",
-// where it ran, and when its next go was asked for.
+// where it ran, when its next go was asked for, and each go's exit (blame.go's went).
 type piece struct {
 	shard  string
 	out    *os.File
@@ -35,6 +35,7 @@ type piece struct {
 	how    string
 	there  *helper.Away // the helper it ran on, nil for here
 	asked  float64
+	exits  []*int
 }
 
 // pieces runs cmd, which names AK_SHARD, in pieces, Python's gate.run_suite, where its placement on
@@ -52,9 +53,9 @@ type piece struct {
 // first beside the others or any go after, it goes again alone once its turn was given back for a
 // poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
 // dropped where it hands the suite on.  Once the pieces ended, before any go after them, the pass
-// keeps what it held here as the suite's cost (measure).  The suite ends as its first red piece
-// did, and hands on what handedOn says, its cost raised where it ran out of memory, however it
-// ended, but where it is handed on (overflowed).
+// keeps what it held here as the suite's cost (measure).  The suite ends as the red piece redRank
+// ranks first did, and hands on what handedOn says, its cost raised where it ran out of memory,
+// however it ended, but where it is handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
@@ -120,7 +121,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, on.holds(), only)
 			}
 			row.End(exitOf(at.ended, err))
-			at.asked = clock()
+			at.asked, at.exits = clock(), went(at.exits, at.ended, err)
 		}
 		if errors.Is(err, errSibling) {
 			at.ended, err = ran{code: -15, stopped: "sibling"}, nil
@@ -308,8 +309,7 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 		most, into, status := share, &green, fmt.Sprintf("exit %d", at.ended.code)
 		if at.ended.code != 0 {
 			most, into = redShare, &red
-			// a piece out of memory hands on its red only where no other piece is red
-			if ended.code == 0 || ended.starved && !at.ended.starved {
+			if ended.code == 0 || redRank(at.ended) < redRank(ended) {
 				ended.piece, ended.confirmed, ended.starved = at.shard, at.ended.confirmed, at.ended.starved
 			}
 			ended.code = cmp.Or(ended.code, at.ended.code)
@@ -318,6 +318,9 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 			status = "ran out of memory"
 		}
 		ended.flaky, ended.reds = append(ended.flaky, at.ended.flaky...), append(ended.reds, at.ended.confirmed...)
+		if len(at.exits) > 0 {
+			ended.exits = append(ended.exits, at.exits)
+		}
 		if at.ended.stopped != "" {
 			status = "killed at the limit"
 			if at.ended.stopped != "sibling" && ended.stopped == "" {

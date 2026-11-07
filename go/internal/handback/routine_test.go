@@ -19,8 +19,12 @@ func TestRoutineEndingsRecordOrRideWithoutTyping(t *testing.T) {
 				os.WriteFile(filepath.Join(root, "config.toml"), []byte("[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[models.astra]\nharness='codex'\nmodel='gpt'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n"), 0o600)
 				os.WriteFile(filepath.Join(root, "state", "session-acme.json"), []byte(`{"orchestrator":"opus","workers":["opus","astra"],"conversation":"conv-acme","id_source":"launcher","cwd":"/acme","created":1}`), 0o600)
 				plan := "- [ ] API ships\n"
-				if route == "finished plan" {
+				switch route {
+				case "finished plan":
 					plan = "- [x] API ships\n"
+				case "riding":
+					// another going run serves what the seat owes, so the ending ends no wait
+					plan = "- [ ] API ships · check: `false` · acme · written 2026-10-23 09:00\n"
 				}
 				if route != "no plan" {
 					os.WriteFile(filepath.Join(root, "state", "plan-acme.md"), []byte(plan), 0o600)
@@ -36,7 +40,7 @@ func TestRoutineEndingsRecordOrRideWithoutTyping(t *testing.T) {
 				if route == "riding" {
 					other := filepath.Join(root, "runs", "other")
 					os.MkdirAll(other, 0o700)
-					run.Create(other, run.Fields("state", "running", "launched_session", "acme"))
+					run.Create(other, run.Fields("state", "running", "launched_session", "acme", "plan_line", "API ships · written 2026-10-23 09:00"))
 				}
 				Give(dir, func(string) {})
 				_, typed := os.Stat(filepath.Join(home, "typed"))

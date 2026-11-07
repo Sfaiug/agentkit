@@ -12,6 +12,9 @@ finds changed or added in a version swapped out keeps it there all the same.  Ea
 record in the repository is locked: a `git worktree prune` that could not see ~/agentkit would
 take it, and without it no git works there and nothing moves it again.
 
+A move is final only once a tick of the version it put live completes (`final`): until then the
+version it replaced is kept (`kept`) and nothing else moves, for the way back to run from.
+
 A clone at ~/agentkit is adopted at its first move, once it is main as origin left it
 (`update.left_as_is`): its repository goes to `REPOSITORY`, a link left in its place, and each
 worktree added from it is pointed there, so none breaks when the clone is swapped out.  Each
@@ -41,6 +44,7 @@ RENAME_SWAP = 2                 # renamex_np's flag on macOS
 LOCKED = "a version of ak's"   # why each version's record is locked, kept from any prune
 NOT_RUN = (":!go", ":!tests", ":!docs", ":!*.md")   # what no running process holds
 CODE_ENV = "AK_RUN_CODE"        # the checkout a run's processes run: `enter`'s
+KEEP = "keep/ak"                # under config.TMP: a link to the bin/ak the last move swapped out
 
 
 def repository():
@@ -86,6 +90,38 @@ def checkout(code=None):
                 raise config.Error(f"cannot check out ak {sha[:12]}: {said}")
             new.rename(path)
         yield path
+
+
+def keep_link():
+    """Where a move keeps the version it replaced; None on a client, which runs no tick that could
+    make its moves final, so keeps nothing, a link a server left it included."""
+    return None if config.server_alias() else config.TMP / KEEP
+
+
+def kept():
+    """The version the last move replaced, while that move is not final: the folder of the bin/ak
+    `keep_link` names, else None."""
+    link = keep_link()
+    try:
+        return Path(os.readlink(link)).parents[1] if link else None
+    except OSError:
+        return None
+
+
+def final():
+    """The move that put this tick's version live made final, as the tick completes.  Only a tick
+    that began from the folder at ~/agentkit now proves that version runs: one that began before
+    the move, the tick that made it among them, ran the version it replaced."""
+    from . import update     # here, not at the top: it imports this module
+    link = keep_link()
+    if not (link and config.BEGAN and os.path.lexists(link)):
+        return
+    with holding():     # as `switch` holds it from a move's link to its exchange
+        try:
+            if os.path.samestat(config.BEGAN, os.stat(update.agentkit_dir())):
+                link.unlink(missing_ok=True)
+        except OSError:
+            pass        # no ~/agentkit: nothing of it ran
 
 
 def enter(path):
@@ -245,9 +281,10 @@ def repair(*paths):
 
 
 def tidy(live):
-    """Each version under `VERSIONS` no process uses, and that holds nothing git finds changed
-    or added in it, gone.  Each worktree's record of where it is is put right first: one swap
-    cut off before it left the two crossed, and git would remove the wrong one's."""
+    """Each version under `VERSIONS` no process uses or move keeps (`kept`), and that holds
+    nothing git finds changed or added in it, gone.  Each worktree's record of where it is is put
+    right first: one swap cut off before it left the two crossed, and git would remove the wrong
+    one's."""
     with holding():
         _tidy(live)
 
@@ -260,13 +297,13 @@ def _tidy(live):
         return
     if not repair(live, *found):
         return      # a record still crossed would have git remove the live one's
-    held = gc.tmp_processes()[0]
+    held, keep = gc.tmp_processes()[0], kept()
     for path in found:
         code, changes = git(path, "--no-optional-locks", "status", "--porcelain")
         # a checkout cut off part way lists only what it never wrote: nobody's work; a status
         # git could not read proves nothing
-        kept = code != 0 or any(line[:2] not in (" D", "D ") for line in changes.splitlines())
-        if not kept and not retention.busy(path.resolve(), held):
+        changed = code != 0 or any(line[:2] not in (" D", "D ") for line in changes.splitlines())
+        if not changed and path != keep and not retention.busy(path.resolve(), held):
             remove(path)
 
 
@@ -310,11 +347,20 @@ def switch(live, commit):
     if code:
         remove(new)
         return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}"
+    keep = keep_link()
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         keep_times(live, new, commit)
-        exchange(live, new)
+        with holding():     # a tick of the version replaced, completing between them, would take it
+            if keep:
+                # before the exchange, which leaves the version replaced at `new`: a move cut
+                # off right after it is kept too
+                keep.parent.mkdir(parents=True, exist_ok=True)
+                keep.symlink_to(new / "bin" / "ak")
+            exchange(live, new)
     except OSError as exc:
+        if kept() == new:       # nothing was replaced
+            keep.unlink(missing_ok=True)
         remove(new)
         return f"{new} could not be swapped in for {live}: {exc}"
     repair(live, new)

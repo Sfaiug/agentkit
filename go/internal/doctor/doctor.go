@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/googlecloud"
 	"agentkit/internal/host"
 	"agentkit/internal/listing"
 	"agentkit/internal/machines"
@@ -19,14 +20,14 @@ import (
 // Report says all of it and is the exit: 2 for a config Python's config.load refuses, after what
 // it reads without one, 1 where the tick reads as hung or a dead run has outlasted two ticks.
 // False, with nothing said, where a read is one Go cannot make. The first lines come out before
-// the efforts, which ask each harness.
+// the efforts, which ask each harness, and the best machine to rent, which asks Google.
 func Report(out, errOut io.Writer) (int, bool) {
 	health, stuck, read := tick.Health()
 	if !read {
 		return 0, false
 	}
 	harnesses, refused := config.OfferedHarnesses()
-	if refused == nil && (config.MayRent() || !askable(harnesses)) {
+	if refused == nil && !askable(harnesses) {
 		return 0, false
 	}
 	runs, dead, read := census(tick.Grace())
@@ -34,6 +35,10 @@ func Report(out, errOut io.Writer) (int, bool) {
 		return 0, false
 	}
 	gates, read := gateLine()
+	if !read {
+		return 0, false
+	}
+	bill, read := googlecloud.Bill()
 	if !read {
 		return 0, false
 	}
@@ -56,7 +61,12 @@ func Report(out, errOut io.Writer) (int, bool) {
 		wrong = []string{"effort  every model takes the effort it is set to"}
 	}
 	fmt.Fprintln(out, strings.Join(wrong, "\n"))
-	fmt.Fprintln(out, "rented machines: "+rented())
+	if bill == nil {
+		bill = []string{rented()}
+	}
+	for _, line := range bill {
+		fmt.Fprintln(out, "rented machines: "+line)
+	}
 	if stuck || dead {
 		return 1, true
 	}

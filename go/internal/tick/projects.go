@@ -21,18 +21,6 @@ func checkoutsSeen() bool {
 	return seen
 }
 
-// noneDeclares is whether every checkout could be looked at and none declares key, read as
-// declares reads it.
-func noneDeclares(key string) bool {
-	checkouts, seen := seat.Checkouts()
-	return seen && !slices.ContainsFunc(checkouts, func(checkout string) bool { return declares(checkout, key) })
-}
-
-// declares reads the default branch as Python does: no readable AGENTS.md declares nothing.
-func declares(checkout, key string) bool {
-	return gitcall.DeclaredAt(checkout, rulesRef, key, gitcall.ProjectEnv(checkout)...) != ""
-}
-
 // fetchProjects is the project rules row (orch.fetch_projects): each checkout's, and each project's
 // a seat is filed under, every branch fetched and origin/HEAD set again to origin's default branch,
 // which the later rows read. One that fails is named, after every other is fetched.

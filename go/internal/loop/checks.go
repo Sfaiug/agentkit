@@ -47,14 +47,17 @@ var (
 var flakyKey = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}_.])/[^\s'"` + "`" + `<>]+|\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|\d+(?:\.\d+)?(?:e[+-]?\d+)?`)
 
 // A ran is how one command ended: its status, how a stop ended it, "" where none did, whether
-// the kernel killed it for memory (starved.go), and the CPU seconds its box said it spent, nil for
-// none (measure.go).
+// the kernel killed it for memory (starved.go), the CPU seconds its box said it spent, nil for
+// none (measure.go), whether it is red only for a test it never named as run, and each of its
+// pieces' goes' exits (blame.go's went).
 type ran struct {
 	code    int
 	stopped string
 	left    []string
 	starved bool
 	cpu     *float64
+	unnamed bool
+	exits   [][]*int
 	testReport
 }
 
@@ -103,6 +106,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 		var offset int64
 		var pieced *string // what a suite run in pieces hands on, its pieces' shares
 		var flaky, named []string
+		var goes []*int
 		out := true
 		for {
 			if err := l.stopCheck(); err != nil {
@@ -130,6 +134,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			kills := host.MemoryEvent("oom_kill")
 			outcome, err = l.boxed(cwd, cmd, shard, remaining, progress, path, false, at.holds(), only)
 			row.End(exitOf(outcome, err))
+			goes = went(goes, outcome, err)
 			if err != nil {
 				return false, "", nil, err
 			}
@@ -154,6 +159,9 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 			outcome.flaky, outcome.reds = flaky, outcome.confirmed
 			if !selection.pinned() && outcome.code > 0 {
 				outcome.reds = outcome.failed
+			}
+			if len(goes) > 0 {
+				outcome.exits = [][]*int{goes}
 			}
 		}
 		at.close()

@@ -12,3 +12,4 @@ func (k *Keyboard) Wake()          {}
 func (k *Keyboard) Screen() Screen { return Screen{} }
 func (k *Keyboard) ReadKey() Key   { return Key{Name: "eof"} }
 func (k *Keyboard) Unread(...Key)  {}
+func (k *Keyboard) Drop()          {}

@@ -16,7 +16,7 @@ import (
 func TestAnAuditKeepsItsWeeksReportWhenItsLaunchIsNotCarried(t *testing.T) {
 	ak, _ := idleHome(t, answers)
 	// a harness Go opens no seat of yet
-	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=true\norchestrator='gemini'\n")
+	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=true\norchestrator='mimo'\n")
 	tick := &ticking{clock: func() time.Time { return time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC) }, log: newLog(io.Discard, io.Discard)}
 	tick.report = func(time.Time) ([]string, string) { return []string{"fixture report"}, "fixture loss" }
 	for i := range 2 {

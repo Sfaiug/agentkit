@@ -181,7 +181,7 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
 		"state/session-acme.json":          "{}",
 		"state/notification-outbox/a.json": "{}",
-		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "nudged_at": 2}}}`,
+		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "resets_at": 2}}}`,
 		"runs/fix-api/run.json#deployment": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": "true"}`,
 			time.Now().Unix()),
 		"state/watch.json#auth":      `{"auth_out": {"claude": {"ok": false}}}`,
@@ -352,9 +352,9 @@ func TestThroughEndsAtTheRowThatFindsWork(t *testing.T) {
 	}
 }
 
-// A pull request on another's repository is followed, and one merged is Python's, past what the
-// tick has written; the account's own, or an empty search, or a search that fails, leaves nothing
-// to follow.
+// A pull request on another's repository is followed, and one merged with no run of its own is
+// followed no more, said nowhere; the account's own, or an empty search, or a search that fails,
+// leaves nothing to follow, and an item Go cannot read is Python's.
 func TestWhatTheSearchFinds(t *testing.T) {
 	viewed := func(state, printed string) string {
 		return `case "$*" in "api user") ` + user + ` ;; *"pr view"*) echo '{"state": "` + state + `"}' ;; *) ` + printed + ` ;; esac`
@@ -373,7 +373,7 @@ func TestWhatTheSearchFinds(t *testing.T) {
 		"issue":    {search(`echo '{"items": [{"pull_request": null}]}'`), true, ""},
 		"theirs":   {search(page("https://github.com/other/api/pull/1")), true, ""},
 		"second":   {search(`echo '{"items": []}'; ` + page("https://github.com/other/api/pull/1")), true, ""},
-		"merged":   {viewed("MERGED", page("https://github.com/other/api/pull/1")), false, ""},
+		"merged":   {viewed("MERGED", page("https://github.com/other/api/pull/1")), true, ""},
 		"unread":   {search(`echo '{"items": [1]}'`), false, ""},
 		"fails":    {search(`echo down >&2; exit 1`), true, "WARN authored PR discovery failed: down\n"},
 		"no pages": {search(`echo '{}'`), true, "WARN authored PR discovery failed: gh did not return arrays of pages\n"},

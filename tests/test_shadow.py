@@ -67,6 +67,27 @@ class Shadowed(unittest.TestCase):
                 self.assertEqual((code, named), (1, {kind}), said)
         self.assertEqual(every_byte_and_time(self.home.path), before)
 
+    @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
+    def test_bytes_their_user_cannot_read_are_compared(self):
+        cache = self.home.path / "cache"
+        cache.write_text("before")
+        cache.chmod(0)
+        # Each Go copies the file up by setting its mode again; one also rewrites its bytes and
+        # puts back its time.  Where no unshare will read them, the runs cannot be judged.
+        again = 'import os; os.chmod(os.path.expanduser("~/cache"), 0)'
+        rewrite = ('import os; path = os.path.expanduser("~/cache"); was = os.stat(path); '
+                   'os.chmod(path, 0o600); open(path, "w").write("after!"); '
+                   'os.utime(path, ns=(was.st_atime_ns, was.st_mtime_ns)); os.chmod(path, 0)')
+        self.fake("unshare", "exit 1")
+        refused = {"PATH": f"{self.fakes}:{self.home.env['PATH']}"}
+        for name, script, env, outcome in (("again", again, None, (0, set())),
+                                           ("rewrite", rewrite, None, (1, {"home"})),
+                                           ("unread", again, refused, (2, set()))):
+            with self.subTest(name):
+                more = f"{shlex.quote(sys.executable)} -c {shlex.quote(script)}"
+                code, found, said = self.shadow("--go", self.fake(name, GO.format(more)), env=env)
+                self.assertEqual((code, found), outcome, said)
+
     def test_where_no_box_can_be_built_nothing_runs(self):
         ran = self.fakes / "ran"
         self.fake("bwrap", "exit 1")

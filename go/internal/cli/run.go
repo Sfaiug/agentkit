@@ -39,9 +39,10 @@ func runClean(args []string, out, errOut io.Writer) int {
 
 // launchRun is `ak run <task.md>` or `ak run --review-pr <url>` where Go makes the launch: one
 // preflight refuses, recorded as a run in error, or a run preflight passes, which it follows unless
-// told --bg.  Any other launch
-// it leaves to Python before it writes anything.  `--drive` is that run's own process, and
-// `--lander` a landing line's, but for a pass that is Python's (loop.LineToPython).
+// told --bg; one of several task files, or carrying a run directory, only where its seat's queue
+// refuses it (launch.Fresh).  Any other launch it leaves to Python before it writes anything.
+// `--drive` is that run's own process, and `--lander` a landing line's, but for a pass that is
+// Python's (loop.LineToPython).
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {
 		return loop.Drive(args[1])
@@ -64,10 +65,14 @@ func launchRun(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "run")
 	case url != "":
 		code, reason, err = launch.Review(url, parsed.values, parsed.flags, out, errOut)
-	case len(parsed.words) == 1:
+	case len(parsed.words) == 1 && os.Getenv("AGENTKIT_RUN_DIR") == "":
 		code, reason, err = launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
 	default:
-		return notImplemented(errOut, "run")
+		var paths []string
+		for _, word := range parsed.words {
+			paths = append(paths, config.Absolute(word))
+		}
+		code, reason, err = launch.Fresh(paths, parsed.flags, errOut)
 	}
 	switch {
 	case errors.Is(err, launch.ErrPython):
