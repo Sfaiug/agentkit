@@ -13,9 +13,9 @@ import (
 )
 
 // The owner's answer on a card is Python's, with nothing written, while a question it leaves waits
-// to be asked of a turn since ended, or while the seat's file cannot take its questions' leaving;
-// otherwise each question it answers is the owner's time, once, and leaves
-// what the seat keeps back, which keeps the rest.
+// to be asked of a turn since ended, while the seat's file cannot take its questions' leaving, or
+// while what it goes on to read is not Go's (notify.CardAnswerable); otherwise each question it
+// answers is the owner's time, once, and leaves what the seat keeps back, which keeps the rest.
 func TestACardsAnswerIsTheOwnersTimeOrPythons(t *testing.T) {
 	home := sandbox(t)
 	record(t, home, "acme", nil)
@@ -59,6 +59,10 @@ func TestACardsAnswerIsTheOwnersTimeOrPythons(t *testing.T) {
 	os.Chmod(state, 0o500)
 	pythons("a seat file")
 	os.Chmod(state, 0o700)
+	retirement := stateFile(home, filepath.Join("notification-outbox", "stuck.clear"))
+	write(t, retirement, `{"session":"acme","prefix":"Which"}`)
+	pythons("a retirement") // which Python's notice lock carries out first
+	os.Remove(retirement)
 
 	if _, err := answerCard("acme", at, replies); err != nil {
 		t.Fatal(err)

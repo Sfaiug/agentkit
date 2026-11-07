@@ -81,15 +81,8 @@ func Ask(name string, record map[string]any, question string, asked Asked, out, 
 		}
 	}
 	notice, readable := said(name, []Kept{{Text: question}}, previous, false)
-	card, cardErr := readObject(seatFile("card", name, "json"))
-	if errors.Is(cardErr, errNotObject) {
-		card, cardErr = nil, nil
-	}
-	if card == nil {
-		card = run.NewObject()
-	}
-	_, eventErr := readEvent(cardKey(card.Get("episode")))
-	if unkept || !readable || cardErr != nil || card.Str("word") == "needs you" && eventErr != nil || !retirementsDrained() {
+	card, carried := carded(name)
+	if unkept || !readable || !carried {
 		return 0, false
 	}
 	now := time.Now() // the command's moment, which its word and its episode begin at
@@ -365,6 +358,21 @@ func writeCard(name string, card *run.Object) error {
 	}
 	syncDir(state())
 	return nil
+}
+
+// carded is the seat's card, an empty one where it holds none, and whether Go reads it and the
+// page a needs you on it put out as Python does, with no question's retirement waiting for the
+// notice lock, whose Python holder carries it out first.
+func carded(name string) (*run.Object, bool) {
+	card, err := readObject(seatFile("card", name, "json"))
+	if errors.Is(err, errNotObject) {
+		card, err = nil, nil
+	}
+	if card == nil {
+		card = run.NewObject()
+	}
+	_, eventErr := readEvent(cardKey(card.Get("episode")))
+	return card, err == nil && (card.Str("word") != "needs you" || eventErr == nil) && retirementsDrained()
 }
 
 // errNotObject is a file holding JSON that is no object.
