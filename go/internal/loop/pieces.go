@@ -53,9 +53,9 @@ type piece struct {
 // first beside the others or any go after, it goes again alone once its turn was given back for a
 // poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
 // dropped where it hands the suite on.  Once the pieces ended, before any go after them, the pass
-// keeps what it held here as the suite's cost (measure).  The suite ends as its first red piece
-// did, and hands on what handedOn says, its cost raised where it ran out of memory, however it
-// ended, but where it is handed on (overflowed).
+// keeps what it held here as the suite's cost (measure).  The suite ends as the red piece redRank
+// ranks first did, and hands on what handedOn says, its cost raised where it ran out of memory,
+// however it ended, but where it is handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
@@ -309,8 +309,7 @@ func (l *loop) handedOn(cmd string, all []*piece, path string) (ran, string, err
 		most, into, status := share, &green, fmt.Sprintf("exit %d", at.ended.code)
 		if at.ended.code != 0 {
 			most, into = redShare, &red
-			// a piece out of memory hands on its red only where no other piece is red
-			if ended.code == 0 || ended.starved && !at.ended.starved {
+			if ended.code == 0 || redRank(at.ended) < redRank(ended) {
 				ended.piece, ended.confirmed, ended.starved = at.shard, at.ended.confirmed, at.ended.starved
 			}
 			ended.code = cmp.Or(ended.code, at.ended.code)
