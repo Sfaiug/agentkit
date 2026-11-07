@@ -225,21 +225,21 @@ def entries(path):
     if not path:
         return
     try:
-        with _opened(path) as fh:
-            yield from objects(fh)
+        yield from objects(path)
     except FileNotFoundError:
         return
 
 
-def objects(lines):
-    """Each JSON object those lines of a record hold, one a line, passing over the rest."""
-    for line in lines:
-        try:
-            entry = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(entry, dict):
-            yield entry
+def objects(path):
+    """`entries`, but FileNotFoundError where none of the record's names is there."""
+    with _opened(path) as fh:
+        for line in fh:
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict):
+                yield entry
 
 
 def turns(path, prompt, answer):

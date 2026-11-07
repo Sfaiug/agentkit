@@ -302,39 +302,38 @@ def owner(record, cwd, conversation):
 def _owner(path):
     from . import moment, objects, user_message
     messages, answered, cards = [], [], set()
-    with open(path, "rb") as fh:
-        for entry in objects(fh):
-            kept = user_message(entry.get("timestamp"), prompt(entry))
-            if kept:
-                messages.append(kept)
-            if any(entry.get(key) for key in UNSAID):
+    for entry in objects(path):     # FileNotFoundError where it went since: `owner` reads on
+        kept = user_message(entry.get("timestamp"), prompt(entry))
+        if kept:
+            messages.append(kept)
+        if any(entry.get(key) for key in UNSAID):
+            continue
+        said = []
+        try:    # a line of any other shape answers nothing
+            parts = [part for part in entry["message"]["content"] if isinstance(part, dict)]
+            cards.update(part["id"] for part in parts if part.get("type") == "tool_use"
+                         and part.get("name") == "AskUserQuestion")
+            result, at = entry.get("toolUseResult"), moment(entry.get("timestamp"))
+            card = any(part.get("type") == "tool_result" and part.get("tool_use_id") in cards
+                       for part in parts)
+            if not card or at is None:
                 continue
-            said = []
-            try:    # a line of any other shape answers nothing
-                parts = [part for part in entry["message"]["content"] if isinstance(part, dict)]
-                cards.update(part["id"] for part in parts if part.get("type") == "tool_use"
-                             and part.get("name") == "AskUserQuestion")
-                result, at = entry.get("toolUseResult"), moment(entry.get("timestamp"))
-                card = any(part.get("type") == "tool_result" and part.get("tool_use_id") in cards
-                           for part in parts)
-                if not card or at is None:
-                    continue
-                picks, notes = result.get("answers", {}), result.get("annotations", {})
-                for asked in result["questions"]:
-                    question = asked["question"]
-                    pick = picks.get(question)
-                    words = [text for text in (None if pick == NOTES_ONLY else pick,
-                                               notes.get(question, {}).get("notes"),
-                                               result.get("response"))
-                             if isinstance(text, str) and text.strip()]
-                    if words:
-                        said.append({"at": at, "question": question, "answer": "\n".join(words),
-                                     "choices": [{"label": option["label"],
-                                                  "description": option.get("description", "")}
-                                                 for option in asked.get("options") or ()]})
-            except (AttributeError, KeyError, TypeError):
-                continue
-            answered.extend(said)
+            picks, notes = result.get("answers", {}), result.get("annotations", {})
+            for asked in result["questions"]:
+                question = asked["question"]
+                pick = picks.get(question)
+                words = [text for text in (None if pick == NOTES_ONLY else pick,
+                                           notes.get(question, {}).get("notes"),
+                                           result.get("response"))
+                         if isinstance(text, str) and text.strip()]
+                if words:
+                    said.append({"at": at, "question": question, "answer": "\n".join(words),
+                                 "choices": [{"label": option["label"],
+                                              "description": option.get("description", "")}
+                                             for option in asked.get("options") or ()]})
+        except (AttributeError, KeyError, TypeError):
+            continue
+        answered.extend(said)
     return messages, answered
 
 
