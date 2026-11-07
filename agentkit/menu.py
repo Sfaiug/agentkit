@@ -5563,18 +5563,18 @@ def rounds_said(runs, held):
     rounds_chart, M the last round one merged in and F the number that failed.  Off, how many
     went that way; under M, those merged after `held`, and F, back to their orchestrator sooner;
     at M, F back; one past M, a guess that F merge at the share round M merged of its merges and
-    F; further, nothing they can say.  None with no run."""
-    if not runs:
-        return None
+    F; further, nothing they can say.  None with no run, unless off."""
     merged = [ending for *_, ending in runs if ending is not None]
-    failed, last = len(runs) - len(merged), max([*merged, 0])
-    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
-                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
     if held == 0:
         bare = merged.count(0)
         return "Off: no reviewer, so a change lands when its checks pass. " + (
             f"{bare} of your runs went that way." if bare
             else "None of your runs went that way, so they can't say how it would go.")
+    if not runs:
+        return None
+    failed, last = len(runs) - len(merged), max([*merged, 0])
+    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
+                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
     if held < last:
         later = sum(ending > held for ending in merged)
         return (f"The {later} change{'s' * (later != 1)} that merged after round {held} would have "
@@ -5599,16 +5599,17 @@ def lines_said(key, runs, held):
     of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
     orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
     passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
-    say.  None with none."""
+    say.  None with none, unless off."""
     own = key == "orchestrator_lines"
     sizes = [(lines, passed) for _, lines, passed in runs]
-    if not sizes:
-        return None
     if held == 0:
-        return ("Off: orchestrators build nothing themselves, so every one of their "
-                f"{len(sizes)} own pull request{'s' * (len(sizes) != 1)} would have been a task."
+        return ("Off: orchestrators build nothing themselves" + (
+                    f", so every one of their {len(sizes)} own pull request"
+                    f"{'s' * (len(sizes) != 1)} would have been a task." if sizes else ".")
                 if own else
                 "Off: executors build nothing, so your runs can't say how that would go.")
+    if not sizes:
+        return None
     over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
     if not over:
         return (f"Your largest {'own pull request' if own else 'build'} was "

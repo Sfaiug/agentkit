@@ -1,10 +1,10 @@
 """`c` shows `review_rounds`, `executor_lines` and `orchestrator_lines` on one `Limits` row, at a glance, and
 Enter there opens `config · limits`: a row each under a plain name, its value and `default N`
 where that is not ak's default, and under the rows the pointed one's meaning, its chart and
-what its runs would have done at its value, in that order, off included.  ← and → move the
-pointed one a step (tests/test_key_limits_arrow_steps.py), saved to config.toml at once, every
-other key kept; both line limits end with `no limit`, and a save that fails changes nothing and
-says why.
+what its runs would have done at its value, in that order; off says what it does with no run
+too.  ← and → move the pointed one a step (tests/test_key_limits_arrow_steps.py), saved to
+config.toml at once, every other key kept; both line limits end with `no limit`, and a save that
+fails changes nothing and says why.
 
 The owner's ask of 3 Nov 2026: the keys' names were unclear to users.  Black-box: history.db's
 `runs` rows written into the Home, then the program `AK_BIN` names, in a person's terminal
@@ -60,6 +60,14 @@ SAYS = {"review_rounds": (
                  "been a task. Round 1 merged 100% of them.",
              0: "Off: orchestrators build nothing themselves, so every one of their 1 own pull "
                 "request would have been a task."})}
+# The same with no run in the history, each limit at 0: its chart says it has none, and what
+# off does is still said.
+UNRUN = {key: (SAYS[key][0], heading, {0: off}) for key, heading, off in (
+    ("review_rounds", "no finished runs yet", SAYS["review_rounds"][2][0]),
+    ("executor_lines", "how often a build passed its first review, by size · none yet",
+     SAYS["executor_lines"][2][0]),
+    ("orchestrator_lines", "how often an orchestrator's own pull request merged in its first "
+     "round, by size · none yet", "Off: orchestrators build nothing themselves."))}
 
 
 def lines(screen):
@@ -131,24 +139,38 @@ class LimitsPage(unittest.TestCase):
             line.startswith(f"› {name:<{WIDE}}  ") and f" {value} " in f"{line} "
             for line in lines(screen))))
 
-    def reads(self, term, key, held):
+    def pointed(self, key, held):
+        """`config · limits` over a config.toml setting `key` to `held`, the pointer on its row."""
+        name = NAMES[list(SAYS).index(key)]
+        term = self.c({key: held})
+        self.limits(term)
+        term.keys(*["j"] * NAMES.index(name))
+        term.wait(f"› {name}")
+        return term
+
+    def reads(self, term, key, held, says=SAYS):
         """`key`'s row pointed at `held`: what it means, its chart's heading and what its runs
-        would have done there show in that order, and no clause naming the board rows it moves."""
-        meaning, heading, said = SAYS[key]
+        would have done there, as `says` has them, show in that order, and no clause naming the
+        board rows it moves."""
+        meaning, heading, said = says[key]
         parts = (meaning, heading, said[held])
         shown = flat(term.wait(lambda screen: all(part in flat(screen) for part in parts)))
         self.assertEqual(sorted(parts, key=shown.index), list(parts), shown)
         self.assertNotIn("it moves", shown)
 
     def test_each_limit_says_what_it_means_then_shows_how_your_runs_did(self):
-        for key, name in zip(SAYS, NAMES):
+        for key in SAYS:
             for held in SAYS[key][2]:
                 with self.subTest(key=key, held=held):
-                    term = self.c({key: held})
-                    self.limits(term)
-                    term.keys(*["j"] * NAMES.index(name))
-                    term.wait(f"› {name}")
-                    self.reads(term, key, held)
+                    self.reads(self.pointed(key, held), key, held)
+
+    def test_with_no_runs_each_limit_off_still_says_what_off_does(self):
+        self.home = Home()            # its own, holding no history
+        self.addCleanup(self.home.close)
+        fakeadapter.install(self.home, claude="pass", codex="pass")
+        for key in UNRUN:
+            with self.subTest(key=key):
+                self.reads(self.pointed(key, 0), key, 0, UNRUN)
 
     def test_c_shows_one_limits_row_with_the_three_values(self):
         shown = lines(self.c().wait("Limits"))
