@@ -13,7 +13,7 @@ import (
 
 // Of five pieces red on the helper, the first passes alone, the second is killed for memory alone,
 // the third fails again alone and settles the suite, the fourth keeps what it printed there, and
-// the fifth named no test: the first two then run whole.
+// the fifth named no test: the first two then run whole, and passing, their tests failed, then passed.
 func TestOneHelperRedConfirmedSettlesTheSuiteAndTheRestKeepWhatTheyPrintedThere(t *testing.T) {
 	dir := t.TempDir()
 	l := &loop{dir: dir, voice: io.Discard}
@@ -35,9 +35,9 @@ func TestOneHelperRedConfirmedSettlesTheSuiteAndTheRestKeepWhatTheyPrintedThere(
 	var runs []string
 	rerun := func(at *piece, _ string, only []string) error {
 		runs = append(runs, at.shard+" "+map[bool]string{true: "alone", false: "whole"}[only != nil])
-		at.ended = ran{}
+		at.ended = ran{testReport: testReport{flaky: at.ended.flaky}} // each go keeps the names before it
 		if only != nil && at.shard == "2/5" {
-			at.ended = ran{code: 137, starved: true}
+			at.ended.code, at.ended.starved = 137, true
 		}
 		if only != nil && at.shard == "3/5" {
 			at.ended = ran{code: 1, testReport: testReport{confirmed: only}}
@@ -58,5 +58,10 @@ func TestOneHelperRedConfirmedSettlesTheSuiteAndTheRestKeepWhatTheyPrintedThere(
 	}
 	if all[0].how != "failed on the suite helper acme-mac" || string(all[0].failed) != "FAIL there\n" || all[0].ended.code != 0 {
 		t.Fatalf("a piece passing whole here is a flake of the helper: %+v", all[0])
+	}
+	for k, test := range []string{"a.sh", "s.sh"} {
+		if !reflect.DeepEqual(all[k].ended.flaky, []string{test}) {
+			t.Fatalf("%s failed there, then passed here, yet the piece names %v", test, all[k].ended.flaky)
+		}
 	}
 }
