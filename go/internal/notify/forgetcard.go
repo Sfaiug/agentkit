@@ -11,12 +11,12 @@ import (
 // ForgetCard is Python's notify.forget_card: the card of a seat that is gone off the host, under
 // the seat's typing lock, which stays for whoever holds or waits on it; a question's episode
 // retired first where Discord has not taken its card yet, and what went out left as it went.
-// A card that is a link is not the seat's, and one under an old name leading to a renamed seat
-// is not this one's.  One that does not close is said to log and left for a retry, the rest of
-// the seat's forgetting going on without it.
+// A card that is a link, a hard link or not this user's is not the seat's, and one under an old
+// name leading to a renamed seat is not this one's.  One that does not close is said to log and
+// left for a retry, the rest of the seat's forgetting going on without it.
 func ForgetCard(name string, log func(string)) {
 	path := seatFile("card", name, "json")
-	if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+	if info, err := os.Lstat(path); err != nil || !single(info) {
 		return
 	}
 	closed := false
