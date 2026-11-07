@@ -99,12 +99,13 @@ def _binds(*paths):
 BOXED = "AKBIN_BOXED" in os.environ
 
 
-def rerun_boxed():
-    """Run this test file again in one box of `home.tick()`'s kind, every Home and ak of it
-    inside, and exit with its status; inside one, or where bwrap cannot build one, return."""
+def rerun_boxed(box=_BOX):
+    """Run this test file again in one box, of `home.tick()`'s kind unless `box` names bwrap's
+    words, every Home and ak of it inside, and exit with its status; inside one, or where bwrap
+    cannot build one, return."""
     if BOXED or not boxable():
         return
-    sys.exit(subprocess.call([*_BOX, *_binds(REPO, Path(AK).resolve().parent), "--setenv",
+    sys.exit(subprocess.call([*box, *_binds(REPO, Path(AK).resolve().parent), "--setenv",
                               "AKBIN_BOXED", "1", "--", sys.executable,
                               os.path.abspath(sys.argv[0]), *sys.argv[1:]]))
 
