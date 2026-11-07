@@ -7478,17 +7478,11 @@ def start_live_probe(run_dir):
             if (follower := live_lock(repo, "follower", wait=False)) is None:
                 live_runs(repo, run_dir.name)     # the live follower takes it at its next look
                 return
-            with os.fdopen(follower):   # on its stdin, held from its start (`live_follower`)
-                pid = orch.start_in_slice(
+            with os.fdopen(follower):   # on its stdin, held from its fork (`live_follower`)
+                orch.start_in_slice(
                     [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
                     f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
                     target_slice=orch.run_slice_name(), stdin=follower)
-            # a service has it opened anew, to take as it starts: till then no other merge looks
-            while (free := live_lock(repo, "follower", wait=False)) is not None:
-                os.close(free)
-                if (started := host.proc_stat(pid)) is None or started.exited:
-                    break   # it ended first, so the next merge starts the next
-                time.sleep(0.05)
     except (OSError, config.Error):
         pass  # the tick still follows it
 
@@ -7501,10 +7495,9 @@ def live_follower(run):
         return 0    # no project, so nothing proves it live (`awaiting_live`)
     follower, following, runs = None, [], [run]
     try:
-        # The follower lock on stdin from the merge that started it (`start_live_probe`), a
-        # service's opened anew, so taken; moved off stdin, so no command it runs keeps it.
+        # The follower lock on stdin from the merge that started it (`start_live_probe`), held
+        # since its fork; moved off stdin, so no command it runs keeps it.
         if os.path.samestat(os.fstat(0), os.stat(live_path(repo, "follower"))):
-            fcntl.flock(0, fcntl.LOCK_EX)
             follower = os.dup(0)
             with open(os.devnull) as null:
                 os.dup2(null.fileno(), 0)
