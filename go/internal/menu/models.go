@@ -168,7 +168,7 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 	if wide {
 		under = 2 + mark + 2 + 2
 	}
-	first := slices.IndexFunc(said, func(role Role) bool { return len(role.Lines) > 0 })
+	unit := "" // the last role with rows' unit
 	var lines []matrixRow
 	at, next := -1, 0
 	put := func(line string) { lines = append(lines, matrixRow{line: strings.TrimRight(line, " "), row: at}) }
@@ -178,7 +178,10 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		if number > 0 {
 			put("")
 		}
-		headings := headed(said, number, first)
+		headings := headed(role, unit)
+		if len(role.Lines) > 0 {
+			unit = role.Unit
+		}
 		if !headings || !wide {
 			put("  " + role.Head)
 		}
