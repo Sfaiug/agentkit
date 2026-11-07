@@ -1,6 +1,7 @@
 """Choose the declared suite's checks for its mode and divide them, and name those that failed,
 without changing a check or keeping shared timing state."""
 
+import json
 import os
 from pathlib import Path
 import re
@@ -35,6 +36,13 @@ def name_failed(tests, file="AK_FAILED"):
     if os.environ.get(file):
         with open(os.environ[file], "a") as fh:
             fh.writelines(f"{test}\n" for test in tests)
+
+
+def name_timed(times):
+    """Write a test file's passing parts' seconds, `times`, to the file PART_TIMES names, if it
+    names one, as every_file.py asks of each file it runs."""
+    if os.environ.get("PART_TIMES"):
+        Path(os.environ["PART_TIMES"]).write_text(json.dumps(times))
 
 
 def claims(root):

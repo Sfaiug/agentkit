@@ -17,7 +17,6 @@ takes minutes, so every_file.py's re-run, and a narrowing step on that claim, ru
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
 """
 
-import json
 import os
 from pathlib import Path
 import re
@@ -28,7 +27,7 @@ import tempfile
 import time
 import unittest
 
-from suite_shares import claims, name_failed
+from suite_shares import claims, name_failed, name_timed
 from test_go import ENV
 
 REPO = Path(__file__).resolve().parents[1]
@@ -76,9 +75,7 @@ class Claims(unittest.TestCase):
                     print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
         failing = [claim.split()[0] for claim in failed]
         name_failed(failing, "FAILED_PARTS")
-        if os.environ.get("PART_TIMES"):
-            Path(os.environ["PART_TIMES"]).write_text(json.dumps(
-                {name: seconds for name, seconds in took.items() if name not in failing}))
+        name_timed({name: seconds for name, seconds in took.items() if name not in failing})
         self.assertFalse(failed, "these claims of go/keys.txt fail or skip")
 
 
