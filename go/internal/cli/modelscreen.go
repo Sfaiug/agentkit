@@ -142,14 +142,15 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				pointing = false
 			}
 		case key.Name == "char" && key.Char == "p":
-			if !menuCompanyList(title, keyboard, painter) {
+			said, carried := menuCompanyList(title, keyboard, painter)
+			if !carried {
 				return false
 			}
 			if answered() != nil { // left, answered again over what is on
 				return false
 			}
 			lineup()
-			note = ""
+			note = said
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {

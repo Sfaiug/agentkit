@@ -10,13 +10,12 @@ import (
 	"agentkit/internal/run"
 )
 
-// SaveNewSeatsEffort is a fresh `c`'s effort step on the entry new seats open at
-// (config.StepEffort), every seat's record first holding the efforts it runs at, as Python's
-// save keeps them, so none moves with it.  The records change all or none, their locks held
-// from before they are read until config.toml lands, so a record written meanwhile waits.
-// False, with nothing written, leaves the step to Python: a config Go binds otherwise, or a
-// record holding what Go cannot write back.
-func SaveNewSeatsEffort(step config.EffortStep) (bool, error) {
+// SaveWhole is `save`, one of config's whole-file writers, every seat's record first holding the
+// efforts it runs at, as Python's save keeps them, so none moves with it.  The records change
+// all or none, their locks held from before they are read until config.toml lands, so a record
+// written meanwhile waits.  False, with nothing written, leaves the change to Python: a config Go
+// binds otherwise, or a record holding what Go cannot write back.
+func SaveWhole(save func(keep func() error) error) (bool, error) {
 	bound, err := config.Bind()
 	if err != nil {
 		return false, nil
@@ -29,9 +28,7 @@ func SaveNewSeatsEffort(step config.EffortStep) (bool, error) {
 	if err != nil {
 		return true, err
 	}
-	err = savingEfforts(bound.Models, models, offered, waitLocks, func(keep func() error) error {
-		return config.StepEffort(step, keep)
-	})
+	err = savingEfforts(bound.Models, models, offered, waitLocks, save)
 	if errors.Is(err, run.ErrLoneSurrogate) {
 		return false, nil
 	}
