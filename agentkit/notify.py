@@ -1611,9 +1611,9 @@ def left(record, harness, conversation):
 
 def conversations_of(name):
     """Each conversation that seat had, oldest first, as `conversation_of` gives its current
-    one, which comes last where its harness names one yet (a fresh OpenCode seat names none
-    before its first prompt): before it, each one the seat left, as its record keeps them
-    (`left`).  No conversation where `conversation_of` gives no seat."""
+    one, which comes last once its harness names it (one may name none before its first
+    prompt): before it, each one the seat left, as its record keeps them (`left`).  No
+    conversation where `conversation_of` gives no seat."""
     from . import orch
     seat = conversation_of(name)
     if seat is None:
