@@ -46,7 +46,8 @@ def importers(tests):
         """Each import statement in `file`: the dots before its module's name, that name, and
         the names a `from` takes from it, none for a plain import of each of its names."""
         if file not in statements:
-            nodes = ast.walk(ast.parse(Path(file).read_text()))
+            # Bytes, so the parser decodes them as Python running them does: a BOM, a coding line.
+            nodes = ast.walk(ast.parse(Path(file).read_bytes()))
             statements[file] = [found for node in nodes for found in (
                 [(0, alias.name, ()) for alias in node.names] if isinstance(node, ast.Import)
                 else [(node.level, node.module or "", [alias.name for alias in node.names])]
