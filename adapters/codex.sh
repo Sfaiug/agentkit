@@ -53,7 +53,8 @@ if [ -n "$ACCOUNT" ]; then
   unset OPENAI_API_KEY CODEX_API_KEY
 fi
 # The login every verb reads is the one a turn reads: its Codex home's, one the user set included
-AUTH="${CODEX_HOME:-$HOME/.codex}/auth.json"
+LOGIN="${CODEX_HOME:-$HOME/.codex}"
+AUTH="$LOGIN/auth.json"
 # The three read/write endpoints the Codex TUI itself uses: /usage carries the meters and the
 # reset count, /rate-limit-reset-credits lists the credits, and .../consume spends one.
 API=https://chatgpt.com/backend-api/wham
@@ -179,10 +180,10 @@ interactive)
   # screen comes to rest, starts moving or codex exits.  It sits outside the seat wrapper,
   # which gives this launch's hooks and receipt to its own app server.  Headless `ak worker`
   # runs are not wrapped: they are not seats.
-  # The printed command runs later, outside this adapter's environment: it carries the login.
-  if [ -n "$ACCOUNT" ]; then
-    printf 'env -u OPENAI_API_KEY -u CODEX_API_KEY CODEX_HOME=%q ' "$CODEX_HOME"
-  fi
+  # The printed command runs later, outside this adapter's environment, perhaps under an
+  # account's home a seat handed down: it carries the login, the usual one's too.
+  keys=""; [ -z "$ACCOUNT" ] || keys="-u OPENAI_API_KEY -u CODEX_API_KEY "
+  printf 'env %sCODEX_HOME=%q ' "$keys" "$LOGIN"
   # The seat's first message, when its launch carries one, goes in as codex's `[PROMPT]`,
   # which `codex resume` takes too: sent once the conversation has loaded, never typed into a
   # TUI still loading it.  codex-seat.py keeps the options it adds ahead of it.
