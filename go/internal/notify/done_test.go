@@ -9,10 +9,23 @@ import (
 )
 
 func TestADoneQueuesItsWorkOnceEvenWhenItsCardIsLost(t *testing.T) {
-	_, write := questionHome(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("AK_NOTIFY_SINK", "dry-run")
+	t.Setenv("AGENTKIT_DISCORD_USER_ID", "")
+	t.Setenv("PATH", t.TempDir())
+	if err := os.MkdirAll(state(), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	// a seat as launched: its done's row is read from the conversation its harness keeps
-	write(seatFile("session", "acme", "json"), `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme","created":1}`)
-	write(seatFile("seat", "acme", "json"), `{"word":"done","reason":"API ships"}`)
+	for path, text := range map[string]string{
+		filepath.Join(filepath.Dir(state()), "config.toml"): "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n",
+		seatFile("session", "acme", "json"):                 `{"orchestrator":"opus","cwd":"/code/acme","conversation":"conv-acme","created":1}`,
+		seatFile("seat", "acme", "json"):                    `{"word":"done","reason":"API ships"}`,
+	} {
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	said := func(string) (string, any) { return "done", run.Float(clock()) }
 	work := func(string) ([]any, error) { return []any{[]any{"acme/api", "API ships"}}, nil }
 	cardPath := seatFile("card", "acme", "json")
