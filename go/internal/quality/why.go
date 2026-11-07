@@ -37,7 +37,11 @@ func Explain(found *Said, role string, row *Rating) Explanation {
 		Behind:  "the best",
 	}
 	if row.Cost != nil {
-		why.Cost = fmt.Sprintf("$%.2f a %s task", *row.Cost, measureNames[costMeasures[Costs[role]]])
+		// board dollars are a task of the board's evaluation; a share or plan dollars, one of ak's
+		why.Cost = found.CostText(row) + " a task"
+		if found.CostUnit == "board_dollars" {
+			why.Cost = found.CostText(row) + " a " + measureNames[costMeasures[Costs[role]]] + " task"
+		}
 	}
 	if top := found.Top; top != nil && row != top {
 		why.Behind = fmt.Sprintf("%.1f %s,", top.Quality-row.Quality, Behind)

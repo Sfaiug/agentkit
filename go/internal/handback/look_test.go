@@ -81,3 +81,35 @@ func TestAChangedAttemptOrTypedLineCannotBeRecordedByAnEarlierLook(t *testing.T)
 		}
 	}
 }
+
+func TestALookAtAMergeGoneLiveSaysAndSettlesItUnlessHealthMovedSince(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, moved := range []bool{false, true} {
+		dir := filepath.Join(t.TempDir(), "fix-api")
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		record := run.Fields("state", "pass", "verdict", "PASS", "merged", true, "pr", "https://github.com/acme/api/pull/1",
+			"finished_at", now(), "live_at", run.Float(100), "handback_pending", true)
+		if err := run.Create(dir, record); err != nil {
+			t.Fatal(err)
+		}
+		line, printed := LookLine(dir, record)
+		if !strings.Contains(line, "run fix-api is live: https://github.com/acme/api/pull/1.") || printed == nil {
+			t.Fatalf("the look left out its live sentence: %q", line)
+		}
+		if moved {
+			if err := run.Change(dir, func(current *run.Object) error {
+				current.Set("live_at", run.Float(200))
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		printed()
+		said, _ := run.Read(dir)
+		if !handedBack(said) || said.Truthy("live_notified") == moved || !moved && said.Str("live_note") != looked {
+			t.Fatal("the live notice the look printed was not settled as such", moved, run.Line(said))
+		}
+	}
+}

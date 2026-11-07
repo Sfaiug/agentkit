@@ -176,7 +176,7 @@ func (r *repoPlace) landFromLine(l *loop, upstream string, record *run.Object, d
 	}
 	saved := cmp.Or(record.Dict("review"), run.NewObject())
 	if err := l.save(func(record *run.Object) {
-		review := run.SetAll(saved.Copy(), "head_sha", head, "tree_sha", tree, "passed_head_sha", passedReviewHead(record),
+		review := run.SetAll(saved.Copy(), "head_sha", head, "tree_sha", tree, "passed_head_sha", none(passedReviewHead(record)),
 			"rebased_from", saved.Get("head_sha"))
 		run.SetAll(record, "base_sha", tip, "target_sha", tip, "review", review)
 	}); err != nil {

@@ -16,16 +16,14 @@ import (
 func TestAnAuditLeavesATypedLineItDoesNotFinishToPython(t *testing.T) {
 	up := "*list-sessions*) printf 'audit\\t1\\n' ;; *list-panes*) printf 'audit\\t0\\n' ;;"
 	claude := `{"orchestrator":"opus","conversation":"conv-audit"}`
-	for _, each := range []struct{ name, tmux, record, typed, mark, stall string }{
+	for _, each := range []struct{ name, tmux, record, typed, mark string }{
 		// a seat not up, its composer gone with it (milestone 140a3), which the owner closed
-		{"gone", "", claude, `{"line":"earlier work","seat":1}`, `{"closed_by_owner":true}`, `{}`},
+		{"gone", "", claude, `{"line":"earlier work","seat":1}`, `{"closed_by_owner":true}`},
 		// up at the row's first look and gone by its next, its record one a reopen refuses aloud
 		{"gone since its first look", `*list-sessions*) [ -e "$HOME/looked" ] || { touch "$HOME/looked"; printf 'audit\t1\n'; } ;; ` +
-			`*list-panes*) printf 'audit\t0\n' ;;`, `{}`, `{"line":"earlier work","seat":1}`, `{}`, `{}`},
+			`*list-panes*) printf 'audit\t0\n' ;;`, `{}`, `{"line":"earlier work","seat":1}`, `{}`},
 		// ak's editor's receipt, naming the pane it went into, in a seat up at Claude
-		{"through the editor", up, claude, `{"line":"earlier work","seat":1,"pane":"%3"}`, `{}`, `{}`},
-		// a stall's line, sent before the week's is written (milestone 140b)
-		{"behind a stall's line", up, claude, `null`, `{}`, `{"line":"ak stalled","typed":{"line":"ak stalled","seat":1},"delivered":null}`},
+		{"through the editor", up, claude, `{"line":"earlier work","seat":1,"pane":"%3"}`, `{}`},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)
@@ -39,7 +37,6 @@ func TestAnAuditLeavesATypedLineItDoesNotFinishToPython(t *testing.T) {
 				"[providers.test]\nmode='subscription'\n")
 			put(t, filepath.Join(ak, "state", "session-audit.json"), each.record)
 			put(t, filepath.Join(ak, "state", "seat-audit.json"), each.mark)
-			put(t, filepath.Join(ak, "state", "stuck.json"), each.stall)
 			path := filepath.Join(ak, "state", "audit.json")
 			before := `{"week":"2026-W44","line":"earlier work","typed":` + each.typed + `,"delivered":null}`
 			put(t, path, before)

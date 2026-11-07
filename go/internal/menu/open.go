@@ -2,9 +2,10 @@ package menu
 
 import "agentkit/internal/terminal"
 
-// Open is the seat Enter or a released left button opens on the frame the owner saw.
+// Open is the seat Enter or a released left button opens on the frame the owner saw; Enter opens
+// nothing where the highlight was hidden (Highlight.Move).
 func (f Frame) Open(key terminal.Key) string {
-	if key.Name == "enter" {
+	if key.Name == "enter" && !f.hidden {
 		return f.cursor
 	}
 	m := key.Mouse

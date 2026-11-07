@@ -387,7 +387,7 @@ func (r *repoPlace) recheck(l *loop, upstream, how, before string, saved *run.Ob
 	l.say(fmt.Sprintf("--- merge: clean %s of %s; done-when passed again, review kept", how, upstream))
 	return l.save(func(record *run.Object) {
 		// patch_id, which nothing reads, is left out
-		review := run.SetAll(saved, "head_sha", head, "tree_sha", tree, "passed_head_sha", passedReviewHead(record), "rebased_from", before)
+		review := run.SetAll(saved, "head_sha", head, "tree_sha", tree, "passed_head_sha", none(passedReviewHead(record)), "rebased_from", before)
 		run.SetAll(record, "review", review, "verdict", verdict)
 		keepFlakes(record, text)
 		record.Delete("review_pending")

@@ -211,11 +211,7 @@ func RemoveProvider(provider string, keep func() error) error {
 
 // saveSubscriptions is the config with change made to it, saved as `c` saves.
 func saveSubscriptions(change func(root *table) error, keep func() error) error {
-	_, file, err := modelFile()
-	if err != nil {
-		return err
-	}
-	return saveConfig(file, change, keep)
+	return saveConfig(modelTable, change, keep)
 }
 
 func providerTable(root *table, provider string) (*table, error) {

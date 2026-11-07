@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/googlecloud"
@@ -12,7 +11,7 @@ import (
 )
 
 // ConfigServices reads the saved Discord and cloud status without contacting either service.
-func ConfigServices(now time.Time) (discord, cloud string) {
+func ConfigServices() (discord, cloud string) {
 	secret := func(name string) string {
 		data, _ := os.ReadFile(filepath.Join(config.Home(), "secrets", name))
 		return strings.TrimFunc(string(data), config.Space)
@@ -30,5 +29,5 @@ func ConfigServices(now time.Time) (discord, cloud string) {
 		}
 		discord = strings.Join(append(parts, "webhook …"+string(hook[max(0, len(hook)-6):])), " · ")
 	}
-	return discord, googlecloud.Summary(now, false)
+	return discord, googlecloud.Summary(false)
 }

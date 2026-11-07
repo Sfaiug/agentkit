@@ -29,9 +29,13 @@ func PlainStalls(stalls *run.Object) bool {
 
 // KeepStall is the health row's look at the stall the seat's screen shows (watch.health): its
 // entry, the one held or a new one, observed on this capture as watch.observe ages the error line
-// and the screen apart, the line saying nothing is typed yet; false once it has stood quiet for
-// stallWait, when the row types past it.
+// and the screen apart, the line saying nothing is typed yet; false where its plan may be done
+// unprompted, which Go leaves to Python, and once it has stood quiet for stallWait, when the row
+// types past it.
 func KeepStall(live Live, held *run.Object, now float64) (*run.Object, string, bool) {
+	if mayRestDone(live.Name) {
+		return nil, "", false
+	}
 	entry := run.NewObject()
 	if held != nil {
 		entry = held.Copy()

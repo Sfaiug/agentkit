@@ -4,8 +4,9 @@ package loop
 // Whole checks, evidence, publication and delivery remain the line's own steps. Named tests
 // passing alone are search evidence only: below each culprit a whole check must cover the
 // surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
-// (flakes.go). Reds with suite helpers, reviews of PRs other than a seat's own, changed-file suites
-// and target repairs stay with Python, as do integration or rules refusals on a stack.
+// (flakes.go). A step that probes the stacks between on the suite helpers, reviews of PRs other
+// than a seat's own, changed-file suites and target repairs stay with Python, as do integration or
+// rules refusals on a stack.
 
 import (
 	"context"
@@ -206,8 +207,7 @@ func (s *narrowingStack) check(checks []string, suite, kind string, selection *c
 		}
 	}()
 	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, kind, suite, selection)
-	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) || err == nil && !ok && !selection.pinned() && helper.May() {
-		// a whole check's red with suite helpers is Python's, as stack.go says
+	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) {
 		selection.handoff, err = true, nil
 	}
 	if err != nil || selection.handoff {
@@ -376,7 +376,11 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 				return index, accepted, nil
 			}
 			owner := slices.IndexFunc(stacks, func(stack *narrowingStack) bool { return slices.Contains(stack.checks, command) })
-			middle := (max(low, owner-1) + index) / 2
+			floor := max(low, owner-1)
+			if len(tests) > 0 && floor+1 < index && helper.May() {
+				return -1, accepted, nil // Python sends the stacks between to the suite helpers, many at once
+			}
+			middle := (floor + index) / 2
 			runs := command
 			if middle < owner {
 				runs = ""

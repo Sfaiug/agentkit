@@ -43,3 +43,20 @@ func TestTasksGiveWayToACountWhileTheCrewKeepsItsRoles(t *testing.T) {
 		}
 	}
 }
+
+func TestEnterOnAHiddenHighlightOnlyBringsItBack(t *testing.T) {
+	view := fourSeats()
+	name := view.Seats[1].Name
+	view.Highlight = Highlight{Cursor: name, Hidden: true}
+	enter := terminal.Key{Name: "enter"}
+	drawn := Draw(view, 100, 30)
+	if opened := drawn.Open(enter); opened != "" {
+		t.Fatalf("Enter opened %q", opened)
+	}
+	if !view.Highlight.Move(enter, drawn) || view.Highlight != (Highlight{Cursor: name}) {
+		t.Fatalf("%+v", view.Highlight)
+	}
+	if opened := Draw(view, 100, 30).Open(enter); opened != name {
+		t.Fatalf("the second Enter opened %q", opened)
+	}
+}

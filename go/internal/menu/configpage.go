@@ -27,6 +27,10 @@ type PageRow struct {
 	// or act, false where they are Python's
 	List    func() ([]PageRow, bool)
 	Several bool // List's choices are each taken in or out, Enter closing it; else Enter picks the lit one
+	// Enter or a click: a field opens under the row, Placeholder dim in it until a key types over
+	// it; its Enter gives Field what was typed, and what to say under the rows
+	Field       func(typed string) string
+	Placeholder string
 }
 
 // Page is a page `c` opens, `config · <Name>`, as one draw has it.
@@ -34,6 +38,7 @@ type Page struct {
 	Name       string
 	Rows       []PageRow
 	Choices    []PageRow // the list open under the row the keys are on: none while it is shut
+	Typed      *string   // what is typed in the field open under the row the keys are on: nil while it is shut
 	At, Choice int       // the row the keys are on, and with a list open its choice
 	Lists      int       // how many lists the page has opened: the one open comes up as it is news
 	Top        int       // the first line shown
@@ -51,8 +56,11 @@ type PageFrame struct {
 	lines []pageEntry // each line's
 }
 
-// A pageEntry is a page's row, or a choice of the list open under it; choice -1 for the row.
+// A pageEntry is a page's row, or a choice of the list open under it; choice -1 for the row, and
+// typedIn for the field open under it.
 type pageEntry struct{ row, choice int }
+
+const typedIn = -2
 
 // Hit is the row under the pointer, and its open list's choice there, -1 for none; false off
 // every row.
@@ -108,11 +116,12 @@ func pageTop(lines []pageEntry, at pageEntry, top, page int) int {
 
 // ConfigPage draws a page `c` opens as page_body draws one: each row's label, then its value lined
 // up past the widest label and wrapped at a word under itself, never cut, or folded under its
-// label where a word is too wide beside it; an open list's choices under its row, indented.  The
-// highlighted row stays on the page, a page of it where it is taller, what was said and the note
-// under the rows, and the key line names what Space and Enter do there.  On the clock the page
-// comes up as it opens (comeUp), a list comes up under its row, and a mark that flips goes through
-// its half (motion.Clock.Mark).
+// label where a word is too wide beside it; an open list's choices under its row, indented, or an
+// open field under the row's last line (fieldLine).  The highlighted row stays on the page, a page
+// of it where it is taller, or the field, no row lit; what was said and the note under the rows,
+// and the key line names what Space and Enter do there.  On the clock the page comes up as it
+// opens (comeUp), a list comes up under its row, and a mark that flips goes through its half
+// (motion.Clock.Mark).
 func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	room, wide, clock := s.LayoutWidth(), 0, view.Motion
 	for _, row := range view.Rows {
@@ -121,6 +130,9 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 	at := pageEntry{view.At, -1}
 	if len(view.Choices) > 0 {
 		at.choice = view.Choice
+	}
+	if view.Typed != nil {
+		at.choice = typedIn // the field stays on the page, and no row is lit
 	}
 	_, opening := clock.Moved("opened", view.Lists, motion.Open)
 	var body []string
@@ -212,11 +224,16 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			for n, choice := range view.Choices {
 				draw(choice, pageEntry{i, n}, marks(row.Several))
 			}
+			if view.Typed != nil {
+				body, lines = append(body, fieldLine(s, *view.Typed, row.Placeholder)), append(lines, at)
+			}
 		}
 	}
 
 	keys := "↑↓←→ move   "
-	if view.At < len(view.Rows) {
+	if view.Typed != nil {
+		keys = "⏎ save   " // typed in, nothing moves
+	} else if view.At < len(view.Rows) {
 		lit, enter := view.Rows[view.At], ""
 		switch {
 		case at.choice >= 0:
@@ -230,7 +247,7 @@ func ConfigPage(s terminal.Screen, view Page) PageFrame {
 			} else if lit.Flip == nil {
 				enter = ""
 			}
-		case lit.Open != nil || lit.List != nil:
+		case lit.Open != nil || lit.List != nil || lit.Field != nil:
 			enter = "open"
 		}
 		if lit.Flip != nil {

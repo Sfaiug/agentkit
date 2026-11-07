@@ -6,30 +6,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
-	"time"
 
 	"agentkit/internal/gitcall"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 )
-
-func (t *ticking) waitingIdle() bool { return !t.dry || noWaitingResume() }
-
-// A dry row names work without fetching refs or starting a resume.
-func noWaitingResume() bool {
-	return run.Every(func(dir string, record *run.Object) bool {
-		state := record.Str("state")
-		if state != "fail" && state != "waiting" {
-			return true
-		}
-		if wait := record.Dict("waiting_on"); wait != nil && wait.Truthy("line") {
-			return false
-		}
-		return record.Truthy("job_id") || run.TickAdmission(record, time.Now()) == "" ||
-			state == "fail" && !run.ParkableConflict(dir, record, time.Now())
-	})
-}
 
 var fullOID = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
 
@@ -48,7 +30,8 @@ func upstreamSHA(wt, ref string) string {
 }
 
 // waiting is watch.resume_waiting: park once at a fetched baseline, then ask Go's own
-// resume to carry the run on when that upstream moves.
+// resume to carry the run on when that upstream moves.  A dry tick says what it would do and
+// fetches nothing: a fetch moves the very refs it reports on.
 func (t *ticking) waiting() error {
 	var failed error
 	lines := map[string]bool{}
@@ -62,7 +45,11 @@ func (t *ticking) waiting() error {
 		if line := loop.ParkedLine(record); line != "" {
 			if !lines[line] {
 				lines[line] = true
-				loop.StartLine(line, t.log.errOut)
+				if t.dry {
+					t.log.line("would start lander for " + line)
+				} else {
+					loop.StartLine(line, t.log.errOut)
+				}
 			}
 			return true
 		}
@@ -82,6 +69,10 @@ func (t *ticking) waiting() error {
 			return failed == nil || errors.Is(failed, errMovedRun)
 		}
 		id := filepath.Base(dir)
+		if t.dry {
+			t.log.line(wouldWait(id, record))
+			return true
+		}
 		if state == "waiting" && !directory(record.Str("worktree")) {
 			reason := fmt.Sprintf("this run's worktree %s is gone; it cannot be resumed where it stopped.", cmp.Or(record.Str("worktree"), "(none)"))
 			ok := change(func(current *run.Object) error {
@@ -162,3 +153,20 @@ func (t *ticking) waiting() error {
 }
 
 var errMovedRun = errors.New("the run changed during the tick")
+
+// wouldWait is what a dry tick says of a run the row would park, interrupt or resume, as
+// resume_waiting's dry run says it: a fail parks on its conflict's upstream, a wait whose
+// worktree is gone is interrupted, and any other is resumed once its ref moves.
+func wouldWait(id string, record *run.Object) string {
+	ref := run.ConflictUpstream(record)
+	if record.Str("state") == "fail" {
+		return fmt.Sprintf("would park %s waiting on %s", id, ref)
+	}
+	if wt := record.Str("worktree"); !directory(wt) {
+		return fmt.Sprintf("would interrupt %s: waiting on a merge, but its worktree %s is gone", id, cmp.Or(wt, "(none)"))
+	}
+	if wait := record.Dict("waiting_on"); wait != nil {
+		ref = cmp.Or(wait.Str("ref"), ref)
+	}
+	return fmt.Sprintf("would resume %s after the next merge to %s", id, ref)
+}

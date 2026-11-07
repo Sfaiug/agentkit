@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/googlecloud"
@@ -34,7 +33,7 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		}
 		active, _ := config.CloudBudget()
 		work, known := workWords(machines.Cloud)
-		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(time.Now(), true) + " · " + work, On: active,
+		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(true) + " · " + work, On: active,
 			Flip: func() string { return saved(machines.Cloud.Save("active", !active, seat.KeepConfigEfforts)) },
 			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}), known
 	}, keyboard, painter)
@@ -42,8 +41,8 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 
 // menuMachineWork is `config · machines · <name>`: a mark for each work a machine may take,
 // Space flipping it, saved at once, but builds and reviews on a Mac.  A machine ak rents takes
-// the cloud's marks, whose page has its monthly cap too, a field that is Python's.  Each draw
-// and each flip reads the machine afresh, as a probe may land while the page is open.
+// the cloud's marks, whose page has its monthly cap too, a field (saveCap).  Each draw and each
+// flip reads the machine afresh, as a probe may land while the page is open.
 func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	if machines.Named(name).Rented() {
 		name = ""
@@ -63,7 +62,8 @@ func menuMachineWork(name string, keyboard *terminal.Keyboard, painter *terminal
 		}
 		if name == "" {
 			_, cap := config.CloudBudget()
-			rows = append(rows, menu.PageRow{Label: "Monthly cap", Value: fmt.Sprintf("€%.6g", cap), Open: func() bool { return false }})
+			rows = append(rows, menu.PageRow{Label: "Monthly cap", Value: fmt.Sprintf("€%.6g", cap),
+				Field: saveCap, Placeholder: "whole euros per month, 0 or more"})
 		}
 		return rows, true
 	}, keyboard, painter)

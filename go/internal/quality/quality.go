@@ -406,10 +406,13 @@ func measuredError(values *run.Object, each measure, best float64) *float64 {
 // the role's pick, Front those with a cost, best first, each better
 // than every cheaper one, a row of yours than every cheaper one of yours, as one no harness of
 // yours runs is no reason to leave it out, and Take what `r` takes: the same rule over yours.
-// Pick and Take stay visible even if rows outside their eligible pool beat them.  CostUnit is
-// what its rows' costs are in.
+// Pick and Take stay visible even if rows outside their eligible pool beat them.  Choices and
+// Others are choices' over those with a cost, whoever runs them.  CostUnit is what its rows'
+// costs are in.
 type Said struct {
 	Front      []*Rating
+	Choices    []*Rating
+	Others     []Other
 	Best       *float64
 	Pick, Take *Rating
 	Top        *Rating // best over all rows, including those not compared or priced
@@ -466,6 +469,7 @@ func Answer(rows []Row, compared map[string]bool, price Pricer) map[string]*Said
 			}
 		}
 		said.Pick, said.Take = pick(priced, role), pick(yours, role)
+		said.Choices, said.Others = choices(priced)
 		for _, chosen := range []*Rating{said.Pick, said.Take} {
 			if chosen != nil && !slices.Contains(said.Front, chosen) {
 				said.Front = append(said.Front, chosen)

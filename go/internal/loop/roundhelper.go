@@ -76,6 +76,7 @@ func (l *loop) onePiece(cwd string, cmds []string, path string, rows *history.Ch
 	if err != nil {
 		return false, "", "", err
 	}
+	keepTimes(cwd, path)
 	out, err := cutFrom(progress, 0, l.dir, stem(path), outCap)
 	if err != nil {
 		return false, "", "", err
