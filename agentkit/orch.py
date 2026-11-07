@@ -4469,11 +4469,12 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     harness can resume the seat's conversation, the conversation goes on there, as a
     reopened seat's does, and a turn it was in, or one its usage cut off, is told to go
     on. Otherwise the record
-    stays on the conversation the new launch owns, and the old harness's per-seat evidence
-    goes with it. This is a new conversation under a saved name, so the watch state is reset
-    the way a created seat's is, and what the old one said goes on the end of the file its
-    rulebook ends naming (`handover`), before the launch writes it: nothing is typed for it.  A
-    turn it was in is told to go on, the line the new harness opens on (`watch.relaunched`).
+    stays on the conversation the new launch owns, keeping the one it leaves (`left`), and the
+    old harness's per-seat evidence goes with it. This is a new conversation under a saved
+    name, so the watch state is reset the way a created seat's is, and what the old one said
+    goes on the end of the file its rulebook ends naming (`handover`), before the launch
+    writes it: nothing is typed for it.  A turn it was in is told to go on, the line the new
+    harness opens on (`watch.relaunched`).
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
@@ -4565,8 +4566,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
-    chosen = {"orchestrator": model, "account": account, **homed}
     from . import notify
+    # the conversation it leaves stays the seat's, for its done check to read the owner's words
+    # in (`notify.conversations_of`); a restart that fails puts every one of these back
+    chosen = {"orchestrator": model, "account": account, **homed,
+              **({"left": notify.left(record, old_harness, owned)} if owned and not kept else {})}
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
     # of the seat's lock, so no tick hands the text back to the harness going or before that line
     with notify.session_lock(name):

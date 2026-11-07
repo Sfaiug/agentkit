@@ -1599,6 +1599,16 @@ def conversation_of(name):
         return None
 
 
+def left(record, harness, conversation):
+    """That seat record's `left` with `conversation`, of `harness`, added last, beside the account
+    and directory it was written under: its harness reads it by those, and the record's own go
+    on to name the seat's next ones.  An entry kept without them, as /clear once kept its, takes
+    the record's, the ones it was read under until now."""
+    then = {"account": record.get("account"), "cwd": record.get("cwd")}
+    return [*({**then, **was} for was in record.get("left", [])),
+            {"harness": harness, "conversation": conversation, **then}]
+
+
 def conversations_of(name):
     """Each conversation that seat had, oldest first, as `conversation_of` gives its current
     one, which comes last: before it, each one the seat left, as its record keeps them (`left`).
@@ -1607,9 +1617,13 @@ def conversations_of(name):
     seat = conversation_of(name)
     if seat is None:
         return []
-    _, record, cwd, _ = seat
-    return [*((orch.harness_plugin(left["harness"]), record, cwd, left["conversation"])
-              for left in record.get("left", [])), seat]
+    record = seat[1]
+    # each read under the record as it was then: none of the current launch's evidence, which
+    # names the conversation it is on now (a harness may read one through its launch's receipt)
+    then = {key: value for key, value in record.items() if key not in harness.LAUNCH_KEYS}
+    gone = [{**then, **was} for was in record.get("left", [])]
+    return [*((orch.harness_plugin(was["harness"]), was, was.get("cwd"), was["conversation"])
+              for was in gone), seat]
 
 
 def owner_said(name, seat=None):
