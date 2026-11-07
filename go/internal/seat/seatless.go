@@ -6,9 +6,16 @@ import (
 )
 
 // seatless is whether no seat tmux holds goes by that name, Python's orch.seatless of a seat with
-// no record: orch.find does not find one, and ak's own server, asked afresh, has no session by it,
-// or one no agent runs in.  A probe that fails proves neither.
+// no record, asked of that one session afresh, since a listing a failed probe left empty proves
+// nothing: the person's default server has no session by it, and ak's own has none, or one without
+// ak's mark that no agent runs in.
 func seatless(name string) bool {
-	held, _, known := find(name, nil)
-	return known && !held && (tmux.Absent(tmux.Own(), "="+name) || agent.Agentless(tmux.Own(), []string{name}))
+	if !tmux.Absent(tmux.Default, "="+name) {
+		return false
+	}
+	if tmux.Absent(tmux.Own(), "="+name) {
+		return true
+	}
+	mark, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{"+tmux.Mark+"}")
+	return err == nil && mark != "1" && agent.Agentless(tmux.Own(), []string{name})
 }
