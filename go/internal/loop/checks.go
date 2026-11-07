@@ -236,9 +236,9 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 
 // boxed runs one command in cwd in a box, its output into progress and activity being where that
 // lands, until it ends, says nothing for the run's silence or spends limit; with a shard, as that
-// piece of its suite, handed times (AK_TIMES).  A proof keeps its bytecode apart: same-size revisions can share a
-// timestamp, making ignored bytecode look valid.  One holding a heavy-suite turn is told so, as
-// Python's suite_env tells it.
+// piece of its suite, handed times (AK_TIMES).  A proof keeps its bytecode apart: same-size
+// revisions can share a timestamp, making ignored bytecode look valid.  One holding a heavy-suite
+// turn is told so, as Python's suite_env tells it.
 func (l *loop) boxed(cwd, cmd, shard, times string, limit time.Duration, progress *os.File, activity string, proof, held bool, only ...[]string) (ran, error) {
 	out, err := os.MkdirTemp(filepath.Dir(activity), "")
 	if err != nil {
