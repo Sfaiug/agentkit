@@ -10,7 +10,6 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/run"
-	"agentkit/internal/tmux"
 )
 
 // CardWord is the seat's word as its card takes it, Python's transition: the ladder climbed now on
@@ -69,16 +68,15 @@ func (home Home) cardAnswer(name string, now time.Time) (word, reason string, si
 }
 
 // Unheld is whether nothing of that seat is left on the host but what it said (watch.seat_closed of
-// a seat orch.find does not find): no record keeps it, no tmux server holds a session by its name,
-// and no close of its owner's waits for its reopening.
+// a seat orch.find does not find): no record keeps it, no seat tmux holds goes by its name
+// (seatless), and no close of its owner's waits for its reopening.
 func Unheld(name string) bool {
 	path, err := config.SessionPath(name)
 	if _, missing := os.Lstat(path); err != nil || !errors.Is(missing, fs.ErrNotExist) {
 		return false
 	}
 	file, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "seat-"+name+".json"))
-	return (file == nil || !file.Truthy("closed_by_owner")) &&
-		tmux.Absent(tmux.Own(), "="+name) && tmux.Absent(tmux.Default, "="+name)
+	return (file == nil || !file.Truthy("closed_by_owner")) && seatless(name)
 }
 
 // keptSight is what the seat's last look kept in its file, the sight Python's card reads it by.
