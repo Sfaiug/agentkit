@@ -125,29 +125,35 @@ func museTyping(session string) (typed []Prompt) {
 // and none after it: 1.4.12 logs a later one its own end-of-turn reminder asked for that no screen
 // of it ever displays.
 func museSaid(session string) (said []Turn) {
-	answered := map[string]bool{} // runs whose prompt or latest steer a shown final answered
+	answered := map[string]bool{}
 	for entry := range museEntries(museLog(session)) {
-		run, _ := field(entry, "payload", "run_id").(string)
-		if text := museTyped(entry); text != "" {
-			delete(answered, run)
-			said = append(said, Turn{"user", text})
-			continue
-		}
-		event := museRunEvent(entry, "assistant_message_committed")
-		if event == nil {
-			continue
-		}
-		if !event.Truthy("phase") {
-			if answered[run] {
-				continue
-			}
-			answered[run] = run != ""
-		}
-		if text := event.Str("text"); text != "" {
-			said = append(said, Turn{"model", text})
+		if turn, shown := museTurn(entry, answered); shown {
+			said = append(said, turn)
 		}
 	}
 	return said
+}
+
+// museTurn is the turn that log line adds to museSaid's conversation, false for none, answered
+// holding the runs whose prompt or latest steer a shown final answered so far.
+func museTurn(entry *run.Object, answered map[string]bool) (Turn, bool) {
+	run, _ := field(entry, "payload", "run_id").(string)
+	if text := museTyped(entry); text != "" {
+		delete(answered, run)
+		return Turn{"user", text}, true
+	}
+	event := museRunEvent(entry, "assistant_message_committed")
+	if event == nil {
+		return Turn{}, false
+	}
+	if !event.Truthy("phase") {
+		if answered[run] {
+			return Turn{}, false
+		}
+		answered[run] = run != ""
+	}
+	text := event.Str("text")
+	return Turn{"model", text}, text != ""
 }
 
 // museCard is Muse's own question card in that session, as the fact its hooks write for it
