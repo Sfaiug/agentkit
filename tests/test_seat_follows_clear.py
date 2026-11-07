@@ -1,5 +1,6 @@
 """A seat follows its own Claude across /clear; fake processes, tmux and transcripts."""
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -195,6 +196,31 @@ class SeatFollowsClear(Sandbox):
         with patch.object(orch, "tmux_out", return_value=(0, "/fake/agentkit-test\tother\t101\t%7")):
             self.hook()
         self.assertEqual(self.record(), before)
+
+    def test_a_rename_moves_tmux_and_the_record_only_under_the_claims_lock(self):
+        moves = []
+
+        @contextlib.contextmanager
+        def held():
+            moves.append((self.seat["name"], "lagoon" in config.session_records()))
+            yield
+            moves.append((self.seat["name"], "quay" in config.session_records()))
+        with patch.object(orch, "claims", held):
+            orch.rename("lagoon", "quay")
+        self.assertEqual(moves, [("lagoon", True), ("quay", True)])
+
+    def test_a_record_moved_while_it_is_claimed_takes_the_claim_where_it_went(self):
+        owned = orch.owns_hook
+
+        def moved(*args):
+            found = owned(*args)
+            config.rename_session("lagoon", "quay")
+            self.seat["name"] = "quay"
+            return found
+        with patch.object(orch, "owns_hook", side_effect=moved):
+            self.hook()
+        self.assertEqual(self.record()["conversation"], "after-clear")
+        self.assertEqual([was["conversation"] for was in self.record()["left"]], ["before-clear"])
 
     def test_renamed_seat_and_named_login_follow_repeated_clears(self):
         orch.rename("lagoon", "quay")
