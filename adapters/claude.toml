@@ -80,6 +80,12 @@ x86_64 = "https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8df
 [usage]
 probe_every = 900
 
+# Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
+[plans]
+pro = 20
+"max 5x" = 100
+"max 20x" = 200
+
 [sleep]
 own = []    # on an idle seat nothing of Claude's runs under it: what does is work (`agentkit.sleep`)
 # how many seconds its prompt cache lives: rested longer, a seat sleeps whatever memory reads, a

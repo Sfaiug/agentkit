@@ -60,9 +60,10 @@ func stays(live seat.Live) bool {
 
 // health is the seat health row (watch.health): the worker tokens polled, then each seat looked at
 // and its word published, as the later rows read it, while the look is all the row does there, or
-// keeps the stall its screen shows in its first minutes; the first it would do more at ends the
-// tick there, before its publish.  A stall held of a seat whose record is gone is Python's to forget.
-// A dry tick's look acts on nothing and says what it would type.
+// keeps the stall its screen shows short of typing past it, asking its owner about one an hour old
+// and nothing more after; the first it would do more at ends the tick there, before its publish.
+// A stall held of a seat whose record is gone is Python's to forget.  A dry tick's look acts on
+// nothing and says what it would type.
 func (t *ticking) health() error {
 	if err := t.pollTokens(); err != nil {
 		return err
@@ -77,6 +78,9 @@ func (t *ticking) health() error {
 		owner, line := "", ""
 		carried, err := seat.Health(name, func(live seat.Live) bool {
 			held, _ := stalls.Get(live.Name).(*run.Object)
+			if held != nil && held.Truthy("told") {
+				return asked(live)
+			}
 			if !stalling(live) {
 				return held == nil && (healthReady(live) || refused(live))
 			}
@@ -90,6 +94,8 @@ func (t *ticking) health() error {
 		}
 		if kept != nil {
 			stalls.Set(owner, kept)
+		}
+		if line != "" {
 			t.log.line(line)
 		}
 	}

@@ -458,6 +458,12 @@ class Harness:
         facts["none"] = bool(facts.get("none"))
         return facts
 
+    @property
+    def plans(self):
+        """Its `[plans]` table: each plan its `login-end` names, in those words, at its list
+        price in US dollars a month."""
+        return self._section("plans", {})
+
     def lost(self, said):
         """Whether a failed turn's own output says the harness holds no such conversation: its
         `[stall]` `lost` words, as `failure` reads the others."""

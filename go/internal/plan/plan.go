@@ -286,7 +286,7 @@ func verify(ctx context.Context, name, check string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	results, branches, whole := map[string]string{}, map[string]*branch{}, true
+	results, passing, branches, whole := map[string]string{}, map[string]tick{}, map[string]*branch{}, true
 	for _, text := range snapshot {
 		line, ok := parse(text)
 		if _, done := results[line.bare]; !ok || line.Check == "" || check != "" && line.Check != check || line.proven() || done {
@@ -328,7 +328,7 @@ func verify(ctx context.Context, name, check string) (bool, error) {
 		whole = whole && judged
 		results[line.bare] = line.ticked("")
 		if passed {
-			results[line.bare] = line.ticked(on.commit)
+			results[line.bare], passing[line.bare] = line.ticked(on.commit), tick{line, on.repo, on.commit}
 		}
 		if ctx.Err() != nil {
 			return false, ctx.Err()
@@ -336,19 +336,27 @@ func verify(ctx context.Context, name, check string) (bool, error) {
 	}
 	return whole, notify.Held(ctx, name, func(current string) error {
 		present, err := read(current)
-		changed := false
+		if err != nil {
+			return err
+		}
+		changed, ticks := false, []tick(nil)
 		for i, text := range present {
 			if line, ok := parse(text); ok && line.Check != "" && results[line.bare] != "" {
 				present[i], changed = results[line.bare], true
+				if ticked, passed := passing[line.bare]; passed {
+					ticks = append(ticks, ticked) // only a line still standing: one replaced meanwhile ends no run
+				}
 			}
 		}
-		if err == nil && changed { // a plan that lost those lines is never written over
-			err = write(current, present)
-		}
-		if err == nil && counted > 0 && whole {
-			err = owe(current, -counted)
-		}
-		return err
+		return retire(ticks, func() (err error) {
+			if changed { // a plan that lost those lines is never written over
+				err = write(current, present)
+			}
+			if err == nil && counted > 0 && whole {
+				err = owe(current, -counted)
+			}
+			return err
+		})
 	})
 }
 

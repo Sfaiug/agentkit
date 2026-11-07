@@ -175,9 +175,10 @@ func health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 	}
 	carried := false
 	// that wait is written under every lifecycle change's lock, which watch.seat_account takes
-	// outside the announce lock, the meters read before either
+	// outside the announce lock, the meters read before either; watch.health asks the owner about
+	// a stall under it too (pastWait)
 	readings, ahead := usageAhead(state, name, models)
-	if ahead {
+	if ahead || stallUntold(state, name) {
 		release, err := hold(filepath.Join(state, "watch.lock"))
 		if err != nil {
 			return false, err

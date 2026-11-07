@@ -12,13 +12,13 @@ import (
 // stallWait is how long a stall line stands before anything is typed past it (watch.STALL_WAIT).
 const stallWait = 180
 
-// plainStall are the fields of a stall nothing has been typed past yet, which watch.observe and
-// its signature write.
-var plainStall = []string{"since", "pane", "changed_at", "stall_line", "stall_at", "signature"}
+// plainStall are the fields of a stall waiting on no window, which watch.observe and its signature
+// write, its last nudge and its question to the owner.
+var plainStall = []string{"since", "pane", "changed_at", "stall_line", "stall_at", "signature", "nudged_at", "told"}
 
-// PlainStalls is whether each of watch.json's `stalls` is one in its first minutes: nothing typed
-// past it, nobody told and no other episode (`kind`).  All a seat's word reads of one is that it
-// is held (watch.goes_back).
+// PlainStalls is whether each of watch.json's `stalls` is a stall of the seat's screen that waits
+// on no window and is no other episode (`kind`).  All a seat's word reads of one is that it is
+// held (watch.goes_back) and whether its owner was asked (stallTold).
 func PlainStalls(stalls *run.Object) bool {
 	return !slices.ContainsFunc(stalls.Keys(), func(name string) bool {
 		entry, ok := stalls.Get(name).(*run.Object)
@@ -29,8 +29,7 @@ func PlainStalls(stalls *run.Object) bool {
 // KeepStall is the health row's look at the stall the seat's screen shows (watch.health): its
 // entry, the one held or a new one, observed on this capture as watch.observe ages the error line
 // and the screen apart, the line saying nothing is typed yet; false where its plan may be done
-// unprompted, which Go leaves to Python, and once it has stood quiet for stallWait, when the row
-// types past it.
+// unprompted, which Go leaves to Python.  Once it has stood quiet for stallWait, pastWait decides.
 func KeepStall(live Live, held *run.Object, now float64) (*run.Object, string, bool) {
 	if mayRestDone(live.Name) {
 		return nil, "", false
@@ -57,7 +56,7 @@ func KeepStall(live Live, held *run.Object, now float64) (*run.Object, string, b
 	entry.Set("signature", live.Stall)
 	quiet := now - max(at(entry.Get("stall_at")), at(entry.Get("changed_at")))
 	if quiet >= stallWait {
-		return nil, "", false
+		return pastWait(live, entry, now)
 	}
 	return entry, fmt.Sprintf("%s: %v for %s; nothing is typed until it has stood for %d minutes", live.Name, live.Stall, span(quiet), stallWait/60), true
 }
