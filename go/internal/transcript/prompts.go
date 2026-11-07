@@ -13,27 +13,28 @@ import (
 // A Prompt is one of the owner's messages: when it was written, in Unix seconds, and its words.
 type Prompt = harness.Prompt
 
-// Prompts is every dated message the owner wrote in the conversation read by those names (Entries),
-// oldest first, as a harness's `user_messages` reads them; none where its harness has no
-// `[transcript]` table or the file cannot be read.
-func Prompts(name string, names ...string) (found []Prompt) {
+// Prompts is every dated message the owner wrote in the conversation read by those names
+// (harness.EntriesBy), oldest first, as a harness's `user_messages` reads them; none where its
+// harness has no `[transcript]` table or the file is gone.  The error where it is there and cannot
+// be read, as `user_messages` raises, beside the messages read before it.
+func Prompts(name string, names ...string) (found []Prompt, err error) {
 	table, _ := config.Tree(name, "transcript")
 	if table == nil {
-		return nil
+		return nil, nil
 	}
 	skip, _ := table["skip"].(map[string]any)
 	stamp, _ := table["at"].(string)
 	answer, kinds := named(table["answer"]), promptKinds(table)
-	for entry := range Entries(names...) {
+	err = harness.EntriesBy(names, func(entry *run.Object) {
 		if skip != nil && fits(skip, entry) || len(answer.items(entry)) > 0 {
-			continue
+			return
 		}
 		if text, when := promptWords(name, kinds, entry), harness.Moment(first(at(entry, stamp))); text != "" && when != 0 {
 			found = append(found, Prompt{At: when, Text: text})
 		}
-	}
+	})
 	sort.SliceStable(found, func(i, j int) bool { return found[i].At < found[j].At })
-	return found
+	return found, err
 }
 
 // Entries is each JSON object a JSON lines file read by those names holds (harness.Open), first

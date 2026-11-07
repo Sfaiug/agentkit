@@ -48,12 +48,12 @@ func Entries(path string, each func(*run.Object)) error {
 	if path == "" {
 		return nil
 	}
-	return entries([]string{path}, each)
+	return EntriesBy([]string{path}, each)
 }
 
-// entries is Entries of a record read by those names, by the first of them there as it is opened
+// EntriesBy is Entries of a record read by those names, by the first of them there as it is opened
 // (Open).
-func entries(names []string, each func(*run.Object)) error {
+func EntriesBy(names []string, each func(*run.Object)) error {
 	file, err := Open(names...)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil

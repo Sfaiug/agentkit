@@ -61,7 +61,7 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 		}
 	}
 	for i := range had {
-		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record, had[i].Name); err != nil {
+		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record, had[i].Name, strictly); err != nil {
 			return nil, err
 		}
 	}
