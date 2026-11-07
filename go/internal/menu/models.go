@@ -31,10 +31,11 @@ type Line struct {
 	Near                                         float64
 }
 
-// A Role is what the screen says of one role's answer: its head and full frontier.
+// A Role is what the screen says of one role's answer: its head, full frontier and its cost
+// column's head, the unit its costs are in.
 type Role struct {
-	Head  string
-	Lines []Line
+	Head, Unit string
+	Lines      []Line
 }
 
 // ModelsSaid matches Python's models_said: each role's head and frontier, pick and take
@@ -56,12 +57,15 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 			if !row.Yours {
 				notes = append(notes, screen.Styled("no harness", "dim"))
 			}
+			if row.CostRule == "measured" {
+				notes = append(notes, screen.Styled("measured", "dim"))
+			}
 			taken := levels[row.Release]
 			line := Line{Name: row.Name, Word: row.Effort, Notes: notes, Maker: row.Maker,
 				Cells:   screen.EffortCells(len(taken), slices.Index(taken, row.Effort)+1),
 				Near:    max(0, 1-(*found.Best-row.Quality)/10),
 				Quality: strconv.FormatFloat(row.Quality, 'f', 1, 64),
-				Cost:    "$" + strconv.FormatFloat(*row.Cost, 'f', 2, 64)}
+				Cost:    found.CostText(row)}
 			switch row {
 			case found.Pick:
 				line.Mark = screen.Styled("★ pick", "working")
@@ -74,7 +78,7 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 			}
 		}
 		// the first row is the best but where the best has no cost, so the head says it then
-		out.Head = heads[role]
+		out.Head, out.Unit = heads[role], units[found.CostUnit]
 		if len(found.Front) == 0 {
 			out.Head += gap + "none"
 		} else if found.Front[0].Quality < *found.Best {
@@ -98,11 +102,11 @@ func packed(parts []string, room int) []string {
 	return lines
 }
 
-// modelsBody is the screen's lines.  Per role, a blank line between two, its head, beside the first
-// with rows the columns' heads, then its lines: a row's mark in `mark` cells, its name, its effort
-// -- its cells, then its word, in one column after the most cells any row has -- its line, taking
-// the room the other columns leave, then its quality, cost and notes, these one under another in a
-// column as wide as the widest. Every column fits the full frontier.
+// modelsBody is the screen's lines.  Per role, a blank line between two, its head, beside it the
+// columns' heads where it heads them (headed), then its lines: a row's mark in `mark` cells, its
+// name, its effort -- its cells, then its word, in one column after the most cells any row has --
+// its line, taking the room the other columns leave, then its quality, cost and notes, these one
+// under another in a column as wide as the widest. Every column fits the full frontier.
 // Where that leaves the line under 8 cells, the notes' column gives
 // way first, each row's notes going under it; where the line is still under 8 cells, each row's
 // mark, then its name and effort, take a line and its line, numbers and notes the next, the name
@@ -133,7 +137,10 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		return strings.Join(row.Cells, "") + strings.Repeat(" ", tall-len(row.Cells)+2) + row.Word
 	}
 	label, levelled, notesWide := 0, 0, 0
-	qualityWide, costWide := terminal.Cells("quality"), terminal.Cells("a task")
+	qualityWide, costWide := terminal.Cells("quality"), 0
+	for _, role := range said {
+		costWide = max(costWide, terminal.Cells(role.Unit))
+	}
 	for _, row := range rows {
 		label = max(label, terminal.Cells(row.Name))
 		levelled = max(levelled, terminal.Cells(effort(row)))
@@ -167,17 +174,18 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 		if number > 0 {
 			put("")
 		}
-		if number != first || !wide {
+		headings := headed(said, number, first)
+		if !headings || !wide {
 			put("  " + role.Head)
 		}
-		if number == first {
+		if headings {
 			head := ""
 			if wide {
 				head = role.Head
 			}
 			put("  " + terminal.Pad(head, before+size-2) + "  " +
 				fill("quality", qualityWide) + screen.Styled("quality", "dim") + "  " +
-				fill("a task", costWide) + screen.Styled("a task", "dim"))
+				fill(role.Unit, costWide) + screen.Styled(role.Unit, "dim"))
 		}
 		for _, line := range role.Lines {
 			if line.Said != "" { // the words under the pick, wrapped at words, are its row's
@@ -223,7 +231,7 @@ func modelsBody(screen terminal.Screen, said []Role, compared map[string]bool, t
 	}
 	at = -2 // the legend stays below the scrollable rows
 	put("")
-	for _, entry := range legend {
+	for _, entry := range legendOf(said) {
 		for number, part := range terminal.Wrap(entry[1], room-named) {
 			name := entry[0]
 			if number > 0 {

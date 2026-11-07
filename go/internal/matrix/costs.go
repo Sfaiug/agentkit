@@ -1,17 +1,11 @@
 package matrix
 
 import (
-	"errors"
-
 	"agentkit/internal/boards"
 	"agentkit/internal/config"
 	"agentkit/internal/quality"
 	"agentkit/internal/run"
 )
-
-// ErrPriced is an answer some role prices off ak's own runs: Go draws costs in board dollars
-// alone, so drawing it is Python's.
-var ErrPriced = errors.New("a role is priced in what ak's own runs measured")
 
 // configRoles is the config's word for each role ak answers, the one ak's runs measure it under.
 var configRoles = map[string]string{"orchestrate": "orchestrator", "execute": "executor", "review": "reviewer"}
@@ -167,14 +161,4 @@ func Answer(rows []quality.Row, compared map[string]bool, shares *run.Object) (m
 		return "share"
 	}
 	return quality.Answer(rows, compared, price), nil
-}
-
-// Drawn is ErrPriced where a role of answer is priced off ak's own runs, which Go does not draw.
-func Drawn(answer map[string]*quality.Said) error {
-	for _, said := range answer {
-		if said.CostUnit != "board_dollars" {
-			return ErrPriced
-		}
-	}
-	return nil
 }
