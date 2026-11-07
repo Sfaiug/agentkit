@@ -14,7 +14,7 @@ import (
 func init() {
 	plugins["muse"] = plugin{identity: museIdentity, auth: museAuth, usageTaken: museUsageTaken, usageRecorded: museUsageRecorded, recordTurn: museRecordTurn,
 		seats: true, looks: true, record: museRecord, keys: []string{"muse_launch"}, kept: museKept, forget: receiptGone("muse"),
-		opens: true, interactive: museInteractive, seatWords: museSeatWords, owned: museConversation, launched: museLaunched, retire: receiptRetired("muse"),
+		opens: true, interactive: museInteractive, seatWords: museSeatWords, owned: museConversation, reported: museReported, launched: museLaunched, retire: receiptRetired("muse"),
 		card: museCard, said: museSaid, typed: museTyping, answered: museAnswered, answer: museAnswer, resumable: museResumable, tokens: museTokens,
 		hookEvent: func(event *run.Object, _ io.Writer, _ func(string) (string, error), _ func(string)) (*run.Object, int) {
 			return museHookEvent(event), 0

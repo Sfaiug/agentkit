@@ -52,7 +52,7 @@ func ownerIn(current, kind string, record map[string]any, named string) (string,
 	matched, ours := make([]bool, len(messages)), make([]bool, len(messages))
 	err := harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(current)["input"]), func(sent *run.Object) {
 		after, dated := sent.Num("after")
-		if !dated || sent.Str("harness") != kind || sent.Str("conversation") != conversation {
+		if !dated || sent.Str("harness") != kind || harness.WentInto(kind, sent) != conversation {
 			return
 		}
 		for index, message := range messages {
