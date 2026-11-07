@@ -11,8 +11,7 @@ func CatalogWaiting(s terminal.Screen, title, clock string, cells []Cell, moves 
 	for _, line := range terminal.Wrap("Reading models", max(1, s.LayoutWidth()-2)) {
 		body = append(body, "  "+line)
 	}
-	// Leave Painter room for its final newline.
-	room := s.Height() - len(Panel(s, title, clock, body, "esc back")) - 1
+	room := s.Height() - len(Panel(s, title, clock, body, "esc back"))
 	usage := usageLines(s, cells, s.LayoutWidth())
 	if len(usage) == 0 || len(usage) > room {
 		usage = nil

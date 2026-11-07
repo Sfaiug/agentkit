@@ -1587,10 +1587,16 @@ def _held(dollars, meter):
     return f"{named} {about} ${dollars:.0f} at list prices"
 
 
-def price(cfg, provider):
-    """What each of `provider`'s subscriptions costs a month, in whatever its owner pays in
-    (`price` on its table), or None."""
-    return _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
+def price(cfg, provider, account=None):
+    """What `provider`'s login `account` (None, its usual one) costs a month: the `price` on the
+    provider's table, in whatever its owner pays in, else the list price of the plan the login
+    is on now (state/logins.json) on the `[plans]` of the harness that asks it; or None."""
+    from . import logins    # here, not at the top: logins names subscriptions through the menu
+    own = _number(((cfg.get("providers") or {}).get(provider) or {}).get("price"))
+    if own is not None:
+        return own
+    plan = logins.whose(provider, account)[1]
+    return _number(harness_plugin(logins.harness(cfg, provider)).plans.get(plan))
 
 
 def _digits(value):
@@ -1734,7 +1740,7 @@ def rows(cfg, providers):
     `left` is the tightest weekly meter, because that is what the picker ranks on;
     `resets` is the shared week's, because that is the week the menu row names and the two
     must say the same thing, `holds` is what that same week of its plan holds at list prices
-    and `a month` the subscription's price.  On a split allowance they can be different
+    and `a month` that login's price (`price`).  On a split allowance they can be different
     meters, which is why the two lines under the table print both.  A provider with several
     accounts is a row per account, `anthropic II`, each on its own meters and its own plan.
     """
@@ -1748,7 +1754,7 @@ def rows(cfg, providers):
         shared = shared_week(cfg, name, prov, now) or {}
         models = ", ".join(n for n, e in cfg["models"].items() if e.get("provider") == name)
         out.append((label, models or "-", _pct(_left(week["used"] if week else None)),
-                    _held(weeks[name][account][1], shared), _digits(price(cfg, name)),
+                    _held(weeks[name][account][1], shared), _digits(price(cfg, name, account)),
                     reset_when(shared, now) or "-",
                     _pct(week["elapsed"] if week else None),
                     _pct(_left(session["used"] if session else None)),
@@ -1885,7 +1891,7 @@ def main(argv):
         now = time.time()
         weeks, checks = plan_weeks(cfg, providers, now), plan_checks(cfg, providers, now)
         for _, name, prov, account in _accounts(cfg, providers):
-            prov["price"] = price(cfg, name)
+            prov["price"] = price(cfg, name, account)
             prov["listed_usd"] = spend.listed(cfg, name, account, now - SPENT_OVER, now)
             (prov["plan"], prov["week_listed_usd"], prov["plan_points"],
              prov["plan_listed_usd"]) = weeks[name][account]

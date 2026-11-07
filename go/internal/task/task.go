@@ -43,7 +43,12 @@ func Read(path string) (map[string]string, []string, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	meta, body, err := frontMatter(path, Text(data))
+	return Parse(path, Text(data))
+}
+
+// Parse is Read of the task at path as text says it, written there or not yet.
+func Parse(path, text string) (map[string]string, []string, error) {
+	meta, body, err := frontMatter(path, text)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -98,6 +98,10 @@ class Sandbox(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory(prefix=".ak-test-sandbox-", dir=REPO)
         self.addCleanup(tmp.cleanup)
         self.root = Path(tmp.name)
+        # the machine's `agentkit-test` server is every test's at once: a session another holds
+        # there refuses its name to this one. A socket's path must fit in 104 bytes.
+        sockets = tempfile.TemporaryDirectory(prefix="akt-", dir="/tmp")
+        self.addCleanup(sockets.cleanup)
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.stack.enter_context(account_home(self.root))
@@ -113,6 +117,7 @@ class Sandbox(unittest.TestCase):
         self.addCleanup(settle)
         self.stack.enter_context(patch.dict(os.environ, {"HOME": str(self.root),
                                  "NO_COLOR": "1", "AGENTKIT_TMUX_SOCKET": "agentkit-test",
+                                 "TMUX_TMPDIR": sockets.name,
                                  # this HOME's OpenCode config, never the caller's: mimo is payg
                                  "OPENCODE_CONFIG_DIR": str(self.root / ".config/opencode")}))
         # the owner's commands, never those of the seat the suite happens to be started in

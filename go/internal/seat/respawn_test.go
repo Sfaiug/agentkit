@@ -15,12 +15,12 @@ func TestARespawnRetypesAnUnsentLineWithoutRepeatingIt(t *testing.T) {
 	bin := filepath.Join(home, "fake")
 	write(t, filepath.Join(bin, "tmux"), `#!/bin/sh
 case "$*" in
-  *respawn-pane*) cp "$HOME/prompt" "$HOME/shown" ;;
+  *respawn-pane*) cp "$HOME/prompt" "$HOME/shown"; echo 2 > "$HOME/pid" ;;
   *list-sessions*) printf 'acme\t1\n' ;;
   *list-panes*) echo '%1 0' ;;
   *show-options*) echo %1 ;;
   *capture-pane*) cat "$HOME/shown" ;;
-  *display-message*'#{pane_id}'*) printf '%%1\t1000\n' ;;
+  *display-message*'#{pane_id}'*) printf '%%1\t1000\t%s\n' "$(cat "$HOME/pid" 2>/dev/null || echo 1)" ;;
   *display-message*'#{session_name}'*) echo acme ;;
   *display-message*'#{pane_dead}'*) echo 0 ;;
   *send-keys*)
@@ -37,7 +37,8 @@ esac
 	write(t, filepath.Join(home, "prompt"), prompting)
 	write(t, filepath.Join(home, "shown"), drafted)
 	line := "run r-build is still going"
-	owed := run.Fields("id", "old-death", "line", line, "typed", run.Fields("line", line, "seat", 1000))
+	// typed into the harness the respawn replaces: the same birth, another process
+	owed := run.Fields("id", "old-death", "line", line, "typed", run.Fields("line", line, "seat", 1000, "pid", 1))
 	write(t, seatFile("acme"), run.Line(run.Fields("owed_lines", []any{owed})))
 	rulebook := filepath.Join(home, "rulebook.md")
 	write(t, rulebook, "The seat's rules.\n")

@@ -41,7 +41,7 @@ func (t *ticking) audit() error {
 	if err != nil {
 		return err
 	}
-	if leftTyped(name, state) {
+	if leftTyped(state) {
 		return errLeft
 	}
 	mark, _ := run.ReadJSON(statePath("seat-" + name + ".json"))

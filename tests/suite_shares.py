@@ -32,7 +32,8 @@ def name_failed(tests, file="AK_FAILED"):
     with `file` "AK_RAN", the IDs of the listed tests it runs: a run of AK_ONLY's tests counts
     for none it does not name, as an ID it does not know runs nothing; with "AK_FLAKY", those
     that failed, then passed on a re-run; with "FAILED_PARTS", a test file's own failing
-    parts, as every_file.py asks of each file it runs."""
+    parts, and with "NOT_THERE" the parts it was asked for and does not hold, as every_file.py
+    asks of each file it runs, which names those in "AK_NOT_THERE"."""
     if os.environ.get(file):
         with open(os.environ[file], "a") as fh:
             fh.writelines(f"{test}\n" for test in tests)

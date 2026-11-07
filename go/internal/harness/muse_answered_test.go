@@ -64,9 +64,12 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			pick("acme", picked("layout", "Compact"))}, nil},
 	} {
 		museLogs(t, "acme", append(each.entries, museEvent("kind", "started", "prompt", "Lay out acme."))...)
-		said, cards, err := Answered("muse", record)
-		if !Reads("muse", false) || Reads("muse", true) || err != nil || !reflect.DeepEqual(cards, each.want) || !reflect.DeepEqual(said, []Turn{{"user", "Lay out acme."}}) {
-			t.Errorf("%s: %v %+v %+v, want %+v", each.why, err, said, cards, each.want)
+		// the seat's receipt names the session, and a record of one the seat left names it itself
+		for _, record := range []map[string]any{record, {"conversation": "acme"}} {
+			said, cards, err := Answered("muse", record)
+			if !Reads("muse", false) || Reads("muse", true) || err != nil || !reflect.DeepEqual(cards, each.want) || !reflect.DeepEqual(said, []Turn{{"user", "Lay out acme."}}) {
+				t.Errorf("%s %v: %v %+v %+v, want %+v", each.why, record, err, said, cards, each.want)
+			}
 		}
 	}
 	// a file among the folders hides no log; a log, or a folder that may hold it, that cannot be

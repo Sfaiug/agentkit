@@ -227,6 +227,11 @@ signatures = [
   "authentication failed or timed out",
 ]
 
+# Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
+[plans]
+"Google AI Pro" = 19.99
+"Google AI Ultra" = 249.99
+
 # The effort words this harness takes, in the order the menu's `c` screen cycles them.
 [effort]
 levels = ["low", "medium", "high"]

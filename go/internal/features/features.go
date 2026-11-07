@@ -4,21 +4,14 @@
 package features
 
 import (
-	"bytes"
 	"cmp"
 	"context"
-	"errors"
-	"fmt"
-	"os/exec"
-	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
-	"agentkit/internal/host"
 	record "agentkit/internal/run"
 )
 
@@ -158,58 +151,22 @@ func own(checkout string, words ...string) (any, string) {
 	return run(context.Background(), checkout, env, words...)
 }
 
-// run is the project's features command with words after it, in env, as Python's
-// gitcall.project_answer runs a project's own command: its JSON answer, or nil and the one line
-// saying why.
+// run is the project's features command with words after it, in env, read as every project's
+// own answer is (record.ProjectAnswer): its JSON answer, or nil and the one line saying why.
 func run(ctx context.Context, checkout string, env []string, words ...string) (any, string) {
-	out, why := output(ctx, checkout, env, words...)
-	if why != "" {
-		return nil, why
-	}
-	// read as Python reads it, so an id is the text Python's str() makes of it
-	answer, err := record.Decode(out)
-	if err != nil {
-		return nil, words[0] + " answered no JSON"
-	}
-	return answer, ""
-}
-
-// output is what that command printed, as Python decodes it, or nil and the one line saying why
-// it answered nothing.  It runs in the checkout, reading nothing, in a session of its own, without
-// the seat's name (owner_env): an ssh in it never reads the keys, nor is it a seat reaching the
-// live host.  One past the wait is killed with everything it started, so a `set` said to have
-// failed never lands after, as is one running when ctx ends.
-func output(ctx context.Context, checkout string, env []string, words ...string) ([]byte, string) {
-	what, command := words[0], gitcall.Declared(checkout, "features")
+	command := gitcall.Declared(checkout, "features")
 	if command == "" {
 		return nil, "AGENTS.md names no features command"
 	}
-	ctx, cancel := context.WithTimeout(ctx, wait)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command+" "+commandhelp.ShellJoin(words))
-	cmd.Dir, cmd.WaitDelay = checkout, wait // one gone to a session of its own is let go of then
-	cmd.Env = slices.DeleteFunc(slices.Clone(env), func(pair string) bool { return strings.HasPrefix(pair, "AGENTKIT_SESSION=") })
-	var out, said bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &said
-	stop := host.Group(cmd)
-	err := cmd.Start()
-	if err == nil {
-		// past the wait its session goes, even once the shell is gone: what it started may still
-		// hold the output open, and exec stops watching the deadline when the shell exits
-		defer context.AfterFunc(ctx, stop)()
-		err = cmd.Wait()
+	return record.ProjectAnswer(ctx, command+" "+commandhelp.ShellJoin(words), checkout, env, wait, words[0])
+}
+
+// output is what that command printed, run as every project's own command is
+// (record.ProjectOutput), or nil and the one line saying why it answered nothing.
+func output(ctx context.Context, checkout string, env []string, words ...string) ([]byte, string) {
+	command := gitcall.Declared(checkout, "features")
+	if command == "" {
+		return nil, "AGENTS.md names no features command"
 	}
-	var exit *exec.ExitError
-	switch {
-	case ctx.Err() != nil:
-		return nil, fmt.Sprintf("%s: no answer in %d s", what, wait/time.Second)
-	case errors.As(err, &exit):
-		if lines := config.SplitLines(gitcall.Strip(said.String())); len(lines) > 0 {
-			return nil, lines[len(lines)-1]
-		}
-		return nil, fmt.Sprintf("%s exited %d", what, exit.ExitCode())
-	case err != nil:
-		return nil, what + ": " + config.PyError(err)
-	}
-	return []byte(gitcall.Decoded(out.String())), ""
+	return record.ProjectOutput(ctx, command+" "+commandhelp.ShellJoin(words), checkout, env, wait, words[0])
 }

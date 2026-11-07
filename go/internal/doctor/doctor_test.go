@@ -50,12 +50,22 @@ func home(t *testing.T, config string) (string, string) {
 
 // Each read Go cannot make says nothing and leaves all of it to Python.
 func TestAReadGoCannotMakeSaysNothing(t *testing.T) {
+	// ak may rent, every harness askable, and the tick has left text in the state file name
+	renting := func(t *testing.T, root, name, text string) {
+		os.WriteFile(filepath.Join(root, ".agentkit", "config.toml"), []byte(models+"\n[google_cloud]\nactive = true\n"), 0o600)
+		os.WriteFile(filepath.Join(os.Getenv("AGENTKIT_ADAPTER_DIR"), "acme.sh"), []byte("#!/bin/sh\n"), 0o755)
+		os.MkdirAll(filepath.Join(root, ".agentkit", "state"), 0o700)
+		os.WriteFile(filepath.Join(root, ".agentkit", "state", name), []byte(text), 0o600)
+	}
 	for name, arrange := range map[string]func(t *testing.T, root string){
-		"ak may rent": func(t *testing.T, root string) {
-			config := filepath.Join(root, ".agentkit", "config.toml")
-			os.WriteFile(config, []byte(models+"\n[google_cloud]\nactive = true\n"), 0o600)
-		},
 		"no adapter to ask": func(t *testing.T, _ string) { t.Setenv("AGENTKIT_ADAPTER_DIR", "") },
+		"the tick's lines not a list of them": func(t *testing.T, root string) {
+			renting(t, root, "google-cloud-late.json", `{"acme-1": "given back"}`)
+		},
+		"Google's clock unreadable": func(t *testing.T, root string) {
+			renting(t, root, "google-cloud-ledger.json", `{"answered": 1, "spent": 0, "machines": {}}`)
+			t.Setenv("AK_GOOGLE_CLOCK", filepath.Join(root, "no-clock"))
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			root, _ := home(t, models)

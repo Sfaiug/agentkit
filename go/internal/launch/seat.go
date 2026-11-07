@@ -15,8 +15,18 @@ import (
 // any run, by the name it goes by now, with its record; "" for none, a name with no record among
 // them.  The error is config's for a name no file can have, which refuses any launch.
 func Seat() (string, map[string]any, error) {
+	name, record, err := queueSeat()
+	if os.Getenv("AGENTKIT_RUN_DIR") != "" {
+		return "", nil, err
+	}
+	return name, record, err
+}
+
+// queueSeat is the current session where it is a recorded one, whatever AGENTKIT_RUN_DIR says: the
+// seat whose queue Python's check_seat_queue asks.
+func queueSeat() (string, map[string]any, error) {
 	name, record, err := config.CurrentSession()
-	if _, pointer := record[config.Renamed]; err != nil || record == nil || pointer || os.Getenv("AGENTKIT_RUN_DIR") != "" {
+	if _, pointer := record[config.Renamed]; err != nil || record == nil || pointer {
 		return "", nil, err
 	}
 	return name, record, nil
@@ -68,16 +78,16 @@ func bind() (config.Binding, error) {
 // seatQueue is what becomes of a seat's launch once everything Python asks before its queue
 // passed: refused where the seat may queue no more (seatFull), else on its way.
 func seatQueue(seat string) error {
-	if why := seatFull(seat); why != "" {
+	if why := seatFull(seat, 1); why != "" {
 		return &refusedOutright{why}
 	}
 	return nil
 }
 
-// seatFull is why that seat may not launch one more run, Python's gate.seat_full: a seat may have
-// as many runs waiting for a slot as holding one, and always one.  It names the run to `ak wait`
-// for: the one holding its slot longest, else the oldest waiting.
-func seatFull(seat string) string {
+// seatFull is why that seat may not launch that many more runs, Python's gate.seat_full: a seat may
+// have as many runs waiting for a slot as holding one, and always one.  It names the run to `ak
+// wait` for: the one holding its slot longest, else the oldest waiting.
+func seatFull(seat string, launches int) string {
 	type place struct {
 		since float64
 		id    string
@@ -91,37 +101,29 @@ func seatFull(seat string) string {
 		}
 		switch state := record.Str("state"); {
 		case state == "running" && run.ProcessActive(record):
-			holding = append(holding, place{first(record, "slot_started_at"), filepath.Base(dir)})
+			since, _ := record.Num("slot_started_at")
+			holding = append(holding, place{since, filepath.Base(dir)})
 		case state == "queued" && record.Truthy("slot_waiting"):
-			waiting = append(waiting, place{first(record, "first_queued_at", "queued_at", "started_at"), filepath.Base(dir)})
+			waiting = append(waiting, place{firstQueued(record), filepath.Base(dir)})
 		}
 	}
 	room := max(len(holding), 1) - len(waiting)
-	if room >= 1 {
+	if launches <= room {
 		return ""
 	}
-	// room is none, so a run waits: there is one to name
-	earliest := holding
+	then, earliest := "launch one at a time", holding
 	if len(earliest) == 0 {
 		earliest = waiting
 	}
-	named := earliest[0]
-	for _, each := range earliest[1:] {
-		if each.since < named.since || each.since == named.since && each.id < named.id {
-			named = each
+	if len(earliest) > 0 {
+		named := earliest[0]
+		for _, each := range earliest[1:] {
+			if each.since < named.since || each.since == named.since && each.id < named.id {
+				named = each
+			}
 		}
+		then = "`ak wait " + named.id + "`, then launch again"
 	}
-	return fmt.Sprintf("%s may have as many runs waiting for a slot as holding one, and always one: it has %d waiting and %d holding, so room for 0 more, not 1; `ak wait %s`, then launch again",
-		seat, len(waiting), len(holding), named.id)
-}
-
-// first is the first of the record's keys holding a time, Python's `a or b or 0`.
-func first(record *run.Object, keys ...string) float64 {
-	for _, key := range keys {
-		if record.Truthy(key) {
-			at, _ := record.Num(key)
-			return at
-		}
-	}
-	return 0
+	return fmt.Sprintf("%s may have as many runs waiting for a slot as holding one, and always one: it has %d waiting and %d holding, so room for %d more, not %d; %s",
+		seat, len(waiting), len(holding), max(room, 0), launches, then)
 }

@@ -97,7 +97,8 @@ provider = "mimo"
 # name = "Z.AI Coding Plan" on a provider is what every screen calls it, else its company's name
 # or its key capitalised; `+ add` writes the one OpenCode gives a provider it adds through it.
 # price = 200 on a provider is what each of its subscriptions costs a month, in whatever you
-# pay in: `ak usage` then says what one million tokens cost at it, off the measured week.
+# pay in; without it, each login costs its plan's list price in US dollars (`[plans]` in
+# adapters/<harness>.toml).
 [providers.anthropic]
 mode = "subscription"
 [providers.openai]

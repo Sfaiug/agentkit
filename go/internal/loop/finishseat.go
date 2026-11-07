@@ -9,8 +9,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// finishSeat is the shared ending of every run that delivered, whichever way it merged.
-func finishSeat(dir string, record *run.Object) *run.Object {
+// FinishSeat is the shared ending of every run that delivered, whichever way it merged.
+func FinishSeat(dir string, record *run.Object) *run.Object {
 	say := func(line string) { fmt.Fprintln(stampedLog{dir}, line) }
 	if session := run.Seat(record); session != "" && (record.Truthy("merged") || record.Str("state") == "not_needed") {
 		check := ""

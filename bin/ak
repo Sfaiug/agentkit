@@ -8,9 +8,15 @@ import threading
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+FOLDER = Path(__file__).resolve().parent.parent
+# the version this process is of: a move swaps another folder in at this path at any moment, so
+# it is read before any of the version's code loads (versions.final)
+BEGAN = os.stat(FOLDER)
+sys.path.insert(0, str(FOLDER))
 
 from agentkit import command_help, config, owner  # noqa: E402
+
+config.BEGAN = BEGAN
 
 SUBS = ("usage", "models", "worker", "run", "notify", "wait", "orch", "attach", "update",
         "watch", "browser", "fetch", "macbridge", "doctor", "hand-in", "plan", "move")
