@@ -3,7 +3,6 @@ package cli
 import (
 	"cmp"
 	"fmt"
-	"math"
 	"strings"
 
 	"agentkit/internal/config"
@@ -66,17 +65,23 @@ func limitStep(key string, held any, by int) any {
 		if by < 0 {
 			i = len(steps) - 1 - i
 		}
-		if cmp.Compare(limitRank(steps[i]), limitRank(held)) == by {
+		if limitOrder(steps[i], held) == by {
 			return steps[i]
 		}
 	}
 	return nil
 }
 
-// limitRank orders a limit's values: the numbers up, then a line limit's "no limit".
-func limitRank(value any) int {
-	if number, whole := value.(int); whole {
-		return number
+// limitOrder orders two of a limit's values: the numbers up, then a line limit's "no limit" over
+// every number, the largest too.
+func limitOrder(a, b any) int {
+	x, xNumber := a.(int)
+	y, yNumber := b.(int)
+	if xNumber != yNumber {
+		if xNumber {
+			return -1
+		}
+		return 1
 	}
-	return math.MaxInt
+	return cmp.Compare(x, y)
 }
