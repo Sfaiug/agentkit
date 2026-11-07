@@ -141,8 +141,9 @@ func (t *ticking) climbUnder(dir string, r *rung, now float64) (*run.Object, err
 }
 
 // resumeRung resumes the run through Go's own resume, which decides first: only a resume it takes
-// has the loop ended and the rung written, under the run's lock as the other rungs are, its
-// `stall_resume_at` keeping a reap off the ended loop until the resume adopts it.
+// has the loop ended and the rung written, under the run's lock as the other rungs are, on a run
+// still silent past its limit there, its `stall_resume_at` keeping a reap off the ended loop until
+// the resume adopts it.
 func (t *ticking) resumeRung(dir string, record *run.Object, r rung, now float64) error {
 	id := filepath.Base(dir)
 	if r.kind == "worker" {
@@ -156,24 +157,30 @@ func (t *ticking) resumeRung(dir string, record *run.Object, r rung, now float64
 		if err != nil {
 			return nil, err
 		}
+		due := false
 		err = run.Change(dir, func(current *run.Object) error {
 			if !run.Equal(current, record) {
 				return loop.ErrChanged
 			}
-			r.endLoop(current)
-			order(current)
+			// measured again here, as Python's: output while the rung waited for the lock leaves the run alone
+			if _, due = rungOf(dir, current, now); due {
+				r.endLoop(current)
+				order(current)
+			}
 			return nil
 		})
-		if err == nil {
-			run.Note(dir, r.line+"; resumed", t.clock())
-			t.log.line(fmt.Sprintf("%s: %s; resumed", id, r.line))
+		if err != nil || !due {
+			release()
+			return nil, err
 		}
+		run.Note(dir, r.line+"; resumed", t.clock())
+		t.log.line(fmt.Sprintf("%s: %s; resumed", id, r.line))
 		kept, _ := run.Read(dir) // as written, which the resume adopts
 		release()
-		if err == nil && r.alive {
+		if r.alive {
 			loop.Unfollow() // the ended loop's own `ak run` ends with it, as Python's
 		}
-		return kept, err
+		return kept, nil
 	}
 	code, why, err := launch.ResumeEnding(id, record, order, end)
 	switch {

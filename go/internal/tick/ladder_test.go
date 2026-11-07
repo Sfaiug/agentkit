@@ -202,3 +202,33 @@ func TestTheResumeRungsEndedLoopIsLockedOrOrderedUntilAdopted(t *testing.T) {
 		t.Fatalf("no new loop:\n%s", run.Line(after))
 	}
 }
+
+// Output that comes while the resume rung waits for the run's lock leaves the run alone: the rung
+// measures the silence again under the lock, as Python's does.
+func TestNewOutputWhileTheResumeRungWaitsLeavesTheRunAlone(t *testing.T) {
+	probed := filepath.Join(t.TempDir(), "probed")
+	dir, record, tick := stalledRun(t, "touch '"+probed+"'", run.Fields("action", "killed step"))
+	before := silenced(t, dir, record)
+	held, err := lock.Try(filepath.Join(dir, run.RecoveryLock))
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() { done <- tick.stallRecovery() }()
+	// the resume probes the box deciding, after the rung measured the silence and before its lock
+	for _, err := os.Stat(probed); err != nil; _, err = os.Stat(probed) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	output := filepath.Join(dir, "log.txt")
+	put(t, output, "running the suite\n")
+	if err := os.Chtimes(output, tick.clock(), tick.clock()); err != nil {
+		t.Fatal(err)
+	}
+	held.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !run.ProcessActive(record) || read(t, filepath.Join(dir, "run.json")) != before {
+		t.Fatalf("loop alive=%v, record:\n%s", run.ProcessActive(record), read(t, filepath.Join(dir, "run.json")))
+	}
+}
