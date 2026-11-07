@@ -16,7 +16,7 @@ import (
 // does not look, or a source holds lines, which Python counts.  None where the tick keeps no
 // history.
 func seatTokens() error {
-	if keeps, err := keepsHistory(); !keeps {
+	if keeps, err := keepsHistory(false); !keeps { // a row a dry tick does not run
 		return err
 	}
 	var sources []history.Source

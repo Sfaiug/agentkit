@@ -156,7 +156,7 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			return nil
 		}
 	}
-	keeps, err := keepsHistory()
+	keeps, err := keepsHistory(t.dry)
 	if err != nil {
 		return err
 	}

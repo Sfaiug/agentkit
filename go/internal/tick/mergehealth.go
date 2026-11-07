@@ -38,7 +38,7 @@ type probe struct {
 // first, hands its telling over.  A dry tick decides the same, runs no probe and makes no write: it
 // says what it would check and record.
 func mergeHealth(each *merge, key string, now float64, probes map[[2]string]probe, say func(string), dry bool) error {
-	rows, err := mergeRows(each)
+	rows, err := mergeRows(each, dry)
 	if err != nil {
 		return err
 	}
@@ -79,17 +79,15 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 			}
 		}
 		verdict, each.check, each.at = "failed", "health: "+command, strings.Join(parts, "; ")
+	case dry:
+		// the probe is the project's own command, which may act
+		verdict = "pending"
+		say(fmt.Sprintf("would check run %s's live product: %s", each.name, command))
 	default:
 		said, ran := probes[[2]string{key, each.sha}]
 		if !ran {
 			if owed && rows != nil {
 				return errLeft
-			}
-			if dry {
-				// the probe is the project's own command, which may act
-				say(fmt.Sprintf("would check run %s's live product: %s", each.name, command))
-				verdict = "pending"
-				break
 			}
 			said.passed, said.output = healthCommand(record.Str("repo"), each.sha, command, healthTimeout, rows)
 			probes[[2]string{key, each.sha}] = said
@@ -127,9 +125,7 @@ func mergeHealth(each *merge, key string, now float64, probes map[[2]string]prob
 		}
 		each.record = record
 	}
-	if !dry {
-		keepMerge(rows, record, verdict == "passed", say)
-	}
+	keepMerge(rows, record, verdict == "passed", say)
 	if verdict == "passed" {
 		if err := handback.Live(dir, record, now, say, dry); err != nil {
 			return err

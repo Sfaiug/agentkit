@@ -12,9 +12,13 @@ import (
 // keepsHistory is whether Go's tick writes history.db, as Python's tick does: not on a home whose
 // history is bare (history.Bare), which only a suite's is, since a row written would leave the rest
 // of the tick to Python; errLeft, before anything is written, where Go cannot write it as it
-// stands, which Python's first write repairs.
-func keepsHistory() (bool, error) {
+// stands, which Python's first write repairs.  A dry tick cannot tell: opening history.db at all,
+// as both reads do, writes beside it, and the first open compiles SQLite into the user's cache, so a
+// dry one leaves a home where history.db stands to Python.
+func keepsHistory(dry bool) (bool, error) {
 	switch {
+	case dry && !run.Historyless():
+		return false, errLeft
 	case history.Bare():
 		return false, nil
 	case !history.Writable():
@@ -26,8 +30,8 @@ func keepsHistory() (bool, error) {
 // mergeRows is where history.db keeps a followed merge, as Python's after_merge_health does: its
 // probe's checks row on the merge commit, under its run's directory; none where the tick keeps no
 // history.
-func mergeRows(each *merge) (*history.Checked, error) {
-	if keeps, err := keepsHistory(); !keeps {
+func mergeRows(each *merge, dry bool) (*history.Checked, error) {
+	if keeps, err := keepsHistory(dry); !keeps {
 		return nil, err
 	}
 	return &history.Checked{Run: each.name, Kind: "health", Tree: each.sha}, nil
