@@ -16,7 +16,7 @@ const claudeNotesOnly = "(notes only)"
 // the owner answered on an AskUserQuestion card.
 func claudeAnswered(record map[string]any) (said []Turn, cards []Card, err error) {
 	asked := map[string]bool{} // the cards asked so far, by their call's id
-	err = Entries(claudeConversation(record), func(entry *run.Object) {
+	err = Entries(claudeReadBy(record), func(entry *run.Object) {
 		if who, text := claudeHandedMessage(entry); text != "" {
 			said = append(said, Turn{who, text})
 		}

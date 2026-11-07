@@ -17,7 +17,7 @@ import (
 // no activity to the silence watchdog.
 func init() {
 	ceiling := strconv.Itoa(run.CeilingHours * 3600 * 1000)
-	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, answered: claudeAnswered, report: asReported, status: claudeStatus, conversation: claudeConversation, sources: claudeSources, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
+	plugins["claude"] = plugin{seats: true, looks: true, recorded: claudeError, last: claudeLast, answer: claudeAnswer, answered: claudeAnswered, report: asReported, status: claudeStatus, conversation: claudeReadBy, sources: claudeSources, owns: claudeOwns, notices: claudeNotices, auth: claudeAuth, lend: claudeLend, turnEnv: map[string]string{
 		"BASH_DEFAULT_TIMEOUT_MS": ceiling, "BASH_MAX_TIMEOUT_MS": ceiling}, opens: true, titled: true, handed: claudeHanded, registerMCP: claudeRegisterMCP, title: claudeTitle, wrapped: claudeWrapped, failed: claudeFailed, turnMeters: claudeTurnMeters,
 		yolo: claudeYolo, rulebook: ".claude/CLAUDE.md", turnCounts: claudeTurnCounts}
 }

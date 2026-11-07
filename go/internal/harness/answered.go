@@ -21,18 +21,25 @@ type Card struct {
 // A Choice is one a question card offered.
 type Choice struct{ Label, Description string }
 
-// Answered is the conversation that seat's record owns as its harness shows it, oldest first
-// (Said), and each answer its owner gave on its question cards: an error where the conversation
-// is there and cannot be read; none for a harness that brings no Python, whose default hooks read
-// none; false where Go reads neither for that harness yet, or, strictly, where it reads them less
-// strictly than Python's done check does (harness.strictly).
-func Answered(name string, record map[string]any, strictly bool) ([]Turn, []Card, bool, error) {
+// Reads is whether Go reads the owner's words in that harness's conversations, their messages and
+// their answers on its question cards (Answered), and, strictly, as strictly as Python's done
+// check does (harness.strictly): a harness that brings no Python reads none, as its default hooks.
+func Reads(name string, strictly bool) bool {
 	own, plugged := plugins[name]
-	if own.answered == nil || strictly && own.loose {
-		return nil, nil, !plugged && seatDefaults(name).seats, nil
+	if own.answered == nil {
+		return !plugged && seatDefaults(name).seats
 	}
-	said, cards, err := own.answered(record)
-	return said, cards, true, err
+	return !strictly || !own.loose
+}
+
+// Answered is the conversation that seat's record owns as its harness shows it, oldest first
+// (Said), and each answer its owner gave on its question cards, of a harness Go reads (Reads): an
+// error where the conversation is there and cannot be read.
+func Answered(name string, record map[string]any) ([]Turn, []Card, error) {
+	if hook := plugins[name].answered; hook != nil {
+		return hook(record)
+	}
+	return nil, nil, nil
 }
 
 // Entries calls each with every JSON object the file at path holds a line, first line first, as

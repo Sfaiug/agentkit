@@ -42,10 +42,10 @@ func checkOwed(name string, lines []string) (bool, error) {
 	case !on:
 		return false, nil
 	}
-	had, err := notify.Conversations(name)
+	had, err := notify.Conversations(name, true)
 	var owner []Said
 	if err == nil {
-		_, owner, err = OwnerWords(had, true)
+		_, owner, err = OwnerWords(had)
 	}
 	switch {
 	case errors.Is(err, notify.ErrUnread):
@@ -60,13 +60,12 @@ func checkOwed(name string, lines []string) (bool, error) {
 	return err != nil || strings.TrimFunc(string(kept), config.Space) != Fingerprint(owner, lines), nil
 }
 
-// OwnerWords is each conversation of had as its harness shows it, and the owner's words in them,
-// oldest first (done_check.owner_words): each message they wrote the seat, then each answer they
-// gave on its question cards.  Read strictly (harness.strictly): Answered reads each conversation
-// whole, so one there that cannot be read is an error, though notify.Conversations reads it as
-// holding no message; one that is gone holds none.  notify.ErrUnread where Go does not read a
-// conversation's answers, or, strictly, reads a record naming them less strictly than Python does.
-func OwnerWords(had []notify.Conversation, strictly bool) ([][]harness.Turn, []Said, error) {
+// OwnerWords is each conversation of had, as notify.Conversations gives them, as its harness shows
+// it, and the owner's words in them, oldest first (done_check.owner_words): each message they wrote
+// the seat, then each answer they gave on its question cards.  Read strictly (harness.strictly):
+// Answered reads each conversation whole, so one there that cannot be read is an error, though
+// notify.Conversations reads it as holding no message; one that is gone holds none.
+func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
 	var owner []Said
 	for _, each := range had {
 		for _, message := range each.Messages {
@@ -75,10 +74,8 @@ func OwnerWords(had []notify.Conversation, strictly bool) ([][]harness.Turn, []S
 	}
 	said := make([][]harness.Turn, len(had))
 	for i, each := range had {
-		turns, cards, known, err := harness.Answered(each.Harness, each.Record, strictly)
-		if !known {
-			return nil, nil, notify.ErrUnread
-		} else if err != nil {
+		turns, cards, err := harness.Answered(each.Harness, each.Record)
+		if err != nil {
 			return nil, nil, err
 		}
 		said[i] = turns

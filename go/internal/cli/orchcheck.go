@@ -118,7 +118,9 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 // gaps is ownerGaps of a seat resolved, with the fingerprint of what a check that found no gap
 // read ("" for any other end).
 func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
-	had, err := notify.Conversations(name)
+	// a record a harness's reader reads loosely is read, as before: only the reader deciding whether
+	// a check is owed, which ends a seat it reads as done, waits for one as strict as Python's
+	had, err := notify.Conversations(name, false)
 	if errors.Is(err, notify.ErrUnread) {
 		return nil, "", errLeft
 	} else if err != nil {
@@ -127,9 +129,7 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	if len(had) == 0 || had[len(had)-1].Name == "" {
 		return nil, "", fmt.Errorf("no seat named %s whose conversation ak can read", name)
 	}
-	// a record a harness's reader reads loosely is read, as before: only the reader deciding whether
-	// a check is owed, which ends a seat it reads as done, waits for one as strict as Python's
-	said, owner, err := plan.OwnerWords(had, false)
+	said, owner, err := plan.OwnerWords(had)
 	if errors.Is(err, notify.ErrUnread) {
 		return nil, "", errLeft
 	} else if err != nil {

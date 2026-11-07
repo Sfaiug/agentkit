@@ -32,9 +32,7 @@ const sessionStale = 7 * 86400
 var (
 	// launchKeys are what a launch writes about the conversation it owns and the rulebook it hands
 	// over (orch.LAUNCH_KEYS and `kept`), which a harness that never started takes back.
-	launchKeys = []string{"conversation", "resumable", "id_source", "before", "codex_launch", "codex_history",
-		"opencode_launch", "muse_launch", "antigravity_launch", "antigravity_open", "session_title", "title_sync",
-		"rulebook_sha", "rulebook_told", "rulebook_read"}
+	launchKeys = slices.Concat(harness.LaunchKeys, []string{"rulebook_sha", "rulebook_told", "rulebook_read"})
 	// cleared are what a seat launched under its name again no longer is, in its seat file: not the
 	// stopped one nor the one the owner closed, running none of the work the last one's screen showed
 	// and sent back by nothing yet.

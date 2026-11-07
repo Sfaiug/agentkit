@@ -36,7 +36,7 @@ type plugin struct {
 	// it reads the owner's own status command from where Go prints the line (StatusFiles).
 	report func(model string) (string, error)
 	status []string
-	// conversation is the file a seat's record says its conversation is kept in, "" for none, and
+	// conversation is the file a seat's record says its conversation is read by, "" for none, and
 	// sources TokenSources'.
 	conversation func(record map[string]any) string
 	sources      func(record map[string]any) ([]string, bool)
