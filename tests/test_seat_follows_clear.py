@@ -69,7 +69,7 @@ class SeatFollowsClear(Sandbox):
                 "transcript_path": str(claude.transcript_path(self.record(), conversation)), **extra}
 
     def hook(self, pid=103, **extra):
-        claude.capture("lagoon", self.payload(**extra), pid)
+        claude.follow("lagoon", self.payload(**extra), pid)
 
     def tmux(self, *args, **kwargs):
         self.tmux_calls.append(resolved(args))
@@ -402,7 +402,7 @@ class SeatFollowsClear(Sandbox):
             return True
         with patch.object(orch, "find", side_effect=lambda name: {"name": name}), \
                 patch.object(orch, "owns_hook", side_effect=owned):
-            hooks = [threading.Thread(target=claude.capture, args=(name, payload, 103))
+            hooks = [threading.Thread(target=claude.follow, args=(name, payload, 103))
                      for name in ("lagoon", "quay")]
             for hook in hooks:
                 hook.start()
