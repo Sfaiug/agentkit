@@ -10,8 +10,9 @@ import sys
 import tempfile
 import unittest
 
+from suite_shares import STATIC_CHECKS as STATIC
+
 REPO = Path(__file__).resolve().parents[1]
-STATIC = ("test_dead_code", "test_boundaries", "test_modules_say_what_they_are", "test_docs")
 REST = ("smoke.sh", "every_file.py", "gate_contract.py")
 NOTE = ('import os, pathlib\n'
         'with open(os.environ["ACME_LOG"], "a") as fh:\n'
