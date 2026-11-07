@@ -26,3 +26,13 @@ func TestOnlyTheSpansThatMovedGoOut(t *testing.T) {
 		t.Fatalf("changed lines wrote %q", got)
 	}
 }
+
+// A frame as tall as the screen keeps its first row: every row is addressed and nothing below the
+// last is cleared, so none scrolls away and the last row stays.
+func TestAFrameAsTallAsTheScreenScrollsNoneAway(t *testing.T) {
+	var out strings.Builder
+	NewPainter(&out).Write([]string{"ak", "abcd"}, Screen{width: 4, height: 2})
+	if want := hold("\x1b[1;1Hak\x1b[K\x1b[2;1Habcd"); out.String() != want {
+		t.Fatalf("wrote %q, want %q", out.String(), want)
+	}
+}

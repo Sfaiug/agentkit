@@ -32,24 +32,22 @@ func NewPainter(out io.Writer) *Painter { return &Painter{out: out} }
 
 // Write puts lines up on that screen, then each span over them.  Only the rows that differ from those
 // up go out, with the rows a span left or came to, and what is below is cleared after any; every
-// row, the screen below cleared, where what is up is unknown or on another screen, where lines could
-// scroll, or once a Tick has passed.  A span goes out where it is not up as it is, or the row under
-// it went out.
+// row, the screen below cleared, where what is up is unknown or on another screen, or once a Tick
+// has passed.  Each row is addressed, so a frame as tall as the screen scrolls none of it away.  A
+// span goes out where it is not up as it is, or the row under it went out.
 func (p *Painter) Write(lines []string, screen Screen, over ...Span) {
-	whole := !p.known || screen != p.of || len(lines) >= screen.Height() || time.Since(p.whole) >= Tick
+	whole := !p.known || screen != p.of || time.Since(p.whole) >= Tick
 	left := moved(p.over, over)
 	held := func(at int) bool {
 		return !whole && at < len(lines) && at < len(p.up) && lines[at] == p.up[at] && !left[at+1]
 	}
 	var frame strings.Builder
-	if whole {
-		frame.WriteString("\x1b[H")
-		for _, line := range lines {
-			frame.WriteString(cleared(line, screen) + "\n")
+	if rows := differing(lines, held, screen); whole || rows != "" || len(lines) < len(p.up) {
+		frame.WriteString(rows)
+		// Below the last row there is nothing to clear, and a clear there would erase that row.
+		if len(lines) < screen.Height() {
+			frame.WriteString("\x1b[" + strconv.Itoa(len(lines)+1) + ";1H\x1b[J")
 		}
-		frame.WriteString("\x1b[J")
-	} else if rows := differing(lines, held, screen); rows != "" || len(lines) < len(p.up) {
-		frame.WriteString(rows + "\x1b[" + strconv.Itoa(len(lines)+1) + ";1H\x1b[J")
 	}
 	for _, span := range over {
 		if !held(span.Row-1) || !slices.Contains(p.over, span) {
