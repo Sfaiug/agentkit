@@ -3,15 +3,16 @@
 package whose test binary died, or that failed with no test of its own failing, by its import
 path and none of its tests; a step by what it checks, the vet of the caller's own platform among
 them, and each passing part's seconds in the file PART_TIMES names.  Given parts it runs just
-those after the toolchain check, a step on its platform, a named test with no event failing as
-not there, yet named and timed as no part, as it ran nowhere; without, every part in its order.
+those after the toolchain check, a step on its platform; a named test with no event failing, or
+a test or package whose package go reads no file of, which it never runs, fails as not there,
+yet is named and timed as no part, as it ran nowhere; without, every part in its order.
 The caller's GOFLAGS hold in every run it makes; a vet fails by what it finds, shown, in text or
 as the JSON they may ask, never by the `{}` of a package it finds nothing in, and a build by its
 exit code alone, whatever it prints.
 
 Offline: the real test_go.py runs with a fake `go` first on PATH, on the platform ACME_HOST
 names, noting each call and its GOFLAGS, whose `test -json` prints the events a test hands it,
-whatever it is asked.
+whatever it is asked, and whose `list` reads a file of every package but gone.
 """
 
 import json
@@ -25,7 +26,7 @@ import unittest
 REPO = Path(__file__).resolve().parents[1]
 # A vet or build is noted by its platform, a build's output path being a temporary one; either
 # fails where ACME_BROKEN names its call, a test run where its events hold a failure; either
-# prints ACME_PRINTS.
+# prints ACME_PRINTS.  A listing prints `{}`, as Go's of a package it reads no file of, for gone.
 GO = '''#!/bin/sh
 case "$1" in
 vet|build) call="go $1 $GOOS/$GOARCH" ;;
@@ -36,6 +37,7 @@ echo "$GOFLAGS" >>"$ACME_FLAGS"
 case "$1" in
 env) printf '{"GOROOT": "%s", "GOOS": "%s", "GOARCH": "%s"}\n' "$ACME_ROOT" "${ACME_HOST%/*}" "${ACME_HOST#*/}" ;;
 test) cat "$ACME_EVENTS"; ! grep -q '"Action":"fail"' "$ACME_EVENTS" ;;
+list) case "$*" in *internal/gone) echo '{}' ;; *) echo '{"GoFiles": ["acme.go"]}' ;; esac ;;
 *) printf %s "$ACME_PRINTS"; case "$ACME_BROKEN" in *"$call"*) echo "$call broke" >&2; exit 1 ;; esac ;;
 esac
 '''
@@ -45,8 +47,9 @@ echo "$GOFLAGS" >>"$ACME_FLAGS"
 printf %s "$ACME_UNFORMATTED"
 '''
 GOFLAGS = "-skip=TestWidget -count=2"
-ACME, WIDGET = "agentkit/internal/acme", "agentkit/internal/widget"
+ACME, WIDGET, GONE = (f"agentkit/internal/{name}" for name in ("acme", "widget", "gone"))
 TOOLCHAIN = "go env -json GOROOT GOOS GOARCH"
+LISTED = "go list -e -json=GoFiles,CgoFiles,TestGoFiles,XTestGoFiles,InvalidGoFiles"
 # Under GOFLAGS=-json vet exits 0 whatever it finds, printing an object a package, `{}` where it
 # finds nothing; a passing build prints what its flags ask, as -gcflags=-m does.
 CLEAN = "{}\n{}\n"
@@ -82,6 +85,13 @@ WHOLE = r'''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixAp
 {"ImportPath":"agentkit/internal/widget [agentkit/internal/widget.test]","Action":"build-output","Output":"undefined: fixApi\n"}
 {"ImportPath":"agentkit/internal/widget [agentkit/internal/widget.test]","Action":"build-fail"}
 {"Action":"fail","Package":"agentkit/internal/widget","FailedBuild":"agentkit/internal/widget [agentkit/internal/widget.test]"}
+'''
+# How Go fails a package it reads no file of.
+SETUP_FAILED = r'''{"ImportPath":"agentkit/internal/gone","Action":"build-output","Output":"package agentkit/internal/gone is not in std\n"}
+{"ImportPath":"agentkit/internal/gone","Action":"build-fail"}
+{"Action":"start","Package":"agentkit/internal/gone"}
+{"Action":"output","Package":"agentkit/internal/gone","Output":"FAIL\tagentkit/internal/gone [setup failed]\n"}
+{"Action":"fail","Package":"agentkit/internal/gone","FailedBuild":"agentkit/internal/gone"}
 '''
 # A passing test logs U+0085, which Go leaves unescaped inside its event's line.
 PASSES = '''{"Action":"run","Package":"agentkit/internal/acme","Test":"TestFixApi"}
@@ -144,9 +154,9 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertIn("cmd/ak/main.go", out)
         self.assertEqual(calls, [TOOLCHAIN, "gofmt -l", "go vet linux/arm64", "go vet linux/amd64",
                                  "go vet darwin/arm64", "go vet windows/amd64",
-                                 "go test -json -timeout 0 ./...", "go build linux/amd64",
-                                 "go build linux/arm64", "go build darwin/arm64",
-                                 "go build windows/amd64"])
+                                 f"{LISTED} ./...", "go test -json -timeout 0 ./...",
+                                 "go build linux/amd64", "go build linux/arm64",
+                                 "go build darwin/arm64", "go build windows/amd64"])
 
     def test_a_failing_vet_of_the_callers_own_platform_is_named_by_it_and_given_runs_there(self):
         code, out, parts, _ = self.checked(ACME_BROKEN="go vet linux/arm64")
@@ -177,15 +187,25 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertEqual((code, parts), (0, []), out)
         self.assertEqual(json.loads((self.root / "times").read_text()).keys(),
                          {f"{ACME}.TestFixApi", WIDGET, "build windows/amd64"})
-        self.assertEqual(calls, [TOOLCHAIN,
+        self.assertEqual(calls, [TOOLCHAIN, f"{LISTED} {ACME}",
                                  f"go test -json -timeout 0 -run ^TestFixApi$ {ACME}",
-                                 f"go test -json -timeout 0 {WIDGET}", "go build windows/amd64"])
+                                 f"{LISTED} {WIDGET}", f"go test -json -timeout 0 {WIDGET}",
+                                 "go build windows/amd64"])
 
     def test_a_given_test_that_runs_nowhere_fails_saying_it_is_not_there_naming_no_part(self):
         code, out, parts, _ = self.checked(f"{ACME}.TestGone")
         self.assertEqual((code, parts, json.loads((self.root / "times").read_text())),
                          (1, [], {}), out)
         self.assertIn(f"{ACME}.TestGone is not there", out)
+
+    def test_a_given_test_or_package_whose_package_go_reads_no_file_of_never_runs(self):
+        # Go fails such a package, as one only a later change adds, with its setup: on this
+        # tree the part proves nothing.
+        code, out, parts, calls = self.checked(f"{GONE}.TestFixApi", GONE, events=SETUP_FAILED)
+        self.assertEqual((code, parts, calls, json.loads((self.root / "times").read_text())),
+                         (1, [], [TOOLCHAIN, f"{LISTED} {GONE}", f"{LISTED} {GONE}"], {}), out)
+        self.assertIn(f"{GONE}.TestFixApi is not there", out)
+        self.assertIn(f"{GONE} is not there", out)
 
     def test_the_callers_goflags_hold_in_every_run(self):
         for parts in ((), (f"{ACME}.TestFixApi", "vet linux/arm64")):
