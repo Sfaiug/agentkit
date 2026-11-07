@@ -25,7 +25,8 @@ func (t *ticking) tellParked(dir string) error {
 			}
 		}
 		name, line := run.Seat(current), parkedLine(filepath.Base(dir), step)
-		if !typable(name, line) || !seat.TypeAtPrompt(name, line, nil, func(*run.Object) error { return nil }, t.log.line) {
+		if !typable(name, line) || !seat.TypeAtPrompt(name, line, nil, func(*run.Object) error { return nil }, t.log.line) &&
+			!t.cardParked(name, filepath.Base(dir), step, line) {
 			return errLeft
 		}
 		current.Set("stalled_notified", true)
