@@ -7,13 +7,14 @@ came to.
 The seat asked three cards: three questions answered with a pick, a typed answer and two ticks;
 three of which the owner picked the first, left the second and ticked one of the third with words
 typed beside it; and one they dismissed.  Grok keeps the answers only in the card's result, a
-message nothing in which is escaped, and two typed answers hold what reads there as the next
-question's start.  The model's turn hands in its gaps only where its workspace holds the five
-answered questions, their choices and their answers, and none of the others: one quoting each
-typed answer, kept, and one quoting the dismissed card's question, dropped.  Black-box: the
-program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, on a seat of
-tests/fixtures/akseat.py whose session's updates.jsonl holds each card as Grok Build 1.0.46 left
-one answered by keyboard on 7 Nov 2026, with a fake harness of fakeadapter.py for the model.
+message nothing in which is escaped: one typed answer holds the next question's opening with an
+answer it did not offer, another holds `, "` and `"=`, and a label picked holds ` user notes: `.
+The model's turn hands in its gaps only where its workspace holds the five answered questions,
+their choices and their answers, and none of the others: one quoting each typed answer, kept, and
+one quoting the dismissed card's question, dropped.  Black-box: the program `AK_BIN` names runs
+from outside through tests/fixtures/akbin.py, on a seat of tests/fixtures/akseat.py whose
+session's updates.jsonl holds each card as Grok Build 1.0.46 left one answered by keyboard on
+7 Nov 2026, with a fake harness of fakeadapter.py for the model.
 """
 
 import json
@@ -30,7 +31,8 @@ from fixtures.akseat import Seat
 
 CONVERSATION = "0b8f6c2e-4d1a-4e7b-9c3f-5e2a7d1c9b40"
 AT = 1_794_045_600     # 7 Nov 2026 10:00 UTC, as Grok stamps an update: in seconds
-FONT = 'Sans, "Inter"="bold" in the CSS'
+FONT = 'Sans, "Which pages should show the acme banner?"="every page"'
+WIDE = 'Wide" user notes: full bleed'
 LINKS = 'Careers, "Jobs"="Careers" in the menu'
 
 
@@ -45,7 +47,7 @@ ANSWERED = [   # (question, what its result quotes, the words typed, what the ch
     (question("Which font should the acme banner use?", "Serif", "Mono"), "Other", FONT, FONT),
     (question("Which pages should show the acme banner?", "Home", "Docs", "Blog", multi=True),
      "Home, Docs", None, "Home, Docs"),
-    (question("Which layout should the acme banner use?", "Narrow", "Wide"), "Wide", None, "Wide"),
+    (question("Which layout should the acme banner use?", "Narrow", WIDE), WIDE, None, WIDE),
     (question("Which links should the acme banner hold?", "Home", "Docs", multi=True),
      "Home", LINKS, f"Home\n{LINKS}")]
 UNANSWERED = question("Which icon should the acme banner show?", "Star", "Flag")

@@ -180,36 +180,41 @@ def answers(record, cwd, conversation):
                 asked[call] = update["rawInput"]["questions"]
             elif (update["sessionUpdate"] == "tool_call_update" and call in asked
                   and update["status"] == "completed" and at is not None):
-                for question, answer in given(asked.pop(call),
-                                              update["rawOutput"]["UserAnswered"]["message"]):
-                    said.append({"at": at, "question": question["question"], "answer": answer,
-                                 "choices": [{"label": option["label"],
-                                              "description": option.get("description", "")}
-                                             for option in question.get("options") or ()]})
+                said = [{"at": at, **answer} for answer in given(
+                    asked.pop(call), update["rawOutput"]["UserAnswered"]["message"])]
         except (AttributeError, KeyError, TypeError):
             continue
         yield from said
 
 
 def given(questions, message):
-    """The card's `questions` an answered card's `message` answers, each with the owner's
-    answer: the label picked or the labels ticked, then any words typed on a line of their own.
+    """Each of the card's `questions` an answered card's `message` answers, with its choices and
+    the owner's answer: the label picked or the labels ticked, then any words typed on a line of
+    their own.
 
     Grok Build 1.0.46 lists the questions answered in the order asked, joined by ", ", each as
     `"<question>"="<chosen>"`, nothing escaped: the label picked, the labels ticked joined by
-    ", ", or "Other" where they only typed, then ` user notes: ` and any words typed.  Read
-    against the questions as asked, so typed words holding `, "` or `"=` read whole."""
+    ", ", or "Other" where they only typed, then ` user notes: ` and any words typed.  Each
+    question is read only with what it offered, so a label, or words typed, holding the
+    message's own punctuation, or a question's opening with an answer it did not offer, read
+    whole."""
+    asked = [(question["question"], [{"label": option["label"],
+                                      "description": option.get("description", "")}
+                                     for option in question.get("options") or ()])
+             for question in questions]
     head, tail = ANSWERED
     body = re.fullmatch(f"{re.escape(head)}(.*){re.escape(tail)}", message, re.S)
-    # each question there or not, the first one there opening the list
-    found = body and re.fullmatch("".join(
-        rf'(?:(?:\A|, )"{re.escape(question["question"])}"="(.*?)"(?: user notes: (.*?))?)?'
-        for question in questions), body[1], re.S)
+    pattern = ""
+    for text, choices in asked:     # each question there or not, the first there opening the list
+        label = "|".join(re.escape(choice["label"]) for choice in choices)
+        pattern += (rf'(?:(?:\A|, )"{re.escape(text)}"="((?:{label})(?:, (?:{label}))*'
+                    r'|Other(?=" user notes: ))"(?: user notes: (.*?))?)?')
+    found = body and re.fullmatch(pattern, body[1], re.S)
     chosen = found.groups() if found else ()
-    for question, picked, typed in zip(questions, chosen[::2], chosen[1::2]):
+    for (text, choices), picked, typed in zip(asked, chosen[::2], chosen[1::2]):
         if picked is not None:
-            yield question, "\n".join(filter(None, (
-                None if picked == "Other" and typed is not None else picked, typed)))
+            yield {"question": text, "choices": choices, "answer": "\n".join(filter(None, (
+                None if picked == "Other" and typed is not None else picked, typed)))}
 
 
 def said(record, cwd, conversation):
