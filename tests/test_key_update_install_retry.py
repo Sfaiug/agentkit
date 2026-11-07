@@ -25,6 +25,7 @@ from fixtures.gitrig import Rig
 
 # Each run leaves a line, and it passes only once the test has put install-ok in HOME.
 INSTALL = """#!/bin/sh
+[ "$1" != --prepare ] || exit 0
 echo ran >>"$HOME/install-runs"
 [ -e "$HOME/install-ok" ] || { echo "install: not yet"; exit 3; }
 touch "$HOME/installed"

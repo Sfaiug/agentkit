@@ -4,10 +4,10 @@ A tick moves agentkit only when it runs from HOME/agentkit, the checkout the cro
 a test of that copies the program there.  `Install(home)` makes a bare origin,
 `<root>/remotes/acme/agentkit.git`, whose main holds the program as its checkout holds it --
 every file it tracks but its tests, which no tick runs, and the program itself however it was
-built -- with an install.sh that only adds a line to HOME/installed, and a `notes` file;
-HOME/agentkit is a clone of it on main, and `install.ak` its `bin/ak`.  Its origin reads as
-GitHub's acme/agentkit, `ORIGIN`, so a pull request merged there is on its repository: an `ssh`
-serves git's fetch of it from the bare origin, and refuses all else.
+built -- with an install.sh that only adds a line to HOME/installed, and nothing at `--prepare`,
+and a `notes` file; HOME/agentkit is a clone of it on main, and `install.ak` its `bin/ak`.  Its
+origin reads as GitHub's acme/agentkit, `ORIGIN`, so a pull request merged there is on its
+repository: an `ssh` serves git's fetch of it from the bare origin, and refuses all else.
 `advance()` adds a line to `notes` in one more commit on origin's main.  `seat(name)` opens a
 seat of tests/fixtures/akseat.py in HOME/agentkit, at its prompt, holding a run that merged into
 acme/agentkit: the seat a tick hands agentkit's own faults back to.  The tick asks the public
@@ -37,7 +37,7 @@ from .akseat import Seat
 # Go's bin/ak is nested under go/: keep the checkout's ignore rules at their own paths.
 PROGRAM = next((folder for folder in Path(AK).resolve().parents if (folder / ".git").exists()),
                Path(AK).parents[1])
-INSTALL = '#!/bin/sh\necho installed >>"$HOME/installed"\n'
+INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho installed >>"$HOME/installed"\n'
 ORIGIN = "git@github.com:acme/agentkit.git"
 # git fetches over ssh by running its last word on the far end; only ORIGIN's is served.
 SSH = """#!/bin/sh

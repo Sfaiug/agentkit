@@ -5,6 +5,8 @@
 #   ./install.sh --server               this machine holds the sessions and runs the `ak watch` cron
 #   ./install.sh --client [ALIAS]       this machine reaches the server over `ssh ALIAS` (default agentkit)
 #   ./install.sh --phone-key KEY|FILE   append the phone's public key with the `ak attach` forced command
+#   ./install.sh --prepare              this version ready to run, before versions.switch puts it live;
+#                                       Python's has nothing to build
 # Without a saved server record every host defaults to server; on a Mac the server is a Linux
 # machine of ak's own on it (tools/linux-machine.sh), and the Mac its client.
 # --link-doctrine and --vm are accepted for old callers and do nothing: the VM steps are
@@ -27,6 +29,7 @@ while [ $# -gt 0 ]; do
     --phone-key) [ $# -gt 1 ] || { echo "install.sh: --phone-key needs a public key or a file" >&2; exit 2; }
                  PHONE_KEY=$2; shift ;;
     --link-doctrine|--vm) ;;
+    --prepare) exit 0 ;;
     *) echo "install.sh: unknown option $1 (expected --server, --client [ALIAS], --phone-key KEY|FILE)" >&2; exit 2 ;;
   esac
   shift

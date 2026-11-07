@@ -25,6 +25,7 @@ import fcntl
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -33,7 +34,7 @@ from . import config, retention
 
 REPOSITORY = "agentkit.git"     # in config.OWN: ak's repository, each version a worktree of it
 VERSIONS = "versions"           # in config.OWN: a version checked out to go live, or swapped out
-CAP = 30 * 60                   # one git step, as update.STEP_CAP
+CAP = 30 * 60                   # one git step or a version's prepare, as update.STEP_CAP
 AT_FDCWD = -100                 # Linux's, for renameat2
 RENAME_EXCHANGE = 2             # renameat2's flag on Linux
 RENAME_SWAP = 2                 # renamex_np's flag on macOS
@@ -135,14 +136,28 @@ def dispatch(argv):
 def git(where, *args):
     """(exit code, what git said) of one git command at `where`, looking for no repository
     above it; 1 when it could not run."""
-    env = {**config.child_env(),
-           "GIT_CEILING_DIRECTORIES": os.path.dirname(os.path.abspath(where))}
+    return run(["git", "-C", str(where), *args],
+               GIT_CEILING_DIRECTORIES=os.path.dirname(os.path.abspath(where)))
+
+
+def run(cmd, cwd=None, **env):
+    """(exit code, what `cmd` said); 1 when it could not run or ran past `CAP`.  All it started
+    stops with it, past the cap or with this process cut off: a build left running would go on
+    writing in the version removed for it, its own session keeping it from any ^C."""
     try:
-        proc = subprocess.run(["git", "-C", str(where), *args], capture_output=True, text=True,
-                              timeout=CAP, env=env)
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        with subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                              stderr=subprocess.PIPE, start_new_session=True, encoding="utf-8",
+                              errors="replace", env={**config.child_env(), **env}) as proc:
+            try:
+                out, err = proc.communicate(timeout=CAP)
+            except subprocess.TimeoutExpired as exc:
+                return 1, str(exc)
+            finally:
+                if proc.returncode is None:     # not waited for, so its group is still its own
+                    os.killpg(proc.pid, signal.SIGKILL)
+    except OSError as exc:
         return 1, str(exc)
-    return proc.returncode, (proc.stdout + proc.stderr).strip()
+    return proc.returncode, (out + err).strip()
 
 
 def owned(live):
@@ -269,9 +284,10 @@ def keep_times(live, new, commit):
 
 
 def switch(live, commit):
-    """Put `commit` live at `live`, swapped in whole: "" once it is or there is nothing to move,
-    else why not, `live` then as it was.  Forward only, as a fast-forward went: a commit `live`
-    already has moves nothing, and one beside it is refused."""
+    """Put `commit` live at `live`, swapped in whole once its `install.sh --prepare` passed: ""
+    once it is or there is nothing to move, else why not, `live` then as it was.  Forward only,
+    as a fast-forward went: a commit `live` already has moves nothing, and one beside it is
+    refused."""
     live = live.resolve()       # a link at ~/agentkit stays, and what it names is swapped
     if git(live, "merge-base", "--is-ancestor", commit, "HEAD")[0] == 0:
         return ""
@@ -288,6 +304,12 @@ def switch(live, commit):
     if code:
         remove(new)
         return f"{commit[:12]} could not be checked out in {new}: {said}"
+    # every seat's hooks and the tick run ~/agentkit/bin/ak, so a version goes live ready to run:
+    # Go's is built from go/, which git does not track
+    code, said = run([str(new / "install.sh"), "--prepare"], new)
+    if code:
+        remove(new)
+        return f"{commit[:12]} could not be prepared in {new}: {said or f'exit {code}'}"
     try:
         new.chmod(live.stat().st_mode & 0o7777)    # mkdtemp's is the owner's alone
         keep_times(live, new, commit)

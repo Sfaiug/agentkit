@@ -26,7 +26,7 @@ sys.path.insert(0, str(REPO))
 from agentkit import config, update, watch
 from fixtures.tick import only_passes
 
-INSTALL = '#!/bin/sh\necho installed >>"$(dirname "$0")/../installs"\n'
+INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho installed >>"$(dirname "$0")/../installs"\n'
 
 
 def git(where, *args):
@@ -192,7 +192,8 @@ class LiveUpdate(unittest.TestCase):
         self.assert_left_and_said_once("is not ahead of what")
 
     def test_a_failed_install_is_said_once(self):
-        new = self.merge("second", install="#!/bin/sh\necho broken\nexit 3\n")
+        new = self.merge("second",
+                         install='#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho broken\nexit 3\n')
         said = self.tick()
         self.assertEqual(said[0], f"WARN agentkit did not go live at {new[:12]}:")
         self.assertIn("  broken", said)
