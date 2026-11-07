@@ -2,6 +2,8 @@
 
 The owner's words are what a job is measured against: the orchestrator holds them whole and ak
 keeps no copy, since a copy handed on breeds false findings and carries any key the owner pasted.
+The one file of them ak may hold is the seat's own transcript under a second name, a link that is
+no copy (the owner, 6 Nov 2026: tests/test_key_owner_words_kept.py).
 Job receipts once saved what the owner had typed into the seat since
 its last job, and one held such a key.  So a job of two tasks launched from a seat whose
 conversation holds a key writes it nowhere under ~/.agentkit and tells it to no turn; and a
@@ -55,9 +57,12 @@ def sealed(home, *args, **kwargs):
 
 
 def holding(home):
-    """Each file under ~/.agentkit that holds the key."""
+    """Each file under ~/.agentkit that holds the key and is not the seat's own transcript,
+    where Claude Code keeps it, under another name."""
+    transcripts = [*home.path.glob(".claude/projects/*/*.jsonl")]
     return [str(path.relative_to(home.path)) for path in (home.path / ".agentkit").rglob("*")
-            if path.is_file() and KEY.encode() in path.read_bytes()]
+            if path.is_file() and KEY.encode() in path.read_bytes()
+            and not any(path.samefile(transcript) for transcript in transcripts)]
 
 
 @unittest.skipUnless(shutil.which("bwrap") and REAL_TMUX, "needs bwrap and tmux")
