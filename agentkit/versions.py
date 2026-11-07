@@ -141,8 +141,9 @@ def git(where, *args):
 
 
 def run(cmd, cwd=None, **env):
-    """(exit code, what `cmd` said); 1 when it could not run or ran past `CAP`, which stops all it
-    started: a build left running would go on writing in the version removed for it."""
+    """(exit code, what `cmd` said); 1 when it could not run or ran past `CAP`.  All it started
+    stops with it, past the cap or with this process cut off: a build left running would go on
+    writing in the version removed for it, its own session keeping it from any ^C."""
     try:
         with subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, start_new_session=True, encoding="utf-8",
@@ -150,8 +151,10 @@ def run(cmd, cwd=None, **env):
             try:
                 out, err = proc.communicate(timeout=CAP)
             except subprocess.TimeoutExpired as exc:
-                os.killpg(proc.pid, signal.SIGKILL)     # its group while it is not waited for
                 return 1, str(exc)
+            finally:
+                if proc.returncode is None:     # not waited for, so its group is still its own
+                    os.killpg(proc.pid, signal.SIGKILL)
     except OSError as exc:
         return 1, str(exc)
     return proc.returncode, (out + err).strip()
