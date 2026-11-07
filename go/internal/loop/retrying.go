@@ -138,7 +138,10 @@ func (c *call) attempt(body, target string) (*try, error) {
 		return nil, fmt.Errorf("%s %s: %w", c.role, c.name, err)
 	}
 	c.account = account
-	if err := os.MkdirAll(target, 0o777); err != nil {
+	// the turn's own directory is the worker's to make once its login passes, as Python's: one
+	// refused at its `auth` leaves none, which a resume would take for a turn that never recorded
+	// its conversation and start afresh
+	if err := os.MkdirAll(filepath.Dir(target), 0o777); err != nil {
 		return nil, err
 	}
 	// its time is when a worker last went, which Python's tick reads
