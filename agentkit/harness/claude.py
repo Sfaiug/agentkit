@@ -6,7 +6,6 @@ login's settings through a link (adapters/claude.sh's `share`).
 
 from pathlib import Path
 import codecs
-import fcntl
 import json
 import math
 import os
@@ -74,6 +73,20 @@ def keep(record, cwd, conversation):
         os.link(transcript_path(record, conversation), kept(conversation))
     except OSError:
         pass        # no transcript yet, a link made already, or none can be made
+
+
+def conversation_stores():
+    """ak's names (`kept`): Claude ends its own transcripts, never these, each a second name of
+    one while Claude keeps it."""
+    copies = kept("*")
+    return [{"root": copies.parent, "pattern": copies.name,
+             "id": re.compile(r"claude-(.+)\.jsonl"), "names": 2}]
+
+
+def end_conversation(path, ends):
+    """ak's name alone: the transcript it names, while Claude keeps it, is Claude's to end."""
+    if ends():
+        os.unlink(path)
 
 
 def read_by(record, cwd, conversation):
@@ -429,50 +442,20 @@ def reconcile(record):
             else {})
 
 
-def capture(launched, payload, pid):
+def follow(launched, payload, pid):
     """Only the seat's interactive process can report its replacement conversation: a new one
     after /clear, or an earlier one of its directory after /resume, which Claude Code (2.1.319)
     goes on appending to in place.
 
     Run while the hook's parent is still alive: an inherited seat name and pane alone
-    cannot distinguish a nested Claude from the one the owner is talking to.
+    cannot distinguish a nested Claude from the one the owner is talking to (`claim`).
     """
-    from .. import config, notify, orch
-    if (os.environ.get("AK_RUN_ROLE") == "worker" or not isinstance(payload, dict)
-            or payload.get("agent_id") or payload.get("agent_type")
-            or payload.get("hook_event_name") != "SessionStart"
-            or payload.get("source") not in ("clear", "resume")):
-        return
-    conversation, transcript = payload.get("session_id"), payload.get("transcript_path")
-    if (not isinstance(conversation, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", conversation)
-            or conversation.startswith("-") or not isinstance(transcript, str)):
-        return
-    record = config.session_records().get(config.resolve_session(launched), {})
-    if orch.seat_harness(record) != "claude" or record.get("conversation") == conversation:
-        return
-    # one seat claims a conversation at a time: two resuming the same one would each see it free
-    with notify.session_lock(launched) as name, \
-            (config.STATE / "conversations.lock").open("a") as claims:
-        fcntl.flock(claims, fcntl.LOCK_EX)
-        records = config.session_records()
-        record = records.pop(name, {})
-        if (orch.seat_harness(record) != "claude" or not record.get("cwd")
-                or record.get("conversation") == conversation
-                or not resumable(record, record.get("cwd"), record.get("conversation"))
-                or Path(transcript).resolve() != transcript_path(record, conversation).resolve()
-                # another seat's, current or left: its owner's words are that seat's to check
-                or any(conversation in (other.get("conversation"),
-                                        *(was.get("conversation") for was in other.get("left", [])))
-                       for other in records.values())):
-            return
-        session = orch.find(name)
-        if session and orch.owns_hook(session, pid, is_process):
-            # the conversation left stays the seat's, for its done check to read the owner's
-            # words in (`notify.conversations_of`), under the harness that keeps it; one it
-            # resumes is its current one again, read once
-            config.update_session(name, conversation=conversation, id_source=SOURCE, left=[
-                was for was in notify.left(record, "claude", record["conversation"])
-                if was["conversation"] != conversation])
+    from . import claim
+    if (isinstance(payload, dict) and not payload.get("agent_id")
+            and not payload.get("agent_type") and payload.get("hook_event_name") == "SessionStart"
+            and payload.get("source") in ("clear", "resume")):
+        claim(launched, "claude", payload.get("session_id"), payload.get("transcript_path"),
+              transcript_path, pid, is_process, id_source=SOURCE)
 
 
 def is_process(words):
@@ -909,11 +892,6 @@ def turn_meters(out):
 
 
 if __name__ == "__main__":
-    if sys.argv[1:2] == ["--hook"]:
-        sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-        from agentkit.harness.claude import capture
-        capture(os.environ["AGENTKIT_SESSION"], json.load(sys.stdin), int(sys.argv[2]))
-        sys.exit(0)
     checking = sys.argv[1:] == ["--check"]
     account_config(check=checking)
     if not checking:

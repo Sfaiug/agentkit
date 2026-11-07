@@ -23,6 +23,7 @@ from . import host, look, parsed
 
 REPO = Path(__file__).resolve().parent.parent
 STARTED = time.time()   # when this process read its code: every entry imports this module first
+BEGAN = None            # os.stat of the folder bin/ak began in, which bin/ak sets (versions.final)
 
 
 def code_written():

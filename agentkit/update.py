@@ -633,11 +633,17 @@ def update_agentkit(progress=None, pull=True):
             # test one commit from start to end; the next tick after it moves this one (go_live)
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
+        pending = config.STATE / "agentkit-install-pending"
+        if pull and versions.kept():
+            # no move starts before the last is final (versions.final); an owed install still runs
+            say("update: agentkit: moves once a tick of the version live now completes")
+            if not pending.exists():
+                return 0
+            pull = False
         install = [str(directory / "install.sh")]
         swap = ["swap"]     # to a commit known later, by `versions.switch`: no command of its own
         steps = ([["git", "-C", str(directory), "fetch", "--quiet", "origin", "main"], swap]
                  if pull is True else [swap] if pull else []) + [install]
-        pending = config.STATE / "agentkit-install-pending"
         for done, cmd in enumerate(steps):
             if progress:
                 progress(done, len(steps))

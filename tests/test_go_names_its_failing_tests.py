@@ -5,7 +5,8 @@ path and none of its tests; a step by what it checks, the vet of the caller's ow
 them, and each passing part's seconds in the file PART_TIMES names.  Given parts it runs just
 those after the toolchain check, a step on its platform; a named test with no event failing, or
 a test or package whose package go reads no file of, which it never runs, fails as not there,
-yet is named and timed as no part, as it ran nowhere; without, every part in its order.
+named so in the file NOT_THERE names and named and timed as no part, as it ran nowhere; without,
+every part in its order.
 The caller's GOFLAGS hold in every run it makes; a vet fails by what it finds, shown, in text or
 as the JSON they may ask, never by the `{}` of a package it finds nothing in, and a build by its
 exit code alone, whatever it prints.
@@ -117,7 +118,7 @@ class GoNamesItsFailingTests(unittest.TestCase):
     def checked(self, *parts, events=PASSES, host="linux/arm64", **env):
         """test_go.py's run for `parts` on `host`: its exit code, output, named parts and calls."""
         (self.root / "events").write_text(events)
-        for name in ("calls", "flags", "parts", "times"):
+        for name in ("calls", "flags", "parts", "times", "absent"):
             (self.root / name).unlink(missing_ok=True)
         done = subprocess.run(
             [sys.executable, REPO / "tests/test_go.py", *parts],
@@ -125,7 +126,8 @@ class GoNamesItsFailingTests(unittest.TestCase):
                      GOFLAGS=GOFLAGS, ACME_LOG=str(self.root / "calls"),
                      ACME_FLAGS=str(self.root / "flags"), ACME_ROOT=str(self.root / "goroot"),
                      ACME_EVENTS=str(self.root / "events"), FAILED_PARTS=str(self.root / "parts"),
-                     PART_TIMES=str(self.root / "times"), ACME_HOST=host, **env),
+                     PART_TIMES=str(self.root / "times"), NOT_THERE=str(self.root / "absent"),
+                     ACME_HOST=host, **env),
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         return done.returncode, done.stdout + done.stderr, self.read("parts"), self.read("calls")
 
@@ -192,18 +194,20 @@ class GoNamesItsFailingTests(unittest.TestCase):
                                  f"{LISTED} {WIDGET}", f"go test -json -timeout 0 {WIDGET}",
                                  "go build windows/amd64"])
 
-    def test_a_given_test_that_runs_nowhere_fails_saying_it_is_not_there_naming_no_part(self):
+    def test_a_given_test_that_runs_nowhere_fails_named_not_there_and_as_no_part(self):
         code, out, parts, _ = self.checked(f"{ACME}.TestGone")
-        self.assertEqual((code, parts, json.loads((self.root / "times").read_text())),
-                         (1, [], {}), out)
+        self.assertEqual((code, parts, json.loads((self.root / "times").read_text()),
+                          self.read("absent")), (1, [], {}, [f"{ACME}.TestGone"]), out)
         self.assertIn(f"{ACME}.TestGone is not there", out)
 
     def test_a_given_test_or_package_whose_package_go_reads_no_file_of_never_runs(self):
         # Go fails such a package, as one only a later change adds, with its setup: on this
         # tree the part proves nothing.
         code, out, parts, calls = self.checked(f"{GONE}.TestFixApi", GONE, events=SETUP_FAILED)
-        self.assertEqual((code, parts, calls, json.loads((self.root / "times").read_text())),
-                         (1, [], [TOOLCHAIN, f"{LISTED} {GONE}", f"{LISTED} {GONE}"], {}), out)
+        self.assertEqual((code, parts, calls, json.loads((self.root / "times").read_text()),
+                          self.read("absent")),
+                         (1, [], [TOOLCHAIN, f"{LISTED} {GONE}", f"{LISTED} {GONE}"], {},
+                          [f"{GONE}.TestFixApi", GONE]), out)
         self.assertIn(f"{GONE}.TestFixApi is not there", out)
         self.assertIn(f"{GONE} is not there", out)
 

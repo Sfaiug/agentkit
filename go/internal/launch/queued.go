@@ -42,6 +42,7 @@ func launchStands(dir string, record *run.Object) bool {
 	if len(bound.Workers) == 0 {
 		return false
 	}
-	reason, _, at, err := preflight(meta, cmds, path, path, task.Title(task.Text(data), "task"), values, flags, bound)
+	seated, _, _ := Seat()
+	reason, _, at, err := launcher{seat: seated, bound: bound}.preflight(meta, cmds, path, path, task.Title(task.Text(data), "task"), values, flags)
 	return err == nil && reason == "" && config.Resolve(at.repo) == config.Resolve(record.Str("repo"))
 }

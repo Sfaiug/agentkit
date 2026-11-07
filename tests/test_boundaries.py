@@ -22,8 +22,10 @@ REPO = Path(__file__).resolve().parents[1]
 # Python and Go tests pin knowledge with fixtures, and docs describe it to a reader: both
 # follow the code wherever it lives, so the rules count where the product itself keeps a copy.
 # A Go test's data is such a fixture, and a vendored module is another project's code, never
-# ak's knowledge.
-SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md", ":!go/vendor/", ":!*/testdata/*")
+# ak's knowledge.  go/keys.txt names the answer keys Go claims by their tests' names, which
+# hold whatever words a key's behaviour needs: a name there is a test's, never a copy.
+SCOPE = ("--", ".", ":!tests/", ":!*_test.go", ":!*.md", ":!go/vendor/", ":!*/testdata/*",
+         ":!go/keys.txt")
 
 RULES = [
     # Lifecycle reads belong to the lightweight reader, so a completed tool never needs

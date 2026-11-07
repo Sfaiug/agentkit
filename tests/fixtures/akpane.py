@@ -4,8 +4,8 @@
 
 It draws the text of the file SCREEN, again whenever that file changes, a key comes or its
 terminal is resized, and appends each byte it reads to TYPED as it comes.  As a harness's own
-composer does, the last line starting with COMPOSER (`❯` unless given) shows, after its first
-character, what has been typed since the last Enter, a paste and its line breaks included -- a
+composer does, the last line starting with COMPOSER (`❯` unless given) shows, after its mark,
+what has been typed since the last Enter, a paste and its line breaks included -- a
 COMPOSER running on to a placeholder picks that row of a box (`┃  Ask anything…`); each line
 entered goes to TYPED.lines as one JSON string.
 Each frame ends by setting the pane's title to the `stamp` of what it drew: tmux reads a pane's
@@ -65,7 +65,8 @@ def drawn(screen, draft, composer, height):
     # Untouched until something is typed: a chooser's selected line starts with `❯` too.
     if at is not None and draft:
         indent = lines[at][:lines[at].index(composer)]
-        rows = f"{indent}{composer[0]} {draft}".split("\n")
+        # its mark: COMPOSER up to a placeholder two spaces on, a box's edge too (`│ ❯`)
+        rows = f"{indent}{composer.split('  ')[0]} {draft}".split("\n")
         lines[at:at + 1] = rows
         at += len(rows) - 1
     frame = "\r\n".join(lines).rstrip("\r\n")

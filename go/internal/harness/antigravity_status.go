@@ -14,10 +14,11 @@ import (
 	"agentkit/internal/run"
 )
 
-// antigravityInteractive is the line adapters/antigravity.sh prints, its status line Go's own:
-// `ak hook status` where that adapter puts the status script under hooks/, which only Python's
-// look follows, in front of the owner's command as the adapter read it.  The rest of the line is
-// the adapter's, its exit too; a line whose status line Go cannot find is handed back unprinted.
+// antigravityInteractive is the line adapters/antigravity.sh prints, its status line and its
+// wrapper Go's own: `ak hook status` where that adapter puts the status script under hooks/, which
+// only Python's look follows, in front of the owner's command as the adapter read it, and Go's seat
+// (antigravitySeat).  The rest of the line is the adapter's, its exit too; a line whose status line
+// or wrapper Go cannot find is handed back unprinted.
 func antigravityInteractive(root string, args []string, out, errOut io.Writer) int {
 	shell := exec.Command(filepath.Join(config.Repo(), "adapters", "antigravity.sh"), append([]string{"interactive"}, args...)...)
 	shell.Stderr = errOut
@@ -44,6 +45,11 @@ func antigravityInteractive(root string, args []string, out, errOut io.Writer) i
 	}
 	status.Set("command", command)
 	line[at] = run.Line(settings)
-	fmt.Fprintln(out, commandhelp.ShellJoin(line))
+	seat, wrapped := antigravitySeat(root, line)
+	if !wrapped {
+		fmt.Fprintln(errOut, "ak adapter: antigravity interactive printed no wrapper Go reads")
+		return 2
+	}
+	fmt.Fprintln(out, commandhelp.ShellJoin(seat))
 	return 0
 }

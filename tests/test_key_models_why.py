@@ -129,15 +129,15 @@ class ModelsWhy(unittest.TestCase):
 
     def write(self, workers, reviewers=None, runs=False, priced=True):
         """The boards holding `ROWS` (boards); Crux 2 at low orchestrates new seats, `workers` build
-        them and `reviewers` review, every plan a dollar; with `runs`, two finished builds of
-        Acme Mid 5 high and a review by it, costing what its board does, a point of a week a
-        dollar."""
+        them and `reviewers` review, every plan $1300 a month, so a week of it $300 and a point
+        of that $3; with `runs`, two finished builds of Acme Mid 5 high and a review by it,
+        costing what its board does."""
         self.home.write(".agentkit/state/boards.json", boards(priced))
         # no answer an earlier case drew, so the screen counts its models once these are read
         (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)
         akconfig.write(self.home, MODELS, orchestrator="crux", workers=workers,
                        reviewers=reviewers, providers={
-                           provider: {"mode": "subscription", "price": 1}
+                           provider: {"mode": "subscription", "price": 1300}
                            for provider in ("anthropic", "openai", "acme")})
         if not runs:
             return
@@ -145,13 +145,14 @@ class ModelsWhy(unittest.TestCase):
         # the login's week $100 at a dollar a million tokens: a million tokens is a point
         history.week("anthropic", "default", "claude", "acme-mid-5", 50e6, 50)
         spent = lambda model, millions: [[("default", model, (millions * 1e6, 0, 0, 0))]]
-        history.run(("mid", "high"), built=spent("acme-mid-5", 1))
-        history.run(("mid", "high"), "mid", ["high"], built=spent("acme-mid-5", 2),
-                    reviewed=spent("acme-mid-5", 1.5))
+        history.run(("mid", "high"), built=spent("acme-mid-5", .25))
+        history.run(("mid", "high"), "mid", ["high"], built=spent("acme-mid-5", .75),
+                    reviewed=spent("acme-mid-5", .5))
         history.save()
 
     def models(self, width=100, height=60):
-        """`r` on `c` in a window of its own, once the answer is drawn."""
+        """`r` on `c` in a window of its own, once the answer is drawn: the orchestrator's
+        quality, which a page too short to say how many models it compares still keeps."""
         term = Terminal(self.home, size=(width, height), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -159,7 +160,7 @@ class ModelsWhy(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        term.wait("comparing all 6 models")
+        term.wait(" 93.2 ")
         return term
 
     def why(self, term, *keys):

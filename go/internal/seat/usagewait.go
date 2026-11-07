@@ -11,10 +11,10 @@ import (
 )
 
 // usageAhead is the meters, read with no lock held, where the seat's usage may be waited on as its
-// record stands: it ends on its window refusing the turn, as its look would read it, or the one
-// subscription of the model it names is spent (spentAlone); nil for none Go reads or for a dry
-// look, as collecting them keeps them, false for neither. Health decides again from the model its
-// look follows.
+// record stands: it ends on its window refusing the turn, as its look would read it, the one
+// subscription of the model it names is spent (spentAlone), or a wait stands (waitStands); nil for
+// none Go reads or for a dry look, as collecting them keeps them, false for neither. Health decides
+// again from the model its look follows.
 func usageAhead(state, name string, models map[string]config.Model) (*usages.Readings, bool) {
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	if record == nil {
@@ -24,7 +24,8 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 	own := models[model].Harness
 	reader, known := seatReader(name, record, models)
 	said, kept := reader.RecordedError(record)
-	if refused, _ := harness.Refusal(own, said); (!known || !kept || !refused) && !spentAlone(model, models[model]) {
+	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
+	if refused, _ := harness.Refusal(own, said); (!known || !kept || !refused) && !spentAlone(model, models[model]) && !waitStands(file) {
 		return nil, false
 	}
 	if drying != nil {
@@ -47,7 +48,8 @@ func usageAhead(state, name string, models map[string]config.Model) (*usages.Rea
 // limit and no refusal kept unhandled.  Then nothing is typed: the returned write marks the provider
 // out until that time where the account had room, keeps the refusal as handled, and puts the seat
 // out of usage until its windows come back, to continue there what a limit cut off -- the refused
-// turn, or one in flight that is not the owner's own since the wait began.  The caller holds the
+// turn, or one in flight that is not the owner's own since the wait began.  A wait on an account
+// with room that nothing refused, the owner's own turn ends (waitEnds).  The caller holds the
 // locks the look (found) and the write take, so nothing moves the seat between them.  False, read
 // with nothing written, leaves it to Python, as does a wait that would give the seat a word its
 // ladder does not read.
@@ -72,6 +74,9 @@ func (seat Seat) waitOnUsage(state string, live Live, model string, found sight,
 	until, spent := usages.TryAgainAt(line), readings.Spent(model) != ""
 	handled := observed != nil && observed.Get("line") == line && observed.Truthy("handled")
 	room := waiting == nil && !spent
+	if waiting != nil && !refused && !spent {
+		return seat.waitEnds(state, live, found, now)
+	}
 	if (waiting != nil || !refused) && !spent || room && (handled || until != 0 && until <= at) {
 		return nil, false
 	}
@@ -79,11 +84,8 @@ func (seat Seat) waitOnUsage(state string, live Live, model string, found sight,
 	if waiting != nil {
 		otherwise, since = waiting.Get("until"), waiting.Get("since")
 	}
-	// a turn begun since the wait that no limit refused is the owner's, answered by its account
-	flight, began := found.turnInFlight(seat.own)
-	turned, dated := run.Num(began)
-	from, _ := run.Num(since)
-	owners := flight && !refused && waiting != nil && dated && turned > from
+	flight, _ := found.turnInFlight(seat.own)
+	owners := !refused && found.ownTurn(seat.own, waiting)
 	continuing := refused || flight && !owners || waiting != nil && waiting.Truthy("continue")
 	wait := func(back any) *run.Object {
 		when, _ := run.Num(back)

@@ -3223,7 +3223,7 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-UNITS = {"share": "week %", "money": "plan $", "board_dollars": "a task"}   # matrix._costs's
+UNITS = {"share": "week %", "money": "$ a task", "board_dollars": "a task"}   # matrix._costs's
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
 # the why's words: what a row does in each role and a run of it, each measure's evaluation by
 # its name, where each `cost_rule` says a cost comes from, and a count under ten
@@ -3328,7 +3328,7 @@ def models_body(said, at=None):
 
 
 # The bars, the owner's design of 5 Nov 2026: the dearest TALL cells high, a column WIDE cells
-# wide at most, a name on NAMED lines of it at most
+# wide and a name on NAMED lines of it, each at most
 TALL, WIDE, NAMED = 7, 12, 3
 COUNTS = ("no", "one", "two", "three", "four", "five")      # up to matrix.PLACES
 EIGHTHS = " ▁▂▃▄▅▆▇"     # a bar's top, the eighths of a cell it fills
@@ -3342,7 +3342,7 @@ def columned(text, room, most=NAMED):
         *lines[:most - 1], terminal.wrap(lines[most - 1], room - 1)[0] + "…"]
 
 
-def models_bars(found, role, used):
+def models_bars(found, role, used, room=None, marked=True, why=True):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them, its choices, then as many of its
     `others`, best first, as fill matrix.PLACES; side by side, cheapest on the left, each as tall
@@ -3351,7 +3351,9 @@ def models_bars(found, role, used):
     `░`, its `why` under it led by `░`, so one too short to show its shade still says it is one;
     `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis line:
     heights and costs say which is dearer, as a shaded bar on the right is dearer, not better.
-    On a narrow screen the two-cell gutters, then the indent, give way to the labels."""
+    On a narrow screen the two-cell gutters, then the indent, give way to the labels.  Given
+    `room` lines, the dearest stands as tall as the rest leaves room for, TALL cells at most and
+    one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys."""
     utf8, width, choices = terminal.utf8(), terminal.layout_width(), found["choices"]
     solid, shade, mark = "█░━" if utf8 else "#:="
     shaded = found["others"][:matrix.PLACES - len(choices)]
@@ -3366,26 +3368,29 @@ def models_bars(found, role, used):
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[len(choices)]} choice{'s' * (len(choices) != 1)}",
         *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else [])], " · ", width - 2))]
+    unders = [[[quality], columned(row["name"], wide) + [mark * size] * (marked and row is used),
+               [effort], columned(f"{shade} {row['why']}", wide) if why and fill == shade else []]
+              for (row, fill), (_, quality, effort), wide in zip(rows, labels, widths)]
+    # the heading, the dearest's cost over it and what stands under the bars take their lines
+    taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
+    tall = TALL if room is None else max(1, min(TALL, room - taken))
     step = 1 if utf8 else 8           # an eighth of a cell, or without UTF-8 a whole one
     dearest = max((row["cost"] for row, _ in rows), default=0) or 1
     kinds, columns = [], []
-    for (row, fill), (cost, quality, effort), wide in zip(rows, labels, widths):
+    for (row, fill), (cost, *_), under in zip(rows, labels, unders):
         kinds.append("accent" if row is used else None)
-        eighths = max(step, step * round(8 * TALL * row["cost"] / dearest / step))
+        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step))
         top = -(-eighths // 8)
-        chart = [cost if level == top + 1 else "" if level > top else
-                 (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
-                 for level in range(TALL + 1, 0, -1)]
-        columns.append([chart, [quality], columned(row["name"], wide)
-                        + [mark * size] * (row is used), [effort],
-                        columned(f"{shade} {row['why']}", wide) if fill == shade else []])
+        columns.append([[cost if level == top + 1 else "" if level > top else
+                         (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
+                         for level in range(tall + 1, 0, -1)], *under])
 
     def cell(text, wide, kind):       # spaced after its colour, so no line keeps trailing space
         spaces = " " * (wide - terminal.cells(text))
         return (terminal.styled(text, kind) if kind else text) + spaces
     for parts in zip(*columns):       # chart, quality, name, effort, why: each on the same lines
-        tall = max(map(len, parts))
-        for texts in zip(*(part + [""] * (tall - len(part)) for part in parts)):
+        deep = max(map(len, parts))
+        for texts in zip(*(part + [""] * (deep - len(part)) for part in parts)):
             lines.append((" " * lead + (" " * gap).join(
                 map(cell, texts, widths, kinds))).rstrip())
     return lines
@@ -3465,9 +3470,10 @@ def models_why(found, role, row):
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
-    of `selected` uses (models_body), the bars of the role `▸` is on (models_bars), over
-    models_read until Esc, the boards read as it opens (matrix.refresh); a page too short cuts the
-    bars from its bottom (matrix_key).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of
+    of `selected` uses (models_body), the bars of the role `▸` is on (models_bars) as tall as the
+    page leaves room for, over models_read until Esc, the boards read as it opens
+    (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
+    bottom (matrix_key).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of
     the row the role uses, else of its first choice.  `p` lists companies (company_list); `r`
     takes (take_advice)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -3489,11 +3495,18 @@ def models_screen(cfg, session, selected, providers):
             used = matrix.uses(cfg, selected, answer)
             said = models_said(cfg, answer, used)
         body, places = models_body(said, None if terminal.away() else here[1])
-        body += models_bars(answer[here[1]], here[1], used[here[1]][2])
         keys = terminal.keys("p models", "r take", "esc back", enter="why", move=("role",))
-        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
-                                       under=["", *models_read(compared, total,
-                                                               held.get("fetched_at"))],
+        read = ["", *models_read(compared, total, held.get("fetched_at"))]
+        # where one-cell bars leave too little room these give way whole, in turn: the comparing
+        # line, the `━` (the accent and the role's line still name the row in use), the whys
+        for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
+                                   ([], False, False)):
+            room = page_room([*under, *note_lines(note)], keys) - len(body)
+            bars = models_bars(answer[here[1]], here[1], used[here[1]][2], room, marked, why)
+            if len(bars) <= room:
+                break
+        act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
+                                       marks=0, under=under,
                                        clock=clock, began=fetch and fetch.began,
                                        going=fetch and fetch.is_alive)
         if act is None:

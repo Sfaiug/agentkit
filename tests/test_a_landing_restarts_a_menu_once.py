@@ -4,8 +4,9 @@ Which code a process read is told by difference, never by order: `update.code_mo
 the modules' newest write with what the process read at its start.  Swapping in a version changes
 that once, at the exchange; install.sh stamps only where there is no stamp; and a version bringing
 only what no running process holds keeps the modules' times.  Here ~/agentkit is a real checkout
-under a temporary HOME holding a copy of `agentkit/`, moved by the real `versions.switch`, and each
-process is a real one started from it that stays open and answers on request.
+under a temporary HOME holding a copy of `agentkit/`, moved by the real `versions.switch`, each
+move made final as a tick of the version it put live does, and each process is a real one started
+from it that stays open and answers on request.
 """
 
 import json
@@ -85,7 +86,9 @@ class ALandingRestartsAMenuOnce(unittest.TestCase):
         return git(self.seed, "rev-parse", "HEAD")
 
     def change(self, name):
-        """A commit on origin changing `name` and nothing else."""
+        """A commit on origin changing `name` and nothing else, the last move final."""
+        with patch.object(config, "BEGAN", os.stat(self.clone)):
+            versions.final()
         path = self.seed / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text((path.read_text() if path.exists() else "") + "# changed\n")

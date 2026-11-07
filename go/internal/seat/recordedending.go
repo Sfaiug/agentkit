@@ -5,7 +5,6 @@ import (
 	"slices"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/job"
 	"agentkit/internal/plan"
 	"agentkit/internal/run"
@@ -62,18 +61,30 @@ func startedSince(mine *run.Object, since float64) bool {
 	return false
 }
 
-// EndsWait is whether this ending ends the explicit wait its seat named, or leaves
-// nothing recorded to let the seat's turn end while its plan still owes work.
+// EndsWait is Python's ends_wait: the seat's `ak wait` names this ending's run or pull request, no
+// other run of the seat is going, or it owes a line none of those serves; read from census, else
+// from every run's record as it stands.
 func EndsWait(name string, census []*run.Object, ending *run.Object) (bool, error) {
 	if named, err := WaitNames(name, ending); named || err != nil {
 		return named, err
 	}
-	_, record, err := config.ResolveSession(name)
-	if err != nil {
-		return false, err
+	if census == nil {
+		var err error
+		if census, err = run.Records(); err != nil {
+			return false, err
+		}
 	}
-	ends, _, err := RecordedEnding(name, census, record, false)
-	return !ends, err
+	seatOf, now, going := run.Seats(), time.Now(), false
+	var served []string
+	for _, other := range census {
+		if seatOf(other) == name && !run.Equal(other.Get("run_id"), ending.Get("run_id")) && run.Going(other, now) {
+			going, served = true, append(served, other.Str("plan_line"))
+		}
+	}
+	if !going {
+		return true, nil
+	}
+	return plan.Unserved(name, served)
 }
 
 // WaitNames is whether the seat's `ak wait`, not yet told, names this ending's run or pull request.
