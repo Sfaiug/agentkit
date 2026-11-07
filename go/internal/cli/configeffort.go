@@ -52,9 +52,9 @@ func (catalogs *configCatalog) read(c *matrix.Configuration) error {
 
 // stepConfigEffort steps the effort in column one level on, from the highest round to the lowest,
 // or, `to` 0 or more, takes its to-th level, a level past its last changing nothing.  A seat's
-// orchestrator effort is the one its harness runs, so its step moves the seat (seat.Move) where
-// its running harness takes it in place; a restart's card, another model's row and a model the
-// model list turned off, which Python's switch plan refuses first, are Python's.
+// orchestrator effort is the one its harness runs, so its step moves the seat (seat.MoveInPlace)
+// where its running harness takes it in place; a restart's card and another model's row are
+// Python's.
 func stepConfigEffort(c *matrix.Configuration, session string, row, column, to int) (string, bool) {
 	name, role := c.Names[row], column-3
 	levels, current := c.Levels[name], c.Effort(name, role)
@@ -72,10 +72,10 @@ func stepConfigEffort(c *matrix.Configuration, session string, row, column, to i
 		return stepNewSeatsEffort(c, name, column, word)
 	}
 	if role == 0 {
-		if off, err := matrix.Off(name); err != nil || off || c.Selected.Str("orchestrator") != name {
+		if c.Selected.Str("orchestrator") != name {
 			return "", false
 		}
-		known, err := seat.Move(session, name, word, func() (bool, bool) { return false, false })
+		known, err := seat.MoveInPlace(session, name, word)
 		if !known {
 			return "", false
 		}
