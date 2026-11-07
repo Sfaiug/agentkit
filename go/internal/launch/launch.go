@@ -31,6 +31,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/handback"
 	"agentkit/internal/helper"
 	"agentkit/internal/history"
 	"agentkit/internal/lock"
@@ -87,14 +88,10 @@ func Task(path string, values map[string]string, flags map[string]bool, out, err
 		return 2, outright.why, nil
 	}
 	defer place.admitted.release()
-	seated, _, _ := Seat()
-	// a seat's launch a rule refuses is said where the seat typed it, which is Python's yet
-	if err == nil && reason != "" && seated != "" {
-		err = ErrPython
-	}
 	if err != nil {
 		return 0, "", err
 	}
+	seated, _, _ := Seat()
 	log, unstopped := logger(dir, out), guarded(dir, out)
 	logged := filepath.Join(dir, "log.txt")
 	title := task.Title(text, "task")
@@ -161,7 +158,8 @@ func guarded(dir string, out io.Writer) func(func(*run.Object)) error {
 	}
 }
 
-// refuse ends a launch its receipt already records, as a run in error.
+// refuse ends a launch its receipt already records, as a run in error, Python's refused for the
+// `ak run` typed: that command prints the refusal, so a seat's is handed back as printed there.
 func refuse(dir, reason, warning string, log func(string) error) (int, string, error) {
 	var ended *run.Object // the record as the refusal leaves it
 	for _, step := range []func() error{
@@ -187,19 +185,24 @@ func refuse(dir, reason, warning string, log func(string) error) (int, string, e
 			// a stop that landed ends the row itself, as Python's stop does
 			if ended.Str("state") != "stopped" {
 				history.Finish(ended, func(line string) { log(line) })
+				seat.Redress(run.Seat(ended)) // the ending lands on the bar too
 			}
 			return nil
 		},
+		func() error {
+			// a result Python cannot write, or a stop's, goes untold
+			if why := ended.Str("error"); run.Report(dir, ended) == nil && why != "" {
+				return log("ERROR " + why)
+			}
+			return nil
+		},
+		func() error { return handback.PrintedAtLaunch(dir, func(line string) { log(line) }) },
 	} {
 		if err := step(); err != nil {
 			return 0, "", err
 		}
 	}
-	why := ended.Str("error")
-	if err := run.Report(dir, ended); err != nil || why == "" {
-		return 2, reason, nil // a result Python cannot write, or a stop's, goes untold
-	}
-	return 2, reason, log("ERROR " + why)
+	return 2, reason, nil
 }
 
 // python is whether Python ak makes this launch otherwise than Go would, or reads what Go
