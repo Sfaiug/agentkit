@@ -36,6 +36,7 @@ upgrade = ["acme-harness", "upgrade"]
 """
 LIVE = "#!/bin/sh\nexit 0\n"
 PENDING = ".agentkit/state/agentkit-install-pending"
+KEPT = ".agentkit/tmp/keep/ak"     # a move not final yet: until a tick of its version completes
 
 
 def live_install(home):
@@ -98,6 +99,8 @@ class InstallOwed(unittest.TestCase):
         self.assertNotRegex(self.update(3), r"install\.sh exited")
         self.assertEqual(install_runs(self.home), 2)
         self.assertTrue(self.pending.is_file())
+        # the move before made final, as a tick of the version it put live makes it: none runs here
+        (self.home.path / KEPT).unlink(missing_ok=True)
         newer = self.rig.commit({"notes.md": "third\n"}, "third")
         self.assertRegex(self.update(3), r"install\.sh exited 3")
         self.assertEqual(head(self.home), newer)
