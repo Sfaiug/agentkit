@@ -203,7 +203,7 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertAlmostEqual(self.row("echo", prices={"acme": 200})["cost"],
                                20 * dollars(2.5, 200) / 62)
 
-    def test_a_measured_provider_has_its_price_though_the_boards_rate_none_of_its_rows(self):
+    def test_a_measured_provider_prices_rows_though_the_boards_rate_none_of_its_own(self):
         held = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
         for board in held.values():
             for row in board["rows"]:
@@ -220,6 +220,23 @@ class PicksPricedInUsage(unittest.TestCase):
         anvil = next(row for row in answer["execute"]["front"] if row["release"] == "anvil-1"
                      and row["effort"] == "high")
         self.assertAlmostEqual(anvil["cost"], dollars(.2, 100))   # acme, at bolt's price
+        # Dune's build, unrated, still in the builds' cost per board dollar
+        self.assertAlmostEqual(self.row("echo", prices={"bolt": 100})["cost"],
+                               20 * dollars(2.5, 100) / 62)
+
+    def test_each_model_that_measured_a_row_counts_on_its_own_provider(self):
+        # Anvil, also run on bolt: that build, not the row's first model's, prices bolt's rows
+        self.models["anvil-bolt"] = {**self.models["anvil"], "harness": "codex", "provider": "bolt"}
+        history = History(self.home)
+        for provider in ("acme", "bolt"):
+            history.week(provider, "default", HARNESSES[provider], "anvil-1", 50e6, 50)
+        for name, points in (("anvil", .2), ("anvil-bolt", 2)):
+            history.run((name, "high"), built=[[("default", "anvil-1", (points * 1e6, 0, 0, 0))]])
+        history.save()
+        self.assertAlmostEqual(self.row("anvil", prices=PRICES)["cost"], dollars(.2, 200))
+        dune = self.row("dune", prices=PRICES)
+        self.assertAlmostEqual(dune["cost"], 10 * dollars(2, 100) / 2)
+        self.assertEqual(dune["cost_rule"], "provider")
 
     def test_the_models_column_names_the_unit_every_role_is_in(self):
         self.assertRegex(self.command(), r"quality +week %\n +orchestrator +Anvil high +90\.0 +"
