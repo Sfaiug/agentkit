@@ -12,7 +12,7 @@ import (
 // Summary is the cloud's switch and this month's spend as the tick's meter left it, asking
 // Google nothing, `count` adding the machines up or going (google_cloud.summary): money never read
 // this month is never shown.
-func Summary(now time.Time, count bool) string {
+func Summary(count bool) string {
 	active, cap := config.CloudBudget()
 	ledger, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "google-cloud-ledger.json"))
 	if !readable(ledger) {
@@ -30,7 +30,9 @@ func Summary(now time.Time, count bool) string {
 	}
 	answered, _ := ledger.Num("answered")
 	spent, _ := ledger.Num("spent")
-	if answered == 0 || time.Unix(int64(answered), 0).UTC().Format("2006-01") != now.UTC().Format("2006-01") {
+	at, err := now()
+	month := func(seconds float64) string { return time.Unix(int64(seconds), 0).UTC().Format("2006-01") }
+	if answered == 0 || err != nil || month(answered) != month(at) {
 		return "on · spend unknown"
 	}
 	said := fmt.Sprintf("on · €%.2f of €%.6g this month", spent, cap)

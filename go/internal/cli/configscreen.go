@@ -211,7 +211,7 @@ func configNames(selected *run.Object, key string) []string {
 }
 
 func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
-	discord, cloud := menu.ConfigServices(time.Now())
+	discord, cloud := menu.ConfigServices()
 	setting, on, err := config.Audit()
 	audit := ""
 	if err != nil {
