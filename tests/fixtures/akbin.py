@@ -8,11 +8,12 @@ unset, and a relative name is read from the checkout.  Nothing here imports agen
 The program sees an environment built from nothing, never the caller's: no `AK_*`, `AGENTKIT_*`,
 tmux or harness variable reaches it, so it is nobody's seat or run and can find no login, no user
 systemd manager and no repository above its HOME; notifications go nowhere; and `home.bin` leads
-PATH.  There a fake of each host tool in `REFUSED` logs its call and refuses it, so no test
-reaches GitHub, the live host, the owner's units or a harness unless it puts a fake of its own
-there with `home.fake`.  `tmux` is the real one, held to a socket directory of this Home's own:
-judge it by its state through `home.tmux`, never by the commands ak sent it, which another build
-may send another way.
+PATH.  Only `AK_HANDOVER` passes, where the caller sets it: the file Go's hand-overs go on the end
+of, which tests/unclaimed.py gives each key it runs.  There a fake of each host tool in `REFUSED`
+logs its call and refuses it, so no test reaches GitHub, the live host, the owner's units or a
+harness unless it puts a fake of its own there with `home.fake`.  `tmux` is the real one, held to
+a socket directory of this Home's own: judge it by its state through `home.tmux`, never by the
+commands ak sent it, which another build may send another way.
 
     from fixtures.akbin import Home
     with Home() as home:
@@ -216,6 +217,8 @@ class Home:
             # nobody's nested run, and no slot gate parking a launch behind the host's load
             "AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0",
         }
+        if "AK_HANDOVER" in os.environ:
+            self.env["AK_HANDOVER"] = os.environ["AK_HANDOVER"]
 
     def __enter__(self):
         return self

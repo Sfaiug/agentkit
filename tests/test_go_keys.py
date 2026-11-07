@@ -18,6 +18,7 @@ takes minutes, so every_file.py's re-run, and a narrowing step on that claim, ru
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
 """
 
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -39,6 +40,36 @@ LEFT_OUT = shutil.ignore_patterns("agentkit", ".git", "__pycache__", ".ak-test-*
 PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK\n\Z", re.MULTILINE)
 
 
+@contextmanager
+def checkout(build):
+    """A copy of the checkout without agentkit/ for keys to run in, the program they judge, and
+    its build: AK_BIN's program, a relative name read from the checkout, else go/bin/ak, built
+    there when `build`.  The build is None where none ran."""
+    named = os.environ.get("AK_BIN")
+    # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
+    # checkout counts on that lying outside the temporary places a worker's box makes its own.
+    with tempfile.TemporaryDirectory(prefix=".ak-test-go-keys-", dir=REPO) as tree:
+        shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
+        program = REPO / named if named else Path(tree, "go/bin/ak")
+        # Trimmed, a build in this piece's own tree finds what others cached (every_file).
+        built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"], env=ENV,
+                               cwd=Path(tree, "go"), capture_output=True,
+                               text=True) if build and not named else None
+        # a checkout, as Go finds the one it runs from (config.Repo), without the history
+        subprocess.run(["git", "init", "-q", tree], check=True)
+        yield tree, program, built
+
+
+def run(tree, program, name, *parts, **env):
+    """Key file `name`'s `parts` run in `tree` against `program`, `env` added to this process's
+    environment, and whether they passed."""
+    # No PYTHONPATH: the caller's could lead back to agentkit.
+    done = subprocess.run([sys.executable, f"tests/{name}.py", *parts], cwd=tree,
+                          env={**os.environ, "AK_BIN": str(program), "PYTHONPATH": "", **env},
+                          capture_output=True, text=True)
+    return done, not done.returncode and bool(PASSED.search(done.stderr))
+
+
 class Claims(unittest.TestCase):
     def test_each_claim_passes(self):
         asked = sys.argv[1:]
@@ -46,37 +77,21 @@ class Claims(unittest.TestCase):
         # One it does not list ran nowhere, as one only a later change adds: it fails this file
         # naming no failing part, and those it lists still run.
         unlisted = set(asked) - {claim[0] for claim in listed}
-        named = os.environ.get("AK_BIN")
-        # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
-        # checkout counts on that lying outside the temporary places a worker's box makes its own.
-        with tempfile.TemporaryDirectory(prefix=".ak-test-go-keys-", dir=REPO) as tree:
-            shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
-            program = REPO / named if named else Path(tree, "go/bin/ak")
-            if listed and not named:
-                # Never a skip: the landing suite counts a skipped case as passed.
-                # Trimmed, a build in this piece's own tree finds what others cached (every_file).
-                built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"],
-                                       env=ENV, cwd=Path(tree, "go"), capture_output=True,
-                                       text=True)
-                if built.returncode:
-                    # Go that does not build fails every claim asked of it.  Named, a landing's
-                    # narrowing finds the change that broke the build: unnamed, the claim proves
-                    # nothing on each stack holding that change (land._probe).
-                    name_failed([name for name, *_ in listed if not asked or name in asked],
-                                "FAILED_PARTS")
-                self.assertEqual(built.returncode, 0, built.stderr)
-            # a checkout, as Go finds the one it runs from (config.Repo), without the history
-            subprocess.run(["git", "init", "-q", tree], check=True)
+        with checkout(build=bool(listed)) as (tree, program, built):
+            if built and built.returncode:
+                # Go that does not build fails every claim asked of it, never as a skip: the
+                # landing suite counts a skipped case as passed.  Named, a landing's narrowing
+                # finds the change that broke the build: unnamed, the claim proves nothing on
+                # each stack holding that change (land._probe).
+                name_failed([name for name, *_ in listed], "FAILED_PARTS")
+                self.fail(built.stderr)
             failed, took = [], {}
-            # One after another: every_file.py already runs other files beside this one.  No
-            # PYTHONPATH: the caller's could lead back to agentkit.
+            # One after another: every_file.py already runs other files beside this one.
             for name, *parts in listed:
                 began = time.monotonic()
-                done = subprocess.run([sys.executable, f"tests/{name}.py", *parts], cwd=tree,
-                                      env={**os.environ, "AK_BIN": str(program), "PYTHONPATH": ""},
-                                      capture_output=True, text=True)
+                done, passed = run(tree, program, name, *parts)
                 took[name] = time.monotonic() - began
-                if done.returncode or not PASSED.search(done.stderr):
+                if not passed:
                     failed.append(" ".join((name, *parts)))
                     print(f"--- {failed[-1]}\n{done.stdout}{done.stderr}", flush=True)
         failing = [claim.split()[0] for claim in failed]
