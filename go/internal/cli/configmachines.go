@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/googlecloud"
@@ -34,7 +33,7 @@ func menuMachines(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		}
 		active, _ := config.CloudBudget()
 		work, known := workWords(machines.Cloud)
-		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(time.Now(), true) + " · " + work, On: active,
+		return append(rows, menu.PageRow{Label: "Google Cloud", Value: googlecloud.Summary(true) + " · " + work, On: active,
 			Flip: func() string { return saved(machines.Cloud.Save("active", !active, seat.KeepConfigEfforts)) },
 			Open: func() bool { return menuMachineWork(machines.Cloud.Name, keyboard, painter) }}), known
 	}, keyboard, painter)

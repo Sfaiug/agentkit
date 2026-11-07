@@ -1,10 +1,12 @@
 // Package googlecloud is the machines ak rents from Google Cloud, as Python's google_cloud: what
-// is offered (Offers) and the best of it (Best), in words another provider can be one more
-// package of. It alone knows Google: the service-account key, the token its JWT buys, Compute
-// Engine's Spot price list and machine types, and how a call to Google fails.
+// is offered (Offers, Keep, Kept) and the best of it (Best), what ak rents (Rented) and giving one
+// back (GiveBack), in words another provider can be one more package of. It alone knows Google:
+// the service-account key, the token its JWT buys, Compute Engine's Spot price list, machine
+// types and machines, how a call to Google fails, and the time it reads.
 package googlecloud
 
 import (
+	"bytes"
 	"cmp"
 	"crypto"
 	"crypto/rsa"
@@ -17,6 +19,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -42,6 +46,8 @@ const (
 	// The fewest vCPUs a rented machine has: in memory, its suite's image took 6.4 of a 2-vCPU
 	// one's 7.8 GB, and a 4 ran 6 pieces in 4 hours to a 72's 2231 (2 Nov 2026).
 	smallest = 8
+	// A rented machine's boot image, "-arm64" for arm64.
+	image = "projects/debian-cloud/global/images/family/debian-13"
 )
 
 var (
@@ -52,15 +58,28 @@ var (
 	spot = regexp.MustCompile(`^Spot Preemptible (\w+) (?:[\w-]+ )*?Instance (Core|Ram) running in `)
 	// A boot disk's price, its GBs' unless the word is IOPS or Throughput.
 	disk = regexp.MustCompile(`^(Balanced PD|Hyperdisk Balanced) (\w+) in `)
+	// Each of those as a machine's boot disk names its type.
+	diskTypes = map[string]string{"Balanced PD": "pd-balanced", "Hyperdisk Balanced": "hyperdisk-balanced"}
 )
 
 // Offer is a machine type to rent in a region.
 type Offer struct {
 	Name, Region string
-	CPUs         int     // the vCPUs its machine counts, as a suite's VMs are given them
 	Cores        float64 // physical: an arm64 vCPU is one, two x86 vCPUs share one
 	MemoryMB     int
 	Hourly       float64 // euros: its cores, memory, boot disk and address, as the bill will
+	// The zones of its region offering it, none in a list kept before ak rented, and its boot
+	// disk's image and type.
+	Zones       []string
+	Image, Disk string
+}
+
+// CPUs is the vCPUs its machine counts, as a suite's VMs are given them.
+func (o Offer) CPUs() float64 {
+	if strings.HasSuffix(o.Image, "-arm64") {
+		return o.Cores
+	}
+	return 2 * o.Cores
 }
 
 func (o Offer) String() string {
@@ -72,7 +91,7 @@ func (o Offer) String() string {
 // core first.
 func Best(mbPerCPU int, offered []Offer) []Offer {
 	fits := slices.DeleteFunc(slices.Clone(offered), func(o Offer) bool {
-		return o.CPUs < smallest || o.MemoryMB < mbPerCPU*o.CPUs
+		return o.CPUs() < smallest || float64(o.MemoryMB) < float64(mbPerCPU)*o.CPUs()
 	})
 	slices.SortFunc(fits, func(a, b Offer) int {
 		return cmp.Or(cmp.Compare(a.Hourly/a.Cores, b.Hourly/b.Cores), cmp.Compare(a.Name, b.Name),
@@ -81,7 +100,7 @@ func Best(mbPerCPU int, offered []Offer) []Offer {
 	return fits
 }
 
-// Offers is every machine type the price list prices, once a region it is offered in.
+// Offers is every machine type the price list prices, with the zones of its region offering it.
 func Offers() ([]Offer, error) {
 	compute, token, err := login()
 	if err != nil {
@@ -120,14 +139,15 @@ func Offers() ([]Offer, error) {
 		return nil, err
 	}
 	var offered []Offer
-	seen := map[[2]string]bool{}
+	found := map[[2]string]int{} // at in offered
 	err = pages(token, compute+"/aggregated/machineTypes", url.Values{"returnPartialSuccess": {"true"}}, func(page listing) {
-		for zone, listed := range page.Items {
-			region := strings.TrimPrefix(zone, "zones/")
-			if cut := strings.LastIndexByte(region, '-'); cut > 0 {
-				region = region[:cut]
+		for _, listed := range slices.Sorted(maps.Keys(page.Items)) {
+			zone := strings.TrimPrefix(listed, "zones/")
+			region := zone
+			if cut := strings.LastIndexByte(zone, '-'); cut > 0 {
+				region = zone[:cut]
 			}
-			for _, raw := range listed.MachineTypes {
+			for _, raw := range page.Items[listed].MachineTypes {
 				var kind struct {
 					Name, Architecture           string
 					GuestCpus, MemoryMb          int
@@ -141,27 +161,31 @@ func Offers() ([]Offer, error) {
 				family, _, _ := strings.Cut(kind.Name, "-")
 				aCore, cored := core[[2]string{family, region}]
 				aGB, rammed := ram[[2]string{family, region}]
-				aDiskGB, disked := 0.0, false
-				for _, product := range bootDisks(family) {
-					if price, ok := disks[[2]string{product, region}]; ok && (!disked || price < aDiskGB) {
-						aDiskGB, disked = price, true
+				product, aDiskGB := "", 0.0
+				for _, one := range bootDisks(family) {
+					if price, ok := disks[[2]string{one, region}]; ok && (product == "" || price < aDiskGB) {
+						product, aDiskGB = one, price
 					}
 				}
 				// a shared core, an accelerator or a bundled local SSD is priced apart from the
 				// cores, and bare metal is never Spot
 				if kind.IsSharedCpu || len(kind.Accelerators) > 0 || len(kind.Deprecated) > 0 ||
 					len(kind.BundledLocalSsds) > 0 || strings.HasSuffix(kind.Name, "-metal") ||
-					kind.GuestCpus == 0 || kind.MemoryMb == 0 || !cored || !rammed || !disked || !priced ||
-					seen[[2]string{kind.Name, region}] {
+					kind.GuestCpus == 0 || kind.MemoryMb == 0 || !cored || !rammed || product == "" || !priced {
 					continue
 				}
-				seen[[2]string{kind.Name, region}] = true
-				cores := float64(kind.GuestCpus)
-				if kind.Architecture != "ARM64" {
-					cores /= 2
+				if at, ok := found[[2]string{kind.Name, region}]; ok {
+					offered[at].Zones = append(offered[at].Zones, zone)
+					continue
 				}
-				offered = append(offered, Offer{kind.Name, region, kind.GuestCpus, cores, kind.MemoryMb,
-					float64(kind.GuestCpus)*aCore + float64(kind.MemoryMb)/1024*aGB + diskGB*aDiskGB + ip})
+				found[[2]string{kind.Name, region}] = len(offered)
+				cores, booted := float64(kind.GuestCpus), image+"-arm64"
+				if kind.Architecture != "ARM64" {
+					cores, booted = cores/2, image
+				}
+				offered = append(offered, Offer{kind.Name, region, cores, kind.MemoryMb,
+					float64(kind.GuestCpus)*aCore + float64(kind.MemoryMb)/1024*aGB + diskGB*aDiskGB + ip,
+					[]string{zone}, booted, diskTypes[product]})
 			}
 		}
 	})
@@ -207,7 +231,7 @@ func login() (compute, token string, err error) {
 	var bought struct {
 		AccessToken string `json:"access_token"`
 	}
-	err = call(audience, "", url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
+	err = call(http.MethodPost, audience, "", url.Values{"grant_type": {"urn:ietf:params:oauth:grant-type:jwt-bearer"},
 		"assertion": {assertion}}, &bought)
 	return endpoint("compute", "/compute/v1/projects/"+account.ProjectID), bought.AccessToken, err
 }
@@ -227,9 +251,13 @@ func signed(email, private, audience string) (string, error) {
 	if !ok {
 		return "", errors.New("not an RSA key")
 	}
-	now := time.Now().Unix()
+	at, err := now()
+	if err != nil {
+		return "", err
+	}
+	issued := int64(at)
 	header, _ := json.Marshal(map[string]string{"alg": "RS256", "typ": "JWT"})
-	claims, _ := json.Marshal(map[string]any{"iss": email, "aud": audience, "iat": now, "exp": now + 3600,
+	claims, _ := json.Marshal(map[string]any{"iss": email, "aud": audience, "iat": issued, "exp": issued + 3600,
 		"scope": "https://www.googleapis.com/auth/cloud-platform"})
 	unsigned := b64(header) + "." + b64(claims)
 	digest := sha256.Sum256([]byte(unsigned))
@@ -238,20 +266,23 @@ func signed(email, private, audience string) (string, error) {
 }
 
 // listing is a page of one of Google's listings: the price list's entries, or each zone's
-// machine types.
+// machine types or machines.
 type listing struct {
-	Skus          []json.RawMessage
-	Items         map[string]struct{ MachineTypes []json.RawMessage }
+	Skus  []json.RawMessage
+	Items map[string]struct {
+		MachineTypes []json.RawMessage
+		Instances    []instance
+	}
 	NextPageToken string
 	Unreachables  []string
 }
 
 // pages hands each page of a listing to read; a page missing part of it fails it, as the
-// cheapest may be in that part.
+// cheapest offer, or a machine ak pays for, may be in that part.
 func pages(token, address string, query url.Values, read func(listing)) error {
 	for {
 		var page listing
-		if err := call(address+"?"+query.Encode(), token, nil, &page); err != nil {
+		if err := call(http.MethodGet, address+"?"+query.Encode(), token, nil, &page); err != nil {
 			return err
 		}
 		if len(page.Unreachables) > 0 {
@@ -265,34 +296,49 @@ func pages(token, address string, query url.Values, read func(listing)) error {
 	}
 }
 
-// call asks Google for address's JSON into answer: Google's APIs with token, its token endpoint
-// with form posted.
-func call(address, token string, form url.Values, answer any) error {
-	method, body, header := http.MethodGet, "", http.Header{"Authorization": {"Bearer " + token}}
-	if form != nil {
-		method, body = http.MethodPost, form.Encode()
-		header = http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}
+// call asks Google at address, with method, for its JSON into answer, sending sent: a form to its
+// token endpoint, else JSON with token.
+func call(method, address, token string, sent, answer any) error {
+	if unanswered != nil {
+		return unanswered
 	}
-	request, err := http.NewRequest(method, address, strings.NewReader(body))
+	var body []byte
+	var err error
+	header := http.Header{"Authorization": {"Bearer " + token}}
+	switch sent := sent.(type) {
+	case nil:
+	case url.Values:
+		body, header = []byte(sent.Encode()), http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}
+	default:
+		body, err = json.Marshal(sent)
+		header.Set("Content-Type", "application/json")
+	}
+	var request *http.Request
+	if err == nil {
+		request, err = http.NewRequest(method, address, bytes.NewReader(body))
+	}
 	if err != nil {
 		return fmt.Errorf("asking Google failed: %w", err)
 	}
 	request.Header = header
 	response, err := client.Do(request)
 	if err != nil {
-		var failed *url.Error
-		if errors.As(err, &failed) {
-			err = failed.Err
-		}
-		return fmt.Errorf("asking Google failed: %w", err)
+		return unanswering(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode/100 != 2 { // Google's answer: 403 Forbidden, 404 Not Found ...
-		_, reason, _ := strings.Cut(response.Status, " ")
-		return errors.New("Google refused: " + reason)
-	}
 	// all of it: a reply cut short of its length, or more after its JSON, is no answer
 	data, err := io.ReadAll(response.Body)
+	if response.StatusCode/100 != 2 { // Google's answer: 403 Forbidden, 404 Not Found ...
+		_, reason, _ := strings.Cut(response.Status, " ")
+		refused := &refusal{response.StatusCode, reason, nil}
+		if refused.status < 500 { // it did nothing of the request, and says why in its own codes
+			refused.codes = codes(data)
+		}
+		return refused
+	}
+	if late := net.Error(nil); errors.As(err, &late) && late.Timeout() {
+		return unanswering(err)
+	}
 	if err == nil {
 		err = json.Unmarshal(data, answer)
 	}
