@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"agentkit/internal/gc"
+	"agentkit/internal/handover"
 	"agentkit/internal/host"
 )
 
@@ -39,7 +40,7 @@ func runGC(args []string, out, errOut io.Writer) int {
 func collect() int {
 	host.Mark("background cleanup")
 	if errors.Is(gc.Automatic(), gc.ErrPython) {
-		return 3
+		return handover.Exit(handover.Here(0))
 	}
 	return 0
 }
