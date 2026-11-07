@@ -40,7 +40,8 @@ class ScratchDoneWaitsForTheChecks(unittest.TestCase):
 
     def test_done_is_refused_naming_the_failing_check_then_taken_once_it_passes(self):
         self.assertEqual(self.code.read_text(), "2\n")
-        self.assertIn(CHECK, self.said.read_text())
+        for text in ("done refused: task checks still fail:", CHECK):
+            self.assertIn(text, self.said.read_text())
         executor = self.fakes["claude"].runs()
         self.assertEqual([turn["hand_ins"][0]["code"] for turn in executor], [0], executor)
 
