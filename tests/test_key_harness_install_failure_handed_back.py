@@ -21,7 +21,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home, rerun_boxed
+from fixtures.akbin import BOXED, REAL_TMUX, Home, rerun_boxed
 from fixtures.akgates import Gates
 from fixtures.akinstall import Install
 
@@ -44,7 +44,7 @@ esac
 """
 
 
-@unittest.skipUnless(REAL_TMUX, "no tmux installed")
+@unittest.skipUnless(REAL_TMUX and BOXED, "no tmux, or no bwrap able to box the test here")
 class InstallFailureHandedBack(unittest.TestCase):
     def setUp(self):
         self.home = Home()

@@ -17,7 +17,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import Home, rerun_boxed
+from fixtures.akbin import BOXED, Home, rerun_boxed
 from fixtures.akinstall import Install
 
 # `{code}`: how its --prepare exits
@@ -32,6 +32,7 @@ echo "install $(git -C "$HOME/agentkit" rev-parse HEAD)" >>"$HOME/ran"
 Tick = namedtuple("Tick", "code err out head ran installs pending")
 
 
+@unittest.skipUnless(BOXED, "no bwrap able to box the test here")
 class AVersionGoesLiveBuilt(unittest.TestCase):
     @classmethod
     def setUpClass(cls):

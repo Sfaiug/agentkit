@@ -17,10 +17,11 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import Home, rerun_boxed
+from fixtures.akbin import BOXED, Home, rerun_boxed
 from fixtures.akinstall import Install
 
 
+@unittest.skipUnless(BOXED, "no bwrap able to box the test here")
 class WaitsForLastingLogins(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
