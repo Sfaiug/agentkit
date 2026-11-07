@@ -537,7 +537,7 @@ func (r *reads) seatsHold() func(name, conversation string) bool {
 		if own != "" {
 			var fields map[string]any
 			json.Unmarshal(data, &fields)
-			conversation, _ = harness.Owned(own, fields)
+			conversation = harness.Current(own, fields)
 		}
 		if !hold(own, conversation) {
 			return every
