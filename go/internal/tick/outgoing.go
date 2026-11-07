@@ -211,8 +211,8 @@ func (t *ticking) follow(address, session string) error {
 // status` showed `waiting for the maintainer`, then typed at the quiet prompt of the seat
 // answering for it, woken first where it sleeps, the line's mark kept on the run
 // (`decision_typed`) so one typed and never seen sent gets its Enter, not a second copy; a merge
-// only where its seat owes work for it (routine).  Said is whether it landed everywhere it goes,
-// or has nowhere left to.
+// only where its seat owes work for it (handback.Untyped).  Said is whether it landed everywhere
+// it goes, or has nowhere left to.
 func (t *ticking) say(text, address, session string, merged bool) (said bool, err error) {
 	if t.dry {
 		t.log.line("would hand on: " + text + " (" + address + ")")
@@ -224,10 +224,12 @@ func (t *ticking) say(text, address, session string, merged bool) (said bool, er
 	held := record.Dict("decision_typed")
 	name, _, err := config.ResolveSession(session)
 	// what Go does not type or wake is Python's, before anything is written: Python's seat_notice
-	// points to result.md where the line would not fit, its editor reads a mark naming a pane, and
-	// it sends a hand-back's line left unsent, which a merge's notice replaces (endings)
+	// points to result.md where the line would not fit, its editor reads a mark naming a pane, it
+	// sends a hand-back's line left unsent, which a merge's notice replaces (endings), and it starts
+	// a merge's follow-up that has no command
 	if session != "" && (err != nil || !reaches(name)) || config.TooLong(line) ||
-		record.Truthy("decision_typed") && (held == nil || held.Has("pane")) || merged && record.Truthy("handback_typed") {
+		record.Truthy("decision_typed") && (held == nil || held.Has("pane")) ||
+		merged && (record.Truthy("handback_typed") || handback.Unclaimed(record)) {
 		return false, errLeft
 	}
 	if note := config.Fold(text); dir != "" && (record.Str("merge_note") != note || merged && !record.Truthy("merged")) {
@@ -236,8 +238,15 @@ func (t *ticking) say(text, address, session string, merged bool) (said bool, er
 		}
 		t.log.line("recorded on run " + filepath.Base(dir) + ": " + text)
 	}
-	if merged && (dir == "" || routine(record)) {
-		return t.endRoutine(dir, record, line)
+	if merged {
+		// decided once its plan checks ran: a line they ticked is owed no more
+		untyped, err := handback.Untyped(record)
+		if err != nil {
+			return false, errLeft
+		}
+		if untyped {
+			return t.endRoutine(dir, record, line)
+		}
 	}
 	if session != "" {
 		switch awake, woken := seat.Wake(name, t.log.line); {
