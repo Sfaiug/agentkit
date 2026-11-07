@@ -38,7 +38,7 @@ func TestWaitingReadsAtItsTurnThenStandsStillByteForByte(t *testing.T) {
 	dir, record, tick := waiter(t)
 	if !tick.through([]pass{
 		{"before", false, nil, func() error { return run.Create(dir, record) }},
-		{"waiting resume", true, tick.waitingIdle, tick.waiting},
+		{"waiting resume", true, nil, tick.waiting},
 	}) {
 		t.Fatal("did not carry the new wait at its own row")
 	}
@@ -55,7 +55,7 @@ func TestWaitingReadsAtItsTurnThenStandsStillByteForByte(t *testing.T) {
 }
 
 func TestWaitingDoesNotInventAMoveOrTakeAnUnadmittedEnding(t *testing.T) {
-	for _, scenario := range []string{"fetch failed", "ref failed", "ref unresolved", "spent", "told", "old", "job", "no integration log", "dry"} {
+	for _, scenario := range []string{"fetch failed", "ref failed", "ref unresolved", "spent", "told", "old", "job", "no integration log", "dry", "dry wait"} {
 		t.Run(scenario, func(t *testing.T) {
 			dir, record, tick := waiter(t)
 			switch scenario {
@@ -75,18 +75,29 @@ func TestWaitingDoesNotInventAMoveOrTakeAnUnadmittedEnding(t *testing.T) {
 				record.Set("job_id", "batch")
 			case "no integration log":
 				put(t, filepath.Join(dir, "log.txt"), "review failed\n")
-			case "dry":
+			case "dry", "dry wait":
+				// a fetch that ran would fail the row's fetch-free promise
+				t.Setenv("FETCH_CODE", "1")
 				tick.dry = true
+				var said strings.Builder
+				tick.log = newLog(&said, io.Discard)
+				defer func() {
+					want := map[string]string{"dry": "would park fix-api waiting on origin/main",
+						"dry wait": "would resume fix-api after the next merge to origin/main"}[scenario]
+					if !strings.HasSuffix(said.String(), want+"\n") {
+						t.Fatalf("a dry tick said %q", said.String())
+					}
+				}()
+			}
+			if scenario == "dry wait" {
+				record.Set("state", "waiting")
+				record.Set("waiting_on", run.Fields("ref", "origin/main", "sha", "base"))
 			}
 			if err := run.Create(dir, record); err != nil {
 				t.Fatal(err)
 			}
 			before := read(t, filepath.Join(dir, "run.json"))
-			if scenario == "dry" {
-				if tick.waitingIdle() {
-					t.Fatal("dry row hid its pending work")
-				}
-			} else if err := tick.waiting(); err != nil {
+			if err := tick.waiting(); err != nil {
 				t.Fatal(err)
 			}
 			if after := read(t, filepath.Join(dir, "run.json")); after != before {
