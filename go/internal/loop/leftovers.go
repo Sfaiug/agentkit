@@ -109,8 +109,8 @@ func paths(listed ...string) []string {
 	return found
 }
 
-// ignoredSandboxes is ignored sandbox files, run locks and dependencies, invisible to
-// uncommitted.Paths, each collapsed directory listed by its files, for the line that counts them.
+// ignoredSandboxes is ignored uncommitted.Junk files, invisible to uncommitted.Paths, each
+// collapsed directory listed by its files, for the line that counts them.
 func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 	listed, err := r.git().Try("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
 	if err != nil {
@@ -118,7 +118,7 @@ func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 	}
 	var found []string
 	for _, entry := range paths(listed) {
-		if r.artifacts[entry] || !uncommitted.Junk(entry) {
+		if r.artifacts[entry] || !uncommitted.Junk(r.wt, entry) {
 			continue
 		}
 		if !strings.HasSuffix(entry, "/") {
@@ -139,7 +139,8 @@ func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 
 // commitLeftovers commits what the executor left uncommitted, Python's commit_leftovers: the
 // reviewer reads only `base...HEAD`, and a review of nothing is worse than no review.  What the
-// done-when generated, sandboxes, run locks and dependency trees stay out, nothing of them staged.
+// done-when generated, sandboxes, run locks, dependency trees and Go build caches stay out, nothing
+// of them staged.
 // The commit is built in an index of its own, as `git commit -- venv` would add the link back from
 // the worktree and the real index keeps whatever else the executor staged.
 func (r *repoPlace) commitLeftovers(l *loop) error {
