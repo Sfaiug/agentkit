@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"errors"
 	"slices"
 	"strings"
 
@@ -37,6 +38,15 @@ func CardNamed(notice *run.Object, at float64, renewed map[string]any, names fun
 		}
 	}
 	return named
+}
+
+// CardAnswerable is whether Go reads as Python does, before an answer on the harness's own question
+// card writes anything, all it goes on to read: the seat's notice, and its card and that card's
+// page (carded).
+func CardAnswerable(name string) bool {
+	_, err := run.ReadJSON(seatFile("notify", name, "json"))
+	_, carried := carded(name)
+	return !errors.Is(err, run.ErrLoneSurrogate) && carried
 }
 
 // CardAnswered is notify.answered for an answer on the harness's own question card at `at`, under

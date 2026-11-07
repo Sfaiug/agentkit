@@ -6,6 +6,7 @@ import (
 	"agentkit/internal/browser"
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
+	"agentkit/internal/googlecloud"
 	"agentkit/internal/handback"
 	"agentkit/internal/history"
 	"agentkit/internal/host"
@@ -104,7 +105,13 @@ func table(t *ticking) []pass {
 			}
 			return nil
 		}},
-		{"rented machines", false, all(configured, noRenting), nil},
+		{"rented machines", false, configured, func() error {
+			carried, err := googlecloud.Watch()
+			if !carried {
+				return errLeft
+			}
+			return err
+		}},
 		{"machine check", false, nil, machines.Check},
 		{"project rules", false, checkoutsSeen, t.fetchProjects},
 		{"project setups", false, checkoutsSeen, setups},

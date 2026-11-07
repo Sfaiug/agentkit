@@ -1,6 +1,7 @@
 // Package googlecloud is the machines ak rents from Google Cloud, as Python's google_cloud: what
 // is offered (Offers, Keep, Kept) and the best of it (Best), what ak rents (Rented) and giving one
-// back (GiveBack), in words another provider can be one more package of. It alone knows Google:
+// back (GiveBack), and the tick's pass metering this month's spend on them (Watch), in words
+// another provider can be one more package of. It alone knows Google:
 // the service-account key, the token its JWT buys, Compute Engine's Spot price list, machine
 // types and machines, how a call to Google fails, and the time it reads.
 package googlecloud
@@ -145,10 +146,7 @@ func Offers() ([]Offer, error) {
 	err = pages(token, compute+"/aggregated/machineTypes", url.Values{"returnPartialSuccess": {"true"}}, func(page listing) {
 		for _, listed := range slices.Sorted(maps.Keys(page.Items)) {
 			zone := strings.TrimPrefix(listed, "zones/")
-			region := zone
-			if cut := strings.LastIndexByte(zone, '-'); cut > 0 {
-				region = zone[:cut]
-			}
+			region := regionOf(zone)
 			for _, raw := range page.Items[listed].MachineTypes {
 				var kind struct {
 					Name, Architecture           string
