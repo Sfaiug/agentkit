@@ -745,10 +745,14 @@ class Harness:
 
     def went_into(self, sent):
         """The conversation a receipt's line went into: the one it names, else the one its
-        launch's own evidence names (`receipt`), None while that names none."""
+        launch's own evidence reported (`receipt`), however far its harness has moved that
+        launch on since, as Muse's `/new` does (its module's `reported`); None while that names
+        none."""
         launch = sent.get("launch")
-        return sent.get("conversation") or (self.conversation(launch) if isinstance(launch, dict)
-                                            else None)
+        if sent.get("conversation") or not isinstance(launch, dict):
+            return sent.get("conversation")
+        reported = self._hook("reported")
+        return reported(launch) if reported else self.conversation(launch)
 
     def answers(self, record, cwd, conversation):
         """Each question the owner answered on its own question card, oldest first, as {at,

@@ -40,8 +40,7 @@ func Owned(name string, record map[string]any) (string, bool) {
 
 // WentInto is the conversation a typing receipt's line went into: the one it names, else the one
 // its launch's own evidence reported, "" while that names none.  A receipt keeps that evidence
-// where the harness had not named the conversation yet, as on a fresh Muse launch.  Python's
-// Harness.went_into follows the launch on, as by Muse's `/new`, to a conversation that took no line.
+// where the harness had not named the conversation yet, as on a fresh Muse launch.
 func WentInto(name string, sent *run.Object) string {
 	launch := sent.Dict("launch")
 	if conversation := sent.Str("conversation"); conversation != "" || launch == nil {
