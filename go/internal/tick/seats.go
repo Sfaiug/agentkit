@@ -58,10 +58,11 @@ func stays(live seat.Live) bool {
 	return seat.AccountIdle(live)
 }
 
-// health is the seat health row (watch.health): the worker tokens polled, then each seat looked at
-// and its word published, as the later rows read it, while the look is all the row does there, or
-// keeps the stall its screen shows short of typing past it, asking its owner about one an hour old
-// and nothing more after, or keeps its own login refused, asking its owner to log it in once; the
+// health is the seat health row (watch.health): the worker tokens polled and every refused login
+// asked again, then each seat looked at and its word published, as the later rows read it, while
+// the look is all the row does there, or keeps the stall its screen shows short of typing past it,
+// asking its owner about one an hour old and nothing more after, or keeps its own login refused,
+// asking its owner to log it in once, or clears that login's stall and notice once it passes; the
 // first it would do more at ends the tick there, before its publish.
 // A stall held of a seat whose record is gone is Python's to forget.  A dry tick's look acts on
 // nothing and says what it would type.
@@ -74,14 +75,25 @@ func (t *ticking) health() error {
 	if !known || slices.ContainsFunc(stalls.Keys(), func(name string) bool { return missing(statePath("session-" + name + ".json")) }) {
 		return errLeft
 	}
+	stale, err := t.askLogins()
+	if err != nil {
+		return err
+	}
 	for _, name := range names {
-		var kept, answer *run.Object
+		var kept, answer, back *run.Object
 		var out *seat.Live
 		owner, line := "", ""
 		look := func(live seat.Live) bool {
 			held, _ := stalls.Get(live.Name).(*run.Object)
-			if held != nil && held.Str("kind") == "auth" { // keepLogin's, this tick: quiet hands over any other
-				return ownerWaits(live)
+			if held != nil && held.Str("kind") == "auth" {
+				if out != nil { // kept by this seat's look, which asked its login once this pass
+					return ownerWaits(live)
+				}
+				stands, passed := t.loginHeld(live, held, stale)
+				if passed {
+					out, back = &live, held
+				}
+				return stands && ownerWaits(live)
 			}
 			if login, decided := t.loginOut(live); decided {
 				if login != nil {
@@ -101,9 +113,15 @@ func (t *ticking) health() error {
 			return keeps
 		}
 		carried, err := seat.Health(name, look, t.log.line, t.dry)
-		// a login out is kept before the seat's word reads it, which a look again publishes
+		// a login out is kept, and one back cleared, before the seat's word reads it, which a look
+		// again publishes
 		if out != nil && err == nil {
-			if carried, err = t.keepLogin(*out, answer); carried && err == nil {
+			if back != nil {
+				carried, err = t.clearLogin(*out, back)
+			} else {
+				carried, err = t.keepLogin(*out, answer)
+			}
+			if carried && err == nil {
 				carried, err = seat.Health(name, look, t.log.line, t.dry)
 			}
 		}

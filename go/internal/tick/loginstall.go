@@ -13,38 +13,24 @@ import (
 	"agentkit/internal/seat"
 )
 
-// loginOut is the health row's reading of a seat's own login (watch.health): the answer
-// `auth_out` keeps for its harness where that login is out (watch.logged_out), and whether that
-// decides the seat.  Its `auth seat` verb is asked where the seat shows its harness's logout words
-// (watch.record_auth); out is its no, or where it answers nothing, a no an earlier seat's look kept
-// this tick, whose `at` stands while the answer is the same.  A yes, which Python's tick types
-// past, and a login out where the row would do more than keep its stall and say it (keepLogin),
-// leave the seat to Python, nothing kept: a dry tick, no screen to read, a notice standing, or the
-// seat not then waiting on its owner.  Undecided, quietLogin reads the seat.
+// loginOut is the health row's reading of a seat's own login (watch.health): the answer the
+// tick's `auth_out` keeps for its harness where that login is out (loggedOut), and whether that
+// decides the seat.  Where the seat shows its harness's logout words its verb is asked again
+// (recordAuth).  A yes on record there, which Python's tick types past, and a login out where the
+// row would do more than keep its stall and say it (keepLogin), leave the seat to Python, nothing
+// kept: a dry tick, no screen to read, a notice standing, or the seat not then waiting on its
+// owner.  Undecided, quietLogin reads the seat.
 func (t *ticking) loginOut(live seat.Live) (*run.Object, bool) {
-	held := t.state.Dict("auth_out")
-	if held != nil {
-		held = held.Dict(live.Own)
-	}
-	if held != nil && held.Get("ok") != false {
-		held = nil
-	}
 	if t.dry || strings.TrimFunc(live.Pane, config.Space) == "" || notify.Last(live.Name) != nil || !ownerWaits(live) {
-		return nil, held != nil
+		return nil, t.loggedOut(live.Own) != nil
 	}
-	if live.Login == nil {
-		return held, held != nil
+	if live.Login != nil {
+		if t.recordAuth(live.Own); t.loggedIn(live.Own) {
+			return nil, true
+		}
 	}
-	answered, yes, why := authOK(live.Own, "seat")
-	switch {
-	case !answered:
-		return held, held != nil
-	case yes:
-		return nil, true
-	case held != nil:
-		return run.Fields("ok", false, "why", why, "at", held.Get("at")), true
-	}
-	return run.Fields("ok", false, "why", why, "at", run.Float(epoch(time.Now()))), true
+	held := t.loggedOut(live.Own)
+	return held, held != nil
 }
 
 // keepLogin is watch.health on a seat whose own login is out, under watch.json's lock: the
