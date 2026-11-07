@@ -53,13 +53,13 @@ func (home Home) AfterBoot(attempted []any) ([]Comeback, bool) {
 }
 
 // owesWork is whether a seat nobody is in still owes work (watch.owes_work): a notice standing, its
-// plan owing a line or a question kept back (still_owed); ErrUnread where only its own runs could
-// say.
+// plan owing a line, never the done check alone, or a question kept back (still_owed); ErrUnread
+// where only its own runs could say.
 func (seat Seat) owesWork() (bool, error) {
 	if notify.Last(seat.Name) != nil || revivalFile(seat.Name).Truthy("unasked") {
 		return true, nil
 	}
-	if _, owes, err := plan.OwedLine(seat.Name); owes || err != nil {
+	if owes, err := plan.OwesLine(seat.Name); owes || err != nil {
 		return owes, err
 	}
 	if len(seat.mine) > 0 {

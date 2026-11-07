@@ -56,9 +56,10 @@ func goneRuns(facts climbing) (*answer, error) {
 	return &answer{word: "working", reason: reason, since: since}, nil
 }
 
-// nobodyIn is rung 4: an owner-closed seat rests; another needs reopening while work is owed.
-// A finished plan passes on to the shared alert and plan rungs, except asleep, whose way back
-// stays beside its word.
+// nobodyIn is rung 4: an owner-closed seat rests; another needs reopening while work is owed,
+// the done check its finished plan owes aside (watch.owes_work), for which it rests.  A finished
+// plan passes on to the shared alert and plan rungs, except asleep, whose way back stays beside
+// its word.
 func nobodyIn(facts climbing) (*answer, error) {
 	if facts.gone == nil {
 		return nil, nil
@@ -67,7 +68,7 @@ func nobodyIn(facts climbing) (*answer, error) {
 	if facts.gone.closed {
 		return &answer{word: "idle", reason: reason}, nil
 	}
-	owed, err := plan.Owes(facts.name)
+	owed, err := plan.OwesLine(facts.name)
 	if err != nil {
 		return nil, ErrUnread
 	}

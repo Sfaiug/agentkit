@@ -225,7 +225,8 @@ func write(current string, lines []string) error {
 }
 
 // List proves the seat's plan (`verify`), then what deliveries left owed meanwhile (`settle`),
-// then is its box lines, as a listing numbers them.
+// then is its box lines, as a listing numbers them.  ErrUnread, before anything is listed, where
+// the plan then owes its done check (checkOwed), which Python's listing makes.
 func List(ctx context.Context, name string) ([]string, error) {
 	whole := false
 	if err := verifying(ctx, name, true, func() (err error) {
@@ -239,15 +240,20 @@ func List(ctx context.Context, name string) ([]string, error) {
 			return nil, err
 		}
 	}
-	var box []string
-	err := notify.Held(ctx, name, func(current string) error {
-		lines, err := read(current)
+	var box, lines []string
+	if err := notify.Held(ctx, name, func(current string) (err error) {
+		lines, err = read(current)
 		for _, at := range listed(lines) {
 			box = append(box, strings.TrimFunc(lines[at], config.Space))
 		}
 		return err
-	})
-	return box, err
+	}); err != nil {
+		return nil, err
+	}
+	if owes, err := checkOwed(name, lines); owes || err != nil {
+		return nil, ErrUnread
+	}
+	return box, nil
 }
 
 // listed is where the plan's box lines are, in the order a listing numbers them from 1.
