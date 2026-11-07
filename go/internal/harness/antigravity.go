@@ -1,9 +1,10 @@
 package harness
 
-// Antigravity's launcher-owned conversations reopen without learning an id from its SQLite store,
-// which Go reads for what was said in them, by whom and when, and which model answered last.
+// An Antigravity seat owns its launcher's conversation, or the one its own agy holds open, learned
+// from /proc; Go reads its SQLite store for what was said in it, by whom and when, and which model
+// answered last.
 func init() {
-	plugins["antigravity"] = plugin{seats: true, looks: true, record: antigravityRecord,
+	plugins["antigravity"] = plugin{seats: true, looks: true, record: antigravityRecord, owned: antigravityOwned,
 		launch: antigravityLaunch, interactive: antigravityInteractive, report: antigravityReported,
 		said: antigravitySaid, typed: antigravityTyped,
 		keys: []string{"antigravity_launch", "antigravity_open"}, kept: antigravityKept}

@@ -61,11 +61,14 @@ func TestAntigravityReadsWhoTypedWhatWhenFromItsStore(t *testing.T) {
 		{15, agyStamp(1, 1_800_000_003), slices.Concat(number(1, 15), agyNested(20, agyNested(3, []byte("thinking"))))},
 		{16, agyStamp(1, 1_800_000_003), user("Another kind of step.")},
 	})
-	launcher := map[string]any{"conversation": "conv-acme", "id_source": "launcher"}
-	conversation, typed, known := Typed("antigravity", launcher)
-	if want := []Prompt{{1_800_000_000.5, "The second one."}, {1_800_000_000.75, "Build the acme parser."}}; conversation != "conv-acme" ||
-		!slices.Equal(typed, want) || !known {
-		t.Fatalf("typed %q %v %v", conversation, typed, known)
+	// the launcher's conversation, or the one its launch learned
+	for _, record := range []map[string]any{{"conversation": "conv-acme", "id_source": "launcher"},
+		{"antigravity_launch": "token", "antigravity_open": map[string]any{"launch": "token", "conversation": "conv-acme"}}} {
+		conversation, typed, known := Typed("antigravity", record)
+		if want := []Prompt{{1_800_000_000.5, "The second one."}, {1_800_000_000.75, "Build the acme parser."}}; conversation != "conv-acme" ||
+			!slices.Equal(typed, want) || !known {
+			t.Fatalf("typed %q %v %v", conversation, typed, known)
+		}
 	}
 	// agy 1.2.13 keeps no generations: its store holds no answer, as Python's query fails there too
 	if reader, ready := For("antigravity").Reconciled("acme", run.Fields("conversation", "conv-acme", "id_source", "launcher")); !ready {
@@ -77,10 +80,5 @@ func TestAntigravityReadsWhoTypedWhatWhenFromItsStore(t *testing.T) {
 	if want := []Turn{{"user", "Build the acme parser."}, {"model", "Which schema should it write?"}, {"user", "The first one."},
 		{"user", "Cut."}, {"user", "Too many nanoseconds."}, {"user", "The second one."}}; !slices.Equal(said, want) || !known {
 		t.Fatalf("said %v %v", said, known)
-	}
-	// one its launch learned is the claim's to say, which stays Python's
-	learned := map[string]any{"antigravity_launch": "token", "antigravity_open": map[string]any{"launch": "token", "conversation": "conv-acme"}}
-	if _, _, known := Typed("antigravity", learned); known {
-		t.Fatal("Go read a learned conversation")
 	}
 }
