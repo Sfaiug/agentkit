@@ -36,30 +36,35 @@ func (s Starting) still() string {
 	return fmt.Sprintf(", %d starting run%s may take %s G more", s.Runs, plural, G(s.MB, true))
 }
 
-// Hold is why these readings hold a run back and the gate's kind, "" where none does, as Python's
-// gate._gates_admit words it before it asks about a landing suite: the run going first has no load
-// gate; peak is the median peak of recent runs, measured false where none was, and starting what
-// the runs let in may still take; frozen is how many of the runs holding a slot the host froze,
-// asked only where the owner pinned the load gate and the load alone passes it.
-func (r Readings) Hold(first bool, peak float64, measured bool, starting Starting, frozen func() int) (string, string, error) {
+// Limits is the free memory a run needs on these readings and the load it starts under, as
+// Python's gate._gates_admit reads gate.resource_limits: no load limit for a run going first, nor
+// where the owner pinned none.
+func (r Readings) Limits(first bool) (float64, float64, error) {
 	total, _ := r.Number("mem_total_mb", "total_mb", "mem_total")
 	minimum, err := config.MinFreeMB(total)
 	if err != nil {
-		return "", "", err
+		return 0, 0, err
 	}
 	cpus, _ := r.Number("cpus", "nproc")
 	maximum, err := config.MaxLoad(cpus) // read whether pinned or not, as resource_limits reads it
-	if err != nil {
-		return "", "", err
-	}
-	if first || !config.MaxLoadSet() {
+	if err != nil || first || !config.MaxLoadSet() {
 		maximum = 0
 	}
+	return minimum, maximum, err
+}
+
+// Hold is why these readings hold a run back against those limits and the gate's kind, "" where
+// none does, as Python's gate._gates_admit words it before it asks about a landing suite: peak is
+// the median peak of recent runs, measured false where none was, and starting what the runs let in
+// may still take; frozen is how many of the runs holding a slot the host froze, asked only where a
+// load limit stands and the load alone passes it.
+func (r Readings) Hold(minimum, maximum, peak float64, measured bool, starting Starting, frozen func() int) (string, string) {
 	held := 0
 	if load, ok := r.Number("load", "load1", "load_1m"); maximum != 0 && ok && load <= maximum {
 		held = frozen()
 	}
-	return r.wait(minimum, maximum, func() (float64, bool, error) { return peak, measured, nil }, held, starting)
+	reason, kind, _ := r.wait(minimum, maximum, func() (float64, bool, error) { return peak, measured, nil }, held, starting)
+	return reason, kind
 }
 
 // Unsteady is the wait of a run let in no sooner than a poll after the last one, with no run's

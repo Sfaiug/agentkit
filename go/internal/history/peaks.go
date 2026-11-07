@@ -6,21 +6,6 @@ import (
 	"strings"
 )
 
-// Peaks is history.db as Python's gate reads it to let a run in, through a connection that cannot
-// write: nil, which measured nothing, where none stands or SQLite cannot open it; an error where its
-// tokens wait for the one-time repair Python's read makes first, which Go leaves to Python.
-func Peaks() (*DB, error) {
-	db := Look()
-	if db == nil {
-		return nil, nil
-	}
-	if _, err := db.recounted(); err != nil {
-		db.Close()
-		return nil, err
-	}
-	return db, nil
-}
-
 // RecentPeak is Python's history.recent_peak_rss_mb: the median measured peak of the real runs
 // that finished in the week up to now, false where none was measured.
 func (db *DB) RecentPeak(now float64) (float64, bool) {

@@ -36,11 +36,23 @@ type admission struct {
 	reason, kind string        // why it waits and the gate that holds it, no kind for a wait none counts
 	running      int           // the other runs holding a slot
 	waiting      []*run.Object // the runs waiting for one, this one among them, first in line first
+	room         *room         // the host's gates, where decide left them to ask (ask)
 }
 
-// admit is a launch's first poll for its slot, none for a launch no gate decides.  ErrPython where
-// Go leaves that poll to Python (decide), and where the run would wait while its wait counts in
-// history.db, which Go writes none of: a run outside a suite's home.
+// A room is what the host's gates judge the run first in line by, asked where it reads history.db
+// last of a poll: that reading writes beside it, so a launch asks once nothing can hand it over to
+// Python, as its receipt records the poll (claim), past the base, whose finding may.
+type room struct {
+	readings         host.Readings
+	holders          []*run.Object
+	first            bool
+	minimum, maximum float64
+	saved            line
+	poll             float64
+}
+
+// admit is a launch's first poll for its slot, none for a launch no gate decides, ErrPython where
+// Go leaves that poll to Python (decide).
 func admit(id string, first bool, seat string) (*admission, error) {
 	if !gated() {
 		return nil, nil
@@ -52,7 +64,7 @@ func admit(id string, first bool, seat string) (*admission, error) {
 	if err != nil {
 		return nil, err
 	}
-	launching := run.Fields("run_id", id, "queued_at", now())
+	launching := run.Fields("run_id", id, "queued_at", now(), "notify_sink", sink())
 	if first {
 		launching.Set("first", true)
 	}
@@ -60,9 +72,6 @@ func admit(id string, first bool, seat string) (*admission, error) {
 		launching.Set("launched_session", seat)
 	}
 	admitted, err := decide(launching)
-	if err == nil && !admitted.in && sink() == "" {
-		err = ErrPython
-	}
 	if err != nil {
 		slots.Close()
 		return nil, err
@@ -73,11 +82,12 @@ func admit(id string, first bool, seat string) (*admission, error) {
 
 // decide is a poll for the run's slot as Python's gate.claim_slot decides it, under the slots lock:
 // a run of a run, and every run under the tests' `AK_MAX_RUNS=0`, goes in outright; any other waits
-// for those ahead of it in line and, unless it goes first, for the count, then for the host's room,
-// with what runs let in may still take counted against it.  ErrPython wherever Go would judge it
-// otherwise: readings of the live host rather than AK_HOST_READINGS; a seat's run in line beside
-// another, or held, whose turns and place there are Python's; a run stalled first in line, which
-// Python lets past the gates; a queue, a poll, a history or a run Go reads otherwise than Python.
+// for those ahead of it in line and, unless it goes first, for the count, then for the host's room
+// (ask).  ErrPython wherever Go would judge it otherwise, before anything is read that writes:
+// readings of the live host rather than AK_HOST_READINGS; a seat's run in line beside another, or
+// held, whose turns and place there are Python's; a run outside a suite's home held, whose wait
+// history.db counts, which Go writes none of; a run stalled first in line, which Python lets past
+// the gates; a queue, a poll, a config or a run Go reads otherwise than Python.
 func decide(record *run.Object) (*admission, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" || record.Truthy("run_depth") {
 		return &admission{in: true, outright: true}, nil
@@ -108,54 +118,60 @@ func decide(record *run.Object) (*admission, error) {
 	case saved.stalled(a.id, at, poll):
 		return nil, ErrPython
 	default:
-		if err := a.gate(readings, holders, first, saved, poll, at); err != nil {
+		minimum, maximum, err := readings.Limits(first)
+		if err != nil {
 			return nil, ErrPython
 		}
+		a.room = &room{readings, holders, first, minimum, maximum, saved, poll}
 	}
-	if seated && !a.in {
+	if run.Historyless() {
+		a.ask() // the room is asked now where it reads no history.db, whose reading writes beside it
+	}
+	// Go goes on with such a run only let in, which beside a history.db only reading it tells
+	if (seated || !record.Truthy("notify_sink")) && !a.in {
 		return nil, ErrPython
 	}
 	return a, nil
 }
 
-// gate decides the run first in line by the host's room, as Python's gate._gates_admit: a recent
-// run's peak against memory, less what the runs let in that show nothing yet may still take, the
-// load where pinned, a line's check waiting for a heavy-suite turn, and, with no peak measured, a
-// poll since the last run let in, for steady readings.
-func (a *admission) gate(readings host.Readings, holders []*run.Object, first bool, saved line, poll, at float64) error {
-	db, err := history.Peaks()
-	if err != nil {
-		return err
+// ask decides the run first in line by the host's room where decide left it, as Python's
+// gate._gates_admit: a recent run's peak against memory, less what the runs let in that show
+// nothing yet may still take, the load where pinned, a line's check waiting for a heavy-suite turn
+// while no other machine may take it, and, with no peak measured, a poll since the last run let
+// in, for steady readings.
+func (a *admission) ask() {
+	r := a.room
+	if r == nil {
+		return
 	}
+	a.room = nil
+	at := now()
+	db := history.Look()
 	defer db.Close()
 	peak, measured := db.RecentPeak(at)
 	var starting host.Starting
 	if measured {
-		starting = growth(holders, peak, poll, at, db)
+		starting = growth(r.holders, peak, r.poll, at, db)
 	}
-	reason, kind, err := readings.Hold(first, peak, measured, starting, func() int {
-		return len(slices.DeleteFunc(slices.Clone(holders), func(holder *run.Object) bool {
+	reason, kind := r.readings.Hold(r.minimum, r.maximum, peak, measured, starting, func() int {
+		return len(slices.DeleteFunc(slices.Clone(r.holders), func(holder *run.Object) bool {
 			pid, _ := holder.Int("pid")
 			return !host.Frozen(pid)
 		}))
 	})
-	if err != nil {
-		return err
-	}
 	// finished work goes first: a line's check waiting for a heavy-suite turn holds a new run,
 	// unless ak has another machine for that suite (owner, 30 Oct 2026: nothing waits for compute)
-	if reason == "" && !first && host.LineCheckWaits() && len(machines.Known()) == 1 {
+	if reason == "" && !r.first && host.LineCheckWaits() && len(machines.Known()) == 1 {
 		reason, kind = "waiting for a landing suite's turn · finished work goes first", "landing"
 	}
-	switch since := at - saved.lastIn; {
+	switch since := at - r.saved.lastIn; {
 	case reason != "":
 		a.reason, a.kind = reason, kind
-	case !measured && 0 <= since && since < poll:
-		a.reason = readings.Unsteady()
+	case !measured && 0 <= since && since < r.poll:
+		a.reason = r.readings.Unsteady()
 	default:
 		a.in = true
 	}
-	return nil
 }
 
 // growth is what the runs holding a slot that show nothing yet may still grow by, and how many
@@ -265,9 +281,11 @@ func slotLine(running, ahead, limit int, first bool) string {
 	return "waiting for a slot · " + strconv.Itoa(ahead) + " ahead"
 }
 
-// settle writes the poll's decision on the run's record as Python's claim_slot leaves it: let
-// in, it holds its slot from now; held, it says why, and that it waited where a gate held it.
+// settle writes the poll's decision on the run's record as Python's claim_slot leaves it, the
+// host's room asked first where the decision waits on it: let in, the run holds its slot from now;
+// held, it says why, and that it waited where a gate held it.
 func (a *admission) settle(record *run.Object) {
+	a.ask()
 	switch {
 	case a.in:
 		run.SetAll(record, "state", "running", "slot_waiting", false, "slot_started_at", now())
@@ -452,15 +470,13 @@ func malformedTurn(turn any) bool {
 	})
 }
 
-// claim records the launch's first poll on its receipt, as Python's capture_launch writes a receipt
-// and its first poll then leaves it: let in, it holds its slot; held, it waits queued for its driver
-// to poll again.  Then the line that poll leaves, and the receipt, and the slots lock goes.
+// claim records the launch's first poll on its receipt, as Python's capture_launch writes a receipt,
+// queued, and its first poll then leaves it: let in, it holds its slot; held, it waits for its
+// driver to poll again.  Then the line that poll leaves, and the receipt, and the slots lock goes.
 func (a *admission) claim(dir string, record *run.Object) error {
 	defer a.release()
-	if !a.in {
-		run.SetAll(record, "state", "queued", "slot_waiting", true)
-		record.Delete("slot_started_at")
-	}
+	run.SetAll(record, "state", "queued", "slot_waiting", true)
+	record.Delete("slot_started_at")
 	a.settle(record)
 	if err := a.save(); err != nil {
 		return err

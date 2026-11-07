@@ -10,7 +10,11 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ncruces/go-sqlite3"
+
 	"agentkit/internal/config"
+	"agentkit/internal/history"
+	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
 
@@ -52,13 +56,7 @@ func TestALaunchWaitsInLineOnlyWhereHistoryCountsNoWait(t *testing.T) {
 		admitted.release()
 		t.Fatalf("waits beside a history that counts waits: %v", err)
 	}
-	after := files(t, home)
-	delete(after, filepath.Join(run.Runs(), ".slots.lock"))
-	for path, is := range after {
-		if was, found := before[path]; !found || was != is {
-			t.Fatalf("the hand-over changed %s", path)
-		}
-	}
+	untouched(t, home, before)
 
 	t.Setenv("AK_NOTIFY_SINK", "dry-run")
 	waits := filepath.Join(run.Runs(), "waits")
@@ -76,17 +74,93 @@ func TestALaunchWaitsInLineOnlyWhereHistoryCountsNoWait(t *testing.T) {
 		t.Fatal(run.Line(record))
 	}
 	admitted, err = admit("first", true, "")
-	if err != nil || !admitted.in {
-		t.Fatalf("--first held: %+v %v", admitted, err)
+	if err != nil {
+		t.Fatal(err)
 	}
 	first := filepath.Join(run.Runs(), "first")
 	os.Mkdir(first, 0o777)
 	if err := admitted.claim(first, run.Capture(first, "", nil, nil, config.Binding{}, "")); err != nil {
 		t.Fatal(err)
 	}
+	if record, _ = run.Read(first); record.Str("state") != "running" || record.Truthy("slot_waiting") {
+		t.Fatalf("--first held: %s", run.Line(record))
+	}
 	line, _ := queued()
 	if len(line.queue) != 1 || line.queue[0] != "waits" || line.lastIn == 0 {
 		t.Fatalf("the line after --first went in: %+v", line)
+	}
+}
+
+// A launch outside a suite's home is handed over wherever history.db stands, one in WAL mode
+// among them, before anything reads it: SQLite's -wal and -shm files and its compile cache never
+// appear.  Under a suite's sink the same launch goes on, its room read there; without history.db it
+// is let in outside one too.
+func TestAHandedOverLaunchLeavesItsHistoryUnopened(t *testing.T) {
+	home := gatedHome(t, "")
+	os.MkdirAll(filepath.Dir(history.Path()), 0o777)
+	conn, err := sqlite3.Open(history.Path())
+	if err == nil {
+		err = conn.Exec("PRAGMA journal_mode=WAL; CREATE TABLE runs (run_id TEXT PRIMARY KEY, final_state TEXT, " +
+			"repo TEXT, finished_at REAL, peak_rss_mb REAL)")
+		err = errors.Join(err, conn.Close())
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := files(t, home)
+	if unread("") {
+		t.Fatal("the launch is left to Python before its admission")
+	}
+	if admitted, err := admit("acme", false, ""); !errors.Is(err, ErrPython) {
+		admitted.release()
+		t.Fatalf("let in beside history.db: %v", err)
+	}
+	untouched(t, home, before)
+
+	t.Setenv("AK_NOTIFY_SINK", "dry-run")
+	admitted, err := admit("acme", false, "")
+	if err == nil {
+		admitted.ask()
+	}
+	admitted.release()
+	if err != nil || !admitted.in {
+		t.Fatalf("a suite's launch held beside history.db: %+v %v", admitted, err)
+	}
+
+	t.Setenv("AK_NOTIFY_SINK", "")
+	os.Remove(history.Path())
+	os.Remove(history.Path() + "-wal")
+	os.Remove(history.Path() + "-shm")
+	admitted, err = admit("acme", false, "")
+	admitted.release()
+	if err != nil || !admitted.in {
+		t.Fatalf("not let in without history.db: %+v %v", admitted, err)
+	}
+}
+
+// A line's check waiting for a heavy-suite turn holds a new run while no other machine may take
+// that check, and holds none once config.toml names a suite helper, as Python's gate admits it.
+func TestALineCheckHoldsNoRunAHelperCouldTake(t *testing.T) {
+	gatedHome(t, "dry-run")
+	os.MkdirAll(run.Runs(), 0o777)
+	waiting := host.LineCheckWaiting()
+	defer waiting.Close()
+	admitted, err := admit("acme", false, "")
+	if err == nil {
+		admitted.ask()
+	}
+	admitted.release()
+	if err != nil || admitted.in || admitted.kind != "landing" {
+		t.Fatalf("not held for the line's check: %+v %v", admitted, err)
+	}
+	os.WriteFile(filepath.Join(config.Home(), "config.toml"), []byte("suite_helper = \"acme\"\n"), 0o666)
+	admitted, err = admit("acme", false, "")
+	if err == nil {
+		admitted.ask()
+	}
+	admitted.release()
+	if err != nil || !admitted.in {
+		t.Fatalf("held beside a suite helper: %+v %v", admitted, err)
 	}
 }
 
@@ -111,6 +185,24 @@ func TestAnUngatedWaiterHoldsItsSlotAtOnce(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(run.Runs(), ".slots.queue")); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("an outright claim saved a line: %v", err)
+	}
+}
+
+// untouched fails where the home differs from before, but for the slots lock a hand-over takes.
+func untouched(t *testing.T, home string, before map[string]string) {
+	t.Helper()
+	after := files(t, home)
+	delete(after, run.Runs())
+	delete(after, filepath.Join(run.Runs(), ".slots.lock"))
+	for path, is := range after {
+		if was, found := before[path]; !found || was != is {
+			t.Errorf("the hand-over changed %s", path)
+		}
+	}
+	for path := range before {
+		if _, found := after[path]; !found && path != run.Runs() {
+			t.Errorf("the hand-over removed %s", path)
+		}
 	}
 }
 
