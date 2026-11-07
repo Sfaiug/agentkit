@@ -115,6 +115,35 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 	}
 }
 
+// A history.db appearing right after a dry tick's merge checks found none, as another tick's or a
+// seat's first write makes it, is never opened: nothing but it is written under HOME.
+func TestDryHistoryAppearingOpensNothing(t *testing.T) {
+	ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';; *) `+loggedOut+`;; esac`)
+	put(t, filepath.Join(ak, "runs", "fix-api", "run.json"), fmt.Sprintf(
+		`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": null}`, time.Now().Unix()))
+	older(t, "PRAGMA user_version")
+	staged := filepath.Join(t.TempDir(), "history.db")
+	if err := os.Rename(history.Path(), staged); err != nil || !run.Historyless() {
+		t.Fatalf("history.db not set aside whole: %v", err)
+	}
+	before := files(t, filepath.Dir(ak))
+	before[history.Path()] = read(t, staged)
+	still := historyless
+	t.Cleanup(func() { historyless = still })
+	historyless = func() bool {
+		historyless = still
+		none := still()
+		if err := os.Rename(staged, history.Path()); err != nil {
+			t.Error(err)
+		}
+		return none
+	}
+	Dry(io.Discard)
+	if !reflect.DeepEqual(files(t, filepath.Dir(ak)), before) {
+		t.Fatal("the dry tick wrote under HOME")
+	}
+}
+
 // partialClone is a clone under dir filtered of every blob, and the commit declaring `health: true`
 // whose AGENTS.md it lacks, or, where whole, one it lacks altogether.
 func partialClone(t *testing.T, dir string, whole bool) (sha, checkout string) {

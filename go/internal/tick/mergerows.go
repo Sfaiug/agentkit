@@ -14,10 +14,13 @@ import (
 // of the tick to Python; errLeft, before anything is written, where Go cannot write it as it
 // stands, which Python's first write repairs.  A dry tick cannot tell: opening history.db at all,
 // as both reads do, writes beside it, and the first open compiles SQLite into the user's cache, so a
-// dry one leaves a home where history.db stands to Python.
+// dry one asks only whether history.db stands, once, and leaves a home where it does to Python: one
+// appearing after that is never opened.
 func keepsHistory(dry bool) (bool, error) {
 	switch {
-	case dry && !run.Historyless():
+	case dry && historyless():
+		return false, nil
+	case dry:
 		return false, errLeft
 	case history.Bare():
 		return false, nil
@@ -26,6 +29,10 @@ func keepsHistory(dry bool) (bool, error) {
 	}
 	return true, nil
 }
+
+// historyless is run.Historyless as a dry tick asks it, which this package's tests make history.db
+// appear right after.
+var historyless = run.Historyless
 
 // mergeRows is where history.db keeps a followed merge, as Python's after_merge_health does: its
 // probe's checks row on the merge commit, under its run's directory; none where the tick keeps no

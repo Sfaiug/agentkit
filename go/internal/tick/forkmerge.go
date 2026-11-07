@@ -24,7 +24,7 @@ func mergeRecord(record, fields *run.Object) error {
 	if !record.Truthy("worktree") || !record.Truthy("delivery_sha") {
 		return nil
 	}
-	found, err := declared(record.Str("worktree"), record.Str("delivery_sha"), "")
+	found, err := declared(record.Str("worktree"), record.Str("delivery_sha"), "", false)
 	if err != nil {
 		return err
 	}
