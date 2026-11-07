@@ -249,7 +249,8 @@ func (t *ticking) tellSeat(session, key, line string, typed *run.Object, receipt
 		pr, _ := merged.Get("pr").(string)
 		name := run.Seat(merged)
 		born, there := live[name]
-		if merged.Truthy("merged") && there && repoKey(pr) == key && (born > found || born == found && name > newest) {
+		on := repoKey(pr) // a run with no pull request is on no repository
+		if merged.Truthy("merged") && there && on != "" && on == key && (born > found || born == found && name > newest) {
 			newest, found = name, born
 		}
 		return true

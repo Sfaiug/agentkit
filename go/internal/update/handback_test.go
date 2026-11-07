@@ -63,3 +63,23 @@ func TestEachOwedRedIsToldOnceAndASeatGoDoesNotWakeHandsOverAtItsRecord(t *testi
 		t.Fatalf("gave %v, delivered %q, said %q, fresh %s", err, lines, said, read("fresh-gate-faults"))
 	}
 }
+
+// A mark that cannot be kept is an error, though the delivery answers it as a seat mid-turn.
+func TestAMarkNotKeptIsAnError(t *testing.T) {
+	home, _ := sandbox(t)
+	check := filepath.Join(home, ".agentkit", "state", "fresh-gate-faults")
+	if err := os.MkdirAll(filepath.Join(check, "handed.tmp"), 0o700); err != nil { // put writes through it
+		t.Fatal(err)
+	}
+	record := `{"sets": [["c"]], "typed": null, "told": false, "line": "fresh line"}`
+	if err := os.WriteFile(filepath.Join(check, "handed"), []byte(record), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := handBack(func(_, _ string, _ *run.Object, receipt func(*run.Object) error) (string, error) {
+		receipt(run.Fields("seat", 7))
+		return "", nil
+	}, func(line string) { t.Errorf("said %q", line) })
+	if data, _ := os.ReadFile(filepath.Join(check, "handed")); err == nil || string(data) != record {
+		t.Fatalf("gave %v, left %s", err, data)
+	}
+}

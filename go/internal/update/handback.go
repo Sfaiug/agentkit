@@ -54,7 +54,14 @@ func tellOnce(path string, record *run.Object, deliver Deliver, done string, say
 	}
 	// one that cannot be read keys no repository, as Python's _git answers ""
 	origin, _ := gitcall.Git{Repo: filepath.Join(config.UserHome(), "agentkit"), Env: pins, Cap: gitCap}.Try("remote", "get-url", "origin")
-	seat, err := deliver(origin, record.Str("line"), record.Dict("typed"), func(mark *run.Object) error { return keep("typed", mark) })
+	var unkept error // the delivery answers a mark not kept as it does a seat mid-turn
+	seat, err := deliver(origin, record.Str("line"), record.Dict("typed"), func(mark *run.Object) error {
+		unkept = keep("typed", mark)
+		return unkept
+	})
+	if unkept != nil {
+		return unkept
+	}
 	if err != nil || seat == "" {
 		return err
 	}
