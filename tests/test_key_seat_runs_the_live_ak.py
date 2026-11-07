@@ -6,14 +6,16 @@ ran the run's code.  Black-box: the git work tree holding the program `AK_BIN` n
 the program among it, to a version under a Home's ~/.agentkit/versions, the Home's ~/agentkit is
 linked to that checkout, and the copy's program reopens a seat tmux lost
 (tests/fixtures/akseat.py) as a run pinned there would, on a tmux server such a run started.
-The harness is a fake that writes down its environment; what the seat runs is its pane's start
-command and the command lines of the processes under its pane.  A path is ~/agentkit's when it
+The harness is a fake that writes down its environment and its folder; what the seat runs is
+its pane's start command and the command lines of the processes under its pane, each path in
+them as the process naming it finds it, from its own folder.  A path is ~/agentkit's when it
 lies under that link or the checkout it names.
 """
 
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import sys
@@ -25,12 +27,12 @@ from fixtures.akbin import AK, REAL_TMUX, SOCKET, Home
 from fixtures.akseat import Seat
 
 VERSION = "3c263bd0a1b2c3d4e5f60718293a4b5c6d7e8f90"
-# Its environment written whole, by a rename, and then it waits as a harness does.
+# Its folder and environment written whole, by a rename, and then it waits as a harness does.
 HARNESS = """#!{python}
 import json, os, signal
 path = os.path.join({folder!r}, os.environ["AGENTKIT_SESSION"] + ".json")
 with open(path + ".part", "w") as fh:
-    json.dump(dict(os.environ), fh)
+    json.dump({{"cwd": os.getcwd(), "env": dict(os.environ)}}, fh)
 os.replace(path + ".part", path)
 signal.pause()
 """
@@ -47,8 +49,13 @@ def checkout():
     return top, folder.relative_to(top) / Path(AK).name
 
 
-def commands(pid):
-    """Each word of the command lines of the process `pid` and every process under it."""
+# What a word holds beside a path: a flag's `=`, a PATH's `:`, a shell line's or JSON's marks.
+APART = re.compile(r"""[\s=:'"{}\[\],;<>|()]+""")
+
+
+def named(pid, start):
+    """Every path the pane's `start` command and the command lines of its process `pid` and each
+    process under it name, resolved from the folder of the process naming it."""
     children = {}
     for entry in Path("/proc").glob("[0-9]*"):
         try:
@@ -56,15 +63,18 @@ def commands(pid):
         except OSError:     # gone meanwhile
             continue
         children.setdefault(parent, []).append(int(entry.name))
-    words, todo = [], [pid]
+    paths, todo = set(), [(pid, [start])]
     while todo:
-        pid = todo.pop()
+        pid, words = todo.pop()
         try:
+            cwd = os.readlink(f"/proc/{pid}/cwd")
             words += Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
-        except OSError:
+        except OSError:     # gone meanwhile
             continue
-        todo += children.get(pid, [])
-    return words
+        paths |= {Path(cwd, piece).resolve() for word in words
+                  for piece in APART.split(word) if piece}
+        todo += [(child, []) for child in children.get(pid, [])]
+    return paths
 
 
 class SeatRunsTheLiveAk(unittest.TestCase):
@@ -78,9 +88,9 @@ class SeatRunsTheLiveAk(unittest.TestCase):
         own = home.path / ".agentkit"
         cls.versions, cls.live = own / "versions", home.path / "agentkit"
         copy = cls.versions / VERSION
-        shutil.copytree(cls.checkout, copy, symlinks=True, ignore=lambda folder, names: [
-            name for name in names if name in (".git", "__pycache__")
-            or name == "tests" and Path(folder) == cls.checkout])
+        # the suite's own scratch (.ak-test-*) sits in it, sockets and all, and changes under it
+        shutil.copytree(cls.checkout, copy, symlinks=True, ignore=shutil.ignore_patterns(
+            ".git", "tests", "__pycache__", ".ak-test-*"))
         cls.live.symlink_to(cls.checkout)
         cls.harnessed = home.root / "harness"
         cls.harnessed.mkdir()
@@ -110,8 +120,8 @@ class SeatRunsTheLiveAk(unittest.TestCase):
 
     @classmethod
     def reopen(cls, name, code):
-        """`orch name` by the program in `code`: the words of what the seat runs, and the
-        environment its harness started with."""
+        """`orch name` by the program in `code`: the paths what the seat runs names, and the
+        folder and environment its harness started with."""
         done = cls.home.run(str(code / cls.program), "orch", name, env=cls.pinned(code))
         assert done.code == 0, done.err
         written, deadline = cls.harnessed / f"{name}.json", time.monotonic() + 60
@@ -122,20 +132,21 @@ class SeatRunsTheLiveAk(unittest.TestCase):
                               "#{pane_pid}\t#{pane_start_command}")
         assert shown.code == 0, shown.err
         pid, start = shown.out.rstrip("\n").split("\t", 1)
-        return [start, *commands(int(pid))], json.loads(written.read_text())
+        return named(int(pid), start), json.loads(written.read_text())
 
-    def assertNamesTheLiveOnly(self, words, other):
-        self.assertEqual([word for word in words if str(other) in word], [])
-        self.assertNotEqual([word for word in words if str(self.live) in word
-                             or str(self.checkout) in word], [], words)
+    def assertNamesTheLiveOnly(self, paths, other):
+        # resolved, a path under ~/agentkit lies in the checkout it links to
+        self.assertEqual({path for path in paths if path.is_relative_to(other)}, set())
+        self.assertNotEqual({path for path in paths if path.is_relative_to(self.checkout)},
+                            set(), paths)
 
     def test_the_seat_runs_the_live_checkouts_wrapper(self):
         self.assertNamesTheLiveOnly(self.seat[0], self.versions)
 
     def test_its_path_holds_no_version_and_its_environment_no_run_code(self):
-        env = self.seat[1]
+        cwd, env = self.seat[1]["cwd"], self.seat[1]["env"]
         self.assertEqual([entry for entry in env["PATH"].split(os.pathsep)
-                          if Path(entry).is_relative_to(self.versions)], [])
+                          if Path(cwd, entry).resolve().is_relative_to(self.versions)], [])
         self.assertNotIn("AK_RUN_CODE", env)
 
     def test_a_starter_in_any_other_checkout_names_the_live_one_too(self):
