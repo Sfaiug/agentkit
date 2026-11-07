@@ -11,9 +11,10 @@ import (
 )
 
 // taken is whether a deferred line is a run's (plan.taken): one of the seat's, a follow-up with
-// the line's check in the line's project, is on its way with it.  ErrUnread where Python reads the
-// line's path, or a run's way on, otherwise than Go can.
-func taken(current string, line entry) (bool, error) {
+// the line's check in the line's project, is on its way with it as going reads it (followupOpen,
+// or followupMoving).  ErrUnread where Python reads the line's path, or a run's way on, otherwise
+// than Go can.
+func taken(current string, line entry, going func(*run.Object, time.Time) (bool, error)) (bool, error) {
 	if !pythonPath(line.Project) {
 		return false, ErrUnread
 	}
@@ -37,8 +38,8 @@ func taken(current string, line entry) (bool, error) {
 			strings.TrimFunc(other.Dict("followup").Str("check"), config.Space) != check {
 			continue
 		}
-		going, err := followupOpen(other, now)
-		if going {
+		on, err := going(other, now)
+		if on {
 			return true, nil
 		}
 		unread = cmp.Or(unread, err)
@@ -46,14 +47,25 @@ func taken(current string, line entry) (bool, error) {
 	return false, unread
 }
 
-// followupOpen is whether that fix run is still on its way (handback.followup_open): running,
-// about to, or resuming itself.
-func followupOpen(other *run.Object, now time.Time) (bool, error) {
+// followupMoving is whether that fix run is running or about to (handback.followup_moving): its
+// delivery, its next step, checks its plan line, which a whole verification leaves to it.
+func followupMoving(other *run.Object, _ time.Time) (bool, error) {
 	switch other.Str("state") {
 	case "running":
 		return true, nil
 	case "queued":
 		return run.ProcessActive(other) || other.Truthy("slot_waiting"), nil
+	}
+	return false, nil
+}
+
+// followupOpen is whether that fix run is still on its way (handback.followup_open): running,
+// about to (followupMoving), or resuming itself.
+func followupOpen(other *run.Object, now time.Time) (bool, error) {
+	if moving, _ := followupMoving(other, now); moving {
+		return true, nil
+	}
+	switch other.Str("state") {
 	case "waiting", "waiting_login", "exhausted", "error", "stopped":
 		return run.Going(other, now), nil
 	case "interrupted":

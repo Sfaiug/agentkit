@@ -792,12 +792,14 @@ def clone_borrowing(source, target, *how):
     git(target, "config", "ak.repository", repository_id(source))
 
 
-def leftover_junk(path):
-    """Match names, not targets: a dependency symlink is junk even when Git ignores only directories."""
+def leftover_junk(wt, path):
+    """Whether `path` in `wt` is a test sandbox, a run lock, a dependency tree or a Go build cache.
+    Names match, not targets: a dependency symlink is junk even when Git ignores only directories."""
     parts = path.rstrip("/").split("/")
     return (parts[0].startswith(SANDBOX_PREFIX)
             or any(part in (run_record.RECOVERY_LOCK, "delivery.lock", "node_modules", "venv", ".venv")
-                   for part in parts))
+                   for part in parts)
+            or go_build_cache(wt, path))
 
 
 # How Go's README at a build cache's root begins (cmd/go/internal/cache).  GOCACHE may name that
@@ -875,8 +877,8 @@ def commit_leftovers(wt, log, artifacts, state):
 
     Test sandboxes, run locks and dependency trees, symlinks included, and Go build caches
     are left alone too, whatever the repository's .gitignore says.  Anything `git check-ignore`
-    would ignore stays out as well.  Ignored sandboxes, locks and dependencies are listed back
-    for the count below, since `dirty_paths` never sees them.
+    would ignore stays out as well.  Ignored ones of that junk are listed back for the count
+    below, since `dirty_paths` never sees them.
 
     The done-when only verifies a checkout clean at HEAD, so nothing left out may stay
     staged: a staged `venv` would fail every round as a changed checkout.  It is unstaged,
@@ -924,15 +926,15 @@ def commit_leftovers(wt, log, artifacts, state):
 
 def committable_paths(wt, artifacts=(), env=None):
     """(the dirty paths a commit of the checkout would take, the leftover junk it leaves): the
-    one rule of what a run's uncommitted work is.  Test sandboxes, run locks and dependency
-    trees (`leftover_junk`), Go build caches (`go_build_cache`), whatever the repository's
-    `.gitignore` names, and what the done-when generated (`artifacts`) are left.  `env` goes
-    to every git read."""
+    one rule of what a run's uncommitted work is.  Test sandboxes, run locks, dependency
+    trees and Go build caches (`leftover_junk`), whatever the repository's `.gitignore`
+    names, and what the done-when generated (`artifacts`) are left.  `env` goes to every
+    git read."""
     real, sandbox = [], []
     for path in dirty_paths(wt, env):
         if path in artifacts:
             continue
-        if (leftover_junk(path) or go_build_cache(wt, path)
+        if (leftover_junk(wt, path)
                 or git_out(wt, "check-ignore", "-q", "--", path, env=env)[0] == 0):
             sandbox.append(path)
         else:
@@ -941,7 +943,7 @@ def committable_paths(wt, artifacts=(), env=None):
 
 
 def ignored_sandbox_paths(wt, artifacts):
-    """Ignored sandbox files, run locks and dependencies: invisible to `dirty_paths`, still uncommitted.
+    """Ignored `leftover_junk` files: invisible to `dirty_paths`, still uncommitted.
 
     Once the repository's .gitignore names the suite's sandbox prefix, a killed test's
     sandbox never reaches the leftover sweep's classifier -- and without this listing its
@@ -954,7 +956,7 @@ def ignored_sandbox_paths(wt, artifacts):
     for entry in out.split("\0"):
         if not entry or entry in artifacts:
             continue
-        if not leftover_junk(entry):
+        if not leftover_junk(wt, entry):
             continue
         if not entry.endswith("/"):
             found.append(entry)

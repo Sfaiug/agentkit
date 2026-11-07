@@ -39,7 +39,7 @@ func table(t *ticking) []pass {
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
 		{"rebooted turns", false, configured, continueTurns(false)},
-		{"login resume", true, noLoginResume, nil},
+		{"login resume", true, nil, t.loginResume},
 		// a run's parked login is on its run
 		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
 		// publishes nothing, reads them here
@@ -56,7 +56,7 @@ func table(t *ticking) []pass {
 		{"token reminder", false, nil, t.remindTokens},
 		{"exhausted resume", true, all(configured, unseated, t.dryly(noExhaustedResume)), t.wet(t.exhaustedResume)},
 		{"error retry", true, t.dryly(noErrorRetry), t.wet(t.errorRetry)},
-		{"waiting resume", true, t.waitingIdle, t.wet(t.waiting)},
+		{"waiting resume", true, nil, t.waiting},
 		{"old endings", false, nil, func() error {
 			if !handback.MarkHistory(t.log.line) {
 				return errLeft
@@ -67,7 +67,7 @@ func table(t *ticking) []pass {
 		{"job handbacks", false, nil, t.jobHandbacks},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
-		{"switch retirement", false, noSwitches, t.retire},
+		{"switch retirement", false, checkoutsSeen, t.retire},
 		{"seat tokens", false, nil, func() error {
 			if !history.SeatTokens() {
 				return errLeft
@@ -90,9 +90,10 @@ func table(t *ticking) []pass {
 		{"seat weights", false, nil, func() error { host.Front(); return nil }},
 		{"idle sleep", false, configured, t.sleep},
 		{"git housekeeping", false, checkoutsSeen, t.housekeeping},
-		// a due collection's units are Python's to clear where a user manager runs
-		{"collection", false, func() bool { return !gc.Due() || !host.UserManager() }, func() error {
-			gc.Schedule(t.log.line)
+		{"collection", false, nil, func() error {
+			if !gc.Schedule(t.log.line) {
+				return errLeft
+			}
 			return nil
 		}},
 		{"exit clocks", false, nil, t.stamp},

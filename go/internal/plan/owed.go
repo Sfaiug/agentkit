@@ -53,7 +53,7 @@ func owed(name string) iter.Seq2[entry, error] {
 			}
 			written, ok := parse(line)
 			if ok && written.Deferred {
-				if taken, err := taken(current, written); err != nil {
+				if taken, err := taken(current, written, followupOpen); err != nil {
 					if !yield(entry{}, err) {
 						return
 					}

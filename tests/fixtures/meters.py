@@ -8,7 +8,8 @@ every verb it is called with, for the provider and account ak names in AGENTKIT_
 AGENTKIT_ACCOUNT (`default` for the usual login), and answers:
 
     usage         a weekly meter as `week` set it for that provider and account, a day from
-                  its reset, with whatever else `week` was given (`credits=12`)
+                  its reset, its window a week unless given, with whatever else `week` was
+                  given (`credits=12`)
     reset-status  {"available": N} as `resets` set it for that account (ak names no provider
                   for this verb), 0 unless set
     interactive   /bin/sh, the program a seat on it runs
@@ -53,10 +54,11 @@ class Meters:
         self.dir = directory
         self.resets_at = int(time.time()) + 86400   # one moment, the same for every meter
 
-    def week(self, provider, account="default", *, used, **extra):
-        """What `usage` answers for that account from now on: its week `used`% spent."""
+    def week(self, provider, account="default", *, used, window=WEEK, **extra):
+        """What `usage` answers for that account from now on: its week, `window` seconds long,
+        `used`% spent."""
         meter = {"name": "weekly", "used": used, "resets_at": self.resets_at,
-                 "window_secs": WEEK}
+                 "window_secs": window}
         (self.dir / f"{provider}.{account}.usage.json").write_text(
             json.dumps({"meters": [meter], "error": None, **extra}))
 
@@ -87,10 +89,11 @@ def install(home, *, reset=False):
 
 def cell(out, label, heading):
     """What `ak usage` printed in its table's row for `label` (`acme II`) under `heading`
-    (`held`, `outlook`): from where that heading starts to where the next one does."""
+    (`held`, `a month`): from where that heading starts to where the next one does."""
     lines = out.splitlines()
     head = next(line for line in lines if line.startswith("provider "))
     starts = [found.start() for found in re.finditer(r"\S+", head)] + [None]
     row = next(line for line in lines if line[:starts[1]].strip() == label)
-    at = head.split().index(heading)
-    return row[starts[at]:starts[at + 1]].strip()
+    words = heading.split()
+    at = head.split().index(words[0])
+    return row[starts[at]:starts[at + len(words)]].strip()

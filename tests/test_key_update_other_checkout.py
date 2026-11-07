@@ -26,7 +26,7 @@ HARNESSES = ("claude", "codex", "muse", "grok", "opencode", "agy")
 OFFLINE = {"https_proxy": "http://127.0.0.1:9", "http_proxy": "http://127.0.0.1:9",
            "GIT_ALLOW_PROTOCOL": "file"}
 # What reinstalling ran, and from which commit, kept outside the checkout so it stays clean.
-INSTALL = '#!/bin/sh\ngit -C "${0%/*}" rev-parse HEAD >>"$HOME/install.log"\n'
+INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\ngit -C "${0%/*}" rev-parse HEAD >>"$HOME/install.log"\n'
 
 
 def no_harness_path(home):

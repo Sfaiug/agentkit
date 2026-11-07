@@ -35,7 +35,11 @@ type reading struct {
 // look) once all of the frame is Go's to draw; false where Go does not read that home, or where
 // opening it would do more than draw.
 func readFrame(now time.Time, announce bool) (reading, bool) {
-	home, known := seat.Menu(now)
+	read := seat.Menu
+	if announce { // its live seats are looked at once, under their announce locks, as Announce writes them down
+		read = seat.MenuRead
+	}
+	home, known := read(now)
 	if !known || !home.Settled() {
 		return reading{}, false
 	}
@@ -267,7 +271,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 				session = os.Getenv("AGENTKIT_SESSION")
 			}
 			frame.Stop()
-			if !menuConfig(session, shown.cells, keyboard, painter) {
+			if !menuConfig(session, shown.cells, latest.Load, keyboard, painter) {
 				keyboard.Give()
 				return notImplemented(errOut, "attach")
 			}

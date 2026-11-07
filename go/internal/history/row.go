@@ -52,7 +52,7 @@ func Start(record *run.Object, log func(string)) {
 		}
 	}
 	noReview := 0
-	if policy := record.Dict("policy"); policy != nil && run.Equal(policy.Get("review_rounds"), run.Number("0")) {
+	if run.ReviewOff(record) {
 		noReview = 1
 	}
 	// a new row is followed for breaks and landing flakes, none yet; the orchestrator and the plan

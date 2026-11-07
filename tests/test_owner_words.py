@@ -171,6 +171,32 @@ class OwnerWords(unittest.TestCase):
         self.assertEqual(self.messages(), [{"at": 20, "text": "Earlier\nwords"},
                                           {"at": 30, "text": text}])
 
+    def test_claude_s_transcript_is_read_by_ak_s_name_once_claude_deletes_its_own(self):
+        record, real = self.record(), open
+        self.append(prompt(20, "Add a retry button."))
+        claude.keep(record, record["cwd"], "thread")
+        self.append({"type": "assistant", "timestamp": stamp(21), "message": {
+            "content": [{"type": "text", "text": "Done."}]}}, prompt(30, "And a receipt email."))
+        both = [{"at": 20, "text": "Add a retry button."}, {"at": 30, "text": "And a receipt email."}]
+
+        def deleting(name, *args, **kwargs):
+            # Claude deletes its own between a reader finding it and opening it
+            if Path(name) == self.path:
+                self.path.unlink(missing_ok=True)
+            return real(name, *args, **kwargs)
+
+        with patch.object(harness, "open", deleting, create=True):
+            self.assertEqual(self.messages(), both)
+        self.assertEqual([turn["text"] for turn in orch.seat_plugin(record).said(
+            record, record["cwd"], "thread")], ["Add a retry button.", "Done.", "And a receipt email."])
+        self.assertFalse(claude.opened(record["cwd"], "thread"))
+        # one Claude writes anew is read by its own name while there, and the link keeps the old
+        self.append(prompt(40, "A new start."))
+        claude.keep(record, record["cwd"], "thread")
+        self.assertEqual(self.messages(), [{"at": 40, "text": "A new start."}])
+        self.path.unlink()
+        self.assertEqual(self.messages(), both)
+
     def test_claude_unmarked_command_frames_notifications_and_interrupts_are_not_prompts(self):
         command = ("<command-name>/compact</command-name>\n"
                    "<command-message>compact</command-message>\n<command-args></command-args>")

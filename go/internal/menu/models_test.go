@@ -39,7 +39,8 @@ func TestEveryWidthDrawsWithinItsRoomOrFolds(t *testing.T) {
 	for _, columns := range []string{"1", "2", "13", "24", "30", "40", "60", "100", "200"} {
 		screen := screenAt(t, columns)
 		lines := ModelsBody(screen, ModelsSaid(screen, answerOf(rows), rows), map[string]bool{"acme": true, "bolt": true}, 2, 0)
-		if joined := strings.Join(lines, "\n"); !strings.Contains(joined, "comparing all 2 models") {
+		// said at every width, going on at its words where its line is too narrow
+		if joined := strings.Join(lines, "\n"); !strings.Contains(strings.Join(strings.Fields(joined), ""), "comparingall2models") {
 			t.Errorf("at %s columns: %s", columns, joined)
 		}
 		if strings.Contains(strings.Join(lines, "\n"), "boards read") {

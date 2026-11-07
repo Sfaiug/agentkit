@@ -2,10 +2,13 @@ package harness
 
 import (
 	"bufio"
+	"errors"
+	"io/fs"
 	"iter"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"agentkit/internal/hookfact"
 	"agentkit/internal/run"
@@ -19,24 +22,39 @@ import (
 
 // museLog is the log Muse keeps that session in, its first, "" for none (muse.py `session_log`).
 func museLog(session string) string {
-	if logs := museSessionLogs(session); len(logs) > 0 {
-		return logs[0]
+	log, _ := museLogFound(session)
+	return log
+}
+
+// museLogFound is museLog, and where it finds none, the error of a folder or log it could not look
+// at, which may hold it: one that says nothing is there, or no folder, hides none.
+func museLogFound(session string) (string, error) {
+	logs, unread := museSessionLogs(session)
+	if len(logs) > 0 {
+		return logs[0], nil
 	}
-	return ""
+	return "", unread
 }
 
 // museSessionLogs is every log Muse keeps that session in, each under YYYY/MM/DD/<session>/, in path
-// order (muse.py `session_logs`).
-func museSessionLogs(session string) []string {
+// order (muse.py `session_logs`), and the first error of a folder or log it could not look at.
+func museSessionLogs(session string) ([]string, error) {
 	if !museSession.MatchString(session) {
-		return nil
+		return nil, nil
+	}
+	var unread error
+	hidden := func(err error) {
+		if unread == nil && err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			unread = err
+		}
 	}
 	// read, not globbed: the data home is a path, whatever pattern characters it holds
 	folders := []string{filepath.Join(share(), "muse", "sessions")}
 	for range 3 {
 		var deeper []string
 		for _, folder := range folders {
-			entries, _ := os.ReadDir(folder)
+			entries, err := os.ReadDir(folder)
+			hidden(err)
 			for _, entry := range entries {
 				deeper = append(deeper, filepath.Join(folder, entry.Name()))
 			}
@@ -45,11 +63,14 @@ func museSessionLogs(session string) []string {
 	}
 	var logs []string
 	for _, folder := range folders {
-		if log := filepath.Join(folder, session, "session.jsonl"); exists(log) {
+		log := filepath.Join(folder, session, "session.jsonl")
+		_, err := os.Stat(log)
+		if err == nil {
 			logs = append(logs, log)
 		}
+		hidden(err)
 	}
-	return logs
+	return logs, unread
 }
 
 // exists is whether a file is at that path, through links, as a glob finds one.
@@ -134,29 +155,35 @@ func museTyping(session string) (typed []Prompt) {
 // and none after it: 1.4.12 logs a later one its own end-of-turn reminder asked for that no screen
 // of it ever displays.
 func museSaid(session string) (said []Turn) {
-	answered := map[string]bool{} // runs whose prompt or latest steer a shown final answered
+	answered := map[string]bool{}
 	for entry := range museEntries(museLog(session)) {
-		run, _ := field(entry, "payload", "run_id").(string)
-		if text := museTyped(entry); text != "" {
-			delete(answered, run)
-			said = append(said, Turn{"user", text})
-			continue
-		}
-		event := museRunEvent(entry, "assistant_message_committed")
-		if event == nil {
-			continue
-		}
-		if !event.Truthy("phase") {
-			if answered[run] {
-				continue
-			}
-			answered[run] = run != ""
-		}
-		if text := event.Str("text"); text != "" {
-			said = append(said, Turn{"model", text})
+		if turn, shown := museTurn(entry, answered); shown {
+			said = append(said, turn)
 		}
 	}
 	return said
+}
+
+// museTurn is the turn that log line adds to museSaid's conversation, false for none, answered
+// holding the runs whose prompt or latest steer a shown final answered so far.
+func museTurn(entry *run.Object, answered map[string]bool) (Turn, bool) {
+	run, _ := field(entry, "payload", "run_id").(string)
+	if text := museTyped(entry); text != "" {
+		delete(answered, run)
+		return Turn{"user", text}, true
+	}
+	event := museRunEvent(entry, "assistant_message_committed")
+	if event == nil {
+		return Turn{}, false
+	}
+	if !event.Truthy("phase") {
+		if answered[run] {
+			return Turn{}, false
+		}
+		answered[run] = run != ""
+	}
+	text := event.Str("text")
+	return Turn{"model", text}, text != ""
 }
 
 // museCard is Muse's own question card in that session, as the fact its hooks write for it

@@ -64,7 +64,7 @@ func markState(record *run.Object, state, why string) {
 	run.SetAll(record, "state", state, "finished_at", clock(), "error", why)
 	DropErrorRetry(record) // an error's retry belongs to the error: any other mark ends that episode
 	if state != "waiting_login" {
-		for _, key := range []string{"waiting_for", "login_resume_at", "login_back_at"} {
+		for _, key := range LoginKeys {
 			record.Delete(key)
 		}
 	}

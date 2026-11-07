@@ -10,7 +10,9 @@ import (
 // sessions' logs beside it (muse.py `seat_token_sources`).
 func museTokenSources(record *run.Object) []string {
 	var sources []string
-	for _, log := range museSessionLogs(museConversation(map[string]any{"muse_launch": record.Get("muse_launch")})) {
+	// a folder it cannot read hides nothing, as Python's glob skips one
+	logs, _ := museSessionLogs(museConversation(map[string]any{"muse_launch": record.Get("muse_launch")}))
+	for _, log := range logs {
 		sources = append(append(sources, log), below(filepath.Join(filepath.Dir(log), "subagent"), "session.jsonl")...)
 	}
 	return sources

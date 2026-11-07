@@ -4,20 +4,26 @@ import (
 	"io"
 	"path/filepath"
 
+	"agentkit/internal/box"
+	"agentkit/internal/config"
 	"agentkit/internal/run"
 )
 
 // Resume is `ak run resume <id> [--rounds N]`, Python's resume_run on a dead run Go can pick up
-// from, rounds, where not 0, raising the budget of a FAIL at it: its refusals in its words, `ak
-// run`'s exit status, and why it refused. Anything else it leaves to Python (ErrPython) before it
-// writes anything.
+// from, and on a FAIL at its round budget, which goes on only with rounds (not 0) raising that
+// budget: its refusals in its words, `ak run`'s exit status, and why it refused. Anything else it
+// leaves to Python (ErrPython) before it writes anything.
 func Resume(id string, rounds int, bg bool, out, errOut io.Writer) (int, string, error) {
-	if rounds == 0 {
-		return resume(id, bg, nil, nil, nil, out, errOut)
-	}
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
 	if !reached(dir, record) {
+		return 0, "", ErrPython
+	}
+	if rounds == 0 && !run.AtBudget(record) {
+		return resume(id, bg, nil, nil, nil, out, errOut)
+	}
+	// Python reads the box and the config before it judges the budget, and refuses on them itself
+	if box.Check() != nil || config.Check() != nil {
 		return 0, "", ErrPython
 	}
 	order, why, err := raise(dir, record, rounds)

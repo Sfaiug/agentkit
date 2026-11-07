@@ -217,6 +217,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 		l.say(line)
 	}
 	text := strings.Join(chunks, "\n\n")
+	keepTimes(cwd, path) // the log is whole until it holds text
 	return ok, text, marks, os.WriteFile(path, []byte(text), 0o666)
 }
 
@@ -321,13 +322,13 @@ func (l *loop) flaky(cmd string, progress *os.File, first [2]int64, rerun int64,
 	if _, err := progress.ReadAt(again, rerun); err != nil {
 		return "", err
 	}
-	return l.flakyRecord(cmd, failed, again, path, -1)
+	return l.flakyRecord(cmd, "failed", failed, again, path, -1)
 }
 
-// flakyRecord is that record of one failed output and its passing re-run, Python's
+// flakyRecord is that record of one output that failed so (how) and its passing re-run, Python's
 // gate.flaky_record: the lines it keeps stop at most bytes, none where that is negative, and no
 // line ends blank, as a record is what lies between two blank lines.
-func (l *loop) flakyRecord(cmd string, failed, again []byte, path string, most int) (string, error) {
+func (l *loop) flakyRecord(cmd, how string, failed, again []byte, path string, most int) (string, error) {
 	saved, err := os.CreateTemp(l.dir, stem(path)+"-failed-*.log")
 	if err != nil {
 		return "", err
@@ -338,7 +339,7 @@ func (l *loop) flakyRecord(cmd string, failed, again []byte, path string, most i
 	for _, line := range config.SplitLines(decoded(again)) {
 		printed[flakyKey.ReplaceAllString(line, "${1}<varying>")] = true
 	}
-	note := "flaky: " + cmd + " failed, then passed on its re-run"
+	note := "flaky: " + cmd + " " + how + ", then passed on its re-run"
 	l.say("done-when: " + note)
 	var lines []string
 	for _, line := range config.SplitLines(decoded(failed)) {

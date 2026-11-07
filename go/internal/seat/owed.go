@@ -4,23 +4,53 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
+	"agentkit/internal/config"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 )
 
-// OweLine queues a line in Python's format under the send and seat-file locks. The id
-// prevents a teller retiring a later copy of the same words after a rename or another teller.
+// OweLine queues a line in Python's format under the send and seat-file locks.
 func OweLine(name, line string) error {
-	id := make([]byte, 8)
-	if _, err := rand.Read(id); err != nil {
-		return err
-	}
 	return notify.Held(context.Background(), name, func(current string) error {
-		return changeOwed(current, func(lines []any) []any {
-			return append(lines, run.Fields("line", line, "id", hex.EncodeToString(id)))
-		})
+		return oweLines(current, run.Fields("line", line))
+	})
+}
+
+// oweLines adds those lines to what the seat is owed, as watch.owe_line does under the send lock
+// its caller holds: a move's (`switch`) ahead of all but those begun or of an earlier move, any
+// other last.  Each takes an id, so a teller retiring the line it told never retires a later copy
+// of the same words after a rename or another teller.
+func oweLines(name string, owed ...*run.Object) error {
+	added := make([]any, len(owed))
+	for at, line := range owed {
+		id := make([]byte, 8)
+		if _, err := rand.Read(id); err != nil {
+			return err
+		}
+		line = line.Copy()
+		line.Set("id", hex.EncodeToString(id))
+		added[at] = line
+	}
+	return changeOwed(name, func(lines []any) []any {
+		next := slices.Clone(lines)
+		for _, line := range added {
+			at := len(next)
+			if line.(*run.Object).Truthy("switch") {
+				if ahead := slices.IndexFunc(next, func(value any) bool {
+					old, _ := value.(*run.Object)
+					return old == nil || !old.Truthy("switch") && !old.Truthy("typed")
+				}); ahead >= 0 {
+					at = ahead
+				}
+			}
+			next = slices.Insert(next, at, line)
+		}
+		return next
 	})
 }
 
@@ -57,7 +87,8 @@ func retypeOwed(name string) error {
 	})
 }
 
-// owedReadable leaves account moves and editor receipts to Python.
+// owedReadable leaves editor receipts, and any key it does not know, to Python; a move's line
+// (`switch`) names the pane it goes to.
 func owedReadable(file *run.Object) bool {
 	if file == nil || !file.Truthy("owed_lines") {
 		return true
@@ -68,7 +99,7 @@ func owedReadable(file *run.Object) bool {
 	}
 	for _, value := range lines {
 		line, ok := value.(*run.Object)
-		if !ok || line.Str("line") == "" || !only(line, []string{"id", "line", "typed"}) {
+		if !ok || line.Str("line") == "" || !only(line, []string{"id", "line", "typed", "switch", "pane"}) {
 			return false
 		}
 		if line.Truthy("typed") && (line.Dict("typed") == nil || !only(line.Dict("typed"), []string{"line", "seat"})) {
@@ -79,13 +110,18 @@ func owedReadable(file *run.Object) bool {
 }
 
 // A slow startup's unknown screen adds no interrupted turn to a continuation
-// already owed. That queue still belongs to ak after its next reopen.
+// already owed. That queue still belongs to ak after its next reopen; a move's
+// line (`switch`) is none, and the launch retires it.
 func continuationQueued(file *run.Object) bool {
-	return file != nil && file.Truthy("owed_lines") && owedReadable(file)
+	return file != nil && owedReadable(file) && slices.ContainsFunc(file.List("owed_lines"), func(line any) bool {
+		return !line.(*run.Object).Truthy("switch")
+	})
 }
 
 // TellOwed keeps the first line until its confirmed send, however late the prompt shows.
-// Both the receipt and each key are conditional on that same line still heading the queue.
+// Both the receipt and each key are conditional on that same line still heading the queue.  A
+// line goes to the pane it names, and a move's begins no turn: the next goes in at the same
+// prompt, its harness's answers counted from the moment it went in (`switched`).
 func TellOwed(name string, log func(string)) (bool, error) {
 	file, _ := run.ReadJSON(seatFile(name))
 	if !owedReadable(file) {
@@ -109,7 +145,7 @@ func TellOwed(name string, log func(string)) (bool, error) {
 		return file == nil || len(file.List("owed_lines")) == 0 || !run.Equal(file.List("owed_lines")[0], read)
 	}
 	var receiptErr error
-	sent := typeAtPrompt(name, read.Str("line"), read.Dict("typed"), func(mark *run.Object) error {
+	sent := typeAtPane(name, read.Str("pane"), read.Str("line"), read.Dict("typed"), func(mark *run.Object) error {
 		next := read.Copy()
 		next.Set("typed", mark)
 		receiptErr = replace(name, next)
@@ -119,11 +155,20 @@ func TellOwed(name string, log func(string)) (bool, error) {
 	if !sent {
 		return true, receiptErr
 	}
-	err := notify.Held(context.Background(), name, func(current string) error { return replace(current) })
-	if err == nil {
-		log("told " + name + ": " + read.Str("line"))
+	if read.Truthy("switch") { // written before its line is no longer owed
+		if err := writeSeat(filepath.Join(config.Home(), "state"), name, []field{{"switched", seconds(time.Now())}}); err != nil {
+			return true, err
+		}
 	}
-	return true, err
+	err := notify.Held(context.Background(), name, func(current string) error { return replace(current) })
+	if err != nil {
+		return true, err
+	}
+	log("told " + name + ": " + read.Str("line"))
+	if read.Truthy("switch") {
+		return TellOwed(name, log)
+	}
+	return true, nil
 }
 
 // TypeAtPrompt types a line into that seat at its quiet prompt, a line its mark `typed` says is

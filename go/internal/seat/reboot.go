@@ -82,12 +82,11 @@ func (comeback Comeback) Resume(boot string, claim func() error) (bool, error) {
 	if err := os.WriteFile(rulebook, []byte(text), 0o666); err != nil {
 		return true, err
 	}
-	back, told := comeback.back, []string{"AGENTKIT_RULEBOOK=" + rulebook}
-	resumed := back.conversation != "" && back.opened
-	if resumed && comeback.Line != "" {
-		told = append(told, "AGENTKIT_FIRST_PROMPT="+comeback.Line)
+	back := comeback.back
+	if back.conversation != "" && back.opened {
+		back.line = comeback.Line
 	}
-	cmd, conversation, known := back.command(told)
+	cmd, conversation, known := back.command([]string{"AGENTKIT_RULEBOOK=" + rulebook})
 	if !known {
 		return false, nil
 	}
@@ -95,12 +94,8 @@ func (comeback Comeback) Resume(boot string, claim func() error) (bool, error) {
 		return true, err
 	}
 	at := seconds(time.Now())
-	if _, err := back.launch(state, rulebook, cmd, conversation); err != nil || !resumed || comeback.Line == "" {
+	if _, err := back.launch(state, rulebook, cmd, conversation); err != nil || back.line == "" {
 		return true, err
 	}
-	mark := run.Fields("boot", boot, "at", run.Float(at), "name", comeback.Name, "line", comeback.Line)
-	if launch, _ := config.Section(back.model.Harness, "launch"); launch["first_prompt"] == true {
-		mark.Set("launched", true)
-	}
-	return true, Write(comeback.Name, "midturn", mark)
+	return true, relaunched(comeback.Name, back.model.Harness, back.line, at, boot)
 }

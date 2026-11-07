@@ -34,7 +34,7 @@ esac
 case "$*" in
   *respawn-pane*) cat "$HOME/.agentkit/state/session-acme.json" > "$HOME/at-launch"; [ -e "$HOME/respawns" ] ;;
   *list-sessions*) printf 'acme\t1\n' ;;
-  *'#{pane_id} #{pane_dead}') printf '%%1 %s\n' "$MOVE_PANE_DEAD" ;;
+  *'#{pane_dead}') printf '%s\n' "$MOVE_PANE_DEAD" ;;
   *list-panes*) printf 'acme\t0\n' ;;
   *capture-pane*) [ ! -f "$HOME/screen" ] || cat "$HOME/screen" ;;
   *show-options*) echo '%1' ;;
@@ -62,7 +62,7 @@ esac
 }
 
 func TestMoveKeepsEscAndHandsUnsupportedSeatsBackBeforeAsking(t *testing.T) {
-	for _, scenario := range []string{"esc", "fresh restart", "login", "spent session", "not installed", "in place", "kept conversation", "remote cleanup", "draft", "dialog"} {
+	for _, scenario := range []string{"esc", "fresh restart", "login", "spent session", "not installed", "kept conversation", "remote cleanup", "draft", "dialog"} {
 		t.Run(scenario, func(t *testing.T) {
 			home := moveHome(t)
 			model := "astra"
@@ -78,14 +78,12 @@ func TestMoveKeepsEscAndHandsUnsupportedSeatsBackBeforeAsking(t *testing.T) {
 				model = "fable"
 				record(t, home, "acme", map[string]any{"orchestrator": "astra"})
 				write(t, stateFile(home, "codex-remote-acme.forgotten"), "")
-			case "in place", "kept conversation", "fresh restart":
+			case "kept conversation", "fresh restart":
 				model = "opus"
 				if scenario != "kept conversation" {
 					record(t, home, "acme", map[string]any{"orchestrator": "fable", "conversation": nil})
 				}
-				if scenario != "in place" {
-					t.Setenv("MOVE_PANE_DEAD", "1")
-				}
+				t.Setenv("MOVE_PANE_DEAD", "1")
 			case "draft", "dialog":
 				fixture := "claude-draft-pane.txt"
 				if scenario == "dialog" {
@@ -100,7 +98,7 @@ func TestMoveKeepsEscAndHandsUnsupportedSeatsBackBeforeAsking(t *testing.T) {
 			state := filepath.Join(home, ".agentkit", "state")
 			before, _ := os.ReadFile(stateFile(home, "session-acme.json"))
 			asked := false
-			known, err := Move("acme", model, func() (bool, bool) { asked = true; return false, true })
+			known, err := Move("acme", model, "", func() (bool, bool) { asked = true; return false, true })
 			confirm := scenario == "esc" || scenario == "fresh restart"
 			if err != nil || known != confirm || asked != confirm {
 				t.Fatalf("known=%v, asked=%v, err=%v", known, asked, err)
@@ -134,7 +132,7 @@ func TestMoveUsesReopenAndRestoresARefusedRestart(t *testing.T) {
 			_, record, _ := config.ResolveSession("acme")
 			path, _ := harness.Conversation("claude", record)
 			write(t, path, "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"keep working\"}}\n")
-			known, err := Move("acme", "astra", func() (bool, bool) {
+			known, err := Move("acme", "astra", "", func() (bool, bool) {
 				// A concurrent mark survives the move's update under Python's lock.
 				if err := update(state, "acme", set([]field{{"reviewers", []any{"fable"}}})); err != nil {
 					t.Fatal(err)
