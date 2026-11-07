@@ -109,7 +109,10 @@ class ArrowSteps(unittest.TestCase):
         for name, held, arrow, value in ((NAMES[1], 250, "Right", 300), (NAMES[1], 250, "Left", 200),
                                          (NAMES[1], 2000, "Right", "no limit"),
                                          (NAMES[1], 2000, "Left", 1000),
-                                         (NAMES[2], 60, "Right", 75), (NAMES[2], 60, "Left", 50)):
+                                         (NAMES[2], 60, "Right", 75), (NAMES[2], 60, "Left", 50),
+                                         # the largest number a 64-bit program holds, under no limit
+                                         (NAMES[1], 2**63 - 1, "Right", "no limit"),
+                                         (NAMES[2], 2**63 - 1, "Right", "no limit")):
             with self.subTest(name=name, held=held, arrow=arrow):
                 term = self.limits({LIMITS[name][0]: held})
                 self.point(term, name, held)
@@ -123,8 +126,12 @@ class ArrowSteps(unittest.TestCase):
                 self.point(term, name, 0, down=False)
                 term.keys("Left", "Right")      # ← at the bottom moves nothing: → takes the next
                 self.pointed(term, name, steps[1])
-                # → past the top moves nothing: ← takes the one under it
-                term.keys(*["Right"] * len(steps), "Left")
+                # → past the top moves nothing: ← takes the one under it.  The top is waited for
+                # before ←, as the climb shows that one too: a wait met there would leave keys
+                # unread, saving config.toml over the next subtest's.
+                term.keys(*["Right"] * len(steps))
+                self.pointed(term, name, steps[-1], up=False)
+                term.keys("Left")
                 self.pointed(term, name, steps[-2])
 
     def test_a_click_on_an_arrow_moves_the_value_as_its_key_does(self):

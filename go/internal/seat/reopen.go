@@ -346,9 +346,6 @@ func cutOff(name, own string, file *run.Object) bool {
 // is told: the rulebook written for it.  The adapter's refusal where none opens.
 func (seat reopening) command(told []string) ([]string, string, error) {
 	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
-	if seat.moving != nil {
-		env = append(env, "AGENTKIT_FIRST_PROMPT="+seat.moving.line)
-	}
 	if seat.conversation == "" {
 		return adapters.Fresh(seat.orchestrator, seat.model, env, seat.cwd)
 	}
@@ -498,7 +495,7 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			if err := seat.moving.launch(state, current, perform); err != nil {
 				return err
 			}
-			return seat.moving.relaunched(current, seat.model.Harness)
+			return seat.moving.relaunched(current, seat.model.Harness, seat.line)
 		}
 		return perform()
 	})

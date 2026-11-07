@@ -419,7 +419,9 @@ def path_for(record):
 def conversation(record, cwd=None):
     """The session this seat's launch reported, or None where it reported none yet; the one
     Muse's registry has since moved that launch's process to, once the registry says so, kept
-    in the receipt for the seat to reopen on after that process is gone."""
+    in the receipt for the seat to reopen on after that process is gone.  The session it moves
+    the receipt on from first is kept as `reported`: the one the line the launch opened on went
+    into (Go's harness.WentInto)."""
     from . import unread
     path = path_for(record)
     try:
@@ -431,8 +433,9 @@ def conversation(record, cwd=None):
         return None
     now = followed(path)
     if now and now != sid:
-        with contextlib.suppress(OSError):
-            _write(path, "session", now, os.replace)
+        for name, text, place in (("reported", sid, os.link), ("session", now, os.replace)):
+            with contextlib.suppress(OSError):
+                _write(path, name, text, place)
         return now
     return sid
 
@@ -594,7 +597,7 @@ def user_messages(record, cwd, conversation):
     """What `typed` reads, dated when Muse recorded it, in microseconds as `seat_token_usage`
     reads them; a line dated otherwise is nobody's answer."""
     from . import entries, user_message
-    for entry in entries(session_log(conversation)):
+    for entry in entries(read_by(record, cwd, conversation)):
         at = entry.get("recorded_at")
         kept = type(at) is int and user_message(at / 1_000_000, typed(entry))
         if kept:
@@ -607,7 +610,7 @@ def answers(record, cwd, conversation):
     card named by its prompt and tool call, as `card` names one.  An Esc's settling picks none."""
     from . import entries
     asked = {}
-    for entry in entries(session_log(conversation)):
+    for entry in entries(read_by(record, cwd, conversation)):
         request = run_event(entry, "user_input_prompt_requested")
         done = run_event(entry, "user_input_prompt_settled")
         at, said = entry.get("recorded_at"), []
@@ -693,6 +696,11 @@ def running(record, cwd, conversation):
     effort = ((record.get("efforts") or {}).get(record.get("orchestrator")) or {}).get("effort")
     return ((model(entry), effort, entry["recorded_at"] / 1_000_000)
             if entry else None)
+
+
+def read_by(record, cwd, conversation):
+    """The log its messages and answers are read from."""
+    return session_log(conversation)
 
 
 def session_log(conversation):

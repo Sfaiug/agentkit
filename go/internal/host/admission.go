@@ -1,21 +1,11 @@
 package host
 
 import (
-	"encoding/json"
 	"fmt"
 	"math"
-	"os"
 
 	"agentkit/internal/config"
 )
-
-// Injected is the readings AK_HOST_READINGS stands in with where it holds a JSON object, false
-// where Read reads the live host.
-func Injected() (Readings, bool) {
-	var injected Readings
-	text := os.Getenv("AK_HOST_READINGS")
-	return injected, text != "" && json.Unmarshal([]byte(text), &injected) == nil && injected != nil
-}
 
 // Starting is what the runs let in that show nothing yet may still grow by, in MB, and how many
 // may, Python's gate._starting: readings lag what a run just let in will use.

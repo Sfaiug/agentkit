@@ -22,12 +22,11 @@ const movedLine = "This seat moved to you in the middle of a turn. Continue that
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
 // run by `own`), the fields it takes (`chosen`), and its orchestrator's effort where one is given
-// (`effort` on `model`, its entry among `models`); a restart's first line, and when it began.
+// (`effort` on `model`, its entry among `models`); when a restart began.
 type seatMove struct {
 	was, own, model, effort string
 	models                  map[string]config.Model
 	chosen                  []field
-	line                    string
 	at                      float64
 }
 
@@ -41,19 +40,32 @@ type plannedMove struct {
 	selected   *run.Object
 }
 
-// Move moves the seat to `model`, its orchestrator at `effort` where one is given ("" keeps the
-// seat's own), as orch.switch_orchestrator does: in place, asking nothing, where its running
-// harness takes the move (switchPane), else by a fresh-conversation restart once `asked` says so.
-// Given an effort, its own model moves as another would.  Refusals of _switch_plan, a move in
-// place its harness's plugin judges, into a harness Go types nothing into or after which a turn
-// its usage cut off goes on, kept conversations, drafts and dialogs return before asked.  The launch, including its rollback,
-// remains the one reopening uses.
-func Move(name, model, effort string, asked func() (bool, bool)) (bool, error) {
-	plan, known := planMove(name, model, effort)
+// ModelOff is matrix.Off, which matrix supplies: it reads the harness catalogs through packages
+// that import this one.
+var ModelOff func(name string) (bool, error)
+
+// Move moves the seat to `model`, its orchestrator at the seat's own effort, as
+// orch.switch_orchestrator does: in place, asking nothing, where its running harness takes the
+// move (switchPane), else by a fresh-conversation restart once `asked` says so.  Refusals of
+// _switch_plan, a move in place its harness's plugin judges, into a harness Go types nothing into
+// or after which a turn its usage cut off goes on, kept conversations, drafts and dialogs return
+// before asked.  The launch, including its rollback, remains the one reopening uses.
+func Move(name, model string, asked func() (bool, bool)) (bool, error) {
+	plan, known := planMove(name, model, "")
 	if !known || plan == nil {
 		return known, nil
 	}
 	return plan.carry(asked)
+}
+
+// MoveInPlace is Move with its orchestrator at `effort`, its own model moving as another would;
+// false where that restarts the seat, whose card is Python's.
+func MoveInPlace(name, model, effort string) (bool, error) {
+	plan, _ := planMove(name, model, effort)
+	if plan == nil || plan.pane == "" {
+		return false, nil
+	}
+	return true, plan.inPlace()
 }
 
 // planMove is Move's every check before anything is written: nil where the seat already runs
@@ -69,6 +81,10 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	old := selected.Str("orchestrator")
 	if old == model && effort == "" {
 		return nil, true
+	}
+	// _switch_plan refuses a model the model list turned off first; its refusal is Python's
+	if off, err := ModelOff(model); err != nil || off {
+		return nil, false
 	}
 	// _switch_plan: installed, login, then the screen's spent meter. Named
 	// subscriptions still need Python's account ordering and seat_auth hooks.
@@ -162,7 +178,7 @@ func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
 	moving.at = seconds(time.Now())
 	going, _ := found.turnInFlight(was.Harness)
 	if going || usageGoesOn(name) {
-		moving.line = movedLine
+		back.line = movedLine
 	}
 	text, known := harness.Handover(was.Harness, record)
 	if !known {
@@ -252,11 +268,11 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 	})
 }
 
-func (moving *seatMove) relaunched(name, own string) error {
-	if moving.line == "" {
+func (moving *seatMove) relaunched(name, own, line string) error {
+	if line == "" {
 		return nil
 	}
-	mark := run.Fields("boot", host.BootID(), "at", run.Float(moving.at), "name", name, "line", moving.line)
+	mark := run.Fields("boot", host.BootID(), "at", run.Float(moving.at), "name", name, "line", line)
 	launch, err := config.Section(own, "launch")
 	if err != nil {
 		return err

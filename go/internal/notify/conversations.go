@@ -28,7 +28,7 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 	if err != nil {
 		return nil, ErrUnread
 	}
-	if record == nil {
+	if len(record) == 0 { // an empty one too, which Python's `not record` reads as none
 		return nil, nil
 	}
 	left, listed := record["left"].([]any)

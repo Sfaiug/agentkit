@@ -63,7 +63,7 @@ func TestOnlyAReadingOtherThanTheWordsIsNews(t *testing.T) {
 	if news("acme", "no-such-harness", prompting) {
 		t.Fatal("a harness Go does not read has no reading to compare")
 	}
-	write(t, stateFile(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`) // what Go does not read yet
+	write(t, stateFile(home, "watch.json"), `{"stalls": {"acme": {"kind": "login", "at": 1}}}`) // what Go does not read yet
 	if news("acme", "claude", prompting) {
 		t.Fatal("a look Go cannot make is never started")
 	}
@@ -82,7 +82,7 @@ func TestAWaitedLookPublishesALiveSeatsScreen(t *testing.T) {
 	if file == nil || file.Str("word") != "working" || file.Str("rule") != "working.spinner" {
 		t.Fatalf("published %v", file)
 	}
-	write(t, stateFile(home, "watch.json"), `{"auth_out": {"claude": {"ok": false, "at": 1}}}`) // what Go does not read yet
+	write(t, stateFile(home, "watch.json"), `{"stalls": {"acme": {"kind": "login", "at": 1}}}`) // what Go does not read yet
 	show(prompting)
 	looked(t, pane, "acme")
 	if file, _ = run.ReadJSON(stateFile(home, "seat-acme.json")); file.Str("rule") != "working.spinner" {

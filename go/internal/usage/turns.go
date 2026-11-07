@@ -20,10 +20,15 @@ func Reading(provider, account string) []any {
 // on, TurnAccount's, Python's turns.note_turn_meters: the meters it printed become that login's
 // reading, and the tokens it spent beside how far it moved the meters from before, the Reading as
 // it began, are a pair of what a window holds, recorded under the turn's model, effort, run and
-// role.  Best effort and never the turn's failure.
+// role.  Best effort and never the turn's failure.  The usual login goes by two names, "" and
+// DefaultAccount, and is kept where config.toml now lists it: a turn begun before its provider's
+// accounts were added or removed still reports about the login it ran on.
 func Turned(name string, model config.Model, account, role, out string, before []any) {
+	usual := func(account string) bool { return account == "" || account == config.DefaultAccount }
 	sources, err := listed(false)
-	at := slices.IndexFunc(sources, func(src source) bool { return src.Name == model.Provider && src.account == account })
+	at := slices.IndexFunc(sources, func(src source) bool {
+		return src.Name == model.Provider && (src.account == account || usual(src.account) && usual(account))
+	})
 	if err != nil || at < 0 {
 		return
 	}

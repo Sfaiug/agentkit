@@ -180,16 +180,14 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"runs/fix-api/run.json":            `{"state":"waiting_login"}`,
 		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
 		"state/session-acme.json":          "{}",
-		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
-		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "nudged_at": 2}}}`,
+		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "resets_at": 2}}}`,
 		"runs/fix-api/run.json#deployment": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": "true"}`,
 			time.Now().Unix()),
 		"state/watch.json#auth":      `{"auth_out": {"claude": {"ok": false}}}`,
 		"state/watch.json#surrogate": `{"mine": "\ud800"}`,
 		"config.toml":                "[audit]\non = true\n",
 		"config.toml#absent":         "",
-		"config.toml#renting":        "[audit]\non = false\n[google_cloud]\nactive = true\n",
 	} {
 		t.Run(path, func(t *testing.T) {
 			ak, _ := idleHome(t, answers)

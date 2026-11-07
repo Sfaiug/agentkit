@@ -191,6 +191,28 @@ def conversation(record, cwd=None):
     `cwd` is what the hook is handed and what this harness has no use for: the receipt names
     the directory its thread was opened in, and nothing else establishes ownership.
     """
+    found = claimed(record)
+    if found is None:
+        return None
+    sid, transcript, cwd = found
+    from . import unread
+    try:
+        with Path(transcript).open(encoding="utf-8") as fh:
+            meta = json.loads(fh.readline())
+        if (meta.get("type") == "session_meta" and meta["payload"].get("id") == sid
+                and meta["payload"].get("cwd") == cwd):
+            return sid
+    except OSError as exc:
+        unread(exc)
+    except (ValueError, TypeError, KeyError, AttributeError) as exc:
+        unread(ValueError(f"{transcript} opens on no Codex session header: {exc!r}"))
+    return None
+
+
+def claimed(record):
+    """(The thread, its rollout, the directory it was opened in) as the launch receipt names them
+    where the receipt and the record agree on them, None where they do not: what `conversation`
+    proves by the rollout's first line."""
     receipt = read(record)
     event = receipt.get("event")
     if receipt.get("ambiguous") or not isinstance(event, dict):
@@ -208,18 +230,14 @@ def conversation(record, cwd=None):
         return None
     if record.get("id_source") == SOURCE and record.get("conversation") != sid:
         return None
-    from . import unread
-    try:
-        with Path(transcript).open(encoding="utf-8") as fh:
-            meta = json.loads(fh.readline())
-        if (meta.get("type") == "session_meta" and meta["payload"].get("id") == sid
-                and meta["payload"].get("cwd") == receipt["cwd"]):
-            return sid
-    except OSError as exc:
-        unread(exc)
-    except (ValueError, TypeError, KeyError, AttributeError) as exc:
-        unread(ValueError(f"{transcript} opens on no Codex session header: {exc!r}"))
-    return None
+    return sid, transcript, cwd
+
+
+def claim(record, cwd=None):
+    """The thread the launch receipt names (`claimed`), beside the receipt and the rollout whose
+    first line `conversation` proves it by."""
+    receipt, found = path_for(record), claimed(record)
+    return (found[0], [receipt, found[1]]) if found else (None, [receipt] if receipt else [])
 
 
 def transcript(record, cwd, conversation):
@@ -385,13 +403,18 @@ def picked(entry, calls):
             continue
 
 
+def read_by(record, cwd, conversation):
+    """The rollout its messages and answers are read from (`lines`)."""
+    return transcript(record, cwd, conversation)
+
+
 def lines(record, cwd, conversation):
     """Each rollout line, beside the card calls asked up to it, by (tool, call id); the owner
     message it holds, or None; and the (call, index, question asked, answer) of each card
     question that message answers, or None where it is no card reply."""
     from . import entries, user_message
     calls = {}
-    for entry in entries(transcript(record, cwd, conversation)):
+    for entry in entries(read_by(record, cwd, conversation)):
         payload = entry.get("payload")
         name = str(payload.get("name", "")).split(".")[-1] if isinstance(payload, dict) else ""
         if (re.fullmatch(QUESTIONS, name) and entry.get("type") == "response_item"

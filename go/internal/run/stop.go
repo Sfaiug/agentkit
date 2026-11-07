@@ -72,7 +72,7 @@ func Stop(dir string, now time.Time) error {
 		if !Alone(dir, record) {
 			return fmt.Errorf("%s moved on while its seat stopped", filepath.Base(dir))
 		}
-		MarkStopped(record, now, true) // it has no checkout to take
+		MarkStopped(record, now, true, Why) // it has no checkout to take
 		ended = record
 		return nil
 	})
@@ -91,13 +91,13 @@ func Stop(dir string, now time.Time) error {
 	return nil
 }
 
-// MarkStopped is what Python's stop.end writes on a record a person stopped.
-func MarkStopped(record *Object, now time.Time, kept bool) {
+// MarkStopped is what Python's stop.end writes on a record it stops for why.
+func MarkStopped(record *Object, now time.Time, kept bool, why string) {
 	for _, key := range settled {
 		record.Delete(key)
 	}
 	SetAll(record, "state", "stopped", "verdict", "STOPPED", "finished_at", Float(float64(now.UnixNano())/1e9),
-		"error", Why, "reported", true, "stop_kept", kept)
+		"error", why, "reported", true, "stop_kept", kept)
 }
 
 // Report writes result.md for a run that ended before it had a checkout to report on, under the

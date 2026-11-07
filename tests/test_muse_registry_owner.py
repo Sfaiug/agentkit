@@ -58,6 +58,10 @@ class RegistryOwner(unittest.TestCase):
         self.register("this-launch", 4242)
         self.new("this-launch", "after-new")
         self.assertEqual(self.conversation(), "after-new")
+        self.new("after-new", "newer")
+        self.assertEqual(self.conversation(), "newer")
+        # the session the launch reported, which its first line went into, stays
+        self.assertEqual((self.receipt / "reported").read_text(), "this-launch")
 
     def test_a_new_before_the_first_read_is_followed_after_a_registration_first(self):
         self.register("this-launch", 4242)

@@ -40,7 +40,9 @@ def followers(home):
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
-class MergesShareOneFollower(unittest.TestCase):
+class FollowedMerges(unittest.TestCase):
+    """The Home, with its projects, seat and census of followers, that merges are made in."""
+
     def setUp(self):
         self.home = Home()
         self.addCleanup(self.home.close)
@@ -96,6 +98,8 @@ class MergesShareOneFollower(unittest.TestCase):
             self.assertLess(time.monotonic(), deadline, f"never {what}; followers: {self.most}")
             time.sleep(0.05)
 
+
+class MergesShareOneFollower(FollowedMerges):
     def test_each_projects_merges_share_one_follower_and_each_is_told_live_once(self):
         directories = [self.merge(*run) for run in (("api", "one"), ("api", "two"), ("web", "one"))]
         self.home.write("live-ok", "")

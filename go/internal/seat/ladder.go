@@ -18,6 +18,7 @@ type climbing struct {
 	server           string // the tmux server its session is on
 	mine             []ran
 	file, notice     *run.Object
+	tick             *run.Object // watch.json, read once for the whole climb (tickFound)
 	found            sight
 	now              float64
 	gone             *Seat
@@ -26,13 +27,17 @@ type climbing struct {
 
 // An answer is a rung's: the seat's word, why and since when, whether that why is the question
 // the seat's screen or notice asks, which its bar does not repeat, when one out of usage comes
-// back (`resumes_at`), which its bar says, and whether only what the seat waits on gives it.
+// back (`resumes_at`), which its bar says, whether only what the seat waits on gives it, whether
+// its since begins the word again where it stood since before then, and whether it is the tick's
+// news of a login.
 type answer struct {
 	word, reason string
 	since        any
 	question     bool
 	back         any
 	waits        bool
+	anew         bool
+	login        bool
 }
 
 // A rung decides the seat, nil where it passes the seat on, or says with ErrUnread that Go does not
@@ -72,7 +77,7 @@ func climbingOf(state string, seat Seat, found sight, now float64) climbing {
 		file = run.NewObject()
 	}
 	return climbing{state: state, name: seat.Name, own: seat.own, server: seat.server(), mine: seat.mine, file: file,
-		notice: notify.Last(seat.Name), found: found, now: now}
+		notice: notify.Last(seat.Name), tick: tickFound(state), found: found, now: now}
 }
 
 // readable follows the same ladder as the word: a going run already decides the seat
@@ -102,7 +107,7 @@ func (seat *Seat) decided(state string, found sight, now float64, attached bool)
 	if err != nil {
 		return err
 	}
-	seat.Word, seat.reason, seat.since, seat.question, seat.back = said.word, said.reason, said.since, said.question, said.back
+	seat.Word, seat.reason, seat.since, seat.question, seat.back, seat.anew, seat.login = said.word, said.reason, said.since, said.question, said.back, said.anew, said.login
 	seat.seen = found
 	seat.unsent = ""
 	if found.state == "draft" && !attached && found.composerOpen(seat.own) && !found.typedByAk {
@@ -129,14 +134,6 @@ func (found sight) wordFrom() []any {
 	return []any{found.state, found.rule, said}
 }
 
-// loginOut: a login its harness needs expired, whose remedy Go does not word yet.
-func loginOut(facts climbing) (*answer, error) {
-	if loggedOut(facts.state, facts.own) {
-		return nil, ErrUnread
-	}
-	return nil, nil
-}
-
 // aRunOfItsOwn: any run of the seat's own, at each of the rungs a run decides.
 func aRunOfItsOwn(facts climbing) (*answer, error) {
 	if facts.gone == nil {
@@ -153,20 +150,12 @@ func runOnALogin(facts climbing) (*answer, error) { return aRunOfItsOwn(facts) }
 func runsGoing(facts climbing) (*answer, error)   { return facts.besideUsage(waitedOn(goneRuns(facts))) }
 func liveCheck(facts climbing) (*answer, error)   { return waitedOn(runsAwaitingLive(facts)) }
 
-// everySeatsNews: the login no harness owns, or a worker token, dead.
-func everySeatsNews(facts climbing) (*answer, error) {
-	if newsOnEverySeat(facts.state) {
-		return nil, ErrUnread
-	}
-	return nil, nil
-}
-
 // onItsScreen: a question on its screen is the owner's even during a turn.
 func onItsScreen(facts climbing) (*answer, error) {
 	if facts.found.state != "asking" {
 		return nil, nil
 	}
-	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil, false}, nil
+	return &answer{word: "needs you", reason: cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), since: facts.found.began, question: true}, nil
 }
 
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it
@@ -181,7 +170,7 @@ func ownQuestion(facts climbing) (*answer, error) {
 			return nil, err
 		}
 	}
-	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil, false}, nil
+	return &answer{word: "needs you", reason: config.Fold(facts.notice.Str("text")), since: facts.notice.Get("time"), question: true}, nil
 }
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is
@@ -256,9 +245,9 @@ func turnRunning(facts climbing) (*answer, error) {
 	return &answer{word: "working", reason: reason, since: began}, nil
 }
 
-// retrying: its turn stopped on an error the tick types it back past.
+// retrying: its turn stopped on an error the tick types it back past, until it asks the owner.
 func retrying(facts climbing) (*answer, error) {
-	if facts.found.stall == nil {
+	if facts.found.stall == nil || stallTold(facts.state, facts.name) {
 		return nil, nil
 	}
 	return &answer{word: "working", reason: fmt.Sprintf("retrying: %v", facts.found.stall), since: facts.found.began}, nil

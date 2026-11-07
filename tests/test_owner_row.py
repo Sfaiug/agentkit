@@ -60,7 +60,7 @@ class OwnerRow(Sandbox):
     def test_notify_writes_each_moment_as_it_decides_it(self):
         seat = (SimpleNamespace(name="claude"), {}, "/acme", "c1")
         self.stack.enter_context(patch.object(notify, "conversation_of",
-                                             lambda name: seat if name == SEAT else None))
+                                             lambda name, **_kw: seat if name == SEAT else None))
         self.said("needs", "Which schema?", 100.0)
         self.said("needs", "And the port?", 160.0)        # asked beside the standing one
         self.said("needs", "Which schema?", 170.0)        # asked again: not a new question

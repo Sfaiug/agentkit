@@ -22,7 +22,7 @@ func AskedWord(name string, notice *run.Object, now time.Time) (word string, sin
 		file = run.NewObject()
 	}
 	if Unheld(name) {
-		return "needs you", begun(file, "needs you", notice.Get("time"), now), true
+		return "needs you", begun(file, "needs you", notice.Get("time"), false, now), true
 	}
 	home, known := seated(now)
 	at := slices.IndexFunc(home.Seats, func(each Seat) bool { return each.Name == name })
@@ -35,5 +35,5 @@ func AskedWord(name string, notice *run.Object, now time.Time) (word string, sin
 	if err != nil {
 		return "", nil, false
 	}
-	return said.word, begun(file, said.word, said.since, now), said.question
+	return said.word, begun(file, said.word, said.since, said.anew, now), said.question
 }

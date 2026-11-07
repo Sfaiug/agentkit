@@ -39,6 +39,8 @@ type Seat struct {
 	Created                                           float64
 	reason, restart                                   string
 	since, repo                                       any
+	anew                                              bool     // its since begins its word again (answer.anew)
+	login                                             bool     // its word is the tick's news of a login (answer.login)
 	infer                                             bool     // the record holds no repo
 	unowned                                           bool     // its harness owns no conversation: only the owner's close can keep its row
 	closed                                            bool     // its seat file holds the owner's stop mark
@@ -547,7 +549,7 @@ func (seat *Seat) published(state string, now time.Time, models map[string]confi
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	since := begun(previous, seat.Word, seat.since, now)
+	since := begun(previous, seat.Word, seat.since, seat.anew, now)
 	seat.since = since
 	wordFrom := seat.wordFrom
 	if wordFrom == nil {
