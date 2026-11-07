@@ -33,10 +33,10 @@ func readNights(t *testing.T, env map[string]string) (string, error) {
 	return out.String(), err
 }
 
-// A night whose fix Go leaves to Python (its suite narrowed to the change) hands the tick over
-// with nothing written: no task, no file of names, no stamp.
+// A night whose fix Go leaves to Python (its suite, the fix's landing check, run in pieces) hands
+// the tick over with nothing written: no task, no file of names, no stamp.
 func TestANightLeftToPythonWritesNothing(t *testing.T) {
-	ak, _ := checkoutHome(t, failedNight("export AK_CHANGED; true"))
+	ak, _ := checkoutHome(t, failedNight("export AK_SHARD; true"))
 	if _, err := readNights(t, map[string]string{"AK_RUN_DEPTH": "0", "AK_MAX_RUNS": "0", "AK_PARENT_RUN": "", "AGENTKIT_RUN_DIR": ""}); !errors.Is(err, errLeft) {
 		t.Fatalf("carried it: %v", err)
 	}
