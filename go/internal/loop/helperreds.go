@@ -12,10 +12,12 @@ import (
 // (retryTests).  One failing again settles the suite: the pieces after it keep what they printed
 // there.  The helper's runner stops at its first failure, naming that one test, so passing alone
 // says nothing of the tests it never reached: the whole piece then runs here and decides, a pass
-// a flake of the helper (handedOn).  What a piece that named tests printed there is its first
-// failed go (failed); one that named none runs here whole next (pieces).
+// a flake of the helper (handedOn), and of the tests it named there where memory killed them alone.
+// What a piece that named tests printed there is its first failed go (failed); one that named none
+// runs here whole next (pieces).
 func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun func(*piece, string, []string) error) error {
 	var named, whole []*piece
+	unseen := map[*piece][]string{} // the tests a piece named there that memory killed here alone
 	for _, at := range all {
 		if at.there == nil || at.ended.code == 0 || ctx.Err() != nil {
 			continue
@@ -43,6 +45,7 @@ func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun 
 		if ctx.Err() != nil {
 			return nil
 		}
+		tests := at.ended.failed
 		at.there = nil
 		decided, err := retryTests(at, rerun)
 		if err != nil {
@@ -50,6 +53,9 @@ func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun 
 		}
 		// one killed for memory is the host's red, which says nothing of its tests: the whole piece
 		// decides, as Python's run_suite runs again a piece out of memory
+		if at.ended.starved {
+			unseen[at] = tests
+		}
 		if !decided || at.ended.starved {
 			whole = append(whole, at)
 		} else if len(at.ended.confirmed) > 0 {
@@ -62,6 +68,9 @@ func (l *loop) helperReds(ctx context.Context, all []*piece, path string, rerun 
 		}
 		if err := rerun(at, pieceRetry, nil); err != nil {
 			return err
+		}
+		if at.ended.code == 0 {
+			at.ended.flaky = append(at.ended.flaky, unseen[at]...)
 		}
 	}
 	return nil
