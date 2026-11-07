@@ -40,7 +40,7 @@ func runGC(args []string, out, errOut io.Writer) int {
 func collect() int {
 	host.Mark("background cleanup")
 	if errors.Is(gc.Automatic(), gc.ErrPython) {
-		return handover.Exit(gc.CollectVerb, handover.Here(0))
+		return handover.Exit(handover.Here(0))
 	}
 	return 0
 }

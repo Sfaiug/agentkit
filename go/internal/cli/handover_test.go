@@ -10,9 +10,10 @@ import (
 )
 
 // The shadow tells where Go handed a case to Python by the line each hand-over leaves in the file
-// AK_HANDOVER names, as no exit code can: a command by the file and line that handed it over, a
-// tick by the pass that left it, and a hook, which still prints nothing.  An exit 3 that hands
-// nothing over leaves none, and with AK_HANDOVER unset nothing is written.
+// AK_HANDOVER names, as no exit code can: the words of the command that ran, whatever its refusal
+// says, and the file and line that handed it over, or for a tick the pass that left it; a hook
+// still prints nothing.  An exit 3 that hands nothing over leaves none, and with AK_HANDOVER unset
+// nothing is written.
 func TestEveryHandOverLeavesItsRecord(t *testing.T) {
 	home := sandbox(t)
 	t.Setenv("TMUX_TMPDIR", t.TempDir())
@@ -44,23 +45,33 @@ func TestEveryHandOverLeavesItsRecord(t *testing.T) {
 		}
 		return printed
 	}
+	ak := filepath.Join(home, ".agentkit")
 
 	leaves(`^usage: internal/cli/usage\.go:\d+\n$`, "", "usage", "--json")
 	pass := "seat health"
 	if runtime.GOOS == "windows" {
 		pass = "before its passes" // a tick there is Python's whole
 	}
-	write(t, filepath.Join(home, ".agentkit", "runs", "fix-api", "run.json"), `{"state": "waiting_login"}`)
+	write(t, filepath.Join(ak, "runs", "fix-api", "run.json"), `{"state": "waiting_login"}`)
 	leaves("^watch: "+pass+"\n$", "", "watch", "--dry-run")
+	// a subcommand main dispatches, and one its command reads, each by its own words
+	write(t, filepath.Join(ak, "state", "gc-leftovers.json"), `{"x": "\ud800"}`)
+	leaves(`^run gc: internal/cli/rungc\.go:\d+\n$`, "", "run", "gc", "--dry-run")
+	leaves(`^run show: internal/cli/run\.go:\d+\n$`, "", "run", "show")
 
-	// a question card on a seat whose harness Go does not read
+	// a seat whose harness Go does not read: its plan's check, and its question card, which the
+	// seat hook Codex is given reads as the stop hook does
 	t.Setenv("AGENTKIT_SESSION", "acme")
-	state := filepath.Join(home, ".agentkit", "state")
+	state := filepath.Join(ak, "state")
 	write(t, filepath.Join(state, "session-acme.json"), `{"orchestrator": "no such model", "cwd": "/code/acme", "conversation": "conv-1"}`)
 	write(t, filepath.Join(state, "plan-acme.md"), "- [x] Merge the parser\n")
+	leaves(`^plan check: internal/cli/plan\.go:\d+\n$`, "", "plan", "check", "٣", "true")
 	card := `{"hook_event_name": "PreToolUse", "tool_input": {"questions": [{"question": "Merge it?"}]}}`
 	if printed := leaves(`^hook orchestrator-stop: internal/cli/hookquestion\.go:\d+\n$`, card, "hook", "orchestrator-stop"); printed != "" {
 		t.Fatalf("the hook printed %q", printed)
+	}
+	if printed := leaves(`^adapter codex hook: internal/cli/hookquestion\.go:\d+\n$`, card, "adapter", home, "codex", "hook", "orchestrator-stop"); printed != "" {
+		t.Fatalf("Codex's hook printed %q", printed)
 	}
 
 	// a TUI that cannot be told a conversation id is the adapter's answer, handing nothing over

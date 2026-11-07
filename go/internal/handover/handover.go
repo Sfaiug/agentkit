@@ -11,9 +11,16 @@ import (
 	"strings"
 )
 
-// Exit is 3, for command handed over at site, after "<command>: <site>" goes on the end of the
-// file AK_HANDOVER names, where it names one.
-func Exit(command, site string) int {
+// command is the words of the command this process carries out, as its dispatch read them.
+var command string
+
+// Runs is where dispatch names the command it carries out, by its words (`orch check`), for
+// what it hands over; dispatch that reads another word names the command again.
+func Runs(words string) { command = words }
+
+// Exit is 3, for a case of the command running handed over at site, after "<command>: <site>"
+// goes on the end of the file AK_HANDOVER names, where it names one.
+func Exit(site string) int {
 	if name := os.Getenv("AK_HANDOVER"); name != "" {
 		if record, err := os.OpenFile(name, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600); err == nil {
 			fmt.Fprintf(record, "%s: %s\n", command, site)

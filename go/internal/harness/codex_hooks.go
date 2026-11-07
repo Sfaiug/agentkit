@@ -56,12 +56,12 @@ func codexHookEvent(event *run.Object, out io.Writer, refused func(seat string) 
 		}
 		switch {
 		case err != nil:
-			return nil, handover.Exit("adapter codex hook", handover.Here(0))
+			return nil, handover.Exit(handover.Here(0))
 		case why != "":
 			fmt.Fprintln(out, run.Line(run.Fields("decision", "block", "reason", strings.TrimRight(why, ".")))) // Codex adds its own
 			return nil, 0
 		case tool != "request_user_input":
-			return nil, handover.Exit("adapter codex hook", handover.Here(0))
+			return nil, handover.Exit(handover.Here(0))
 		}
 	case "PostToolUse":
 		if worker || launched == "" || err != nil {
