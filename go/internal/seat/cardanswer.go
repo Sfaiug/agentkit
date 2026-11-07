@@ -3,6 +3,7 @@ package seat
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -24,42 +25,66 @@ const cardWait = 2 * time.Second
 // AnswerCard is watch.hook_look for the owner's answer on the harness's own question card at
 // `at`, each reply the words of a question it answers and the choices it showed with them
 // (notify.answered): what the seat kept back that they answer leaves it and is the owner's time,
-// and with no notice then, a needs you only the screen said is what was answered.  Only a hook in
-// the seat's own pane answers.  False, with nothing written, where that is Python's to record: a
-// notice standing, whose questions the card may answer; a question kept back for a turn since
-// ended, which it asks first; a conversation Go cannot name; a seat file that cannot take what it
-// writes; and a notice lock not had in time.
+// then of its notice standing only the questions they name are answered (notify.CardAnswered), and
+// a notice answered whole lets go of the stall latch it held (watch.forget); with no notice, a
+// needs you only the screen said is what was answered.  Only a hook in the seat's own pane answers.
+// False, with nothing written, where that is Python's to record: a question kept back for a turn
+// since ended, which it asks first; a conversation Go cannot name; a seat file that cannot take
+// what it writes; and a notice lock not had in time.
 func AnswerCard(name string, at float64, replies [][]string) bool {
 	if _, own := inPane(name); !own {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), cardWait)
 	defer cancel()
-	held := false
+	held, whole := "", false
 	err := notify.Held(ctx, name, func(current string) error {
-		held = true
-		return answerCard(current, at, replies)
+		held = current
+		var err error
+		whole, err = answerCard(current, at, replies)
+		return err
 	})
-	return held && !errors.Is(err, errPython)
+	if whole { // after the notice lock: the latch is under the state lock
+		nextGeneration(filepath.Join(config.Home(), "state"), held, time.Now())
+	}
+	return held != "" && !errors.Is(err, errPython)
 }
 
 // answerCard is AnswerCard under the seat's notice lock, which the caller holds, in Python's order:
 // the questions answered leave the seat's record first, so no answer heard again finds them, then
-// each row of the owner's time they took goes in on its own.
-func answerCard(name string, at float64, replies [][]string) error {
+// each row of the owner's time they took goes in on its own, but for one a reply naming a question
+// of the notice names too, which the notice's answer counts; then the notice's own are answered.
+// Whether that answered the notice whole.
+func answerCard(name string, at float64, replies [][]string) (bool, error) {
 	conversation, known := conversationOf(name)
-	if !known || notify.Standing(name) {
-		return errPython
+	if !known {
+		return false, errPython
 	}
+	// a question the notice asks, kept back again under a newer card, is that card's now
+	renewed := map[string]any{}
+	if file, _ := run.ReadJSON(seatFile(name)); file != nil {
+		for _, question := range questionsKept(file.Dict("unasked"), nil) {
+			renewed[notify.QuestionKey(question.Str("text"))] = question.Get("id")
+		}
+	}
+	notice := notify.Last(name)
 	answered, err := answeredKept(name, replies, at)
 	if err != nil {
-		return err
+		return false, err
 	}
-	ownerTime(conversation, answered, at)
-	if err := askKept(name, true); err != nil || notify.Standing(name) {
-		return err
+	var noticed [][]string
+	for _, reply := range replies {
+		if notice != nil && len(notify.CardNamed(notice, at, renewed, naming(reply))) > 0 {
+			noticed = append(noticed, reply)
+		}
 	}
-	return notify.ScreenAnswered(name, at)
+	ownerTime(conversation, slices.DeleteFunc(answered, func(question *run.Object) bool {
+		return naming(noticed...)(question.Str("text"))
+	}), at)
+	if err := askKept(name, true); err != nil {
+		return false, err
+	}
+	return notify.CardAnswered(name, at, renewed, naming(replies...), conversation)
 }
 
 // answeredKept is watch.answered_kept's write: the questions the replies name, kept before `at`,
@@ -100,9 +125,7 @@ func answers(kept []*run.Object, replies [][]string, at float64) (answered, left
 		// unless a newer copy of its words went up on a card naming none
 		since, dated := question.Num("at")
 		named := !question.Truthy("id") || !latest[notify.QuestionKey(question.Str("text"))].Truthy("id")
-		if dated && since < at && named && slices.ContainsFunc(replies, func(reply []string) bool {
-			return replied(reply, question.Str("text"))
-		}) {
+		if dated && since < at && named && naming(replies...)(question.Str("text")) {
 			answered = append(answered, question)
 		} else {
 			left = append(left, question)
@@ -130,6 +153,13 @@ func ownerTime(conversation any, answered []*run.Object, at float64) {
 	}
 	for _, key := range keys {
 		history.OwnerTime("answered", at, at-asked[key], conversation)
+	}
+}
+
+// naming is whether any of those replies names the question (replied).
+func naming(replies ...[]string) func(question string) bool {
+	return func(question string) bool {
+		return slices.ContainsFunc(replies, func(reply []string) bool { return replied(reply, question) })
 	}
 }
 
