@@ -71,46 +71,12 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// modelsJSON is each role's best, cost unit and front, with each row's cost, board cost and how
-// its cost was had, and what the screen notes beside each row; and ak's own numbers, null for a
-// model that ran nothing.
+// modelsJSON is each role's best, cost unit, front, choices and others, each row drawn; and ak's
+// own numbers, null for a model that ran nothing.
 func modelsJSON(answer map[string]*quality.Said, names []string) *run.Object {
 	whole := run.NewObject()
 	for _, role := range quality.Roles {
 		said := answer[role]
-		front := []any{}
-		for _, row := range said.Front {
-			entry := run.NewObject()
-			entry.Set("release", row.Release)
-			entry.Set("name", row.Name)
-			if row.Effort == "" {
-				entry.Set("effort", nil)
-			} else {
-				entry.Set("effort", row.Effort)
-			}
-			entry.Set("quality", row.Quality)
-			entry.Set("se", row.SE)
-			board := row.Values.Get(quality.Costs[role])
-			var cost any = *row.Cost // a front row has one
-			if row.CostRule == "board" {
-				cost = board // as the board wrote it: an int stays one
-			}
-			entry.Set("cost", cost)
-			entry.Set("board_cost", board)
-			entry.Set("cost_rule", row.CostRule)
-			notes := []any{}
-			if row == said.Pick {
-				notes = append(notes, "pick")
-			}
-			if missing := row.Missing(); missing > 0 {
-				notes = append(notes, fmt.Sprintf("%d missing", missing))
-			}
-			if !row.Yours {
-				notes = append(notes, "no harness")
-			}
-			entry.Set("notes", notes)
-			front = append(front, entry)
-		}
 		rolled := run.NewObject()
 		if said.Best == nil {
 			rolled.Set("best", nil)
@@ -118,7 +84,9 @@ func modelsJSON(answer map[string]*quality.Said, names []string) *run.Object {
 			rolled.Set("best", *said.Best)
 		}
 		rolled.Set("cost_unit", said.CostUnit)
-		rolled.Set("front", front)
+		rolled.Set("front", rowsDrawn(said.Front, said, role))
+		rolled.Set("choices", rowsDrawn(said.Choices, said, role))
+		rolled.Set("others", othersDrawn(said, role))
 		whole.Set(role, rolled)
 	}
 	live := run.NewObject()
