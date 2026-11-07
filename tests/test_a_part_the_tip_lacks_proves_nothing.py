@@ -1,6 +1,6 @@
 """A red's part the target's tip does not have proves nothing when the tip is probed with the
 red's failed tests alone (`gate.run_suite(only=, confirmed=)`, as `land._probe_tip` asks): a Go
-test, or a package run whole, whose package Go selects no file of on the tip, a Go test its
+test, or a package run whole, whose package Go reads no file of on the tip, a Go test its
 package lacks, a claim its go/keys.txt lacks.  A part the tip has that fails, in either runner,
 is the tip's own red.
 
@@ -23,7 +23,7 @@ from agentkit import gate, suite_times
 
 ACME, GONE = "agentkit/internal/acme", "agentkit/internal/gone"
 GO_TESTS, CLAIMS = "tests/test_go.py", "tests/test_go_keys.py"
-# Go, for a module whose one package, acme, holds one test, TestFixApi, which fails: it selects
+# Go, for a module whose one package, acme, holds one test, TestFixApi, which fails: it reads
 # no file of any other package, failing one as Go's setup does, and a test acme lacks runs none.
 GO = f'''#!{sys.executable}
 import json, sys

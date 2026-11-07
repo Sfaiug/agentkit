@@ -100,12 +100,13 @@ def tested(part, **env):
     test = re.fullmatch(r"(.+)\.(\w+)", part)
     # Go names a package it cannot find, or whose every file it leaves out (`_x.go`, a build
     # tag's), failing as one that does not build: only its listing tells them apart, `{}` where it
-    # selects no file, as the caller's GOFLAGS select; a listing go refuses leaves the run to judge.
+    # reads no file, selected as the caller's GOFLAGS select or one it cannot read (a malformed
+    # `//go:build`), as `go test ./...` skips it; a listing go refuses leaves the run to judge.
     package = test[1] if test else part
-    listed = run("go", "list", "-e", "-json=GoFiles,CgoFiles,TestGoFiles,XTestGoFiles", package,
-                 **env)
+    listed = run("go", "list", "-e",
+                 "-json=GoFiles,CgoFiles,TestGoFiles,XTestGoFiles,InvalidGoFiles", package, **env)
     if not listed.returncode and not set(listed.stdout.split()) - {"{}"}:
-        return None, f"{part} is not there: go selects no file of {package}\n"
+        return None, f"{part} is not there: go reads no file of {package}\n"
     # No deadline: a busy host only slows a package, and the landing's silence watch ends a
     # hung one and names it.
     done = run("go", "test", "-json", "-timeout", "0", *(("-run", f"^{test[2]}$") if test else ()),
