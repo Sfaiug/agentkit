@@ -8270,6 +8270,16 @@ def offer_endings(log):
             log(f"WARN cannot check run {run_dir.name}: {exc}")
 
 
+def keep_conversations():
+    """Give each conversation of every seat, those it left included (`notify.conversations_of`),
+    ak's own name for its file where its harness keeps one (`Harness.keep`).  A harness deletes
+    such a file weeks after its last write, and with it the owner's words the done check reads;
+    a tick every few minutes names it many times over before then."""
+    for name in config.session_records():
+        for plugin, record, cwd, conversation in notify.conversations_of(name):
+            plugin.keep(record, cwd, conversation)
+
+
 def local_passes(state, dry_run, log):
     """The tick's passes that owe GitHub nothing, in the order they run.
 
@@ -8350,6 +8360,7 @@ def local_passes(state, dry_run, log):
         # on its project, to take out of the code.
         ("switch retirement", lambda: retire.hand(log), False),
         ("seat tokens", lambda: seat_tokens.read(0, 0), False),
+        ("conversation names", keep_conversations, False),
         ("history sync", lambda: transitions.history_agree(log), False),
         # The tick alone moves history's WAL into the database, holding no lock of ak's but its
         # own, so no writer holds the others through those syncs (`waiter.connect`).
