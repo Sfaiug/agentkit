@@ -60,6 +60,10 @@ func (t *ticking) stuck(file string) (*run.Object, error) {
 		t.log.line("stuck: " + each.line)
 		return state, nil
 	}
+	if len(told) < len(state.List("told")) {
+		state.Set("told", told)
+		return nil, keepLine(file, state)
+	}
 	return nil, nil
 }
 
