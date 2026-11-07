@@ -72,21 +72,26 @@ class PolicyNames(unittest.TestCase):
         old = "rounds = 2\nseat_lines = 40\n"
         path = self.home.write(".agentkit/config.toml", old)
         # The test holds the lock the rename takes, ~/.agentkit's, until all four wait on it, as
-        # Linux's /proc/locks lists them: a "->" row on that directory's inode for each.
+        # Linux's /proc/locks lists them: a "->" row on that directory's inode for each, naming
+        # its pid.  Each read call there goes on from the count of locks the last one listed, so
+        # a lock anyone takes or drops between two calls of one reading lists a row twice or not
+        # at all: the pids add up across readings, and none stops waiting while the test holds
+        # the lock.
         held = os.open(path.parent, os.O_RDONLY)
         fcntl.flock(held, fcntl.LOCK_EX)
         inode = str(path.parent.stat().st_ino)
         def waiting():
-            return sum("->" in row.split() and row.split()[-3].rsplit(":", 1)[1] == inode
-                       for row in Path("/proc/locks").read_text().splitlines())
+            return {row.split()[-4] for row in Path("/proc/locks").read_text().splitlines()
+                    if "->" in row.split() and row.split()[-3].rsplit(":", 1)[1] == inode}
         with ThreadPoolExecutor(max_workers=4) as pool:
             try:
                 started = [pool.submit(self.home.ak, "run", "--help", timeout=60) for _ in range(4)]
-                deadline = time.monotonic() + 30
-                while waiting() < 4 and not any(command.done() for command in started) \
+                seen, deadline = waiting(), time.monotonic() + 30
+                while len(seen) < 4 and not any(command.done() for command in started) \
                         and time.monotonic() < deadline:
                     time.sleep(0.05)
-                self.assertEqual(waiting(), 4)
+                    seen |= waiting()
+                self.assertEqual(len(seen), 4)
                 self.assertEqual(path.read_text(), old)
             finally:
                 os.close(held)

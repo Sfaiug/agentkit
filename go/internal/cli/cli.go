@@ -12,6 +12,7 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/gc"
+	"agentkit/internal/handover"
 	"agentkit/internal/host"
 	"agentkit/internal/install"
 	"agentkit/internal/terminal"
@@ -19,12 +20,13 @@ import (
 	"agentkit/internal/update"
 )
 
-func Main(args []string, out, errOut io.Writer) int {
+func carry(args []string, out, errOut io.Writer) int {
 	config.MigratePolicy()
 	command, rest, help := "attach", args, ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
 		command, rest, help = args[0], args[1:], args[0]
 	}
+	handover.Runs(command)
 	if command == "adapter" { // unlisted, as commandhelp says
 		return adapter(rest, out, errOut)
 	}
@@ -92,6 +94,7 @@ func Main(args []string, out, errOut io.Writer) int {
 	}
 	if len(rest) > 0 && commandhelp.Known(command+" "+rest[0]) {
 		command, rest = command+" "+rest[0], rest[1:]
+		handover.Runs(command)
 	}
 	if entry, ok := commands[command]; ok {
 		return entry(rest, out, errOut)

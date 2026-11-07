@@ -2,6 +2,7 @@ package loop
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -13,8 +14,7 @@ import (
 )
 
 // The wake takes each red Go's woken run carries once no run it waits on holds a place in the
-// line, once a pass, and leaves a PR review's, a seat's own PR's among them, and a repair's to
-// Python.  A run whose lock is held, which may be a run started since the line was read, waits for
+// line, once a pass, and leaves a PR review's, a seat's own PR's among them, to Python.  A run whose lock is held, which may be a run started since the line was read, waits for
 // the next wake, never on that lock.
 func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 	home := t.TempDir()
@@ -29,7 +29,6 @@ func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 		"fix-2": run.Fields("waiting_on", red(run.Fields("fix-1", "tree"))),
 		"fix-3": run.Fields("waiting_on", red(run.Fields("departed", "tree"))),
 		"fix-4": run.Fields("waiting_on", red(run.NewObject()), "review_pr", "https://github.com/acme/api/pull/1"),
-		"fix-5": run.Fields("waiting_on", red(run.NewObject()), "repair", true),
 		"fix-6": run.Fields("waiting_on", red(run.NewObject()), "review_pr", "https://github.com/acme/api/pull/2", "own_pr", true),
 		"fix-7": run.Fields("waiting_on", red(run.NewObject())),
 	} {
@@ -72,5 +71,32 @@ func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 	}
 	if got := tried(); !slices.Equal(got, []string{"fix-2"}) {
 		t.Fatalf("woke %v once the run ahead left, want fix-2", got)
+	}
+}
+
+// A lander outlives the wakes it starts, as a service's manager stops all that is left in it when
+// the lander ends: even a pass the line's lock turns away ends after them.
+func TestALanderOutlivesTheWakesItStarts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(run.Runs(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := ".merge-acme.lock"
+	held, err := lock.Try(beside(filepath.Join(run.Runs(), line), ".lander.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	ended := filepath.Join(home, "ended")
+	if err := detach(filepath.Join(home, "log.txt"), append(os.Environ(), "AK_TEST_WAKE_ENDED="+ended), "run", "resume", "fix-api"); err != nil {
+		t.Fatal(err)
+	}
+	if code := CheckLine(line, io.Discard); code != 0 {
+		t.Fatalf("a pass the line's lock turned away exited %d", code)
+	}
+	if _, err := os.Stat(ended); err != nil {
+		t.Error("the lander ended before its wake did")
 	}
 }

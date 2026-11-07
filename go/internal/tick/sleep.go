@@ -2,15 +2,12 @@ package tick
 
 import (
 	"cmp"
-	"math"
 	"slices"
 
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/seat"
 )
-
-const week = 7 * 86400
 
 // sleep is the idle sleep row (sleep.tick): every seat rested past its harness's prompt cache
 // sleeps, one a seat.  While memory is tight Python's tick also sleeps the seat idle the longest
@@ -60,20 +57,6 @@ func recentPeak(now float64) (float64, bool, error) {
 		return 0, false, nil
 	}
 	defer db.Close()
-	rows, _ := db.EndedRuns(now-week, now)
-	var peaks []float64
-	for _, row := range rows {
-		if peak, ok := row.Num("peak_rss_mb"); ok && !math.IsInf(peak, 0) && !math.IsNaN(peak) && peak > 0 {
-			peaks = append(peaks, peak)
-		}
-	}
-	if len(peaks) == 0 {
-		return 0, false, nil
-	}
-	slices.Sort(peaks)
-	middle := len(peaks) / 2
-	if len(peaks)%2 == 1 {
-		return peaks[middle], true, nil
-	}
-	return (peaks[middle-1] + peaks[middle]) / 2, true, nil
+	peak, measured := db.RecentPeak(now)
+	return peak, measured, nil
 }

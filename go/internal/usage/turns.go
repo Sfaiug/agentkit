@@ -72,6 +72,7 @@ func keepTurnMeters(src source, meters []any, measured float64) {
 	if dated && measured <= stood {
 		return
 	}
+	keep(src, fresh, measured, "turn")
 	newer, order := map[string]*run.Object{}, []string{}
 	for _, meter := range fresh {
 		name := meter.Str("name")

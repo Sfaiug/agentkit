@@ -134,8 +134,8 @@ func Num(value any) (float64, bool) {
 	return parsed, true
 }
 
-// integral is whether Python reads the number as an int.
-func integral(value Number) bool {
+// Integral is whether Python reads the number as an int.
+func Integral(value Number) bool {
 	return !strings.ContainsAny(string(value), ".eEIN")
 }
 
@@ -163,7 +163,7 @@ func Float(value float64) Number {
 // written is a number as json.dumps writes what Python read of it: an int's digits, a
 // float's repr.
 func written(value Number) string {
-	if integral(value) {
+	if Integral(value) {
 		whole, _ := new(big.Int).SetString(string(value), 10)
 		return whole.String() // -0 is 0
 	}
@@ -240,8 +240,8 @@ func numeric(value any) (float64, bool) {
 	return Num(value)
 }
 
-// ErrLoneSurrogate is a \ud800-\udfff escape that is not half of a pair: Python reads it, and
-// a Go string cannot keep it.
+// ErrLoneSurrogate is a \ud800-\udfff escape that is not half of a pair, nor a byte no UTF-8
+// holds as quote writes one: Python reads it, and a Go string cannot keep it.
 var ErrLoneSurrogate = errors.New("a lone surrogate")
 
 // ErrLimit is JSON that Python reads or refuses as the limits it runs under say: an int longer
@@ -402,9 +402,9 @@ func (p *parser) value(depth int) (any, error) {
 	switch {
 	case found == nil:
 		return nil, p.fail("Expecting value", p.at)
-	case p.limited && integral(Number(found)) && digits > config.MinDigits:
+	case p.limited && Integral(Number(found)) && digits > config.MinDigits:
 		return nil, ErrLimit
-	case integral(Number(found)) && digits > config.MaxDigits:
+	case Integral(Number(found)) && digits > config.MaxDigits:
 		return nil, fmt.Errorf("Exceeds the limit (%d digits) for integer string conversion: value has %d digits; use sys.set_int_max_str_digits() to increase the limit", config.MaxDigits, digits)
 	}
 	p.at += len(found)
@@ -416,6 +416,7 @@ func (p *parser) text() (string, error) {
 	start := p.at
 	p.at++
 	var out []byte
+	escaped := 0 // bytes no UTF-8 holds, as quote writes them
 	for {
 		if p.at == len(p.data) {
 			return "", p.fail("Unterminated string starting at", start)
@@ -424,6 +425,17 @@ func (p *parser) text() (string, error) {
 		p.at++
 		switch {
 		case c == '"':
+			// escaped bytes that read together as UTF-8 are a string Python keeps apart from it
+			for rest := out; escaped > 0 && len(rest) > 0; {
+				r, size := utf8.DecodeRune(rest)
+				if r == utf8.RuneError && size == 1 {
+					escaped--
+				}
+				rest = rest[size:]
+			}
+			if escaped > 0 {
+				return "", ErrLoneSurrogate
+			}
 			return string(out), nil
 		case c < ' ':
 			return "", p.fail("Invalid control character at", p.at-1)
@@ -454,10 +466,15 @@ func (p *parser) text() (string, error) {
 					p.at = next
 				}
 			}
-			if utf16.IsSurrogate(r) && !p.shown {
+			switch {
+			case p.shown || !utf16.IsSurrogate(r):
+				out = utf8.AppendRune(out, r)
+			case r >= 0xdc80 && r <= 0xdcff:
+				out = append(out, byte(r))
+				escaped++
+			default:
 				return "", ErrLoneSurrogate
 			}
-			out = utf8.AppendRune(out, r)
 		}
 	}
 }

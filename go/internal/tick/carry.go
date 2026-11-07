@@ -24,6 +24,7 @@ type ticking struct {
 	clock       func() time.Time
 	slowest     time.Duration
 	slowestName string
+	left        string   // the pass that left the tick to Python, once one has
 	dry         bool     // a dry tick: it runs the rows Python's does, each acting only where it checks this
 	fetched     []string // each project the project rules row fetched, for the rows after it to read
 	report      AuditReport
@@ -31,18 +32,19 @@ type ticking struct {
 
 // Carry is a real `ak watch`, as Python's watch.main runs one: a tick that finds another holding
 // the lock says so, and one under the lock goes through the passes, each read at its own turn,
-// and GitHub.  False leaves the tick to Python, the lock released: at the first row that finds what
-// Go does not carry, what the rows before did standing; after what Python's next tick reads as its
-// own where gh names a pull request to act on; with nothing written where gh cannot be read,
-// or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.  Failed
-// is a tick that fails where Python's raises, in a GitHub pass or saving watch.json at its end,
-// saying why on the tick's own stderr, dated in its log as Python's traceback is.
-func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) {
+// and GitHub.  Left is where it leaves the tick to Python, the lock released, and empty where it
+// does not: the first row that finds what Go does not carry, what the rows before did standing;
+// the GitHub pass after which Python's next tick reads as its own where gh names a pull request
+// to act on; and before its passes, with nothing written, where gh cannot be read, or where ak's
+// folders, the lock or watch.json cannot be taken, and on Windows, as Overlap.  Failed is a tick
+// that fails where Python's raises, in a GitHub pass or saving watch.json at its end, saying why
+// on the tick's own stderr, dated in its log as Python's traceback is.
+func Carry(out, errOut io.Writer, report ...AuditReport) (left string, failed bool) {
 	if Overlap(out, errOut) {
-		return true, false
+		return "", false
 	}
 	if runtime.GOOS == "windows" {
-		return false, false
+		return beforePasses, false
 	}
 	// asked before any pass, where Python asks after them: no row says whether Go carries the
 	// GitHub passes, and the tick begins with the asking
@@ -50,7 +52,7 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 	user, why, unasked := gh.JSON(run.Runs(), "api", "user")
 	asked := stepClock().Sub(asking)
 	if unasked != nil || config.EnsureDirs() != nil {
-		return false, false
+		return beforePasses, false
 	}
 	// when the last tick began, until this one stamps the lock
 	var previous time.Time
@@ -58,24 +60,24 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 		previous = info.ModTime()
 	}
 	held, err := lock.Try(lockPath())
-	if errors.Is(err, lock.ErrHeld) {
-		return Overlap(out, errOut), false
+	if errors.Is(err, lock.ErrHeld) && Overlap(out, errOut) {
+		return "", false
 	}
 	if err != nil {
-		return false, false
+		return beforePasses, false
 	}
 	defer held.Close()
 	// the write is also the stamp: mtime is when this tick began
 	if held.Truncate(0) != nil {
-		return false, false
+		return beforePasses, false
 	}
 	if _, err := fmt.Fprintf(held, "%d\n", os.Getpid()); err != nil {
-		return false, false
+		return beforePasses, false
 	}
 	// the passes' seat records are listed from the state folder
 	state, ok := loadState()
 	if !ok || !quiet(state) || !config.Listable(statePath("")) {
-		return false, false
+		return beforePasses, false
 	}
 	t := &ticking{state: state, log: newLog(out, errOut), clock: time.Now}
 	seat.Stderr = t.log.errOut
@@ -87,10 +89,10 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 	// orch.records puts it there before anything claims one resumable; a dry tick writes none
 	seat.Reconcile()
 	if !t.through(table(t)) {
-		return false, false
+		return t.left, false
 	}
 	err = t.github(user, why, asked)
-	carried = err == nil
+	carried := err == nil
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
 	record, slowest := run.NewObject(), run.NewObject()
 	record.Set("started_at", epoch(began))
@@ -105,13 +107,16 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 	// as Python's finally saves the state before its traceback
 	if saved := t.save(); saved != nil || err != nil && !errors.Is(err, errLeft) {
 		fmt.Fprintf(t.log.errOut, "ak watch: %s\n", config.PyError(cmp.Or(saved, err)))
-		return false, true
+		return t.left, true
 	}
 	if carried {
 		ended(record.Get("ended_at"), t.log)
 	}
-	return carried, false
+	return t.left, false
 }
+
+// beforePasses is where a tick that left before its first pass left.
+const beforePasses = "before its passes"
 
 func epoch(at time.Time) float64 { return float64(at.UnixNano()) / 1e9 }
 
@@ -119,13 +124,15 @@ func (t *ticking) save() error { return saveState(t.state) }
 
 // through runs the passes in order, each asked whether it has nothing to act on just before Go
 // carries out its step, the one place that says of a pass that it raised; false at the first that
-// finds what Go does not carry. A dry tick runs only those Python's dry tick runs.
+// finds what Go does not carry, which it keeps as where the tick left. A dry tick runs only those
+// Python's dry tick runs.
 func (t *ticking) through(passes []pass) bool {
 	for _, each := range passes {
 		if t.dry && !each.dry {
 			continue
 		}
 		if each.idle != nil && !each.idle() {
+			t.left = each.name
 			return false
 		}
 		if each.step == nil {
@@ -133,6 +140,7 @@ func (t *ticking) through(passes []pass) bool {
 		}
 		err := t.timed(each.name, each.step)
 		if errors.Is(err, errLeft) {
+			t.left = each.name
 			return false
 		}
 		if err != nil {
@@ -164,12 +172,15 @@ func (t *ticking) took(name string, spent time.Duration) {
 	}
 }
 
+// githubUser is the pass asking gh who is logged in.
+const githubUser = "github user"
+
 // github is what Python's main does with gh's answer to who is logged in, which took asked;
-// errLeft leaves the rest to Python, and any other error fails the tick. A logout is the owner's to
-// fix and written down for every seat to say so; an outage is not, and an earlier logout stands
-// until gh answers.
+// errLeft leaves the rest to Python, and any other error fails the tick, either kept as where the
+// tick left. A logout is the owner's to fix and written down for every seat to say so; an outage
+// is not, and an earlier logout stands until gh answers.
 func (t *ticking) github(value any, why string, asked time.Duration) error {
-	t.took("github user", asked)
+	t.took(githubUser, asked)
 	me := login(value)
 	if me == "" {
 		line, loggedOut := unanswered(why)
@@ -182,15 +193,21 @@ func (t *ticking) github(value any, why string, asked time.Duration) error {
 		return nil
 	}
 	t.state.Delete("gh_out")
-	if err := t.timed("incoming prs", func() error {
-		if !t.incoming(me) {
-			return errLeft
+	for _, each := range []pass{
+		{name: "incoming prs", step: func() error {
+			if !t.incoming(me) {
+				return errLeft
+			}
+			return nil
+		}},
+		{name: "outgoing prs", step: func() error { return t.outgoing(me) }},
+	} {
+		if err := t.timed(each.name, each.step); err != nil {
+			t.left = each.name
+			return err
 		}
-		return nil
-	}); err != nil {
-		return err
 	}
-	return t.timed("outgoing prs", func() error { return t.outgoing(me) })
+	return nil
 }
 
 // login is who gh's answer says is logged in.

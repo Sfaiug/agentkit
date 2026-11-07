@@ -1,6 +1,7 @@
 package history
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -88,7 +89,11 @@ func recorded(runID string) bool {
 // commit is one change to history.db in one transaction, under the writers' lock held to its end,
 // Python's _write: a database none stands for is made, and any brought up to today's tables first.
 // An error, having written nothing, where SQLite failed or the tokens wait for Python's repair.
-func commit(change func(*DB) error) (err error) {
+func commit(change func(*DB) error) error { return committed(change, false) }
+
+// committed is commit, a tokenless change, which touches no tokens, made even where they wait for
+// Python's repair: the database is brought up to today's tables and left owing it.
+func committed(change func(*DB) error, tokenless bool) (err error) {
 	path := Path()
 	if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
 		return err
@@ -104,6 +109,9 @@ func commit(change func(*DB) error) (err error) {
 	}
 	defer db.Close()
 	recounted, err := db.recounted()
+	if tokenless && errors.Is(err, errOwed) {
+		recounted, err = true, nil // never marked past a repair it did not make
+	}
 	if err == nil {
 		err = db.upgrade(recounted)
 	}

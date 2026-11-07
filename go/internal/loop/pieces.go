@@ -182,13 +182,16 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		place(away)
 	}
 	var joined []*helper.Away
-	if away != nil {
+	// a helper that takes the suite while a piece waits runs waiting pieces too, whether the suite
+	// began there or on a turn here, as Python's ask does
+	if away != nil || on.holds() {
 		started.Add(1)
 		go func() {
 			defer started.Done()
 			joined = alone.grow(cwd, cpus, memory, cmd, waiting, place)
 		}()
-	} else if on.holds() {
+	}
+	if on.holds() {
 		started.Add(1)
 		go func() {
 			defer started.Done()
@@ -239,7 +242,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		return ran{}, "", err
 	}
 	for _, at := range all {
-		if at.failed != nil {
+		if at.failed != nil && at.there == nil {
 			continue // its tests named on the suite helper decided it (helperReds)
 		}
 		if err := settle(at, pieceRetry, nil); err != nil {
@@ -272,7 +275,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		if err != nil {
 			return ran{}, "", err
 		}
-		at.failed = failed
+		at.failed, at.how = failed, ""
 	}
 	return l.handedOn(cmd, all, path)
 }

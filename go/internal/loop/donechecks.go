@@ -20,12 +20,6 @@ func (r *repoPlace) doneChecks(l *loop, word string) *run.Object {
 	if word == "executor" && r.firstReviewDue(l) {
 		lines = l.reviewLines
 	}
-	commands := []any{}
-	for _, cmd := range l.every {
-		if !namesShard.MatchString(cmd) {
-			commands = append(commands, cmd)
-		}
-	}
 	files := []any{}
 	for _, spec := range r.files {
 		files = append(files, spec)
@@ -34,7 +28,7 @@ func (r *repoPlace) doneChecks(l *loop, word string) *run.Object {
 	for _, name := range slices.Sorted(maps.Keys(r.artifacts)) {
 		artifacts = append(artifacts, name)
 	}
-	return run.Fields("commands", commands, "base", r.baseSHA, "upstream", r.upstream(), "files", files, "scratch", false, "artifacts", artifacts, "lines", lines.Said(),
+	return run.Fields("commands", ownChecks(l), "base", r.baseSHA, "upstream", r.upstream(), "files", files, "scratch", false, "artifacts", artifacts, "lines", lines.Said(),
 		"limit", seconds(l.ceiling), "silence", seconds(l.silence))
 }
 
@@ -47,5 +41,14 @@ func seconds(bound time.Duration) any {
 	return bound.Seconds()
 }
 
-// A scratch run has no base to count its change from.
-func (scratch) doneChecks(*loop, string) *run.Object { return nil }
+// ownChecks is what judges a change each round, Python's own_checks: the task's per-round checks
+// less a suite split into shards, which is the repository's, not the change's.
+func ownChecks(l *loop) []any {
+	commands := []any{}
+	for _, cmd := range l.every {
+		if !namesShard.MatchString(cmd) {
+			commands = append(commands, cmd)
+		}
+	}
+	return commands
+}

@@ -35,9 +35,9 @@ func Pickup(dir string, record *run.Object) bool {
 }
 
 // carriedOn is whether Go goes on from where the run's record says its rounds stopped, whatever
-// stopped them.
+// stopped them: a run that merges only from its landing's review, which takes the target in again.
 func carriedOn(dir string, record *run.Object) bool {
-	return record.Truthy("no_merge") && cutOff(dir, record) && pairReady(dir, record)
+	return (record.Truthy("no_merge") || landingReview(record)) && cutOff(dir, record) && pairReady(dir, record)
 }
 
 // cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from.
@@ -63,10 +63,12 @@ func cutOff(dir string, record *run.Object) bool {
 
 // Woken is whether the run waits in its landing line on a verdict its lander wrote, which Go
 // carries on into its landing: one it holds no verdict for is the lander's, as Python's resume
-// refuses it.  A seat's own PR goes on where Go carries its landing (ownLands).
+// refuses it.  A seat's own PR goes on where Go carries its landing (ownLands).  A unit that
+// held it is no reason to leave it: its driver parked it there, and the wake goes in a unit of
+// its own (place), as Python's launch_resume puts it.
 func Woken(record *run.Object) bool {
 	wait := record.Dict("waiting_on")
-	if !parkedInLine(record) || !wait.Has("land") && !wait.Has("fix") || run.ProcessActive(record) || !unitless(record) {
+	if !parkedInLine(record) || !wait.Has("land") && !wait.Has("fix") || run.ProcessActive(record) {
 		return false
 	}
 	for _, key := range pythonRoads {
@@ -82,7 +84,8 @@ func Woken(record *run.Object) bool {
 	return isDir(record.Str("worktree"))
 }
 
-// unitless is whether no systemd unit holds the run: Python's to stop by name and to read on a resume.
+// unitless is whether no systemd unit holds the run: Python's to stop by name, and to read on a
+// dead loop's resume whether its memory cap ended it.
 func unitless(record *run.Object) bool {
 	return !record.Truthy("scope") || record.Str("scope") == "none"
 }

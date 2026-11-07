@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,19 +20,23 @@ const phone = "#{||:#{e|<:#{client_width},60},#{e|<:#{client_height},25}}"
 // touch scroll on a phone scrolls a seat's output, 50000 lines of it, rather than sending arrow keys
 // to the harness; a harness that quits as it opens keeps its pane, as the file is read before the
 // seat exists; a link it prints, and each repaint, reaches the owner's terminal whole; and Ctrl-b m
-// is this program's menu over whatever is running, the whole client on a phone.  What runs
-// Python's verbs, the pane-died hook and its kin, is the tick's to set.
+// is this program's menu over whatever is running, the whole client on a phone.  Its hooks are in
+// force before the seat exists too, so even a harness that ends as it starts meets them.
 func Conf() (string, error) {
 	program, err := os.Executable()
-	if err != nil {
+	hooks, failed := Hooks()
+	if err = cmp.Or(err, failed); err != nil {
 		return "", err
 	}
 	menu := Word(commandhelp.ShellJoin([]string{program, "attach", "--overlay"}))
 	text := "# written by ak: ak's own tmux config, never the owner's ~/.tmux.conf\n" +
 		"set -g mouse on\n" +
 		"set -g history-limit 50000\n" +
-		"set -g remain-on-exit on\n" +
-		"set -g allow-passthrough on\n" +
+		"set -g remain-on-exit on\n"
+	for _, hook := range hooks {
+		text += "set -gq " + hook[0] + " " + Word(hook[1]) + "\n"
+	}
+	text += "set -g allow-passthrough on\n" +
 		"set -as terminal-features \",*:RGB:hyperlinks:sync\"\n" +
 		"bind-key m if-shell -F " + Word(phone) + " " + Word("display-popup -E -w 100% -h 100% "+menu) +
 		" " + Word("display-popup -E -w 80% -h 70% "+menu) + "\n"

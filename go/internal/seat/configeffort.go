@@ -8,12 +8,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// SaveEffort changes only a worker role's effort under Python's record lock. The seat's
-// orchestrator effort needs a restart and must be handed over before anything is written.
+// SaveEffort changes a worker role's effort, `exec_effort` or `review_effort`, under Python's
+// record lock. The seat's orchestrator effort is the one its harness runs, which Move moves.
 func SaveEffort(name, model, key, word string) (*run.Object, error) {
-	if key != "exec_effort" && key != "review_effort" {
-		return nil, fmt.Errorf("the orchestrator effort needs a restart")
-	}
 	current, _, err := config.ResolveSession(name)
 	if err != nil {
 		return nil, err

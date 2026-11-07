@@ -1,4 +1,4 @@
-"""`ak models` prints the models screen's answer per role, then ak's own run numbers per
+"""`ak models` prints the models screen's lines, what each role uses, then ak's own numbers per
 configured model; `--json` gives each role's best and line of best quality for the money too.
 
 Black-box: the program `AK_BIN` names, set up as tests/test_key_models_answer.py sets it up;
@@ -8,13 +8,17 @@ judged by the output and exit code.  Fails against /bin/false.
 import json
 import sys
 from pathlib import Path
+import time
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig, fakeadapter
 from fixtures.akbin import Home
-from test_key_models_answer import BUILDS, ENV, LEGEND, ORCH, REVIEWS, boards
+from test_key_models_answer import ENV, NOW, boards
 
+ROLES = [*(f"    {role:<12}  acme-mid-5 low  not on the boards"
+           for role in ("orchestrator", "executor", "reviewer")),
+         "", f"  comparing all 4 models · boards read {time.strftime('%H:%M', time.gmtime(NOW))}"]
 OWN = ["model orch exec review", "mid   -    -    -", "bolt  -    -    -"]
 
 
@@ -37,9 +41,7 @@ class ModelsCommand(unittest.TestCase):
 
     def test_each_role_s_answer_then_ak_s_own_numbers(self):
         shown = [line.rstrip() for line in self.models().splitlines()]
-        at = shown.index(ORCH[0])
-        answer = [*ORCH, *BUILDS, *REVIEWS, "", *LEGEND]
-        self.assertEqual(shown[at:at + len(answer)], answer)
+        self.assertEqual(shown[:len(ROLES)], ROLES)
         self.assertEqual(shown[-3:], OWN)
 
     def test_json_gives_each_role_s_front_and_ak_s_own_numbers(self):

@@ -20,16 +20,17 @@ const (
 	seatLines     = "the most added lines an orchestrator builds"
 )
 
-// policy is Python's config.POLICY: each number's key, its floor and what it means, in the order
-// of Numbers.limits.
+// policy is Python's config.POLICY: each number's key, its floor, what it means and the board rows
+// it moves, in the order of Numbers.limits.
 var policy = []struct {
 	key     string
 	floor   int64
 	meaning string
+	moves   []string
 }{
-	{"review_rounds", 0, roundsMeaning},
-	{"executor_lines", 0, reviewLines},
-	{"orchestrator_lines", 0, seatLines},
+	{"review_rounds", 0, roundsMeaning, []string{"first round", "unmerged", "hours to merge"}},
+	{"executor_lines", 0, reviewLines, []string{"first round", "merged"}},
+	{"orchestrator_lines", 0, seatLines, []string{"built"}},
 }
 
 // defaults is ak's own numbers, in force where nothing names one.

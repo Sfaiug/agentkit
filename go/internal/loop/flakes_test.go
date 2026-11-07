@@ -22,7 +22,7 @@ func TestFlakesKeptByTestCountAndALedgerGoCannotKeepIsPythons(t *testing.T) {
 		len(repairs) != 1 || repairs[0].Str("file") != "t/a.sh" || repairs[0].Str("run") != "fix-a" || reds != nil {
 		t.Fatalf("seen %v, repairs %v, reds %v, carried %v", seen, repairs, reds, carried)
 	}
-	write(`{"seen": [{"test": "t/a.sh::\udcff", "tree": "T", "at": 1e9}]}`)
+	write(`{"seen": [{"test": "t/a.sh::\ud800", "tree": "T", "at": 1e9}]}`)
 	if _, _, _, carried := readFlakes(path, 1e9); carried {
 		t.Fatal("a ledger Go cannot keep was carried, to be written over")
 	}
