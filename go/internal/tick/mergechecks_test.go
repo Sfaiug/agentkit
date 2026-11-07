@@ -52,15 +52,16 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 
 // A dry tick's merge checks decide each merge as the real ones do, its commit read off GitHub, and
 // say what they would probe, record and hand back: they save no commit, run no probe and write
-// nothing, not even the objects a partial clone would fetch, reading on GitHub what that lacks.  A
-// merge Go does not follow hands the whole dry tick over, nothing printed.
+// nothing, not even the objects a partial clone would fetch, reading on GitHub what that lacks, or a
+// row of a history kept.  A merge Go does not follow, or one the real tick leaves before its probe,
+// hands the whole dry tick over, nothing printed.
 func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 	const pr = "https://github.com/acme/api/pull/1"
 	declares := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\n---\n"))
 	for name, each := range map[string]struct {
 		fields, watch, said, lacks string
 		ago                        int64
-		left                       bool
+		left, history, owes        bool
 	}{
 		"undeclared": {fields: `"health": {}, "deployed": null`},
 		"probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`,
@@ -74,6 +75,13 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 		"deployment":    {fields: `"health": {}, "deployed": "true"`, left: true},
 		"blob lacked":   {lacks: "blob", said: "would check run fix-api's live product: true\n"},
 		"commit lacked": {lacks: "commit", said: "would check run fix-api's live product: true\n"},
+		"kept probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/"`, history: true,
+			said: `would check run fix-api's live product: touch "$HOME/probed"` + "\n"},
+		"kept live": {fields: `"live_at": 1, "health": {}, "deployed": null`, history: true,
+			said: "would record, not type: run fix-api is live: " + pr + ".\n"},
+		// a probe whose pass its seat may be owed, which a home keeping history leaves to Python
+		"owed probe": {fields: `"health": {"command": "touch \"$HOME/probed\""}, "deployed": null, "repo": "/", "launched_session": "acme"`,
+			history: true, owes: true, left: true},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';;
@@ -88,7 +96,23 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 			if each.watch != "" {
 				put(t, filepath.Join(ak, "state", "watch.json"), each.watch)
 			}
-			before := files(t, filepath.Dir(ak))
+			if each.history {
+				older(t, "PRAGMA user_version")
+			}
+			if each.owes {
+				put(t, filepath.Join(ak, "state", "plan-acme.md"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
+			}
+			// what SQLite leaves beside history.db for any reader, Go's read of whether it is
+			// writable among them: its index, and a log holding nothing
+			home := func() map[string]string {
+				found, log := files(t, filepath.Dir(ak)), filepath.Join(ak, "history.db-wal")
+				delete(found, filepath.Join(ak, "history.db-shm"))
+				if found[log] == "" {
+					delete(found, log)
+				}
+				return found
+			}
+			before := home()
 			want := "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\n" + each.said +
 				"gh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n"
 			if each.left {
@@ -98,7 +122,7 @@ func TestDryMergeChecksNeverSaveTheMergeCommit(t *testing.T) {
 			if carried := Dry(&out); carried == each.left || out.String() != want {
 				t.Fatalf("carried %v, printing %q", carried, &out)
 			}
-			if !reflect.DeepEqual(files(t, filepath.Dir(ak)), before) {
+			if !reflect.DeepEqual(home(), before) {
 				t.Fatal("the dry tick changed HOME")
 			}
 		})
