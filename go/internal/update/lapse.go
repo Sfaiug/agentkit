@@ -6,12 +6,11 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lend"
 	"agentkit/internal/worker"
 )
 
@@ -54,49 +53,26 @@ func waitsForLogin(key, what string, seconds, at float64, say func(string)) bool
 
 // firstLapse is the epoch second the first login lent to a check started now lapses, and whose,
 // as Python's lend.first_lapse: false where none lapses, or a lend fails, which that check says.
-// A lender is a harness whose manifest lists `[worker] logins`, with an adapter here.  Each one's
-// `auth seat` runs first, in this HOME, so a lapsed login its adapter renews in place is lent fresh.
+// Each lender's `auth seat` runs first, in this HOME, so a lapsed login its adapter renews in
+// place is lent fresh.
 func firstLapse() (int64, string, bool) {
-	names, err := config.ManifestNames()
+	lenders, err := lend.Lenders()
 	env, unread := config.ChildEnv()
 	if err != nil || unread != nil {
 		return 0, "", false
 	}
-	adapters := map[string]string{}
-	for _, name := range names {
-		logins, _ := config.Words(name, "worker", "logins")
-		if adapter, err := config.LoginAdapter(name); len(logins) > 0 && err == nil {
-			adapters[name] = adapter
-			worker.Login(adapter, append(slices.Clip(env), "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(name), " ")), "seat")
+	for _, name := range lenders {
+		adapter, err := config.LoginAdapter(name)
+		if err != nil {
+			return 0, "", false
 		}
+		worker.Login(adapter, append(slices.Clip(env), "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(name), " ")), "seat")
 	}
 	home, err := os.MkdirTemp(filepath.Join(config.Home(), "tmp"), "lend-")
 	if err != nil {
 		return 0, "", false
 	}
 	defer os.RemoveAll(home)
-	lend := append(os.Environ(), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER=")
-	first, whose := int64(0), ""
-	for _, name := range names {
-		if adapters[name] == "" {
-			continue
-		}
-		staging, err := os.MkdirTemp(home, ".lend-")
-		if err != nil {
-			return 0, "", false
-		}
-		stdout, _, code, err := output(lend, time.Minute, adapters[name], "lend", staging)
-		if err == nil && code == 1 {
-			continue // none to lend
-		}
-		said := strings.TrimFunc(string(stdout), config.Space)
-		ends, unread := strconv.ParseInt(said, 10, 64)
-		if err != nil || code != 0 || !utf8.Valid(stdout) || said != "" && unread != nil {
-			return 0, "", false
-		}
-		if said != "" && (whose == "" || ends < first) {
-			first, whose = ends, name
-		}
-	}
-	return first, whose, whose != ""
+	loan, err := lend.Into(home, false)
+	return loan.Ends, loan.Whose, err == nil && loan.Whose != ""
 }

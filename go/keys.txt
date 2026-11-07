@@ -215,6 +215,7 @@ test_key_landing_flake_counts_apart
 test_key_landing_offline
 test_key_landing_suite_red
 test_key_landing_train
+test_key_lend_a_listed_subscription
 test_key_lend_copy
 test_key_lines_are_settings TaskChange
 test_key_limit_in_any_words
