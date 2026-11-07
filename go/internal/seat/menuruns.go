@@ -24,11 +24,17 @@ type runView struct {
 // Every other reader decides on what it reads, and looks at every run.
 var screenRuns run.Reader
 
-func menuRuns(now time.Time, reader *run.Reader) (map[string][]ran, map[string][]ran, bool) {
-	held, known := reader.Read()
-	if !known {
-		return nil, nil, false
+// judging judges the runs one read of a run.Reader found, at whatever moment it is given.
+func judging(held []run.Held) judges {
+	return func(now time.Time) (map[string][]ran, bool) {
+		mine, _, known := menuRuns(held, now)
+		return mine, known
 	}
+}
+
+// menuRuns is each seat's runs as those records give them at that moment, and every run by the
+// seat it files under.
+func menuRuns(held []run.Held, now time.Time) (map[string][]ran, map[string][]ran, bool) {
 	mine := map[string][]ran{}
 	projects := map[string][]ran{}
 	var records []*run.Object

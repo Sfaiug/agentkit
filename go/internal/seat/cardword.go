@@ -42,7 +42,7 @@ func CardAnswer(name string) (word, reason string, since any) {
 	case at >= 0:
 		seat = home.Seats[at]
 	case Unheld(name):
-		mine, read := lookRuns(nil, time.Now()) // judged as they are read, as the reading judges its own
+		mine, read := lookRuns(nil)(time.Now()) // judged as they are read, as the reading judges its own
 		if !read {
 			return "", "", nil
 		}

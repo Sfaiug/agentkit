@@ -70,12 +70,20 @@ type Home struct {
 	models  map[string]config.Model
 	readers recordReaders
 	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
+	found   judges    // the runs it found, which a dead-pane seat's announce judges again by its lock's clock
 }
 
 type recordReaders map[string]harness.Reader
 
-// readsRuns is each seat's runs as judged at that moment, or false where Go does not read them.
-type readsRuns func([]string, time.Time) (map[string][]ran, bool)
+// readsRuns reads the runs of the seats of those names once, what it found to be judged at any moment.
+type readsRuns func([]string) judges
+
+// judges is each seat's runs as one read found them, judged at that moment, or false where Go does
+// not read them or cannot judge them then.
+type judges func(time.Time) (map[string][]ran, bool)
+
+// unreadRuns is the judges of a read Go does not know.
+func unreadRuns(time.Time) (map[string][]ran, bool) { return nil, false }
 
 // Seatless is whether the home holds no record at all.
 func (home Home) Seatless() bool { return len(home.records) == 0 }
@@ -178,11 +186,12 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	offered, unread := config.Offered()
 	// the runs are judged as they are read: one that ended while this reading asked tmux would
 	// otherwise have ended in its clock's future, which no admission takes
-	runs, known := readRuns(names, now.Add(time.Since(began)))
+	found := readRuns(names)
+	runs, known := found(now.Add(time.Since(began)))
 	if err != nil || unread != nil || !known || !gone || !looking && len(live)+len(bare) > 0 {
 		return Home{}, false
 	}
-	home := Home{models: models, readers: recordReaders{}, runs: readRuns}
+	home := Home{models: models, readers: recordReaders{}, runs: readRuns, found: found}
 	stands := sync.OnceValue(listed)
 	for _, name := range names {
 		if server, ok := bare[name]; ok {
@@ -410,42 +419,50 @@ func working(going []ran) (string, any) {
 
 // readRuns is each seat's runs as Python's menu.run_records reads them, a smoke run's aside, or
 // false where runs/ holds anything else.
-func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
+func readRuns(names []string) judges {
 	entries, err := os.ReadDir(run.Runs())
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, false
+		return unreadRuns
 	}
-	mine := map[string][]ran{}
+	var found []ran
 	running := map[string]bool{} // whether each seat a run names has one running
 	for _, entry := range entries {
 		dir := filepath.Join(run.Runs(), entry.Name())
 		inside, err := os.ReadDir(dir)
 		if err != nil || len(inside) != 1 || inside[0].Name() != "run.json" {
-			return nil, false
+			return unreadRuns
 		}
 		record, err := run.Read(dir)
 		if err != nil || record == nil || !only(record, runFields) {
-			return nil, false
+			return unreadRuns
 		}
 		state, seat := record.Str("state"), record.Str("launched_session")
 		_, started := number(record.Get("started_at"))
 		_, finished := number(record.Get("finished_at"))
 		if !slices.Contains(names, seat) || !text(record.Get("title")) || !text(record.Get("repo")) || !started || !finished ||
 			state != "running" && !(state == "pass" && record.Get("merged") == true) {
-			return nil, false
+			return unreadRuns
 		}
 		running[seat] = running[seat] || state == "running"
 		if !run.SmokeRun(record) {
-			mine[seat] = append(mine[seat], ran{name: entry.Name(), record: record, quiet: silence(dir, record, now)})
+			found = append(found, ran{name: entry.Name(), record: record})
 		}
 	}
 	for _, going := range running {
 		// a merge with nothing running awaits its live check (watch.awaiting_live), unknown here
 		if !going {
-			return nil, false
+			return unreadRuns
 		}
 	}
-	return mine, true
+	return func(now time.Time) (map[string][]ran, bool) {
+		mine := map[string][]ran{}
+		for _, each := range found {
+			each.quiet = silence(filepath.Join(run.Runs(), each.name), each.record, now)
+			seat := each.record.Str("launched_session")
+			mine[seat] = append(mine[seat], each)
+		}
+		return mine, true
+	}
 }
 
 // Announce publishes the listing using the evidence frozen by reading, under Python's locks.
