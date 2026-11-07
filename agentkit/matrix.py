@@ -556,7 +556,7 @@ def main(argv):
     if "--json" in flags:
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
-                                                 "cost", "board_cost", "cost_rule", "runs")},
+                                                 "cost", "board_cost", "cost_rule")},
                     "notes": notes(row, said)}
         json.dump({**{role: {
             "best": said["best"], "cost_unit": said["cost_unit"],

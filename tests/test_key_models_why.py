@@ -3,9 +3,8 @@ on 5 Nov 2026, a label column beside values that wrap at words in their own: its
 or take 1.96 standard errors, the benchmarks that scored it and how far below the role's best
 choice it is; its cost, `≈` before one no runs measured, and where that comes from -- its runs,
 its board price times what runs on its provider or on every provider cost a board dollar, or
-its board price alone; the rule that makes the choices; and why each other model is none, under
-`others` as many as fill the five places after the choices, best first, the rest under `not
-shown`.  Esc returns with `▸` where it was, and a page taller than the screen turns with ↓.
+its board price alone.  Esc returns with `▸` where it was, and a page taller than the screen
+turns with ↓ and ↑.
 
 Black-box, as tests/test_key_models_answer.py: the program `AK_BIN` names in a terminal, its
 harnesses fakes listing invented models, the boards held as just asked with invented rows, and
@@ -33,17 +32,9 @@ ROWS = [("acme-max-5", "Acme Max 5", "max", 70, .80, .80, 50, 20.0),
         ("acme-mid-5", "Acme Mid 5", "high", 66, .72, .77, 49, 1.5),
         ("bolt-3", "Bolt 3", "medium", 60, .64, .74, 45, 3.0),
         ("crux-2", "Crux 2", "low", 50, .60, None, 42, 1.0),
-        ("holm-1", "Holm 1", "high", 64, .725, .775, 44, 2.0),
         ("dune-1", "Dune 1", "high", 64, .75, .775, 47, 4.0),
-        ("elm-1", "Elm 1", "high", 68, .78, .78, 46, 6.0),
-        ("fern-1", "Fern 1", "high", 62, .68, .755, 43, 1.2),
-        ("gale-1", "Gale 1", "high", 62, .675, .80, 41, 1.3)]
-# the releases on each case's boards: the owner's drawing, two choices, and more than five
-DRAWN = {"acme-max-5", "acme-mid-5", "bolt-3", "crux-2", "dune-1", "elm-1"}
-TWO = {"acme-max-5", "acme-mid-5", "bolt-3", "crux-2", "holm-1"}
-MANY = {row[0] for row in ROWS}
+        ("elm-1", "Elm 1", "high", 68, .78, .78, 46, 6.0)]
 MODELS = {"crux": {"harness": "codex", "model": "crux-2", "effort": "low"},
-          "bolt": {"harness": "codex", "model": "bolt-3", "effort": "medium"},
           "mid": {"harness": "claude", "model": "acme-mid-5"},
           "max": {"harness": "claude", "model": "acme-max-5", "review_effort": "max"}}
 
@@ -55,11 +46,7 @@ MAX_HIGH_BUILDS = [
     "             5.2 below the best, Acme Max 5 max",
     "",
     "  cost       ≈ $10.00 a build   estimated: its board price, times what your runs on its provider",
-    "             cost a board dollar",
-    "",
-    "  choices    the best, then cheaper ones a point apart, none more than 10 below, five at most",
-    "  others     Bolt 3 medium, 88.0 for $3.00: beaten by Acme Mid 5 high, 94.0 for $1.50",
-    "  not shown  Crux 2 low, 80.0 for $1.00: 20.0 below the best"]
+    "             cost a board dollar"]
 MAX_MAX_REVIEWS = [
     "  why Acme Max 5 max reviews",
     "",
@@ -73,13 +60,7 @@ MID_BUILDS = [
     "             FrontierCode 2.0, Arena Agent, Terminal-Bench 4.0",
     "             6.0 below the best, Acme Max 5 max",
     "",
-    "  cost       $1.50 a build   from 2 of your builds",
-    "",
-    "  choices    the best, then cheaper ones a point apart, none more than 10 below, five at most",
-    "  not shown  Holm 1 high, 94.5 for ≈$2.00: within a point of Acme Mid 5 high, 94.0 for $1.50",
-    "             Fern 1 high, 91.0 for ≈$1.20: the five places go to better choices",
-    "             Bolt 3 medium, 88.0 for $3.00: beaten by Gale 1 high, 92.5 for ≈$1.30",
-    "             Crux 2 low, 80.0 for $1.00: 20.0 below the best"]
+    "  cost       $1.50 a build   from 2 of your builds"]
 CRUX_REVIEWS = [
     "  why Crux 2 low reviews",
     "",
@@ -103,32 +84,17 @@ CRUX_BUILDS_40 = [
     "",
     "  cost       ≈ $1.00 a build   its board",
     "             price alone: no build of",
-    "             yours priced a model",
-    "",
-    "  choices    the best, then cheaper ones",
-    "             a point apart, none more",
-    "             than 10 below, five at most",
-    "  others     Holm 1 high, 94.5 for",
-    "             ≈$2.00: within a point of",
-    "             Acme Mid 5 high, 94.0 for",
-    "             ≈$1.50",
-    "             Bolt 3 medium, 88.0 for",
-    "             ≈$3.00: beaten by Acme Mid",
-    "             5 high, 94.0 for ≈$1.50",
-    "             Crux 2 low, 80.0 for",
-    "             ≈$1.00: 20.0 below the best"]
+    "             yours priced a model"]
 
 
-def boards(releases):
-    """The boards holding the rows of `releases`, and the rows keeping them from being asked,
-    just answered: newer than the answer an earlier case drew."""
+def boards():
+    """The boards holding `ROWS`, and the rows keeping them from being asked, just answered:
+    newer than the answer an earlier case drew."""
     rows = {board: [{"model": "Old 1", "effort": "high", "values": dict.fromkeys(names.split(), 0)}]
             for board, names in OLD.items()}
     rows["artificialanalysis.ai"] = [aa("old-1", "Old 1", "high", rows["artificialanalysis.ai"][0]
                                         ["values"], retired=True)]
     for release, name, effort, index, share, agent, omni, cost in ROWS:
-        if release not in releases:
-            continue
         rows["artificialanalysis.ai"].append(aa(release, name, effort, {
             "aa.briefcaseBreakdown.overall.elo": 1400, "aa.omniscience": omni,
             **({"aa.automationBenchPartialScore": 0.9} if effort == "max" else {}),
@@ -160,12 +126,12 @@ class ModelsWhy(unittest.TestCase):
     def setUp(self):
         History(self.home).save()        # no runs, until a case writes some
 
-    def write(self, releases, workers, reviewers=None, runs=False):
-        """The boards holding `releases`; Crux 2 at low orchestrates new seats, `workers` build
-        them and `reviewers` review, every plan a dollar; with `runs`, finished builds of Acme
-        Mid 5 high, Bolt 3 and Crux 2 and a review by Acme Mid 5 high, each costing what its
-        board does, a point of a week a dollar."""
-        self.home.write(".agentkit/state/boards.json", boards(releases))
+    def write(self, workers, reviewers=None, runs=False):
+        """The boards holding `ROWS`; Crux 2 at low orchestrates new seats, `workers` build
+        them and `reviewers` review, every plan a dollar; with `runs`, two finished builds of
+        Acme Mid 5 high and a review by it, costing what its board does, a point of a week a
+        dollar."""
+        self.home.write(".agentkit/state/boards.json", boards())
         akconfig.write(self.home, MODELS, orchestrator="crux", workers=workers,
                        reviewers=reviewers, providers={
                            provider: {"mode": "subscription", "price": 1}
@@ -173,20 +139,16 @@ class ModelsWhy(unittest.TestCase):
         if not runs:
             return
         history = History(self.home)
-        # each login's week $100 at a dollar a million tokens: a million tokens is a point
-        for provider, harness, model in (("anthropic", "claude", "acme-mid-5"),
-                                         ("openai", "codex", "crux-2")):
-            history.week(provider, "default", harness, model, 50e6, 50)
+        # the login's week $100 at a dollar a million tokens: a million tokens is a point
+        history.week("anthropic", "default", "claude", "acme-mid-5", 50e6, 50)
         spent = lambda model, millions: [[("default", model, (millions * 1e6, 0, 0, 0))]]
         history.run(("mid", "high"), built=spent("acme-mid-5", 1))
         history.run(("mid", "high"), "mid", ["high"], built=spent("acme-mid-5", 2),
                     reviewed=spent("acme-mid-5", 1.5))
-        history.run(("bolt", "medium"), built=spent("bolt-3", 3))
-        history.run(("crux", "low"), built=spent("crux-2", 1))
         history.save()
 
-    def models(self, compared, width=100, height=60):
-        """`r` on `c` in a window of its own, once the answer comparing `compared` is drawn."""
+    def models(self, width=100, height=60):
+        """`r` on `c` in a window of its own, once the answer is drawn."""
         term = Terminal(self.home, size=(width, height), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -194,7 +156,7 @@ class ModelsWhy(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        term.wait(f"comparing all {len(compared)} models")
+        term.wait("comparing all 6 models")
         return term
 
     def why(self, term, *keys):
@@ -206,29 +168,29 @@ class ModelsWhy(unittest.TestCase):
         return shown[shown.index(next(line for line in shown if line.startswith("  why "))):-2]
 
     def test_enter_says_why_a_row_is_used_as_the_owner_drew_it_and_esc_returns(self):
-        self.write(DRAWN, ["max"], runs=True)
-        term = self.models(DRAWN)
+        self.write(["max"], runs=True)
+        term = self.models()
         self.assertEqual(self.why(term, "Down"), MAX_HIGH_BUILDS)
         term.keys("Escape")
-        self.assertIn("\n  ▸ executor      Acme Max 5 high ", term.wait("comparing all 6"))
+        self.assertIn("\n  ▸ executor      Acme Max 5 high ", term.wait("comparing all"))
         self.assertEqual(self.why(term, "Down")[:len(MAX_MAX_REVIEWS)], MAX_MAX_REVIEWS)
 
-    def test_a_cost_from_your_runs_says_how_many_and_past_five_choices_none_is_shown(self):
-        self.write(MANY, ["mid"], ["crux"], runs=True)
-        term = self.models(MANY)
+    def test_a_cost_from_your_runs_says_how_many(self):
+        self.write(["mid"], ["crux"], runs=True)
+        term = self.models()
         self.assertEqual(self.why(term, "Down"), MID_BUILDS)
         term.keys("Escape")
         term.wait("\n  ▸ executor ")
-        self.assertEqual(self.why(term, "Down")[:len(CRUX_REVIEWS)], CRUX_REVIEWS)
+        self.assertEqual(self.why(term, "Down"), CRUX_REVIEWS)
 
     def test_on_40_cells_each_value_wraps_at_words_in_its_column(self):
-        self.write(TWO, ["crux"])
-        term = self.models(TWO, 40)
+        self.write(["crux"])
+        term = self.models(40)
         self.assertEqual(self.why(term, "Down"), CRUX_BUILDS_40)
 
-    def test_a_why_taller_than_the_screen_turns_a_page_at_a_time_to_its_last_line(self):
-        self.write(TWO, ["crux"])
-        term = self.models(TWO, 40, 14)
+    def test_a_why_taller_than_the_screen_turns_a_page_at_a_time_to_its_last_line_and_back(self):
+        self.write(["crux"])
+        term = self.models(40, 14)
         first = self.why(term, "Down")
         self.assertEqual(first, CRUX_BUILDS_40[:len(first)])
         self.assertLess(len(first), len(CRUX_BUILDS_40))
@@ -236,6 +198,8 @@ class ModelsWhy(unittest.TestCase):
         # its last line, under its fold, then over its key line
         term.wait(lambda screen: lines(screen.rstrip())[-3:] == [CRUX_BUILDS_40[-1], "",
                                                                  "  esc back"])
+        term.keys(*["Up"] * len(CRUX_BUILDS_40))        # and back to its heading
+        term.wait(lambda screen: CRUX_BUILDS_40[0] in lines(screen))
 
 
 if __name__ == "__main__":
