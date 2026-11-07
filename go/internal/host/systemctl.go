@@ -22,7 +22,7 @@ var Systemctl = func(args ...string) (int, string, error) {
 	defer cancel()
 	command := exec.CommandContext(ctx, "systemctl", append([]string{"--user"}, args...)...)
 	var out strings.Builder
-	command.Env, command.Stdout = busEnv(), &out
+	command.Env, command.Stdout = busEnv(os.Environ()), &out
 	command.WaitDelay = answer // a program it left holding its output open is waited for no longer
 	err := command.Run()
 	var exited *exec.ExitError
@@ -35,16 +35,23 @@ var Systemctl = func(args ...string) (int, string, error) {
 	return 0, out.String(), err
 }
 
-// busEnv is this environment with the user manager's bus in it, Python's orch.bus_env: a tick
-// from cron has no session, and a caller's own says where its manager is.
-func busEnv() []string {
-	env := os.Environ()
-	runtime, set := os.LookupEnv("XDG_RUNTIME_DIR")
+// busEnv is env with the user manager's bus in it, Python's orch.bus_env: a tick from cron has no
+// session, and a caller's own says where its manager is.
+func busEnv(env []string) []string {
+	lookup := func(key string) (found string, set bool) {
+		for _, pair := range env { // the last of a name, the one exec hands on
+			if name, value, _ := strings.Cut(pair, "="); name == key {
+				found, set = value, true
+			}
+		}
+		return found, set
+	}
+	runtime, set := lookup("XDG_RUNTIME_DIR")
 	if !set {
 		runtime = fmt.Sprintf("/run/user/%d", os.Getuid())
 		env = append(env, "XDG_RUNTIME_DIR="+runtime)
 	}
-	if _, set := os.LookupEnv("DBUS_SESSION_BUS_ADDRESS"); !set {
+	if _, set := lookup("DBUS_SESSION_BUS_ADDRESS"); !set {
 		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
 	}
 	return env

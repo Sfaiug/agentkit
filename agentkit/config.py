@@ -1253,6 +1253,7 @@ SEAT_FILES = {
     # collector still take those a host holds from before, as they take every other file of a gone seat
     "verified": "txt",
     "checked": "txt",    # what its last done check finding no gap read (`done_check.keep`)
+    "owed": "json",      # whether its finished plan owed that check when last asked, beside what that read (`done_check.owed`)
     "pictures": "jsonl", # each picture of a screen it kept for its done check (`done_check.look`)
     # left by the prompts that named a rulebook to read, before they carried it: goes with its
     # seat, and a change may still be told against it (`orch.rulebook_change`)
@@ -1648,6 +1649,29 @@ def session_records():
     In a pass they are as its first ask found them: a write in it, as `orch.records`'
     `update_session`, shows by the next pass."""
     return dict(_session_files(record=True))
+
+
+def every_session_record():
+    """`session_records()` for a reader that must miss none: raises Error where the folder of
+    them cannot be read, or a session file there is neither a record nor the pointer
+    `rename_session` writes, rather than passing over it."""
+    try:
+        names = parsed.read(_self.STATE, os.listdir)
+    except FileNotFoundError:
+        return {}               # no state yet, so no seat
+    except OSError as exc:
+        raise Error(f"cannot list {_self.STATE}: {exc}")
+    found = {}
+    for name, path in seat_files("session", map(Path, names)):
+        data = _session_json(path)
+        if data is None and not os.path.lexists(path):
+            continue            # gone since the listing
+        if isinstance(data, dict) and "renamed" not in data:
+            found[name] = data
+        elif not (isinstance(data, dict) and set(data) == {"renamed"}
+                  and isinstance(data["renamed"], str)):
+            raise Error(f"{path} holds neither a session record nor a rename's pointer")
+    return found
 
 
 def session_record(name):

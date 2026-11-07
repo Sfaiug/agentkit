@@ -219,26 +219,23 @@ func unrecorded(record *run.Object) bool {
 // apply is Python's history._write: change made on history.db, made where none stands and brought
 // up to today's tables, in one commit under Python's writers' lock, and whether it committed.
 // History never makes a run fail: what goes wrong is said on log, else in history.log.
-func apply(log func(string), change func(*DB) error) bool {
-	err := commit(change)
-	warn(log, err)
-	return err == nil
-}
+func apply(log func(string), change func(*DB) error) bool { return warned(log, commit(change)) }
 
-// warn says what a write's error was on log, else in history.log.
-func warn(log func(string), err error) {
+// warned is whether a write committed, what stopped it said on log, else in history.log.
+func warned(log func(string), err error) bool {
 	if err == nil {
-		return
+		return true
 	}
 	line := "WARN history: " + err.Error()
 	if log != nil {
 		log(line)
-		return
+		return false
 	}
 	if file, err := os.OpenFile(filepath.Join(config.Home(), "history.log"), os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666); err == nil {
 		file.WriteString(line + "\n")
 		file.Close()
 	}
+	return false
 }
 
 // reviewPair is how far the recorded review's reviewer stands from its executor, Python's

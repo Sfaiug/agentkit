@@ -28,14 +28,14 @@ const afterMerge = 3 * 3600
 // is gone, its number among every seat the menu offers.  False, for a look that writes nothing,
 // where the look does more than that on this path or its word hangs on what Go does not read yet:
 // a failed turn to end; a question standing, or kept back, an answer in its conversation may
-// answer (notify.answer_written); an account's move or a usage refusal in its seat file; a wait,
-// a login out, or a run of its own short of merged and live; a launch receipt that decides its
+// answer (notify.answer_written); an account's move or a usage refusal in its seat file; a wait
+// or a run of its own short of merged and live; a launch receipt that decides its
 // reason; or a number only Python can give. The caller holds the seat's announce lock, so the
 // newest facts decide, as watch.announce_state's do.
 func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model, bool) {
 	models, err := config.Models()
 	offered, unread := config.Offered()
-	if err != nil || unread != nil || !slices.Contains(tmux.Dead(tmux.Own()), name) || marked(tmux.Default) || newsOnEverySeat(state) {
+	if err != nil || unread != nil || !slices.Contains(tmux.Dead(tmux.Own()), name) || marked(tmux.Default) {
 		return Seat{}, nil, false
 	}
 	rows, known := places(state, models, now)
@@ -47,7 +47,7 @@ func lookedAt(state, name string, now time.Time) (Seat, map[string]config.Model,
 	record, _ := run.ReadJSON(filepath.Join(state, "session-"+name+".json"))
 	own := models[record.Str("orchestrator")].Harness
 	_, complaint, crewed := recordCrew(record, models)
-	if !crewed || failed(name, own) || notify.Standing(name) || loggedOut(state, own) || record.Truthy(harness.Receipt(own)) {
+	if !crewed || failed(name, own) || notify.Standing(name) || record.Truthy(harness.Receipt(own)) {
 		return Seat{}, nil, false
 	}
 	// the follow moves the seat from the model this record names, so both come from one reading
@@ -100,42 +100,6 @@ func (seat Seat) closedReason(place int) string {
 		reason += " · " + seat.restart
 	}
 	return reason
-}
-
-// newsOnEverySeat is whether the tick has a login no harness owns out, `gh`'s or a worker token,
-// which every seat's word says first (watch._session_state's rungs 1b and 1c); true where
-// watch.json cannot be read.
-func newsOnEverySeat(state string) bool {
-	saved, err := run.ReadJSON(filepath.Join(state, "watch.json"))
-	if errors.Is(err, fs.ErrNotExist) {
-		return false
-	}
-	if saved == nil {
-		return true
-	}
-	tokens := saved.Dict("worker_tokens")
-	if saved.Truthy("gh_out") || tokens == nil && saved.Truthy("worker_tokens") {
-		return true
-	}
-	if tokens != nil {
-		for _, key := range tokens.Keys() {
-			if each := tokens.Dict(key); each != nil && each.Truthy("expired") {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// loggedOut is whether the tick found the seat's harness cannot log in, which comes before anything
-// else a seat says (watch._session_state's rung 1): Go does not word that login's remedy yet.
-func loggedOut(state, own string) bool {
-	saved, _ := run.ReadJSON(filepath.Join(state, "watch.json"))
-	if saved == nil || saved.Dict("auth_out") == nil {
-		return false
-	}
-	found := saved.Dict("auth_out").Dict(own)
-	return found != nil && run.Equal(found.Get("ok"), false)
 }
 
 // failed is whether the last event the seat's harness reported ended a turn in failure, which

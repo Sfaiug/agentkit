@@ -50,6 +50,7 @@ type Hold struct {
 	places   int     // the limit it was admitted at: the most turns its pieces run on
 	turns    []held
 	said     bool // a config it cannot read, said once
+	waited   bool // a piece waited for a turn (Waited)
 }
 
 // A held turn is a turn file's index and its locked file.
@@ -151,6 +152,7 @@ func (h *Hold) Grow(ctx context.Context, waiting func() bool, start func()) {
 	if len(h.turns) >= h.places || !waiting() {
 		return
 	}
+	h.waited = true
 	defer h.seen()()
 	defer h.marked()()
 	var asked time.Time

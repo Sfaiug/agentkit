@@ -2,6 +2,7 @@ package loop
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -70,5 +71,32 @@ func TestTheWakeTakesEachRedOnceNothingItWaitsOnIsInTheLine(t *testing.T) {
 	}
 	if got := tried(); !slices.Equal(got, []string{"fix-2"}) {
 		t.Fatalf("woke %v once the run ahead left, want fix-2", got)
+	}
+}
+
+// A lander outlives the wakes it starts, as a service's manager stops all that is left in it when
+// the lander ends: even a pass the line's lock turns away ends after them.
+func TestALanderOutlivesTheWakesItStarts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	if err := os.MkdirAll(run.Runs(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := ".merge-acme.lock"
+	held, err := lock.Try(beside(filepath.Join(run.Runs(), line), ".lander.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	ended := filepath.Join(home, "ended")
+	if err := detach(filepath.Join(home, "log.txt"), append(os.Environ(), "AK_TEST_WAKE_ENDED="+ended), "run", "resume", "fix-api"); err != nil {
+		t.Fatal(err)
+	}
+	if code := CheckLine(line, io.Discard); code != 0 {
+		t.Fatalf("a pass the line's lock turned away exited %d", code)
+	}
+	if _, err := os.Stat(ended); err != nil {
+		t.Error("the lander ended before its wake did")
 	}
 }

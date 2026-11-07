@@ -16,7 +16,8 @@ const auditNote = "Once a week ak opens a seat named audit with the week's large
 // menuAudit is `Weekly audit` on `c` (menu.config_audit): whether it runs and the models its seat
 // takes, a row each, each change written to `[audit]` at once.  Space on `On` turns it the other
 // way; Enter on `Orchestrator` opens every model, ● the one it is, and on `Builds` and `Reviews`
-// every model, ■ each in that role.  A setting Audit cannot read is Python's, to say why and mend.
+// every model, ■ each in that role.  A setting Audit cannot read is Python's, to say why and mend,
+// and so is a config Bind refuses.
 // The rows are read once and again after each write, as Python's page reads the config it holds.
 func menuAudit(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 	var rows []menu.PageRow // as last read
@@ -30,7 +31,10 @@ func menuAudit(keyboard *terminal.Keyboard, painter *terminal.Painter) bool {
 		}
 		held, on, err := config.Audit()
 		models, listed := config.Models()
-		if err != nil || listed != nil {
+		// a config Go binds otherwise than Python is Python's to save (seat.KeepConfigEfforts):
+		// handed over as the page opens, before anything is written
+		_, unbound := config.Bind()
+		if err != nil || listed != nil || unbound != nil {
 			return nil, false
 		}
 		roles := func(key string) func() ([]menu.PageRow, bool) {

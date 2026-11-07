@@ -37,6 +37,11 @@ func RecordReadOnly(name string) bool { return plugins[name].record != nil }
 // writes them.
 func RecordKeys(name string) []string { return plugins[name].keys }
 
+// LaunchKeys are what a launch writes about the conversation it owns, its harness's receipt, and
+// the title that launch takes (harness.LAUNCH_KEYS).
+var LaunchKeys = []string{"conversation", "resumable", "id_source", "before", "codex_launch", "codex_history",
+	"opencode_launch", "muse_launch", "antigravity_launch", "antigravity_open", "session_title", "title_sync"}
+
 // KeptInState is whether some harness keeps that state/ entry beside its seats' records.
 func KeptInState(entry string) bool {
 	return slices.ContainsFunc(slices.Collect(maps.Values(plugins)), func(own plugin) bool {

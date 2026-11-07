@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handover"
 	"agentkit/internal/hookfact"
 	"agentkit/internal/lifecycle"
 	"agentkit/internal/run"
@@ -20,6 +21,7 @@ import (
 // exits 3.
 func hook(args []string, out io.Writer) (code int) {
 	defer func() { recover() }()
+	handover.Runs(strings.Join(append([]string{"hook"}, args...), " "))
 	payload, err := io.ReadAll(os.Stdin)
 	switch {
 	case len(args) != 1:
@@ -77,7 +79,7 @@ func seatState(payload []byte, out io.Writer) int {
 	// goes to.
 	heard, carried := heardAnswer(event, at, seat)
 	if !carried {
-		return leftToPython
+		return leftToPython()
 	}
 	// `ak orch rename` leaves a pointer at the old name, and the harness carries its launch
 	// name for its whole life.

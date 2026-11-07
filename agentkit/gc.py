@@ -7,6 +7,7 @@ supply their temporary-folder rules.
 from contextlib import nullcontext
 from datetime import datetime
 import fcntl
+import functools
 import json
 import os
 from pathlib import Path
@@ -17,8 +18,9 @@ import subprocess
 import sys
 import time
 
-from . import (config, gitcall, handback, host, job as jobs, land, macbridge, orch, owner,
-               proc_snapshot, record, retention, run, stop, transitions, turns, watch, worktrees)
+from . import (config, gitcall, handback, host, job as jobs, land, look, macbridge, notify,
+               orch, owner, proc_snapshot, record, retention, run, stop, transitions, turns,
+               watch, worktrees)
 from .harness import (conversation_stores, end_conversation, idle_conversations,
                       load as harness_plugin, recorded_conversations)
 
@@ -411,19 +413,62 @@ def home_entries(folder, age, now, paths):
 def stale_conversations(now):
     """Each conversation a harness keeps and never ends itself (`conversation_stores`) that
     nobody wrote to for a run directory's age and nobody holds open, and each one kept as rows
-    of a harness's database that it names idle for as long (`idle_conversations`), by its id."""
+    of a harness's database that it names idle for as long (`idle_conversations`), by its id.
+    Never one a seat holds (`conversation_free`): what its owner said there is what its done
+    check reads."""
+    # read only once a conversation would go: the seats are read as every reader reads them,
+    # moving access times, where the rest of planning reads with O_NOATIME (`retention.reading`)
+    seats = functools.cache(held_conversations)
     for item in idle_conversations(now - RUN_DIR_AGE):
-        yield {"action": "remove", "kind": "conversation", "path": item["id"], **item,
-               "why": f"untouched for {RUN_DIR_AGE // 86400} days"}
+        if conversation_free(item["harness"], item["id"], seats):
+            yield {"action": "remove", "kind": "conversation", "path": item["id"], **item,
+                   "why": f"untouched for {RUN_DIR_AGE // 86400} days"}
     paths = tmp_processes()[0]
     if paths is None:
         return
     for store in conversation_stores():
         for path in sorted(Path(store["root"]).glob(store["pattern"])):
             why = conversation_stale(path, now, paths)
-            if why:
+            named = why and store["id"].fullmatch(path.name)
+            if named and conversation_free(store["harness"], named[1], seats):
                 yield {"action": "remove", "kind": "conversation", "path": str(path),
-                       "harness": store["harness"], "why": why}
+                       "harness": store["harness"], "conversation": named[1], "why": why}
+
+
+def conversation_free(harness, conversation, seats=None):
+    """Whether no seat holds that conversation of that harness, as `seats()` reads the seats,
+    by default from their records as they are now (`held_conversations`)."""
+    held, unknown = (seats or held_conversations)()
+    return not (unknown & {None, harness} or conversation in held)
+
+
+def held_conversations():
+    """(The id of each conversation a seat's record holds, its current one and each it left, as
+    `notify.conversations_of` gives them; each harness a seat of which cannot say which it holds,
+    or {None} where gc cannot tell a seat's harness: its records unread, a harness no name, or its
+    model gone from the config, whose record alone is no harness's reading.)"""
+    held, unknown = set(), set()
+    with look.aside():      # the records as they are now, never a pass's earlier look at them
+        try:
+            seats = config.every_session_record()
+        except config.Error:
+            return held, {None}
+        for name, seat in seats.items():
+            left = seat.get("left", [])
+            if not isinstance(left, list) or not all(isinstance(was, dict) for was in left):
+                return held, {None}
+            # those it left are its record's even where its current one cannot be read
+            current = notify.conversation_of(name)
+            for harness, conversation in (
+                    *((was.get("harness"), was.get("conversation")) for was in left),
+                    (current[0].name, current[3]) if current else (orch.seat_harness(seat), None)):
+                if not isinstance(harness, str) or not harness:
+                    return held, {None}
+                if isinstance(conversation, str) and conversation:
+                    held.add(conversation)
+                else:
+                    unknown.add(harness)
+    return held, unknown
 
 
 def conversation_stale(path, now, paths):
@@ -435,11 +480,13 @@ def conversation_stale(path, now, paths):
     return f"untouched for {int((now - at) // 86400)} days"
 
 
-def conversation_ends(path, *parts):
-    """Whether that conversation may go now: still stale, and each part of it its harness keeps
-    elsewhere (Muse's cached views) ours, reached through no link and held by nobody."""
+def conversation_ends(item, *parts):
+    """Whether that conversation may go now: still stale, held by no seat, and each part of it
+    its harness keeps elsewhere (Muse's cached views) ours, reached through no link and held by
+    nobody."""
     paths = tmp_processes()[0]
-    return (conversation_stale(path, time.time(), paths) is not None
+    return (conversation_stale(Path(item["path"]), time.time(), paths) is not None
+            and conversation_free(item["harness"], item["conversation"])
             and all(retention.safe(part) and not retention.busy(part, paths) for part in parts))
 
 
@@ -1121,16 +1168,17 @@ def gc(report, automatic=False):
                             continue
                         try:
                             if "id" in item:
-                                # its harness asked again now: one updated since stays, and
-                                # one whose store is reached through a link
+                                # its harness asked again now: one updated since stays, one
+                                # whose store is reached through a link, and one a seat holds
                                 idle = {"harness": item["harness"], "id": item["id"]}
                                 done = end_conversation(
                                     item["harness"], item["id"], lambda *parts: all(
                                         map(retention.safe, parts)) and idle
-                                    in idle_conversations(time.time() - RUN_DIR_AGE))
+                                    in idle_conversations(time.time() - RUN_DIR_AGE)
+                                    and conversation_free(item["harness"], item["id"]))
                             else:
                                 end_conversation(item["harness"], path,
-                                                 lambda *parts: conversation_ends(path, *parts))
+                                                 lambda *parts: conversation_ends(item, *parts))
                                 done = not retention.present(path)
                         except (OSError, subprocess.SubprocessError):
                             balked.add(item["harness"])    # one failure, not one per conversation

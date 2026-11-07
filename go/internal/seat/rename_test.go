@@ -185,7 +185,7 @@ func TestRenameUndoesTmuxForARecordItCannotKeep(t *testing.T) {
 	home := sandbox(t)
 	state := filepath.Join(home, ".agentkit", "state")
 	live(t, "acme")
-	held := `{"unnamed": true, "conversation": "conv-acme", "cwd": "/code/acme-\udcff"}`
+	held := `{"unnamed": true, "conversation": "conv-acme", "cwd": "/code/acme-\ud800"}`
 	write(t, filepath.Join(state, "session-acme.json"), held)
 	write(t, filepath.Join(state, "plan-beta.md"), "- [ ] a gone seat's\n")
 	if known, err := (carry{state, tmux.Own(), "acme", "beta", false}).do(time.Now()); known || err != nil {

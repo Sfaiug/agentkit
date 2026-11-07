@@ -38,12 +38,13 @@ func OwnerMessages(name string) (string, []transcript.Prompt, error) {
 	if record == nil {
 		return "", nil, nil
 	}
-	return ownerIn(current, config.SeatHarness(current), record)
+	return ownerIn(current, config.SeatHarness(current), record, "")
 }
 
-// ownerIn is OwnerMessages of the conversation the seat's record names, as that harness keeps it.
-func ownerIn(current, kind string, record map[string]any) (string, []transcript.Prompt, error) {
-	owned, messages, known := transcript.Typed(kind, record)
+// ownerIn is OwnerMessages of the conversation the seat's record names, as that harness keeps it:
+// the named one where the caller knows it (transcript.Typed).
+func ownerIn(current, kind string, record map[string]any, named string) (string, []transcript.Prompt, error) {
+	owned, messages, known := transcript.Typed(kind, record, named)
 	if !known {
 		return "", nil, ErrUnread
 	}

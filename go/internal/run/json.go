@@ -240,8 +240,8 @@ func numeric(value any) (float64, bool) {
 	return Num(value)
 }
 
-// ErrLoneSurrogate is a \ud800-\udfff escape that is not half of a pair: Python reads it, and
-// a Go string cannot keep it.
+// ErrLoneSurrogate is a \ud800-\udfff escape that is not half of a pair, nor a byte no UTF-8
+// holds as quote writes one: Python reads it, and a Go string cannot keep it.
 var ErrLoneSurrogate = errors.New("a lone surrogate")
 
 // ErrLimit is JSON that Python reads or refuses as the limits it runs under say: an int longer
@@ -416,6 +416,7 @@ func (p *parser) text() (string, error) {
 	start := p.at
 	p.at++
 	var out []byte
+	escaped := 0 // bytes no UTF-8 holds, as quote writes them
 	for {
 		if p.at == len(p.data) {
 			return "", p.fail("Unterminated string starting at", start)
@@ -424,6 +425,17 @@ func (p *parser) text() (string, error) {
 		p.at++
 		switch {
 		case c == '"':
+			// escaped bytes that read together as UTF-8 are a string Python keeps apart from it
+			for rest := out; escaped > 0 && len(rest) > 0; {
+				r, size := utf8.DecodeRune(rest)
+				if r == utf8.RuneError && size == 1 {
+					escaped--
+				}
+				rest = rest[size:]
+			}
+			if escaped > 0 {
+				return "", ErrLoneSurrogate
+			}
 			return string(out), nil
 		case c < ' ':
 			return "", p.fail("Invalid control character at", p.at-1)
@@ -454,10 +466,15 @@ func (p *parser) text() (string, error) {
 					p.at = next
 				}
 			}
-			if utf16.IsSurrogate(r) && !p.shown {
+			switch {
+			case p.shown || !utf16.IsSurrogate(r):
+				out = utf8.AppendRune(out, r)
+			case r >= 0xdc80 && r <= 0xdcff:
+				out = append(out, byte(r))
+				escaped++
+			default:
 				return "", ErrLoneSurrogate
 			}
-			out = utf8.AppendRune(out, r)
 		}
 	}
 }

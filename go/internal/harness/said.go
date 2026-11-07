@@ -30,13 +30,18 @@ type Prompt struct {
 // Typed is what the user side typed in the conversation that seat's record owns, oldest first, and
 // that conversation, as Python's plugin `conversation` and `user_messages` read them: nothing for
 // a seat owning none (notify.owner_messages); false where that harness has no reader of its own,
-// or Owned does not know the conversation.
-func Typed(name string, record map[string]any) (conversation string, typed []Prompt, known bool) {
+// or Owned does not know the conversation.  A named one is that conversation, one the seat left,
+// which no evidence of the record's names any more (notify.conversations_of).
+func Typed(name string, record map[string]any, named string) (conversation string, typed []Prompt, known bool) {
 	own := plugins[name]
 	if own.owned == nil && own.typed == nil {
 		return "", nil, false
 	}
-	if conversation, known = Owned(name, record); !known || conversation == "" || own.typed == nil {
+	conversation, known = named, true
+	if named == "" {
+		conversation, known = Owned(name, record)
+	}
+	if !known || conversation == "" || own.typed == nil {
 		return "", nil, known && conversation == ""
 	}
 	typed = own.typed(conversation)

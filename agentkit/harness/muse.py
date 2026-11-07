@@ -385,7 +385,7 @@ def session_logs(session):
 def conversation_stores():
     """Each session's folder: Muse ends none (in 1.4.11 a `session_retention_days` of 1 left a
     session five days old, and no command removes one)."""
-    return [{"root": sessions(), "pattern": "[0-9]*/[0-9]*/[0-9]*/*/"}]
+    return [{"root": sessions(), "pattern": "[0-9]*/[0-9]*/[0-9]*/*/", "id": re.compile("(.+)")}]
 
 
 def end_conversation(path, ends):
@@ -594,7 +594,7 @@ def user_messages(record, cwd, conversation):
     """What `typed` reads, dated when Muse recorded it, in microseconds as `seat_token_usage`
     reads them; a line dated otherwise is nobody's answer."""
     from . import entries, user_message
-    for entry in entries(session_log(conversation)):
+    for entry in entries(read_by(record, cwd, conversation)):
         at = entry.get("recorded_at")
         kept = type(at) is int and user_message(at / 1_000_000, typed(entry))
         if kept:
@@ -607,7 +607,7 @@ def answers(record, cwd, conversation):
     card named by its prompt and tool call, as `card` names one.  An Esc's settling picks none."""
     from . import entries
     asked = {}
-    for entry in entries(session_log(conversation)):
+    for entry in entries(read_by(record, cwd, conversation)):
         request = run_event(entry, "user_input_prompt_requested")
         done = run_event(entry, "user_input_prompt_settled")
         at, said = entry.get("recorded_at"), []
@@ -693,6 +693,11 @@ def running(record, cwd, conversation):
     effort = ((record.get("efforts") or {}).get(record.get("orchestrator")) or {}).get("effort")
     return ((model(entry), effort, entry["recorded_at"] / 1_000_000)
             if entry else None)
+
+
+def read_by(record, cwd, conversation):
+    """The log its messages and answers are read from."""
+    return session_log(conversation)
 
 
 def session_log(conversation):

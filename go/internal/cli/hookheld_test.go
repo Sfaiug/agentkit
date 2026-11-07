@@ -119,7 +119,7 @@ func TestOpenWorkInAConversationGoCannotReadIsLeftToPython(t *testing.T) {
 	var out bytes.Buffer
 	stop := `{"hook_event_name": "Stop", "last_assistant_message": "Waiting for your answer.", "transcript_path": "` +
 		filepath.ToSlash(filepath.Join(state, "chat.jsonl")) + `"}`
-	if code := orchestratorStop([]byte(stop), &out); code != leftToPython || out.Len() > 0 {
+	if code := orchestratorStop([]byte(stop), &out); code != 3 || out.Len() > 0 {
 		t.Fatalf("exit %d, %q", code, out.String())
 	}
 	if data, _ := os.ReadFile(filepath.Join(state, "stop-acme.json")); string(data) != latch {

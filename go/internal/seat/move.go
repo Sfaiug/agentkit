@@ -22,12 +22,11 @@ const movedLine = "This seat moved to you in the middle of a turn. Continue that
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
 // run by `own`), the fields it takes (`chosen`), and its orchestrator's effort where one is given
-// (`effort` on `model`, its entry among `models`); a restart's first line, and when it began.
+// (`effort` on `model`, its entry among `models`); when a restart began.
 type seatMove struct {
 	was, own, model, effort string
 	models                  map[string]config.Model
 	chosen                  []field
-	line                    string
 	at                      float64
 }
 
@@ -45,8 +44,8 @@ type plannedMove struct {
 // seat's own), as orch.switch_orchestrator does: in place, asking nothing, where its running
 // harness takes the move (switchPane), else by a fresh-conversation restart once `asked` says so.
 // Given an effort, its own model moves as another would.  Refusals of _switch_plan, a move in
-// place its harness's plugin judges or after which a turn its usage cut off goes on, kept
-// conversations, drafts and dialogs return before asked.  The launch, including its rollback,
+// place its harness's plugin judges, into a harness Go types nothing into or after which a turn
+// its usage cut off goes on, kept conversations, drafts and dialogs return before asked.  The launch, including its rollback,
 // remains the one reopening uses.
 func Move(name, model, effort string, asked func() (bool, bool)) (bool, error) {
 	plan, known := planMove(name, model, effort)
@@ -120,7 +119,7 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 		entry.Efforts = at
 	}
 	pane, err := switchPane(name, was, entry)
-	if err != nil || !efforts || pane != "" && (harness.AsksSwitchable(entry.Harness) || usageGoesOn(name)) {
+	if err != nil || !efforts || pane != "" && (harness.AsksSwitchable(entry.Harness) || !typable(entry.Harness) || usageGoesOn(name)) {
 		return nil, false
 	}
 	plan := &plannedMove{name: name, pane: pane, was: was, record: record, selected: selected,
@@ -162,7 +161,7 @@ func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
 	moving.at = seconds(time.Now())
 	going, _ := found.turnInFlight(was.Harness)
 	if going || usageGoesOn(name) {
-		moving.line = movedLine
+		back.line = movedLine
 	}
 	text, known := harness.Handover(was.Harness, record)
 	if !known {
@@ -252,11 +251,11 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 	})
 }
 
-func (moving *seatMove) relaunched(name, own string) error {
-	if moving.line == "" {
+func (moving *seatMove) relaunched(name, own, line string) error {
+	if line == "" {
 		return nil
 	}
-	mark := run.Fields("boot", host.BootID(), "at", run.Float(moving.at), "name", name, "line", moving.line)
+	mark := run.Fields("boot", host.BootID(), "at", run.Float(moving.at), "name", name, "line", line)
 	launch, err := config.Section(own, "launch")
 	if err != nil {
 		return err

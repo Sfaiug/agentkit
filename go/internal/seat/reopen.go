@@ -32,9 +32,7 @@ const sessionStale = 7 * 86400
 var (
 	// launchKeys are what a launch writes about the conversation it owns and the rulebook it hands
 	// over (orch.LAUNCH_KEYS and `kept`), which a harness that never started takes back.
-	launchKeys = []string{"conversation", "resumable", "id_source", "before", "codex_launch", "codex_history",
-		"opencode_launch", "muse_launch", "antigravity_launch", "antigravity_open", "session_title", "title_sync",
-		"rulebook_sha", "rulebook_told", "rulebook_read"}
+	launchKeys = slices.Concat(harness.LaunchKeys, []string{"rulebook_sha", "rulebook_told", "rulebook_read"})
 	// cleared are what a seat launched under its name again no longer is, in its seat file: not the
 	// stopped one nor the one the owner closed, running none of the work the last one's screen showed
 	// and sent back by nothing yet.
@@ -348,9 +346,6 @@ func cutOff(name, own string, file *run.Object) bool {
 // is told: the rulebook written for it.  The adapter's refusal where none opens.
 func (seat reopening) command(told []string) ([]string, string, error) {
 	env := slices.Concat(os.Environ(), []string{"AGENTKIT_SESSION=" + seat.name, "AGENTKIT_FIRST_PROMPT=" + seat.line, "AGENTKIT_ACCOUNT=" + seat.account}, told)
-	if seat.moving != nil {
-		env = append(env, "AGENTKIT_FIRST_PROMPT="+seat.moving.line)
-	}
 	if seat.conversation == "" {
 		return adapters.Fresh(seat.orchestrator, seat.model, env, seat.cwd)
 	}
@@ -500,7 +495,7 @@ func (seat reopening) launch(state, rulebook string, cmd []string, conversation 
 			if err := seat.moving.launch(state, current, perform); err != nil {
 				return err
 			}
-			return seat.moving.relaunched(current, seat.model.Harness)
+			return seat.moving.relaunched(current, seat.model.Harness, seat.line)
 		}
 		return perform()
 	})

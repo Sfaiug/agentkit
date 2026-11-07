@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"cmp"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,13 +18,16 @@ import (
 // AK_CHANGED naming a file of the paths the change edits relative to the target, so a sibling merged
 // since meets the change here rather than in the landing line.  A red whose failing tests all fail
 // again on that target alone (AK_ONLY) is the target's, not the change's: it passes, and says which.
-// A merge that conflicts and a suite in pieces are Python's, before anything is written.
+// A sibling that arrived during the checks and conflicts is landing's to bring in, in conflict rounds
+// outside the task budget: the round judges its own work merged onto the target it last integrated
+// with.  A suite in pieces is Python's, before anything is written.
 func (r *repoPlace) affectedSuite(l *loop) (bool, string, error) {
 	upstream := r.upstream()
 	if upstream == "" || r.noMerge || !namesChanged.MatchString(gitcall.Suite(r.wt, upstream)) {
 		return true, "", nil
 	}
-	if record, err := read(l); err != nil || record.Truthy("landing") {
+	record, err := read(l)
+	if err != nil || record.Truthy("landing") {
 		return true, "", err
 	}
 	g := l.git(r.wt)
@@ -54,20 +58,26 @@ func (r *repoPlace) affectedSuite(l *loop) (bool, string, error) {
 		return false, "", err
 	}
 	code, tree, err := c.Out("merge-tree", "--write-tree", "--name-only", tip, head)
+	if err == nil && code != 0 {
+		last := cmp.Or(record.Str("target_sha"), r.baseSHA)
+		l.say(fmt.Sprintf("done-when: %s moved to %s with a change conflicting with this one, which landing brings in; the round meets %s", upstream, tip[:12], last[:12]))
+		tip = last
+		code, tree, err = c.Out("merge-tree", "--write-tree", "--name-only", tip, head)
+	}
 	if err != nil {
 		return false, "", err
-	}
-	if code != 0 {
-		return false, "", notYet(fmt.Sprintf("%s moved to %s with a change conflicting with this one", upstream, tip[:12]), "the round's suite on the target it last met")
 	}
 	suite := gitcall.Suite(r.wt, tip)
 	if !namesChanged.MatchString(suite) {
 		return true, "", nil
 	}
+	where := fmt.Sprintf("%s merged onto %s at %s", head[:12], upstream, tip[:12])
+	if code != 0 {
+		return false, fmt.Sprintf("$ %s\n[not run: %s does not merge cleanly]\n%s", suite, where, tree), nil
+	}
 	if namesShard.MatchString(suite) {
 		return false, "", notYet("the round's suite names AK_SHARD", "a round's suite in pieces")
 	}
-	where := fmt.Sprintf("%s merged onto %s at %s", head[:12], upstream, tip[:12])
 	tree, _, _ = strings.Cut(tree, "\n")
 	merged, err := l.git(checkout, gitcall.Stamp...).Must("commit-tree", tree, "-p", tip, "-p", head, "-m", where)
 	if err != nil {

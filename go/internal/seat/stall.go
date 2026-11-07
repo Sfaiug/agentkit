@@ -2,7 +2,6 @@ package seat
 
 import (
 	"fmt"
-	"path/filepath"
 	"slices"
 
 	"agentkit/internal/config"
@@ -63,8 +62,7 @@ func KeepStall(live Live, held *run.Object, now float64) (*run.Object, string, b
 	return entry, fmt.Sprintf("%s: %v for %s; nothing is typed until it has stood for %d minutes", live.Name, live.Stall, span(quiet), stallWait/60), true
 }
 
-// stallHeld is whether watch.json holds a stall of that seat's.
-func stallHeld(name string) bool {
-	data, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "watch.json"))
-	return data != nil && data.Dict("stalls") != nil && data.Dict("stalls").Truthy(name)
+// stallHeld is whether the climb's watch.json holds a stall of the seat's.
+func (facts climbing) stallHeld() bool {
+	return facts.tick != nil && facts.tick.Dict("stalls") != nil && facts.tick.Dict("stalls").Truthy(facts.name)
 }

@@ -138,10 +138,10 @@ func SeatTokens() bool {
 		}
 		return nil
 	})
-	if errors.Is(err, errUntold) || errors.Is(err, errRepair) {
+	if errors.Is(err, errUntold) || errors.Is(err, errOwed) {
 		return false
 	}
-	warn(nil, err)
+	warned(nil, err)
 	return true
 }
 

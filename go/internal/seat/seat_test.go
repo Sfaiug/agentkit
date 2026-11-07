@@ -217,6 +217,14 @@ func TestHomesGoKnows(t *testing.T) {
 			},
 			[]row{{"acme", "no project", "idle", "no runs yet", "astra", "astra", closed + " · starts a new Codex conversation"}},
 		},
+		"the deliveries its plan owes a verification, their count mid-replace too": {
+			func(t *testing.T, home string) {
+				record(t, home, "acme", nil)
+				write(t, filepath.Join(home, ".agentkit", "state", "unverified-acme.txt"), "1\n")
+				write(t, filepath.Join(home, ".agentkit", "state", "unverified-acme.txt.new"), "2\n")
+			},
+			[]row{{"acme", "no project", "idle", "no runs yet", "opus", "opus", closed}},
+		},
 		"a Claude record with no conversation has no row": {
 			func(t *testing.T, home string) { record(t, home, "acme", map[string]any{"conversation": ""}) },
 			nil,

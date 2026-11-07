@@ -51,12 +51,12 @@ type piece struct {
 // first where the suite holds none, and a go told it holds one that answers busy never ran: its
 // first beside the others or any go after, it goes again alone once its turn was given back for a
 // poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
-// dropped where it hands the suite on.  The suite ends as its first red piece did, and hands on
-// what handedOn says, its cost raised where it ran out of memory, however it ended, but where it is
-// handed on (overflowed).
+// dropped where it hands the suite on.  Once the pieces ended, before any go after them, the pass
+// keeps what it held here as the suite's cost (measure).  The suite ends as its first red piece
+// did, and hands on what handedOn says, its cost raised where it ran out of memory, however it
+// ended, but where it is handed on (overflowed).
 //
-// What Python does beyond that is not Go's yet and differs here: the suite's pace and the cost it
-// held measured for its next run.
+// What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
 	asked := clock() // each piece's first go is asked for now, a later one as the one before it ends
 	cpus, memory := suiteCost(l.dir, cwd, cmd)
@@ -73,6 +73,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 	}
 	ctx, cancel := context.WithCancelCause(l.ctx)
 	defer cancel(nil)
+	measured := l.measuring(ctx)
 	alone := *l
 	alone.ctx = ctx // a piece stopped at its limit ends its siblings, never the run
 	var held sync.Mutex
@@ -158,7 +159,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 	defer func() {
 		// before the reds above are kept, as a cost Go cannot write back ends the suite in error
 		if !errors.Is(err, helper.ErrPython) {
-			err = cmp.Or(err, overflowed(l.ctx, suitePath(l.dir, cwd, cmd), ooms, memory))
+			err = cmp.Or(err, overflowed(l.ctx, suitePath(l.dir, cwd, cmd), ooms, memory, measured.mem))
 		}
 	}()
 	close(waiting)
@@ -182,13 +183,16 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		place(away)
 	}
 	var joined []*helper.Away
-	if away != nil {
+	// a helper that takes the suite while a piece waits runs waiting pieces too, whether the suite
+	// began there or on a turn here, as Python's ask does
+	if away != nil || on.holds() {
 		started.Add(1)
 		go func() {
 			defer started.Done()
 			joined = alone.grow(cwd, cpus, memory, cmd, waiting, place)
 		}()
-	} else if on.holds() {
+	}
+	if on.holds() {
 		started.Add(1)
 		go func() {
 			defer started.Done()
@@ -207,6 +211,9 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		}
 	}
 	if err != nil {
+		return ran{}, "", err
+	}
+	if err := measured.kept(l.ctx, suitePath(l.dir, cwd, cmd), all, on); err != nil {
 		return ran{}, "", err
 	}
 	// a go that answered busy never ran: alone, it goes again each time once its turn was given back

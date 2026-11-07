@@ -9,15 +9,15 @@ Offline: the files of this checkout.
 """
 
 import ast
-from importlib.machinery import BuiltinImporter, FrozenImporter, PathFinder
-from importlib.util import resolve_name
+from importlib.machinery import BuiltinImporter, FrozenImporter, ModuleSpec, PathFinder
+from importlib.util import module_from_spec, resolve_name
 from pathlib import Path
 import sys
 import unittest
 
 REPO = Path(__file__).resolve().parents[1]
 # The keys that imported agentkit when this check came (7 Nov 2026): the set only shrinks.
-BEFORE = {"test_key_a_tick_reads_each_run_once", "test_key_health_needs_a_working_ak",
+BEFORE = {"test_key_health_needs_a_working_ak",
           "test_key_no_line_is_typed_into_a_composer_ak_cannot_read_whole",
           "test_key_red_tests_rerun_at_once", "test_key_seat_runs_the_live_ak"}
 
@@ -27,8 +27,10 @@ def importers(tests):
     under `tests` their imports load.  A module is the one Python's own finders give, searched as
     a key's process searches: `tests` first, then the rest of this process's sys.path, as this
     runs from tests/ too.  Finding runs no module's code, and a folder under tests/ holds no
-    __init__.py, so a package there holds nothing but its modules."""
+    __init__.py, so a package there is a namespace package: it holds nothing but its modules
+    and the names Python gives every namespace package."""
     path, specs, statements = [str(tests), *sys.path[1:]], {}, {}
+    namespace = module_from_spec(ModuleSpec("namespace", None, is_package=True))
 
     def spec(name):
         if name not in specs:
@@ -46,7 +48,8 @@ def importers(tests):
         """Each import statement in `file`: the dots before its module's name, that name, and
         the names a `from` takes from it, none for a plain import of each of its names."""
         if file not in statements:
-            nodes = ast.walk(ast.parse(Path(file).read_text()))
+            # Bytes, so the parser decodes them as Python running them does: a BOM, a coding line.
+            nodes = ast.walk(ast.parse(Path(file).read_bytes()))
             statements[file] = [found for node in nodes for found in (
                 [(0, alias.name, ()) for alias in node.names] if isinstance(node, ast.Import)
                 else [(node.level, node.module or "", [alias.name for alias in node.names])]
@@ -66,8 +69,11 @@ def importers(tests):
                 parts = module.split(".")
                 if parts[0] == "agentkit":
                     return True
+                # A from-list loads a package's module only for a name the package lacks, and a
+                # star only the names in its __all__, which no namespace package has.
                 for loaded in [*(".".join(parts[:end]) for end in range(1, len(parts) + 1)),
-                               *(f"{module}.{taken}" for taken in names)]:
+                               *(f"{module}.{taken}" for taken in names
+                                 if taken != "*" and not hasattr(namespace, taken))]:
                     found = spec(loaded)
                     if (loaded not in seen and found.has_location
                             and Path(found.origin).is_relative_to(tests)):

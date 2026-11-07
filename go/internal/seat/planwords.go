@@ -44,7 +44,7 @@ func stopEpisode(own string, file *run.Object) (any, error) {
 // usage recovery or a stall the tick holds has its own rule.
 func (facts climbing) goesBack() (bool, error) {
 	if facts.own == "" || facts.file.Str("stop_said") == "" || facts.found.state != "at_prompt" ||
-		facts.found.authority == "" || facts.file.Truthy("unasked") || facts.file.Truthy("usage_refusal") || stallHeld(facts.name) {
+		facts.found.authority == "" || facts.file.Truthy("unasked") || facts.file.Truthy("usage_refusal") || facts.stallHeld() {
 		return false, nil
 	}
 	episode, err := stopEpisode(facts.own, facts.file)

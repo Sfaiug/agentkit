@@ -6,12 +6,14 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handover"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
-// leftToPython is the exit of a hook that prints nothing, for what Go cannot read as Python does.
-const leftToPython = 3
+// leftToPython is the exit of a hook that prints nothing, for what Go cannot read as Python does,
+// handed over where it is called.
+func leftToPython() int { return handover.Exit(handover.Here(1)) }
 
 // questionCard decides the card the seat's harness is about to draw, as the stop hook's PreToolUse
 // does: a refused one gets the harness's deny on out; one that goes up has each question it asks
@@ -19,7 +21,7 @@ const leftToPython = 3
 func questionCard(name string, event *run.Object, out io.Writer) int {
 	refused, err := seat.QuestionRefused(name)
 	if err != nil {
-		return leftToPython
+		return leftToPython()
 	}
 	if refused != "" {
 		decision := run.NewObject()
@@ -42,7 +44,7 @@ func questionCard(name string, event *run.Object, out io.Writer) int {
 		}
 		text, _ := asked.Get("question").(string)
 		if strings.TrimFunc(text, config.Space) != "" && seat.Keep(name, text) != nil {
-			return leftToPython
+			return leftToPython()
 		}
 	}
 	return 0

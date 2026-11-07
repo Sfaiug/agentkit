@@ -67,11 +67,11 @@ func Scope(g gitcall.Git, base, head string, specs []string) (string, error) {
 		return "", err
 	}
 	diff := c.diff("--name-only", "--no-renames", "-z")
-	changed, err := g.Must(diff...)
+	changed, err := g.Raw(diff...)
 	if err != nil {
 		return "", fmt.Errorf("files: %w", err)
 	}
-	inside, err := g.Must(append(diff, append([]string{"--"}, specs...)...)...)
+	inside, err := g.Raw(append(diff, append([]string{"--"}, specs...)...)...)
 	if err != nil {
 		return "", fmt.Errorf("files: %w", err)
 	}
@@ -80,7 +80,7 @@ func Scope(g gitcall.Git, base, head string, specs []string) (string, error) {
 	if len(outside) == 0 {
 		return "", nil
 	}
-	return "outside files: " + strings.Join(outside, ", "), nil
+	return shown("outside files: " + strings.Join(outside, ", ")), nil
 }
 
 // Check is Python's rules_check: the refusal of a change that grows prose past what it may hold,

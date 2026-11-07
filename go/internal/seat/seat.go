@@ -39,6 +39,8 @@ type Seat struct {
 	Created                                           float64
 	reason, restart                                   string
 	since, repo                                       any
+	anew                                              bool     // its since begins its word again (answer.anew)
+	login                                             bool     // its word is the tick's news of a login (answer.login)
 	infer                                             bool     // the record holds no repo
 	unowned                                           bool     // its harness owns no conversation: only the owner's close can keep its row
 	closed                                            bool     // its seat file holds the owner's stop mark
@@ -89,10 +91,11 @@ func unreadRuns(time.Time) (map[string][]ran, bool) { return nil, false }
 func (home Home) Seatless() bool { return len(home.records) == 0 }
 
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
-// file's, its typing lock, the plan of a seat the owner stopped, whose word no plan decides, and
-// the latch its stop hook keeps a turn's start in, which no word reads.
+// file's, its typing lock, the plan of a seat the owner stopped, whose word no plan decides, the
+// count of deliveries its plan owes a verification, mid-replace too, which only a verification
+// reads, and the latch its stop hook keeps a turn's start in, which no word reads.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "stop": {"json"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "unverified": {"txt", "txt.new"}, "stop": {"json"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
@@ -384,7 +387,7 @@ func recorded(state, name string, record *run.Object, models map[string]config.M
 
 // working is the reason and the since of a seat its runs keep working, as watch.session_state
 // gives them: how many run, the first gone quiet for an hour by name, and the title of that one
-// or else of the last started.
+// or else of the last started, or where that one waits in its landing line.
 func working(going []ran) (string, any) {
 	var since any
 	newest := going[0]
@@ -404,6 +407,9 @@ func working(going []ran) (string, any) {
 			parts = append(parts, "silent "+terminal.FormatAge(each.quiet))
 			break
 		}
+	}
+	if place := run.LinePlace(newest.record, newest.name); place != "" {
+		return place, since
 	}
 	title := newest.record.Str("title")
 	if title == "" {
@@ -543,7 +549,7 @@ func (seat *Seat) published(state string, now time.Time, models map[string]confi
 	if previous == nil {
 		previous = run.NewObject()
 	}
-	since := begun(previous, seat.Word, seat.since, now)
+	since := begun(previous, seat.Word, seat.since, seat.anew, now)
 	seat.since = since
 	wordFrom := seat.wordFrom
 	if wordFrom == nil {

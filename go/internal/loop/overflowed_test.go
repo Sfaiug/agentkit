@@ -44,8 +44,9 @@ func overflowing(t *testing.T, suite, cost string) (*loop, string) {
 }
 
 // A suite's pass in pieces during which its cgroup ran out of memory, its first piece red, prices
-// the suite at twice the memory per piece it was planned at, its other fields kept, and its next pass
-// is cut into at most half as many pieces; that pass, which did not run out, leaves the cost as it was.
+// the suite at twice the memory per piece it was planned at, its other fields kept beside the CPUs
+// its pass measured, and its next pass is cut into at most half as many pieces; that pass, which did
+// not run out, leaves the cost as it was.
 func TestAnOverflowedPassCostsTwiceItsPlan(t *testing.T) {
 	// the kernel reclaimed, killing nothing: only `oom` counts the overflow
 	suite := `echo "$AK_SHARD" >>shards
@@ -62,10 +63,10 @@ case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; 
 		written, _ := os.ReadFile(cost)
 		return pieces, string(written)
 	}
-	if pieces, kept := pass(); pieces != "4" || kept != `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 1000, "quiet": [12]}` {
+	if pieces, kept := pass(); pieces != "4" || kept != `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 1000, "quiet": [12], "cpus": 0.7}` {
 		t.Fatalf("the overflowed pass ran in %s pieces and left the cost %s", pieces, kept)
 	}
-	if pieces, kept := pass(); pieces != "2" || kept != `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 1000, "quiet": [12]}` {
+	if pieces, kept := pass(); pieces != "2" || kept != `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 1000, "quiet": [12], "cpus": 0.7}` {
 		t.Fatalf("the next pass ran in %s pieces and left the cost %s", pieces, kept)
 	}
 }

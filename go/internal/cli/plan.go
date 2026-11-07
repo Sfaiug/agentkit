@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"agentkit/internal/config"
+	"agentkit/internal/handover"
 	"agentkit/internal/plan"
 	"agentkit/internal/terminal"
 )
@@ -21,6 +22,9 @@ func init() { commands["plan"] = runPlan }
 // runPlan adds a line to the seat's plan (`add`), puts another check on one (`check`), or
 // lists the plan.
 func runPlan(args []string, out, errOut io.Writer) int {
+	if len(args) > 0 {
+		handover.Runs("plan " + args[0]) // validatePlan let through only add and check
+	}
 	// a number in digits ASCII lacks, as validatePlan let through, or a check Go cannot read: Python's
 	if len(args) > 0 && args[0] == "check" && (!config.Digits(args[1]) || !utf8.ValidString(args[2])) {
 		return notImplemented(errOut, "plan")

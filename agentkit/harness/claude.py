@@ -76,7 +76,7 @@ def keep(record, cwd, conversation):
         pass        # no transcript yet, a link made already, or none can be made
 
 
-def read_by(record, conversation):
+def read_by(record, cwd, conversation):
     """The names that conversation's transcript is read by, in order (`harness.entries`):
     Claude's own while it is there, then ak's (`kept`), the same file Claude deleted.  None
     where the seat has no conversation or no checkout."""
@@ -264,17 +264,13 @@ def answer(entry):
 
 def said(record, cwd, conversation):
     from . import turns
-    names = read_by(record, conversation)
+    names = read_by(record, cwd, conversation)
     # a conversation nobody typed into has no file yet: it said nothing
     return (turns(names, prompt, answer) or []) if names else None
 
 
 def user_messages(record, cwd, conversation):
-    from . import entries, user_message
-    for entry in entries(read_by(record, conversation)):
-        kept = user_message(entry.get("timestamp"), prompt(entry))
-        if kept:
-            yield kept
+    return owner(record, cwd, conversation)[0]
 
 
 # What a card's result records as the pick of a question the owner only wrote notes on (2.1.318).
@@ -287,9 +283,33 @@ def answers(record, cwd, conversation):
     or the words typed, then the notes added, then any free text written in place of a pick, as
     recorded when the owner sent the card or went idle on it.  A line no one said here (`UNSAID`),
     a subagent's card among them, holds no answer of the owner's."""
-    from . import entries, moment
-    cards = set()
-    for entry in entries(read_by(record, conversation)):
+    return owner(record, cwd, conversation)[1]
+
+
+def owner(record, cwd, conversation):
+    """(`user_messages`, `answers`) of that conversation, by the first of its transcript's names
+    there (`read_by`), from one parse of it in one read of the done check's (`harness.once`),
+    which asks for both."""
+    from . import once
+    names = read_by(record, cwd, conversation) or []
+
+    def parse():
+        for name in names:
+            try:
+                return _owner(name)
+            except FileNotFoundError:
+                continue        # gone since it was named: the next name is the same file
+        return [], []
+    return once((_owner, *names), parse)
+
+
+def _owner(path):
+    from . import moment, objects, user_message
+    messages, answered, cards = [], [], set()
+    for entry in objects(path):     # FileNotFoundError where it went since: `owner` reads on
+        kept = user_message(entry.get("timestamp"), prompt(entry))
+        if kept:
+            messages.append(kept)
         if any(entry.get(key) for key in UNSAID):
             continue
         said = []
@@ -317,7 +337,8 @@ def answers(record, cwd, conversation):
                                              for option in asked.get("options") or ()]})
         except (AttributeError, KeyError, TypeError):
             continue
-        yield from said
+        answered.extend(said)
+    return messages, answered
 
 
 def error(record, cwd, conversation):

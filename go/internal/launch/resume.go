@@ -11,7 +11,6 @@ import (
 	"agentkit/internal/box"
 	"agentkit/internal/config"
 	"agentkit/internal/helper"
-	"agentkit/internal/host"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
 	"agentkit/internal/task"
@@ -105,13 +104,8 @@ func goesOn(dir string, read, record *run.Object) bool {
 			loop.Raised(dir, read, record))
 }
 
-// driverHere is whether a driver can run on this host: placed, with meters it can read, its turns
-// on no provider's several accounts.
+// driverHere is whether a driver can run on this host: in a box, with meters it can read, its
+// turns on no provider's several accounts.
 func driverHere() bool {
-	return placed() && usage.Check() == nil && !accountTurns()
-}
-
-// placed is whether this host can hold a driver: a box, and no user manager to place the run under.
-func placed() bool {
-	return box.Supported && !host.UserManager()
+	return box.Supported && usage.Check() == nil && !accountTurns()
 }
