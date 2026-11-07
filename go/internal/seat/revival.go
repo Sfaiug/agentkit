@@ -94,7 +94,7 @@ func (seat Seat) lastSeen() (sight, error) {
 }
 
 func revivalFile(name string) *run.Object {
-	file, _ := run.ReadJSON(seatFile(name))
+	file, _ := asLeft(seatFile(name))
 	if file == nil {
 		return run.NewObject()
 	}
@@ -205,8 +205,8 @@ func (seat Seat) reviveTurn(now time.Time, cut owed, log func(string), errOut io
 	if err := os.WriteFile(rulebook, []byte(text), 0o666); err != nil {
 		return true, err
 	}
-	cmd, conversation, known := back.command([]string{"AGENTKIT_RULEBOOK=" + rulebook})
-	if !known {
+	cmd, conversation, err := back.command([]string{"AGENTKIT_RULEBOOK=" + rulebook})
+	if err != nil {
 		return false, nil
 	}
 	held, exited, known := find(seat.Name, record)

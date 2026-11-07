@@ -39,20 +39,27 @@ var codexEffort = regexp.MustCompile(`^[A-Za-z0-9_.-]*$`)
 // does, with Go's wrapper where tools/codex-seat.py is: the rulebook it is handed, then `codex`,
 // resumed on the thread its record owns, at the model (none for `default`) and effort, with the
 // repository's AGENTS.md kept out (the rulebook holds it), its first prompt last after a `--`.
-// An account's Codex home is codex.sh's to make, so Python opens that seat.
+// On an account, in that account's Codex home, which it makes, with the usual login's keys unset.
 func codexInteractive(root string, args []string, out, errOut io.Writer) int {
+	account := os.Getenv("AGENTKIT_ACCOUNT") != ""
+	homed := func() bool {
+		err := codexAccountHome(codexLogin())
+		if err != nil {
+			fmt.Fprintf(errOut, "codex interactive: %v\n", err)
+		}
+		return err == nil
+	}
 	switch {
 	case len(args) < 2:
 		fmt.Fprintln(errOut, "codex interactive needs <model> <effort> [session-id [new]]")
+		return 2
+	case account && !homed():
 		return 2
 	case len(args) > 3 && args[3] == "new":
 		// the TUI takes no thread id of anyone else's making; the seat's SessionStart receipt
 		// records the one it opens
 		fmt.Fprintln(errOut, "codex interactive: the TUI cannot be given a thread id")
 		return 3
-	case os.Getenv("AGENTKIT_ACCOUNT") != "":
-		fmt.Fprintln(errOut, "ak adapter: codex interactive on an account is not carried out in Go yet")
-		return 2
 	case !codexEffort.MatchString(args[1]):
 		fmt.Fprintf(errOut, "codex interactive: effort '%s' is not a plain word\n", args[1])
 		return 2
@@ -62,7 +69,11 @@ func codexInteractive(root string, args []string, out, errOut io.Writer) int {
 		fmt.Fprintln(errOut, "codex interactive: no rulebook for this seat")
 		return 2
 	}
-	line := []string{"env", "AGENTKIT_RULEBOOK=" + rulebook, filepath.Join(root, "bin", "ak"), "adapter", root, "codex", "seat", "--", "codex"}
+	line := []string{"env"}
+	if account { // the printed line runs later, outside this environment: it carries the login
+		line = append(line, "-u", "OPENAI_API_KEY", "-u", "CODEX_API_KEY", "CODEX_HOME="+codexLogin())
+	}
+	line = append(line, "AGENTKIT_RULEBOOK="+rulebook, filepath.Join(root, "bin", "ak"), "adapter", root, "codex", "seat", "--", "codex")
 	if len(args) > 2 && args[2] != "" {
 		line = append(line, "resume", args[2])
 	}
@@ -89,6 +100,7 @@ func codexServeSeat(words, env []string, errOut io.Writer, terminal func(words, 
 	}
 	cmd, prompt := slices.Clone(words[:at]), words[at:]
 	codexTrustHere()
+	cmd = append(cmd, codexAccountFlags(env)...)
 	rulebook := os.Getenv("AGENTKIT_RULEBOOK")
 	rules, err := os.ReadFile(rulebook)
 	if err != nil {

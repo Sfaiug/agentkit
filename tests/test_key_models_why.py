@@ -1,6 +1,5 @@
-"""↑/↓ on the models screen move a pointer over the rows its answer shows, from the first role's
-pick.
-⏎ opens the pointed row's why: its quality and cost, how far behind the role's best it is, and
+"""⏎ on the models screen opens the why of the row the role `▸` is on uses: its quality and
+cost, how far behind the role's best it is, and
 each measure's points behind and how it was got; Esc returns with the pointer where it was.  On
 40 cells each measure's how takes a line under it.
 
@@ -9,7 +8,6 @@ harnesses fakes listing invented models, the boards held as just asked with inve
 judged by the screen.  Fails against /bin/false.
 """
 
-import re
 import sys
 from pathlib import Path
 import unittest
@@ -88,13 +86,19 @@ class ModelsWhy(unittest.TestCase):
         cls.home = home = Home()
         cls.addClassCleanup(home.close)
         fakes = fakeadapter.install(home, claude="pass", codex="pass")
-        fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n")
+        fakes["claude"].answer("models", "acme-mid-5\tAcme Mid 5\tlow medium high xhigh max\n"
+                                         "acme-max-5\tAcme Max 5\thigh max\n")
         fakes["codex"].answer("models", "bolt-3\tBolt 3\tlow medium high\ncrux-2\tCrux 2\tlow\n")
 
     def setUp(self):
-        akconfig.write(self.home, {"mid": {"harness": "claude", "model": "acme-mid-5", "effort": "low"},
-                                   "bolt": {"harness": "codex", "model": "bolt-3", "effort": "low"}})
+        self.write("max")
         self.home.write(".agentkit/state/boards.json", boards())
+
+    def write(self, worker):
+        """Crux 2 at low orchestrates new seats, and `worker` builds them."""
+        akconfig.write(self.home, {"crux": {"harness": "codex", "model": "crux-2", "effort": "low"},
+                                   "max": {"harness": "claude", "model": "acme-max-5"}},
+                       orchestrator="crux", workers=[worker])
 
     def models(self, width=78, height=60):
         """`r` on `c` in a window of its own, once the answer is drawn."""
@@ -114,28 +118,22 @@ class ModelsWhy(unittest.TestCase):
             screen.rstrip())[-1] == "  esc back"))
         return shown[shown.index(next(line for line in shown if line.startswith("  why "))):]
 
-    def rows(self, screen):
-        """The lines of `screen`, each row's quality line `~`: its drawing is
-        tests/test_key_models_rows_drawn_as_c.py's."""
-        return [re.sub("[━╸─]{8,}", "~", line) for line in lines(screen)]
-
     def test_enter_says_where_a_rows_quality_comes_from_and_esc_returns(self):
         term, _ = self.models()
-        self.assertEqual(self.why(term, *["Down"] * 4)[:len(CRUX_ORCH)], CRUX_ORCH)
+        self.assertEqual(self.why(term)[:len(CRUX_ORCH)], CRUX_ORCH)
         term.keys("Escape")
-        shown = self.rows(term.wait("comparing all 4 models"))
-        self.assertIn("›          Crux 2          low     ~     93.2   $1.00  2 missing", shown)
-        self.assertEqual(self.why(term, "Down", "Down", "Down")[:len(MAX_HIGH_BUILDS)],
-                         MAX_HIGH_BUILDS)
+        self.assertIn("\n  ▸ orchestrator  Crux 2 low ", term.wait("comparing all 4 models"))
+        self.assertEqual(self.why(term, "Down")[:len(MAX_HIGH_BUILDS)], MAX_HIGH_BUILDS)
 
     def test_on_40_cells_each_measures_how_takes_a_line_under_it(self):
+        self.write("crux")
         term, _ = self.models(40)
-        self.assertEqual(self.why(term, *["Down"] * 9)[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
+        self.assertEqual(self.why(term, "Down")[:len(CRUX_BUILDS_40)], CRUX_BUILDS_40)
 
     def test_a_why_taller_than_the_screen_turns_its_pages(self):
         term, _ = self.models(40, 14)
         shown = self.why(term)
-        self.assertNotIn("  AA-Briefcase                    6.0", shown)
+        self.assertFalse(any(line.startswith("  AA-Briefcase") for line in shown), shown)
         term.keys("Down")
         term.wait("  AA-Briefcase")            # its last measure, under its fold
 

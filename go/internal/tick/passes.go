@@ -11,7 +11,6 @@ import (
 	"agentkit/internal/host"
 	"agentkit/internal/leftover"
 	"agentkit/internal/machines"
-	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
 
@@ -42,9 +41,7 @@ func table(t *ticking) []pass {
 		{"rebooted turns", false, configured, continueTurns(false)},
 		{"login resume", true, nil, t.loginResume},
 		// a run's parked login is on its run
-		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
-		// publishes nothing, reads them here
-		{"seat health", true, all(configured, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
+		{"seat health", true, all(configured, noRunHealthWork), t.health},
 		{"switched turns", false, configured, continueTurns(true)},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
@@ -69,10 +66,7 @@ func table(t *ticking) []pass {
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
 		{"switch retirement", false, checkoutsSeen, t.retire},
-		// seats' conversations are Python's to read into a history a seat or its sources stand in
-		{"seat tokens", false, func() bool {
-			return run.Historyless() || len(config.SeatFiles()) == 0 && !history.KeepsSeats()
-		}, nil},
+		{"seat tokens", false, nil, seatTokens},
 		{"history sync", false, nil, func() error {
 			if !history.Agree(t.log.line) {
 				return errLeft

@@ -14,6 +14,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
+	"agentkit/internal/history"
 	"agentkit/internal/host"
 )
 
@@ -22,25 +23,29 @@ const window = 4096
 
 // healthCommand is a live probe as Python's watch.health_command runs one: `bash -c command` in
 // repo, sha its AK_MERGE_SHA, killed with all it started at timeout or once it exits, so no pipe
-// it inherited holds the tick.  Whether it passed, and the last ten lines it wrote.
-func healthCommand(repo, sha, command string, timeout time.Duration) (bool, string) {
+// it inherited holds the tick, leaving its row under rows as Python's does, no exit where it timed
+// out, and none for nil rows.  Whether it passed, and the last ten lines it wrote.
+func healthCommand(repo, sha, command string, timeout time.Duration, rows *history.Checked) (bool, string) {
 	output, err := os.CreateTemp("", "")
 	if err != nil {
 		return false, config.PyError(err)
 	}
 	defer os.Remove(output.Name())
 	defer output.Close()
+	row := history.Check(rows, command, epoch(time.Now()), "", nil)
 	limited, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	cmd := exec.CommandContext(limited, "bash", "-c", command)
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = repo, append(os.Environ(), "AK_MERGE_SHA="+sha), output, output
 	stop := host.Group(cmd)
 	if err := cmd.Start(); err != nil {
+		row.End(nil)
 		return false, config.PyError(err)
 	}
 	failed := cmd.Wait()
 	timedOut := limited.Err() != nil
 	stop() // even a shell that exited can have left children
+	row.End(probeExit(failed, timedOut))
 	said, err := tail(output)
 	if err != nil {
 		return false, config.PyError(err)

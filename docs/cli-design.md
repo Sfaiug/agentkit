@@ -97,8 +97,7 @@ palette and the colour depth once per start. Under `NO_COLOR` nothing is coloure
 
 A company's colour, its provider's `colour` in config.toml else `menu.COLOURS`, colours its
 name on `c`; a harness's, from its manifest, its name over its models. Elsewhere it shows only
-under the pointer, on its meter or a model of it on the models screen, lighting its meter and
-models.
+under the pointer, on its meter, lighting its meter and models.
 
 ## Motion
 

@@ -53,7 +53,11 @@ func (t *ticking) pollTokens() error {
 			kept.Set(harness, record)
 			continue
 		}
-		answered, _, why := authOK(harness)
+		// a dry tick asks no verb: its record stands as it was
+		answered, why := false, ""
+		if !t.dry {
+			answered, _, why = authOK(harness)
+		}
 		if !answered {
 			if len(record.Keys()) > 0 {
 				kept.Set(harness, record)

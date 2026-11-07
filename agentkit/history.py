@@ -1274,6 +1274,35 @@ def first_reviews():
         return []
 
 
+def first_review_sizes():
+    """For `Limits`' line limits (menu.size_chart), of the finished runs REAL_WORK counts:
+    (builds, own pull requests), each (started_at, first_review_lines, passed) in start order: a
+    build reviews no pull request, passed in round 1; an own pull request (kind `seat PR` or
+    own_orchestrator set) is a change's runs, its biggest first review, one merged in round 1."""
+    _ensure_migrated()        # a history from before runs had a kind holds sized runs too
+    # REAL_WORK last: it reads a run's record, which the columns spare most rows
+    counted = f"finished_at IS NOT NULL AND {REAL_WORK}"
+    try:
+        with _LOCK:
+            connection = _connect(readonly=True)
+            try:
+                return (connection.execute(
+                            "SELECT started_at, first_review_lines, rounds_used IS 1 AND "
+                            "final_state IS 'pass' FROM runs WHERE first_review_lines IS NOT NULL "
+                            "AND COALESCE(\"change\", '') NOT LIKE '%#%' AND run_id NOT LIKE "
+                            f"'%-review-pr-%' AND {counted} ORDER BY started_at").fetchall(),
+                        connection.execute(
+                            "SELECT MIN(started_at), MAX(first_review_lines), "
+                            "MAX(changed_lines IS NOT NULL AND rounds_used IS 1) FROM runs "
+                            f"WHERE (kind IS 'seat PR' OR own_orchestrator <> '') AND {counted} "
+                            "GROUP BY COALESCE(\"change\", run_id) "
+                            "HAVING MAX(first_review_lines) IS NOT NULL ORDER BY 1").fetchall())
+            finally:
+                connection.close()
+    except (OSError, sqlite3.Error, TypeError, ValueError):
+        return [], []
+
+
 def ended_runs(since, until):
     """Real runs with a finish date in the inclusive range, read as plain mappings."""
     _ensure_tokens_recounted()

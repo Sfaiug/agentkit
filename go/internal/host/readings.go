@@ -166,18 +166,19 @@ func unified(membership string) (string, bool) {
 	return "", false
 }
 
-// OOMKills is how many of this process's cgroup's processes the kernel killed for memory, the
-// `oom_kill` of its memory.events, Python's _SuiteMeasure.oom("oom_kill"): 0 where none is read.
-func OOMKills() int {
+// MemoryEvent is the count of this process's cgroup's memory.events under name, below it included,
+// Python's _SuiteMeasure.oom: `oom` how often it ran out of memory, `oom_kill` how many of its
+// processes the kernel killed for it; 0 where none is read.
+func MemoryEvent(name string) int {
 	relative, ok := ownCgroup()
 	if !ok {
 		return 0
 	}
 	data, _ := os.ReadFile(filepath.Join(cgroupPath(relative), "memory.events"))
 	for _, line := range strings.Split(string(data), "\n") {
-		if value, found := strings.CutPrefix(line, "oom_kill "); found {
-			kills, _ := strconv.Atoi(strings.TrimSpace(value))
-			return kills
+		if value, found := strings.CutPrefix(line, name+" "); found {
+			count, _ := strconv.Atoi(strings.TrimSpace(value))
+			return count
 		}
 	}
 	return 0

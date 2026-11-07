@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/hookfact"
@@ -39,7 +40,8 @@ func codexHookEvent(event *run.Object, out io.Writer, refused func(seat string) 
 			}
 		}
 	case "Stop":
-		if tasks, ok := codexInFlight(event.Str("session_id")); ok {
+		// the seat's own Codex home, as its server runs this hook
+		if tasks, ok := codexInFlight(os.Getenv("CODEX_HOME"), event.Str("session_id"), time.Time{}); ok {
 			event.Set("background_tasks", tasks)
 		}
 	case "PreToolUse":

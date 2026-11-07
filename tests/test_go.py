@@ -93,14 +93,24 @@ def step(part, gofmt, out, **judge):
 
 def tested(part, **env):
     """The failing parts of the module's tests `part` names, and what they printed: a test
-    alone in its package, else the package or pattern whole; None for a test this tree does not
-    hold, as one only a later change adds, which ran nowhere and so names no failing part."""
+    alone in its package, else the package or pattern whole; None for a test or package this
+    tree does not hold, as one only a later change adds, which ran nowhere and so names no
+    failing part."""
     # A Go name holds no dot, nor does an import path of module agentkit; `./...` is every package.
     test = re.fullmatch(r"(.+)\.(\w+)", part)
+    # Go names a package it cannot find, or whose every file it leaves out (`_x.go`, a build
+    # tag's), failing as one that does not build: only its listing tells them apart, `{}` where it
+    # reads no file, selected as the caller's GOFLAGS select or one it cannot read (a malformed
+    # `//go:build`), as `go test ./...` skips it; a listing go refuses leaves the run to judge.
+    package = test[1] if test else part
+    listed = run("go", "list", "-e",
+                 "-json=GoFiles,CgoFiles,TestGoFiles,XTestGoFiles,InvalidGoFiles", package, **env)
+    if not listed.returncode and not set(listed.stdout.split()) - {"{}"}:
+        return None, f"{part} is not there: go reads no file of {package}\n"
     # No deadline: a busy host only slows a package, and the landing's silence watch ends a
     # hung one and names it.
-    done = run("go", "test", "-json", "-timeout", "0",
-               *(("-run", f"^{test[2]}$", test[1]) if test else (part,)), **env)
+    done = run("go", "test", "-json", "-timeout", "0", *(("-run", f"^{test[2]}$") if test else ()),
+               package, **env)
     # An event a line, split at LF alone: Go writes U+0085 into an Output string unescaped, a
     # line break to splitlines().
     events = [json.loads(line) for line in done.stdout.split("\n") if line]

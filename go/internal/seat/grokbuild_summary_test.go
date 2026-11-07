@@ -99,7 +99,7 @@ func TestGrokBuildHealthFollowsTheSummary(t *testing.T) {
 	t.Setenv("GROK_HOME", root)
 	home := grokSummarySeat(t, root, `{"current_model_id":"grok-other","reasoning_effort":"low"}`, "")
 	drawn(t, home, "acme", grokTrust)
-	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}, false); !carried || err != nil {
 		t.Fatalf("carried=%v, err=%v", carried, err)
 	}
 	grokFollowed(t, home, "", "swift", "low")

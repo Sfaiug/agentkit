@@ -71,10 +71,10 @@ class PicksPricedInUsage(unittest.TestCase):
             history.run(None, model, ["high"], reviewed=spent(model, points))
         history.save()
 
-    def command(self, compare=None, prices=None, *args):
+    def command(self, compare=None, prices=None, *args, **marks):
         """`ak models`, comparing only the releases `compare` names where given: the rest off."""
         off = [release for release in RELEASES if release not in compare] if compare else []
-        akconfig.write(self.home, self.models,
+        akconfig.write(self.home, self.models, **marks,
                        settings={"models_off": off} if off else {},
                        providers={name: {**entry, **({"price": prices[name]} if prices
                                                     and name in prices else {})}
@@ -168,7 +168,19 @@ class PicksPricedInUsage(unittest.TestCase):
         shown = self.command()
         self.assertRegex(shown, "quality +a task")
         self.assertRegex(shown, "quality +week %")
-        self.assertIn("0.30%", shown)
+        self.assertRegex(shown, r"\n +executor +Anvil high +90\.0 +0\.20%\n")   # its week share
+
+    def test_a_role_after_an_empty_one_heads_its_own_unit(self):
+        # Echo, compared alone, lacks two of execute's three measures: no builds between
+        # orchestrate's board dollars and review's week shares
+        held = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
+        held["arena.ai"]["rows"] = [row for row in held["arena.ai"]["rows"]
+                                    if row["model"] != "Echo"]
+        next(row for row in held["artificialanalysis.ai"]["rows"]
+             if row["model"] == "Echo")["values"].pop("aa.terminalBench40")
+        self.home.write(".agentkit/state/boards.json", held)
+        shown = self.command(["echo-1"], workers=["echo"], reviewers=["bloom"])
+        self.assertRegex(shown, r"executor .* not on the boards\n +quality +week %\n +reviewer ")
 
 
 if __name__ == "__main__":

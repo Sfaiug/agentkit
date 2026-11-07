@@ -15,8 +15,9 @@ type Account struct {
 }
 
 // SeatAccounts is Accounts as seat_account reads them: a fresh snapshot's, nothing probed or
-// written, else, where none is fresh, every provider asked again, as Python's collect asks.
-func SeatAccounts(name, home string) ([]Account, error) {
+// written, else, where none is fresh, every provider asked again, as Python's collect asks. One
+// that may not collect (a dry look) reads the snapshot as it stands, as Python's dry tick does.
+func SeatAccounts(name, home string, collect bool) ([]Account, error) {
 	models, err := config.Entries()
 	blob := object(read())
 	now := clock()
@@ -24,7 +25,7 @@ func SeatAccounts(name, home string) ([]Account, error) {
 	if err != nil {
 		return nil, ErrPython
 	}
-	if !dated || now-at > cacheTTL {
+	if collect && (!dated || now-at > cacheTTL) {
 		readings, err := Collected()
 		if err != nil {
 			return nil, err

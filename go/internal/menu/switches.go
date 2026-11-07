@@ -45,10 +45,10 @@ func headingRow(s terminal.Screen, each project, width int, switches map[string]
 
 // A FeaturesView is what a project's switches screen is drawn from: the project's name, its
 // reading, the feature the keys are on (the first where it is none of them) and the mark under it,
-// 0 `you` and 1 `everyone`, the first line of the rows the page shows, and the clock the rule
-// glides on while a list is awaited, nil for a still one.
+// 0 `you` and 1 `everyone`, the first line of the rows the page shows, the clock the rule glides
+// on while a list or a flip is awaited, nil for a still one, and what the last flip could not do.
 type FeaturesView struct {
-	Title, Clock string
+	Title, Clock, Note string
 	features.Reading
 	At          string
 	Column, Top int
@@ -65,13 +65,13 @@ func (view FeaturesView) Here() int {
 
 // FeaturesFrame is `agentkit · <project>`: its switches, one row a feature, with a mark under
 // `you` and under `everyone` (menu.features_body), paged so the feature the keys are on is shown,
-// and under them why there are none, or why the last list failed.
+// and under them why there are none, or why the last list failed, and the Note.
 func FeaturesFrame(s terminal.Screen, view FeaturesView) MatrixFrame {
 	keys, on, off, fixed := "↑↓←→ move   ␣ mark   esc back", "●", "○", "—"
 	if s.ASCII() {
 		keys, on, off, fixed = "arrows move   space mark   esc back", "*", ".", "-"
 	}
-	heads := []string{"you", "everyone"}
+	heads := features.Heads
 	var body []matrixRow
 	here := view.Here()
 	if here >= 0 {
@@ -124,8 +124,13 @@ func FeaturesFrame(s terminal.Screen, view FeaturesView) MatrixFrame {
 		why = "no features"
 	}
 	var said []string
-	if why != "" {
-		said = []string{"", s.Styled("  "+terminal.Cut(why, s.LayoutWidth()-2), "dim")}
+	for _, line := range []string{why, view.Note} {
+		if line != "" {
+			said = append(said, s.Styled("  "+terminal.Cut(line, s.LayoutWidth()-2), "dim"))
+		}
+	}
+	if said != nil {
+		said = append([]string{""}, said...)
 	}
 	// the page that holds the highlighted feature, moved the least from where it stood
 	room := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(said))

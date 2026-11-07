@@ -65,7 +65,9 @@ class LimitsPage(unittest.TestCase):
         term.keys(*["j"] * 30)       # Limits is the last config row.
         term.wait("› Limits")
         term.keys("Enter")
-        return term.wait("config · limits")
+        # the page's own key line, drawn after its rows: the header can read `config · limits`
+        # over `c`'s rows while the page reads what it shows
+        return term.wait("←→ value")
 
     def moved(self, term, name, arrows, value):
         """`name` pointed, `arrows` pressed there, once its value reads `value`."""

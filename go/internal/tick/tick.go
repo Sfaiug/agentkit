@@ -55,7 +55,7 @@ func Overlap(out, errOut io.Writer) bool {
 
 func lockPath() string { return filepath.Join(config.Home(), "state", "watch.tick.lock") }
 
-func logPath() string { return filepath.Join(config.Home(), "tmp", logName) }
+func logPath() string { return config.TickLog() }
 
 func keptPath() string { return filepath.Join(config.Home(), "tmp", logKept) }
 

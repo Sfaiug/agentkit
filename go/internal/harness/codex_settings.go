@@ -29,7 +29,7 @@ func codexSettingsFollowed(ctx context.Context, socket, launch string, changed f
 
 // codexSubscribed follows that thread's settings on one connection, until it or ctx ends.
 func codexSubscribed(ctx context.Context, socket, thread string, changed func()) {
-	client, err := codexDial(socket)
+	client, err := codexDial(socket, time.Time{})
 	if err != nil {
 		return
 	}
