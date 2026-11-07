@@ -1,7 +1,8 @@
 """A red's part the target's tip does not have proves nothing when the tip is probed with the
 red's failed tests alone (`gate.run_suite(only=, confirmed=)`, as `land._probe_tip` asks): a Go
-test, or a package run whole, whose package the tip lacks, a Go test its package lacks, a claim
-its go/keys.txt lacks.  A part the tip has that fails, in either runner, is the tip's own red.
+test, or a package run whole, whose package Go selects no file of on the tip, a Go test its
+package lacks, a claim its go/keys.txt lacks.  A part the tip has that fails, in either runner,
+is the tip's own red.
 
 Offline: the real every_file.py, test_go.py and test_go_keys.py judge a temporary tip in a real
 check box, each file's parts in one run as a measured suite cuts them, with a stand-in `go` and
@@ -22,15 +23,17 @@ from agentkit import gate, suite_times
 
 ACME, GONE = "agentkit/internal/acme", "agentkit/internal/gone"
 GO_TESTS, CLAIMS = "tests/test_go.py", "tests/test_go_keys.py"
-# Go, for a module whose one package, acme, holds one test, TestFixApi, which fails: a package
-# it cannot find fails as Go's setup does, and a test acme lacks runs none.
+# Go, for a module whose one package, acme, holds one test, TestFixApi, which fails: it selects
+# no file of any other package, failing one as Go's setup does, and a test acme lacks runs none.
 GO = f'''#!{sys.executable}
 import json, sys
 args = sys.argv[1:]
+package = args[-1]
 if args[:2] == ["env", "-json"]:
     print(json.dumps({{"GOROOT": "/nonexistent", "GOOS": "linux", "GOARCH": "amd64"}}))
+elif args[0] == "list":
+    print(json.dumps({{"TestGoFiles": ["acme_test.go"]}} if package == "{ACME}" else {{}}))
 elif args[0] == "test":
-    package = args[-1]
     def event(action, **more):
         print(json.dumps({{"Action": action, "Package": package, **more}}))
     if package != "{ACME}":
@@ -61,10 +64,7 @@ class APartTheTipLacksProvesNothing(Sandbox):
         for name in ("test_go.py", "test_go_keys.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, self.tip / "tests")
         (self.tip / "tests/test_key_acme.py").write_text(KEY)
-        (self.tip / "go/internal/acme").mkdir(parents=True)
-        (self.tip / "go/internal/acme/acme_test.go").write_text(
-            'package acme\n\nimport "testing"\n\n'
-            'func TestFixApi(t *testing.T) { t.Fatal("acme broke") }\n')
+        (self.tip / "go").mkdir()
         (self.tip / "go/go.mod").write_text("module agentkit\n\ngo 1.23.0\n\ntoolchain go1.23.0\n")
         (self.tip / "go/keys.txt").write_text("test_key_acme Acme\n")
         (self.root / "bin").mkdir()
