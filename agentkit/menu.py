@@ -3225,27 +3225,36 @@ def marks_saved(name, selected, changed):
 
 UNITS = {"share": "week %", "money": "plan $", "board_dollars": "a task"}   # matrix._costs's
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
-# the why's words: what a row does in each role, and each measure's evaluation by its name
+# the why's words: what a row does in each role and a run of it, each measure's evaluation by
+# its name, where each `cost_rule` says a cost comes from, and a count under ten
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
+RUN = {"orchestrate": "task", "execute": "build", "review": "review"}
 MEASURES = {"aa.automationBenchPartialScore": "AutomationBench", "arena.agent": "Arena Agent",
             "aa.omniscience": "AA-Omniscience", "aa.briefcaseBreakdown.overall.elo": "AA-Briefcase",
             "aa.frontierCode20": "FrontierCode 2.0", "aa.terminalBench40": "Terminal-Bench 4.0"}
-# a board cost is a task of the evaluation of the measure of that name
-TASKS = {quality.COSTS[role]: MEASURES[column] for role, column in (
-    ("orchestrate", "aa.briefcaseBreakdown.overall.elo"), ("execute", "aa.frontierCode20"),
-    ("review", "aa.frontierCode20"))}
-BEHIND = "behind the best"
+SOURCES = {"measured": "from {runs} of your {run}s",
+           "provider": "estimated: its board price, times what your runs on its provider cost "
+                       "a board dollar",
+           "global": "estimated: its board price, times what your runs on every provider cost "
+                     "a board dollar",
+           "board": "its board price alone: no {run} of yours priced a model"}
+NUMBERS = "zero one two three four five six seven eight nine".split()
 
 
 def model_cost(found, row):
     return f"{row['cost']:.2f}%" if found["cost_unit"] == "share" else f"${row['cost']:.2f}"
 
 
+def guessed(found, row, gap=""):
+    """`row`'s cost, `≈` and `gap` before one no runs measured -- the owner, 3 Nov 2026: a cost
+    on screen must never look more certain than it is."""
+    return ("" if row["cost_rule"] == "measured" else ("≈" if terminal.utf8() else "~") + gap
+            ) + model_cost(found, row)
+
+
 def models_said(cfg, answer, used):
     """Each role's (role, row, what follows it, cost unit) off `used` (matrix.uses): its quality
-    and cost, `≈` before one no runs measured -- the owner, 3 Nov 2026: a cost on screen must never
-    look more certain than it is -- else UNBOARDED, or UNMARKED for no model."""
-    about = "≈" if terminal.utf8() else "~"
+    and cost (guessed), else UNBOARDED, or UNMARKED for no model."""
     said = []
     for role, (name, effort, row) in used.items():
         found = answer[role]
@@ -3254,8 +3263,8 @@ def models_said(cfg, answer, used):
                    "effort": None if effort == "none" else effort}
             after = UNBOARDED if name else ""
         else:
-            after = (f"{row['quality']:.1f}", "-" if row["cost"] is None else (
-                ("" if row["cost_rule"] == "measured" else about) + model_cost(found, row)))
+            after = (f"{row['quality']:.1f}",
+                     "-" if row["cost"] is None else guessed(found, row))
         said.append((role, row, after, UNITS[found["cost_unit"]]))
     return said
 
@@ -3325,44 +3334,86 @@ def models_read(compared, total, fetched):
             for part in packed(parts, " · ", terminal.layout_width() - 2)]
 
 
-def scored(row, column, kind):
-    """How `row` got its score on `column`, a measure of kind `kind`, in plain words."""
-    one = row["measures"].get(column)
-    if one is None:
-        return "no score"
-    if one["how"] == "carried":
-        return f"carried from {one['from']}"
-    if one["how"] == "missing":
-        return "no score, counted as its worst"
-    value = row["values"][column]
-    return "measured, " + (f"{100 * value:.1f}%" if kind == "share" else f"{value:g}")
+def number(count):
+    """`count` as a word under ten, else in digits."""
+    return NUMBERS[count] if count < len(NUMBERS) else str(count)
+
+
+def points(count):
+    """`count` points in words: `a point`, `two points`."""
+    return "a point" if count == 1 else f"{number(count)} points"
+
+
+def scored(column, one):
+    """A measure's evaluation, and how a row scored there where the score is not its own."""
+    return MEASURES[column] + (f" carried from {one['from']}" if one["how"] == "carried" else
+                               " no score, counted as its worst" if one["how"] == "missing"
+                               else "")
+
+
+def flowed(parts, room):
+    """`parts` three cells apart on lines of `room` cells, each going on at its words beside the
+    one before it and the rest under the first, a word too long for a line split
+    (terminal.wrap)."""
+    lines = [""]
+    for part in parts:
+        gap = "   " if lines[-1] else ""
+        for word in " ".join(terminal.wrap(part, room)).split():
+            if lines[-1] and terminal.cells(lines[-1] + gap + word) > room:
+                lines.append(word)
+            else:
+                lines[-1] += gap + word
+            gap = " "
+    return lines
 
 
 def models_why(found, role, row):
-    """The why of `row` of `role`'s answer `found` (matrix.answer): its quality and cost, how
-    far it is behind the role's best, and each measure's points behind and how it was got.  Where
-    a measure's line is too wide for the screen, its how takes a line under it; only a model's
-    name is cut."""
+    """The why of `row` of `role`'s answer `found` (matrix.answer), the owner's design of 5 Nov
+    2026: a label column, each value going on at its words in its own (flowed).  Its quality,
+    give or take 1.96 standard errors, the measures that scored it and how far below the role's
+    best choice it is; its cost and where that comes from (SOURCES); the rule that makes the
+    choices; and why each of `others` is none, under `others` those the bars shade, as many as
+    fill `matrix.PLACES` after the choices, best first, the rest under `not shown`.  Only a
+    model's name is cut."""
     room = terminal.layout_width() - 2
-    top = max(found["rated"], key=lambda one: one["quality"])
-    hows = [(MEASURES[column], f"{one['points']:.1f}" if one else "", scored(row, column, kind))
-            for column, kind, *_ in quality.ROLES[role] for one in [row["measures"].get(column)]]
-    width = max(terminal.cells(name) for name, _, _ in hows)
-    wide = width + 2 + len(BEHIND) + 2 + max(terminal.cells(how) for _, _, how in hows) <= room
-    lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}",
-             *packed([f"quality {row['quality']:.1f} ± {row['se']:.1f}",
-                      model_cost(found, row) + (" a task" if found["cost_unit"] != "board_dollars"
-                                               else f" a {TASKS[quality.COSTS[role]]} task")
-                      if row["cost"] is not None else "no cost"], "   ", room),
-             *(["the best"] if row is top else packed(
-                 [f"{top['quality'] - row['quality']:.1f} {BEHIND},", named(top, room)], " ",
-                 room)), "", terminal.table_row(["", BEHIND], [width, len(BEHIND)],
-                                                kinds=(None, "dim"))]
-    for name, points, how in hows:
-        lines += ([terminal.table_row([name, points, how], [width, len(BEHIND), len(how)],
-                                      right=(1,))] if wide else
-                  [terminal.table_row([name, points], [width, len(BEHIND)], right=(1,)),
-                   "  " + how])
+    width = terminal.cells("not shown")
+    values = room - width - 2
+    choices, others = found["choices"], found["others"]
+    top = choices[-1] if choices else None
+    shaded = matrix.PLACES - len(choices)
+
+    def priced(one):      # `≈` against its cost, as on the role lines: no line ends on it
+        return f"{named(one, values)}, {one['quality']:.1f} for {guessed(found, one)}"
+
+    def why(one):
+        by = one["by"] and priced(one["by"])
+        return {"beaten": f"beaten by {by}", "close": f"within {points(matrix.APART)} of {by}",
+                "far below": f"{top['quality'] - one['quality']:.1f} below the best",
+                "no room": f"the {number(matrix.PLACES)} places go to better choices"}[one["why"]]
+
+    measures = {column: one for column, *_ in quality.ROLES[role]
+                for one in [row["measures"].get(column)] if one}
+    counted = sum(one["how"] != "missing" for one in measures.values())
+    behind = top and top["quality"] - row["quality"]
+    blocks = [
+        [("quality", [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
+                                                f"{number(counted)} benchmarks"],
+                      [", ".join(scored(column, one) for column, one in measures.items())],
+                      *([] if top is None else [["the best of these choices"]] if row is top
+                        else [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
+                               f"best, {named(top, values)}"]])])],
+        [("cost", [[f"{guessed(found, row, ' ')} a {RUN[role]}", SOURCES[row["cost_rule"]].format(
+            runs=row["runs"], run=RUN[role])] if row["cost"] is not None else ["no cost"]])],
+        [("choices", [[f"the best, then cheaper ones {points(matrix.APART)} apart, none more "
+                       f"than {number(matrix.WINDOW)} below, {number(matrix.PLACES)} at most"]]),
+         ("others", [[f"{priced(one)}: {why(one)}"] for one in others[:shaded]]),
+         ("not shown", [[f"{priced(one)}: {why(one)}"] for one in others[shaded:]])]]
+    lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}"]
+    for block in blocks:
+        lines.append("")
+        for label, said in block:
+            for n, line in enumerate(line for parts in said for line in flowed(parts, values)):
+                lines.append(f"{terminal.pad(label if n == 0 else '', width)}  {line}")
     return ["  " + line if line else line for line in lines]
 
 

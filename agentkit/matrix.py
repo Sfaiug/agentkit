@@ -151,7 +151,8 @@ def _pricing(cfg):
 
 def _costs(rows, role, lineup, cfg, shares):
     """One unit per role: measured shares, board dollars scaled by pooled shares/dollars,
-    or board dollars without any measurement. Money requires every lineup provider's price."""
+    or board dollars without any measurement. Money requires every lineup provider's price.
+    Each row keeps the `runs` its measured share is the mean of, 0 for none."""
     # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
@@ -175,8 +176,8 @@ def _costs(rows, role, lineup, cfg, shares):
     for row in rows:
         key = row["release"], row["effort"]
         name, provider = sources[key]
-        share = measured_share(name, row["effort"])
-        row.update(board_cost=row["cost"], cost_rule="board")
+        share, runs = measured_share(name, row["effort"]) or (None, 0)
+        row.update(board_cost=row["cost"], cost_rule="board", runs=runs)
         if share is not None:
             measured[key] = share
             if row["board_cost"] is not None and row["board_cost"] > 0:
@@ -555,14 +556,17 @@ def main(argv):
     if "--json" in flags:
         def drawn(row, said):
             return {**{key: row[key] for key in ("release", "name", "effort", "quality", "se",
-                                                 "cost", "board_cost", "cost_rule")},
+                                                 "cost", "board_cost", "cost_rule", "runs")},
                     "notes": notes(row, said)}
         json.dump({**{role: {
             "best": said["best"], "cost_unit": said["cost_unit"],
             **{key: [drawn(row, said) for row in said[key]] for key in ("front", "choices")},
             "others": [{**drawn(row, said), "why": row["why"], "by": row["by"] and {
                 key: row["by"][key] for key in ("name", "effort")}} for row in said["others"]]}
-            for role, said in found.items()}, "live": own, "task_usage": shares},
+            for role, said in found.items()}, "live": own,
+            "task_usage": {name: {effort: {role: share for role, (share, _) in did.items()}
+                                  for effort, did in efforts.items()}
+                           for name, efforts in shares.items()}},
             sys.stdout, indent=2)
         print()
         return 0
