@@ -35,9 +35,9 @@ func (m Machine) Takes(work []string) []string {
 	return slices.DeleteFunc(slices.Clone(work), func(word string) bool { return word == "turns" })
 }
 
-// Save sets `key` of m's marks' table to `value`, its `work` or the cloud's `active`, as
-// config.SaveMachine writes it, each other machine's marks written as the old turns_on_machines
-// switch implied them where the file still holds it.
+// Save sets `key` of m's marks' table to `value`, its `work` or the cloud's `active` or
+// `max_month`, as config.SaveMachine writes it, each other machine's marks written as the old
+// turns_on_machines switch implied them where the file still holds it.
 func (m Machine) Save(key string, value any, keep func() error) error {
 	var implied []config.Marks
 	for _, each := range append(Known(), Cloud) {
