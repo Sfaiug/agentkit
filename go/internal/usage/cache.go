@@ -76,16 +76,26 @@ func rolled(prov *run.Object, now float64) bool {
 // store writes what collect answers, each provider's record as the snapshot holds it now, with
 // an entry for each account it lists, a copy of providers standing in only where it holds none,
 // and a provider config.toml no longer lists gone, Python's usage._store; fetchedAt dates the
-// snapshot where given.
+// snapshot where given.  What config.toml lists is read as the snapshot is written: the read's
+// own sources, from before it asked anybody, would undo a provider or account swapped meanwhile.
 func store(sources []source, providers *run.Object, models map[string]config.Model, now float64, fetchedAt *float64, counted map[string]any) (*run.Object, error) {
 	return write(func(disk *run.Object, _ float64) *run.Object {
+		if logins, err := layout(); err == nil { // under the lock, so it sees the config of every write before it
+			sources = logins
+		}
+		gone := func(name string) bool {
+			return !slices.ContainsFunc(sources, func(src source) bool { return src.Name == name })
+		}
 		for _, name := range disk.Keys() {
-			if !slices.ContainsFunc(sources, func(src source) bool { return src.Name == name }) {
+			if gone(name) {
 				disk.Delete(name)
 			}
 		}
 		answer := run.NewObject()
 		for _, name := range providers.Keys() {
+			if gone(name) {
+				continue
+			}
 			mine := object(providers.Get(name))
 			prov, ok := disk.Get(name).(*run.Object)
 			if !ok {

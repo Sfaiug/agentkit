@@ -206,6 +206,20 @@ class SeatMove(Sandbox):
         self.assertIn("## Its conversation on opus", self.handover())
         self.assertIsNone(watch.seat_read(SEAT).get("midturn"))        # nothing typed
 
+    def test_a_conversation_cleared_before_left_kept_logins_is_read_after_a_provider_move(self):
+        config.update_session(SEAT, account="work",      # as /clear kept it, with no login
+                              left=[{"harness": "claude", "conversation": "cleared"}])
+        path = claude.transcript_path(self.record(), "cleared")
+        path.parent.mkdir(parents=True)
+        path.write_text(json.dumps({"type": "user", "timestamp": "2026-11-05T10:00:00Z",
+                                    "message": {"role": "user", "content": "Email a receipt"}})
+                        + "\n")
+        with patch.object(orch, "_switch_plan", return_value=("", "night")):
+            self.assertEqual(self.move("astra"), "")
+        self.assertEqual(self.record()["account"], "night")
+        self.assertIn("Email a receipt", [message["text"] for seat in notify.conversations_of(SEAT)
+                                          for message in notify.owner_messages(SEAT, seat)])
+
     def test_a_conversation_its_harness_cannot_resume_opens_fresh_with_the_handover(self):
         config.update_session(SEAT, id_source=None)     # nothing the launcher handed out
         self.spoken()

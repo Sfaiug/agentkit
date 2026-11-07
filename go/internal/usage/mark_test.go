@@ -12,14 +12,14 @@ func TestAMarkIsTheRefusalsMomentElseItsWindowAtMostAnHour(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	if took := MarkExhausted("acme", clock()+500); took-clock() > 500 || took-clock() < 400 {
+	if took := MarkExhausted("acme", "", clock()+500); took-clock() > 500 || took-clock() < 400 {
 		t.Fatalf("the moment named: %v from now", took-clock())
 	}
 	marked := cachedProvider("acme")
 	if !marked.Has("exhausted_until") || !marked.Has("exhausted_at") || !marked.Has("exhausted_ends") || marked.Get("exhausted_by") != nil {
 		t.Fatalf("the mark: %s", run.Line(marked))
 	}
-	if took := MarkExhausted("acme", 0); took-clock() > dryFor || took-clock() < dryFor-100 {
+	if took := MarkExhausted("acme", "", 0); took-clock() > dryFor || took-clock() < dryFor-100 {
 		t.Fatalf("nothing named, no meter: %v from now", took-clock())
 	}
 }
@@ -31,5 +31,17 @@ func TestTheNextWindowIsTheSoonestStillToRollOver(t *testing.T) {
 	}
 	if at := nextWindow(run.NewObject(), 10); at != 10+dryFor {
 		t.Fatalf("no window: %v", at)
+	}
+}
+
+// An account's mark is its own (usage._patch with an account): the provider's record keeps none.
+func TestAnAccountsMarkParksThatLoginAlone(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	MarkExhausted("acme", "shoal", clock()+500)
+	marked := cachedProvider("acme")
+	if marked.Has("exhausted_until") || !object(marked.Dict("accounts").Get("shoal")).Has("exhausted_until") {
+		t.Fatalf("the mark: %s", run.Line(marked))
 	}
 }

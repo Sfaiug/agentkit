@@ -32,7 +32,7 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
 from agentkit import config, orch, update, watch, worker
 
-INSTALL = '#!/bin/sh\necho installed >>"$HOME/installs"\n'
+INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho installed >>"$HOME/installs"\n'
 LIVE = f"""#!/bin/sh
 python3 -c 'import fcntl, sys; fcntl.flock(open(sys.argv[1]), fcntl.LOCK_SH)' "$HOME/tick"
 echo "$(git rev-parse HEAD) ${{AGENTKIT_ACCEPTANCE_REQUIRED:-}} ${{{worker.RUN_MARKER}:-}} $(pwd)" \\

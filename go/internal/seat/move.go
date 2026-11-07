@@ -3,6 +3,7 @@ package seat
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,27 +20,55 @@ import (
 
 const movedLine = "This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over."
 
+// A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
+// run by `own`), the fields it takes (`chosen`), and its orchestrator's effort where one is given
+// (`effort` on `model`, its entry among `models`); a restart's first line, and when it began.
 type seatMove struct {
-	was, own string
-	chosen   []field
-	line     string
-	at       float64
+	was, own, model, effort string
+	models                  map[string]config.Model
+	chosen                  []field
+	line                    string
+	at                      float64
 }
 
-// Move takes only a fresh-conversation restart. Refusals of _switch_plan,
-// in-place switches, kept conversations, drafts and dialogs return before asked.
-// The launch, including its rollback, remains the one reopening uses.
-func Move(name, model string, asked func() (bool, bool)) (bool, error) {
+// A plannedMove is a seat's move every refusal Go carries has passed (planMove): in place on its
+// launch's own pane where its running harness takes it (switchPane), else a restart on `back`.
+type plannedMove struct {
+	name, pane string
+	was        config.Model
+	back       reopening
+	record     map[string]any
+	selected   *run.Object
+}
+
+// Move moves the seat to `model`, its orchestrator at `effort` where one is given ("" keeps the
+// seat's own), as orch.switch_orchestrator does: in place, asking nothing, where its running
+// harness takes the move (switchPane), else by a fresh-conversation restart once `asked` says so.
+// Given an effort, its own model moves as another would.  Refusals of _switch_plan, a move in
+// place its harness's plugin judges or after which a turn its usage cut off goes on, kept
+// conversations, drafts and dialogs return before asked.  The launch, including its rollback,
+// remains the one reopening uses.
+func Move(name, model, effort string, asked func() (bool, bool)) (bool, error) {
+	plan, known := planMove(name, model, effort)
+	if !known || plan == nil {
+		return known, nil
+	}
+	return plan.carry(asked)
+}
+
+// planMove is Move's every check before anything is written: nil where the seat already runs
+// `model` and no effort is given, false where Go does not carry the move.
+func planMove(name, model, effort string) (*plannedMove, bool) {
 	name, record, err := config.ResolveSession(name)
 	selected, unread := ConfigSelection(name)
 	models, unconfigured := config.Models()
 	entry, named := models[model]
 	if err != nil || unread != nil || selected == nil || unconfigured != nil || !named {
-		return false, nil
+		return nil, false
 	}
 	old := selected.Str("orchestrator")
-	if old == model {
-		return true, nil
+	if old == model && effort == "" {
+		return nil, true
 	}
 	// _switch_plan: installed, login, then the screen's spent meter. Named
 	// subscriptions still need Python's account ordering and seat_auth hooks.
@@ -52,16 +81,16 @@ func Move(name, model string, asked func() (bool, bool)) (bool, error) {
 		program = version[0]
 	}
 	if err != nil || harness.Binary(program) == "" {
-		return false, nil
+		return nil, false
 	}
 	accounts, err := config.Accounts(entry.Provider)
 	account, _ := record["account"].(string)
 	if err != nil || len(accounts) != 0 || account != "" && account != "default" {
-		return false, nil
+		return nil, false
 	}
 	subscriptions, err := config.Subscriptions()
 	if err != nil {
-		return false, nil
+		return nil, false
 	}
 	var providers []string
 	for _, subscription := range subscriptions {
@@ -71,47 +100,68 @@ func Move(name, model string, asked func() (bool, bool)) (bool, error) {
 	}
 	env := append(host.Unmarked(os.Environ()), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+strings.Join(providers, " "))
 	if answered, yes, _ := worker.Login(adapter, env, "seat"); answered && !yes {
-		return false, nil
+		return nil, false
 	}
 	readings, err := meters.Cached()
 	if err != nil || readings.SeatSpent(model) {
-		return false, nil
+		return nil, false
 	}
 	was := models[old]
-	if !moveRestarts(name, was, entry, record) {
-		return false, nil
+	moving := &seatMove{was: old, own: was.Harness, model: model, effort: effort, models: models,
+		chosen: []field{{"orchestrator", model}, {"account", record["account"]}}}
+	if was.Provider != entry.Provider {
+		moving.chosen = []field{{"orchestrator", model}, {"account", nil}, {"home_account", nil}}
 	}
-	if !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) {
-		return false, nil
+	entry, efforts := atOwnEfforts(entry, model, record)
+	if effort != "" {
+		at := map[string]string{}
+		maps.Copy(at, entry.Efforts)
+		at["effort"] = effort
+		entry.Efforts = at
+	}
+	pane, err := switchPane(name, was, entry)
+	if err != nil || !efforts || pane != "" && (harness.AsksSwitchable(entry.Harness) || usageGoesOn(name)) {
+		return nil, false
+	}
+	plan := &plannedMove{name: name, pane: pane, was: was, record: record, selected: selected,
+		back: reopening{name: name, orchestrator: model, model: entry, opened: true, moving: moving}}
+	if pane != "" {
+		return plan, true
+	}
+	if !moveRestarts(was, entry, record) || !harness.CanHandOver(was.Harness) || !harness.CanLaunch(entry.Harness) {
+		return nil, false
 	}
 	held, _, known := find(name, record)
 	cwd, _ := record["cwd"].(string)
 	info, err := os.Stat(cwd)
-	entry, efforts := atOwnEfforts(entry, model, record)
-	if !known || !efforts || err != nil || !info.IsDir() {
-		return false, nil
+	if !known || err != nil || !info.IsDir() {
+		return nil, false
 	}
-	back := reopening{name: name, orchestrator: model, cwd: cwd, model: entry, opened: true, held: held}
-	moving := &seatMove{was: old, own: was.Harness, chosen: []field{{"orchestrator", model}, {"account", record["account"]}}}
-	if was.Provider != entry.Provider {
-		moving.chosen = []field{{"orchestrator", model}, {"account", nil}, {"home_account", nil}}
-	}
-	back.moving = moving
+	plan.back.cwd, plan.back.held = cwd, held
 	if _, known := moving.sight(name, held); !known {
-		return false, nil
+		return nil, false
+	}
+	return plan, true
+}
+
+// carry makes the planned move: in place at once, else the restart once `asked` says so.
+func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
+	if plan.pane != "" {
+		return true, plan.inPlace()
 	}
 	accepted, known := asked()
 	if !known || !accepted {
 		return known, nil
 	}
+	name, held, back, moving := plan.name, plan.back.held, plan.back, plan.back.moving
+	record, selected, model, was := plan.record, plan.selected, moving.model, plan.was
 	found, known := moving.sight(name, held)
 	if !known {
 		return true, Refusal("the seat's screen changed; keep its input before moving it")
 	}
 	moving.at = seconds(time.Now())
-	file := revivalFile(name)
 	going, _ := found.turnInFlight(was.Harness)
-	if going || file.Dict("usage_wait") != nil && file.Dict("usage_wait").Truthy("continue") {
+	if going || usageGoesOn(name) {
 		moving.line = movedLine
 	}
 	text, known := harness.Handover(was.Harness, record)
@@ -168,7 +218,7 @@ func (moving *seatMove) sight(name string, held bool) (sight, bool) {
 }
 
 // launch holds the same announce lock as switch_orchestrator, publishing the new
-// orchestrator before the harness starts and restoring only its fields on failure.
+// orchestrator, and its effort, before the harness starts and restoring only those on failure.
 func (moving *seatMove) launch(state, name string, launch func() error) error {
 	return announcing(state, name, func() error {
 		var before *run.Object
@@ -177,6 +227,9 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 				return false
 			}
 			before = data.Copy()
+			if moving.effort != "" {
+				data.Set("efforts", orchestratingAt(data, moving.model, moving.effort, moving.models))
+			}
 			fill(data, moving.chosen)
 			return true
 		})
@@ -191,6 +244,7 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 				for _, chosen := range moving.chosen {
 					fill(data, []field{{chosen.key, before.Get(chosen.key)}})
 				}
+				moving.effortBack(data, before)
 				return true
 			})
 		}

@@ -717,14 +717,17 @@ def next_scope_unit(unit):
 
 
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
-                   properties=(), nice=False, placement=None, ends=True):
-    """Start detached work inside the slice, appending its output to `output`; its pid."""
+                   properties=(), nice=False, placement=None, ends=True, stdin=subprocess.DEVNULL):
+    """Start detached work inside the slice, appending its output to `output`; its pid.  The work
+    inherits `stdin`, which a service the manager starts could not: where no scope can be made,
+    work given one starts plainly."""
     return _start_in_slice(argv, unit, env, output, log, target_slice,
-                           properties, nice, placement, ends)[0]
+                           properties, nice, placement, ends, stdin=stdin)[0]
 
 
 def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), nice=False,
-                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None):
+                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None,
+                    stdin=subprocess.DEVNULL):
     """The placement shared by detached and foreground work; (pid, client, placed unit).
 
     A scope where this process may be moved with its child; a service, which the manager
@@ -771,7 +774,7 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
         with ExitStack() as stack:
             out = stdout if stdout is not None else stack.enter_context(open(output, "a"))
             kwargs = {"stdout": out, "stderr": subprocess.STDOUT,
-                      "stdin": subprocess.DEVNULL, "start_new_session": True,
+                      "stdin": stdin, "start_new_session": True,
                       "env": environment}
             if cwd is not None:
                 kwargs["cwd"] = cwd
@@ -801,6 +804,10 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
     config.TMP.mkdir(parents=True, exist_ok=True)
     marker.unlink(missing_ok=True)
     scoped = can_scope()
+    if not scoped and stdin != subprocess.DEVNULL:
+        set_scope("none", "a service would not inherit its stdin")
+        proc = spawn(argv, env, lower_nice=nice)
+        return proc.pid, proc, None
     # A scope has no ExecContext, so Nice=10 is rejected as a unit property.  Lower the
     # actual work command inside the scope; the service fallback keeps Nice as its property.
     witness = ["sh", "-c", f"{scope_ends(unit)} {WITNESS}" if ends and scoped else WITNESS,
@@ -4462,11 +4469,12 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     harness can resume the seat's conversation, the conversation goes on there, as a
     reopened seat's does, and a turn it was in, or one its usage cut off, is told to go
     on. Otherwise the record
-    stays on the conversation the new launch owns, and the old harness's per-seat evidence
-    goes with it. This is a new conversation under a saved name, so the watch state is reset
-    the way a created seat's is, and what the old one said goes on the end of the file its
-    rulebook ends naming (`handover`), before the launch writes it: nothing is typed for it.  A
-    turn it was in is told to go on, the line the new harness opens on (`watch.relaunched`).
+    stays on the conversation the new launch owns, keeping the one it leaves (`left`), and the
+    old harness's per-seat evidence goes with it. This is a new conversation under a saved
+    name, so the watch state is reset the way a created seat's is, and what the old one said
+    goes on the end of the file its rulebook ends naming (`handover`), before the launch
+    writes it: nothing is typed for it.  A turn it was in is told to go on, the line the new
+    harness opens on (`watch.relaunched`).
     The record names the new model before the harness is up, so no redress draws the old
     one after it. Nothing on its screen refuses the move: the owner moving it knows what is
     there, and their unsent text goes on into the new composer (`watch.carry_draft`), or the
@@ -4558,8 +4566,11 @@ def switch_orchestrator(cfg, name, model, providers=None, credits=True, asked=No
     except (config.Error, OSError) as exc:
         unhanded(handed, before)
         return _one_line(exc)
-    chosen = {"orchestrator": model, "account": account, **homed}
     from . import notify
+    # the conversation it leaves stays the seat's, for its done check to read the owner's words
+    # in (`notify.conversations_of`); a restart that fails puts every one of these back
+    chosen = {"orchestrator": model, "account": account, **homed,
+              **({"left": notify.left(record, old_harness, owned)} if owned and not kept else {})}
     # the owner's text lifted, the harness respawned and any line it is owed marked in one hold
     # of the seat's lock, so no tick hands the text back to the harness going or before that line
     with notify.session_lock(name):

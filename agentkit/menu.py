@@ -5016,9 +5016,10 @@ def page_body(rows, at=None, moves=None):
 def config_page(name, page, move=True):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
     or with a note of the row's own after, said instead of the page's while the row is pointed,
-    and lines drawn as they are under it, where the highlighted row fits beside them, after that
-    -- and the note under them, asked again for every draw, drawn as page_body draws them and
-    read with `c`'s keys until Esc, the key line saying what the arrows `move` (terminal.keys).
+    and blocks of lines drawn as they are under it, each whole and in order while the
+    highlighted row fits beside them, after that -- and the note under them, asked again for
+    every draw, drawn as page_body draws them and read with `c`'s keys until Esc, the key line
+    saying what the arrows `move` (terminal.keys).
     It comes up as `c` does as it opens, its name writing itself out in the header
     (motion.Clock), and a mark leading a value fills or empties as it flips (motion.toggled);
     one gone back to from a list or a field is drawn as it is.
@@ -5090,10 +5091,12 @@ def config_page(name, page, move=True):
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter, move=move)
         below = note_lines("\n".join(filter(None, (said, note))))
-        # a row's lines only where the page keeps room for the highlighted row beside them, the
-        # other rows paging: never pushed off the screen
-        if page_room([*below, *under], keys) >= sum(row == here for row, _ in places.values()):
-            below += under
+        # a row's blocks only while the page keeps room for the highlighted row beside them, the
+        # other rows paging: never pushed off the screen, and a later block gives way first
+        for block in under:
+            if page_room([*below, *block], keys) < sum(row == here for row, _ in places.values()):
+                break
+            below += block
         act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
                                         clock=clock, moves=moves, under=below)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
@@ -5583,14 +5586,93 @@ def limit_step(key, held, step):
                  if (rank(held) < rank(value) if step > 0 else rank(value) < rank(held))), None)
 
 
+def rounds_said(runs, held):
+    """What `runs` (history.round_endings) would have done at `held` review rounds, said under
+    rounds_chart, M the last round one merged in and F the number that failed.  Off, how many
+    went that way; under M, those merged after `held`, and F, back to their orchestrator sooner;
+    at M, F back; one past M, a guess that F merge at the share round M merged of its merges and
+    F; further, nothing they can say.  None with no run."""
+    if not runs:
+        return None
+    merged = [ending for *_, ending in runs if ending is not None]
+    failed, last = len(runs) - len(merged), max([*merged, 0])
+    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
+                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+    if held == 0:
+        bare = merged.count(0)
+        return "Off: no reviewer, so a change lands when its checks pass. " + (
+            f"{bare} of your runs went that way." if bare
+            else "None of your runs went that way, so they can't say how it would go.")
+    if held < last:
+        later = sum(ending > held for ending in merged)
+        return (f"The {later} change{'s' * (later != 1)} that merged after round {held} would have "
+                "gone back to their orchestrator instead" + (
+                    f", and the {failed} that failed would have gone back after round {held}"
+                    if failed else "") + ".")
+    if held == last:
+        return (f"{failed} change{'s' * (failed != 1)} ({round(100 * failed / len(runs))}%) went "
+                f"back to their orchestrator after {held} round{'s' * (held != 1)}.")
+    if held == last + 1 and last and failed:
+        kept = merged.count(last)
+        return (f"If a {nth(held)} round went like the {nth(last)}, where "
+                f"{round(100 * kept / (kept + failed))}% merged, about "
+                f"{round(failed * kept / (kept + failed))} of those {failed} would have merged. "
+                "No run has had one, so this is a guess.")
+    return f"No run has gone past {last} round{'s' * (last != 1)}, so your runs can't say."
+
+
+def lines_said(key, reviewed, held):
+    """What the first reviews (history.first_reviews) of `key`'s changes would have done at
+    `held` lines: those of `held` lines or more -- where the owner's design of 5 Nov 2026 splits
+    them -- split, for builds under `executor_lines`, or made tasks, for orchestrators' own pull
+    requests under `orchestrator_lines`, and how often their first review passed, or round 1
+    merged them, beside the rest; off, or past the largest, what they can't say.  None with
+    none."""
+    own = key == "orchestrator_lines"
+    sizes = [(lines, merged if own else passed)
+             for lines, mine, passed, merged in reviewed if mine == own]
+    if not sizes:
+        return None
+    if held == 0:
+        return ("Off: orchestrators build nothing themselves, so every one of their "
+                f"{len(sizes)} own pull request{'s' * (len(sizes) != 1)} would have been a task."
+                if own else
+                "Off: executors build nothing, so your runs can't say how that would go.")
+    over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
+    if not over:
+        return (f"Your largest {'own pull request' if own else 'build'} was "
+                f"{max(lines for lines, _ in sizes)} lines, so your runs can't say how bigger "
+                "ones would go.")
+    under = [passed for lines, passed in sizes if lines < held]
+    rate = lambda each: f"{round(100 * sum(each) / len(each))}%"
+    were, rest = "was" if len(over) == 1 else "were", (
+        f", and {rate(under)} below {held} lines" if under else "")
+    if own:
+        return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} "
+                f"{held} lines or more and would have been "
+                f"{'a task' if len(over) == 1 else 'tasks'}. "
+                f"Round 1 merged {rate(over)} of them{rest}.")
+    return (f"{len(over)} of your {len(sizes)} builds ({round(100 * len(over) / len(sizes))}%) "
+            f"{were} {held} lines or more and would have been split. Their first review passed "
+            f"{rate(over)} of the time{rest}.")
+
+
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
     (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves, and under `Review rounds`' how the runs ended
-    (rounds_chart), read as the page opens.  ← and → move the pointed one a step (limit_step),
-    saved to config.toml at once where config.host_policy takes it.  The owner's design of
-    5 Nov 2026."""
-    ended = history.round_endings()
+    it means and the board rows it moves, then under `Review rounds` how the runs ended
+    (rounds_chart) and under each what those runs would have done at its value (rounds_said,
+    lines_said), read as the page opens and said again as the value moves.  ← and → move the
+    pointed one a step (limit_step), saved to config.toml at once where config.host_policy
+    takes it.  The owner's design of 5 Nov 2026."""
+    ended, reviewed = history.round_endings(), history.first_reviews()
+
+    def under(key, held):      # the row's chart, then what its runs would have done at `held`
+        said = (rounds_said(ended, held) if key == "review_rounds"
+                else lines_said(key, reviewed, held))
+        room = terminal.layout_width() - 2
+        return [*([rounds_chart(ended)] if key == "review_rounds" else []),
+                *([["", *("  " + part for part in terminal.wrap(said, room))]] if said else [])]
 
     def take(key, value):
         try:
@@ -5613,7 +5695,7 @@ def config_limits(cfg):
                   else "The orchestrator builds nothing; executors build every change."
                   if key == "orchestrator_lines" and numbers[key] == 0
                   else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."),
-                 *([rounds_chart(ended)] if key == "review_rounds" else []))
+                 under(key, numbers[key]))
                 for key, (default, _, meaning, moved) in config.POLICY.items()], ""
     config_page("limits", page, move=("limit", "value"))
 

@@ -8,6 +8,7 @@ package loop
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"runtime"
 	"sync"
 	"syscall"
@@ -45,13 +46,18 @@ const heldThreads = 8
 
 // holdThreads has the driver's runtime start, before the task table can fill, the threads it later
 // wants: a thread Go's runtime fails to start kills the process, its record live but its log
-// silent; held so, the next fork fails instead, as an error endNoRoom answers.  One thread at a time
-// runs the driver's own code, which mostly waits on its children and so loses no speed, and its
-// garbage collector wants no thread per core.  But a call that blocks hands that turn to another
-// thread, one the runtime starts where none is parked: heldThreads goroutines, each locked to a
-// thread of its own until all are, leave as many parked for the process's life once they let go.
-func holdThreads() {
+// silent; held so, the next fork fails instead, as an error endNoRoom answers.  Where the table is
+// full already, the process it starts first fails so, and it returns that error before any thread.
+// One thread at a time runs the driver's own code, which mostly waits on its children and so loses
+// no speed, and its garbage collector wants no thread per core.  But a call that blocks hands that
+// turn to another thread, one the runtime starts where none is parked: heldThreads goroutines, each
+// locked to a thread of its own until all are, leave as many parked for the process's life once
+// they let go.
+func holdThreads() error {
 	runtime.GOMAXPROCS(1)
+	if err := exec.Command("true").Run(); errors.Is(err, syscall.EAGAIN) {
+		return err
+	}
 	var held, freed sync.WaitGroup
 	held.Add(heldThreads)
 	freed.Add(heldThreads)
@@ -65,4 +71,5 @@ func holdThreads() {
 		}()
 	}
 	freed.Wait()
+	return nil
 }

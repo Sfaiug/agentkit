@@ -192,7 +192,8 @@ class ConfigHome(unittest.TestCase):
         self.assertIn("schedule_gc", inspect.getsource(watch.local_passes))
         for module in (orch, menu):
             text = Path(module.__file__).read_text()
-            self.assertNotIn("pull", text, module.__name__)
+            # what they say about pull requests aside, no word of pulling code
+            self.assertNotRegex(text, r"pull(?!\s+request)", module.__name__)
             self.assertNotIn("orch.refresh", text, module.__name__)
         # no screen asks git what build this is but `c`, once a visit
         self.assertEqual([path.name for path in (REPO / "agentkit").rglob("*.py")

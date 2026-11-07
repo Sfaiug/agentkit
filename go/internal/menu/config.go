@@ -93,8 +93,10 @@ func ConfigFrame(s terminal.Screen, view ConfigView) MatrixFrame {
 	}
 	over = append(over, "")
 	under := []string{"", "  " + s.Styled("Version "+view.Version, "dim")}
-	for _, line := range terminal.Wrap(view.Note, s.LayoutWidth()-2) {
-		under = append(under, "  "+s.Styled(line, "dim"))
+	for _, said := range strings.Split(view.Note, "\n") { // each its own line, as `a`'s refusals
+		for _, line := range terminal.Wrap(said, s.LayoutWidth()-2) {
+			under = append(under, "  "+s.Styled(line, "dim"))
+		}
 	}
 	room := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under)-len(over))
 	if room < least {

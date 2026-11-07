@@ -145,7 +145,8 @@ class GoNamesItsFailingTests(unittest.TestCase):
         self.assertEqual(calls, [TOOLCHAIN, "gofmt -l", "go vet linux/arm64", "go vet linux/amd64",
                                  "go vet darwin/arm64", "go vet windows/amd64",
                                  "go test -json -timeout 0 ./...", "go build linux/amd64",
-                                 "go build darwin/arm64", "go build windows/amd64"])
+                                 "go build linux/arm64", "go build darwin/arm64",
+                                 "go build windows/amd64"])
 
     def test_a_failing_vet_of_the_callers_own_platform_is_named_by_it_and_given_runs_there(self):
         code, out, parts, _ = self.checked(ACME_BROKEN="go vet linux/arm64")
@@ -168,7 +169,8 @@ class GoNamesItsFailingTests(unittest.TestCase):
     def test_the_callers_own_platform_go_ships_on_is_vetted_first_and_once(self):
         _, out, _, calls = self.checked(host="darwin/arm64")
         self.assertEqual([call for call in calls if call.startswith("go vet")],
-                         ["go vet darwin/arm64", "go vet linux/amd64", "go vet windows/amd64"], out)
+                         ["go vet darwin/arm64", "go vet linux/amd64", "go vet linux/arm64",
+                          "go vet windows/amd64"], out)
 
     def test_given_parts_it_runs_just_those_after_the_toolchain_check(self):
         code, out, parts, calls = self.checked(f"{ACME}.TestFixApi", WIDGET, "build windows/amd64")

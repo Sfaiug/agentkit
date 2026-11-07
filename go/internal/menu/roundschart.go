@@ -12,29 +12,31 @@ import (
 	"agentkit/internal/terminal"
 )
 
-// RoundsChart is how `runs` ended, drawn under `Review rounds`' note (menu.rounds_chart): the
-// evidence its number is set from.  Under a heading, a bar of each ending -- each round from round
+// RoundsChart is how `runs` ended (history.RoundEndings), drawn under `Review rounds`' note
+// (menu.rounds_chart): the evidence its number is set from.  Under a heading, a bar of each ending -- each round from round
 // 1, or a merge with review off, up to the last a run merged in, then `failed` -- its share of the
 // runs taking the room the columns after it leave: its count, that share as a whole percent and its
 // median hours from start to finish.  Below 60 columns each bar folds under its ending.
-func RoundsChart(s terminal.Screen, runs []history.RoundEnding) []string {
+func RoundsChart(s terminal.Screen, runs []history.Row) []string {
 	if len(runs) == 0 {
 		return []string{"", "  no finished runs yet"}
 	}
 	first, last := 1, 0
 	for _, run := range runs {
-		if run.Merged {
-			first, last = min(first, run.Round), max(last, run.Round)
+		if round, merged := run.Num("round"); merged {
+			first, last = min(first, int(round)), max(last, int(round))
 		}
 	}
 	// each round's from first to last, then the failed runs'
 	hours := make([][]float64, last-first+2)
 	for _, run := range runs {
 		at := len(hours) - 1
-		if run.Merged {
-			at = run.Round - first
+		if round, merged := run.Num("round"); merged {
+			at = int(round) - first
 		}
-		hours[at] = append(hours[at], (run.Finished-run.Started)/3600)
+		started, _ := run.Num("started_at")
+		finished, _ := run.Num("finished_at")
+		hours[at] = append(hours[at], (finished-started)/3600)
 	}
 	names, numbers := make([]string, len(hours)), make([][3]string, len(hours))
 	widths, wide := [3]int{}, 0
@@ -66,8 +68,9 @@ func RoundsChart(s terminal.Screen, runs []history.RoundEnding) []string {
 		plural = ""
 	}
 	lines := []string{""}
+	since, _ := runs[0].Num("started_at")
 	for _, part := range terminal.Wrap(fmt.Sprintf("how your %d run%s ended, since %s", len(runs), plural,
-		time.Unix(int64(runs[0].Started), 0).Format("2 Jan")), room-2) {
+		time.Unix(int64(since), 0).Format("2 Jan")), room-2) {
 		lines = append(lines, "  "+part)
 	}
 	for at, each := range hours {

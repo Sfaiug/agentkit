@@ -16,14 +16,14 @@ func TestRoundsChartDrawsEachEndingAsPythonDoes(t *testing.T) {
 	t.Cleanup(func() { time.Local = local })
 	t.Setenv("NO_COLOR", "1")
 	const day, hour = 1793836800, 3600.0
-	ended := func(start, hours float64, merged bool, round int) history.RoundEnding {
-		return history.RoundEnding{Started: day + start, Finished: day + start + hours*hour, Merged: merged, Round: round}
+	ended := func(start, hours float64, round any) history.Row {
+		return history.Row{"started_at": day + start, "finished_at": day + start + hours*hour, "round": round}
 	}
-	runs := []history.RoundEnding{ended(0, 2, true, 1), ended(10, 3, true, 1), ended(20, 5, true, 2),
-		ended(30, 1, false, 0), ended(40, 4, true, 4), ended(50, 1.5, true, 0)}
+	runs := []history.Row{ended(0, 2, int64(1)), ended(10, 3, int64(1)), ended(20, 5, int64(2)),
+		ended(30, 1, nil), ended(40, 4, int64(4)), ended(50, 1.5, int64(0))}
 	for _, each := range []struct {
 		columns string
-		runs    []history.RoundEnding
+		runs    []history.Row
 		want    []string
 	}{
 		{"80", runs, []string{"", "  how your 6 runs ended, since 5 Nov",

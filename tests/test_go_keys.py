@@ -56,6 +56,12 @@ class Claims(unittest.TestCase):
                 built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"],
                                        env=ENV, cwd=Path(tree, "go"), capture_output=True,
                                        text=True)
+                if built.returncode:
+                    # Go that does not build fails every claim asked of it.  Named, a landing's
+                    # narrowing finds the change that broke the build: unnamed, the claim proves
+                    # nothing on each stack holding that change (land._probe).
+                    name_failed([name for name, *_ in listed if not asked or name in asked],
+                                "FAILED_PARTS")
                 self.assertEqual(built.returncode, 0, built.stderr)
             # a checkout, as Go finds the one it runs from (config.Repo), without the history
             subprocess.run(["git", "init", "-q", tree], check=True)

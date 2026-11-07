@@ -100,7 +100,7 @@ func (seat Seat) waitOnUsage(state string, live Live, model string, found sight,
 	return func() error {
 		var marked any
 		if room {
-			marked = run.Float(usages.MarkExhausted(provider, until))
+			marked = run.Float(usages.MarkExhausted(provider, "", until))
 		}
 		if refused {
 			if err := writeSeat(state, seat.Name, []field{{"usage_refusal", refusal}}); err != nil {

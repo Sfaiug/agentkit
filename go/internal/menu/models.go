@@ -89,12 +89,16 @@ func ModelsSaid(screen terminal.Screen, answer map[string]*quality.Said, lineup 
 	return said
 }
 
-// packed is parts on as few lines of room cells as hold them, separator between two on one line.
+// packed is parts on as few lines of room cells as hold them, separator between two on one line; a
+// part too long for a line of its own goes on at its words, never past room, where the terminal
+// would break it mid-word.
 func packed(parts []string, room int) []string {
 	var lines []string
 	for _, part := range parts {
 		if len(lines) > 0 && terminal.Cells(lines[len(lines)-1]+gap+part) <= room {
 			lines[len(lines)-1] += gap + part
+		} else if terminal.Cells(part) > room {
+			lines = append(lines, terminal.Wrap(part, room)...)
 		} else {
 			lines = append(lines, part)
 		}
