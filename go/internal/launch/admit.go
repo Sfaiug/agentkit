@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
+	"agentkit/internal/machines"
 	"agentkit/internal/run"
 )
 
@@ -68,8 +69,9 @@ func letIn(first bool) (*admission, bool) {
 	if !alone || limit > 0 && len(holders) >= limit && !first {
 		return nil, false
 	}
-	// finished work goes first: a line's check waiting for a heavy-suite turn holds a new run
-	if !first && host.LineCheckWaits() {
+	// finished work goes first: a line's check waiting for a heavy-suite turn holds a new run,
+	// unless ak has another machine for that suite (owner, 30 Oct 2026: nothing waits for compute)
+	if !first && host.LineCheckWaits() && len(machines.Known()) == 1 {
 		return nil, false
 	}
 	// with no peak measured, a run waits a poll after the last one let in, for steady readings
