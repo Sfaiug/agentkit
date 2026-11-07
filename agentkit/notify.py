@@ -1611,8 +1611,9 @@ def left(record, harness, conversation):
 
 def conversations_of(name):
     """Each conversation that seat had, oldest first, as `conversation_of` gives its current
-    one, which comes last: before it, each one the seat left, as its record keeps them (`left`).
-    No conversation where `conversation_of` gives none."""
+    one, which comes last where its harness names one yet (a fresh OpenCode seat names none
+    before its first prompt): before it, each one the seat left, as its record keeps them
+    (`left`).  No conversation where `conversation_of` gives no seat."""
     from . import orch
     seat = conversation_of(name)
     if seat is None:
@@ -1623,7 +1624,7 @@ def conversations_of(name):
     then = {key: value for key, value in record.items() if key not in harness.LAUNCH_KEYS}
     gone = [{**then, **was} for was in record.get("left", [])]
     return [*((orch.harness_plugin(was["harness"]), was, was.get("cwd"), was["conversation"])
-              for was in gone), seat]
+              for was in gone), *([seat] if seat[3] else [])]
 
 
 def owner_said(name, seat=None):
