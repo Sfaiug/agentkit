@@ -46,13 +46,15 @@ var (
 // stays.
 var flakyKey = regexp.MustCompile(`(?i)(^|[^\p{L}\p{N}_.])/[^\s'"` + "`" + `<>]+|\b(?:0x[0-9a-f]+|[0-9a-f]{8,}(?:-[0-9a-f]+)*)\b|\d+(?:\.\d+)?(?:e[+-]?\d+)?`)
 
-// A ran is how one command ended: its status, how a stop ended it, "" where none did, and whether
-// the kernel killed it for memory (starved.go).
+// A ran is how one command ended: its status, how a stop ended it, "" where none did, whether
+// the kernel killed it for memory (starved.go), and the CPU seconds its box said it spent, nil for
+// none (measure.go).
 type ran struct {
 	code    int
 	stopped string
 	left    []string
 	starved bool
+	cpu     *float64
 	testReport
 }
 
@@ -274,7 +276,7 @@ func (l *loop) boxed(cwd, cmd, shard string, limit time.Duration, progress *os.F
 	if l.ctx.Err() != nil {
 		return ran{}, context.Cause(l.ctx)
 	}
-	return reportedTests(ran{code: code, stopped: stopped, left: left}, out, only, progress), nil
+	return reportedTests(ran{code: code, stopped: stopped, left: left, cpu: box.CPU(out)}, out, only, progress), nil
 }
 
 // checkEnv is a check's environment: seatless, as the workers are, at the run's next depth.

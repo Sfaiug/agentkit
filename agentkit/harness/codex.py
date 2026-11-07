@@ -909,7 +909,7 @@ def conversation_stores():
     one, and each seat's sessions and archived_sessions, kept apart (`seat_conversations`).  An
     account's home links its own to the first."""
     seats = sorted(seat_conversations("*").parent.glob("*/"))
-    return [{"root": root, "pattern": "*/*/*/rollout-*.jsonl"}
+    return [{"root": root, "pattern": "*/*/*/rollout-*.jsonl", "id": ROLLOUT}
             for root in (Path.home() / ".codex" / "sessions",
                          *(seat / name for seat in seats
                            for name in ("sessions", "archived_sessions")))]

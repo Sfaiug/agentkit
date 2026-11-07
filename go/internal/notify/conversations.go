@@ -19,9 +19,10 @@ type Conversation struct {
 
 // Conversations is each conversation that seat had, oldest first (notify.conversations_of): each
 // one it left, as its record keeps them (`left`), then its current one, the owner's messages in
-// each as OwnerMessages reads them; none with no record.  ErrUnread, with none of them read, where
-// Go does not read the owner's words in one (harness.Reads), strictly as Python's done check
-// does, and the error where the seat's typing receipts cannot be read.
+// each as OwnerMessages reads them; none with no record.  ErrUnread where Go does not read one,
+// and strictly, with none of them read, where Go does not read the owner's words in one as
+// strictly as Python's done check does (harness.Reads); the error where the seat's typing
+// receipts cannot be read.
 func Conversations(name string, strictly bool) ([]Conversation, error) {
 	current, record, err := config.ResolveSession(name)
 	if err != nil {
@@ -35,7 +36,7 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 		return nil, ErrUnread
 	}
 	// each read under the record as it was then: none of the current launch's evidence, which
-	// names the conversation it is on now (a harness may read one through its launch's receipt)
+	// names the conversation it is on now
 	then := maps.Clone(record)
 	for _, key := range harness.LaunchKeys {
 		delete(then, key)
@@ -50,17 +51,17 @@ func Conversations(name string, strictly bool) ([]Conversation, error) {
 		}
 		was := maps.Clone(then)
 		maps.Copy(was, entry)
-		had = append(had, Conversation{Harness: kind, Record: was})
+		had = append(had, Conversation{Harness: kind, Name: named, Record: was})
 	}
 	had = append(had, Conversation{Harness: config.SeatHarness(current), Record: record})
 	// before any is read, as reading one may keep what its harness's evidence follows
 	for _, each := range had {
-		if !harness.Reads(each.Harness, strictly) {
+		if strictly && !harness.Reads(each.Harness, true) {
 			return nil, ErrUnread
 		}
 	}
 	for i := range had {
-		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record); err != nil {
+		if had[i].Name, had[i].Messages, err = ownerIn(current, had[i].Harness, had[i].Record, had[i].Name); err != nil {
 			return nil, err
 		}
 	}

@@ -16,6 +16,14 @@ func SeatScope(pid int) ([]int, bool) {
 	if !ok || !strings.HasPrefix(filepath.Base(relative), "agentkit-seat-") {
 		return nil, false
 	}
+	pids, _ := cgroupPids(relative)
+	return pids, true
+}
+
+// cgroupPids is every process in the cgroup at relative, below it too, Python's
+// host.cgroup_pids(complete=True): nil and false where a list cannot be read, which may hide any
+// process.
+func cgroupPids(relative string) ([]int, bool) {
 	pids, complete := []int{}, true
 	filepath.WalkDir(cgroupPath(relative), func(dir string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -43,7 +51,7 @@ func SeatScope(pid int) ([]int, bool) {
 		return nil
 	})
 	if !complete {
-		return nil, true
+		return nil, false
 	}
 	return pids, true
 }

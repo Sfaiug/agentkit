@@ -247,7 +247,8 @@ def words(kind, payload):
 def conversation_stores():
     """The default home's conversations: agy 1.4.4 ends none, and only an RPC no subcommand
     reaches (DeleteConversation) would."""
-    return [{"root": Path.home() / ".gemini/antigravity-cli/conversations", "pattern": "*.db"}]
+    return [{"root": Path.home() / ".gemini/antigravity-cli/conversations", "pattern": "*.db",
+             "id": re.compile(r"(.+)\.db")}]
 
 
 def end_conversation(path, ends):

@@ -64,7 +64,8 @@ func checkOwed(name string, lines []string) (bool, error) {
 // it, and the owner's words in them, oldest first (done_check.owner_words): each message they wrote
 // the seat, then each answer they gave on its question cards.  Read strictly (harness.strictly):
 // Answered reads each conversation whole, so one there that cannot be read is an error, though
-// notify.Conversations reads it as holding no message; one that is gone holds none.
+// notify.Conversations reads it as holding no message; one that is gone holds none.  ErrUnread
+// where Go reads the owner's words in none of that harness's (harness.Reads).
 func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
 	var owner []Said
 	for _, each := range had {
@@ -74,6 +75,9 @@ func OwnerWords(had []notify.Conversation) ([][]harness.Turn, []Said, error) {
 	}
 	said := make([][]harness.Turn, len(had))
 	for i, each := range had {
+		if !harness.Reads(each.Harness, false) {
+			return nil, nil, notify.ErrUnread
+		}
 		turns, cards, err := harness.Answered(each.Harness, each.Record)
 		if err != nil {
 			return nil, nil, err
