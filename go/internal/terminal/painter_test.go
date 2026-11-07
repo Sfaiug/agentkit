@@ -26,3 +26,19 @@ func TestOnlyTheSpansThatMovedGoOut(t *testing.T) {
 		t.Fatalf("changed lines wrote %q", got)
 	}
 }
+
+// A frame as tall as the screen goes out row by row and nothing after its last: a newline there
+// would scroll its header away, and a clear would erase that row.
+func TestAFrameFillingTheScreenKeepsItsHeader(t *testing.T) {
+	var out strings.Builder
+	painter, screen := NewPainter(&out), Screen{width: 8, height: 2}
+	painter.Write([]string{"agentkit", "esc"}, screen)
+	if want := hold("\x1b[1;1Hagentkit\x1b[2;1Hesc\x1b[K"); out.String() != want {
+		t.Fatalf("a full frame wrote %q, want %q", out.String(), want)
+	}
+	out.Reset()
+	painter.Write([]string{"agentkit", "q"}, screen)
+	if want := hold("\x1b[2;1Hq\x1b[K"); out.String() != want {
+		t.Fatalf("a changed full frame wrote %q, want %q", out.String(), want)
+	}
+}

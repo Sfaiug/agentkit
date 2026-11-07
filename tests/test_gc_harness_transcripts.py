@@ -169,7 +169,8 @@ class GcConversations(Sandbox):
         with patch.object(gc, "stale_conversations",
                           return_value=[{"action": "remove", "kind": "conversation",
                                          "path": str(old), "harness": "codex",
-                                         "conversation": THREAD.format(1), "why": "old"}]):
+                                         "conversation": THREAD.format(1), "names": 1,
+                                         "why": "old"}]):
             gc.gc(lambda _: None)
         self.assertTrue(old.exists())
         self.assertFalse(self.calls.exists())

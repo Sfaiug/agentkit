@@ -30,7 +30,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, orch, update, watch, worker
+from agentkit import config, orch, update, versions, watch, worker
 
 INSTALL = '#!/bin/sh\n[ "$1" != --prepare ] || exit 0\necho installed >>"$HOME/installs"\n'
 LIVE = f"""#!/bin/sh
@@ -135,12 +135,15 @@ class GoLiveWaitsForLiveChecks(unittest.TestCase):
 
     def tick(self, now=None):
         """One tick's go_live: what it logged.  A LIVE check it starts waits for it to end, as
-        a real tests/live.sh, minutes long, outlasts it."""
+        a real tests/live.sh, minutes long, outlasts it.  A tick of the version it leaves live
+        completes after it, making its move final."""
         said = []
         with open(self.root / "tick", "w") as lock, \
                 patch.object(watch, "after_merge_deliver", side_effect=self.deliver):
             fcntl.flock(lock, fcntl.LOCK_EX)
             update.go_live(said.append, now=now)
+        with patch.object(config, "BEGAN", os.stat(self.clone)):
+            versions.final()
         return said
 
     def finish(self, commit):

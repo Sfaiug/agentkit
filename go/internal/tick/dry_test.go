@@ -77,7 +77,7 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 
 // The retry row runs its own step dry: it says what it would retry and sends nothing. What the
 // rows say waits until every row and GitHub pass are Go's, so a later event Go cannot read, or a
-// pull request of this account's on another's repository that merged, prints none of it.
+// search for this account's pull requests whose item Go cannot read, prints none of it.
 func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 	ak, gh := idleHome(t, "echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
 	put(t, filepath.Join(ak, "state", "notification-outbox", "card.json"), run.Line(run.Fields("id", "card", "source", "card:done-1",
@@ -100,10 +100,9 @@ func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh(`[ "$*" = "api user" ] && exec echo '{"login": "acme"}'
-case "$*" in *"pr view"*) exec echo '{"state": "MERGED"}' ;; esac
-echo '{"items": [{"pull_request": {"html_url": "https://github.com/other/app/pull/1"}}]}'`)
+echo '{"items": [1]}'`)
 	if Dry(&out) == "" || out.Len() > 0 {
-		t.Fatalf("a merged pull request printed %q", &out)
+		t.Fatalf("a search Go cannot read printed %q", &out)
 	}
 }
 

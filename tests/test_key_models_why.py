@@ -101,7 +101,8 @@ class ModelsWhy(unittest.TestCase):
                        orchestrator="crux", workers=[worker])
 
     def models(self, width=78, height=60):
-        """`r` on `c` in a window of its own, once the answer is drawn."""
+        """`r` on `c` in a window of its own, once the answer is drawn: how many models it
+        compares, or on a page too short to keep that, the orchestrator's quality."""
         term = Terminal(self.home, size=(width, height), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -109,7 +110,8 @@ class ModelsWhy(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        return term, lines(term.wait("comparing all 4 models"))
+        return term, lines(term.wait(lambda screen: "comparing all 4 models" in screen
+                                     or " 93.2 " in screen))
 
     def why(self, term, *keys):
         term.keys(*keys, "Enter")

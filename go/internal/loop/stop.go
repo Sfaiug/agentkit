@@ -31,10 +31,7 @@ func StopRun(id string, keep bool, out io.Writer) error {
 	if read == nil {
 		return fmt.Errorf("%s: cannot read %s", id, filepath.Join(dir, "run.json"))
 	}
-	var state *run.Object
-	again := false
-	err = run.ChangeThen(dir, func(record *run.Object) error {
-		state = record
+	state, err := end(dir, keep, run.Why, func(record *run.Object) error {
 		if err := checkStopOwner(record); err != nil {
 			return err
 		}
@@ -43,29 +40,43 @@ func StopRun(id string, keep bool, out io.Writer) error {
 		case word == "stopped" && record.Dict("lease_wait") != nil && !record.Truthy("lease_restarted"):
 			return ErrPython // stopped to wait on an older run's change, whose restart it calls off
 		case word == "stopped":
-			again = true
-			return nil
+			return errStop
 		case run.Ended(record) && word != "error":
 			return fmt.Errorf("%s is already %s; only unfinished work can be stopped", id, run.Field(record, "state", "None"))
 		case !goStops(dir, record):
 			return ErrPython
 		}
-		run.MarkStopped(record, time.Now(), keep || !removable(record))
 		return nil
-	}, func() {
-		if !again {
-			recordResult(dir, state)
-			endProcesses(dir, state)
-		}
 	})
-	if err != nil {
+	if err != nil && !errors.Is(err, errStop) {
 		return err
-	}
-	if !again {
-		endStopped(dir, state, keep)
 	}
 	fmt.Fprintln(out, stopLine(id, state))
 	return nil
+}
+
+// end is Go's one stop of the run: judge's yes to its record as it stands under its lock, where a
+// judge is given, then the record stopped for why, its result, and the loop and all it started,
+// still under that lock, then the checkout unless kept.  It is the record as it was read there.
+func end(dir string, keep bool, why string, judge func(*run.Object) error) (*run.Object, error) {
+	var state *run.Object
+	err := run.ChangeThen(dir, func(record *run.Object) error {
+		state = record
+		if judge != nil {
+			if err := judge(record); err != nil {
+				return err
+			}
+		}
+		run.MarkStopped(record, time.Now(), keep || !removable(record), why)
+		return nil
+	}, func() {
+		recordResult(dir, state)
+		endProcesses(dir, state)
+	})
+	if err == nil {
+		endStopped(dir, state, keep)
+	}
+	return state, err
 }
 
 // endProcesses is what follows the record of a stop under its lock, as Python's end holds it: the

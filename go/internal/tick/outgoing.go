@@ -13,8 +13,10 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/lock"
 	"agentkit/internal/loop"
+	"agentkit/internal/plan"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
@@ -22,8 +24,9 @@ import (
 // The outgoing pass is Python's outgoing: each pull request of this account's on a repository it
 // does not own is followed in watch.json's `own`, and what the maintainer decided is handed on
 // once, never to Discord.  A request for changes or a close goes on the run that opened it and is
-// typed into the seat that answers for it; any other decision stays in `own`.  A merge is
-// Python's, as is any case Go does not carry, each at its own point, before anything is written.
+// typed into the seat that answers for it, and a merge goes on it too (forkmerge.go); any other
+// decision stays in `own`.  Any case Go does not carry is Python's, each at its own point, before
+// anything is written.
 
 const authoredSearch = "search/issues?q=is:pr+is:open+author:@me&per_page=100"
 
@@ -150,8 +153,8 @@ func theirs(item any, me string) (string, bool) {
 }
 
 // follow is Python's outgoing of one pull request: read, and what the maintainer decided handed on
-// once.  Its entry in `own` changes only where Go carries it: a merge (milestone 186c), and any
-// case Go does not type or wake, go to Python with it as it stood.
+// once.  Its entry in `own` changes only where Go carries it: any case Go does not type or wake
+// goes to Python with it as it stood.
 func (t *ticking) follow(address, session string) error {
 	own := t.state.Dict("own")
 	entry := run.Fields("decision", nil, "done", false)
@@ -163,7 +166,7 @@ func (t *ticking) follow(address, session string) error {
 	}
 	value, why, err := gh.JSON(run.Runs(), "pr", "view", address, "--json", "state,reviewDecision,title,number")
 	view, _ := value.(*run.Object)
-	if err != nil || view != nil && view.Get("state") == "MERGED" {
+	if err != nil {
 		return errLeft
 	}
 	if session != "" {
@@ -175,12 +178,16 @@ func (t *ticking) follow(address, session string) error {
 		label := "PR #" + run.Text(view.Get("number")) + " " + run.Text(view.Get("title"))
 		decision, said := view.Get("reviewDecision"), false
 		switch {
+		case view.Get("state") == "MERGED":
+			if said, err = t.say(label+": merged by the maintainer", address, session, true); said {
+				entry.Set("done", true)
+			}
 		case view.Get("state") == "CLOSED":
-			if said, err = t.say(label+": closed by the maintainer without a merge", address, session); said {
+			if said, err = t.say(label+": closed by the maintainer without a merge", address, session, false); said {
 				entry.Set("done", true)
 			}
 		case decision == "CHANGES_REQUESTED" && entry.Get("decision") != "CHANGES_REQUESTED":
-			if said, err = t.say(label+": the maintainer requested changes", address, session); said {
+			if said, err = t.say(label+": the maintainer requested changes", address, session, false); said {
 				entry.Set("decision", decision)
 			}
 		case view.Truthy("reviewDecision") && !run.Equal(entry.Get("decision"), decision):
@@ -201,12 +208,13 @@ func (t *ticking) follow(address, session string) error {
 	return err
 }
 
-// say is Python's say of a close or a request for changes: on the run that opened the pull request
-// once, where the menu and `ak run status` showed `waiting for the maintainer`, then typed at the
-// quiet prompt of the seat answering for it, woken first where it sleeps, the line's mark kept on
-// the run (`decision_typed`) so one typed and never seen sent gets its Enter, not a second copy.
-// Said is whether it landed everywhere it goes, or has nowhere left to.
-func (t *ticking) say(text, address, session string) (said bool, err error) {
+// say is Python's say: on the run that opened the pull request once, where the menu and `ak run
+// status` showed `waiting for the maintainer`, then typed at the quiet prompt of the seat
+// answering for it, woken first where it sleeps, the line's mark kept on the run
+// (`decision_typed`) so one typed and never seen sent gets its Enter, not a second copy; a merge
+// only where its seat owes work for it (untyped).  Said is whether it landed everywhere
+// it goes, or has nowhere left to.
+func (t *ticking) say(text, address, session string, merged bool) (said bool, err error) {
 	if t.dry {
 		t.log.line("would hand on: " + text + " (" + address + ")")
 		return false, nil
@@ -217,16 +225,22 @@ func (t *ticking) say(text, address, session string) (said bool, err error) {
 	held := record.Dict("decision_typed")
 	name, _, err := config.ResolveSession(session)
 	// what Go does not type or wake is Python's, before anything is written: Python's seat_notice
-	// points to result.md where the line would not fit, and its editor reads a mark naming a pane
+	// points to result.md where the line would not fit, its editor reads a mark naming a pane, it
+	// sends a hand-back's line left unsent, which a merge's notice replaces (endings), it starts a
+	// merge's follow-up that has no command, and it weighs the seat's plan where Go cannot
 	if session != "" && (err != nil || !reaches(name)) || config.TooLong(line) ||
-		record.Truthy("decision_typed") && (held == nil || held.Has("pane")) {
+		record.Truthy("decision_typed") && (held == nil || held.Has("pane")) ||
+		merged && (record.Truthy("handback_typed") || handback.Unclaimed(record) || plan.Readable(run.Seat(record)) != nil) {
 		return false, errLeft
 	}
-	if note := config.Fold(text); dir != "" && record.Str("merge_note") != note {
-		if !recordDecision(dir, record, note) {
+	if note := config.Fold(text); dir != "" && (record.Str("merge_note") != note || merged && !record.Truthy("merged")) {
+		if !recordDecision(dir, record, note, merged) {
 			return false, errLeft
 		}
 		t.log.line("recorded on run " + filepath.Base(dir) + ": " + text)
+	}
+	if merged && (dir == "" || untyped(record)) {
+		return t.endRoutine(dir, record, line)
 	}
 	if session != "" {
 		switch awake, woken := seat.Wake(name, t.log.line); {
@@ -316,20 +330,32 @@ func runFor(address string) (string, *run.Object) {
 	return "", run.NewObject()
 }
 
-// recordDecision is Python's record_decision of a decision no merge made: the run's merge_note
-// becomes it, and result.md says so, written again while the run's worktree is there, else the
-// note added under a heading of its own; false where the record could not be written.
-func recordDecision(dir string, record *run.Object, note string) bool {
-	if run.Change(dir, func(current *run.Object) error {
-		current.Set("merge_note", note)
-		return nil
-	}) != nil {
+// recordDecision is Python's record_decision: the run's merge_note becomes the decision, and a
+// merge records what it leaves on the run (mergeRecord), ends the run's history row, and runs its
+// seat's plan checks and follow-ups; result.md says so, written again while the run's worktree is
+// there, else the note added under a heading of its own.  False where nothing was written.
+func recordDecision(dir string, record *run.Object, note string, merged bool) bool {
+	fields := run.Fields("merge_note", note)
+	if merged && mergeRecord(record, fields) != nil {
 		return false
 	}
-	record.Set("merge_note", note)
+	put := func(to *run.Object) {
+		for _, name := range fields.Keys() {
+			to.Set(name, fields.Get(name))
+		}
+	}
+	if run.Change(dir, func(current *run.Object) error { put(current); return nil }) != nil {
+		return false
+	}
+	put(record)
+	result := record
+	if merged {
+		history.Finish(record, nil)
+		result = cmp.Or(loop.FinishSeat(dir, record), record)
+	}
 	// the note is on the run; a result that cannot be written again from here is not news
 	if info, err := os.Stat(record.Str("worktree")); record.Truthy("worktree") && err == nil && info.IsDir() {
-		loop.WriteResult(dir, record)
+		loop.WriteResult(dir, result)
 		return true
 	}
 	held, err := lock.Wait(context.Background(), filepath.Join(dir, "delivery.lock"))

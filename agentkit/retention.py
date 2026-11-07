@@ -26,8 +26,9 @@ def present(path):
     return os.path.lexists(path)
 
 
-def safe(path):
-    """No symlink ancestors, foreign owners, special files or hard-linked regular files."""
+def safe(path, names=1):
+    """No symlink ancestors, foreign owners, special files or regular files with more than
+    `names` names (hard links)."""
     path = Path(path)
     if not path.is_absolute() or ".." in path.parts:
         return False
@@ -39,7 +40,7 @@ def safe(path):
         info = path.lstat()
         return (info.st_uid == os.getuid() and
                 (stat.S_ISDIR(info.st_mode) or
-                 (stat.S_ISREG(info.st_mode) and info.st_nlink == 1)))
+                 (stat.S_ISREG(info.st_mode) and info.st_nlink <= names)))
     except OSError:
         return False
 

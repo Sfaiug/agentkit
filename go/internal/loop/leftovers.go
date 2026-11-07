@@ -149,7 +149,7 @@ func (r *repoPlace) commitLeftovers(l *loop) error {
 	if err != nil {
 		return err
 	}
-	status, err := g.Try("diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD")
+	status, err := g.RawTry("diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD")
 	if err != nil {
 		return err
 	}

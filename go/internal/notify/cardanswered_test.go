@@ -3,6 +3,8 @@
 package notify
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -65,5 +67,33 @@ func TestACardAnswersOnlyTheNoticesQuestionsItNames(t *testing.T) {
 	}
 	if got := waits(); !slices.Equal(got, []float64{30, 30, 20}) {
 		t.Fatal(got)
+	}
+}
+
+// A card's answer is Go's only where Go reads as Python does all it goes on to read: none of a
+// question's retirements waits for Python's notice lock to carry it out, and neither the notice nor
+// the page its needs you card put out holds what Go cannot keep.
+func TestACardIsAnsweredOnlyWhereGoReadsAllItGoesOnToRead(t *testing.T) {
+	_, write := questionHome(t)
+	notice, page := seatFile("notify", "acme", "json"), filepath.Join(outbox(), cardKey("acme-episode")+".json")
+	write(notice, `{"session":"acme","kind":"needs","text":"Which port?","time":10}`)
+	write(seatFile("card", "acme", "json"), `{"word":"needs you","since":10,"episode":"acme-episode"}`)
+	write(page, `{"status":"pending"}`)
+	if !CardAnswerable("acme") {
+		t.Fatal("refused what Go reads")
+	}
+	for _, unkept := range [][2]string{
+		{notice, `{"session":"acme","kind":"needs","text":"Which path /tmp/caf\ud800?","time":10}`},
+		{page, `{"status":"pending","payload":"/tmp/caf\ud800"}`},
+		{filepath.Join(outbox(), "stuck.clear"), `{"session":"acme","prefix":"Which"}`},
+	} {
+		kept, err := os.ReadFile(unkept[0])
+		write(unkept[0], unkept[1])
+		if CardAnswerable("acme") {
+			t.Errorf("answered over %s", filepath.Base(unkept[0]))
+		}
+		if err == nil {
+			write(unkept[0], string(kept))
+		}
 	}
 }

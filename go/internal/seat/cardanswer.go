@@ -29,8 +29,10 @@ const cardWait = 2 * time.Second
 // a notice answered whole lets go of the stall latch it held (watch.forget); with no notice, a
 // needs you only the screen said is what was answered.  Only a hook in the seat's own pane answers.
 // False, with nothing written, where that is Python's to record: a question kept back for a turn
-// since ended, which it asks first; a conversation Go cannot name; a seat file that cannot take
-// what it writes; and a notice lock not had in time.
+// since ended, which it asks first; a conversation Go cannot name; a notice, card or page Go cannot
+// read as Python does, or a question's retirement Python's lock carries out first
+// (notify.CardAnswerable); a seat file that cannot take what it writes; and a notice lock not had
+// in time.
 func AnswerCard(name string, at float64, replies [][]string) bool {
 	if _, own := inPane(name); !own {
 		return true
@@ -57,7 +59,7 @@ func AnswerCard(name string, at float64, replies [][]string) bool {
 // Whether that answered the notice whole.
 func answerCard(name string, at float64, replies [][]string) (bool, error) {
 	conversation, known := conversationOf(name)
-	if !known {
+	if !known || !notify.CardAnswerable(name) {
 		return false, errPython
 	}
 	// a question the notice asks, kept back again under a newer card, is that card's now

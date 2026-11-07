@@ -65,7 +65,7 @@ class ReceiptNeedsEnter(Sandbox):
     def tmux(self, *args, **kwargs):
         if args[0] == "list-buffers":
             return 0, ""      # no text ak's editor keeps
-        if args[-1] == "#{pane_id}":
+        if args[-1] == "#{pane_id}\t#{pane_pid}":
             return 1, ""      # no pane named: keys go to the seat's current one
         self.assertEqual(args[args.index("-t") + 1], f"={SEAT}:")
         self.assertEqual(kwargs.get("socket"), orch.seat_socket(self.seat))

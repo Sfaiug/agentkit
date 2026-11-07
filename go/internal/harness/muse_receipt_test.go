@@ -110,6 +110,11 @@ func TestMuseReceiptFollowsItsLaunchThroughNewIntoTheReopen(t *testing.T) {
 	os.Remove(filepath.Join(registry, "opened.json"))
 	register("after-new", muse.Process.Pid)
 	owned(launched, "after-new")
+	// the line the launch opened on went into the session it reported, and stays there
+	deferred := run.Fields("conversation", nil, "launch", run.Fields("muse_launch", launched.Str("muse_launch")))
+	if went := WentInto("muse", deferred); went != "opened" {
+		t.Fatalf("the launch's first line went into %q", went)
+	}
 
 	// that Muse gone, its pid another's, the receipt keeps the last session it was given
 	muse.Process.Kill()

@@ -30,9 +30,11 @@ gives it just those parts as its arguments, as a run does for the `<file>::<part
 lists; a part it times as passed in the file PART_TIMES names is printed with its own seconds.
 A part is named as run only where a run of its file named it failing or timed it, and a run
 failing with no part named fails each part it did not time: a file given a part it does not
-hold, as one only a later change adds, fails naming and timing none.  The imports are a test of
-their own, IMPORTS, named as run and as failed like a file, in a whole run too; AK_ONLY set, they
-are checked only where it lists them.
+hold, as one only a later change adds, fails naming and timing none, and may name it in the file
+NOT_THERE names: it is then named `<file>::<part>` in the file AK_NOT_THERE names, and a narrowing
+step counts that tree as passing it.  The imports are a test of their own, IMPORTS, named as run
+and as failed like a file, in a whole run too; AK_ONLY set, they are checked only where it lists
+them.
 
     python3 tests/every_file.py [checkout [descriptor]]
 """
@@ -145,9 +147,10 @@ def smoke_runs(smoke, offline):
     return names
 
 
-def run_file(root, path, env, parts=(), failed=None, timed=None):
+def run_file(root, path, env, parts=(), failed=None, timed=None, absent=None):
     """Run the file for `parts`, its arguments, all of it where there are none; `failed`, a
-    list, gets the parts it names as failing, and `timed`, a dict, the passing ones' seconds."""
+    list, gets the parts it names as failing, `timed`, a dict, the passing ones' seconds, and
+    `absent`, a list, those it names as not there."""
     began = time.monotonic()
     # Files can run beside smoke.sh in the same checkout. Their HOME and temp files must
     # not reach another file's sandbox; their bytecode is the piece's own (`env`).
@@ -156,9 +159,10 @@ def run_file(root, path, env, parts=(), failed=None, timed=None):
     with tempfile.TemporaryDirectory(prefix="ak-test-file-", dir="/tmp",
                                      ignore_cleanup_errors=True) as sandbox:
         # Made only by a file naming a part: every other file's HOME starts as empty as before.
-        named, seconds = Path(sandbox, "failed-parts"), Path(sandbox, "part-times")
+        named, seconds, gone = (Path(sandbox, name)
+                                for name in ("failed-parts", "part-times", "not-there"))
         child_env = dict(env, HOME=sandbox, TMPDIR=sandbox, FAILED_PARTS=str(named),
-                         PART_TIMES=str(seconds))
+                         PART_TIMES=str(seconds), NOT_THERE=str(gone))
         proc = subprocess.run([sys.executable, str(path.relative_to(root)), *parts], cwd=root,
                               env=child_env, stdin=subprocess.DEVNULL,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
@@ -166,6 +170,8 @@ def run_file(root, path, env, parts=(), failed=None, timed=None):
             failed.extend(part for part in named.read_text().splitlines() if part)
         if timed is not None and seconds.is_file():
             timed.update(suite_times.read(seconds.read_text()))
+        if absent is not None and gone.is_file():
+            absent.extend(part for part in gone.read_text().splitlines() if part)
     return proc.returncode, proc.stdout.decode(errors="replace"), time.monotonic() - began
 
 
@@ -329,17 +335,19 @@ def main(root, others=None):
     path, parts, _ = next(pending, (None,) * 3)
     began, again, failed, flaky, jobs = time.monotonic(), [], [], [], 0
     ran = {str(path.relative_to(root)) for path, _, _ in todo}
+    absent = set()      # the parts any run named as not there, as `<file>::<part>`
     with pycache, ThreadPoolExecutor(max(1, len(todo))) as pool:
         running = {}
         while path is not None or running:
             for done in list(running):
                 if not done.done():
                     continue
-                (file, asked), named, timed = running.pop(done)
+                (file, asked), named, timed, gone = running.pop(done)
                 name = file.relative_to(root)
                 code, out, took = done.result()
                 print(timed_lines(name, asked, timed), end="", flush=True)
                 ran.update(ids(name, [*named, *timed]))
+                absent.update(f"{name}::{part}" for part in gone)
                 if code == 0 and cases_run(out) > 0:
                     print(pass_line(name, asked, took), flush=True)
                 else:
@@ -353,9 +361,10 @@ def main(root, others=None):
                 # One start per sample lets its startup show in the next CPU reading;
                 # submitting every file at once would bypass later pressure and memory changes.
                 if len(running) < pool_limit(readings):
-                    named, timed = [], {}
-                    running[pool.submit(run_file, root, path, env, parts=parts, failed=named,
-                                        timed=timed)] = (path, parts), named, timed
+                    named, timed, gone = [], {}, []
+                    job = pool.submit(run_file, root, path, env, parts=parts, failed=named,
+                                      timed=timed, absent=gone)
+                    running[job] = (path, parts), named, timed, gone
                     jobs = max(jobs, len(running))
                     path, parts, _ = next(pending, (None,) * 3)
             if running:
@@ -369,11 +378,12 @@ def main(root, others=None):
             os.read(others, 1)  # end-of-file: what landing.py ran beside the pool has ended
         # A file that named its failing parts runs just those again: one part's time, not all.
         for name, named, out in again:
-            still, timed = [], {}
+            still, timed, gone = [], {}, []
             code, rerun, took = run_file(root, root / name, env, parts=named, failed=still,
-                                         timed=timed)
+                                         timed=timed, absent=gone)
             print(timed_lines(name, named, timed), end="")
             ran.update(ids(name, [*still, *timed]))
+            absent.update(f"{name}::{part}" for part in gone)
             if code == 0 and cases_run(rerun) > 0:
                 flaky.append(ids(name, named))
                 print(pass_line(name, named, took))
@@ -388,6 +398,7 @@ def main(root, others=None):
           f"{time.monotonic() - began:.0f}s")
     name_failed(test for tests in failed for test in tests)
     name_failed((test for tests in flaky for test in tests), "AK_FLAKY")
+    name_failed(sorted(absent), "AK_NOT_THERE")
     if only is not None:
         name_failed((test for test in only if test in ran), "AK_RAN")
     return 1 if failed else 0

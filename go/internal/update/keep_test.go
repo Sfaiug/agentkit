@@ -57,17 +57,28 @@ func TestABackgroundUpgradeWhoseGateIsGoneInstallsNothingAndSaysWhy(t *testing.T
 	}
 	code := Background(repo, "gamma")
 	said, _ := os.ReadFile(saidPath())
-	if got := calls(t, home); code != 1 || strings.Join(got, " ") != "--version" ||
-		!strings.Contains(string(said), "no acceptance gate at ") {
+	want := `{"harness": "gamma", "code": 1, "lines": ["update: Error('no acceptance gate at ` +
+		filepath.Join(repo, "tests", "live.sh") + `; an unverified upgrade is not one')"]}`
+	if got := calls(t, home); code != 1 || strings.Join(got, " ") != "--version" || string(said) != want {
 		t.Fatalf("exit %d, calls %q, said %s", code, got, said)
 	}
 }
 
-func TestATickHandsOverAHarnessItCouldNotStartBeforeAskingItsRelease(t *testing.T) {
+func TestATickHandsOverAHarnessItCouldNotMoveBeforeAskingItsRelease(t *testing.T) {
 	home, _ := harnessHome(t)
-	checkout := filepath.Join(home, "agentkit") // ~/agentkit's own tick, with no live gate
+	checkout := filepath.Join(home, "agentkit") // ~/agentkit's own tick
 	if err := os.Mkdir(checkout, 0o700); err != nil {
 		t.Fatal(err)
+	}
+	// its installer is writing it: no snapshot Go can take
+	for path, content := range map[string]string{
+		filepath.Join(os.Getenv("AGENTKIT_ADAPTER_DIR"), "gamma.toml"): testManifest +
+			"latest = ['acme-cli', 'latest']\n[snapshot]\nfiles = ['acme-cli']\nlock = 'installing'\n",
+		filepath.Join(home, "tools", "installing"): "",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	err := KeepCurrent(config.Resolve(checkout), func(line string) { t.Errorf("said %q", line) })
 	_, recorded := os.Stat(filepath.Join(home, ".agentkit", "state", "harness-latest.json"))

@@ -5,9 +5,9 @@ package loop
 // alone before anyone is blamed.  Red there, the line's `.green` keeps it under the target's tree,
 // its probes counted, and the line waits on the retry ladder, the piece probed again at each step.
 // Red through the whole ladder, or the stack's tests failing again there alone, it is the target's
-// own and gets one repair run, owned by the member probed, a PR's own seat being its fixer instead;
-// while it stays red, that repair alone is checked, on it.  Blaming the commit that turned the target
-// red is not Go's yet.
+// own and gets one repair run, owned by the member probed, a PR's own seat being its fixer instead,
+// and the commit that turned it red is blamed (blame.go); while it stays red, that repair alone is
+// checked, on it.
 
 import (
 	"cmp"
@@ -176,7 +176,7 @@ func (s *narrowingStack) probeTip(turn, code string, target *lineTarget, suite, 
 	}
 	s.l.say(fmt.Sprintf("%s at %s fails %s: the target's own red, repaired", target.upstream, tip, how))
 	s.l.repairTarget(turn, target.tree, s.record, entry)
-	return false, nil
+	return false, s.blameTip(target.tip, suite, piece, again)
 }
 
 // repairTarget is the one repair of the red the line keeps under tree, owned by the member whose

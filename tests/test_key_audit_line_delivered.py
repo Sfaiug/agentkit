@@ -40,13 +40,6 @@ def week():
     return f"{year}-W{number:02d}"
 
 
-def receipt(home, line):
-    """A typed line's receipt as ak keeps it: the line, and when tmux made the seat it went
-    into, so a seat made again since, its composer empty, matches none."""
-    made = home.tmux("display-message", "-p", "-t", "=audit:", "#{session_created}")
-    return {"line": line, "seat": int(made.out)}
-
-
 class Ticks:
     """A Home with the audit on and no history, the `audit` seat each case's `seated` makes,
     and two ticks over it, each seen as it ends: its run, the audit's state, what the pane took
@@ -84,7 +77,7 @@ class Ticks:
         """By `tick`'s end `line` is entered once, its receipt kept and it is delivered."""
         self.assertEqual(tick.done.code, 0, tick.done.out + tick.done.err)
         self.assertIn(tick.state.get("week"), self.weeks)
-        self.assertEqual(tick.state.get("typed"), receipt(self.home, line))
+        self.assertEqual(tick.state.get("typed"), self.seat.mark(line))
         self.assertTrue(tick.state.get("delivered"), tick.state)
         self.assertEqual(self.seat.lines(), [line])
 
@@ -125,7 +118,7 @@ class TypedBefore(Ticks, unittest.TestCase):
             assert time.monotonic() < deadline, seat.typed()
             time.sleep(0.05)
         seat.show("claude-prompt-pane.txt")
-        home.write(".agentkit/state/audit.json", {**state, "typed": receipt(home, cls.line)})
+        home.write(".agentkit/state/audit.json", {**state, "typed": seat.mark(cls.line)})
         return seat
 
     def test_it_is_finished_from_its_receipt_and_never_typed_again(self):

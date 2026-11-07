@@ -40,19 +40,32 @@ type plannedMove struct {
 	selected   *run.Object
 }
 
-// Move moves the seat to `model`, its orchestrator at `effort` where one is given ("" keeps the
-// seat's own), as orch.switch_orchestrator does: in place, asking nothing, where its running
-// harness takes the move (switchPane), else by a fresh-conversation restart once `asked` says so.
-// Given an effort, its own model moves as another would.  Refusals of _switch_plan, a move in
-// place its harness's plugin judges, into a harness Go types nothing into or after which a turn
-// its usage cut off goes on, kept conversations, drafts and dialogs return before asked.  The launch, including its rollback,
-// remains the one reopening uses.
-func Move(name, model, effort string, asked func() (bool, bool)) (bool, error) {
-	plan, known := planMove(name, model, effort)
+// ModelOff is matrix.Off, which matrix supplies: it reads the harness catalogs through packages
+// that import this one.
+var ModelOff func(name string) (bool, error)
+
+// Move moves the seat to `model`, its orchestrator at the seat's own effort, as
+// orch.switch_orchestrator does: in place, asking nothing, where its running harness takes the
+// move (switchPane), else by a fresh-conversation restart once `asked` says so.  Refusals of
+// _switch_plan, a move in place into a harness Go types nothing into or after which a turn its
+// usage cut off goes on, kept conversations, drafts and dialogs return before asked.  The launch,
+// including its rollback, remains the one reopening uses.
+func Move(name, model string, asked func() (bool, bool)) (bool, error) {
+	plan, known := planMove(name, model, "")
 	if !known || plan == nil {
 		return known, nil
 	}
 	return plan.carry(asked)
+}
+
+// MoveInPlace is Move with its orchestrator at `effort`, its own model moving as another would;
+// false where that restarts the seat, whose card is Python's.
+func MoveInPlace(name, model, effort string) (bool, error) {
+	plan, _ := planMove(name, model, effort)
+	if plan == nil || plan.pane == "" {
+		return false, nil
+	}
+	return true, plan.inPlace()
 }
 
 // planMove is Move's every check before anything is written: nil where the seat already runs
@@ -68,6 +81,10 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	old := selected.Str("orchestrator")
 	if old == model && effort == "" {
 		return nil, true
+	}
+	// _switch_plan refuses a model the model list turned off first; its refusal is Python's
+	if off, err := ModelOff(model); err != nil || off {
+		return nil, false
 	}
 	// _switch_plan: installed, login, then the screen's spent meter. Named
 	// subscriptions still need Python's account ordering and seat_auth hooks.
@@ -119,7 +136,7 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 		entry.Efforts = at
 	}
 	pane, err := switchPane(name, was, entry)
-	if err != nil || !efforts || pane != "" && (harness.AsksSwitchable(entry.Harness) || !typable(entry.Harness) || usageGoesOn(name)) {
+	if err != nil || !efforts || pane != "" && (!typable(entry.Harness) || usageGoesOn(name)) {
 		return nil, false
 	}
 	plan := &plannedMove{name: name, pane: pane, was: was, record: record, selected: selected,

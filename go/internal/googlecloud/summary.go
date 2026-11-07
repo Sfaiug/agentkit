@@ -2,11 +2,9 @@ package googlecloud
 
 import (
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"agentkit/internal/config"
-	"agentkit/internal/run"
 )
 
 // Summary is the cloud's switch and this month's spend as the tick's meter left it, asking
@@ -14,8 +12,8 @@ import (
 // this month is never shown.
 func Summary(count bool) string {
 	active, cap := config.CloudBudget()
-	ledger, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "google-cloud-ledger.json"))
-	if !readable(ledger) {
+	ledger, read := meter()
+	if !read {
 		ledger = nil
 	}
 	if !active {
@@ -37,12 +35,7 @@ func Summary(count bool) string {
 	}
 	said := fmt.Sprintf("on · €%.2f of €%.6g this month", spent, cap)
 	if count {
-		up := 0
-		for _, key := range ledger.Dict("machines").Keys() {
-			if !ledger.Dict("machines").Dict(key).Has("from") {
-				up++
-			}
-		}
+		up := running(ledger)
 		said += fmt.Sprintf(" · %d %s up", up, machineWord(up))
 	}
 	return said
@@ -53,23 +46,4 @@ func machineWord(count int) string {
 		return "machine"
 	}
 	return "machines"
-}
-
-// readable is whether the meter holds only amounts ak could have written: a partial or corrupt
-// one never supplies an amount (google_cloud._ledger).
-func readable(ledger *run.Object) bool {
-	amount := func(value any) bool {
-		number, ok := run.Num(value)
-		return ok && number >= 0 && number < 1e12
-	}
-	if ledger == nil || ledger.Dict("machines") == nil || !amount(ledger.Get("answered")) || !amount(ledger.Get("spent")) {
-		return false
-	}
-	for _, key := range ledger.Dict("machines").Keys() {
-		one := ledger.Dict("machines").Dict(key)
-		if one == nil || !amount(one.Get("price")) || !amount(one.Get("until")) || one.Has("from") && !amount(one.Get("from")) {
-			return false
-		}
-	}
-	return true
 }

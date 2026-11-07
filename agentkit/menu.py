@@ -3223,7 +3223,7 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-UNITS = {"share": "week %", "money": "plan $", "board_dollars": "a task"}   # matrix._costs's
+UNITS = {"share": "week %", "money": "$ a task", "board_dollars": "a task"}   # matrix._costs's
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
@@ -3324,7 +3324,7 @@ def models_body(said, at=None):
 
 
 # The bars, the owner's design of 5 Nov 2026: the dearest TALL cells high, a column WIDE cells
-# wide at most, a name on NAMED lines of it at most
+# wide and a name on NAMED lines of it, each at most
 TALL, WIDE, NAMED = 7, 12, 3
 COUNTS = ("no", "one", "two", "three", "four", "five")      # up to matrix.PLACES
 EIGHTHS = " ▁▂▃▄▅▆▇"     # a bar's top, the eighths of a cell it fills
@@ -3338,7 +3338,7 @@ def columned(text, room, most=NAMED):
         *lines[:most - 1], terminal.wrap(lines[most - 1], room - 1)[0] + "…"]
 
 
-def models_bars(found, role, used):
+def models_bars(found, role, used, room=None, marked=True, why=True):
     """`role`'s answer `found` (matrix.answer) drawn as bars under the role lines, the owner's
     design of 5 Nov 2026: under a heading counting them, its choices, then as many of its
     `others`, best first, as fill matrix.PLACES; side by side, cheapest on the left, each as tall
@@ -3347,7 +3347,9 @@ def models_bars(found, role, used):
     `░`, its `why` under it led by `░`, so one too short to show its shade still says it is one;
     `used`, the row the role uses, is in the accent colour, `━` under its name.  No axis line:
     heights and costs say which is dearer, as a shaded bar on the right is dearer, not better.
-    On a narrow screen the two-cell gutters, then the indent, give way to the labels."""
+    On a narrow screen the two-cell gutters, then the indent, give way to the labels.  Given
+    `room` lines, the dearest stands as tall as the rest leaves room for, TALL cells at most and
+    one at least, else TALL; `marked` false leaves the `━` out, `why` false the whys."""
     utf8, width, choices = terminal.utf8(), terminal.layout_width(), found["choices"]
     solid, shade, mark = "█░━" if utf8 else "#:="
     shaded = found["others"][:matrix.PLACES - len(choices)]
@@ -3362,26 +3364,29 @@ def models_bars(found, role, used):
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[len(choices)]} choice{'s' * (len(choices) != 1)}",
         *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else [])], " · ", width - 2))]
+    unders = [[[quality], columned(row["name"], wide) + [mark * size] * (marked and row is used),
+               [effort], columned(f"{shade} {row['why']}", wide) if why and fill == shade else []]
+              for (row, fill), (_, quality, effort), wide in zip(rows, labels, widths)]
+    # the heading, the dearest's cost over it and what stands under the bars take their lines
+    taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
+    tall = TALL if room is None else max(1, min(TALL, room - taken))
     step = 1 if utf8 else 8           # an eighth of a cell, or without UTF-8 a whole one
     dearest = max((row["cost"] for row, _ in rows), default=0) or 1
     kinds, columns = [], []
-    for (row, fill), (cost, quality, effort), wide in zip(rows, labels, widths):
+    for (row, fill), (cost, *_), under in zip(rows, labels, unders):
         kinds.append("accent" if row is used else None)
-        eighths = max(step, step * round(8 * TALL * row["cost"] / dearest / step))
+        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step))
         top = -(-eighths // 8)
-        chart = [cost if level == top + 1 else "" if level > top else
-                 (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
-                 for level in range(TALL + 1, 0, -1)]
-        columns.append([chart, [quality], columned(row["name"], wide)
-                        + [mark * size] * (row is used), [effort],
-                        columned(f"{shade} {row['why']}", wide) if fill == shade else []])
+        columns.append([[cost if level == top + 1 else "" if level > top else
+                         (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
+                         for level in range(tall + 1, 0, -1)], *under])
 
     def cell(text, wide, kind):       # spaced after its colour, so no line keeps trailing space
         spaces = " " * (wide - terminal.cells(text))
         return (terminal.styled(text, kind) if kind else text) + spaces
     for parts in zip(*columns):       # chart, quality, name, effort, why: each on the same lines
-        tall = max(map(len, parts))
-        for texts in zip(*(part + [""] * (tall - len(part)) for part in parts)):
+        deep = max(map(len, parts))
+        for texts in zip(*(part + [""] * (deep - len(part)) for part in parts)):
             lines.append((" " * lead + (" " * gap).join(
                 map(cell, texts, widths, kinds))).rstrip())
     return lines
@@ -3442,9 +3447,10 @@ def models_why(found, role, row):
 @terminal.clicks_its_own
 def models_screen(cfg, session, selected, providers):
     """`r recommended` on `c`, `config · recommended · <seat>` or `· new seats`: what each role
-    of `selected` uses (models_body), the bars of the role `▸` is on (models_bars), over
-    models_read until Esc, the boards read as it opens (matrix.refresh); a page too short cuts the
-    bars from its bottom (matrix_key).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of
+    of `selected` uses (models_body), the bars of the role `▸` is on (models_bars) as tall as the
+    page leaves room for, over models_read until Esc, the boards read as it opens
+    (matrix.refresh); a page too short for one-cell bars sheds what gives way, then is cut from its
+    bottom (matrix_key).  ↑/↓ move `▸`; ⏎ or a click opens the why (models_why) of
     the row the role uses, else of its first choice.  `p` lists companies (company_list); `r`
     takes (take_advice)."""
     fetch, held, answer = Fetch(lambda: matrix.refresh(cfg)), matrix.stored(), None
@@ -3466,11 +3472,18 @@ def models_screen(cfg, session, selected, providers):
             used = matrix.uses(cfg, selected, answer)
             said = models_said(cfg, answer, used)
         body, places = models_body(said, None if terminal.away() else here[1])
-        body += models_bars(answer[here[1]], here[1], used[here[1]][2])
         keys = terminal.keys("p models", "r take", "esc back", enter="why", move=("role",))
-        act, here, _, top = matrix_key(title, body, places, rows, here, top, note, keys, marks=0,
-                                       under=["", *models_read(compared, total,
-                                                               held.get("fetched_at"))],
+        read = ["", *models_read(compared, total, held.get("fetched_at"))]
+        # where one-cell bars leave too little room these give way whole, in turn: the comparing
+        # line, the `━` (the accent and the role's line still name the row in use), the whys
+        for under, marked, why in ((read, True, True), ([], True, True), ([], False, True),
+                                   ([], False, False)):
+            room = page_room([*under, *note_lines(note)], keys) - len(body)
+            bars = models_bars(answer[here[1]], here[1], used[here[1]][2], room, marked, why)
+            if len(bars) <= room:
+                break
+        act, here, _, top = matrix_key(title, body + bars, places, rows, here, top, note, keys,
+                                       marks=0, under=under,
                                        clock=clock, began=fetch and fetch.began,
                                        going=fetch and fetch.is_alive)
         if act is None:
@@ -5563,18 +5576,18 @@ def rounds_said(runs, held):
     rounds_chart, M the last round one merged in and F the number that failed.  Off, how many
     went that way; under M, those merged after `held`, and F, back to their orchestrator sooner;
     at M, F back; one past M, a guess that F merge at the share round M merged of its merges and
-    F; further, nothing they can say.  None with no run."""
-    if not runs:
-        return None
+    F; further, nothing they can say.  None with no run, unless off."""
     merged = [ending for *_, ending in runs if ending is not None]
-    failed, last = len(runs) - len(merged), max([*merged, 0])
-    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
-                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
     if held == 0:
         bare = merged.count(0)
         return "Off: no reviewer, so a change lands when its checks pass. " + (
             f"{bare} of your runs went that way." if bare
             else "None of your runs went that way, so they can't say how it would go.")
+    if not runs:
+        return None
+    failed, last = len(runs) - len(merged), max([*merged, 0])
+    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
+                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
     if held < last:
         later = sum(ending > held for ending in merged)
         return (f"The {later} change{'s' * (later != 1)} that merged after round {held} would have "
@@ -5599,16 +5612,17 @@ def lines_said(key, runs, held):
     of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
     orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
     passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
-    say.  None with none."""
+    say.  None with none, unless off."""
     own = key == "orchestrator_lines"
     sizes = [(lines, passed) for _, lines, passed in runs]
-    if not sizes:
-        return None
     if held == 0:
-        return ("Off: orchestrators build nothing themselves, so every one of their "
-                f"{len(sizes)} own pull request{'s' * (len(sizes) != 1)} would have been a task."
+        return ("Off: orchestrators build nothing themselves" + (
+                    f", so every one of their {len(sizes)} own pull request"
+                    f"{'s' * (len(sizes) != 1)} would have been a task." if sizes else ".")
                 if own else
                 "Off: executors build nothing, so your runs can't say how that would go.")
+    if not sizes:
+        return None
     over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
     if not over:
         return (f"Your largest {'own pull request' if own else 'build'} was "
@@ -5630,10 +5644,10 @@ def lines_said(key, runs, held):
 
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
-    (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves, then under each how its runs did (rounds_chart,
-    size_chart) and what they would have done at its value (rounds_said, lines_said), read as
-    the page opens and said again as the value moves.  ← and → move the pointed one a step
+    (LIMIT_NAMES), its value and `default N` where that is not ak's default, then under each
+    what it means, how its runs did (rounds_chart, size_chart) and what they would have done at
+    its value (rounds_said, lines_said), read as the page opens and said again as the value
+    moves: each explanation before its evidence.  ← and → move the pointed one a step
     (limit_step), saved to config.toml at once where config.host_policy takes it.  The owner's
     design of 5 Nov 2026."""
     ended = history.round_endings()
@@ -5647,12 +5661,14 @@ def config_limits(cfg):
                   own, limit, 25, "how often an orchestrator's own pull request merged in its "
                   "first round, by size")}
 
-    def under(key, held):      # the row's chart, then what its runs would have done at `held`
+    def under(key, held):      # what the row means, its chart, what its runs would have done
+        meaning = config.POLICY[key][2]
         said = (rounds_said(ended, held) if key == "review_rounds"
                 else lines_said(key, sized[key], held))
         room = terminal.layout_width() - 2
-        return [*charts[key](held),
-                *(["", *("  " + part for part in terminal.wrap(said, room))] if said else [])]
+        told = lambda text: (["", *("  " + part for part in terminal.wrap(text, room))]
+                             if text else [])
+        return [*told(f"{meaning[0].upper()}{meaning[1:]}."), *charts[key](held), *told(said)]
 
     def take(key, value):
         try:
@@ -5670,13 +5686,8 @@ def config_limits(cfg):
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
                  ("step", lambda step, key=key: limit_step(key, numbers[key], step),
                   lambda value, key=key: take(key, value)),
-                 ("A change lands on its checks; no reviewer." if key == "review_rounds" and numbers[key] == 0
-                  else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
-                  else "The orchestrator builds nothing; executors build every change."
-                  if key == "orchestrator_lines" and numbers[key] == 0
-                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."),
-                 under(key, numbers[key]))
-                for key, (default, _, meaning, moved) in config.POLICY.items()], ""
+                 "", under(key, numbers[key]))
+                for key, (default, *_) in config.POLICY.items()], ""
     config_page("limits", page, move=("limit", "value"))
 
 

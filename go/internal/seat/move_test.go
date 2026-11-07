@@ -13,6 +13,9 @@ import (
 	"agentkit/internal/run"
 )
 
+// No home here stores a lineup, so the model list turns nothing off (matrix.Off).
+func init() { ModelOff = func(string) (bool, error) { return false, nil } }
+
 func moveHome(t *testing.T) string {
 	t.Helper()
 	home := sandbox(t)
@@ -98,7 +101,7 @@ func TestMoveKeepsEscAndHandsUnsupportedSeatsBackBeforeAsking(t *testing.T) {
 			state := filepath.Join(home, ".agentkit", "state")
 			before, _ := os.ReadFile(stateFile(home, "session-acme.json"))
 			asked := false
-			known, err := Move("acme", model, "", func() (bool, bool) { asked = true; return false, true })
+			known, err := Move("acme", model, func() (bool, bool) { asked = true; return false, true })
 			confirm := scenario == "esc" || scenario == "fresh restart"
 			if err != nil || known != confirm || asked != confirm {
 				t.Fatalf("known=%v, asked=%v, err=%v", known, asked, err)
@@ -132,7 +135,7 @@ func TestMoveUsesReopenAndRestoresARefusedRestart(t *testing.T) {
 			_, record, _ := config.ResolveSession("acme")
 			path, _ := harness.Conversation("claude", record)
 			write(t, path, "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"keep working\"}}\n")
-			known, err := Move("acme", "astra", "", func() (bool, bool) {
+			known, err := Move("acme", "astra", func() (bool, bool) {
 				// A concurrent mark survives the move's update under Python's lock.
 				if err := update(state, "acme", set([]field{{"reviewers", []any{"fable"}}})); err != nil {
 					t.Fatal(err)

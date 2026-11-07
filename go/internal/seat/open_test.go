@@ -25,8 +25,8 @@ func TestOpensLeftToPython(t *testing.T) {
 	if _, known := harness.Opens("codex"); !known {
 		t.Error("Go does not open a Codex seat")
 	}
-	if _, known := harness.Opens("antigravity"); known {
-		t.Error("Go opens an Antigravity seat, whose launch writes down more than its id")
+	if _, known := harness.Opens("antigravity"); known || !harness.OpensAnew("antigravity") {
+		t.Error("Go does not open a new Antigravity seat, or reopens one")
 	}
 	if _, known := harness.Opens("acme"); !known {
 		t.Error("a harness only its manifest and adapter name does not open a seat")

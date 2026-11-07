@@ -3,6 +3,7 @@ package seat
 import (
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -23,14 +24,18 @@ func TestAntigravityStoreIsReadAtTheListingBoundary(t *testing.T) {
 			record(t, home, "acme", fields)
 			write(t, stateFile(home, "antigravity-claim.lock"), "")
 			if learned {
-				// Without tmux or a store, the learned conversation must not disappear.
-				record(t, home, "aaa", map[string]any{"id_source": nil})
-				before := stateFiles(t, home)
-				if _, known := Looking(time.Now()); known {
-					t.Fatal("a learned conversation must stay with Python after tmux loses it")
+				// Without tmux or a store, the learned conversation stays the seat's own.
+				before := stateFiles(t, home)["session-acme.json"]
+				listing, known := Looking(time.Now())
+				at := slices.IndexFunc(listing.Seats, func(seat Seat) bool { return seat.Name == "acme" })
+				if !known || at < 0 || listing.Seats[at].unowned {
+					t.Fatal("a learned conversation is no longer the seat's own once tmux loses it")
 				}
-				if after := stateFiles(t, home); !maps.Equal(before, after) {
-					t.Fatal("handing over changed the home")
+				if err := listing.Announce(time.Now()); err != nil {
+					t.Fatal(err)
+				}
+				if after := stateFiles(t, home)["session-acme.json"]; after != before {
+					t.Fatal("publishing changed the record Python reconciles")
 				}
 				return
 			}

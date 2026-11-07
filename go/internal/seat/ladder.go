@@ -245,9 +245,9 @@ func turnRunning(facts climbing) (*answer, error) {
 	return &answer{word: "working", reason: reason, since: began}, nil
 }
 
-// retrying: its turn stopped on an error the tick types it back past.
+// retrying: its turn stopped on an error the tick types it back past, until it asks the owner.
 func retrying(facts climbing) (*answer, error) {
-	if facts.found.stall == nil {
+	if facts.found.stall == nil || stallTold(facts.state, facts.name) {
 		return nil, nil
 	}
 	return &answer{word: "working", reason: fmt.Sprintf("retrying: %v", facts.found.stall), since: facts.found.began}, nil
