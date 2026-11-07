@@ -48,6 +48,13 @@ func (r *repoPlace) verify(l *loop, path string) (bool, string, error) {
 	if err != nil {
 		return false, "", err
 	}
+	suiteOK, said, err := r.affectedSuite(l)
+	if err != nil {
+		return false, "", err
+	}
+	if said != "" {
+		ok, text = ok && suiteOK, said+"\n\n"+text
+	}
 	moved, err := r.changedSince(head, tree)
 	if err != nil {
 		return false, "", err

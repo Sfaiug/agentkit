@@ -384,10 +384,22 @@ func writeSeat(state, name string, fields []field) error {
 
 // under runs fn holding the lock at path.
 func under(path string, fn func() error) error {
-	held, err := lock.Wait(context.Background(), path)
+	release, err := hold(path)
 	if err != nil {
 		return err
 	}
-	defer held.Close()
+	defer release()
 	return fn()
+}
+
+// hold takes the lock at path until release; a dry look takes none (dryLook).
+func hold(path string) (release func(), err error) {
+	if drying != nil {
+		return func() {}, nil
+	}
+	held, err := lock.Wait(context.Background(), path)
+	if err != nil {
+		return nil, err
+	}
+	return func() { held.Close() }, nil
 }

@@ -52,7 +52,8 @@ func handedRead() (reading, bool) {
 	if !bytes.Equal(data, pickled(code, payload)) || json.Unmarshal(payload, &found) != nil {
 		return reading{}, false
 	}
-	return reading{found.Seats, found.Cells, found.Standing, found.Past, found.Handoff, found.Switches}, true
+	return reading{seats: found.Seats, cells: found.Cells, standing: found.Standing, past: found.Past, handoff: found.Handoff,
+		switches: found.Switches}, true
 }
 
 // pickled is [code, data] as Python's pickle.dumps writes it at protocol 3, which Python's

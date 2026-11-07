@@ -41,9 +41,7 @@ func table(t *ticking) []pass {
 		{"rebooted turns", false, configured, continueTurns(false)},
 		{"login resume", true, nil, t.loginResume},
 		// a run's parked login is on its run
-		// a real tick reads each seat at its own turn, under its announce lock; a dry one, which
-		// publishes nothing, reads them here
-		{"seat health", true, all(configured, noRunHealthWork, t.dryly(every(healthy))), t.wet(t.health)},
+		{"seat health", true, all(configured, noRunHealthWork), t.health},
 		{"switched turns", false, configured, continueTurns(true)},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},

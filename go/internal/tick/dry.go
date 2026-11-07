@@ -9,18 +9,20 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/gh"
+	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
 // Dry is `ak watch --dry-run`, as Python's watch.main runs one: the line on who holds the tick
 // lock, that no tick has ended and how big the log is, then what each row and GitHub pass would
-// do; it writes nothing. It runs the tick's own rows and GitHub passes with its dry switch and
-// keeps what they say until each has proved Go's. False, with nothing printed, wherever one finds
-// what Go does not carry, and on Windows, as Overlap.
+// do; it writes nothing, its reads keeping nothing they follow. It runs the tick's own rows and
+// GitHub passes with its dry switch and keeps what they say until each has proved Go's. False,
+// with nothing printed, wherever one finds what Go does not carry, and on Windows, as Overlap.
 func Dry(out io.Writer) bool {
 	if runtime.GOOS == "windows" {
 		return false
 	}
+	defer harness.KeepNothing()()
 	health, _, ok := Health()
 	// the state folder comes first: the rows' seat records are listed from it
 	state, known := loadState()

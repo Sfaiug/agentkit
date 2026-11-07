@@ -2,7 +2,6 @@ package seat
 
 import (
 	"maps"
-	"path/filepath"
 	"slices"
 
 	"agentkit/internal/config"
@@ -132,7 +131,7 @@ func (seat Seat) moved(state string, models map[string]config.Model) error {
 	if to.chosen == "" {
 		return nil
 	}
-	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
+	file := seat.file(state)
 	// the record the answer was read from, run by that orchestrator by then, that it still counts for
 	read := func(data *run.Object, orchestrator string) bool {
 		return data.Str("orchestrator") == orchestrator && data.Str("conversation") == to.conversation && data.Str("cwd") == to.cwd &&

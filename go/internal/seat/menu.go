@@ -28,13 +28,16 @@ func Menu(now time.Time) (Home, bool) {
 // filing wrote.  Looking and commands that publish a word use the same run interpretation without
 // filing.
 func MenuRead(now time.Time) (Home, bool) {
-	runs, projects, known := menuRuns(now, &screenRuns)
+	held, known := screenRuns.Read()
 	if !known {
 		return Home{}, false
 	}
-	read := func() (Home, bool) {
-		return reading(now, true, func([]string, time.Time) (map[string][]ran, bool) { return runs, true }, nil)
+	runs, projects, known := menuRuns(held, now)
+	if !known {
+		return Home{}, false
 	}
+	kept := judging(held)
+	read := func() (Home, bool) { return reading(now, true, func([]string) judges { return kept }, nil) }
 	home, known := read()
 	if !known {
 		return Home{}, false

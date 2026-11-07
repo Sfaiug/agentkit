@@ -59,7 +59,7 @@ accounts=['default','second']
 			if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			accounts, err := SeatAccounts("opus", "default")
+			accounts, err := SeatAccounts("opus", "default", true)
 			if err != nil || len(accounts) != 2 || accounts[0].Name != each.want {
 				t.Fatal(accounts, err)
 			}
@@ -96,14 +96,21 @@ accounts=['default','second']
 	if err := os.WriteFile(filepath.Join(state(), "usage.json"), []byte(stale), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if accounts, err := SeatAccounts("opus", "default"); err != nil || len(accounts) != 2 || accounts[0].Name != "default" {
+	// one that may not collect reads the stale snapshot as it stands, as Python's dry tick does
+	if accounts, err := SeatAccounts("opus", "default", false); err != nil || len(accounts) != 2 || accounts[0].Name != "second" {
+		t.Fatal("a stale snapshot was not read as it stands", accounts, err)
+	}
+	if kept, _ := os.ReadFile(filepath.Join(state(), "usage.json")); string(kept) != stale {
+		t.Fatal("a read that may not collect wrote the snapshot")
+	}
+	if accounts, err := SeatAccounts("opus", "default", true); err != nil || len(accounts) != 2 || accounts[0].Name != "default" {
 		t.Fatal("stale account meters were used", accounts, err)
 	}
 	missing := run.Line(fields("fetched_at", now, "providers", fields("test", fields("accounts", fields("default", reading(97, 10, 0, 0))))))
 	if err := os.WriteFile(filepath.Join(state(), "usage.json"), []byte(missing), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := SeatAccounts("opus", "default"); !errors.Is(err, ErrPython) {
+	if _, err := SeatAccounts("opus", "default", true); !errors.Is(err, ErrPython) {
 		t.Fatal("an added account was not handed over for fresh meters", err)
 	}
 }

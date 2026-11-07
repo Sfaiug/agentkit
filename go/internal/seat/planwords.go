@@ -82,7 +82,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	// News owns the next prompt, including results arriving while we wait for the typing lock.
 	newsOwed := func(latest climbing) bool {
 		now := time.Now()
-		runs, known := lookRuns(nil, now)
+		runs, known := lookRuns(nil)(now)
 		if !known {
 			return true
 		}
@@ -105,6 +105,11 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 	if err != nil {
 		return found, err
 	}
+	const why = "stopped with work open, no question and no run"
+	if drying != nil {
+		log("would resume " + seat.Name + ", " + why + ", with 'continue'")
+		return found, nil
+	}
 	at := seatAt{seat.Name, seat.own, "=" + seat.Name + ":"}
 	stale := func(current string) bool {
 		pane := at.capture()
@@ -124,7 +129,7 @@ func (seat Seat) nudgeOpenWork(state string, found sight, log func(string)) (sig
 		if err := Write(seat.Name, "stop_nudged", episode); err != nil {
 			return found, err
 		}
-		log(seat.Name + ": stopped with work open, no question and no run; typed 'continue'")
+		log(seat.Name + ": " + why + "; typed 'continue'")
 		return seat.look(state, seconds(time.Now()))
 	}
 	return found, nil

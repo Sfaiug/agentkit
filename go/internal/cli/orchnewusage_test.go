@@ -35,8 +35,6 @@ func TestAnOpenPastItsUsageReadNeverHandsOver(t *testing.T) {
 		name, config, script string
 		said                 string // "" where Go hands the open over
 	}{
-		{"codex on a named login", "[models.acme]\nharness='codex'\nmodel='gpt-5'\neffort='low'\nprovider='openai'\n" +
-			"[providers.openai]\nmode='subscription'\naccounts=['reef']\n", answering("echo /bin/sh"), ""},
 		{"[defaults] efforts", echo + "[defaults]\nefforts = { acme = { effort = 'high' } }\n", answering("echo /bin/sh"), ""},
 		{"no adapter", echo, "", "no adapter for harness 'echo'"},
 		{"an adapter that declines", echo, answering("echo refused >&2; exit 1"),

@@ -3,7 +3,6 @@ package seat
 import (
 	"cmp"
 	"fmt"
-	"path/filepath"
 
 	"agentkit/internal/config"
 	"agentkit/internal/notify"
@@ -68,7 +67,7 @@ var ladder = []rung{
 
 // climbingOf is what the seat's files say now, with what the home's reading found of its runs.
 func climbingOf(state string, seat Seat, found sight, now float64) climbing {
-	file, _ := run.ReadJSON(filepath.Join(state, "seat-"+seat.Name+".json"))
+	file := seat.file(state)
 	if file == nil {
 		file = run.NewObject()
 	}
