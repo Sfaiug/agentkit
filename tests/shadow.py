@@ -21,8 +21,6 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import resource
-import select
 import shlex
 import shutil
 import signal
@@ -37,14 +35,24 @@ from test_go import ENV
 
 REPO = Path(__file__).resolve().parents[1]
 CAP = 600   # seconds a run may take, what it detached included
-# akbin's refusing fakes, and the copiers that would carry a file off to another machine
+# akbin's refusing fakes; tmux, which drives the seats; and the copiers that would carry a file
+# to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
 # The caller's own seat, run and tmux: a run that inherits them acts as somebody's.
 CALLERS = ("AK_", "AGENTKIT_", "TMUX")
 KINDS = ("line", "home", "page", "call")    # what a run did, compared fact by fact
-# The program, then all it detached, which bwrap's init would kill as the program ends, waited out
-# till only that init and this shell are left: a shell, so a run's peak memory is the program's.
-WAIT = '"$@"; code=$?; while set -- /proc/[0-9]*; [ $# -gt 2 ]; do sleep 0.1; done; exit $code'
+# A run in its box: the program, then all it detached, which bwrap's init would kill as the
+# program ends, waited out till only that init and this shell are left.  Then the shell becomes a
+# Python that writes down its children's peak memory, which exec keeps, and exits as the program
+# did.  A shell starts the program because a child's peak starts from its parent's, which for
+# this script would be some 20 MB.
+WAIT = """python=$1 peak=$2; shift 2
+"$@"; code=$?
+while set -- /proc/[0-9]*; [ $# -gt 2 ]; do sleep 0.1; done
+exec "$python" -I -c 'import resource, sys
+print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
+sys.exit(int(sys.argv[1]))' "$code" >"$peak"
+"""
 
 Run = namedtuple("Run", ("code", "handover", *KINDS))
 
@@ -63,8 +71,10 @@ def box(home, scratch):
                                             log=shlex.quote(str(inside / "logs" / f"{name}.log"))))
         fake.chmod(0o755)
     env = {key: value for key, value in os.environ.items() if not key.startswith(CALLERS)}
-    env.update(HOME=str(home), PATH=os.pathsep.join([str(inside / "bin"), env.get("PATH", os.defpath)]),
-               # the box's own /tmp, which Go takes from TMPDIR without asking whether it can write there
+    env.update(HOME=str(home),
+               PATH=os.pathsep.join([str(inside / "bin"), env.get("PATH", os.defpath)]),
+               # The box's own: a caller's TMPDIR is read-only here, which Python's tempfile
+               # passes over and Go's os.TempDir does not.
                TMPDIR="/tmp",
                # empty: no user systemd manager or session bus to find
                XDG_RUNTIME_DIR=str(inside / "runtime"),
@@ -109,31 +119,24 @@ def built():
 
 
 def run(label, program, argv, home, scratch):
-    """One run of `program` in its box, with no input and for at most CAP seconds, and what it did."""
+    """One run of `program` in its box, with no input and for at most CAP seconds: what it did."""
     command, env, folder = box(home, scratch)
     inside = folder / "box"
     began = time.monotonic()
     with (folder / "stdout").open("wb") as out, (folder / "stderr").open("wb") as err:
-        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", program, *argv],
+        proc = subprocess.Popen([*command, "sh", "-c", WAIT, "sh", sys.executable,
+                                 inside / "peak", program, *argv],
                                 stdin=subprocess.DEVNULL, stdout=out, stderr=err, env=env)
-    # Waited by hand: Popen's own wait drops the rusage that has the run's peak memory.
-    waited = os.pidfd_open(proc.pid)
     try:
-        ended = select.select([waited], [], [], CAP)[0]
+        code = proc.wait(CAP)
+    except subprocess.TimeoutExpired:
+        code = f"none (killed at {CAP // 60} minutes)"
     finally:
-        # Killed if it ran too long, or this script was stopped.  Not yet waited, its pid is
-        # still its own, even once it has ended.
-        os.kill(proc.pid, signal.SIGKILL)
-        _, status, usage = os.wait4(proc.pid, 0)
-        proc.returncode = os.waitstatus_to_exitcode(status)
-        os.close(waited)
-    code = proc.returncode if ended else f"killed after {CAP // 60} minutes"
-    # A run's peak takes in this script's own, which its box was forked from: a run that never
-    # rose above that is known only to be at most that.
-    ours = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-    print(f"{label}: exit {code}, {time.monotonic() - began:.1f} s, "
-          f"{'at most ' if usage.ru_maxrss <= ours else ''}{usage.ru_maxrss / 1024:.0f} MB "
-          "at its peak", flush=True)
+        proc.kill()     # past its cap, or this script was stopped: the box goes with it
+        proc.wait()
+    seconds, peak = time.monotonic() - began, _lines(inside / "peak")
+    peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
+    print(f"{label}: exit {code}, {seconds:.1f} s, {peak}", flush=True)
     handover = inside / "handover"
     return Run(code, handover.read_text(errors="replace") if handover.exists() else None,
                line={f"{stream}: {text}" for stream in ("stdout", "stderr")
@@ -159,7 +162,8 @@ def touched(upper, home):
             return      # the home's own shows through, and so does all beneath it
         was, now = _state(below), _state(above)
         if was != now:
-            facts.add(f"{'wrote' if was is None else 'removed' if now is None else 'changed'} {path}")
+            verb = "wrote" if was is None else "removed" if now is None else "changed"
+            facts.add(f"{verb} {path}")
         folder = now is not None and stat.S_ISDIR(now[0])
         # The home's entries show only through a folder of the upper layer that is not opaque.
         # Where they do not show, each one is gone unless the run wrote it again.
@@ -204,7 +208,7 @@ def differences(first, go, again):
     """Each way `go` differs from the Python runs either side of it, as (kind, what)."""
     found = set()
     if go.code != first.code == again.code:
-        found.add(("exit", f"go exits {go.code}, python {first.code}"))
+        found.add(("exit", f"go {go.code}, python {first.code}"))
     if go.handover is not None:
         found.add(("hand-over", " ".join(go.handover.split()) or "an empty record"))
     for kind in KINDS:
@@ -252,10 +256,10 @@ def main():
             return differences(*(run(label, program, argv, home, scratch) for label, program in
                                  (("python", python), ("go", go), ("python again", python))))
 
-        first = three()
+        first, again = three(), set()
         if first:
             print("repeated straight away, to confirm what differed:", flush=True)
-        again = three() if first else set()
+            again = three()
         for kind, what in sorted(first ^ again):
             print(f"flake {kind}: {what}")
         for kind, what in sorted(first & again):
