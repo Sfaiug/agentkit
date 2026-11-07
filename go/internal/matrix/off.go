@@ -5,7 +5,10 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/quality"
+	"agentkit/internal/seat"
 )
+
+func init() { seat.ModelOff = Off }
 
 // Off is whether ak never uses that configured model (matrix.off): one the config offers running
 // a release the lineup last stored rates that is not on (Compared), so no turn or seat is had on

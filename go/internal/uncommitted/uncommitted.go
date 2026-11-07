@@ -85,7 +85,7 @@ func Committable(g gitcall.Git, artifacts map[string]bool) (real, left []string,
 // Add stages selected work that still has a file or an entry in g's index: a staged rename
 // already removed its old entry, so add cannot match that path.
 func Add(g gitcall.Git, selected []string) error {
-	listed, err := g.Must("ls-files", "-z")
+	listed, err := g.Raw("ls-files", "-z")
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func Tree(g gitcall.Git, artifacts map[string]bool, index string) (string, error
 	if err != nil {
 		return "", err
 	}
-	deleted, err := g.Must("diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD")
+	deleted, err := g.Raw("diff", "--cached", "--name-only", "--no-renames", "--diff-filter=D", "-z", "HEAD")
 	if err != nil {
 		return "", err
 	}

@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"cmp"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -99,22 +100,41 @@ func KeepNothing() (keep func()) {
 // museConversation is the session that launch reported, "" where it reported none yet; the one
 // Muse's registry has since moved that launch's process to, once the registry says so, kept in
 // the receipt for the seat to reopen on after that process is gone, by any read that keeps what
-// it follows.  Muse's `/new` fires no hook.
+// it follows.  Muse's `/new` fires no hook.  The first such read keeps the session it moves the
+// receipt on from as the one reported (museReported).
 func museConversation(record map[string]any) string {
 	token, _ := record["muse_launch"].(string)
 	path := museReceipt(token)
-	if path == "" {
+	session := museRead(path, "session")
+	if session == "" {
 		return ""
 	}
-	session, err := os.ReadFile(filepath.Join(path, "session"))
-	if err != nil || !museSession.Match(session) {
-		return ""
-	}
-	if now := museFollowed(path); now != "" && now != string(session) {
+	if now := museFollowed(path); now != "" && now != session {
 		if !unkept.Load() {
+			museWrite(path, "reported", session, os.Link)
 			museWrite(path, "session", now, os.Rename)
 		}
 		return now
+	}
+	return session
+}
+
+// museReported is the session that launch reported, which the line it opened on went into
+// however far `/new` has moved it since; "" where it reported none yet.
+func museReported(record map[string]any) string {
+	token, _ := record["muse_launch"].(string)
+	path := museReceipt(token)
+	return cmp.Or(museRead(path, "reported"), museRead(path, "session"))
+}
+
+// museRead is the session that receipt's file names, "" for none or no receipt.
+func museRead(receipt, name string) string {
+	if receipt == "" {
+		return ""
+	}
+	session, err := os.ReadFile(filepath.Join(receipt, name))
+	if err != nil || !museSession.Match(session) {
+		return ""
 	}
 	return string(session)
 }

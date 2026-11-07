@@ -3,6 +3,7 @@
 package host
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -40,7 +41,8 @@ func (r Readings) set(name string, value float64, ok bool) {
 // Read is AK_HOST_READINGS where it holds a JSON object, standing in for /proc and the
 // cgroups, else the live host.
 func Read() Readings {
-	if injected, ok := Injected(); ok {
+	var injected Readings
+	if text := os.Getenv("AK_HOST_READINGS"); text != "" && json.Unmarshal([]byte(text), &injected) == nil && injected != nil {
 		return injected
 	}
 	readings := Readings{"cpus": float64(cpuCount())}

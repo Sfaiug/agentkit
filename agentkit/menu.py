@@ -5586,18 +5586,18 @@ def rounds_said(runs, held):
     rounds_chart, M the last round one merged in and F the number that failed.  Off, how many
     went that way; under M, those merged after `held`, and F, back to their orchestrator sooner;
     at M, F back; one past M, a guess that F merge at the share round M merged of its merges and
-    F; further, nothing they can say.  None with no run."""
-    if not runs:
-        return None
+    F; further, nothing they can say.  None with no run, unless off."""
     merged = [ending for *_, ending in runs if ending is not None]
-    failed, last = len(runs) - len(merged), max([*merged, 0])
-    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
-                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
     if held == 0:
         bare = merged.count(0)
         return "Off: no reviewer, so a change lands when its checks pass. " + (
             f"{bare} of your runs went that way." if bare
             else "None of your runs went that way, so they can't say how it would go.")
+    if not runs:
+        return None
+    failed, last = len(runs) - len(merged), max([*merged, 0])
+    nth = lambda n: f"{n}" + ("th" if n % 100 in (11, 12, 13)
+                              else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
     if held < last:
         later = sum(ending > held for ending in merged)
         return (f"The {later} change{'s' * (later != 1)} that merged after round {held} would have "
@@ -5622,16 +5622,17 @@ def lines_said(key, runs, held):
     of 5 Nov 2026 splits them -- split, for builds under `executor_lines`, or made tasks, for
     orchestrators' own pull requests under `orchestrator_lines`, and how often their first review
     passed, or round 1 merged them, beside the rest; off, or past the largest, what they can't
-    say.  None with none."""
+    say.  None with none, unless off."""
     own = key == "orchestrator_lines"
     sizes = [(lines, passed) for _, lines, passed in runs]
-    if not sizes:
-        return None
     if held == 0:
-        return ("Off: orchestrators build nothing themselves, so every one of their "
-                f"{len(sizes)} own pull request{'s' * (len(sizes) != 1)} would have been a task."
+        return ("Off: orchestrators build nothing themselves" + (
+                    f", so every one of their {len(sizes)} own pull request"
+                    f"{'s' * (len(sizes) != 1)} would have been a task." if sizes else ".")
                 if own else
                 "Off: executors build nothing, so your runs can't say how that would go.")
+    if not sizes:
+        return None
     over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
     if not over:
         return (f"Your largest {'own pull request' if own else 'build'} was "
@@ -5653,10 +5654,10 @@ def lines_said(key, runs, held):
 
 def config_limits(cfg):
     """`Limits`: each of config.POLICY's numbers a row (config_page) under its name
-    (LIMIT_NAMES), its value and `default N` where that is not ak's default, its own note what
-    it means and the board rows it moves, then under each how its runs did (rounds_chart,
-    size_chart) and what they would have done at its value (rounds_said, lines_said), read as
-    the page opens and said again as the value moves.  ← and → move the pointed one a step
+    (LIMIT_NAMES), its value and `default N` where that is not ak's default, then under each
+    what it means, how its runs did (rounds_chart, size_chart) and what they would have done at
+    its value (rounds_said, lines_said), read as the page opens and said again as the value
+    moves: each explanation before its evidence.  ← and → move the pointed one a step
     (limit_step), saved to config.toml at once where config.host_policy takes it.  The owner's
     design of 5 Nov 2026."""
     ended = history.round_endings()
@@ -5670,12 +5671,14 @@ def config_limits(cfg):
                   own, limit, 25, "how often an orchestrator's own pull request merged in its "
                   "first round, by size")}
 
-    def under(key, held):      # the row's chart, then what its runs would have done at `held`
+    def under(key, held):      # what the row means, its chart, what its runs would have done
+        meaning = config.POLICY[key][2]
         said = (rounds_said(ended, held) if key == "review_rounds"
                 else lines_said(key, sized[key], held))
         room = terminal.layout_width() - 2
-        return [*charts[key](held),
-                *(["", *("  " + part for part in terminal.wrap(said, room))] if said else [])]
+        told = lambda text: (["", *("  " + part for part in terminal.wrap(text, room))]
+                             if text else [])
+        return [*told(f"{meaning[0].upper()}{meaning[1:]}."), *charts[key](held), *told(said)]
 
     def take(key, value):
         try:
@@ -5693,13 +5696,8 @@ def config_limits(cfg):
                   *([] if numbers[key] == default else [(f"default {default}", "dim")])],
                  ("step", lambda step, key=key: limit_step(key, numbers[key], step),
                   lambda value, key=key: take(key, value)),
-                 ("A change lands on its checks; no reviewer." if key == "review_rounds" and numbers[key] == 0
-                  else config.EXECUTORS_OFF if key == "executor_lines" and numbers[key] == 0
-                  else "The orchestrator builds nothing; executors build every change."
-                  if key == "orchestrator_lines" and numbers[key] == 0
-                  else f"{meaning[0].upper()}{meaning[1:]}; it moves {', '.join(moved)}."),
-                 under(key, numbers[key]))
-                for key, (default, _, meaning, moved) in config.POLICY.items()], ""
+                 "", under(key, numbers[key]))
+                for key, (default, *_) in config.POLICY.items()], ""
     config_page("limits", page, move=("limit", "value"))
 
 
