@@ -316,7 +316,7 @@ func TestOnlyAQueuedChildSkipsTheBudget(t *testing.T) {
 	}{
 		{"", false}, {`{"state":"fail"}`, false}, {`{"state":"running","slot_waiting":false}`, false},
 		{`{"state":"queued"}`, true}, {fmt.Sprintf(`{"state":"running","pid":%d,"slot_waiting":false}`, os.Getpid()), true},
-		{`{"state":"queued","task_file":"/acme/fix-\udcff.md"}`, true},
+		{`{"state":"queued","task_file":"/acme/fix-\ud800.md"}`, true},
 	} {
 		if each.state != "" {
 			write(t, filepath.Join(receipt, "run.json"), each.state)

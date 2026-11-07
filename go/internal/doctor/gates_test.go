@@ -17,7 +17,7 @@ func TestASlotQueueGoCannotKeepSaysNothing(t *testing.T) {
 	root, _ := home(t, models)
 	runs := filepath.Join(root, ".agentkit", "runs")
 	os.MkdirAll(runs, 0o700)
-	queue := `{"at": 1, "running": 0, "queue": ["urgent-fix", "fix-api"], "turns": [[false, true, true, "acme\udcff", "", 1, []]]}`
+	queue := `{"at": 1, "running": 0, "queue": ["urgent-fix", "fix-api"], "turns": [[false, true, true, "acme\ud800", "", 1, []]]}`
 	if err := os.WriteFile(filepath.Join(runs, ".slots.queue"), []byte(queue), 0o600); err != nil {
 		t.Fatal(err)
 	}
