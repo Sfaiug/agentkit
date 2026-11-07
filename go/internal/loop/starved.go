@@ -16,7 +16,7 @@ import (
 // starved is whether a piece that ended so, the cgroup's count at kills as it started, ran out of
 // memory: a test may exit 137 on its own, and one stopped at its limit died by its watch.
 func starved(ended ran, kills int) bool {
-	return ended.stopped == "" && (ended.code == 137 || ended.code == -9) && host.OOMKills() > kills
+	return ended.stopped == "" && (ended.code == 137 || ended.code == -9) && host.MemoryEvent("oom_kill") > kills
 }
 
 // short is whether the checks' red is the host's: no member is sent to its fixer and the target's

@@ -9,9 +9,10 @@ would cost every landing the deadlines of each key whose verb Go lacks.
 
     python3 tests/test_go_keys.py [test_key_name ...]
 
-Key file names keep it to those files' claims, and one go/keys.txt does not list fails; without
-names every claim runs, as the suite's pieces of it name theirs (every_file.py).  With
-AK_BIN set it judges that program, a relative name read from the checkout, instead of building.
+Key file names keep it to those files' claims, and one go/keys.txt does not list fails, naming
+no failing part, as it ran nowhere; without names every claim runs, as the suite's pieces of it
+name theirs (every_file.py).  With AK_BIN set it judges that program, a relative name read from
+the checkout, instead of building; it builds nothing where no claim runs.
 Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
@@ -40,17 +41,18 @@ PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK\n\Z", re.MULTILINE)
 
 class Claims(unittest.TestCase):
     def test_each_claim_passes(self):
-        listed = claims(REPO)
         asked = sys.argv[1:]
-        self.assertFalse(set(asked) - {claim[0] for claim in listed},
-                         "go/keys.txt does not list these")
+        listed = [claim for claim in claims(REPO) if not asked or claim[0] in asked]
+        # One it does not list ran nowhere, as one only a later change adds: it fails this file
+        # naming no failing part, and those it lists still run.
+        unlisted = set(asked) - {claim[0] for claim in listed}
         named = os.environ.get("AK_BIN")
         # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
         # checkout counts on that lying outside the temporary places a worker's box makes its own.
         with tempfile.TemporaryDirectory(prefix=".ak-test-go-keys-", dir=REPO) as tree:
             shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
             program = REPO / named if named else Path(tree, "go/bin/ak")
-            if not named:
+            if listed and not named:
                 # Never a skip: the landing suite counts a skipped case as passed.
                 # Trimmed, a build in this piece's own tree finds what others cached (every_file).
                 built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"],
@@ -69,8 +71,6 @@ class Claims(unittest.TestCase):
             # One after another: every_file.py already runs other files beside this one.  No
             # PYTHONPATH: the caller's could lead back to agentkit.
             for name, *parts in listed:
-                if asked and name not in asked:
-                    continue
                 began = time.monotonic()
                 done = subprocess.run([sys.executable, f"tests/{name}.py", *parts], cwd=tree,
                                       env={**os.environ, "AK_BIN": str(program), "PYTHONPATH": ""},
@@ -82,6 +82,7 @@ class Claims(unittest.TestCase):
         failing = [claim.split()[0] for claim in failed]
         name_failed(failing, "FAILED_PARTS")
         name_timed({name: seconds for name, seconds in took.items() if name not in failing})
+        self.assertFalse(unlisted, "go/keys.txt does not list these")
         self.assertFalse(failed, "these claims of go/keys.txt fail or skip")
 
 

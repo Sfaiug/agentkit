@@ -2416,8 +2416,8 @@ fi
 fixture 52 -34.3  94 7.7  63 18.2
 UT="$WORK/usage-words.txt"
 # 140 columns so the full headings are what is checked; `holds` is what the week holds in
-# tokens, `-` with no turn of ours measured in this HOME; `a month` is the subscription's price
-# and what it buys, `-` with no price on the provider; `resets` is when the shared week opens
+# dollars at list prices, `-` while its plan has none in this HOME; `a month` is the
+# subscription's price, `-` with no price on the provider; `resets` is when the shared week opens
 # again, the same answer the menu row gives, and `resets held` is the credits in hand.
 HOME="$PHOME" COLUMNS=140 ak usage >"$UT" 2>&1
 WHEN='(-|[A-Za-z]+ [0-9][0-9]:[0-9][0-9])'

@@ -96,6 +96,11 @@ func DoneCheck() (string, bool, error) {
 	if err != nil {
 		return "", false, err
 	}
+	return doneCheck(root)
+}
+
+// doneCheck is DoneCheck of a config read.
+func doneCheck(root *table) (string, bool, error) {
 	value := root.get("done_check")
 	if value == nil {
 		return "", true, nil

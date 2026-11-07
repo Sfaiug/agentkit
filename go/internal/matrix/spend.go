@@ -25,7 +25,7 @@ import (
 
 const (
 	drift     = 600       // a reading is of the week of the one before it, by resets_at, at most this many seconds later
-	spentOver = 7 * 86400 // what a login's spend is priced over, and its plan's week fitted
+	SpentOver = 7 * 86400 // what a login's spend is priced over, and its plan's week fitted
 )
 
 // counts are the types of token a row keeps, and listed the column of a release's values listing
@@ -59,7 +59,7 @@ type spent struct {
 // shares is {model: {effort: {role: share}}}, Python's spend.roles: of each offered model at each
 // effort it did a worker role at, the mean over the task runs that ended where it did of the
 // points of a week the role's turn_usage rows took, at held's listed prices times 100 over the
-// week of each row's login under the model's provider (weeks).  A run's reviewer is at the one
+// week of each row's login under the model's provider (plans).  A run's reviewer is at the one
 // effort its reviews name; a run counts for nothing in a role a counted turn of which kept no row,
 // a row of which has no listed price or a login of which has no week.
 func shares(held *run.Object) (*run.Object, error) {
@@ -87,7 +87,12 @@ func shares(held *run.Object) (*run.Object, error) {
 	}
 	s := spending(held)
 	defer s.db.Close()
-	weeks := s.weeks(accounts, float64(time.Now().UnixNano())/1e9)
+	weeks := map[[2]string]float64{} // by provider and the account its rows name
+	for login, plan := range s.plans(accounts, float64(time.Now().UnixNano())/1e9, SpentOver) {
+		if week, known := plan.Week(); known {
+			weeks[[2]string{login.Provider, cmp.Or(login.Account, config.DefaultAccount)}] = week
+		}
+	}
 	type task struct{ run, role string }
 	type did struct {
 		name, effort string
@@ -167,88 +172,71 @@ func shares(held *run.Object) (*run.Object, error) {
 	return found, nil
 }
 
-// weeks is what a week of each login's plan holds in listed dollars, by provider and account,
-// Python's usage.plan_weeks over spend.weeks: per provider, a plan's points over its dollars are
-// the points of a week a listed dollar takes, summed over every login's probe readings of its
-// shared week from spentOver before now, a reading kept with no plan its login's plan now.  A
-// login's readings of one plan and one week, by drift, rose from the earliest to the highest; what
-// the login spent (listed) from the earliest to the first at the highest bought that rise, and one
-// whose spend cannot be priced counts for nothing.  A login whose plan's points or dollars are 0
-// holds no week.
-func (s *spend) weeks(accounts []usage.Week, now float64) map[[2]string]float64 {
-	type key struct{ account, plan string }
+// plans is each login's Plan, Python's usage.plan_weeks over spend.weeks: per provider, a plan's
+// points and dollars are summed over every login's probe readings of its shared week over the over
+// seconds up to now, a reading kept with no plan its login's plan now.  A login's readings of one
+// plan and one week, by drift, rose from the earliest to the highest; what the login spent
+// (listed) from the earliest to the first at the highest bought that rise, and one whose spend
+// cannot be priced counts for nothing.
+func (s *spend) plans(accounts []usage.Week, now, over float64) map[usage.Week]usage.Plan {
+	type key struct{ provider, account, plan string }
 	type group struct {
 		key
 		start float64
 	}
-	found := map[[2]string]float64{}
-	var providers []string
+	plans := map[usage.Week]string{} // each login's plan now, none where logins.json knows none
+	var order []group
+	groups := map[group][][2]float64{}
+	start, last := map[key]float64{}, map[key]float64{}
 	for _, login := range accounts {
-		if !slices.Contains(providers, login.Provider) {
-			providers = append(providers, login.Provider)
+		if kept := logins.Of(login.Provider, login.Account); kept != nil {
+			plans[login] = kept.Str("plan")
+		}
+		if login.Meter == "" {
+			continue
+		}
+		for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "+
+			"account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "+
+			"used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
+			login.Provider, cmp.Or(login.Account, config.DefaultAccount), login.Meter, now-over, now) {
+			used, _ := row.Num("used")
+			resets, _ := row.Num("resets_at")
+			at, _ := row.Num("at")
+			k := key{login.Provider, login.Account, cmp.Or(row.Text("plan"), plans[login])}
+			if before, seen := last[k]; !seen || resets-before > drift {
+				start[k] = resets
+			}
+			last[k] = resets
+			each := group{k, start[k]}
+			if groups[each] == nil {
+				order = append(order, each)
+			}
+			groups[each] = append(groups[each], [2]float64{at, used})
 		}
 	}
-	for _, provider := range providers {
-		plans := map[string]string{}
-		var order []group
-		groups := map[group][][2]float64{}
-		start, last := map[key]float64{}, map[key]float64{}
-		for _, login := range accounts {
-			if login.Provider != provider {
-				continue
-			}
-			plans[login.Account] = "" // its plan now, none where logins.json knows none
-			if kept := logins.Of(provider, login.Account); kept != nil {
-				plans[login.Account] = kept.Str("plan")
-			}
-			if login.Meter == "" {
-				continue
-			}
-			for _, row := range s.db.Select("SELECT used, resets_at, at, plan FROM meter_readings WHERE provider = ? AND "+
-				"account = ? AND meter = ? AND source = 'probe' AND at >= ? AND at <= ? AND "+
-				"used IS NOT NULL AND resets_at IS NOT NULL ORDER BY resets_at",
-				provider, cmp.Or(login.Account, config.DefaultAccount), login.Meter, now-spentOver, now) {
-				used, _ := row.Num("used")
-				resets, _ := row.Num("resets_at")
-				at, _ := row.Num("at")
-				k := key{login.Account, cmp.Or(row.Text("plan"), plans[login.Account])}
-				if before, seen := last[k]; !seen || resets-before > drift {
-					start[k] = resets
-				}
-				last[k] = resets
-				each := group{k, start[k]}
-				if groups[each] == nil {
-					order = append(order, each)
-				}
-				groups[each] = append(groups[each], [2]float64{at, used})
+	fits := map[[2]string]usage.Plan{} // by provider and plan
+	for _, each := range order {
+		readings := groups[each]
+		began := slices.MinFunc(readings, func(a, b [2]float64) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) })
+		top, until := readings[0][1], readings[0][0]
+		for _, reading := range readings[1:] {
+			if reading[1] > top {
+				top, until = reading[1], reading[0]
+			} else if reading[1] == top {
+				until = min(until, reading[0])
 			}
 		}
-		type fit struct{ points, dollars float64 }
-		fits := map[string]*fit{}
-		for _, each := range order {
-			readings := groups[each]
-			began := slices.MinFunc(readings, func(a, b [2]float64) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) })
-			top, until := readings[0][1], readings[0][0]
-			for _, reading := range readings[1:] {
-				if reading[1] > top {
-					top, until = reading[1], reading[0]
-				} else if reading[1] == top {
-					until = min(until, reading[0])
-				}
-			}
-			if dollars, priced := s.listed(provider, each.account, began[0], until); priced {
-				if fits[each.plan] == nil {
-					fits[each.plan] = &fit{}
-				}
-				fits[each.plan].points = fits[each.plan].points + top - began[1]
-				fits[each.plan].dollars += dollars
-			}
+		if dollars, priced := s.listed(each.provider, each.account, began[0], until); priced {
+			fit := fits[[2]string{each.provider, each.plan}]
+			fit.Points, fit.Dollars = fit.Points+top-began[1], fit.Dollars+dollars
+			fits[[2]string{each.provider, each.plan}] = fit
 		}
-		for account, plan := range plans {
-			if held := fits[plan]; held != nil && held.points != 0 && held.dollars != 0 {
-				found[[2]string{provider, cmp.Or(account, config.DefaultAccount)}] = 100 * held.dollars / held.points
-			}
-		}
+	}
+	found := map[usage.Week]usage.Plan{}
+	for _, login := range accounts {
+		fit := fits[[2]string{login.Provider, plans[login]}]
+		fit.Name = plans[login]
+		found[login] = fit
 	}
 	return found
 }

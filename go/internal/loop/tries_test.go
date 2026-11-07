@@ -68,3 +68,19 @@ func TestANewerReviewSupersedesATryKilledBeforeIt(t *testing.T) {
 		t.Fatalf("the newest review answered: %q %q", name, kind)
 	}
 }
+
+func TestATieBetweenRolesGoesToTheLaterTurnsName(t *testing.T) {
+	for _, later := range []string{"executor-attempt2", "executor-retry1"} {
+		round, at := t.TempDir(), time.Now()
+		for name, seconds := range map[string]int{"executor": -1, later: 0, "executor-astra": 0} {
+			turnIn(t, round, name, nil)
+			when := at.Add(time.Duration(seconds) * time.Second)
+			if err := os.Chtimes(filepath.Join(round, name), when, when); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if got := latestWorker(round); got != "executor" {
+			t.Fatalf("%s outsorts executor-astra: %s", later, got)
+		}
+	}
+}
