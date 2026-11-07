@@ -2,7 +2,7 @@
 then as many of its `others`, best first, as fill five places, shaded, side by side, cheapest on
 the left and the dearer taller; on each its cost, under it its quality, its name wrapped at words
 in its column, on 40 cells and on 100, and its effort, and under a shaded one, standing in whole
-shaded cells, its why led by `░`;
+shaded cells and never over a dearer bar, its why led by `░`;
 `━` under the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints
 every role's in turn under its role lines, and on 40 cells, its costs $100 and more, all five
 with every line on the screen.
@@ -139,13 +139,20 @@ class ModelsBars(unittest.TestCase):
                 shown = self.models(width)[1]
                 self.assertGreater(len(bars(shown, "orchestrator")[1]["lines"]), 1, shown)
 
-    def test_a_shaded_bar_stands_in_whole_shaded_cells(self):
-        # 7 cells for $8: Long Name's $3 and Dear's $6 end in a part of a cell
-        done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
+    def test_a_shaded_bar_stands_in_whole_shaded_cells_never_over_a_dearer_one(self):
+        # 7 cells for $8: Long Name's $3 and Dear's $6 end in a part of a cell, and Long Name's
+        # whole third cell would stand over Step's 2.75 at $3.20
+        home = Home()
+        self.addCleanup(home.close)
+        held(home, [(*row[:-1], 3.2 if row[1] == "Acme Step 1" else row[-1]) for row in ROWS])
+        done = home.ak("models", env={**ENV, "COLUMNS": "100"})
         self.assertEqual(done.code, 0, done.err)
         for word in USES:
-            self.assertEqual([bar["glyphs"] for bar in bars(done.out, word) if bar["shaded"]],
+            found = bars(done.out, word)
+            self.assertEqual([bar["glyphs"] for bar in found if bar["shaded"]],
                              [{"░"}, {"░"}], done.out)
+            stands = [bar["eighths"] for bar in found]
+            self.assertEqual(stands, sorted(stands), done.out)
 
     def test_up_and_down_draw_another_roles_bars(self):
         term, _ = self.models()

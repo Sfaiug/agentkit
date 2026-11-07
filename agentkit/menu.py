@@ -3371,13 +3371,15 @@ def models_bars(found, role, used, room=None, marked=True, why=True):
     taken = len(lines) + 1 + sum(max(map(len, part)) for part in zip(*unders))
     tall = TALL if room is None else max(1, min(TALL, room - taken))
     dearest = max((row["cost"] for row, _ in rows), default=0) or 1
-    kinds, columns = [], []
+    kinds, columns, eighths = [], [], 0
     for (row, fill), (cost, *_), under in zip(rows, labels, unders):
         kinds.append("accent" if row is used else None)
         # an eighth of a cell; a whole one without UTF-8, and on a shaded bar, as no glyph shades
         # a part of a cell: its top would stand solid on its shade
         step = 1 if utf8 and fill == solid else 8
-        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step))
+        # and never under the cheaper bar on its left, which a whole shaded cell may overtake
+        eighths = max(step, step * round(8 * tall * row["cost"] / dearest / step),
+                      -(-eighths // step) * step)
         top = -(-eighths // 8)
         columns.append([[cost if level == top + 1 else "" if level > top else
                          (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
