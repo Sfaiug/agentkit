@@ -87,7 +87,7 @@ func Watch() (bool, error) {
 	// no machine to reach: the routes are ssh's own config alone
 	err = save(routesPath(), "Host *\n  Include ~/.ssh/config\n")
 	if err == nil {
-		err = save(filepath.Join(config.Home(), "state", "google-cloud-late.json"), run.Encode(late)+"\n")
+		err = save(latePath(), run.Encode(late)+"\n")
 	}
 	if err == nil && read {
 		err = save(meterPath(), run.Encode(ledger)+"\n")
