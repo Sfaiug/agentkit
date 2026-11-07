@@ -437,7 +437,7 @@ auth)
     echo "claude: the OAuth token in $CREDS expired; run /login" >&2; exit 1; }
   echo "claude: the OAuth token in $CREDS is still valid$(who)" ;;
 hooks)
-  # SessionStart follows /clear's new conversation. The other events say a turn began, a turn
+  # SessionStart follows /clear and /resume. The other events say a turn began, a turn
   # ended, a prompt is waiting, a dialog went up or was answered, a /compact began or ended --
   # all to the one hook script, which writes the fact down and decides nothing.  Stop also
   # carries the one hook that does decide something: a turn that ended with neither a question,
