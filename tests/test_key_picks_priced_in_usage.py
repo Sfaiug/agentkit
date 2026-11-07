@@ -170,6 +170,19 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertRegex(shown, "quality +week %")
         self.assertIn("0.30%", shown)
 
+    def test_a_role_after_an_empty_one_heads_its_own_unit(self):
+        # Echo, compared alone, lacks two of execute's three measures: no builds between
+        # orchestrate's board dollars and review's week shares
+        held = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
+        held["arena.ai"]["rows"] = [row for row in held["arena.ai"]["rows"]
+                                    if row["model"] != "Echo"]
+        next(row for row in held["artificialanalysis.ai"]["rows"]
+             if row["model"] == "Echo")["values"].pop("aa.terminalBench40")
+        self.home.write(".agentkit/state/boards.json", held)
+        shown = self.command(["echo-1"])
+        self.assertIn("builds · none", shown)
+        self.assertRegex(shown, "reviews +quality +week %")
+
 
 if __name__ == "__main__":
     unittest.main()
