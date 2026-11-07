@@ -7493,7 +7493,7 @@ def live_follower(run):
     host (6 Nov 2026).  Each run on a thread of its own, so a slow probe moves no other's times."""
     if not (repo := (run_record.read_state(config.RUNS / run) or {}).get("repo")):
         return 0    # no project, so nothing proves it live (`awaiting_live`)
-    follower, following, runs = None, [], [run]
+    follower, following, runs, census = None, [], [run], Census()
     try:
         # The follower lock on stdin from the merge that started it (`start_live_probe`), held
         # since its fork; moved off stdin, so no command it runs keeps it.
@@ -7511,7 +7511,8 @@ def live_follower(run):
             os.close(live)
             return 0
         # daemons, so a loop that fails ends the process and frees its lock for the next follower
-        started = [threading.Thread(target=follow_live, args=(config.RUNS / name,), daemon=True)
+        started = [threading.Thread(target=follow_live, args=(config.RUNS / name, census),
+                                    daemon=True)
                    for name in [*runs, *live_runs(repo)]]
         following, runs = [thread for thread in following if thread.is_alive()] + started, []
         if not following:
@@ -7524,8 +7525,27 @@ def live_follower(run):
         time.sleep(1)   # what a run handed over waits at most for its follow to start
 
 
-def follow_live(run_dir):
-    """One follower per run, bounded by the same window and probe timeout as the tick.
+class Census:
+    """Every run's (directory, record) (`record.runs`), shared by a live follower's threads:
+    read when an ask first iterates it, so a run not yet live reads none, and taken by every ask
+    within a LIVE_INTERVAL of that read; past it, one thread reads again while the others wait
+    for it.  One read took a follower from 37 to 198 MB and 3 s of CPU, and a read for each ask
+    grew with the square of the runs followed: 27 waited to go live on one seat on 6 Nov 2026."""
+
+    def __init__(self):
+        self.lock, self.at, self.records = threading.Lock(), -math.inf, []
+
+    def __iter__(self):
+        with self.lock:
+            now = time.time()
+            if not 0 <= now - self.at < LIVE_INTERVAL:      # a clock set back reads again too
+                self.at, self.records = now, run_record.runs()
+            return iter(self.records)
+
+
+def follow_live(run_dir, records=None):
+    """One follower per run, bounded by the same window and probe timeout as the tick; its asks
+    read `records`, its follower's `Census`, else every run's record each.
 
     Health and its notice run here; updating agentkit's live checkout remains the tick's go_live.
     """
@@ -7540,7 +7560,8 @@ def follow_live(run_dir):
             if not st:
                 return 0
             ready = st.get("finished_at") is not None
-            delivering = ready and handback.live_owed(st) and not handback.rides(st)
+            delivering = (ready and handback.live_owed(st, records)
+                          and not handback.rides(st, records))
             if not (awaiting_live(st if ready else {**st, "finished_at": began}, now)
                     or delivering and 0 <= now - st["finished_at"] <= AFTER_MERGE_WINDOW):
                 return 0
@@ -7551,11 +7572,11 @@ def follow_live(run_dir):
             sha = after_merge_sha(st.get("pr"), st, print)
             if sha:
                 health = after_merge_health(run_dir, st, st.get("repo"), sha, st.get("pr"),
-                                            now, False, print, {"clock": (now, now)})
+                                            now, False, print, {"clock": (now, now)}, records)
                 if health and health[0] == "passed":
-                    if handback.carries_live(st):
-                        handback.announce(st, run_dir, print)
-                    if not handback.live_owed(st) or handback.rides(st):
+                    if handback.carries_live(st, records):
+                        handback.announce(st, run_dir, print, records=records)
+                    if not handback.live_owed(st, records) or handback.rides(st, records):
                         return 0
             time.sleep(LIVE_INTERVAL)
 
@@ -7707,7 +7728,8 @@ def live_passed(run_dir, st, now, log, records=None):
                                       live_note=handback.ROUTINE_NOTE)
                 log(f"{handback.live_sentence(st, run_dir)} Recorded, not typed")
             return "passed", None, None
-        if handback.carries_live(st) or not st.get("live_typed") and handback.rides(st, records):
+        if (handback.carries_live(st, records)
+                or not st.get("live_typed") and handback.rides(st, records)):
             # its ending, still to be said, carries it, or it rides on the seat's next prompt
             # (`handback.riding`)
             return "passed", None, None

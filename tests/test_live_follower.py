@@ -84,6 +84,27 @@ class LiveFollower(Sandbox):
         live = record.read_state(config.RUNS / "live")
         self.assertEqual((live["live_at"], live["deployed_at"]), (T0 + 40, T0 + 5))
 
+    def test_one_read_of_the_records_serves_every_run_an_interval(self):
+        """Three runs live and owed their line by a seat owing work, their windows ending 15 s
+        apart: whichever asks first in an interval reads every run's record, the rest take it,
+        up to the last look that finds the last window past."""
+        reads, every = [], record.runs
+        self.stack.enter_context(patch.object(
+            record, "runs", lambda: reads.append(self.clock.now) or every()))
+        config.plan_path(SEAT).write_text("- [ ] the parser parses\n")
+        for at, name in enumerate(("one", "two", "three"), 1):
+            (config.RUNS / name).mkdir()
+            record.save_state(config.RUNS / name, {
+                "run_id": name, "state": "pass", "merged": True, "merge_sha": "a" * 40,
+                "pr": "https://github.com/acme/widget/pull/7", "launched_session": SEAT,
+                "repo": str(self.root), "finished_at": T0 - WINDOW + 15 * at, "live_at": T0,
+                "handed_back": T0, "reported": True, "health": {}, "deployed": None})
+            watch.start_live_probe(config.RUNS / name)
+        self.assertEqual(watch.live_follower("one"), 0)
+        self.assertEqual(reads, [T0 + at for at in (0, 15, 30, 45, 60)])
+        self.assertFalse(any(record.read_state(config.RUNS / name).get("live_notified")
+                             for name in ("one", "two", "three")))
+
 
 if __name__ == "__main__":
     unittest.main()
