@@ -149,59 +149,74 @@ def _pricing(cfg):
                           for name, entry in cfg["providers"].items()}}
 
 
-def _costs(rows, role, lineup, cfg, shares):
-    """One unit per role: measured shares, board dollars scaled by pooled shares/dollars,
-    or board dollars without any measurement. Money requires every lineup provider's price."""
+def _costs(rated, lineup, cfg, shares):
+    """Prices the rows of each role of `rated` ({role: `quality.rated`'s rows}) and returns the
+    one unit every role is in: `board_dollars`, the boards' price of their own task, before any
+    run of yours measured a row of `lineup`; else `money`, dollars a task, where a provider your
+    runs measured has a price a month (`usage.price`); else `share`, points of a week.  Each
+    offered model `found` as one release alone measures its rows at the points of a week its
+    runs took (`shares`), at its provider's dollars a point: a hundredth of 12/52 of its price,
+    or of the mean price of the measured providers with one.  A measured row costs what the
+    first such model measured; any other, its board price times the cost per board dollar of
+    every measurement of its role, rated or not, on its provider where one is, else over all of
+    them; a role with none, as no run measures an orchestrator, takes every role's.  Each row
+    keeps its `board_cost`, and `cost_rule` says which rule priced it."""
     # ak's own runs price a role and never rate it: asked on 5 Nov 2026 what their runs should
     # decide, the owner answered "Costs only", as quality comes from the boards.
     from . import usage
-    releases = {row["release"]: {"slug": row["release"], "name": row.get("name")} for row in lineup}
-    index = _release_index(releases.values())
-    models = [(name, entry, {hit["release"]["slug"] for hit in found(index, entry["model"])})
-              for name in config.offered(cfg) for entry in [cfg["models"][name]]]
-
-    def measured_share(name, effort):
-        return shares.get(name, {}).get(effort, {}).get(CONFIG_ROLES[role])
-
-    sources = {}
-    for row in lineup:
-        matches = [(name, entry["provider"]) for name, entry, hits in models
-                   if hits == {row["release"]}]
-        sources[row["release"], row["effort"]] = next(
-            (one for one in matches if measured_share(one[0], row["effort"]) is not None),
-            matches[0] if matches else (None, config.company(cfg, row.get("maker"))))
-    prices = {provider: usage.price(cfg, provider) for _, provider in sources.values()}
-    measured, pools = {}, {}
-    for row in rows:
-        key = row["release"], row["effort"]
-        name, provider = sources[key]
-        share = measured_share(name, row["effort"])
-        row.update(board_cost=row["cost"], cost_rule="board")
-        if share is not None:
-            measured[key] = share
-            if row["board_cost"] is not None and row["board_cost"] > 0:
-                pool = pools.setdefault(provider, [0.0, 0.0])
-                pool[0] += share
-                pool[1] += row["board_cost"]
+    rows = {(row["release"], row["effort"]): row for row in lineup}
+    index = _release_index({row["release"]: {"slug": row["release"], "name": row.get("name")}
+                            for row in lineup}.values())
+    providers = {}  # each release's provider: its first offered model's
+    measured = {}   # (role, release, effort): [(provider, points)], a model's each, first first
+    for name in config.offered(cfg):
+        entry = cfg["models"][name]
+        hits = {hit["release"]["slug"] for hit in found(index, entry["model"])}
+        if len(hits) != 1:
+            continue
+        [release] = hits
+        providers.setdefault(release, entry["provider"])
+        for effort, roles in shares.get(name, {}).items():
+            for role, word in CONFIG_ROLES.items():
+                if (release, effort) in rows and roles.get(word) is not None:
+                    measured.setdefault((role, release, effort), []).append(
+                        (entry["provider"], roles[word]))
+    for each in rated.values():
+        for row in each:
+            row.update(board_cost=row["cost"], cost_rule="board")
     if not measured:
         return "board_dollars"
-    factors = {provider: share / dollars for provider, (share, dollars) in pools.items()}
-    pooled = (sum(share for share, _ in pools.values()) / sum(dollars for _, dollars
-                                                           in pools.values())) if pools else None
-    money = all(price is not None for price in prices.values())
-    for row in rows:
-        key = row["release"], row["effort"]
-        _, provider = sources[key]
-        factor = factors.get(provider, pooled)
-        row["cost_rule"] = "measured" if key in measured else (
-            "provider" if provider in factors else "global")
-        # Without board dollars or a measured conversion, no same-unit estimate exists.
-        row["cost"] = measured[key] if key in measured else (
-            row["board_cost"] * factor if row["board_cost"] is not None and factor is not None
-            else None)
-        if money and row["cost"] is not None:
-            row["cost"] *= prices[provider]
-    return "money" if money else "share"
+    # every provider your runs measured, though no row the boards rate is its measured model
+    prices = {provider: usage.price(cfg, provider) for provider in {
+        cfg["models"][name]["provider"] for name in config.offered(cfg) if shares.get(name)}}
+    known = [price for price in prices.values() if price is not None]
+    mean = sum(known) / len(known) if known else None
+
+    def cost(provider, points):
+        price = mean if prices[provider] is None else prices[provider]
+        # a point is a hundredth of a week, and a week 12/52 of the month a price pays for
+        return points if price is None else points / 100 * price * 12 / 52
+    samples = [(role, provider, cost(provider, points), board)
+               for (role, release, effort), each in measured.items() for provider, points in each
+               for board in [rows[release, effort]["values"].get(quality.COSTS[role])]
+               if board is not None and board > 0]     # (role, provider, cost, board dollars)
+
+    def per_board_dollar(some):
+        return sum(one[2] for one in some) / sum(one[3] for one in some) if some else None
+    for role, each in rated.items():
+        pool = [one for one in samples if one[0] == role] or samples
+        for row in each:
+            mine = measured.get((role, row["release"], row["effort"]))
+            if mine:
+                row.update(cost=cost(*mine[0]), cost_rule="measured")
+                continue
+            provider = providers.get(row["release"]) or config.company(cfg, row.get("maker"))
+            own = [one for one in pool if one[1] == provider]
+            factor = per_board_dollar(own or pool)
+            # Without board dollars or a measured conversion, no same-unit estimate exists.
+            row.update(cost_rule="provider" if own else "global", cost=None if factor is None
+                       or row["board_cost"] is None else row["board_cost"] * factor)
+    return "share" if mean is None else "money"
 
 
 def answer(lineup, compared=None, *, cfg=None, task_usage=None):
@@ -212,13 +227,13 @@ def answer(lineup, compared=None, *, cfg=None, task_usage=None):
     no harness of yours runs is no reason to leave it out; `take`: the same rule over yours;
     and `choices` and `others` over those with a cost, whoever runs them (`_choices`).
     Keep the pick and take visible even if rows outside their eligible pool beat them.
-    Costs use the role's subscription unit when measured, retaining each row's board dollars."""
+    Every role's costs are in one unit (`_costs`)."""
     shares = task_usage if task_usage is not None else _task_usage(cfg) if cfg else {}
     cfg = cfg or {"models": {}, "providers": {}}
+    every = {role: quality.rated(lineup, role) for role in quality.ROLES}
+    unit = _costs(every, lineup, cfg, shares)
     out = {}
-    for role in quality.ROLES:
-        rated = quality.rated(lineup, role)
-        unit = _costs(rated, role, lineup, cfg, shares)
+    for role, rated in every.items():
         them = [row for row in rated if compared is None or row["release"] in compared]
         best = max((row["quality"] for row in them), default=None)
         priced = sorted((row for row in them if row["cost"] is not None),

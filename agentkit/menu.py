@@ -3223,7 +3223,7 @@ def marks_saved(name, selected, changed):
     return ""
 
 
-UNITS = {"share": "week %", "money": "plan $", "board_dollars": "a task"}   # matrix._costs's
+UNITS = {"share": "week %", "money": "$ a task", "board_dollars": "a task"}   # matrix._costs's
 UNBOARDED, UNMARKED = "not on the boards", "none"     # a model no row is; a role marking none
 # the why's words: what a row does in each role, and each measure's evaluation by its name
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
