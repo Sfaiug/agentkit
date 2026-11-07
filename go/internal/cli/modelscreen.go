@@ -142,7 +142,14 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 				pointing = false
 			}
 		case key.Name == "char" && key.Char == "p":
-			return false // your companies' model list, Python's to draw
+			if !menuCompanyList(title, keyboard, painter) {
+				return false
+			}
+			if answered() != nil { // left, answered again over what is on
+				return false
+			}
+			lineup()
+			note = ""
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {
