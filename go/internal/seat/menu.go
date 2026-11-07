@@ -39,7 +39,7 @@ func MenuRead(now time.Time) (Home, bool) {
 	kept := judging(held)
 	read := func() (Home, bool) { return reading(now, true, func([]string) judges { return kept }, nil) }
 	home, known := read()
-	if !known {
+	if !known || home.outOfUsage(runs, now) {
 		return Home{}, false
 	}
 	wrote, known := menuProjects(runs, projects)

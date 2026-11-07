@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"cmp"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -11,8 +13,10 @@ import (
 	"slices"
 	"strings"
 	"syscall"
+	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/fetch"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handin"
 	"agentkit/internal/harness"
@@ -40,12 +44,16 @@ var checkAsk = strings.Join([]string{
 	"  only owner/ says which words are the owner's.",
 	"- plan.md: its plan, `- [x]` a line done and `- [ ]` one open.",
 	"- runs/: each run it launched: its title, state, whether it merged, its PR and its task.",
+	"- pictures/: each picture of a screen it kept with `ak orch look`, an image or a text capture",
+	"  of a terminal screen, as the screen was then, oldest first:",
+	"{pictures}",
 	"",
 	"Read each message of the owner's where it stands in the conversation: a \"yes\" or \"the second",
 	"one\" takes what the seat proposed just before. A gap is something the owner asked to be built or",
-	"changed that no done plan line and no merged run delivered, or a question or a request to explain",
-	"that no reply of the seat's answered. Only a later message of the owner's drops or changes an",
-	"ask; the seat's replies never do.",
+	"changed that no done plan line and no merged run delivered; a screen the owner will see that the",
+	"work changed and no picture shows, quoting the ask that changed it; or a question or a request to",
+	"explain that no reply of the seat's answered. Only a later message of the owner's drops or changes",
+	"an ask; the seat's replies never do.",
 	"",
 	"Hand in each gap as `ak hand-in finding owner/N.md:LINE \"what the work does not hold\" \"why the",
 	"owner needs it\" --quote \"the owner's words\"`, the words copied exactly from that message or",
@@ -140,6 +148,17 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	if err != nil {
 		return nil, "", err
 	}
+	pictures, err := keptPictures(name)
+	if err != nil {
+		return nil, "", err
+	}
+	// the ask names each picture as the workspace holds it, never one a look kept since
+	var shown []string
+	for _, each := range pictures {
+		if files[each.path] == each.data {
+			shown = append(shown, each.shown)
+		}
+	}
 	model, err := checker(name, record)
 	if err != nil {
 		return nil, "", err
@@ -165,7 +184,8 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	}
 	// an existing role, the reviewer's of a workspace, whose hand-in takes findings and refuses a
 	// quote its file does not hold
-	ask := strings.NewReplacer("{name}", name, "{workspace}", workspace).Replace(checkAsk)
+	ask := strings.NewReplacer("{name}", name, "{workspace}", workspace,
+		"{pictures}", cmp.Or(strings.Join(shown, "\n"), "  none kept")).Replace(checkAsk)
 	var expired *worker.LoginExpired
 	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{}, errOut); {
 	case errors.Is(err, worker.ErrInterrupted), errors.As(err, &expired):
@@ -216,8 +236,9 @@ func keep(name, read string) error {
 }
 
 // checkFiles is the checking turn's workspace, each file by its path there: the owner's words a
-// file each, each conversation of the seat's, its plan's lines and each run it launched, read
-// without writing anything.  errLeft where Go does not read the runs as Python does.
+// file each, each conversation of the seat's, its plan's lines, each picture it kept and each run
+// it launched, read without writing anything.  errLeft where Go does not read the pictures or the
+// runs as Python does.
 func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []string) (map[string]string, error) {
 	files := map[string]string{}
 	for n, each := range owner {
@@ -236,6 +257,13 @@ func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []s
 		planned.WriteString(line + "\n")
 	}
 	files["conversation.md"], files["plan.md"] = strings.Join(conversations, "---\n\n"), planned.String()
+	pictures, err := keptPictures(name)
+	if err != nil {
+		return nil, err
+	}
+	for _, each := range pictures {
+		files[each.path] = each.data
+	}
 	var unread error
 	if !run.Every(func(dir string, state *run.Object) bool {
 		// the seat it was launched from by its name now, as transitions.launched_session follows it
@@ -272,6 +300,39 @@ func checkFiles(name string, owner []plan.Said, said [][]harness.Turn, lines []s
 		return nil, errLeft
 	}
 	return files, nil
+}
+
+// A picture is one of a screen the seat kept with `ak orch look`, as its done check is shown it:
+// its path in the workspace, the bytes there and the line of the ask naming it.
+type picture struct{ path, data, shown string }
+
+// keptPictures is each picture the seat kept, oldest first (done_check.gaps): numbered in the
+// workspace, never named, since a name the filesystem took leaves no room for more, its type
+// kept for the reader and its name in the ask.  errLeft where Go does not read one as Python does.
+func keptPictures(name string) ([]picture, error) {
+	var kept []picture
+	read := true
+	err := harness.Entries(filepath.Join(config.Home(), "state", config.SeatFileNames(name)["pictures"]), func(entry *run.Object) {
+		at, timed := entry.Num("at")
+		named, isName := entry.Get("name").(string)
+		encoded, isData := entry.Get("data").(string)
+		data, err := base64.StdEncoding.DecodeString(encoded)
+		if !read || !timed || !isName || !isData || err != nil {
+			read = false
+			return
+		}
+		_, base := pythonPath(named)
+		suffix := []rune(fetch.Extension(base))
+		path := fmt.Sprintf("pictures/%d%s", len(kept)+1, string(suffix[:min(len(suffix), 16)]))
+		kept = append(kept, picture{path, string(data), fmt.Sprintf("  - %s: %s, kept %s", path, named,
+			time.Unix(int64(at), 0).Format("2006-01-02 15:04"))})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("could not check %s: %w", name, err)
+	} else if !read {
+		return nil, errLeft
+	}
+	return kept, nil
 }
 
 // runTask is a run's task as Python reads it beside the run: "" where Path.is_file says there is

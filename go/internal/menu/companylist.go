@@ -13,9 +13,10 @@ import (
 // A CompanyListView is what the company list (menu.company_list) is drawn from: each company
 // with a listed model and yours (matrix.Companies), the releases on (matrix.Compared), the row of
 // Shown the keys are on, `+ add a company` after the last, and its cell, 0 the name; the first
-// line of the page; and whether the pointer left every row, which draws none lit.
+// line of the page; whether the pointer left every row, which draws none lit; and what to say
+// under the count, why a change was not saved.
 type CompanyListView struct {
-	Title            string
+	Title, Note      string
 	Listed           []matrix.Company
 	Yours            []string
 	On               map[string]bool
@@ -36,7 +37,8 @@ func (view CompanyListView) Shown() []matrix.Company {
 
 // CompanyListFrame is `<title> · models`: what on means over your companies (companiesBody), paged
 // so the row the keys are on is shown, or of a row taller than the page its cell, and under them,
-// dim, how many models are on, from how many companies, and how many more have benchmark scores.
+// dim, how many models are on, from how many companies, and how many more have benchmark scores,
+// then the Note.
 func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
 	keys := "↑↓ company   ←→ model   ␣ on or off   a add a company   esc done"
 	if s.ASCII() {
@@ -66,6 +68,14 @@ func CompanyListFrame(s terminal.Screen, view CompanyListView) MatrixFrame {
 	under := []string{""}
 	for _, part := range packed(said, room-2) {
 		under = append(under, "  "+s.Styled(part, "dim"))
+	}
+	if view.Note != "" {
+		under = append(under, "")
+		for _, each := range strings.Split(view.Note, "\n") {
+			for _, part := range terminal.Wrap(each, room-2) {
+				under = append(under, "  "+s.Styled(part, "dim"))
+			}
+		}
 	}
 	page := max(1, s.Height()-5-len(keyLine(s, keys, s.Width(), ""))-len(under)-len(over))
 	var drawn, keyed []int // the lines of the row the keys are on, and of its cell

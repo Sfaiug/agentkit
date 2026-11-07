@@ -9,8 +9,8 @@ Offline: the files of this checkout.
 """
 
 import ast
-from importlib.machinery import BuiltinImporter, FrozenImporter, PathFinder
-from importlib.util import resolve_name
+from importlib.machinery import BuiltinImporter, FrozenImporter, ModuleSpec, PathFinder
+from importlib.util import module_from_spec, resolve_name
 from pathlib import Path
 import sys
 import unittest
@@ -27,8 +27,10 @@ def importers(tests):
     under `tests` their imports load.  A module is the one Python's own finders give, searched as
     a key's process searches: `tests` first, then the rest of this process's sys.path, as this
     runs from tests/ too.  Finding runs no module's code, and a folder under tests/ holds no
-    __init__.py, so a package there holds nothing but its modules."""
+    __init__.py, so a package there is a namespace package: it holds nothing but its modules
+    and the names Python gives every namespace package."""
     path, specs, statements = [str(tests), *sys.path[1:]], {}, {}
+    namespace = module_from_spec(ModuleSpec("namespace", None, is_package=True))
 
     def spec(name):
         if name not in specs:
@@ -67,8 +69,11 @@ def importers(tests):
                 parts = module.split(".")
                 if parts[0] == "agentkit":
                     return True
+                # A from-list loads a package's module only for a name the package lacks, and a
+                # star only the names in its __all__, which no namespace package has.
                 for loaded in [*(".".join(parts[:end]) for end in range(1, len(parts) + 1)),
-                               *(f"{module}.{taken}" for taken in names)]:
+                               *(f"{module}.{taken}" for taken in names
+                                 if taken != "*" and not hasattr(namespace, taken))]:
                     found = spec(loaded)
                     if (loaded not in seen and found.has_location
                             and Path(found.origin).is_relative_to(tests)):

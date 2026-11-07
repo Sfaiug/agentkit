@@ -309,14 +309,12 @@ type member struct {
 	record *run.Object
 }
 
-// lineMembers is Python's land.line: the runs holding a place in the line (run.Member), in its order.
+// lineMembers is the line in its order (run.LineMembers).
 func lineMembers(name string) (found []member) {
-	for _, dir := range run.Dirs() {
-		if record, _ := run.Read(dir); record != nil && run.Member(record) && landingLine(record) == name {
-			found = append(found, member{dir, record})
-		}
+	for _, each := range run.LineMembers(name) {
+		found = append(found, member{each.Dir, each.Record})
 	}
-	return orderMembers(found)
+	return found
 }
 
 // wake starts the member's own `ak run resume` on the verdict written to it, under its lock.

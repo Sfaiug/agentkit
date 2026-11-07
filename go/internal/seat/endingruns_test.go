@@ -27,7 +27,7 @@ func TestACompletedDeliveryBetweenTickRowsDoesNotHideTheSeat(t *testing.T) {
 			if _, known := viewRun(ending, moment); !known {
 				t.Fatal("seat stopped reading the run before the endings row")
 			}
-			news, err := endingNews(climbing{name: "acme", now: seconds(moment),
+			news, err := telling(climbing{name: "acme", now: seconds(moment), file: run.NewObject(),
 				found: sight{state: "at_prompt", authority: "screen"}, mine: []ran{{name: "fix-api", record: ending}}})
 			wantNews := scenario == "decision" || scenario == "typed merge"
 			if err != nil || (news != nil) != wantNews {
