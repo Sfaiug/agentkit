@@ -83,8 +83,8 @@ func TestACardIsAnsweredOnlyWhereGoReadsAllItGoesOnToRead(t *testing.T) {
 		t.Fatal("refused what Go reads")
 	}
 	for _, unkept := range [][2]string{
-		{notice, `{"session":"acme","kind":"needs","text":"Which path /tmp/caf\udcff?","time":10}`},
-		{page, `{"status":"pending","payload":"/tmp/caf\udcff"}`},
+		{notice, `{"session":"acme","kind":"needs","text":"Which path /tmp/caf\ud800?","time":10}`},
+		{page, `{"status":"pending","payload":"/tmp/caf\ud800"}`},
 		{filepath.Join(outbox(), "stuck.clear"), `{"session":"acme","prefix":"Which"}`},
 	} {
 		kept, err := os.ReadFile(unkept[0])
