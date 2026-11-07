@@ -1591,8 +1591,8 @@ def _review(lp, summary, ok, dw_log, preface, record, start_check):
     prompts.record_findings(lp, out, text, submitted=submitted)
     lp.state["notes"] = submitted.notes
     # kept whatever the verdict, every round's, with the commit each was proven on for its plan
-    # line; each site once, whichever round proved it: a later round's reviewer hands in the
-    # defect at an earlier round's site again in its own words and check, and the first is kept
+    # line; none at a site an earlier round's names: that is the defect a later round's reviewer
+    # re-found on its head in its own words and check, and the first one is kept
     known = {handback.followup_place(item) for item in lp.state.get("followups") or []}
     fresh = [item for item in dict.fromkeys(submitted.followups)
              if handback.followup_place(item) not in known]
