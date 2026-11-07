@@ -4,6 +4,7 @@ package tick
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -83,12 +84,12 @@ func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
 	put(t, filepath.Join(dir, "result.md"), opening)
 	state, _ := loadState()
 	// tick is one outgoing pass with the maintainer's word in gh's answer, and what it said
-	tick := func(view string, carried bool) string {
+	tick := func(view string, left error) string {
 		t.Helper()
 		put(t, filepath.Join(home, "view"), view)
 		var said bytes.Buffer
-		if (&ticking{state: state, log: newLog(&said, io.Discard), clock: time.Now}).outgoing("beta") != carried {
-			t.Fatalf("carried is not %v, saying %q", carried, said.String())
+		if err := (&ticking{state: state, log: newLog(&said, io.Discard), clock: time.Now}).outgoing("beta"); !errors.Is(err, left) {
+			t.Fatalf("the pass ended %v, not %v, saying %q", err, left, said.String())
 		}
 		return said.String()
 	}
@@ -111,13 +112,13 @@ func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
 	// a seat on a harness Go does not type into is Python's, with nothing written
 	seated := read(t, filepath.Join(ak, "state", "session-lead.json"))
 	put(t, filepath.Join(ak, "state", "session-lead.json"), strings.Replace(seated, `"opus"`, `"vela"`, 1))
-	tick(asked, false)
+	tick(asked, errLeft)
 	if state.Dict("own").Has(address) || read(t, filepath.Join(dir, "run.json")) != before || keys() != "" {
 		t.Fatalf("handed to Python after writing: %s, %q", run.Line(state), keys())
 	}
 	put(t, filepath.Join(ak, "state", "session-lead.json"), seated)
 
-	if said := tick(`{"state": "OPEN", "reviewDecision": "APPROVED", "title": "Add retry file", "number": 7}`, true); said != "" ||
+	if said := tick(`{"state": "OPEN", "reviewDecision": "APPROVED", "title": "Add retry file", "number": 7}`, nil); said != "" ||
 		followed().Get("decision") != "APPROVED" || !followed().Truthy("decision_at") || followed().Str("session") != "lead" {
 		t.Fatalf("the approval was followed as %s, saying %q", run.Line(followed()), said)
 	}
@@ -132,28 +133,28 @@ func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
 	put(t, filepath.Join(dir, "run.json"), run.Line(run.Fields("state", "pass", "title", "Add retry file", "foreign", true, "pr", address,
 		"launched_session", "lead", "merge_note", changes, "decision_typed", run.Fields("line", notice(changes), "seat", 1000))))
 	put(t, filepath.Join(home, "shown"), "────────\n❯ "+notice(changes)+"\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n")
-	if said := tick(asked, true); said != "" || keys() != "Enter\n" || followed().Get("decision") != "APPROVED" || !record().Truthy("decision_typed") {
+	if said := tick(asked, nil); said != "" || keys() != "Enter\n" || followed().Get("decision") != "APPROVED" || !record().Truthy("decision_typed") {
 		t.Fatalf("the line left in the composer was not given its Enter alone: %q, saying %q", keys(), said)
 	}
-	if said := tick(asked, true); said != "told the lead seat: "+changes+"\n" || keys() != "Enter\n" ||
+	if said := tick(asked, nil); said != "told the lead seat: "+changes+"\n" || keys() != "Enter\n" ||
 		followed().Get("decision") != "CHANGES_REQUESTED" || record().Has("decision_typed") {
 		t.Fatalf("the sent line was not settled: %q, saying %q, the run %s", keys(), said, run.Line(record()))
 	}
 	settled := read(t, filepath.Join(dir, "run.json"))
-	if said := tick(asked, true); said != "" || keys() != "Enter\n" || read(t, filepath.Join(dir, "result.md")) != result ||
+	if said := tick(asked, nil); said != "" || keys() != "Enter\n" || read(t, filepath.Join(dir, "result.md")) != result ||
 		read(t, filepath.Join(dir, "run.json")) != settled {
 		t.Fatalf("the request for changes was handed on again: %q, saying %q", keys(), said)
 	}
 
 	kept := run.Line(state)
-	tick(`{"state": "MERGED", "reviewDecision": "APPROVED", "title": "Add retry file", "number": 7}`, false)
+	tick(`{"state": "MERGED", "reviewDecision": "APPROVED", "title": "Add retry file", "number": 7}`, errLeft)
 	if run.Line(state) != kept || read(t, filepath.Join(dir, "run.json")) != settled || keys() != "Enter\n" {
 		t.Fatal("a merge was written before it went to Python")
 	}
 
 	closed := "PR #7 Add retry file: closed by the maintainer without a merge"
 	shut := `{"state": "CLOSED", "reviewDecision": "CHANGES_REQUESTED", "title": "Add retry file", "number": 7}`
-	if said := tick(shut, true); said != "recorded on run "+filepath.Base(dir)+": "+closed+"\ntold the lead seat: "+closed+"\n" ||
+	if said := tick(shut, nil); said != "recorded on run "+filepath.Base(dir)+": "+closed+"\ntold the lead seat: "+closed+"\n" ||
 		keys() != "Enter\n"+notice(closed)+"\nEnter\n" || !followed().Truthy("done") || record().Str("merge_note") != closed ||
 		record().Has("decision_typed") {
 		t.Fatalf("the close was handed on as %q, saying %q, the run %s", keys(), said, run.Line(record()))
@@ -162,14 +163,14 @@ func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
 		t.Fatalf("result.md holds %q", got)
 	}
 	settled = read(t, filepath.Join(dir, "run.json"))
-	if said := tick(shut, true); said != "" || strings.Count(keys(), "Enter") != 2 || read(t, filepath.Join(dir, "run.json")) != settled {
+	if said := tick(shut, nil); said != "" || strings.Count(keys(), "Enter") != 2 || read(t, filepath.Join(dir, "run.json")) != settled {
 		t.Fatalf("a closed PR was followed again: %q, saying %q", keys(), said)
 	}
 }
 
-// A line whose mark cannot be kept on the run gets no Enter, so no tick sends a second copy: it
-// waits in the composer, a draft no later tick types past, whether the run held no mark or one an
-// earlier copy left before the seat was reopened.
+// A line whose mark cannot be kept on the run gets no Enter and fails the pass, as Python's raise
+// does, so no tick sends a second copy: it waits in the composer, a draft no later tick types past,
+// whether the run held no mark or one an earlier copy left before the seat was reopened.
 func TestADecisionWhoseMarkCannotBeWrittenIsNeverSentTwice(t *testing.T) {
 	address := "https://github.com/acme/widgets/pull/7"
 	for decided, view := range map[string]string{
@@ -192,21 +193,23 @@ func TestADecisionWhoseMarkCannotBeWrittenIsNeverSentTwice(t *testing.T) {
 				put(t, filepath.Join(home, "view"), view)
 				put(t, filepath.Join(home, "jam"), filepath.Join(dir, "delivery.lock"))
 				state, _ := loadState()
-				tick := func() {
-					t.Helper()
-					if !(&ticking{state: state, log: newLog(io.Discard, io.Discard), clock: time.Now}).outgoing("beta") {
-						t.Fatal("the line in the composer was handed to Python")
-					}
+				tick := func() error {
+					return (&ticking{state: state, log: newLog(io.Discard, io.Discard), clock: time.Now}).outgoing("beta")
 				}
-				tick()
+				if err := tick(); err == nil || errors.Is(err, errLeft) {
+					t.Fatalf("a mark that could not be written ended the pass %v, not failing it", err)
+				}
 				// the ticks after take the lock
 				for _, jam := range []string{filepath.Join(home, "jam"), filepath.Join(dir, "delivery.lock")} {
 					if err := os.Remove(jam); err != nil {
 						t.Fatal(err)
 					}
 				}
-				tick()
-				tick()
+				for range 2 {
+					if err := tick(); err != nil {
+						t.Fatalf("the line waiting in the composer ended the pass %v", err)
+					}
+				}
 				if typed := read(t, filepath.Join(home, "keys")); typed != line+"\n" {
 					t.Fatalf("typed %q, not one copy of the line and no Enter", typed)
 				}

@@ -35,8 +35,8 @@ type ticking struct {
 // Go does not carry, what the rows before did standing; after what Python's next tick reads as its
 // own where gh names a pull request to act on; with nothing written where gh cannot be read,
 // or where ak's folders, the lock or watch.json cannot be taken; and on Windows, as Overlap.  Failed
-// is a tick that could not save watch.json at its end, which fails, as Python's does, saying why
-// on the tick's own stderr, dated in its log as Python's traceback is.
+// is a tick that fails where Python's raises, in a GitHub pass or saving watch.json at its end,
+// saying why on the tick's own stderr, dated in its log as Python's traceback is.
 func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) {
 	if Overlap(out, errOut) {
 		return true, false
@@ -89,7 +89,8 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 	if !t.through(table(t)) {
 		return false, false
 	}
-	carried = t.github(user, why, asked)
+	err = t.github(user, why, asked)
+	carried = err == nil
 	// however the tick ends, the next one and `ak doctor` find when it ran and what held it up
 	record, slowest := run.NewObject(), run.NewObject()
 	record.Set("started_at", epoch(began))
@@ -101,8 +102,9 @@ func Carry(out, errOut io.Writer, report ...AuditReport) (carried, failed bool) 
 	if carried {
 		state.Set("tick_completed_at", record.Get("ended_at"))
 	}
-	if err := t.save(); err != nil {
-		fmt.Fprintf(t.log.errOut, "ak watch: %s\n", config.PyError(err))
+	// as Python's finally saves the state before its traceback
+	if saved := t.save(); saved != nil || err != nil && !errors.Is(err, errLeft) {
+		fmt.Fprintf(t.log.errOut, "ak watch: %s\n", config.PyError(cmp.Or(saved, err)))
 		return false, true
 	}
 	if carried {
@@ -163,9 +165,10 @@ func (t *ticking) took(name string, spent time.Duration) {
 }
 
 // github is what Python's main does with gh's answer to who is logged in, which took asked;
-// false leaves the rest to Python. A logout is the owner's to fix and written down for every seat
-// to say so; an outage is not, and an earlier logout stands until gh answers.
-func (t *ticking) github(value any, why string, asked time.Duration) bool {
+// errLeft leaves the rest to Python, and any other error fails the tick. A logout is the owner's to
+// fix and written down for every seat to say so; an outage is not, and an earlier logout stands
+// until gh answers.
+func (t *ticking) github(value any, why string, asked time.Duration) error {
 	t.took("github user", asked)
 	me := login(value)
 	if me == "" {
@@ -176,22 +179,18 @@ func (t *ticking) github(value any, why string, asked time.Duration) bool {
 			out.Set("at", epoch(t.clock()))
 			t.state.Set("gh_out", out)
 		}
-		return true
+		return nil
 	}
 	t.state.Delete("gh_out")
-	carried := false
-	t.timed("incoming prs", func() error {
-		carried = t.incoming(me)
+	if err := t.timed("incoming prs", func() error {
+		if !t.incoming(me) {
+			return errLeft
+		}
 		return nil
-	})
-	if !carried {
-		return false
+	}); err != nil {
+		return err
 	}
-	t.timed("outgoing prs", func() error {
-		carried = t.outgoing(me)
-		return nil
-	})
-	return carried
+	return t.timed("outgoing prs", func() error { return t.outgoing(me) })
 }
 
 // login is who gh's answer says is logged in.
