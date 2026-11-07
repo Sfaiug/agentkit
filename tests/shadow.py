@@ -10,9 +10,12 @@ relative name read from the checkout, else go/bin/ak built as tests/test_go_keys
 What the two Python runs disagree on belongs to the moment and is never compared.  A difference
 is confirmed only if repeating the three runs straight away shows it again, else it is a flake.
 Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs), else 0.
+Besides go/bin/ak and Go's own cache, when it builds Go, it writes nothing outside its scratch
+folder.
 """
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -20,19 +23,52 @@ from pathlib import Path
 import shlex
 import shutil
 import signal
+import socket
 import stat
+import struct
 import subprocess
 import sys
 import tempfile
 import time
 
-from fixtures import akbin
-from test_go import ENV
+sys.dont_write_bytecode = True  # the helpers' bytecode would be a write outside the scratch folder
+from fixtures import akbin  # noqa: E402
+from test_go import ENV  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[1]
 CAP = 600   # seconds a run may take, what it detached included
 # akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
+# Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket of the Unix
+# family, through which a run would reach a service of the host's by a path the read-only root
+# still shows: the warm menu server's in HOME, a session bus.  It refuses io_uring, which makes one
+# without the call, and every call of an architecture whose numbers it does not know: on a machine
+# not named here, all of them, so no box can run.
+ARCH, SOCKET = {"x86_64": (0xC000003E, 41),
+                "aarch64": (0xC00000B7, 198)}.get(os.uname().machine, (0, 0))
+FILTER = b"".join(struct.pack("HBBI", *op) for op in (
+    (0x20, 0, 0, 4), (0x15, 0, 7, ARCH),                # the architecture
+    (0x20, 0, 0, 0), (0x35, 5, 0, 0x40000000),          # the call, by number: x32's refused
+    (0x15, 4, 0, 425), (0x15, 0, 2, SOCKET),            # io_uring_setup refused; socket(2) ...
+    (0x20, 0, 0, 16), (0x15, 1, 0, socket.AF_UNIX),     # ... of the Unix family refused
+    (0x06, 0, 0, 0x7FFF0000), (0x06, 0, 0, 0x50000 | errno.EACCES)))    # allowed, refused
+# The first breath in every box: Landlock lets nothing open for writing outside the folders it is
+# given, the run's own, then the command runs.  The read-only root still opens a named pipe or a
+# device for writing, which would reach whatever of the host's reads it.  Its calls are 444-446 on
+# every machine, and a kernel without Landlock builds no box.
+SEAL = """import ctypes, os, struct, sys
+libc, cut = ctypes.CDLL(None, use_errno=True), sys.argv.index("--")
+def call(number, *args):
+    if (done := libc.syscall(number, *args)) < 0:
+        sys.exit("landlock: " + os.strerror(ctypes.get_errno()))
+    return done
+ruleset = call(444, struct.pack("Q", 2), 8, 0)     # it rules writing to a file, right 2
+for path in sys.argv[1:cut]:
+    call(445, ruleset, 1, struct.pack("=Qi", 2, os.open(path, os.O_PATH)), 0)
+libc.prctl(38, 1, 0, 0, 0)     # no new privileges, which Landlock asks of what it binds
+call(446, ruleset, 0)
+os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
+"""
 # A run in its box: the program, then all it detached, which bwrap's init would kill as the
 # program ends, waited out till only that init and this shell are left.  The shell then becomes a
 # Python that writes down its children's peak memory, which exec keeps: a child's peak starts
@@ -58,6 +94,7 @@ def box(home, scratch):
         fake.write_text(akbin.REFUSE.format(python=shlex.quote(sys.executable), name=name,
                                             log=shlex.quote(str(inside / "logs" / f"{name}.log"))))
         fake.chmod(0o755)
+    (folder / "filter").write_bytes(FILTER)
     # Not the caller's own seat, run or tmux: a run that inherits them acts as somebody's.
     env = {key: value for key, value in os.environ.items()
            if not key.startswith(("AK_", "AGENTKIT_", "TMUX"))}
@@ -71,11 +108,14 @@ def box(home, scratch):
                # Pages go nowhere, and each one aimed at a configured webhook leaves a line here.
                AK_NOTIFY_SINK="dry-run", AK_NOTIFY_SINK_LOG=str(inside / "pages"),
                AK_HANDOVER=str(inside / "handover"))
-    # /tmp before the overlay: a home under /tmp is mounted inside the box's own.
-    return ["bwrap", "--unshare-all", "--die-with-parent", "--new-session",
+    # A shell hands bwrap the filter on descriptor 3.  /tmp comes before the overlay: a home under
+    # /tmp is mounted inside the box's own.
+    return ["sh", "-c", 'exec "$@" 3<"$0"', folder / "filter",
+            "bwrap", "--unshare-all", "--die-with-parent", "--new-session", "--seccomp", "3",
             "--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc", "--tmpfs", "/tmp",
             "--bind", inside, inside,
             "--overlay-src", home, "--overlay", folder / "upper", folder / "work", home,
+            "--", sys.executable, "-I", "-c", SEAL, home, "/tmp", "/dev", "/proc", inside,
             "--"], env, folder
 
 
@@ -97,9 +137,10 @@ def run(label, program, argv, home, scratch):
         proc.wait()
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
-    print(f"{label}: exit {code}, {seconds:.1f} s, {peak}", flush=True)
     record = inside / "handover"
-    return dict(code=code, handover=record.read_text(errors="replace") if record.exists() else None,
+    said = f", handed over: {' '.join(_lines(record))}" if record.exists() else ""
+    print(f"{label}: exit {code}, {seconds:.1f} s, {peak}{said}", flush=True)
+    return dict(code=code, handover=record.exists(),
                 line={f"{stream}: {text}" for stream in ("stdout", "stderr")
                       for text in _lines(folder / stream)},
                 home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
@@ -125,12 +166,14 @@ def touched(upper, home):
             verb = "wrote" if was is None else "removed" if now is None else "changed"
             facts.add(f"{verb} {path}")
         folder = now is not None and stat.S_ISDIR(now[0])
+        if folder:
+            os.chmod(above, stat.S_IMODE(now[0]) | stat.S_IRWXU)     # the scratch's, to read
         # The home's entries show only through a folder of the upper layer that is not opaque.
         # Where they do not show, each one is gone unless the run wrote it again.
         shows = folder and not hidden and "user.overlay.opaque" not in os.listxattr(above)
         names = set(os.listdir(above)) if folder else set()
         if not shows and was is not None and stat.S_ISDIR(was[0]):
-            names |= set(os.listdir(below))
+            names |= _names(below)
         for name in names:
             look(path / name, not shows)
 
@@ -144,16 +187,28 @@ def _state(path):
     target or a file's time and bytes.  Never a folder's time: each entry written in it moves it."""
     try:
         found = path.lstat()
-    except (FileNotFoundError, NotADirectoryError):
-        return None
+    except (FileNotFoundError, NotADirectoryError, PermissionError):
+        return None     # none there, or none in a home folder its user cannot enter
     if stat.S_ISCHR(found.st_mode) and found.st_rdev == 0:
         return None     # overlayfs's whiteout
     if stat.S_ISLNK(found.st_mode):
         return found.st_mode, os.readlink(path)
-    if stat.S_ISREG(found.st_mode):
+    if not stat.S_ISREG(found.st_mode):
+        return found.st_mode,
+    try:
         with path.open("rb") as opened:
-            return found.st_mode, found.st_mtime_ns, hashlib.file_digest(opened, "sha256").digest()
-    return found.st_mode,
+            digest = hashlib.file_digest(opened, "sha256").digest()
+    except PermissionError:
+        digest = None   # its mode, changed or not, is all there is to tell
+    return found.st_mode, found.st_mtime_ns, digest
+
+
+def _names(folder):
+    """A home folder's entries: none of one its user cannot read, whose removal names it alone."""
+    try:
+        return set(os.listdir(folder))
+    except PermissionError:
+        return set()
 
 
 def differences(first, go, again):
@@ -161,8 +216,8 @@ def differences(first, go, again):
     found = set()
     if go["code"] != first["code"] == again["code"]:
         found.add(("exit", f"go {go['code']}, python {first['code']}"))
-    if go["handover"] is not None:
-        found.add(("hand-over", " ".join(go["handover"].split()) or "an empty record"))
+    if go["handover"]:
+        found.add(("hand-over", "go left a hand-over record"))
     for kind in ("line", "home", "page", "call"):     # what a run did, compared fact by fact
         before, ours, after = (each[kind] for each in (first, go, again))
         found |= {(kind, f"only python: {fact}") for fact in (before & after) - ours}
@@ -185,9 +240,9 @@ def main():
     scratch = Path(tempfile.mkdtemp(prefix="shadow-", dir="/var/tmp"))
     try:
         command, env, _ = box(home, scratch)
-        # Where bwrap is, it says why it cannot build the box.
-        if not shutil.which("bwrap") or subprocess.run(
-                [*command, sys.executable, "-c", ""], env=env, stdin=subprocess.DEVNULL).returncode:
+        # bwrap, or the shell that finds no bwrap, says why
+        if subprocess.run([*command, sys.executable, "-c", ""], env=env,
+                          stdin=subprocess.DEVNULL).returncode:
             print("shadow: bwrap cannot build a box here, so nothing ran", file=sys.stderr)
             return 2
         go = python if args.go == "python" else args.go and os.path.abspath(args.go)
