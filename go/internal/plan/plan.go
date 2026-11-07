@@ -225,35 +225,40 @@ func write(current string, lines []string) error {
 }
 
 // List proves the seat's plan (`verify`), then what deliveries left owed meanwhile (`settle`),
-// then is its box lines, as a listing numbers them.  ErrUnread, before anything is listed, where
-// the plan then owes its done check (checkOwed), which Python's listing makes.
+// then is its box lines, as a listing numbers them.  ErrUnread where the plan owes its done check
+// (checkOwed), which Python's listing makes: before a verification here writes a plan it leaves
+// owing, or before one another process wrote is listed.
 func List(ctx context.Context, name string) ([]string, error) {
+	unchecked := func(current string, lines []string) error {
+		if owes, err := checkOwed(current, lines); owes || err != nil {
+			return ErrUnread
+		}
+		return nil
+	}
 	whole := false
 	if err := verifying(ctx, name, true, func() (err error) {
-		whole, err = verify(ctx, name, "")
+		whole, err = verify(ctx, name, "", unchecked)
 		return err
 	}); err != nil {
 		return nil, err
 	}
 	if whole {
-		if err := settle(ctx, name); err != nil {
+		if err := settle(ctx, name, unchecked); err != nil {
 			return nil, err
 		}
 	}
-	var box, lines []string
-	if err := notify.Held(ctx, name, func(current string) (err error) {
-		lines, err = read(current)
+	var box []string
+	err := notify.Held(ctx, name, func(current string) error {
+		lines, err := read(current)
 		for _, at := range listed(lines) {
 			box = append(box, strings.TrimFunc(lines[at], config.Space))
 		}
-		return err
-	}); err != nil {
-		return nil, err
-	}
-	if owes, err := checkOwed(name, lines); owes || err != nil {
-		return nil, ErrUnread
-	}
-	return box, nil
+		if err != nil {
+			return err
+		}
+		return unchecked(current, lines)
+	})
+	return box, err
 }
 
 // listed is where the plan's box lines are, in the order a listing numbers them from 1.
@@ -273,8 +278,9 @@ func listed(lines []string) (at []int) {
 // lock, and the results go onto the plan as it reads after them, each onto its own line, so a
 // line added meanwhile stays.  It is whether each line it took in had a verdict, its check run
 // to an exit: then a verification of every line takes off the deliveries owed one as it began
-// (`unverified`).
-func verify(ctx context.Context, name, check string) (bool, error) {
+// (`unverified`).  ready, where given, sees the plan's lines as its results leave them, under
+// its lock, and an error of its writes nothing.
+func verify(ctx context.Context, name, check string, ready func(current string, lines []string) error) (bool, error) {
 	var seat string
 	var snapshot []string
 	counted := 0
@@ -347,6 +353,9 @@ func verify(ctx context.Context, name, check string) (bool, error) {
 			if line, ok := parse(text); ok && line.Check != "" && results[line.bare] != "" {
 				present[i], changed = results[line.bare], true
 			}
+		}
+		if err == nil && ready != nil {
+			err = ready(current, present)
 		}
 		if err == nil && changed { // a plan that lost those lines is never written over
 			err = write(current, present)

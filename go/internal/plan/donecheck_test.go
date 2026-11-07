@@ -1,9 +1,12 @@
 package plan
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"agentkit/internal/notify"
@@ -77,5 +80,61 @@ func TestAFinishedPlanOwesItsCheckUntilOneReadWhatItsOwnerSaid(t *testing.T) {
 	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "astra", "cwd": "/code/acme", "conversation": "thread-1"}`)
 	if _, err := Finished("acme"); !errors.Is(err, ErrUnread) {
 		t.Errorf("a harness whose answers Go does not read: %v", err)
+	}
+}
+
+// A listing whose proof would leave the plan owing its done check is Python's, which makes the
+// check: nothing is written, so Python proves and ticks the line itself.  With nothing said, Go
+// ticks and lists it.
+func TestAListingOwingTheDoneCheckIsPythonsWithNothingWritten(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTKIT_ADAPTER_DIR", "")
+	git := func(dir string, args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=acme", "-c", "user.email=acme@example.com"}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	write := func(path, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil || os.WriteFile(path, []byte(text), 0o600) != nil {
+			t.Fatal(path)
+		}
+	}
+	repo, remote, state := filepath.Join(home, "code", "acme"), filepath.Join(home, "origin.git"), filepath.Join(home, ".agentkit", "state")
+	write(filepath.Join(repo, "README"), "acme\n")
+	git(home, "init", "-q", "--bare", "--initial-branch=main", remote)
+	git(repo, "init", "-q", "--initial-branch=main")
+	git(repo, "add", "README")
+	git(repo, "commit", "-qm", "init")
+	base := git(repo, "rev-parse", "--short=12", "HEAD")
+	write(filepath.Join(repo, "parser.txt"), "parser\n")
+	git(repo, "add", "parser.txt")
+	git(repo, "commit", "-qm", "ship the parser")
+	git(repo, "remote", "add", "origin", remote)
+	git(repo, "push", "-q", "-u", "origin", "main")
+	write(filepath.Join(state, "session-acme.json"), `{"orchestrator": "opus", "cwd": "`+repo+`", "conversation": "conv-1"}`)
+	chat := filepath.Join(home, ".claude", "projects", strings.Map(func(r rune) rune {
+		if r < '0' || r > '9' && r < 'A' || r > 'Z' && r < 'a' || r > 'z' {
+			return '-'
+		}
+		return r
+	}, repo), "conv-1.jsonl")
+	write(chat, `{"type": "user", "timestamp": "2026-11-05T10:00:00Z", "message": {"role": "user", "content": "Ship the parser."}}`+"\n")
+	plan := filepath.Join(state, "plan-acme.md")
+	original := "- [ ] Ship the parser · check: `test -f parser.txt` · " + repo + "#" + base + " · written 2026-11-05 10:05 on " + base + "\n"
+	write(plan, original)
+	_, err := List(context.Background(), "acme")
+	if data, _ := os.ReadFile(plan); !errors.Is(err, ErrUnread) || string(data) != original {
+		t.Fatalf("the check owed: %v, the plan now %q", err, data)
+	}
+	write(chat, "")
+	box, err := List(context.Background(), "acme")
+	if err != nil || len(box) != 1 || !strings.HasPrefix(box[0], "- [x] Ship the parser") {
+		t.Fatalf("nothing said: %q, %v", box, err)
 	}
 }
