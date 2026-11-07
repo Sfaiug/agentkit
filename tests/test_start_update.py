@@ -30,6 +30,7 @@ from agentkit import update
 
 GIT = shutil.which("git")
 INSTALL = '''#!/bin/sh
+[ "$1" != --prepare ] || exit 0
 d="$(dirname "$0")/.."
 echo installed >>"$d/installs"
 touch "$d/install.started"
