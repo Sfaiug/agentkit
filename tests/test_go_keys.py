@@ -13,7 +13,9 @@ Key file names keep it to those files' claims, and one go/keys.txt does not list
 in the file NOT_THERE names and as no failing part, as it ran nowhere; without names every claim
 runs, as the suite's pieces of it name theirs (every_file.py).  With AK_BIN set it judges that
 program, a relative name read from the checkout, instead of building; it builds nothing where no
-claim runs.
+claim runs.  With AK_GO_ALONE=1 the copy is shaped like the commit switching ak to Go, so a claim
+passing only by what that commit drops fails: its bin/, hooks/, adapters/, tools/ and install.sh
+are go/'s, bin/ak the program judged, and tests/fixtures/akbin.py's Home refuses Python.
 Each failing claim is named by its key file's name in the file FAILED_PARTS names: a piece
 takes minutes, so every_file.py's re-run, and a narrowing step on that claim, run it alone.
 Each passing one's seconds are in the file PART_TIMES names: they cut the next suite's pieces.
@@ -39,19 +41,29 @@ LEFT_OUT = shutil.ignore_patterns("agentkit", ".git", "__pycache__", ".ak-test-*
 # A skip exits 0 and a file with no test may too: only unittest's tally tells, as every_file.py
 # reads it.  The claim's own is the last: a tally of a child it ran comes before.
 PASSED = re.compile(r"^Ran [1-9]\d* tests? in .*\n\nOK\n\Z", re.MULTILINE)
+# The parts of the checkout the commit switching ak to Go takes from go/ (AK_GO_ALONE).
+SWITCHED = ("bin", "hooks", "adapters", "tools", "install.sh")
 
 
 @contextmanager
 def checkout(build):
     """A copy of the checkout without agentkit/ for keys to run in, the program they judge, and
     its build: AK_BIN's program, a relative name read from the checkout, else go/bin/ak, built
-    there when `build`.  The build is None where none ran."""
+    there when `build`.  With AK_GO_ALONE=1 the copy is switched, and the program its bin/ak,
+    built there or a copy of AK_BIN's.  The build is None where none ran."""
     named = os.environ.get("AK_BIN")
+    alone = os.environ.get("AK_GO_ALONE") == "1"
     # In the checkout, as the suite's other sandboxes are: a key keeping its Home under its
     # checkout counts on that lying outside the temporary places a worker's box makes its own.
     with tempfile.TemporaryDirectory(prefix=".ak-test-go-keys-", dir=REPO) as tree:
         shutil.copytree(REPO, tree, ignore=LEFT_OUT, symlinks=True, dirs_exist_ok=True)
-        program = REPO / named if named else Path(tree, "go/bin/ak")
+        program = (Path(tree, "bin/ak") if alone else
+                   REPO / named if named else Path(tree, "go/bin/ak"))
+        if alone:
+            switch(Path(tree))
+            if named:
+                # copied in, so the checkout it finds itself in is this one (config.Repo)
+                shutil.copy2(REPO / named, program)
         # Trimmed, a build in this piece's own tree finds what others cached (every_file).
         built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"], env=ENV,
                                cwd=Path(tree, "go"), capture_output=True,
@@ -59,6 +71,25 @@ def checkout(build):
         # a checkout, as Go finds the one it runs from (config.Repo), without the history
         subprocess.run(["git", "init", "-q", tree], check=True)
         yield tree, program, built
+
+
+def switch(tree):
+    """Shape the copy at `tree` like the commit switching ak to Go: each part SWITCHED is go/'s,
+    bin/ empty for the program."""
+    go = tree / "go"
+    for part in ("bin", "hooks", "adapters", "tools"):
+        shutil.rmtree(tree / part, ignore_errors=True)
+    (tree / "bin").mkdir()
+    shutil.copy2(go / "install.sh", tree)
+    for part in ("hooks", "adapters", "tools"):
+        shutil.copytree(go / part, tree / part, symlinks=True)
+        # A link leads where it led in go/: go/bin moves with these, so tools/ak still leads to
+        # the program, and go/internal stays, which a shim and an adapter's manifest lead into.
+        for link in filter(Path.is_symlink, (tree / part).iterdir()):
+            led = Path(os.path.normpath(go / part / os.readlink(link))).relative_to(go)
+            led = (tree if led.parts[0] in SWITCHED else go) / led
+            link.unlink()
+            link.symlink_to(os.path.relpath(led, link.parent))
 
 
 def run(tree, program, name, *parts, **env):
