@@ -40,9 +40,9 @@ func runClean(args []string, out, errOut io.Writer) int {
 // launchRun is `ak run <task.md>` or `ak run --review-pr <url>` where Go makes the launch: one
 // preflight refuses, recorded as a run in error, or a run preflight passes, which it follows unless
 // told --bg; one of several task files, or carrying a run directory, only where its seat's queue
-// refuses it (launch.Fresh).  Any other launch it leaves to Python before it writes anything.
-// `--drive` is that run's own process, and `--lander` a landing line's, but for a pass that is
-// Python's (loop.LineToPython).
+// refuses it (launch.Fresh); or `ak run <task.md>...`, a job, where Go carries it (launch.Job).
+// Any other launch it leaves to Python before it writes anything.  `--drive` is that run's own
+// process, and `--lander` a landing line's, but for a pass that is Python's (loop.LineToPython).
 func launchRun(args []string, out, errOut io.Writer) int {
 	if len(args) == 2 && args[0] == loop.DriveFlag {
 		return loop.Drive(args[1])
@@ -68,11 +68,14 @@ func launchRun(args []string, out, errOut io.Writer) int {
 	case len(parsed.words) == 1 && os.Getenv("AGENTKIT_RUN_DIR") == "":
 		code, reason, err = launch.Task(config.Absolute(parsed.words[0]), parsed.values, parsed.flags, out, errOut)
 	default:
-		var paths []string
-		for _, word := range parsed.words {
-			paths = append(paths, config.Absolute(word))
+		paths := make([]string, len(parsed.words))
+		for i, word := range parsed.words {
+			paths[i] = config.Absolute(word)
 		}
 		code, reason, err = launch.Fresh(paths, parsed.flags, errOut)
+		if errors.Is(err, launch.ErrPython) && len(paths) > 1 {
+			code, reason, err = launch.Job(paths, parsed.values, parsed.flags, out)
+		}
 	}
 	switch {
 	case errors.Is(err, launch.ErrPython):
@@ -148,6 +151,9 @@ func validateRun(args []string) string {
 	if _, parallel := parsed.values["--parallel"]; parallel && len(parsed.words) == 1 {
 		return "usage: ak run <task.md> [--rounds N] [--exec MODEL] [--review MODEL] [--anyway] [--first] [--no-worktree] [--no-merge] [--bg]: --parallel needs more than one task file"
 	}
+	if len(parsed.words) > 1 && parsed.flags["--no-worktree"] {
+		return "--no-worktree runs in the repo's current branch: one checkout cannot hold a job of concurrent tasks; drop the flag so each task gets its own worktree"
+	}
 	// Every task is read before any is judged whole, so a job names the first file it cannot
 	// read before a sentence about another; a job's sentence names its file.
 	type read struct {
@@ -166,6 +172,15 @@ func validateRun(args []string) string {
 			return err.Error()
 		}
 		tasks = append(tasks, read{path, meta, cmds})
+	}
+	// a job keys its tasks on their files' names (job_create)
+	seen := map[string]string{}
+	for _, each := range tasks {
+		name := filepath.Base(each.path)
+		if first, taken := seen[name]; taken {
+			return fmt.Sprintf("%s: another task file in the job is already called %s (%s); the job keys tasks and threads on that basename, so rename one", each.path, commandhelp.Quote(name), first)
+		}
+		seen[name] = each.path
 	}
 	for _, each := range tasks {
 		refusal, err := launch.Refusal(each.path, each.meta, each.cmds)
