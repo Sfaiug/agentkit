@@ -13,7 +13,9 @@ import (
 // join level with acme, so each waits one turn behind bravo; a `--first` run goes ahead of all.
 // The run let in counts a turn of its seat's.  Each line as Python's own saved it.
 func TestASeatsWaitersTakeTurnsInLine(t *testing.T) {
-	gatedHome(t, "dry-run")
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	waits := func(id, seat string, at int, more ...any) *run.Object {
 		dir := filepath.Join(run.Runs(), id)
 		record := run.Fields(append([]any{"run_id", id, "state", "queued", "slot_waiting", true, "queued_at", at, "launched_session", seat}, more...)...)
