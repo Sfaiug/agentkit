@@ -4,10 +4,11 @@
 package lend
 
 import (
-	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -51,8 +52,14 @@ func Lenders() ([]string, error) {
 // caller's config lists on a provider it runs, until one lends.  A lend failing, or a place it
 // takes in home being taken, fails it all, every link it made taken back: no caller is told
 // what to keep out of what it saves.
-func Into(home string, subscriptions bool) (Loan, error) {
+func Into(ctx context.Context, home string, subscriptions bool) (Loan, error) {
 	if err := os.MkdirAll(home, 0o777); err != nil {
+		return Loan{}, err
+	}
+	// the folder the system finds there, so a place joined to it is where Python's lends it, a
+	// link's `..` included
+	home, err := filepath.EvalSymlinks(home)
+	if err != nil {
 		return Loan{}, err
 	}
 	listed := map[string][][2]string{}
@@ -68,7 +75,10 @@ func Into(home string, subscriptions bool) (Loan, error) {
 		adapter, err := config.LoginAdapter(harness)
 		tries := append([][2]string{{}}, listed[harness]...)
 		for lent := false; !lent && err == nil && len(tries) > 0; tries = tries[1:] {
-			lent, err = loan.add(home, harness, adapter, tries[0])
+			lent, err = loan.add(ctx, home, harness, adapter, tries[0])
+		}
+		if err == nil {
+			err = ctx.Err() // ended while an adapter that heard it too said it had none
 		}
 		if err != nil {
 			for _, place := range loan.placed {
@@ -84,38 +94,35 @@ func Into(home string, subscriptions bool) (Loan, error) {
 // where it has none to lend.  It lends into a folder of its own under home, so what it placed
 // is known without its harness's layout, and is linked from there into home, refusing a place
 // taken.
-func (loan *Loan) add(home, harness, adapter string, account [2]string) (bool, error) {
+func (loan *Loan) add(ctx context.Context, home, harness, adapter string, account [2]string) (bool, error) {
 	staging, err := os.MkdirTemp(home, ".lend-")
 	if err != nil {
 		return false, err
 	}
 	defer os.RemoveAll(staging)
-	args := []string{"lend", staging}
+	args := []string{adapter, "lend", staging}
 	if account[1] != "" {
 		args = append(args, "own")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute) // asking for saved keys boots a server
+	call, cancel := context.WithTimeout(ctx, time.Minute) // asking for saved keys boots a server
 	defer cancel()
-	command := exec.CommandContext(ctx, adapter, args...)
-	var stdout, stderr bytes.Buffer
-	command.Env = append(os.Environ(), config.AccountEnv(account[1]), "AGENTKIT_PROVIDER="+account[0])
-	// a program it left holding its output open is waited for no longer than the cap
-	command.Stdout, command.Stderr, command.WaitDelay = &stdout, &stderr, time.Minute
-	err = command.Run()
+	stdout, stderr, err := within(call, append(os.Environ(), config.AccountEnv(account[1]), "AGENTKIT_PROVIDER="+account[0]), args)
 	var exited *exec.ExitError
 	switch {
 	case err != nil && ctx.Err() != nil:
+		return false, ctx.Err()
+	case err != nil && call.Err() != nil:
 		return false, fmt.Errorf("%s lend took more than a minute", harness)
 	case errors.As(err, &exited) && exited.ExitCode() == 1:
 		return false, nil // none to lend
 	case errors.As(err, &exited):
-		return false, fmt.Errorf("%s lend exited %d: %s", harness, exited.ExitCode(), strings.TrimFunc(stderr.String(), config.Space))
+		return false, fmt.Errorf("%s lend exited %d: %s", harness, exited.ExitCode(), strings.TrimFunc(string(stderr), config.Space))
 	case err != nil:
 		return false, err
 	}
-	said := strings.TrimFunc(stdout.String(), config.Space)
+	said := strings.TrimFunc(string(stdout), config.Space)
 	ends, unread := strconv.ParseInt(said, 10, 64)
-	if !utf8.Valid(stdout.Bytes()) || said != "" && unread != nil {
+	if !utf8.Valid(stdout) || said != "" && unread != nil {
 		return false, fmt.Errorf("%s lend printed %s, not the second its login lapses", harness, strconv.Quote(said))
 	}
 	placed := []string{harness}
@@ -145,6 +152,42 @@ func (loan *Loan) add(home, harness, adapter string, account [2]string) (bool, e
 		loan.Named.Set(account[0], account[1])
 	}
 	return true, nil
+}
+
+// within is what argv printed on stdout and stderr, and how it ended, all within call, as
+// Python's subprocess.run(timeout=...) has it: call's end kills the program and stops reading
+// what anything it left holding its output still writes, which os/exec's WaitDelay, timed from
+// the program's own exit, would wait for past that end.
+func within(call context.Context, env, argv []string) (stdout, stderr []byte, err error) {
+	var reads, writes [2]*os.File
+	for i := range reads {
+		if reads[i], writes[i], err = os.Pipe(); err != nil {
+			return nil, nil, err
+		}
+		defer reads[i].Close()
+		defer writes[i].Close()
+	}
+	command := exec.CommandContext(call, argv[0], argv[1:]...)
+	command.Env, command.Stdout, command.Stderr = env, writes[0], writes[1]
+	err = command.Start()
+	writes[0].Close() // only the program writes them now, so its end is their end
+	writes[1].Close()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer context.AfterFunc(call, func() {
+		reads[0].SetReadDeadline(time.Now())
+		reads[1].SetReadDeadline(time.Now())
+	})()
+	read := make(chan error, 1)
+	go func() {
+		var err error
+		stderr, err = io.ReadAll(reads[1])
+		read <- err
+	}()
+	stdout, err = io.ReadAll(reads[0])
+	err = cmp.Or(err, <-read)
+	return stdout, stderr, cmp.Or(command.Wait(), err)
 }
 
 // accounts is {harness: [{provider, account}]}, each subscription the caller's config lists by

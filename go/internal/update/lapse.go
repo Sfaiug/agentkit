@@ -1,6 +1,7 @@
 package update
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -73,6 +74,6 @@ func firstLapse() (int64, string, bool) {
 		return 0, "", false
 	}
 	defer os.RemoveAll(home)
-	loan, err := lend.Into(home, false)
+	loan, err := lend.Into(context.Background(), home, false)
 	return loan.Ends, loan.Whose, err == nil && loan.Whose != ""
 }

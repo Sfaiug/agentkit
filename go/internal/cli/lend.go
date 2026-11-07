@@ -1,8 +1,11 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strings"
 
 	"agentkit/internal/host"
@@ -23,7 +26,14 @@ func lendHome(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "lend")
 	}
 	host.Mark("ak lend")
-	loan, err := lend.Into(args[0], subscriptions)
+	// Ctrl-C takes back what was lent, as Python's KeyboardInterrupt does on its way out
+	interrupt, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	loan, err := lend.Into(interrupt, args[0], subscriptions)
+	if interrupt.Err() != nil {
+		fmt.Fprintln(errOut, "\nak lend: interrupted")
+		return 130
+	}
 	if err != nil {
 		fmt.Fprintf(errOut, "lend: %s\n", err)
 		return 1
