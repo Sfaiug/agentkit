@@ -111,15 +111,18 @@ def running(record, cwd, conversation):
         return None
 
 
+def read_by(record, cwd, conversation):
+    """The durable UI record its messages are read from (`messages`), None where it has none."""
+    where = cwd or record.get("cwd")
+    return session_dir(where, conversation) / "updates.jsonl" if conversation and where else None
+
+
 def messages(record, cwd, conversation):
     """The durable UI record's messages, oldest first, as (who, {at, text}), chunks joined and
     host turns, shell commands and other updates left out; it outlives model-context compaction."""
     from . import entries, user_message
-    where = cwd or record.get("cwd")
-    if not conversation or not where:
-        return
     current, key = None, None
-    for entry in entries(session_dir(where, conversation) / "updates.jsonl"):
+    for entry in entries(read_by(record, cwd, conversation)):
         params = entry.get("params")
         params = params if isinstance(params, dict) else {}
         update = params.get("update")

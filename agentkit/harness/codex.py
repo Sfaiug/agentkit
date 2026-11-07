@@ -385,13 +385,18 @@ def picked(entry, calls):
             continue
 
 
+def read_by(record, cwd, conversation):
+    """The rollout its messages and answers are read from (`lines`)."""
+    return transcript(record, cwd, conversation)
+
+
 def lines(record, cwd, conversation):
     """Each rollout line, beside the card calls asked up to it, by (tool, call id); the owner
     message it holds, or None; and the (call, index, question asked, answer) of each card
     question that message answers, or None where it is no card reply."""
     from . import entries, user_message
     calls = {}
-    for entry in entries(transcript(record, cwd, conversation)):
+    for entry in entries(read_by(record, cwd, conversation)):
         payload = entry.get("payload")
         name = str(payload.get("name", "")).split(".")[-1] if isinstance(payload, dict) else ""
         if (re.fullmatch(QUESTIONS, name) and entry.get("type") == "response_item"

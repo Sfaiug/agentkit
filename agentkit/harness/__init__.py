@@ -226,15 +226,20 @@ def entries(path):
         return
     try:
         with _opened(path) as fh:
-            for line in fh:
-                try:
-                    entry = json.loads(line)
-                except ValueError:
-                    continue
-                if isinstance(entry, dict):
-                    yield entry
+            yield from objects(fh)
     except FileNotFoundError:
         return
+
+
+def objects(lines):
+    """Each JSON object those lines of a record hold, one a line, passing over the rest."""
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict):
+            yield entry
 
 
 def turns(path, prompt, answer):
@@ -658,6 +663,16 @@ class Harness:
         or protocol frames.  None where this harness keeps nothing ak can read."""
         hook = self._hook("said")
         return hook(record, cwd, conversation) if hook else None
+
+    def read_by(self, record, cwd, conversation):
+        """The names of the one file that conversation's messages and answers are read from, in
+        the order its readers try them (`entries`), none where it has no file yet.  None where
+        its harness keeps it in no file of its own, as in a database, or names none."""
+        hook = self._hook("read_by")
+        if not hook:
+            return None
+        names = hook(record, cwd, conversation)
+        return _names(names) if names else []
 
     @property
     def reads_messages(self):
