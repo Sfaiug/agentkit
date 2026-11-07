@@ -92,11 +92,7 @@ func (l launcher) launch(path, text string, values map[string]string, flags map[
 	if _, err := config.MaxRuns(); err != nil {
 		return "", 2, err.Error(), nil
 	}
-	stem := filepath.Base(path)
-	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
-		stem = stem[:dot]
-	}
-	named := task.Title(text, stem)
+	named := titleOf(path, text)
 	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(named))
 	if err != nil {
 		return "", 0, "", err
@@ -159,6 +155,16 @@ func (l launcher) depth() int {
 	}
 	depth, _ := runDepth()
 	return depth
+}
+
+// titleOf is the title of the task at path holding text, as Python's parse_task gives it: its
+// file's stem for none.
+func titleOf(path, text string) string {
+	stem := filepath.Base(path)
+	if dot := strings.LastIndexByte(stem, '.'); 0 < dot && dot < len(stem)-1 {
+		stem = stem[:dot]
+	}
+	return task.Title(text, stem)
 }
 
 // freeDir is the run's directory under that id, `-N` after it where the id is taken.
