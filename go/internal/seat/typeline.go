@@ -71,9 +71,7 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
 			return errUntyped
 		}
-		conversation, prompts, _ := script.Typed(own, record)
-		entry := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
-			"conversation", conversation, "after", len(prompts))
+		entry := typingReceipt(own, record, text)
 		file, err := os.OpenFile(ownFile("input", current), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
 			return err

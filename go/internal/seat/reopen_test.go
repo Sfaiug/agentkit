@@ -144,16 +144,27 @@ func TestReopensLeftToPython(t *testing.T) {
 		"a queued line during a turn": `{"state": "working", "owed_lines": [{"line": "go on"}]}`,
 	} {
 		write(t, filepath.Join(state, "seat-acme.json"), file)
-		if _, known := comingBack(state, "acme", record(nil), false, false); known {
-			t.Errorf("Go relaunches %s", name)
+		// a seat cut off is the revival's to tell, Python's: only the owner's reopen tells it here
+		if seat, known := comingBack(state, "acme", record(nil), false, false); known {
+			if _, known = seat.goesOn(How{}); known {
+				t.Errorf("Go relaunches %s", name)
+			}
 		}
 		if _, known := comingBack(state, "acme", record(nil), false, true); !known {
 			t.Errorf("a dry run hangs on %s", name)
 		}
 	}
+	write(t, filepath.Join(state, "seat-acme.json"), `{"state": "asking"}`)
+	seat, _ := comingBack(state, "acme", record(nil), false, false)
+	if line, known := seat.goesOn(How{Owner: true}); !known || line != QuestionContinue {
+		t.Errorf("the owner's reopen of a seat cut off asking tells it %q", line)
+	}
 	write(t, filepath.Join(state, "seat-acme.json"), `{"state": "asking", "closed_by_owner": true}`)
-	if _, known := comingBack(state, "acme", record(nil), false, false); !known {
-		t.Error("a seat the owner closed ended on purpose, and is told nothing")
+	for _, how := range []How{{}, {Owner: true}} {
+		seat, known := comingBack(state, "acme", record(nil), false, false)
+		if line, told := seat.goesOn(how); !known || !told || line != "" {
+			t.Error("a seat the owner closed ended on purpose, and is told nothing")
+		}
 	}
 	os.Remove(filepath.Join(state, "seat-acme.json"))
 	write(t, filepath.Join(cwd, ".git", "HEAD"), "ref: refs/heads/main\n")
