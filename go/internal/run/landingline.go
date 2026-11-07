@@ -66,6 +66,14 @@ func LineMembers(name string) []LineMember {
 // delivering before its target moves.
 func green(wait *Object) bool { return wait.Has("land") && !wait.Has("fix") }
 
+// LandingLine is the line a waiting run waits in, "" for none (transitions.landing_line).
+func LandingLine(record *Object) string {
+	if wait := record.Dict("waiting_on"); wait != nil && record.Str("state") == "waiting" {
+		return wait.Str("line")
+	}
+	return ""
+}
+
 // LinePlace is the line under a run waiting in its landing line (status.parked_line): where it
 // stands there by its directory's name, and what it lands on; "" for one in no line.
 func LinePlace(record *Object, name string) string {
@@ -83,20 +91,20 @@ func LinePlaces() func(record *Object, name string) (string, bool) {
 	}
 	lines := map[string]line{}
 	return func(record *Object, name string) (string, bool) {
-		wait := record.Dict("waiting_on")
-		if record.Str("state") != "waiting" || wait == nil || wait.Str("line") == "" {
+		line := LandingLine(record)
+		if line == "" {
 			return "", true
 		}
-		found, seen := lines[wait.Str("line")]
+		found, seen := lines[line]
 		if !seen {
-			members := LineMembers(wait.Str("line"))
+			members := LineMembers(line)
 			found.read = !FirstPlaceTold() || !slices.ContainsFunc(members, func(m LineMember) bool {
 				return !green(m.Record.Dict("waiting_on"))
 			})
 			for _, m := range members {
 				found.names = append(found.names, filepath.Base(m.Dir))
 			}
-			lines[wait.Str("line")] = found
+			lines[line] = found
 		}
 		place := 1 + slices.Index(found.names, name)
 		if place == 0 {
