@@ -151,8 +151,8 @@ class ModelsWhy(unittest.TestCase):
         history.save()
 
     def models(self, width=100, height=60):
-        """`r` on `c` in a window of its own, once the answer is drawn: the orchestrator's
-        quality, which a page too short to say how many models it compares still keeps."""
+        """`r` on `c` in a window of its own, once the answer is drawn: how many models it
+        compares, or on a page too short to keep that, the orchestrator's quality."""
         term = Terminal(self.home, size=(width, height), env=ENV)
         self.addCleanup(self.home.tmux, "respawn-pane", "-k", "-t", term.pane, "sleep 86400",
                         server=SERVER)
@@ -160,7 +160,7 @@ class ModelsWhy(unittest.TestCase):
         term.keys("c")
         term.wait("r recommended")
         term.keys("r")
-        term.wait(" 93.2 ")
+        term.wait(lambda screen: "comparing all 6 models" in screen or " 93.2 " in screen)
         return term
 
     def why(self, term, *keys):
