@@ -20,8 +20,6 @@ REPO = Path(__file__).resolve().parents[1]
 BEFORE = {"test_key_a_tick_reads_each_run_once", "test_key_health_needs_a_working_ak",
           "test_key_no_line_is_typed_into_a_composer_ak_cannot_read_whole",
           "test_key_red_tests_rerun_at_once", "test_key_seat_runs_the_live_ak"}
-# Python's own, in the order its import system asks them.
-FINDERS = (BuiltinImporter, FrozenImporter, PathFinder)
 
 
 def importers(tests):
@@ -35,11 +33,13 @@ def importers(tests):
     def spec(name):
         if name not in specs:
             parent = name.rpartition(".")[0]
-            above = spec(parent) if parent else None
             # A submodule is searched for in its package alone, and a plain module holds none.
-            where = above and above.submodule_search_locations if parent else path
-            specs[name] = next(filter(None, (finder.find_spec(name, where) for finder in FINDERS
-                                             if where)), None)
+            where = (spec(parent).submodule_search_locations or []) if parent else path
+            # PathFinder's own search, not its find_spec: that gives a namespace package inside
+            # another a __path__ read from its parent in sys.modules, which only an import fills.
+            # What it finds nowhere comes back as a namespace package of no folder.
+            specs[name] = (BuiltinImporter.find_spec(name) or FrozenImporter.find_spec(name)
+                           or PathFinder._get_spec(name, where))
         return specs[name]
 
     def imports(file):
@@ -69,7 +69,7 @@ def importers(tests):
                 for loaded in [*(".".join(parts[:end]) for end in range(1, len(parts) + 1)),
                                *(f"{module}.{taken}" for taken in names)]:
                     found = spec(loaded)
-                    if (loaded not in seen and found and found.has_location
+                    if (loaded not in seen and found.has_location
                             and Path(found.origin).is_relative_to(tests)):
                         seen.add(loaded)
                         todo.append((loaded, found.origin))

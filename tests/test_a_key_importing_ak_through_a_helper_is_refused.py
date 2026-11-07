@@ -36,6 +36,10 @@ class AKeyImportingAkThroughAHelperIsRefused(unittest.TestCase):
     def test_a_module_under_tests_shadowing_the_standard_library_is_refused(self):
         self.assertTrue(self.refused("import json\n", json=AK))
 
+    def test_a_helper_in_a_folder_inside_another_importing_agentkit_is_refused(self):
+        self.assertTrue(self.refused("from fixtures.acme import value\n",
+                                     fixtures__acme__value=AK))
+
     def test_a_name_a_helper_defines_loads_no_module_beside_it(self):
         self.assertFalse(self.refused("from fixtures.acme import value\n",
                                       fixtures__acme="value = 1\n", fixtures__acme__value=AK))
