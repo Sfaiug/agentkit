@@ -15,7 +15,6 @@ import (
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
 	meters "agentkit/internal/usage"
-	"agentkit/internal/worker"
 )
 
 const movedLine = "This seat moved to you in the middle of a turn. Continue that turn from where the conversation your instructions point you to leaves it; do not start over."
@@ -86,8 +85,7 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	if off, err := ModelOff(model); err != nil || off {
 		return nil, false
 	}
-	// _switch_plan: installed, login, then the screen's spent meter. Named
-	// subscriptions still need Python's account ordering and seat_auth hooks.
+	// _switch_plan: installed, login, then the screen's spent meter
 	adapter, err := config.Adapter(entry.Harness)
 	if err == config.ErrNoAdapterDir {
 		adapter, err = config.ShippedAdapter(entry.Harness)
@@ -99,34 +97,24 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 	if err != nil || harness.Binary(program) == "" {
 		return nil, false
 	}
-	accounts, err := config.Accounts(entry.Provider)
-	account, _ := record["account"].(string)
-	if err != nil || len(accounts) != 0 || account != "" && account != "default" {
-		return nil, false
-	}
-	subscriptions, err := config.Subscriptions()
+	readings, err := meters.Cached()
 	if err != nil {
 		return nil, false
 	}
-	var providers []string
-	for _, subscription := range subscriptions {
-		if subscription.Harness == entry.Harness {
-			providers = append(providers, subscription.Name)
-		}
-	}
-	env := append(host.Unmarked(os.Environ()), "AGENTKIT_ACCOUNT=", "AGENTKIT_PROVIDER="+strings.Join(providers, " "))
-	if answered, yes, _ := worker.Login(adapter, env, "seat"); answered && !yes {
-		return nil, false
-	}
-	readings, err := meters.Cached()
-	if err != nil || readings.SeatSpent(model) {
-		return nil, false
-	}
 	was := models[old]
+	kept, _ := record["account"].(string)
+	account, known := moveLogin(model, was, entry, kept, adapter, readings)
+	if !known || readings.SeatSpent(model) {
+		return nil, false
+	}
 	moving := &seatMove{was: old, own: was.Harness, model: model, effort: effort, models: models,
 		chosen: []field{{"orchestrator", model}, {"account", record["account"]}}}
-	if was.Provider != entry.Provider {
-		moving.chosen = []field{{"orchestrator", model}, {"account", nil}, {"home_account", nil}}
+	if was.Provider != entry.Provider { // the account it moved onto is its home
+		homed := any(nil)
+		if account != "" {
+			homed = account
+		}
+		moving.chosen = []field{{"orchestrator", model}, {"account", homed}, {"home_account", homed}}
 	}
 	entry, efforts := atOwnEfforts(entry, model, record)
 	if effort != "" {
@@ -140,7 +128,7 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 		return nil, false
 	}
 	plan := &plannedMove{name: name, pane: pane, was: was, record: record, selected: selected,
-		back: reopening{name: name, orchestrator: model, model: entry, opened: true, moving: moving}}
+		back: reopening{name: name, orchestrator: model, model: entry, opened: true, account: account, moving: moving}}
 	if pane != "" {
 		return plan, true
 	}
