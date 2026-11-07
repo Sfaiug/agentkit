@@ -56,7 +56,7 @@ func (t *ticking) endRoutine(dir string, record *run.Object, notice string) (boo
 		"notification_pending", nil) {
 		return false, errors.New("run " + filepath.Base(dir) + ": the merge's hand-back could not be written")
 	}
-	if err := loop.OfferEnding(dir, t.log.line); err != nil {
+	if err := loop.OfferEnding(dir, nil, t.log.line); err != nil {
 		return false, err
 	}
 	return true, nil
