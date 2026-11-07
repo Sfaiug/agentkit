@@ -73,24 +73,36 @@ case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; 
 // A driver stopped once its suite ran out of memory prices the overflow where the state lock is
 // free, and waits for none another process holds: its error is the stop's.
 func TestAStoppedDriverPricesItsOverflowButWaitsForNoLock(t *testing.T) {
-	suite := `case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; touch overflowed ;; esac
+	suite := `case $AK_SHARD in 1/*)
+  n=$(sed -n "s/^oom //p" cgroup/acme/memory.events); printf "oom %s\noom_kill 0\n" $((n + 1)) >cgroup/acme/memory.events
+  touch overflowed ;;
+esac
 sleep 30 # AK_SHARD`
 	l, cost := overflowing(t, suite, `{"mem_mb": 500}`)
-	ctx, cancel := context.WithCancelCause(context.Background())
-	l.ctx = ctx
-	stopped := errors.New("the driver got SIGTERM")
-	go func() {
-		for ctx.Err() == nil {
-			if _, err := os.Stat(filepath.Join(l.workspace, "overflowed")); err == nil {
-				cancel(stopped)
+	// a pass stopped once its first piece ran out of memory, its siblings still running, and the cost
+	// it left
+	stopped := func() string {
+		t.Helper()
+		os.Remove(filepath.Join(l.workspace, "overflowed"))
+		ctx, cancel := context.WithCancelCause(context.Background())
+		defer cancel(nil)
+		l.ctx = ctx
+		stop := errors.New("the driver got SIGTERM")
+		go func() {
+			for ctx.Err() == nil {
+				if _, err := os.Stat(filepath.Join(l.workspace, "overflowed")); err == nil {
+					cancel(stop)
+				}
+				time.Sleep(10 * time.Millisecond)
 			}
-			time.Sleep(10 * time.Millisecond)
+		}()
+		if _, _, err := l.checks([]string{suite}, filepath.Join(l.roundDir(), "donewhen.log")); !errors.Is(err, stop) {
+			t.Fatalf("the suite ended with %v", err)
 		}
-	}()
-	if _, _, err := l.checks([]string{suite}, filepath.Join(l.roundDir(), "donewhen.log")); !errors.Is(err, stopped) {
-		t.Fatalf("the suite ended with %v", err)
+		kept, _ := os.ReadFile(cost)
+		return string(kept)
 	}
-	if kept, _ := os.ReadFile(cost); string(kept) != `{"mem_mb": 1000}` {
+	if kept := stopped(); kept != `{"mem_mb": 1000}` {
 		t.Fatalf("the stopped pass left the cost %s", kept)
 	}
 	held, err := lock.Try(filepath.Join(config.Home(), "state", "watch.lock"))
@@ -98,10 +110,7 @@ sleep 30 # AK_SHARD`
 		t.Fatal(err)
 	}
 	defer held.Close()
-	if err := overflowed(ctx, cost, 0, 1000); !errors.Is(err, stopped) {
-		t.Fatalf("a stopped driver's pricing ended with %v", err)
-	}
-	if kept, _ := os.ReadFile(cost); string(kept) != `{"mem_mb": 1000}` {
+	if kept := stopped(); kept != `{"mem_mb": 1000}` {
 		t.Fatalf("pricing without the state lock left the cost %s", kept)
 	}
 }
