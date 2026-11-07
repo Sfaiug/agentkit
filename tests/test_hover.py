@@ -456,7 +456,9 @@ class Screens(Sandbox):
     def test_the_models_screen_draws_no_highlight_off_every_row(self):
         said = [(role, {"name": "Alpha", "effort": "high"}, ("100.0", "$1.00"), "a task")
                 for role in menu.quality.ROLES]
-        for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", {}), ("uses", {})):
+        empty = {role: {"choices": [], "others": []} for role in menu.quality.ROLES}
+        for name, value in (("stored", {}), ("refresh", ({}, None)), ("answer", empty),
+                            ("uses", dict.fromkeys(menu.quality.ROLES, (None, None, None)))):
             self.stack.enter_context(patch.object(menu.matrix, name, return_value=value))
         self.stack.enter_context(patch.object(menu, "models_said", return_value=said))
         # the pointer on the header puts `▸` out, and a key brings it back where it was

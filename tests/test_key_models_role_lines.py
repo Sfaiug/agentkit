@@ -44,11 +44,11 @@ DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 
 
 def said(screen):
-    """The lines from the first column head to `comparing`, one space between words."""
+    """The lines from the first column head to the blank line under them, over the bars (tests/
+    test_key_models_bars.py), one space between words."""
     shown = [" ".join(line.split()) for line in lines(screen)]
     first = next(n for n, line in enumerate(shown) if line.startswith("quality "))
-    last = next(n for n, line in enumerate(shown) if line.startswith("comparing "))
-    return [line for line in shown[first:last] if line]
+    return shown[first:shown.index("", first)]
 
 
 def role_lines(answer, at=None):
