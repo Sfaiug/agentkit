@@ -10,11 +10,11 @@ import (
 type Listed struct{ ID, Name, Mode string }
 
 // keepTable keeps a copy of a provider's table for a model of it coming back on Models
-// (menu.models_page's `tables`), unless the page keeps one already: as the page opened, else as it
-// first took a model in under a listed provider.  A copy, so no change made to the config since
-// reaches it.
+// (menu.models_page's `tables`), unless the page keeps one already or the config has none: as the
+// page opened, else as it first took a model of it in or out.  A copy, so no change made to the
+// config since reaches it, nor a load dropping a bare free provider another page put in.
 func (t *ModelTicks) keepTable(provider string, entry *table) {
-	if _, kept := t.tables[provider]; !kept {
+	if _, kept := t.tables[provider]; !kept && entry != nil {
 		t.tables[provider] = copied(entry).(*table)
 	}
 }
@@ -25,7 +25,7 @@ func (t *ModelTicks) tableBack(providers *table, provider string) error {
 		return nil
 	}
 	kept, ok := t.tables[provider]
-	if !ok { // another page put it in and this one took it out: nothing here says what it was
+	if !ok { // a model names it, but this page never saw its table: nothing here says what it was
 		return fmt.Errorf("[providers.%s] is no longer in the config; open Models again", provider)
 	}
 	providers.put(provider, copied(kept))
