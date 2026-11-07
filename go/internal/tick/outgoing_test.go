@@ -32,13 +32,14 @@ func TestSavedForeignPRIsFollowedAfterSearchDropsIt(t *testing.T) {
 	}
 }
 
-// A run that opened a PR from a fork hears what the maintainer decided once, in its seat: an
-// approval stays the tick's own, a request for changes and a close go on the run and into the
-// seat, a line whose Enter a killed tick never pressed gets its Enter and no second copy, and a
-// merge is Python's with nothing written.
-func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
-	ak, _ := idleHome(t, `case "$*" in *"pr view"*) cat "$HOME/view" ;; *) echo '{"items": []}' ;; esac`)
-	home := filepath.Dir(ak)
+// forkSeat is a home whose lead seat, born at 1000 on a harness Go types into, sits at its empty
+// prompt, gh finding no pull request open and viewing one as $HOME/view says.  The fake tmux keeps
+// each key in $HOME/keys, and text typed while $HOME/jam names a file leaves that file a link to
+// nowhere, which no lock can be taken on.
+func forkSeat(t *testing.T) (ak, home string) {
+	t.Helper()
+	ak, _ = idleHome(t, `case "$*" in *"pr view"*) cat "$HOME/view" ;; *) echo '{"items": []}' ;; esac`)
+	home = filepath.Dir(ak)
 	bin := t.TempDir()
 	draw := `printf '────────\n❯%s\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n'`
 	put(t, filepath.Join(bin, "tmux"), `#!/bin/sh
@@ -51,7 +52,10 @@ case "$*" in
   *send-keys*)
     for last do :; done
     printf '%s\n' "$last" >> "$HOME/keys"
-    if [ "$last" = Enter ]; then `+draw+` "" > "$HOME/shown"; else `+draw+` " $last" > "$HOME/shown"; fi ;;
+    if [ "$last" = Enter ]; then `+draw+` "" > "$HOME/shown"; else
+      `+draw+` " $last" > "$HOME/shown"
+      [ ! -e "$HOME/jam" ] || ln -sfn missing/lock "$(cat "$HOME/jam")"
+    fi ;;
 esac
 `)
 	if err := os.Chmod(filepath.Join(bin, "tmux"), 0o700); err != nil {
@@ -60,8 +64,17 @@ esac
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.opus]\nharness = 'claude'\nmodel = 'claude-opus'\neffort = 'xhigh'\nprovider = 'test'\n"+
 		"[providers.test]\nmode = 'subscription'\n")
-	seated := `{"orchestrator": "opus", "workers": ["opus"], "conversation": "conv-lead", "cwd": "` + home + `"}`
+	put(t, filepath.Join(ak, "state", "session-lead.json"), `{"orchestrator": "opus", "workers": ["opus"], "conversation": "conv-lead", "cwd": "`+home+`"}`)
 	put(t, filepath.Join(home, "shown"), "────────\n❯\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n")
+	return ak, home
+}
+
+// A run that opened a PR from a fork hears what the maintainer decided once, in its seat: an
+// approval stays the tick's own, a request for changes and a close go on the run and into the
+// seat, a line whose Enter a killed tick never pressed gets its Enter and no second copy, and a
+// merge is Python's with nothing written.
+func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
+	ak, home := forkSeat(t)
 	address := "https://github.com/acme/widgets/pull/7"
 	dir := filepath.Join(ak, "runs", "20261107-0900-add-retry-file")
 	put(t, filepath.Join(dir, "run.json"), run.Line(run.Fields("state", "pass", "title", "Add retry file", "foreign", true, "pr", address,
@@ -96,6 +109,7 @@ esac
 	changes := "PR #7 Add retry file: the maintainer requested changes"
 	asked := `{"state": "OPEN", "reviewDecision": "CHANGES_REQUESTED", "title": "Add retry file", "number": 7}`
 	// a seat on a harness Go does not type into is Python's, with nothing written
+	seated := read(t, filepath.Join(ak, "state", "session-lead.json"))
 	put(t, filepath.Join(ak, "state", "session-lead.json"), strings.Replace(seated, `"opus"`, `"vela"`, 1))
 	tick(asked, false)
 	if state.Dict("own").Has(address) || read(t, filepath.Join(dir, "run.json")) != before || keys() != "" {
@@ -150,5 +164,53 @@ esac
 	settled = read(t, filepath.Join(dir, "run.json"))
 	if said := tick(shut, true); said != "" || strings.Count(keys(), "Enter") != 2 || read(t, filepath.Join(dir, "run.json")) != settled {
 		t.Fatalf("a closed PR was followed again: %q, saying %q", keys(), said)
+	}
+}
+
+// A line whose mark cannot be kept on the run gets no Enter, so no tick sends a second copy: it
+// waits in the composer, a draft no later tick types past, whether the run held no mark or one an
+// earlier copy left before the seat was reopened.
+func TestADecisionWhoseMarkCannotBeWrittenIsNeverSentTwice(t *testing.T) {
+	address := "https://github.com/acme/widgets/pull/7"
+	for decided, view := range map[string]string{
+		"the maintainer requested changes":         `{"state": "OPEN", "reviewDecision": "CHANGES_REQUESTED", "title": "Add retry file", "number": 7}`,
+		"closed by the maintainer without a merge": `{"state": "CLOSED", "reviewDecision": "", "title": "Add retry file", "number": 7}`,
+	} {
+		line := "PR #7 Add retry file: " + decided + " -- " + address +
+			". Nothing was posted to Discord; this is the maintainer's decision on a PR of ours, for you to act on or not."
+		for marked, earlier := range map[string]any{"no mark": nil, "a reopened seat's mark": run.Fields("line", line, "seat", 900)} {
+			t.Run(decided+", "+marked, func(t *testing.T) {
+				ak, home := forkSeat(t)
+				dir := filepath.Join(ak, "runs", "20261107-0900-add-retry-file")
+				record := run.Fields("state", "pass", "title", "Add retry file", "foreign", true, "pr", address,
+					"launched_session", "lead", "merge_note", "waiting for the maintainer")
+				if earlier != nil {
+					record.Set("decision_typed", earlier)
+				}
+				put(t, filepath.Join(dir, "run.json"), run.Line(record))
+				put(t, filepath.Join(dir, "result.md"), "# NOT MERGED (1 of 3) — Add retry file\n")
+				put(t, filepath.Join(home, "view"), view)
+				put(t, filepath.Join(home, "jam"), filepath.Join(dir, "delivery.lock"))
+				state, _ := loadState()
+				tick := func() {
+					t.Helper()
+					if !(&ticking{state: state, log: newLog(io.Discard, io.Discard), clock: time.Now}).outgoing("beta") {
+						t.Fatal("the line in the composer was handed to Python")
+					}
+				}
+				tick()
+				// the ticks after take the lock
+				for _, jam := range []string{filepath.Join(home, "jam"), filepath.Join(dir, "delivery.lock")} {
+					if err := os.Remove(jam); err != nil {
+						t.Fatal(err)
+					}
+				}
+				tick()
+				tick()
+				if typed := read(t, filepath.Join(home, "keys")); typed != line+"\n" {
+					t.Fatalf("typed %q, not one copy of the line and no Enter", typed)
+				}
+			})
+		}
 	}
 }

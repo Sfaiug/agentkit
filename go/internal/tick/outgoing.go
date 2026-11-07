@@ -3,6 +3,7 @@ package tick
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -25,6 +26,8 @@ import (
 // Python's, as is any case Go does not carry, each at its own point, before anything is written.
 
 const authoredSearch = "search/issues?q=is:pr+is:open+author:@me&per_page=100"
+
+var errUnkept = errors.New("the line's mark could not be kept on the run")
 
 // outgoing is Python's outgoing; false leaves the rest to Python.
 func (t *ticking) outgoing(me string) bool {
@@ -243,18 +246,20 @@ func (t *ticking) say(text, address, session string) (said, carried bool) {
 	kept := func(mark any) bool {
 		return dir == "" || handback.MarkDelivery(dir, record, "decision_typed", mark)
 	}
-	unmarked := false
 	if !seat.TypeAtPrompt(name, line, held, func(mark *run.Object) error {
-		unmarked = !kept(mark) // its Enter goes all the same: a line that leaves needs no mark
-		return nil
+		if kept(mark) {
+			return nil
+		}
+		// no Enter goes without its own mark on the run, which alone holds a second copy back:
+		// the line stays in the composer, a draft every later tick types nothing past, as
+		// Python's raise leaves it
+		t.log.line("WARN " + address + ": its line waits unsent in the " + name + " seat, its mark not kept on run " + filepath.Base(dir))
+		return errUnkept
 	}, t.log.line) {
-		// a line left in the composer with no mark reads as the owner's draft to Go, which only
-		// Python's editor types past
-		return false, !unmarked
+		return false, true
 	}
-	// a mark on the run comes off, or the next tick reads the line sent and takes it off then; a
-	// line sent with none kept is settled now, as nothing would hold a second copy back
-	if record.Has("decision_typed") && !kept(nil) {
+	// a mark that cannot come off stays, and the next tick, handed it, finds the line sent
+	if !kept(nil) {
 		return false, true
 	}
 	t.log.line("told the " + name + " seat: " + text)
