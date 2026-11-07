@@ -1609,14 +1609,19 @@ def own_efforts(models, name, data):
 
 def keep_efforts(cfg, name):
     """own_efforts of `cfg` for seat `name`'s record as it stands, read as load_session reads
-    it (a fallen-back worker's too), under its lock (change_efforts)."""
+    it (a fallen-back worker's too), under its lock (change_efforts), or where a rename moved it
+    while that lock was waited for."""
     def kept(data):
         try:
             return own_efforts(cfg["models"], name, _validate_session(
                 cfg, name, data, prune=True)).get("efforts")
         except Error:
             return data.get("efforts")      # a record that will not read is left as it is
-    return change_efforts(name, kept)
+    if change_efforts(name, kept) is None:
+        with look.aside():      # the pointer on the disk now, never a pass's read of the record
+            moved = resolve_session(name)
+        if moved != name:
+            keep_efforts(cfg, moved)
 
 
 def _session_file(path, record):

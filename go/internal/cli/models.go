@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -18,9 +17,8 @@ func init() { commands["models"] = modelsAnswer }
 
 // modelsAnswer answers `ak models` as Python's matrix.main does: the boards, the lineup, each role's
 // answer, priced at what ak's own runs measured, and ak's own run numbers, as JSON with --json
-// beside those measurements, else drawn.  A home whose own numbers count a run (ownNumbers), or
-// whose answer to draw some role prices off ak's runs (matrix.Drawn), is left to Python before
-// anything is written.
+// beside those measurements, else drawn.  A home whose own numbers count a run (ownNumbers) is
+// left to Python before anything is written.
 func modelsAnswer(args []string, out, errOut io.Writer) int {
 	fail := func(err error) int {
 		fmt.Fprintf(errOut, "ak models: %s\n", err)
@@ -38,10 +36,7 @@ func modelsAnswer(args []string, out, errOut io.Writer) int {
 		return notImplemented(errOut, "models")
 	}
 	asJSON := contains(args, "--json")
-	found, err := matrix.Refresh(contains(args, "--refresh"), !asJSON)
-	if errors.Is(err, matrix.ErrPriced) {
-		return notImplemented(errOut, "models")
-	}
+	found, err := matrix.Refresh(contains(args, "--refresh"))
 	if err != nil {
 		return fail(err)
 	}

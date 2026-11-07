@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"strings"
 	"sync"
 
@@ -26,7 +25,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	var compared map[string]bool
 	var total int // the listed releases of your companies
 	var answer map[string]*quality.Said
-	// each role's answer over the lineup found, an error where Go does not draw it
+	// each role's answer over the lineup found
 	answered := func() (err error) {
 		if compared, total, err = matrix.Compared(found.Rows); err != nil {
 			return err
@@ -35,10 +34,8 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		if err != nil {
 			return err
 		}
-		if answer, err = matrix.Answer(found.Rows, compared, shares); err != nil {
-			return err
-		}
-		return matrix.Drawn(answer)
+		answer, err = matrix.Answer(found.Rows, compared, shares)
+		return err
 	}
 	if answered() != nil {
 		return false
@@ -47,7 +44,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 	go func() {
 		readingModels.Lock()
 		defer readingModels.Unlock()
-		found, err := matrix.Refresh(false, true)
+		found, err := matrix.Refresh(false)
 		read <- reading{found, err}
 		keyboard.Wake()
 	}()
@@ -98,9 +95,7 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		select {
 		case fresh := <-read:
 			read = nil
-			if errors.Is(fresh.err, matrix.ErrPriced) {
-				return false
-			} else if fresh.err != nil {
+			if fresh.err != nil {
 				note = "the boards were not read: " + fresh.err.Error()
 			} else {
 				found = fresh.found

@@ -42,9 +42,8 @@ func roleBase(name string) string {
 	return name
 }
 
-// latestTurn is a role's last out directory in a round, "" before any, Python's latest_turn: a
-// round with a retry directory is one Pickup leaves to Python.
-func latestTurn(round, name string) string {
+// lastAttempt is a role's last out directory in a round, "" before any, Python's attempt_dirs' last.
+func lastAttempt(round, name string) string {
 	latest, number := "", 0
 	if isDir(filepath.Join(round, name)) {
 		latest, number = filepath.Join(round, name), 1
@@ -70,14 +69,14 @@ func freeDir(round, name string) string {
 }
 
 // openTurn is how a role's latest attempt goes on where it never finished, Python's open_turn: a
-// missing final.md is a turn the host cut off, resumed on the conversation it recorded, else
+// call that never spoke is a turn the host cut off, resumed on the conversation it recorded, else
 // started afresh ("" where it finished, or never began).
 func openTurn(round, name string) (kind, session string) {
 	latest := latestTurn(round, name)
 	if latest == "" {
 		return "", ""
 	}
-	if exists(filepath.Join(latest, "final.md")) {
+	if spoke(latest) {
 		submitted, _ := handin.Read(filepath.Join(latest, handin.File))
 		if strings.HasPrefix(name, "reviewer") || submitted != nil && submitted.Closing() != nil {
 			return "", ""
@@ -101,28 +100,25 @@ func newest(round string, names []string) string {
 	return found
 }
 
-// roleDirs is the round's role directories that take, by base name.
+// roleDirs is the round's role directories that take, by base name: a retry is its attempt's.
 func roleDirs(round string, take func(fs.DirEntry) bool) []string {
 	entries, _ := os.ReadDir(round)
 	var names []string
 	for _, entry := range entries {
-		if entry.IsDir() && take(entry) && !slices.Contains(names, roleBase(entry.Name())) {
+		if entry.IsDir() && !strings.Contains(entry.Name(), "-retry") && take(entry) && !slices.Contains(names, roleBase(entry.Name())) {
 			names = append(names, roleBase(entry.Name()))
 		}
 	}
 	return names
 }
 
-// openReview is the reviewer attempt to go on with, Python's open_review: a review that fell back
-// to another model wrote under `reviewer-<model>`, so it is the newest reviewer directory of any name.
+// openReview is the reviewer attempt to go on with, and how, Python's open_review: a review that
+// fell back to another model wrote under `reviewer-<model>`, so it is the newest reviewer directory
+// of any name, which supersedes those before it even when it answered, as its verdict may still
+// be pending.
 func openReview(round string) (name, kind, session string) {
-	var open []string
-	for _, each := range roleDirs(round, func(entry fs.DirEntry) bool { return strings.HasPrefix(entry.Name(), "reviewer") }) {
-		if found, _ := openTurn(round, each); found != "" {
-			open = append(open, each)
-		}
-	}
-	if name = newest(round, open); name != "" {
+	name = newest(round, roleDirs(round, func(entry fs.DirEntry) bool { return strings.HasPrefix(entry.Name(), "reviewer") }))
+	if name != "" {
 		kind, session = openTurn(round, name)
 	}
 	return name, kind, session

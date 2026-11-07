@@ -338,7 +338,7 @@ func (p *pullPlace) restore(l *loop, stage string) error {
 	default:
 		return fmt.Errorf("cannot inspect the review checkout after %s: %s", stage, why)
 	}
-	patch, err := p.raw("diff", "--binary", pinned)
+	patch, err := p.git().Raw("diff", "--binary", pinned)
 	if err != nil {
 		return err
 	}

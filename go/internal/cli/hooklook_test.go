@@ -10,30 +10,32 @@ import (
 	"agentkit/internal/seat"
 )
 
-// The answer on a card a question waits on is Python's, with nothing written; any other is a fact.
-func TestACardsAnswerToAStandingQuestionIsLeftToPython(t *testing.T) {
+// The owner's answer on a card heard outside the seat's own pane is its fact and answers nothing,
+// as Python's look answers nothing there.
+func TestACardsAnswerHeardOutsideItsPaneAnswersNothing(t *testing.T) {
 	home := sandbox(t)
 	t.Setenv("AGENTKIT_SESSION", "acme")
+	t.Setenv("TMUX", "")
 	state := filepath.Join(home, ".agentkit", "state")
+	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
 	write(t, filepath.Join(state, "session-acme.json"), `{"orchestrator": "opus"}`)
-	answer := []byte(`{"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion"}`)
-	fact := filepath.Join(state, "hook-acme.json")
-	var out bytes.Buffer
-	if code := seatState(answer, &out); code != 0 {
-		t.Fatalf("no question stands: exit %d", code)
-	}
-	if _, err := os.Stat(fact); err != nil {
-		t.Fatal("no question stands: its fact is written")
-	}
-	os.Remove(fact)
 	if err := seat.Keep("acme", "Which port?"); err != nil {
 		t.Fatal(err)
 	}
-	if code := seatState(answer, &out); code != leftToPython {
+	kept, _ := os.ReadFile(filepath.Join(state, "seat-acme.json"))
+	answer := []byte(`{"hook_event_name": "PostToolUse", "tool_name": "AskUserQuestion", ` +
+		`"tool_response": {"answers": {"Which port?": "8080"}}}`)
+	if code := seatState(answer, new(bytes.Buffer)); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	if _, err := os.Stat(fact); err == nil {
-		t.Fatal("what it left to Python wrote its fact")
+	if _, err := os.Stat(filepath.Join(state, "hook-acme.json")); err != nil {
+		t.Fatal("its fact is not written")
+	}
+	if now, _ := os.ReadFile(filepath.Join(state, "seat-acme.json")); !bytes.Equal(now, kept) {
+		t.Fatalf("it answered %s", now)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agentkit", "history.db")); err == nil {
+		t.Fatal("it wrote the owner's time")
 	}
 }
 

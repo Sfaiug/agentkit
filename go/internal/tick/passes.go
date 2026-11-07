@@ -68,7 +68,7 @@ func table(t *ticking) []pass {
 		{"job handbacks", false, nil, t.jobHandbacks},
 		{"ended waits", false, all(configured, seated), t.endedWaits},
 		{"owed lines", false, nil, t.owedLines},
-		{"switch retirement", false, noSwitches, t.retire},
+		{"switch retirement", false, checkoutsSeen, t.retire},
 		// seats' conversations are Python's to read into a history a seat or its sources stand in
 		{"seat tokens", false, func() bool {
 			return run.Historyless() || len(config.SeatFiles()) == 0 && !history.KeepsSeats()

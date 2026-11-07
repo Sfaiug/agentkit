@@ -23,11 +23,9 @@ func checkoutsSeen() bool {
 
 // noneDeclares is whether every checkout could be looked at and none declares key, read as
 // declares reads it.
-func noneDeclares(key string, written bool) bool {
+func noneDeclares(key string) bool {
 	checkouts, seen := seat.Checkouts()
-	return seen && !slices.ContainsFunc(checkouts, func(checkout string) bool {
-		return declares(checkout, key) || written && gitcall.Declared(checkout, key) != ""
-	})
+	return seen && !slices.ContainsFunc(checkouts, func(checkout string) bool { return declares(checkout, key) })
 }
 
 // declares reads the default branch as Python does: no readable AGENTS.md declares nothing.
