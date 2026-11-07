@@ -55,6 +55,11 @@ x86_64 = "https://github.com/openai/codex/releases/download/rust-v{version}/code
 [usage]
 reset = true
 
+# Each plan `login-end` names, at its list price in US dollars a month as read in November 2026.
+[plans]
+plus = 20
+pro = 200
+
 # A Codex seat owns only the thread its own launch's SessionStart hook reported, so its row is
 # recomputed rather than read: a seat tmux has lost keeps it, and one that owns no thread comes
 # back under its own name with no past.
