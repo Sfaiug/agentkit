@@ -28,7 +28,7 @@ def chat(closing):
     """`notify.conversation_of` for a seat whose one message is its model's, `closing()`."""
     plugin = SimpleNamespace(name="fake", said=lambda *_a: [{"who": "model", "text": closing()}],
                              reads_messages=False, user_messages=lambda *_a, **_k: [],
-                             answers=lambda *_a: [])
+                             answers=lambda *_a: [], read_by=lambda *_a: None)
     return lambda _name: (plugin, {}, None, "conv")
 
 
