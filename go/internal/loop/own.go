@@ -215,7 +215,8 @@ func (r *repoPlace) replacement(dir, base, head, number string, counted, budget 
 
 // reviewOwn is a seat's own pull request reviewed to its end, Python's review_pr for `is_own`: a
 // round, and while one fails with rounds left, the fixer turn its findings get before the next.  A
-// run woken in its landing line lands what its lander checked.
+// run woken in its landing line, taken up as Python's pr_loop takes it, lands what its lander
+// checked, or has its red fixed as a failed round is.
 func (l *loop) reviewOwn() (err error) {
 	defer func() {
 		// an ending of its own leaves no fix to wait for and no round pending
@@ -235,20 +236,28 @@ func (l *loop) reviewOwn() (err error) {
 	if landingLine(record) != "" {
 		place := placeOf(record).(*ownPull)
 		l.place, l.workspace = place, place.wt
+		l.takeUp(record)
+		if _, l.cmds, err = task.Read(record.Str("task")); err != nil {
+			return err
+		}
 		if err := place.settle(l); err != nil {
 			return err
 		}
-		return place.land(l)
-	}
-	for {
-		if err := l.ownRound(); err != nil {
+		if err := place.land(l); err != nil {
 			return err
 		}
+	} else if err := l.ownRound(); err != nil {
+		return err
+	}
+	for {
 		record, err := read(l)
 		if err != nil || !record.Truthy("own_pr_wait") {
 			return err
 		}
 		if err := l.fixOwn(record); err != nil {
+			return err
+		}
+		if err := l.ownRound(); err != nil {
 			return err
 		}
 	}
@@ -278,7 +287,15 @@ func (l *loop) ownRound() error {
 	if err != nil {
 		return err
 	}
-	_, why, err := run.PullLeft(prior, l.dir, len(summaries), time.Now())
+	landingFix, err := l.landingFixed(prior, pull.Head)
+	if err != nil {
+		return err
+	}
+	spent := len(summaries)
+	if landingFix {
+		spent = 0
+	}
+	_, why, err := run.PullLeft(prior, l.dir, spent, time.Now())
 	switch {
 	case err != nil:
 		return err
@@ -370,14 +387,14 @@ func (l *loop) ownRound() error {
 		return err
 	}
 	words, points := task.Size(body)
-	rnd := len(summaries) + 1
+	rnd, turn := ownFix(prior)
 	if err := l.save(func(record *run.Object) {
 		run.SetAll(record, "title", title, "task", path, "repo", repo, "scratch", false, "pr", l.pull, "head_sha", pull.Head, "author", pull.Author,
 			"base", "origin/"+pull.Base, "target", pull.Base, "base_sha", baseSHA, "target_sha", targetSHA, "branch", branch, "worktree", wt,
 			"executor", prior.Get("executor"), "reviewer", nil, "rounds", budget, "verdict", nil, "finished_at", nil, "round_summaries", summaries,
 			"findings", l.findings, "merge_method", "squash", "no_merge", repoFrom(prior).noMerge, "merged", false, "merge_note", nil, "reported", false,
 			"task_words", words, "task_points", points, "task_checks", len(declared), "own_pr_round_pending", rnd)
-		for _, key := range []string{"own_pr_wait", "delivery_sha", "review"} {
+		for _, key := range []string{"own_pr_wait", "delivery_sha", "review", "final_check"} {
 			record.Delete(key) // this head is checked out and recorded; its review comes with this round
 		}
 	}); err != nil {
@@ -422,11 +439,20 @@ func (l *loop) ownRound() error {
 		return err
 	}
 	summary := fmt.Sprintf("PR #%s by %s: %s. %s wrote this; review its diff.", pull.Number, pull.Author, pull.Title, writer)
-	if said := fixerWords(l.roundDir()); said != "" {
+	if said := fixerWords(l.roundDir(), turn); said != "" {
 		summary += "\n\n## What the fixer said\n" + said // for the record alone: the reviewer is never told it
 	}
 	preface := ""
-	if len(summaries) > 0 {
+	switch {
+	case landingFix:
+		preface = "Re-review after the landing fix.\n\n## The last round\n" + l.findings
+		// a review the record keeps off its rounds (review)
+		if err := l.save(func(record *run.Object) {
+			record.Set("review_pending", run.Fields("round", rnd, "summary", summary, "record", false))
+		}); err != nil {
+			return err
+		}
+	case len(summaries) > 0:
 		preface = "Re-review after a push.\n\n## The last round\n" + l.findings
 	}
 	if _, err := l.review(summary, ok, text, preface); err != nil {
@@ -492,9 +518,14 @@ func (p *ownPull) settled(l *loop, pull *gh.Pull) error {
 // fix pushed over somebody's commit.
 func (l *loop) fixOwn(record *run.Object) error {
 	reviewed, spent := record.Str("head_sha"), len(record.List("round_summaries"))
-	l.rnd = spent + 1
+	rnd, turn := ownFix(record)
+	l.rnd = rnd
 	current, err := l.openPull()
 	if err != nil {
+		return err
+	}
+	place := l.place.(*ownPull)
+	if err := place.offTheLine(record); err != nil {
 		return err
 	}
 	if remote := current.Dict("head").Str("sha"); remote != reviewed {
@@ -509,15 +540,18 @@ func (l *loop) fixOwn(record *run.Object) error {
 		l.say(fmt.Sprintf("the PR head moved to %s since the review; reviewing it", remote[:min(12, len(remote))]))
 		return nil
 	}
-	place := l.place.(*ownPull)
 	// a fix to the orchestrator's PR is its work
 	l.executor = record.Str("own_orchestrator")
 	if err := l.save(func(record *run.Object) { record.Set("executor", l.executor) }); err != nil {
 		return err
 	}
 	number := gh.PullURL.FindStringSubmatch(l.pull)[3]
-	l.say(fmt.Sprintf("--- round %d/%d: fixer %s (findings on PR #%s)", l.rnd, l.budget, l.executor, number))
-	_, named, _ := strings.Cut(l.title, ": ")
+	fixer := fmt.Sprintf("round %d/%d: fixer", l.rnd, l.budget)
+	if record.Truthy("landing_fix") {
+		fixer = "landing fixer"
+	}
+	l.say(fmt.Sprintf("--- %s %s (findings on PR #%s)", fixer, l.executor, number))
+	_, named, _ := strings.Cut(record.Str("title"), ": ")
 	said := current.Str("body")
 	if said == "" {
 		said = "(no description)"
@@ -528,7 +562,12 @@ func (l *loop) fixOwn(record *run.Object) error {
 	if err := os.MkdirAll(l.roundDir(), 0o777); err != nil {
 		return err
 	}
-	if _, err := l.execute("fixer", "executor", fix, filepath.Join(filepath.Dir(l.findingsFile), "findings.json")); err != nil {
+	// a landing's findings are no reviewer's hand-in
+	handed := filepath.Join(filepath.Dir(l.findingsFile), "findings.json")
+	if !exists(handed) {
+		handed = ""
+	}
+	if _, err := l.execute("fixer", turn, fix, handed); err != nil {
 		return err
 	}
 	if err := place.pin(l); err != nil { // what the next round judges
@@ -594,11 +633,11 @@ func planContext(seat string) (string, error) {
 		strings.Join(lines, "\n") + "\nAn outcome on this repository that this PR claims to deliver but misses is a finding whose proof is that line's check, run with `--run`.\n\n", nil
 }
 
-// fixerWords is what the round's fixer said, for the record of the head it left, Python's
-// fixer_words: its answer, and the reason of a not-needed it handed in; "" without a turn.
-func fixerWords(round string) string {
+// fixerWords is what the round's fixer turn of that name said, for the record of the head it left,
+// Python's fixer_words: its answer, and the reason of a not-needed it handed in; "" without a turn.
+func fixerWords(round, fixer string) string {
 	name := newest(round, roleDirs(round, func(entry fs.DirEntry) bool {
-		return strings.HasPrefix(entry.Name(), "executor") && workerName.MatchString(entry.Name())
+		return strings.HasPrefix(entry.Name(), fixer) && workerName.MatchString(entry.Name())
 	}))
 	if name == "" {
 		return ""
