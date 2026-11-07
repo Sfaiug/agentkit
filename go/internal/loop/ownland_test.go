@@ -11,10 +11,10 @@ import (
 	"agentkit/internal/run"
 )
 
-// A seat's own PR waiting in its line on a red, a required check or a head moved past its review,
-// goes back to its writer by Python's fail_pr_landing: Go's resume and its wake hand it over before
-// anything is written, the record left byte for byte.  Its green, beside a task run's red, and its
-// suite's red Go carries.
+// A seat's own PR waiting in its line on a head moved past its review goes back to its writer by
+// Python's fail_pr_landing: Go's resume and its wake hand it over before anything is written, the
+// record left byte for byte.  Its green, beside a task run's red, and its suite's or a required
+// check's red Go carries.
 func TestAnOwnPRsRedLandingIsLeftToPython(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -35,8 +35,7 @@ func TestAnOwnPRsRedLandingIsLeftToPython(t *testing.T) {
 		}
 	}
 	reds := map[string]*run.Object{
-		"checks": run.Fields("land", "tree", "fix", run.Fields("line", "required checks failed: ci", "log", "pr-checks.log")),
-		"moved":  run.Fields("fix", run.Fields("line", "its PR's head moved to 0123abcd", "log", "lander.log", "moved", true)),
+		"moved": run.Fields("fix", run.Fields("line", "its PR's head moved to 0123abcd", "log", "lander.log", "moved", true)),
 	}
 	for name, wait := range reds {
 		line := ".merge-" + name + ".lock"
@@ -68,10 +67,16 @@ func TestAnOwnPRsRedLandingIsLeftToPython(t *testing.T) {
 	if record, _ := run.Read(filepath.Join(run.Runs(), "green")); !Woken(record) || LineToPython(".merge-green.lock") {
 		t.Fatal("an own PR's green, beside a task run's red, was left to Python")
 	}
-	create("suite", ".merge-suite.lock", run.Fields("fix", run.Fields("line", "FAILED test_contrib", "log", "lander.log",
-		"command", "pytest", "piece", "")), true)
-	if record, _ := run.Read(filepath.Join(run.Runs(), "suite")); !Woken(record) || LineToPython(".merge-suite.lock") || landingFixHandoff(record) != "" {
-		t.Fatal("an own PR's suite red was left to Python")
+	carried := map[string]*run.Object{
+		"suite":  run.Fields("fix", run.Fields("line", "FAILED test_contrib", "log", "lander.log", "command", "pytest", "piece", "")),
+		"checks": run.Fields("land", "tree", "fix", run.Fields("line", "required checks failed: ci", "log", "pr-checks.log")),
+	}
+	for name, wait := range carried {
+		line := ".merge-" + name + ".lock"
+		create(name, line, wait, true)
+		if record, _ := run.Read(filepath.Join(run.Runs(), name)); !Woken(record) || LineToPython(line) || landingFixHandoff(record) != "" {
+			t.Errorf("an own PR's %s red was left to Python", name)
+		}
 	}
 }
 

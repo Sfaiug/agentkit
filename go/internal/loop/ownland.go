@@ -21,11 +21,12 @@ import (
 
 // ownLands is whether Go carries a seat's own PR's landing as its record stands, the one place
 // Go's resume (Woken), its wake (LineToPython) and its landing fix (landingFixHandoff) ask.  A red
-// goes back to its writer, Python's fail_pr_landing, which Go carries for the line's suite
-// (failLanding); a required check's red and a head moved past its review are Python's.
+// goes back to its writer, Python's fail_pr_landing, which Go carries where the change's own tests
+// went red, the line's suite or a required check (suiteRed, failLanding); a conflict, a head moved
+// past its review and any other red are Python's.
 func ownLands(record *run.Object) bool {
 	wait := cmp.Or(record.Dict("waiting_on"), run.NewObject())
-	return record.Truthy("own_pr") && (!wait.Has("fix") || cmp.Or(wait.Dict("fix"), run.NewObject()).Has("piece"))
+	return record.Truthy("own_pr") && (!wait.Has("fix") || suiteRed(record, cmp.Or(wait.Dict("fix"), run.NewObject())))
 }
 
 // land joins the line or lands from it, Python's merge_own_pr as settle_pr_round and review_pr
