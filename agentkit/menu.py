@@ -4976,8 +4976,9 @@ def page_body(rows, at=None, moves=None):
     text, or parts, (text, kind) each -- or (text, kind, cell), its columns one of the line's
     cells, as matrix_key reads them -- a space apart, wrapped at a word under itself as `c`'s
     own values are, never cut: one with a word too wide beside its label folds under it,
-    indented as a choice; `at` is the row lit, and `moves` is handed each mark leading a value
-    (`■`, `□`, `●`, `○`) as config_body hands its own."""
+    indented as a choice, and so does one with a cell, kept whole, as `◂ 300 ▸` steps; `at` is
+    the row lit, and `moves` is handed each mark leading a value (`■`, `□`, `●`, `○`) as
+    config_body hands its own."""
     room = terminal.layout_width()
     wide = max((terminal.cells(label) for _, label, _ in rows if label is not None), default=0)
     lines, places = [], {}
@@ -4986,9 +4987,12 @@ def page_body(rows, at=None, moves=None):
         lead = "    " if label is None else f"  {label}{' ' * (wide - terminal.cells(label))}  "
         left, wrapped, used = max(1, room - terminal.cells(lead)), [[]], 0
         parts, folded = [(value, None)] if isinstance(value, str) else value, False
-        if label is not None and any(terminal.cells(word) > left
-                                     for text, *_ in parts for word in text.split()):
-            # a word too wide beside the label: the value folds under it, never cut in a word
+        # what never parts across lines: each word, and a value with a cell whole, so an arrow
+        # stays beside what it steps
+        whole = ([" ".join(text for text, *_ in parts)] if any(cell for _, _, *cell in parts)
+                 else [word for text, *_ in parts for word in text.split()])
+        if label is not None and any(terminal.cells(word) > left for word in whole):
+            # too wide beside the label: the value folds under it, never cut in a word
             line = "  " + terminal.cut(label, room - 2)
             places[len(lines)] = (row, [])
             lines.append(terminal.highlight(line) if row == at else line)
