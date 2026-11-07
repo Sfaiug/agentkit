@@ -115,11 +115,14 @@ def owed(name, text):
             read, path = asked(name, claimed, proof, text, kept), config.seat_file("owed", name)
             if (was := answered(path, read)) is not None:
                 return was
-            owner = owner_words(name, notify.conversations_of(name))
+            seats = notify.conversations_of(name)
+            owner = owner_words(name, seats)
     except (OSError, ValueError, config.Error):
         return True
     answer = bool(owner) and fingerprint(owner, text) != kept      # none with no conversation
-    if read:
+    # kept only for the seats `read` claimed: a record, or a conversation not proven its, that
+    # differs from those read now is no input the key holds, and its answer no kept one
+    if read and seats == claimed:
         # whole, by a name of this ask's own: of two asks at once, either may stand
         fresh = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}")
         try:

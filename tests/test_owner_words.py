@@ -296,6 +296,23 @@ class OwnerWords(unittest.TestCase):
         self.append(codex_prompt(30, "Use the API."), path=path)
         self.assertTrue(done_check.owed("lagoon", text))
 
+    def test_a_done_check_keeps_no_answer_read_from_a_seat_other_than_it_claimed(self):
+        path, text = self.codex_seat(), ["- [x] shipped"]
+        self.append(codex_prompt(30, "Add a retry button."), path=path)
+        old, real = self.record(), notify.conversations_of
+
+        def switching(name, **kwargs):
+            if "proof" not in kwargs:
+                # proven after its claim, while a switch to Claude publishes its record
+                config.update_session(name, orchestrator="opus",
+                                      left=notify.left(old, "codex", "thread"))
+            return real(name, **kwargs)
+        with patch.object(notify, "conversations_of", switching):
+            done_check.owed("lagoon", text)
+        # the switch failed: the seat is put back as it was
+        config.update_session("lagoon", orchestrator=old["orchestrator"], left=old.get("left"))
+        self.assertTrue(done_check.owed("lagoon", text))
+
     def test_a_done_check_parses_a_fresh_claude_transcript_once_for_both_its_readers(self):
         self.append(prompt(20, "Add a retry button."))
         with self.opening(self.path) as opened:
