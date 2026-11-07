@@ -189,21 +189,23 @@ def _state(path):
     written in it moves it."""
     try:
         found = path.lstat()
+        if stat.S_ISCHR(found.st_mode) and found.st_rdev == 0:
+            return None     # overlayfs's whiteout
+        state = found.st_mode, _attributes(path)
+        if stat.S_ISLNK(found.st_mode):
+            return *state, os.readlink(path)
+        if not stat.S_ISREG(found.st_mode):
+            return state
+        try:
+            with path.open("rb") as opened:
+                digest = hashlib.file_digest(opened, "sha256").digest()
+        except PermissionError:
+            digest = None   # its mode, changed or not, is all there is to tell
+        return *state, found.st_mtime_ns, digest
     except (FileNotFoundError, NotADirectoryError, PermissionError):
-        return None     # none there, or none in a home folder its user cannot enter
-    if stat.S_ISCHR(found.st_mode) and found.st_rdev == 0:
-        return None     # overlayfs's whiteout
-    state = found.st_mode, _attributes(path)
-    if stat.S_ISLNK(found.st_mode):
-        return *state, os.readlink(path)
-    if not stat.S_ISREG(found.st_mode):
-        return state
-    try:
-        with path.open("rb") as opened:
-            digest = hashlib.file_digest(opened, "sha256").digest()
-    except PermissionError:
-        digest = None   # its mode, changed or not, is all there is to tell
-    return *state, found.st_mtime_ns, digest
+        # none there, gone while it was read (the home is live), or in a home folder its user
+        # cannot enter
+        return None
 
 
 def _attributes(path):
@@ -216,6 +218,9 @@ def _attributes(path):
                 found[name] = os.getxattr(path, name, follow_symlinks=False)
             except PermissionError:
                 found[name] = None
+            except OSError as error:    # ENODATA: removed since it was listed, as the home is live
+                if error.errno != errno.ENODATA:
+                    raise
     return found
 
 
