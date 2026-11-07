@@ -14,7 +14,7 @@ func Listed(provider, account string) any {
 	s := spending(boards.Cached())
 	defer s.db.Close()
 	now := float64(time.Now().UnixNano()) / 1e9
-	if dollars, priced := s.listed(provider, account, now-spentOver, now); priced {
+	if dollars, priced := s.listed(provider, account, now-SpentOver, now); priced {
 		return dollars
 	}
 	return nil

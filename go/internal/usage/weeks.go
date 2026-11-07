@@ -8,11 +8,16 @@ type Week struct{ Provider, Account, Meter string }
 func (r *Readings) Weeks() []Week {
 	var weeks []Week
 	for _, each := range r.logins() {
-		week := Week{Provider: each.provider, Account: each.account}
-		if shared := r.sharedWeek(each.provider, each.prov); shared != nil {
-			week.Meter = shared.Str("name")
-		}
-		weeks = append(weeks, week)
+		weeks = append(weeks, r.week(each))
 	}
 	return weeks
+}
+
+// week is the login's Week, which Shown finds its plan under.
+func (r *Readings) week(each login) Week {
+	week := Week{Provider: each.provider, Account: each.account}
+	if shared := r.sharedWeek(each.provider, each.prov); shared != nil {
+		week.Meter = shared.Str("name")
+	}
+	return week
 }
