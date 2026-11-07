@@ -1,13 +1,26 @@
 package config
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+
+	"agentkit/internal/lock"
 )
 
-// saveConfig shares c's whole-file rewrite and record preparation with other menu edits.
-func saveConfig(file *table, change func(*table) error, keep func() error) error {
+// saveConfig shares c's whole-file rewrite and record preparation with other menu edits, read
+// reading the file whose own keys go over the config, all under editing's lock.
+func saveConfig(read func() (*table, error), change func(*table) error, keep func() error) error {
+	held, err := editing()
+	if err != nil {
+		return err
+	}
+	defer held.Close()
+	file, err := read()
+	if err != nil {
+		return err
+	}
 	root, err := load()
 	if err != nil {
 		return err
@@ -53,4 +66,30 @@ func saveConfig(file *table, change func(*table) error, keep func() error) error
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(Home(), "config.toml"))
+}
+
+// editing holds ~/.agentkit's directory flock, Python's policy migration's, which survives
+// replacing config.toml: one read, change and replace of the file, through the config.tmp every
+// writer shares, at a time.  The home is made first, as Python's save makes it: a missing path
+// would be locked as a new file.
+func editing() (*os.File, error) {
+	if err := os.MkdirAll(Home(), 0o700); err != nil {
+		return nil, err
+	}
+	return lock.Wait(context.Background(), Home())
+}
+
+// fileTable is config.toml as its own keys stand, none for no file.
+func fileTable() (*table, error) {
+	data, err := os.ReadFile(filepath.Join(Home(), "config.toml"))
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+	return parseDocument(string(data))
+}
+
+// modelTable is modelFile's table, what c's model edits write over the config.
+func modelTable() (*table, error) {
+	_, file, err := modelFile()
+	return file, err
 }
