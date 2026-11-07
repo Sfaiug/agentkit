@@ -22,14 +22,13 @@ func place(dir string, cmd *exec.Cmd, detached bool, record *run.Object) (int, e
 	if err != nil {
 		return 0, err
 	}
-	work := "agentkit-run-" + filepath.Base(dir)
-	unit := work
+	unit := "agentkit-run-" + filepath.Base(dir)
 	if !unitless(record) {
-		if unit, err = host.FreeUnit(work); err != nil {
+		if unit, err = host.FreeUnit(unit); err != nil {
 			return 0, err
 		}
 	}
-	pid, scope, reason, err := host.Place(cmd, filepath.Join(dir, "log.txt"), work, unit, host.Limits(capMB, host.RunWeight), detached)
+	pid, scope, reason, err := host.Place(cmd, filepath.Join(dir, "log.txt"), unit, host.Limits(capMB, host.RunWeight), detached)
 	if err != nil {
 		return 0, err
 	}
@@ -79,10 +78,7 @@ func land(turn string, members []member, env []string) error {
 	}
 	cmd := exec.Command(self, "run", "--lander", filepath.Base(turn))
 	cmd.Env = env
-	// passes overlap, a lock turning all but one away, so each lander has a unit of its own, and the
-	// line one claim: a start left in doubt holds off the next
-	work := "agentkit-lander-" + strings.TrimPrefix(filepath.Base(beside(turn, "")), ".merge-")
-	unit := fmt.Sprintf("%s-%d", work, time.Now().UnixNano())
-	_, _, _, err = host.Place(cmd, beside(turn, ".log"), work, unit, host.Limits(int(math.Ceil(most)), host.LanderWeight), true)
+	unit := fmt.Sprintf("agentkit-lander-%s-%d", strings.TrimPrefix(filepath.Base(beside(turn, "")), ".merge-"), time.Now().UnixNano())
+	_, _, _, err = host.Place(cmd, beside(turn, ".log"), unit, host.Limits(int(math.Ceil(most)), host.LanderWeight), true)
 	return err
 }

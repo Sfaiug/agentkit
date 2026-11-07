@@ -16,7 +16,8 @@ import (
 
 // A manager listens; systemd-run, of 258, is scripted, logging its words; this process sits in
 // the manager's own subtree where inManager.  The work, in a folder whose name holds a dollar,
-// writes its own pid where it says, and where AK_PLACED says, as this program does (Placed).
+// adds its own pid where it says, once it wrote it where AK_PLACED says, as this program does
+// (Placed).
 func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called string) {
 	t.Setenv("HOME", t.TempDir())
 	runtime, bin, dir := t.TempDir(), t.TempDir(), t.TempDir()
@@ -47,7 +48,7 @@ func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called 
 
 func work(ran string) *exec.Cmd {
 	script := filepath.Join(filepath.Dir(ran), "work.sh")
-	os.WriteFile(script, []byte(`[ -z "$AK_PLACED" ] || printf %s "$$" >"$AK_PLACED"; echo "$$" >"$1"`), 0o644)
+	os.WriteFile(script, []byte(`[ -z "$AK_PLACED" ] || printf %s "$$" >"$AK_PLACED" || exit 1; echo "$$" >>"$1"`), 0o644)
 	return exec.Command("/bin/sh", script, ran)
 }
 
@@ -82,7 +83,7 @@ for word; do set -- "$@" "$(printf %s "$word" | sed 's/[$][$]/$/g')"; shift; don
 	} {
 		t.Run(name, func(t *testing.T) {
 			log, ran, called := placing(t, each.systemdRun, each.inManager)
-			pid, scope, reason, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api", []string{"-p", "MemoryMax=400M"}, each.detached)
+			pid, scope, reason, err := Place(work(ran), log, "agentkit-run-fix-api", []string{"-p", "MemoryMax=400M"}, each.detached)
 			if err != nil || scope != each.scope || reason != each.reason || pid != ranAs(t, ran) {
 				t.Fatalf("pid %d, %q %q %v", pid, scope, reason, err)
 			}
@@ -132,23 +133,32 @@ func TestPlacedWorkThatCannotSaySoDoesNothing(t *testing.T) {
 	}
 }
 
-// The manager takes the service, but its client's reply is lost and the manager cannot be asked
-// about it: the work may yet come up, so nothing starts plainly and the claim stays for the next
-// start, which, whichever unit it would go in, starts nothing either while that one is loaded.
+// hurried has the manager answer in seconds, as work that never marks waits it out.
+func hurried(t *testing.T) {
+	was := placeWait
+	placeWait = 3 * time.Second
+	t.Cleanup(func() { placeWait = was })
+}
+
+// The manager takes the service, the work never says it ran, and the manager cannot be asked to
+// stop it: the work may yet come up, so nothing starts plainly and the claim stays for the next
+// start, which starts nothing either while the unit is loaded.
 func TestAStartNeitherConfirmedNorEndedStartsNothingMore(t *testing.T) {
-	log, ran, called := placing(t, "exit 1", false)
+	hurried(t)
+	log, ran, called := placing(t, "exit 0", false)
 	systemctl, _ := exec.LookPath("systemctl")
 	os.WriteFile(systemctl, []byte("#!/bin/sh\nexit 1\n"), 0o755)
-	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api-2", nil, true); err == nil || !strings.Contains(err.Error(), "is neither running in") {
+	cmd := work(ran)
+	if _, _, _, err := Place(cmd, log, "agentkit-run-fix-api", nil, true); err == nil || !strings.Contains(err.Error(), "is neither running in") || cmd.Process != nil {
 		t.Fatalf("err %v", err)
 	}
 	claim := filepath.Join(os.Getenv("HOME"), ".agentkit", "tmp", "agentkit-run-fix-api.placed")
-	if data, _ := os.ReadFile(claim); string(data) != "agentkit-run-fix-api-2.service" {
+	if data, _ := os.ReadFile(claim); string(data) != "agentkit-run-fix-api.service" {
 		t.Fatalf("claim %q", data)
 	}
 	os.WriteFile(systemctl, []byte("#!/bin/sh\necho loaded\n"), 0o755)
 	os.Remove(called)
-	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api-3", nil, true); err == nil || !strings.Contains(err.Error(), "from an earlier start is still in") {
+	if _, _, _, err := Place(work(ran), log, "agentkit-run-fix-api", nil, true); err == nil || !strings.Contains(err.Error(), "from an earlier start is still in") {
 		t.Fatalf("err %v", err)
 	}
 	if words, _ := os.ReadFile(called); len(words) != 0 {
@@ -159,14 +169,29 @@ func TestAStartNeitherConfirmedNorEndedStartsNothingMore(t *testing.T) {
 	}
 }
 
-// The manager brings the service up as it is being stopped: the work said it ran, so that was its
-// start, and it starts no other.
-func TestAStartSaidAsItIsEndedIsTheOneStart(t *testing.T) {
-	log, ran, _ := placing(t, `while [ "$1" != -- ]; do case $1 in --setenv=AK_PLACED=*) echo "${1#*=*=}" >"$(dirname "$0")/mark";; esac; shift; done; exit 1`, false)
+// The work in a scope cannot say it started, so it does nothing there, and the start runs it
+// once, plainly.
+func TestAStartWhoseMarkCannotBeWrittenRunsTheWorkOnce(t *testing.T) {
+	log, ran, _ := placing(t, `while [ "$1" != -- ]; do shift; done; shift; exec "$@"`, true)
+	os.MkdirAll(filepath.Join(os.Getenv("HOME"), ".agentkit", "tmp", "agentkit-run-fix-api.launched", "held"), 0o700) // a folder takes no mark
+	if pid, scope, _, err := Place(work(ran), log, "agentkit-run-fix-api", nil, true); err != nil || scope != "none" || pid != ranAs(t, ran) {
+		t.Fatalf("pid %d, %q %v", pid, scope, err)
+	}
+}
+
+// The manager takes the service and brings its work up only as it stops it: the work said it ran,
+// so that was its start, and the start fails with no plain one after it.
+func TestAMarkWrittenDuringTheStopStartsNothingPlainly(t *testing.T) {
+	hurried(t)
+	log, ran, _ := placing(t, `while [ "$1" != -- ]; do case $1 in --setenv=AK_PLACED=*) echo "${1#*=*=}" >"$(dirname "$0")/mark";; esac; shift; done`, false)
+	cmd := work(ran)
 	systemctl, _ := exec.LookPath("systemctl")
 	os.WriteFile(systemctl, []byte(`#!/bin/sh
-[ "$2" != stop ] || printf 4242 >"$(cat "$(dirname "$0")/mark")"`), 0o755)
-	if pid, scope, _, err := Place(work(ran), log, "agentkit-run-fix-api", "agentkit-run-fix-api", nil, true); err != nil || pid != 4242 || scope != "agentkit-run-fix-api" {
-		t.Fatalf("pid %d, %q %v", pid, scope, err)
+[ "$2" != stop ] || AK_PLACED="$(cat "$(dirname "$0")/mark")" '`+cmd.Path+`' '`+strings.Join(cmd.Args[1:], "' '")+`'`), 0o755)
+	if _, _, _, err := Place(cmd, log, "agentkit-run-fix-api", nil, true); err == nil || !strings.Contains(err.Error(), "said it ran as it was stopped") || cmd.Process != nil {
+		t.Fatalf("err %v", err)
+	}
+	if data, _ := os.ReadFile(ran); strings.Count(string(data), "\n") != 1 {
+		t.Errorf("ran %q", data)
 	}
 }

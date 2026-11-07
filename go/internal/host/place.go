@@ -23,11 +23,13 @@ import (
 // manager will not take it.
 
 const (
-	RunWeight    = 40               // a run's CPU weight, above the seats'
-	LanderWeight = cpuWeightMax     // every passed run waits behind a lander's check
-	placeWait    = 30 * time.Second // how long the manager has to say whether it took a unit
-	noSuchUnit   = 5                // what systemctl answers about a unit it was never given
+	RunWeight    = 40           // a run's CPU weight, above the seats'
+	LanderWeight = cpuWeightMax // every passed run waits behind a lander's check
+	noSuchUnit   = 5            // what systemctl answers about a unit it was never given
 )
+
+// placeWait is how long the manager has to say whether it took a unit.
+var placeWait = 30 * time.Second
 
 // placedEnv names where placed work says it started (Placed).
 const placedEnv = "AK_PLACED"
@@ -110,10 +112,14 @@ func Placed() {
 
 // FreeUnit is name, or where an earlier attempt's unit may hold it yet, as a run's is kept past
 // its work's death for the reaper and a leftover may keep it, the first of name, name-2, … the
-// manager has as neither a scope nor a service, Python's run_placement and next_scope_unit.  A
-// manager that cannot be asked keeps the name.
+// manager has as neither a scope nor a service, Python's run_placement and next_scope_unit.  An
+// attempt that left its claim keeps the name, Place asking about that one itself, and so does a
+// manager that cannot be asked, Place's plain start following.
 func FreeUnit(name string) (string, error) {
 	if !UserManager() {
+		return name, nil
+	}
+	if _, err := os.Stat(claimOf(name)); err == nil {
 		return name, nil
 	}
 	for suffix := 1; suffix < 100; suffix++ {
@@ -147,18 +153,20 @@ func SliceMemoryMax() int {
 // properties: a scope where this process is in the manager's own subtree, since the kernel lets an
 // unprivileged manager move only what it was delegated, else a service the manager starts there
 // itself.  A foreground cmd goes only into a scope, which keeps its terminal: a service is the
-// manager's.  pid is the work's; scope is its unit, or "none" and reason why.  work names what
-// is placed, a run or a landing line, whichever unit each start of it goes in.
+// manager's.  pid is the work's; scope is its unit, or "none" and reason why.
 //
-// The work says for itself whether it started (Placed): its mark means it ran, however briefly,
-// and no mark means nothing ran, so only then is it started plainly, as where no manager listens,
-// with a WARN in its log.  Neither timing nor a status tells a task that ended at once from one
-// that never began.  Where the mark goes is in the work's environment: its command reaches it
-// word for word, a scope's kept literal and a service's dollars doubled.  An attempt leaves the
-// work's claim until it is resolved: while the unit an earlier attempt claims is loaded, or the
-// manager cannot say, nothing starts, and where a placement can be neither confirmed nor ended
-// neither does the plain start, as a second start of the work is worse than none.
-func Place(cmd *exec.Cmd, log, work, unit string, properties []string, detached bool) (pid int, scope, reason string, err error) {
+// Each start is decided in Python's order (_start_in_slice).  The work says for itself whether it
+// started (Placed): its mark means it ran, however briefly.  A scope's client gone without one,
+// or a service's that exits non-zero, is the manager's refusal, and the work starts plainly, as
+// where no manager listens, with a WARN in its log.  Where no mark comes in time otherwise, the
+// placement is stopped first, and a mark there once it is stopped is a start too: neither timing
+// nor a status tells a task that ended at once from one that never began.  Where the mark goes is
+// in the work's environment: its command reaches it word for word, a scope's kept literal and a
+// service's dollars doubled.  An attempt leaves a claim until it is resolved: while the unit an
+// earlier attempt claims is loaded, or the manager cannot say, nothing starts, and where a
+// placement can be neither confirmed nor ended neither does the plain start, as a second start of
+// the work is worse than none.
+func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) (pid int, scope, reason string, err error) {
 	out, err := os.OpenFile(log, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
 	if err != nil {
 		return 0, "", "", err
@@ -169,7 +177,7 @@ func Place(cmd *exec.Cmd, log, work, unit string, properties []string, detached 
 		cmd.SysProcAttr = Detached()
 	}
 	tmp := filepath.Join(config.Home(), "tmp")
-	claim, marker := filepath.Join(tmp, work+".placed"), filepath.Join(tmp, unit+".launched")
+	claim, marker := claimOf(unit), filepath.Join(tmp, unit+".launched")
 	// read before the host is even asked for a manager: a unit that may still come up is the reason
 	// not to start, and a manager that cannot be asked no reason to believe it gone
 	data, _ := os.ReadFile(claim)
@@ -213,9 +221,15 @@ func Place(cmd *exec.Cmd, log, work, unit string, properties []string, detached 
 			words = append(words, strings.ReplaceAll(word, "$", "$$"))
 		}
 	}
-	client := exec.Command("systemd-run", words...)
-	client.Env = append(busEnv(env), placedEnv+"="+marker) // a scope's client becomes its work
+	client := exec.CommandContext(context.Background(), "systemd-run", words...) // Group's stop is its Cancel
+	client.Env = append(busEnv(env), placedEnv+"="+marker)                       // a scope's client becomes its work
 	client.Stdout, client.Stderr, client.SysProcAttr = out, out, cmd.SysProcAttr
+	// what a stop ends: a detached client's session, with whatever it forked, as a foreground one
+	// shares its caller's and is the work alone
+	end := func() { client.Process.Kill() }
+	if detached {
+		end = Group(client)
+	}
 	// written before the launch: a start this process does not live to finish is still an attempt
 	if err := os.WriteFile(claim, []byte(unit+"."+kind), 0o666); err != nil {
 		return 0, "", "", err
@@ -226,42 +240,35 @@ func Place(cmd *exec.Cmd, log, work, unit string, properties []string, detached 
 	} else {
 		gone := make(chan struct{})
 		go func() { client.Wait(); close(gone) }() // a scope's client becomes the work, reaped here
-		refused := false
+		// a scope's client waits on the manager before the work exists and goes with a scope the
+		// manager never made, and a service's is gone once the manager has the unit or refused it,
+		// which its status says: either refusal ends the wait for the mark, read even then, as a
+		// client can fail after its manager ran the work.  A taken service's work is the manager's
+		// to start, so nothing ends that wait early.
+		until := gone
 		if !scoped {
-			// gone once the manager has the unit or refused it, which its status says
 			select {
 			case <-gone:
 				if code := client.ProcessState.ExitCode(); code != 0 {
-					refused, note = true, fmt.Sprintf("systemd-run exited %d", code)
+					note = fmt.Sprintf("systemd-run exited %d", code)
+				} else {
+					until = nil
 				}
 			case <-time.After(placeWait):
+				until = nil
 			}
 		}
-		// a scope's client waits on the manager before the work exists and goes with a scope the
-		// manager never made, and a refused service's is gone: either ends the wait for the mark,
-		// read even after a refusal, as a client can fail after its manager ran the work.  A taken
-		// service's client is gone too, so none (nil) ends that wait early.
-		var ended <-chan struct{}
-		if scoped || refused {
-			ended = gone
-		}
-		pid := marked(marker, ended)
-		if pid == 0 {
-			// whether anything of it may yet come up: a scope's client gone without a mark took
-			// the scope with it, and a service the manager may have, refused or not, is the
-			// manager's to say about (stopPlaced)
-			left := true
-			select {
-			case <-gone:
-				left = !scoped
-			default:
-			}
-			if left && !stopPlaced(unit, scoped, client, gone) {
+		pid, refused := marked(marker, until)
+		if pid == 0 && !refused {
+			if !stopPlaced(unit, scoped, end, gone) {
 				// never said it ran, and not ended either: the manager may yet bring it up, so
 				// the claim stays for whoever tries next
 				return 0, "", "", fmt.Errorf("%s is neither running in %s.slice nor stopped", unit, tmux.Own())
 			}
-			pid = mark(marker) // said while it was being ended: it ran, however briefly
+			if mark(marker) > 0 {
+				os.Remove(claim)
+				return 0, "", "", fmt.Errorf("%s said it ran as it was stopped in %s.slice; the work is not started again", unit, tmux.Own())
+			}
 		}
 		if pid > 0 {
 			os.Remove(claim)
@@ -273,6 +280,9 @@ func Place(cmd *exec.Cmd, log, work, unit string, properties []string, detached 
 	return plain(cmd, "systemd-run failed ("+note+")")
 }
 
+// claimOf is where an attempt to place work in unit says so until it is resolved.
+func claimOf(unit string) string { return filepath.Join(config.Home(), "tmp", unit+".placed") }
+
 // plain starts cmd as it is, and reaps it: a zombie still answers as alive.
 func plain(cmd *exec.Cmd, reason string) (int, string, string, error) {
 	if err := cmd.Start(); err != nil {
@@ -282,19 +292,18 @@ func plain(cmd *exec.Cmd, reason string) (int, string, string, error) {
 	return cmd.Process.Pid, "none", reason, nil
 }
 
-// marked is the pid the placed work wrote for itself as it started, 0 where none came
-// within placeWait or before gone closed: a scope the manager never made takes its client with it.
-func marked(marker string, gone <-chan struct{}) int {
+// marked is the pid the placed work wrote for itself as it started, 0 where none came within
+// placeWait or before gone closed, which ended says: no mark comes after.
+func marked(marker string, gone <-chan struct{}) (pid int, ended bool) {
 	for deadline := time.Now().Add(placeWait); ; time.Sleep(20 * time.Millisecond) {
 		// read before the mark, so a client gone between the two is not believed over its mark
-		ended := false
 		select {
 		case <-gone:
 			ended = true
 		default:
 		}
-		if pid := mark(marker); pid > 0 || ended || time.Now().After(deadline) {
-			return pid
+		if pid = mark(marker); pid > 0 || ended || time.Now().After(deadline) {
+			return pid, ended
 		}
 	}
 }
@@ -310,11 +319,10 @@ func mark(marker string) int {
 }
 
 // stopPlaced ends a placement still on its way, true where nothing of it can come up, nor write
-// its mark.  A scope's is its client alone, gone once it closes, which becomes the work and starts
-// nothing before the mark.  A service is the manager's, and only its word counts: stopped, or a
-// unit it does not have.
-func stopPlaced(unit string, scoped bool, client *exec.Cmd, gone <-chan struct{}) bool {
-	client.Process.Kill()
+// its mark.  A scope's is what end ends, done once its client is gone.  A service is the
+// manager's, and only its word counts: stopped, or a unit it does not have.
+func stopPlaced(unit string, scoped bool, end func(), gone <-chan struct{}) bool {
+	end()
 	if scoped {
 		<-gone
 		return true
