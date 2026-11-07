@@ -6,6 +6,7 @@ login's settings through a link (adapters/claude.sh's `share`).
 
 from pathlib import Path
 import codecs
+import fcntl
 import json
 import math
 import os
@@ -428,7 +429,10 @@ def capture(launched, payload, pid):
     record = config.session_records().get(config.resolve_session(launched), {})
     if orch.seat_harness(record) != "claude" or record.get("conversation") == conversation:
         return
-    with notify.session_lock(launched) as name:
+    # one seat claims a conversation at a time: two resuming the same one would each see it free
+    with notify.session_lock(launched) as name, \
+            (config.STATE / "conversations.lock").open("a") as claims:
+        fcntl.flock(claims, fcntl.LOCK_EX)
         records = config.session_records()
         record = records.pop(name, {})
         if (orch.seat_harness(record) != "claude" or not record.get("cwd")

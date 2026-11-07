@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -385,6 +386,31 @@ class SeatFollowsClear(Sandbox):
             with self.subTest(event=event):
                 self.hook(hook_event_name=event, source="resume")
                 self.assertEqual(config.session_records(), before)
+
+    def test_two_seats_resuming_one_conversation_at_once_leave_it_one_seat_s(self):
+        config.save_session(self.cfg, "quay", "opus", ["opus"], {
+            "cwd": str(self.root), "conversation": "quay-own", "id_source": orch.LAUNCHER})
+        payload = self.payload(source="resume")
+        both = threading.Barrier(2, timeout=1)
+
+        def owned(*_args):
+            # each hook, its claim checked, waits here for the other's to be checked too
+            try:
+                both.wait()
+            except threading.BrokenBarrierError:
+                pass
+            return True
+        with patch.object(orch, "find", side_effect=lambda name: {"name": name}), \
+                patch.object(orch, "owns_hook", side_effect=owned):
+            hooks = [threading.Thread(target=claude.capture, args=(name, payload, 103))
+                     for name in ("lagoon", "quay")]
+            for hook in hooks:
+                hook.start()
+            for hook in hooks:
+                hook.join()
+        # whichever claimed it first holds it
+        self.assertEqual([record["conversation"] == "after-clear"
+                          for record in config.session_records().values()].count(True), 1)
 
     def test_npm_claude_can_follow_clear_but_another_cli_script_cannot(self):
         self.table[102] = (101, ["node", "/fake/other/cli.js"])
