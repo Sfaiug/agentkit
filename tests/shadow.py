@@ -39,17 +39,18 @@ REPO = Path(__file__).resolve().parents[1]
 CAP = 600   # seconds a run may take, what it detached included
 # akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
-# Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket of the Unix
-# family, through which a run would reach a service of the host's by a path the read-only root
-# still shows: the warm menu server's in HOME, a session bus.  It refuses io_uring, which makes one
-# without the call, and every call of an architecture whose numbers it does not know: on a machine
-# not named here, all of them, so no box can run.
-ARCH, SOCKET = {"x86_64": (0xC000003E, 41),
-                "aarch64": (0xC00000B7, 198)}.get(os.uname().machine, (0, 0))
+# Every box's seccomp filter, classic BPF as bwrap takes it.  It refuses a socket or a socket pair
+# of the Unix family, either of which could reach a service of the host's by a path the read-only
+# root still shows: the warm menu server's in HOME, a session bus.  It refuses io_uring, which
+# makes one without either call, and every call of an architecture whose numbers it does not know:
+# on a machine not named here, all of them, so no box can run.
+ARCH, SOCKET, PAIR = {"x86_64": (0xC000003E, 41, 53),
+                      "aarch64": (0xC00000B7, 198, 199)}.get(os.uname().machine, (0, 0, 0))
 FILTER = b"".join(struct.pack("HBBI", *op) for op in (
-    (0x20, 0, 0, 4), (0x15, 0, 7, ARCH),                # the architecture
-    (0x20, 0, 0, 0), (0x35, 5, 0, 0x40000000),          # the call, by number: x32's refused
-    (0x15, 4, 0, 425), (0x15, 0, 2, SOCKET),            # io_uring_setup refused; socket(2) ...
+    (0x20, 0, 0, 4), (0x15, 0, 8, ARCH),                # the architecture
+    (0x20, 0, 0, 0), (0x35, 6, 0, 0x40000000),          # the call, by number: x32's refused
+    (0x15, 5, 0, 425),                                  # io_uring_setup refused
+    (0x15, 1, 0, SOCKET), (0x15, 0, 2, PAIR),           # socket(2) or socketpair(2) ...
     (0x20, 0, 0, 16), (0x15, 1, 0, socket.AF_UNIX),     # ... of the Unix family refused
     (0x06, 0, 0, 0x7FFF0000), (0x06, 0, 0, 0x50000 | errno.EACCES)))    # allowed, refused
 # The first breath in every box: Landlock lets nothing open for writing outside the folders it is
