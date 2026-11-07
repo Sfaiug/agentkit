@@ -7,6 +7,14 @@
 # other check ran at landing on the same commit.  The landing suite never runs them; ak runs
 # this file before a host takes new agentkit code and when a harness upgrades, with
 # AGENTKIT_ACCEPTANCE_REQUIRED=1, so a skipped check fails it too.
+# A live check of a commit (LIVE_RUN in agentkit/update.py, whose `failed` is in the check's own
+# folder) runs with this home's real records, so first it shadows Go on them and keeps what Go
+# did differently in that folder's shadow.json.  Whatever the shadow finds, or however it ends,
+# the check exits as its suite does: Go is not yet what goes live.
+case ${AK_LIVE_FAILED:-} in
+  */failed) python3 "$(dirname -- "${BASH_SOURCE[0]}")/shadow.py" \
+              --record "${AK_LIVE_FAILED%/*}/shadow.json" ;;
+esac
 export AGENTKIT_SMOKE_LIVE=1
 if [ -n "${AK_LIVE_FAILED:-}" ]; then
   export AK_LIVE_FAILED_FINAL="$AK_LIVE_FAILED"
