@@ -38,6 +38,7 @@ func gently(src source) *run.Object {
 		fresh := probe(src, now)
 		noteRetry(src.key(), fresh, clock())
 		cached := src.cached()
+		keepProbed(src, cached, fresh)
 		return onto(cached, kept(cached, fresh, now), now)
 	}
 	defer held.Close()
@@ -53,6 +54,7 @@ func gently(src source) *run.Object {
 	os.WriteFile(path, []byte(run.Float(now)), 0o666)
 	fresh := probe(src, now)
 	noteRetry(src.key(), fresh, clock())
+	keepProbed(src, cached, fresh)
 	return patch(src, kept(cached, fresh, now))
 }
 
