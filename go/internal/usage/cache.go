@@ -10,7 +10,6 @@ import (
 	"sync/atomic"
 
 	"agentkit/internal/config"
-	"agentkit/internal/history"
 	"agentkit/internal/lock"
 	"agentkit/internal/run"
 )
@@ -22,12 +21,8 @@ var mark = []string{"exhausted_until", "exhausted_at", "exhausted_ends", "exhaus
 
 // collect is every provider's record, Python's usage.collect: the snapshot's while it is under
 // cacheTTL old, a provider with a meter past its reset or other accounts than it lists now asked
-// again, else, or on a refresh, every provider asked.  No read spends a reset.  ErrPython, before
-// anything is locked or asked, where history.db owes Python its repair (history.Owed).
+// again, else, or on a refresh, every provider asked.  No read spends a reset.
 func collect(sources []source, models map[string]config.Model, refresh bool) (*run.Object, error) {
-	if history.Owed() {
-		return nil, ErrPython
-	}
 	now := clock()
 	blob := object(read())
 	held, cached := blob.Get("providers").(*run.Object)
