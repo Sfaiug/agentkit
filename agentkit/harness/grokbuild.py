@@ -5,6 +5,7 @@ import fcntl
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import tomllib
@@ -12,6 +13,10 @@ from urllib.parse import quote
 
 from .. import config
 from . import LAUNCHER
+
+# An answered `ask_user_question` card's result, around the owner's answers (`given`).
+ANSWERED = ("User has answered your questions: ",
+            ". You can now continue with the user's answers in mind.")
 
 
 def share_settings(usual, directory):
@@ -151,6 +156,60 @@ def messages(record, cwd, conversation):
 
 def user_messages(record, cwd, conversation):
     return (message for who, message in messages(record, cwd, conversation) if who == "user")
+
+
+def answers(record, cwd, conversation):
+    """Each question the owner answered on an `ask_user_question` card, beside the question and
+    options the seat asked with, dated when they submitted the card: its call's `completed`
+    update, whose result holds the only record of their answers (`given`).  A dismissed card's
+    result is another message, which answers nothing."""
+    from . import entries, moment
+    where = cwd or record.get("cwd")
+    if not conversation or not where:
+        return
+    asked = {}
+    for entry in entries(session_dir(where, conversation) / "updates.jsonl"):
+        said = []
+        try:    # a line of any other shape answers nothing
+            params, update = entry["params"], entry["params"]["update"]
+            call, at = update["toolCallId"], moment(entry.get("timestamp"))
+            if entry["method"] != "session/update" or params["sessionId"] != conversation:
+                continue
+            if (update["sessionUpdate"] == "tool_call"
+                    and update["_meta"]["x.ai/tool"]["name"] == "ask_user_question"):
+                asked[call] = update["rawInput"]["questions"]
+            elif (update["sessionUpdate"] == "tool_call_update" and call in asked
+                  and update["status"] == "completed" and at is not None):
+                for question, answer in given(asked.pop(call),
+                                              update["rawOutput"]["UserAnswered"]["message"]):
+                    said.append({"at": at, "question": question["question"], "answer": answer,
+                                 "choices": [{"label": option["label"],
+                                              "description": option.get("description", "")}
+                                             for option in question.get("options") or ()]})
+        except (AttributeError, KeyError, TypeError):
+            continue
+        yield from said
+
+
+def given(questions, message):
+    """The card's `questions` an answered card's `message` answers, each with the owner's
+    answer: the label picked or the labels ticked, then any words typed on a line of their own.
+
+    Grok Build 1.0.46 lists the questions answered in the order asked, joined by ", ", each as
+    `"<question>"="<chosen>"`, nothing escaped: the label picked, the labels ticked joined by
+    ", ", or "Other" where they only typed, then ` user notes: ` and any words typed.  Read
+    against the questions as asked, so typed words holding `, "` or `"=` read whole."""
+    head, tail = ANSWERED
+    body = re.fullmatch(f"{re.escape(head)}(.*){re.escape(tail)}", message, re.S)
+    # each question there or not, the first one there opening the list
+    found = body and re.fullmatch("".join(
+        rf'(?:(?:\A|, )"{re.escape(question["question"])}"="(.*?)"(?: user notes: (.*?))?)?'
+        for question in questions), body[1], re.S)
+    chosen = found.groups() if found else ()
+    for question, picked, typed in zip(questions, chosen[::2], chosen[1::2]):
+        if picked is not None:
+            yield question, "\n".join(filter(None, (
+                None if picked == "Other" and typed is not None else picked, typed)))
 
 
 def said(record, cwd, conversation):
