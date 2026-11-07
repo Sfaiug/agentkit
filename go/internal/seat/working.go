@@ -1,6 +1,9 @@
 package seat
 
-import "time"
+import (
+	"slices"
+	"time"
+)
 
 // Working is the seats whose word is `working` now, in the order orch.listing numbers them, as
 // Python's update.working_sessions finds them: every seat the listing holds, a legacy one's
@@ -11,8 +14,16 @@ func Working(now time.Time) ([]string, bool) {
 	if !known {
 		return nil, false
 	}
+	// that listing is the reading one, which infers no project for a record naming none
+	seats := slices.Clone(home.Seats)
+	for i := range seats {
+		if seats[i].infer {
+			seats[i].home = homeKey("", nil)
+		}
+	}
+	order(seats)
 	var working []string
-	for _, each := range home.Seats {
+	for _, each := range seats {
 		switch word, _, _ := home.cardAnswer(each.Name, now); word {
 		case "":
 			return nil, false
