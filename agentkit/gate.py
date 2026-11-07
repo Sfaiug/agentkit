@@ -1393,7 +1393,8 @@ def pinned(command, times, changed=None, only=None):
     those (land._probe).
 
     The piece runs in a clone there, which land._check's look at this checkout never sees: it
-    checks that clone itself and fails, as land._check does, if it changed.
+    checks that clone itself and fails, as land._check does, if it changed, however the command
+    exited, dropping the tests it named as not there, which say nothing of the tree it was given.
     """
     paths = "" if changed is None else (
         f'export AK_CHANGED="$(mktemp)" && printf %s {shlex.quote(Path(changed).read_text())}'
@@ -1402,9 +1403,11 @@ def pinned(command, times, changed=None, only=None):
         paths += (f"export AK_ONLY=\"$(mktemp)\" && printf '%s\\n' {shlex.join(only)}"
                   ' >"$AK_ONLY" || exit\n')
     return (f"export AK_TIMES={shlex.quote(times)}\n{paths}"
-            f"head=$(git rev-parse HEAD) && bash -c {shlex.quote(command)} || exit\n"
+            f"head=$(git rev-parse HEAD) || exit\nbash -c {shlex.quote(command)}\ncode=$?\n"
             '[ "$(git rev-parse HEAD)" = "$head" ] && git diff --quiet HEAD ||'
-            ' { echo "the piece changed the checkout it tests" >&2; exit 1; }')
+            ' { echo "the piece changed the checkout it tests" >&2;'
+            ' : >"${AK_NOT_THERE:-/dev/null}"; [ "$code" != 0 ] || code=1; }\n'
+            'exit "$code"')
 
 
 def busy_turn(run_dir, log_path, log, command=None, cwd=None):
@@ -1958,7 +1961,7 @@ def _run_suite(command, limit, *, cwd, activity, output, run_dir=None, log=None,
                         back = there and code in (*helper.GONE, helper.FULL) and not result[2]
                         pieces_left.done(index, back and code, turn, there)
                         if there and not back and flaky is not None:
-                            flaky.extend(helper.failed(there, shard, "flaky"))
+                            flaky.extend(helper.failed(there, shard, "flaky") or [])
                         if there and code and log is not None:
                             home_reasons[shard] = f"helper {there.alias} {helper.failure(code)}"
                         if not back:

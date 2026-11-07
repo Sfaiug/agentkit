@@ -4,21 +4,26 @@ deeper, and the stack right behind the deepest one they pass in is the member th
 red.  A confirmed failure moves the search earlier.  It fixes; the stack just below it, checked
 whole, lands, and the rest rebuild and land in the same pass.  An inconclusive step gets its
 whole check, as without them -- a test a later member added is not there yet -- so an empty run
-there alone blames no one; one whose suite names that test as not there passes it.
+there alone blames no one; one whose suite names that test as not there passes it, unless the run
+moved its checkout, and a probe on a suite helper passes it only on names the helper handed back.
 
 Offline: real Git and checks, the suite a shell runner that runs only those asked for and
-names each it runs and each that fails, sandbox records, fake processes and wakes.
+names each it runs and each that fails, sandbox records, fake processes and wakes; a helper's
+piece runs here, its names read back through a stand-in for its ssh.
 """
 
 from pathlib import Path
+import shlex
+import subprocess
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_lander
 import test_merge_train
-from agentkit import gate, land, run
+from agentkit import gate, helper, land, record, run
 
 # t_fine then t_tax, or just those AK_ONLY lists; t_tax fails on a tree holding broken.txt.
 NAMED = ('if [ -n "$AK_ONLY" ]; then tests=$(cat "$AK_ONLY"); else tests="t_fine t_tax"; fi; '
@@ -133,6 +138,66 @@ class RedNarrowedByItsFailedTests(NarrowFixture, unittest.TestCase):
             (on(1, 2, 3, 4), ["t_tax"]),
             (on(1, 2, 3, 5, 6), None)])
         self.assertEqual(run.git(self.repo, "rev-parse", "kept"), kept)
+
+    def test_a_test_not_there_after_the_tests_alone_moved_the_checkout_proves_nothing(self):
+        run.git(self.repo, "branch", "kept")
+        moving = '[ -z "$AK_ONLY" ] || [ -f test_new.sh ] || git checkout -q kept; '
+        checked, _ = self.narrow(moving + ABSENT, {"test_existing.sh": "exit 0\n"}, 4, 3,
+                                 {"test_new.sh": "exit 1\n"})
+        self.assertEqual(checked, [
+            (on(1, 2, 3, 4), None),
+            (on(1, 2), ["test_new.sh"]),        # moved its checkout: proves nothing
+            (on(1, 2), None),                   # on the stack itself: green
+            (on(1, 2, 3), ["test_new.sh"]),
+            (on(1, 2, 4), None)])
+
+
+# A piece naming test_new.sh not there.
+GONE = 'echo test_new.sh >> "$AK_NOT_THERE"; '
+
+
+class AProbePassesOnlyOnWhatItsHelperHandsBack(test_lander.LanderFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        self.directory = self.member(**{"test_new.sh": "exit 1\n"})
+        self.state = record.read_state(self.directory)
+        self.scratch = self.root / "probe"
+        run.git(self.repo, "worktree", "add", "--detach", str(self.scratch),
+                self.state["review"]["head_sha"])
+        self.addCleanup(run.git, self.repo, "worktree", "remove", "--force", str(self.scratch))
+
+    def probe(self, command, tests=("test_new.sh",), unread=()):
+        """land._probe's answer for `tests`, its piece `command` run here naming into files, as
+        piece.sh's do, the lists `unread` never handed back."""
+        names = {name: self.root / name for name in ("ran", "failed", "not-there")}
+        for path in names.values():
+            path.unlink(missing_ok=True)
+        files = " ".join(f"AK_{name.upper().replace('-', '_')}={shlex.quote(str(path))}"
+                         for name, path in names.items())
+
+        def remote(_alias, _verb, _key, _vm, named, **_kw):
+            text = names[named].read_text() if names[named].exists() else ""
+            return subprocess.CompletedProcess([], 255 if named in unread else 0, text, "")
+
+        away = SimpleNamespace(alias="acme-linux", key="acme")
+        with patch.object(helper, "start", return_value=(away, "")), \
+                patch.object(helper, "piece", side_effect=lambda _away, _share, there:
+                             ["bash", "-c", f"export {files}\n{there}"]), \
+                patch.object(helper, "_remote", side_effect=remote), \
+                patch.object(helper, "finish"):
+            return land._probe(self.directory, self.state, self.scratch, "tree", command,
+                               list(tests), (1, 100))
+
+    def test_a_test_its_piece_names_not_there_passes(self):
+        self.assertIs(self.probe(GONE + "exit 1"), True)
+
+    def test_names_the_helper_does_not_hand_back_prove_nothing(self):
+        red = 'echo t_tax >> "$AK_RAN"; echo t_tax >> "$AK_FAILED"; ' + GONE + "exit 1"
+        self.assertIs(self.probe(red, ("t_tax", "test_new.sh")), False)
+        self.assertIsNone(self.probe(red, ("t_tax", "test_new.sh"), unread=("failed",)))
+
+    def test_a_test_not_there_on_a_clone_its_piece_moved_proves_nothing(self):
+        self.assertIsNone(self.probe(f"git checkout -q --detach {self.base}; {GONE}exit 1"))
 
 
 if __name__ == "__main__":

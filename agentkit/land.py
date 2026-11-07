@@ -720,7 +720,8 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     those not there where it passed the rest (`gate.passes_what_it_holds`).  Each command, or
     piece of one, leaves its `kind` row in history under the member's run, on the commit
     checked: `landing`, or `tip` for a probe of the target's. `exits` keeps each piece's attempt
-    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits."""
+    exits and `flaky` the tests that failed, then passed; a moved checkout clears the exits and
+    `absent`."""
     from . import gate, run
     identity = gitcall.commit_identity(scratch)
     clean = run.git_out(scratch, "diff", "--quiet", "HEAD")[0] == 0
@@ -732,6 +733,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
     marks, pieces, confirmed = [], {}, {}
     timings = {}
     flaky = [] if flaky is None else flaky
+    absent = [] if absent is None else absent
     # Tests named alone cost what a model's own test does, which takes no turn: on a host out of
     # CPU none comes until it is idle, and the wait held whole lines up to an hour (30 Oct 2026).
     with nullcontext() if only else gate.gate_turn(None, log_path, log, sharded, scratch,
@@ -754,6 +756,7 @@ def _check(directory, state, scratch, cmds, log_path, log, *, suite=None, shard=
         if exits is not None:
             exits.clear()
         confirmed.clear()   # a test that failed on whatever it moved to says nothing of the pin
+        absent.clear()      # nor one that was not there
         text += ("\n\nCheckout changed during the final check; "
                  "these commands do not verify the pinned commit.")
     text = f"Commit: {identity['head_sha']}\nTree: {identity['tree_sha']}\n\n{text}"
@@ -886,9 +889,9 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
     helper as a piece of `cost` (CPUs, MiB): True where each was named as run (`AK_RAN`) or as
     not there (`gate.passes_what_it_holds`), False where the run failed naming one of them both
     as run and as failed (`AK_FAILED`), and None where it proved neither -- no helper took it,
-    it hung, the helper lost it or had no room, a test was not named as run.  It leaves its
-    `checks` row and records nothing else, no flaky sighting either: a red only a helper shows
-    is no evidence (`_check_tests` decides)."""
+    it hung, the helper lost it, had no room or handed back no names, a test was not named as
+    run.  It leaves its `checks` row and records nothing else, no flaky sighting either: a red
+    only a helper shows is no evidence (`_check_tests` decides)."""
     from . import gate, helper, history, run, worker
     asked, head = time.time(), run.git(scratch, "rev-parse", "HEAD")
     there = gate.pinned(command, suite_times.handed(scratch), only=tests)
@@ -913,6 +916,8 @@ def _probe(directory, state, scratch, tree, command, tests, cost):
             return None
         ran, failed, absent = (helper.failed(away, "1/1", named)
                                for named in ("ran", "failed", "not-there"))
+        if None in (ran, failed, absent):
+            return None
         if code and set(tests) & set(ran) & set(failed):
             return False
         return gate.passes_what_it_holds(code, tests, ran, failed, absent) or None
