@@ -217,6 +217,7 @@ func (l *loop) checksIn(cwd string, cmds []string, path string, rows *history.Ch
 		l.say(line)
 	}
 	text := strings.Join(chunks, "\n\n")
+	keepTimes(cwd, path) // the log is whole until it holds text
 	return ok, text, marks, os.WriteFile(path, []byte(text), 0o666)
 }
 

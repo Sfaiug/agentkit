@@ -329,6 +329,7 @@ test_key_page_question_once
 test_key_page_retry
 test_key_parked_run_word
 test_key_parse_simple
+test_key_part_times_kept
 test_key_past_sessions_by_day
 test_key_pasted_mac_path_fetched
 test_key_pick_above_the_line
