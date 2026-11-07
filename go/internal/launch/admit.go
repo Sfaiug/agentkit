@@ -52,8 +52,9 @@ type room struct {
 }
 
 // admit is a launch's first poll for its slot, none for a launch no gate decides, ErrPython where
-// Go leaves that poll to Python (decide).
-func admit(id string, first bool, seat string, depth int) (*admission, error) {
+// Go leaves that poll to Python (decide), or, for a launch its own process follows, the wait that
+// poll leaves (leftToPython): its driver would hand that wait over at once.
+func admit(id string, first bool, seat string, depth int, followed bool) (*admission, error) {
 	if !gated(depth) {
 		return nil, nil
 	}
@@ -72,6 +73,9 @@ func admit(id string, first bool, seat string, depth int) (*admission, error) {
 		launching.Set("launched_session", seat)
 	}
 	admitted, err := decide(launching)
+	if err == nil && followed && admitted.leftToPython(launching) {
+		err = ErrPython
+	}
 	if err != nil {
 		slots.Close()
 		return nil, err
@@ -86,9 +90,8 @@ func admit(id string, first bool, seat string, depth int) (*admission, error) {
 // (ask), on the host's readings, read only where it is asked, as Python's gate._host_admits reads
 // them.  ErrPython wherever Go would judge it otherwise, before anything is read that writes: a
 // seat's run in line once a check of the install was handed back to a seat (handedBack); a run
-// outside a suite's home held, whose wait history.db counts, which Go writes none of; a run stalled
-// first in line, which Python lets past the gates; a queue, a poll, a config or a run Go reads
-// otherwise than Python.
+// stalled first in line, which Python lets past the gates; a queue, a poll, a config or a run Go
+// reads otherwise than Python.
 func decide(record *run.Object) (*admission, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" || record.Truthy("run_depth") {
 		return &admission{in: true, outright: true}, nil
@@ -126,10 +129,6 @@ func decide(record *run.Object) (*admission, error) {
 	}
 	if run.Historyless() {
 		a.ask() // the room is asked now where it reads no history.db, whose reading writes beside it
-	}
-	// Go goes on with such a run only let in, which beside a history.db only reading it tells
-	if !record.Truthy("notify_sink") && !a.in {
-		return nil, ErrPython
 	}
 	return a, nil
 }
