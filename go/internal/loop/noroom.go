@@ -8,7 +8,6 @@ package loop
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"runtime"
 	"sync"
 	"syscall"
@@ -46,22 +45,18 @@ const heldThreads = 8
 
 // holdThreads has the driver's runtime start, before the task table can fill, the threads it later
 // wants: a thread Go's runtime fails to start kills the process, its record live but its log
-// silent; held so, the next fork fails instead, as an error endNoRoom answers.  Where the table
-// has no room for them already, the processes taskRoom starts first fail so, and it returns that
-// error before any thread; where taskRoom fails otherwise, it holds none either, their room
-// unproven.  One thread at a time runs the driver's own code, which mostly waits on its children
-// and so loses no speed, and its garbage collector wants no thread per core.  But a call that
-// blocks hands that turn to another thread, one the runtime starts where none is parked:
-// heldThreads goroutines, each locked to a thread of its own until all are, leave as many parked
-// for the process's life once they let go.
+// silent; held so, the next fork fails instead, as an error endNoRoom answers.  Where taskRoom
+// cannot prove room for them, as where the table has none already, it returns why before any
+// thread, for its caller to end on.  One thread at a time runs the driver's own code, which mostly
+// waits on its children and so loses no speed, and its garbage collector wants no thread per core.
+// But a call that blocks hands that turn to another thread, one the runtime starts where none is
+// parked: heldThreads goroutines, each locked to a thread of its own until all are, leave as many
+// parked for the process's life once they let go.
 func holdThreads() error {
 	runtime.GOMAXPROCS(1)
 	// the threads it locks, and the one the runtime starts threads from once one is locked
-	switch err := taskRoom(heldThreads + 1); {
-	case errors.Is(err, syscall.EAGAIN):
+	if err := taskRoom(heldThreads + 1); err != nil {
 		return err
-	case err != nil:
-		return nil
 	}
 	var held, freed sync.WaitGroup
 	held.Add(heldThreads)
@@ -76,24 +71,5 @@ func holdThreads() error {
 		}()
 	}
 	freed.Wait()
-	return nil
-}
-
-// taskRoom is the host's room for n more tasks, a process or thread each, proven by as many
-// processes at once: a `true` it starts holds its task, ended or not, until it is waited for.
-func taskRoom(n int) error {
-	var started []*exec.Cmd
-	defer func() {
-		for _, held := range started {
-			held.Wait()
-		}
-	}()
-	for range n {
-		held := exec.Command("true")
-		if err := held.Start(); err != nil {
-			return err
-		}
-		started = append(started, held)
-	}
 	return nil
 }

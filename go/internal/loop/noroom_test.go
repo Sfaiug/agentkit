@@ -87,6 +87,16 @@ func TestADriverStartedWithNoRoomLeavesTheRunToTheTick(t *testing.T) {
 	}
 }
 
+// A driver that cannot prove its threads' room, here with no `true` to start, says why instead of
+// holding them: one could be a thread its runtime dies failing to start.
+func TestADriverThatCannotProveItsRoomHoldsNoThreads(t *testing.T) {
+	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(0))
+	t.Setenv("PATH", t.TempDir())
+	if err := holdThreads(); err == nil {
+		t.Fatal("it held its threads, their room unproven")
+	}
+}
+
 // fillTable leaves this process, its threads held as the driver's are, the room a full task table
 // leaves it.
 func fillTable(t *testing.T) {
