@@ -44,13 +44,14 @@ func Paths(g gitcall.Git) ([]string, error) {
 	return names(tracked, untracked), nil
 }
 
-// Junk matches names, not targets: a dependency symlink is junk even when git ignores only
-// directories.
-func Junk(path string) bool {
+// Junk is whether path in wt is a test sandbox, a run lock, a dependency tree or a Go build cache,
+// Python's leftover_junk.  Names match, not targets: a dependency symlink is junk even when git
+// ignores only directories.
+func Junk(wt, path string) bool {
 	parts := strings.Split(strings.TrimRight(path, "/"), "/")
 	return strings.HasPrefix(parts[0], SandboxPrefix) || slices.ContainsFunc(parts, func(part string) bool {
 		return part == run.RecoveryLock || part == "delivery.lock" || part == "node_modules" || part == "venv" || part == ".venv"
-	})
+	}) || goBuildCache(wt, path)
 }
 
 // Committable is the dirty paths a commit of the checkout would take and the leftover junk it
@@ -64,7 +65,7 @@ func Committable(g gitcall.Git, artifacts map[string]bool) (real, left []string,
 		if artifacts[path] {
 			continue
 		}
-		ignored := Junk(path) || goBuildCache(g.Repo, path)
+		ignored := Junk(g.Repo, path)
 		if !ignored {
 			code, _, err := g.Out("check-ignore", "-q", "--", path)
 			if err != nil {

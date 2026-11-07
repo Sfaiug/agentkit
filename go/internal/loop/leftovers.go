@@ -109,8 +109,8 @@ func paths(listed ...string) []string {
 	return found
 }
 
-// ignoredSandboxes is ignored sandbox files, run locks and dependencies, invisible to
-// uncommitted.Paths, each collapsed directory listed by its files, for the line that counts them.
+// ignoredSandboxes is ignored uncommitted.Junk files, invisible to uncommitted.Paths, each
+// collapsed directory listed by its files, for the line that counts them.
 func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 	listed, err := r.git().Try("ls-files", "--others", "--ignored", "--exclude-standard", "-z")
 	if err != nil {
@@ -118,7 +118,7 @@ func (r *repoPlace) ignoredSandboxes() ([]string, error) {
 	}
 	var found []string
 	for _, entry := range paths(listed) {
-		if r.artifacts[entry] || !uncommitted.Junk(entry) {
+		if r.artifacts[entry] || !uncommitted.Junk(r.wt, entry) {
 			continue
 		}
 		if !strings.HasSuffix(entry, "/") {
