@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"agentkit/internal/config"
-	"agentkit/internal/harness"
 	"agentkit/internal/run"
 )
 
@@ -50,7 +49,7 @@ func DefaultsMove(rows []string, lead string) (Defaults, bool) {
 		}
 		given.moving = append(given.moving, name)
 		pane, err := switchPane(name, models[was], entry)
-		if err != nil || pane != "" && harness.AsksSwitchable(entry.Harness) {
+		if err != nil {
 			return Defaults{}, false
 		}
 		if pane == "" {

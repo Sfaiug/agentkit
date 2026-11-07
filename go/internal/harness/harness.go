@@ -124,8 +124,9 @@ type plugin struct {
 	rulebook string
 	// holds is Holds': nil where its last Stop's list is all that says what it runs.
 	holds func(record *run.Object) ([]string, bool)
-	// switchable is AsksSwitchable's.
-	switchable bool
+	// switchable is Switchable's: nil where its running seat takes every model at every effort
+	// from its `[switch]` lines.
+	switchable func(model, effort string) bool
 }
 
 var plugins = map[string]plugin{}

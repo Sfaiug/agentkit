@@ -43,10 +43,10 @@ var (
 // while the composer holds the line alone, then once more where the line did not leave.  True once
 // the composer reads empty and its terminal holds no unread input.
 //
-// Go types only where its reads are Python's: a harness whose screen Go reads, whose composer
-// keeps no cursor of its own, a seat with no question kept back for its next turn and no text kept
-// by ak's editor.  Anywhere else, a composer holding text among them, which Python's own editor
-// types past, it puts nothing in and the line is the tick's.
+// Go types only where its reads are Python's: a harness whose screen Go reads, a seat with no
+// question kept back for its next turn and no text kept by ak's editor.  Anywhere else, a
+// composer holding text among them, which Python's own editor types past, it puts nothing in and
+// the line is the tick's.  No key goes in while the cursor is off its composer (offComposer).
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
 	return typeAtPane(name, "", line, typed, receipt, log, stale)
 }
@@ -83,7 +83,7 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	ready := func() bool { return at.holds(text) == "line" }
 	err = notify.Held(context.Background(), name, func(current string) error {
 		at.name = current
-		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
+		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() || at.offComposer() {
 			return errUntyped
 		}
 		entry := typingReceipt(own, record, text)
@@ -136,15 +136,14 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	return at.holds(text) == "empty" && !at.unread()
 }
 
-// typable is a harness Go types into: one whose screen it reads as Python does, whose composer
-// keeps no cursor of its own, and whose conversation it finds to count the prompts before a line.
+// typable is a harness Go types into: one whose screen it reads as Python does, and whose
+// conversation it finds to count the prompts before a line.
 func typable(own string) bool {
 	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
 		return false
 	}
-	chrome, err := config.Section(own, "screen")
 	_, _, known := script.Typed(own, nil, "")
-	return err == nil && chrome["cursor"] != true && known
+	return known
 }
 
 // Watching is whether that seat is up for a line to go into, Python's orch.watching of a seat on
@@ -291,8 +290,12 @@ func (at seatAt) sent(line string) bool {
 	return drawn && !strings.Contains(held, screen.Unspaced(line))
 }
 
-// enter is one Enter completing the line, watch._send_enter.
+// enter is one Enter completing the line, watch._send_enter: none while the cursor is off its
+// composer.
 func (at seatAt) enter(log func(string)) bool {
+	if at.offComposer() {
+		return false
+	}
 	if out, err := keys.Type(at.pane, "Enter"); err != nil {
 		log("WARN could not type into the " + at.name + " seat: " + tail(out+err.Error(), 200))
 		return false
