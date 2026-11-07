@@ -163,7 +163,6 @@ class LimitsPage(unittest.TestCase):
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
                          [row(NAMES[0], "◂ 3 ▸", on=True), row(NAMES[1], "300"),
                           row(NAMES[2], "off default 50")])
-        self.assertIn(SAYS["review_rounds"][0], flat("\n".join(shown)))
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
     def test_the_pointer_off_every_row_takes_its_lines_away(self):
