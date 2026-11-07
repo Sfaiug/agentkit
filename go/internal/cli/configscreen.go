@@ -48,6 +48,11 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 	if err := catalogs.read(c); err != nil {
 		return err == context.Canceled
 	}
+	if session != "" {
+		// a seat's c takes no key typed while it opened, as Python's, which reads the seat's usage
+		// first, lets each go (show_config's waited); a fresh window's keeps them
+		keyboard.Drop()
+	}
 	defer painter.Forget()
 	nextKey := followSeat(session, keyboard)
 	for {
