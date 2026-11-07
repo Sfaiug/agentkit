@@ -106,10 +106,6 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 			return done, nil
 		}
 	}
-	work := holding(live.Name)
-	if !spent && len(work) > 0 {
-		return true, nil
-	}
 	var moves []string
 	// The first branch is Python's between-turns choice; the spent branch prefers windows
 	// over credits. Stable sorting has already put the home first while it has room.
@@ -119,7 +115,7 @@ func MoveAccount(live Live, log func(string)) (carried bool, err error) {
 			moves = append(moves, a.Name)
 		}
 	}
-	if len(moves) == 0 {
+	if len(moves) == 0 || !spent && len(holding(live.Name)) > 0 { // what it holds is asked only where it could go
 		return !spent, nil
 	}
 	_, record, err := config.ResolveSession(live.Name)

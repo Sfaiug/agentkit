@@ -76,8 +76,6 @@ type plugin struct {
 	typed func(conversation string) []Prompt
 	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers.
 	answered func(record map[string]any) ([]Turn, []Card, error)
-	// usual is whether Go opens its seats on its usual login alone (UsualLoginOnly).
-	usual bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
@@ -114,8 +112,8 @@ type plugin struct {
 	// rulebook Rulebook's, under HOME: "" where no older install linked ak's rules over its own.
 	yolo     func(out io.Writer) error
 	rulebook string
-	// holds is AsksHolds'.
-	holds bool
+	// holds is Holds': nil where its last Stop's list is all that says what it runs.
+	holds func(record *run.Object) ([]string, bool)
 	// switchable is AsksSwitchable's.
 	switchable bool
 }
