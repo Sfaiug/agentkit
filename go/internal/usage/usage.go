@@ -9,6 +9,7 @@ package usage
 import (
 	"errors"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"agentkit/internal/config"
@@ -45,6 +46,16 @@ func (src source) key() string {
 		return src.Name
 	}
 	return src.Name + "." + src.account
+}
+
+// gone is whether config.toml, as it stands now, no longer lists the source's login: an account
+// it dropped, or the one login of a provider that lists accounts now.
+func (src source) gone() bool {
+	accounts, err := config.Accounts(src.Name)
+	if len(accounts) == 0 {
+		accounts = []string{""} // the provider's one login
+	}
+	return err == nil && !slices.Contains(accounts, src.account)
 }
 
 // Read is the reading of every provider config.toml lists: the one state/usage.json holds while
