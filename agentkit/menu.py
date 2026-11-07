@@ -5016,9 +5016,10 @@ def page_body(rows, at=None, moves=None):
 def config_page(name, page, move=True):
     """`config · <name>`, a page `c` opens: `page()` gives its rows -- (label, value, act) each,
     or with a note of the row's own after, said instead of the page's while the row is pointed,
-    and lines drawn as they are under it, where the highlighted row fits beside them, after that
-    -- and the note under them, asked again for every draw, drawn as page_body draws them and
-    read with `c`'s keys until Esc, the key line saying what the arrows `move` (terminal.keys).
+    and blocks of lines drawn as they are under it, each whole and in order while the
+    highlighted row fits beside them, after that -- and the note under them, asked again for
+    every draw, drawn as page_body draws them and read with `c`'s keys until Esc, the key line
+    saying what the arrows `move` (terminal.keys).
     It comes up as `c` does as it opens, its name writing itself out in the header
     (motion.Clock), and a mark leading a value fills or empties as it flips (motion.toggled);
     one gone back to from a list or a field is drawn as it is.
@@ -5090,10 +5091,12 @@ def config_page(name, page, move=True):
         space, enter = does(here)
         keys = terminal.keys("esc back", space=space, enter=enter, move=move)
         below = note_lines("\n".join(filter(None, (said, note))))
-        # a row's lines only where the page keeps room for the highlighted row beside them, the
-        # other rows paging: never pushed off the screen
-        if page_room([*below, *under], keys) >= sum(row == here for row, _ in places.values()):
-            below += under
+        # a row's blocks only while the page keeps room for the highlighted row beside them, the
+        # other rows paging: never pushed off the screen, and a later block gives way first
+        for block in under:
+            if page_room([*below, *block], keys) < sum(row == here for row, _ in places.values()):
+                break
+            below += block
         act, moved, _, top = matrix_key(title, body, places, ids, here, top, "", keys, marks=1,
                                         clock=clock, moves=moves, under=below)
         # the pointer on a row off-list, unless it clicked it, which closes an open list
@@ -5619,13 +5622,15 @@ def rounds_said(runs, held):
 
 
 def lines_said(key, reviewed, held):
-    """What the first reviews (history.first_reviews) of `key`'s changes -- builds for
-    `executor_lines`, orchestrators' own pull requests for `orchestrator_lines` -- would have
-    done at `held` lines: those over it, as the limit refuses them
-    (transitions.first_review_refusal, seat_lines), split or made tasks, and how often round 1
-    merged them and the rest; off, or past the largest, what they can't say.  None with none."""
+    """What the first reviews (history.first_reviews) of `key`'s changes would have done at
+    `held` lines: those of `held` lines or more -- where the owner's design of 5 Nov 2026 splits
+    them -- split, for builds under `executor_lines`, or made tasks, for orchestrators' own pull
+    requests under `orchestrator_lines`, and how often their first review passed, or round 1
+    merged them, beside the rest; off, or past the largest, what they can't say.  None with
+    none."""
     own = key == "orchestrator_lines"
-    sizes = [(lines, passed) for lines, mine, passed in reviewed if mine == own]
+    sizes = [(lines, merged if own else passed)
+             for lines, mine, passed, merged in reviewed if mine == own]
     if not sizes:
         return None
     if held == 0:
@@ -5633,21 +5638,22 @@ def lines_said(key, reviewed, held):
                 f"{len(sizes)} own pull request{'s' * (len(sizes) != 1)} would have been a task."
                 if own else
                 "Off: executors build nothing, so your runs can't say how that would go.")
-    over = [passed for lines, passed in sizes if held != "no limit" and lines > held]
+    over = [passed for lines, passed in sizes if held != "no limit" and lines >= held]
     if not over:
         return (f"Your largest {'own pull request' if own else 'build'} was "
                 f"{max(lines for lines, _ in sizes)} lines, so your runs can't say how bigger "
                 "ones would go.")
-    under = [passed for lines, passed in sizes if lines <= held]
+    under = [passed for lines, passed in sizes if lines < held]
     rate = lambda each: f"{round(100 * sum(each) / len(each))}%"
     were, rest = "was" if len(over) == 1 else "were", (
-        f", and {rate(under)} up to {held} lines" if under else "")
+        f", and {rate(under)} below {held} lines" if under else "")
     if own:
-        return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} over "
-                f"{held} lines and would have been {'a task' if len(over) == 1 else 'tasks'}. "
+        return (f"{len(over)} of your orchestrators' {len(sizes)} own pull requests {were} "
+                f"{held} lines or more and would have been "
+                f"{'a task' if len(over) == 1 else 'tasks'}. "
                 f"Round 1 merged {rate(over)} of them{rest}.")
     return (f"{len(over)} of your {len(sizes)} builds ({round(100 * len(over) / len(sizes))}%) "
-            f"{were} over {held} lines and would have been split. Their first review passed "
+            f"{were} {held} lines or more and would have been split. Their first review passed "
             f"{rate(over)} of the time{rest}.")
 
 
@@ -5664,9 +5670,9 @@ def config_limits(cfg):
     def under(key, held):      # the row's chart, then what its runs would have done at `held`
         said = (rounds_said(ended, held) if key == "review_rounds"
                 else lines_said(key, reviewed, held))
-        return [*(rounds_chart(ended) if key == "review_rounds" else []),
-                *(["", *("  " + part for part in terminal.wrap(said, terminal.layout_width() - 2))]
-                  if said else [])]
+        room = terminal.layout_width() - 2
+        return [*([rounds_chart(ended)] if key == "review_rounds" else []),
+                *([["", *("  " + part for part in terminal.wrap(said, room))]] if said else [])]
 
     def take(key, value):
         try:

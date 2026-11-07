@@ -1255,13 +1255,15 @@ def round_endings():
 def first_reviews():
     """The first reviews of runs that ended with a verdict on the work (`record.JUDGED`), for
     `Limits` (menu.lines_said): (the lines it read, whether the change was an orchestrator's own
-    pull request, whether it merged in round 1) each; [] where the database cannot answer."""
+    pull request, whether the run passed in round 1, whether it merged in round 1) each -- a
+    pass need not merge, as with --no-merge; [] where the database cannot answer."""
     try:
         with _LOCK:
             connection = _connect(readonly=True)
             try:
                 return connection.execute(
                     "SELECT first_review_lines, own_orchestrator IS NOT NULL, "
+                    "final_state = 'pass' AND rounds_used IS 1, "
                     "changed_lines IS NOT NULL AND rounds_used IS 1 FROM runs "
                     "WHERE first_review_lines IS NOT NULL AND final_state IN "
                     f"({', '.join('?' * len(record.JUDGED))}) AND {REAL_WORK}",

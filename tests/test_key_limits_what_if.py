@@ -8,11 +8,12 @@ back; at M + 1, a guess that it would go as round M did, those merged in M over 
 further, the runs can't say.
 
 The line limits read the first reviews of runs that ended passed, failed or blocked, not
-stopped: their size, whether an orchestrator's own pull request or a build, and whether round 1
-merged it.  At a value between 0 and the largest, those over it -- as the limit refuses them, a
-build of exactly the value let through -- would have been split, or made tasks, with how often
-round 1 merged them and the rest; at 0 executors or orchestrators build nothing; at the largest
-or past it, no run can say.
+stopped: their size, whether an orchestrator's own pull request or a build, and whether it
+passed in round 1, for a build, or merged in round 1, for an own pull request -- a pass that
+merged nothing (--no-merge) passed and did not merge.  At a value between 0 and the largest,
+those of that many lines or more, as the size bars split them, would have been split, or made
+tasks, with how often their first round went so and how often the rest's did; at 0 executors or
+orchestrators build nothing; past the largest, no run can say.
 
 The owner's design of 5 Nov 2026.  Black-box: history.db's `runs` rows written into the Home as
 any program writes them, then the program `AK_BIN` names in a person's terminal
@@ -36,10 +37,14 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
 START = calendar.timegm((2026, 10, 1, 12, 0, 0))
 COLUMNS = ("run_id", "repo", "final_state", "rounds_used", "changed_lines", "first_review_lines",
            "own_orchestrator", "started_at", "finished_at")
-# the round each merged in, then F's first review sizes: builds, then own pull requests
+# the round each merged in, then F's first review sizes: builds, then own pull requests; a size
+# at a step pins that it counts with those of that many lines or more
 BUILDS = {1: (40, 90, 120, 180, 220, 350), 2: (150, 260, 310), 3: (300, 450, 190),
           None: (330, 410, 240, 60)}
-OWN = {1: (10, 30, 50, 70), 2: (60, 90), None: (20, 55, 120)}
+OWN = {1: (25, 30, 50, 70), 2: (60, 90), None: (20, 55, 120)}
+# passed in round 1 and merged nothing, as a --no-merge run does: a build's first review passed,
+# an own pull request's round 1 merged nothing, and neither is in the rounds chart
+UNMERGED = {None: 200, "fable": 40}
 # (final_state, rounds_used, first_review_lines, own): none counted, each would move a number
 LEFT_OUT = [("stopped", 1, 900, None), ("running", 2, 700, None), ("error", 1, 800, None),
             ("stopped", 1, 300, "fable")]
@@ -56,24 +61,24 @@ ROUNDS = {
     4: "If a 4th round went like the 3rd, where 30% merged, about 2 of those 7 would have "
        "merged. No run has had one, so this is a guess.",
     5: "No run has gone past 3 rounds, so your runs can't say."}
-# 16 builds, the largest 450 lines
+# 17 builds, the largest 450 lines
 EXECUTOR = {
-    300: "5 of your 16 builds (31%) were over 300 lines and would have been split. Their first "
-         "review passed 20% of the time, and 45% up to 300 lines.",
-    200: "9 of your 16 builds (56%) were over 200 lines and would have been split. Their first "
-         "review passed 22% of the time, and 57% up to 200 lines.",
+    300: "6 of your 17 builds (35%) were 300 lines or more and would have been split. Their "
+         "first review passed 17% of the time, and 55% below 300 lines.",
+    200: "10 of your 17 builds (59%) were 200 lines or more and would have been split. Their "
+         "first review passed 30% of the time, and 57% below 200 lines.",
     0: "Off: executors build nothing, so your runs can't say how that would go.",
     500: "Your largest build was 450 lines, so your runs can't say how bigger ones would go.",
     "no limit": "Your largest build was 450 lines, so your runs can't say how bigger ones would "
                 "go."}
-# 9 own pull requests
+# 10 own pull requests
 ORCHESTRATOR = {
-    50: "5 of your orchestrators' 9 own pull requests were over 50 lines and would have been "
-        "tasks. Round 1 merged 20% of them, and 75% up to 50 lines.",
-    25: "7 of your orchestrators' 9 own pull requests were over 25 lines and would have been "
-        "tasks. Round 1 merged 43% of them, and 50% up to 25 lines.",
-    0: "Off: orchestrators build nothing themselves, so every one of their 9 own pull requests "
-       "would have been a task."}
+    50: "6 of your orchestrators' 10 own pull requests were 50 lines or more and would have "
+        "been tasks. Round 1 merged 33% of them, and 50% below 50 lines.",
+    25: "9 of your orchestrators' 10 own pull requests were 25 lines or more and would have "
+        "been tasks. Round 1 merged 44% of them, and 0% below 25 lines.",
+    0: "Off: orchestrators build nothing themselves, so every one of their 10 own pull "
+       "requests would have been a task."}
 NAMES = {"Review rounds": 3, "Max lines per executor task": 300,
          "Max lines per orchestrator task": 50}
 
@@ -87,7 +92,7 @@ def counted():
 
 
 def write_runs(home):
-    rows = [*counted(),
+    rows = [*counted(), *(("pass", 1, None, size, own) for own, size in UNMERGED.items()),
             *((state, rounds, None, size, own) for state, rounds, size, own in LEFT_OUT)]
     connection = sqlite3.connect(home.path / ".agentkit/history.db")
     try:
