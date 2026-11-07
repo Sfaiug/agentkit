@@ -8666,6 +8666,6 @@ def main(argv):
                 if not crashed:
                     state["tick_completed_at"] = state["tick"]["ended_at"]
                 save_state(state)
+                versions.final(state["tick"]["ended_at"], completed=not crashed)
                 if not crashed:
-                    versions.final()
                     tick_notice(ended=state["tick"]["ended_at"], log=log)

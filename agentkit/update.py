@@ -55,6 +55,8 @@ RETRY_AFTER = 24 * 60 * 60  # a gate can fail for what the release did not cause
 
 VERSION_KEY = "{version}"   # `[update] revert`: where the version to reinstall goes
 MOVING = "agentkit-update.lock"  # under config.TMP: held by each move of ~/agentkit
+PENDING = "agentkit-install-pending"  # under config.STATE: ~/agentkit's install.sh owed
+FAILED = "refs/release/failed/"  # in ak's repository: a commit put back (back.py)
 SWAPS = "harness-swaps.json"  # the latest installs and reverts, [harness, began, ended]
 SWAPS_KEPT = 16               # far more than can begin between a turn's end and the look at it
 LIVE = "live-checks"          # under config.STATE: one directory per check, `<commit>-<started>`
@@ -633,7 +635,7 @@ def update_agentkit(progress=None, pull=True):
             # test one commit from start to end; the next tick after it moves this one (go_live)
             say("update: agentkit: moves once the harness upgrade running now ends")
             return 0
-        pending = config.STATE / "agentkit-install-pending"
+        pending = config.STATE / PENDING
         if pull and versions.kept():
             # no move starts before the last is final (versions.final); an owed install still runs
             say("update: agentkit: moves once a tick of the version live now completes")
@@ -755,7 +757,7 @@ def go_live(log, now=None):
     target = live_target() if fetched else ""
     # exit 1 is the target ahead of HEAD; anything else, a failed fetch above all, is not
     moved = bool(target) and _git("merge-base", "--is-ancestor", target, "HEAD")[0] == 1
-    pending = config.STATE / "agentkit-install-pending"
+    pending = config.STATE / PENDING
     if not (moved or pending.exists()):
         return
     head = target if moved else _git("rev-parse", "HEAD")[1]
@@ -901,16 +903,23 @@ def live_target():
 
     origin/main when the checkout has it already, when it has no `tests/live.sh`, or when a
     check of it passed or failed only where HEAD also failed; else the newest such commit,
-    so what moves is exactly what passed, however far origin/main has gone on since.
+    so what moves is exactly what passed, however far origin/main has gone on since.  A commit
+    put back (`failed`) is none of these, whatever its checks say.
     """
-    tip = _git("rev-parse", "--verify", "--quiet", "origin/main")[1]
-    passed = {commit for started, commit, check in live_checks()
-              if not _alive(check, started, time.time()) and _live_passed(check, started)}
-    if (not tip or tip in passed or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
-            or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
+    tip, failed = _git("rev-parse", "--verify", "--quiet", "origin/main")[1], _failed()
+    passed = {commit for started, commit, check in live_checks() if commit not in failed
+              and not _alive(check, started, time.time()) and _live_passed(check, started)}
+    if tip not in failed and (not tip or tip in passed
+                              or _git("cat-file", "-e", f"{tip}:tests/live.sh")[0]
+                              or not _git("merge-base", "--is-ancestor", tip, "HEAD")[0]):
         return tip
     newer = _git("rev-list", "--topo-order", f"HEAD..{tip}")[1].split() if passed else []
     return next((commit for commit in newer if commit in passed), "")
+
+
+def _failed():
+    """Each commit put back (back.py), which no move goes to again: a ref under `FAILED`."""
+    return set(_git("for-each-ref", "--format=%(objectname)", FAILED)[1].split())
 
 
 def owed_live(now):
@@ -929,9 +938,9 @@ def owed_live(now):
         except OSError:
             continue
     # exit 1 is a commit HEAD lacks; anything else, one this checkout never fetched, is not owed
-    owed = {commit for commit in {*passed, live_target()}
+    owed = {commit for commit in {*passed, live_target()} - _failed()
             if commit and _git("merge-base", "--is-ancestor", commit, "HEAD")[0] == 1}
-    if (config.STATE / "agentkit-install-pending").exists():
+    if (config.STATE / PENDING).exists():
         owed.add(_git("rev-parse", "HEAD")[1])
     since = {commit: passed.get(commit) or float(_git("log", "-1", "--format=%ct", commit)[1] or now)
              for commit in owed if commit}
@@ -986,7 +995,7 @@ def live_tick(log, now, fetched):
             running = True
         elif had[commit] and not (baseline or notice):
             # a pass dates the install it leaves owed (owed_live), so it stays until that passes
-            if not (config.STATE / "agentkit-install-pending").exists():
+            if not (config.STATE / PENDING).exists():
                 shutil.rmtree(check, ignore_errors=True)
                 pruned = True
         else:
