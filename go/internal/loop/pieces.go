@@ -44,18 +44,19 @@ type piece struct {
 // twice the places they were admitted at and run on a place each, more as turns free; else, where no
 // turn is taken, in as many as this host fits at once.  Each has its share `AK_SHARD=k/N`, its own
 // silence window and the list's deadline, its output added to progress under its own header as it
-// ends, and is told when it holds a turn.  A piece red on the helper, whose offline VM fails a
-// command that needs this host, runs here after the others, the tests it named there first, which
-// decides (helperReds).  A red piece here goes once more alone after the others, which decides it,
-// a pass then said by a `flaky:` record unless the kernel killed it for memory (starved.go); one
-// stopped at its limit stops the rest.  A whole go after the others runs on a turn here, taken
-// first where the suite holds none, and a go told it holds one that answers busy never ran: its
-// first beside the others or any go after, it goes again alone once its turn was given back for a
-// poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
-// dropped where it hands the suite on.  Once the pieces ended, before any go after them, the pass
-// keeps what it held here as the suite's cost (measure).  The suite ends as its first red piece
-// did, and hands on what handedOn says, its cost raised where it ran out of memory, however it
-// ended, but where it is handed on (overflowed).
+// ends, and is told when it holds a turn.  A piece a VM there lost on a suite with places here goes
+// back for the next place to free, said where ssh dropped it, and that VM's place ends (piecesLeft).
+// A piece red on the helper, whose offline VM fails a command that needs this host, runs here after
+// the others, the tests it named there first, which decides (helperReds).  A red piece here goes
+// once more alone after the others, which decides it, a pass then said by a `flaky:` record unless
+// the kernel killed it for memory (starved.go); one stopped at its limit stops the rest.  A whole go
+// after the others runs on a turn here, taken first where the suite holds none, and a go told it
+// holds one that answers busy never ran: its first beside the others or any go after, it goes again
+// alone once its turn was given back for a poll (again).  Each go leaves its row in history under
+// rows where it ran, those on the helper dropped where it hands the suite on.  Once the pieces
+// ended, before any go after them, the pass keeps what it held here as the suite's cost (measure).
+// The suite ends as its first red piece did, and hands on what handedOn says, its cost raised where
+// it ran out of memory, however it ended, but where it is handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace.
 func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, path string, rows *history.Checked, on *placement) (_ ran, _ string, err error) {
@@ -116,7 +117,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				held.Lock()
 				onHelper = append(onHelper, row)
 				held.Unlock()
-				at.ended, err = alone.there(at.there, at.shard, left, out)
+				at.ended, err = alone.there(at.there, at.shard, left, out, on.holds())
 			} else {
 				at.ended, err = alone.boxed(cwd, cmd, at.shard, left, out, out.Name(), false, on.holds(), only)
 			}
@@ -140,12 +141,10 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		_, err = io.Copy(progress, io.NewSectionReader(out, 0, 1<<62))
 		return err
 	}
-	// each place, a VM there or a place here, takes the next waiting piece as it frees
-	waiting := make(chan *piece, count)
 	for index := range all {
 		all[index] = &piece{shard: fmt.Sprintf("%d/%d", index+1, count), asked: asked}
-		waiting <- all[index]
 	}
+	waiting := leftOf(all)
 	defer func() {
 		// a suite that does not end as one command keeps what its ended goes named, as Python's
 		// run_suite does; one handed on is Python's to run again and keep
@@ -163,19 +162,32 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 			err = cmp.Or(err, overflowed(l.ctx, suitePath(l.dir, cwd, cmd), ooms, memory, measured.mem))
 		}
 	}()
-	close(waiting)
 	var started sync.WaitGroup
 	var errs []error
+	// each place, a VM there or a place here, takes the next waiting piece as it frees
 	place := func(there *helper.Away) {
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			for at := range waiting {
+			for at := waiting.next(there); at != nil; at = waiting.next(there) {
+				why := here
+				if at.there != nil { // given back by the machine that lost it
+					why = "helper " + at.there.Alias + " " + helper.Failure(at.ended.code)
+				}
 				at.there = there
-				if err := attempt(at, here, nil); err != nil {
+				err := attempt(at, why, nil)
+				if err != nil {
 					held.Lock()
 					errs = append(errs, err)
 					held.Unlock()
+				}
+				lost := err == nil && there != nil && helper.Lost(at.ended.code)
+				waiting.done(at, lost)
+				if lost {
+					if helper.Dropped(at.ended.code) {
+						l.say(fmt.Sprintf("the suite helper %s lost AK_SHARD=%s; it runs again on the first machine with room, this one included", there.Alias, at.shard))
+					}
+					return // the VM's place ends with it
 				}
 			}
 		}()
@@ -197,7 +209,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		started.Add(1)
 		go func() {
 			defer started.Done()
-			on.hold.Grow(ctx, func() bool { return len(waiting) > 0 }, func() { place(nil) })
+			on.hold.Grow(ctx, func() bool { return waiting.waits() > 0 }, func() { place(nil) })
 		}()
 	}
 	started.Wait()

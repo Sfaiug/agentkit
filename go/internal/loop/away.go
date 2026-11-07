@@ -15,15 +15,20 @@ import (
 const gatePoll = 15 * time.Second
 
 // there runs one piece of a suite there (onHelper), the tests it named flaky there kept, and a red
-// one's that it named failed, which run here next (helperReds).  One lost or turned away there, or
-// one stopped, is Python's, which sends it on to the next machine or runs it again alone.
-func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *os.File) (ran, error) {
+// one's that it named failed, which run here next (helperReds).  One lost there ends with its exit
+// where the suite has a place here, which it goes back to the line for (piecesLeft).  One lost where
+// it has none, one turned away or out of memory there, or one stopped, is Python's, which sends it
+// on to the next machine or runs it again alone.
+func (l *loop) there(away *helper.Away, shard string, limit time.Duration, out *os.File, here bool) (ran, error) {
 	code, stopped, err := l.onHelper(away, shard, limit, out)
 	if err != nil {
 		return ran{}, err
 	}
 	if stopped != "" {
 		return ran{}, fmt.Errorf("%w: AK_SHARD=%s on %s was stopped for %s", helper.ErrPython, shard, away.Alias, stopped)
+	}
+	if here && helper.Lost(code) {
+		return ran{code: code}, nil
 	}
 	if helper.Gone(code) {
 		return ran{}, fmt.Errorf("%w: AK_SHARD=%s on %s ended %d", helper.ErrPython, shard, away.Alias, code)
@@ -50,10 +55,10 @@ func (l *loop) onHelper(away *helper.Away, shard string, limit time.Duration, ou
 
 // grow asks the helpers again each poll while a piece waits, Python's ask: a suite one takes runs
 // waiting pieces on its VMs too, each started by start, so a suite that began on little room there,
-// or on a turn here, grows into what frees.  It never waits on an answer past the last waiting
-// piece: one that comes later finishes the helper it joined.  What it joined is finished once their
-// pieces end.
-func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *piece, start func(*helper.Away)) (joined []*helper.Away) {
+// or on a turn here, grows into what frees.  It asks until no piece waits or runs, as a lost one
+// waits again, and never waits on an answer past that: one that comes later finishes the helper it
+// joined.  What it joined is finished once their pieces end.
+func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting *piecesLeft, start func(*helper.Away)) (joined []*helper.Away) {
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	asked := time.Now()
@@ -68,14 +73,14 @@ func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *
 					l.say(line)
 				}
 				joined = append(joined, there)
-				for range min(there.Count, len(waiting)) {
+				for range min(there.Count, waiting.waits()) {
 					start(there)
 				}
 			}
 		case <-tick.C:
 		case <-l.ctx.Done():
 		}
-		if l.ctx.Err() != nil || len(waiting) == 0 {
+		if l.ctx.Err() != nil || waiting.over() {
 			if late := answer; late != nil {
 				go func() {
 					if there := <-late; there != nil {
@@ -85,7 +90,7 @@ func (l *loop) grow(cwd string, cpus, memory float64, cmd string, waiting chan *
 			}
 			return joined
 		}
-		if answer == nil && time.Since(asked) >= gatePoll {
+		if answer == nil && waiting.waits() > 0 && time.Since(asked) >= gatePoll {
 			asked, answer, said = time.Now(), make(chan *helper.Away, 1), &[]string{}
 			go func(answer chan *helper.Away, said *[]string) {
 				there, _, _ := helper.Start(cwd, cpus, memory, cmd, nil, func(line string) { *said = append(*said, line) })
