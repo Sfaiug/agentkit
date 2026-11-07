@@ -90,24 +90,31 @@ func seatFile(kind, name, ext string) string {
 }
 
 // hold holds path's lock, as Python ak's writers take it, until the file closes; a stop ends
-// the wait.
-func hold(ctx context.Context, path string) (*os.File, error) {
+// the wait.  Without wait, it is lock.ErrHeld at once where another holds it.
+func hold(ctx context.Context, path string, wait bool) (*os.File, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
+	}
+	if !wait {
+		return lock.Try(path)
 	}
 	return lock.Wait(ctx, path)
 }
 
 // verifying runs fn as the seat's one verification at a time, so a later one starts from the
-// plan the last one left.  Its lock is a seat file a rename moves, under the seat's lock: the
-// file held must be the one the seat's name reaches then, never one a rename replaced.
-func verifying(ctx context.Context, name string, fn func() error) error {
+// plan the last one left; without wait, fn never runs where another process verifies.  Its
+// lock is a seat file a rename moves, under the seat's lock: the file held must be the one the
+// seat's name reaches then, never one a rename replaced.
+func verifying(ctx context.Context, name string, wait bool, fn func() error) error {
 	for {
 		current, _, err := config.ResolveSession(name)
 		if err != nil {
 			return err
 		}
-		file, err := hold(ctx, seatFile("verify", current, "lock"))
+		file, err := hold(ctx, seatFile("verify", current, "lock"), wait)
+		if errors.Is(err, lock.ErrHeld) {
+			return nil
+		}
 		if err != nil {
 			return err
 		}
@@ -217,10 +224,20 @@ func write(current string, lines []string) error {
 	return os.Rename(fresh, plan)
 }
 
-// List proves the seat's plan (`verify`), then is its box lines, as a listing numbers them.
+// List proves the seat's plan (`verify`), then what deliveries left owed meanwhile (`settle`),
+// then is its box lines, as a listing numbers them.
 func List(ctx context.Context, name string) ([]string, error) {
-	if err := verifying(ctx, name, func() error { return verify(ctx, name, "") }); err != nil {
+	whole := false
+	if err := verifying(ctx, name, true, func() (err error) {
+		whole, err = verify(ctx, name, "")
+		return err
+	}); err != nil {
 		return nil, err
+	}
+	if whole {
+		if err := settle(ctx, name); err != nil {
+			return nil, err
+		}
 	}
 	var box []string
 	err := notify.Held(ctx, name, func(current string) error {
@@ -248,22 +265,28 @@ func listed(lines []string) (at []int) {
 // opens again.  Checking every line (no check given), it leaves out a deferred one whose fix
 // run is running or about to (`taken` with followupMoving).  The checks run outside the plan's
 // lock, and the results go onto the plan as it reads after them, each onto its own line, so a
-// line added meanwhile stays.
-func verify(ctx context.Context, name, check string) error {
+// line added meanwhile stays.  It is whether each line it took in had a verdict, its check run
+// to an exit: then a verification of every line takes off the deliveries owed one as it began
+// (`unverified`).
+func verify(ctx context.Context, name, check string) (bool, error) {
 	var seat string
 	var snapshot []string
+	counted := 0
 	if err := notify.Held(ctx, name, func(current string) (err error) {
 		seat = current
+		if check == "" {
+			counted = unverified(current) // read before it fetches: main holds each delivery counted so far
+		}
 		snapshot, err = read(current)
 		return err
 	}); err != nil {
-		return err
+		return false, err
 	}
 	env, err := environ()
 	if err != nil {
-		return err
+		return false, err
 	}
-	results, branches := map[string]string{}, map[string]*branch{}
+	results, branches, whole := map[string]string{}, map[string]*branch{}, true
 	for _, text := range snapshot {
 		line, ok := parse(text)
 		if _, done := results[line.bare]; !ok || line.Check == "" || check != "" && line.Check != check || line.proven() || done {
@@ -274,7 +297,7 @@ func verify(ctx context.Context, name, check string) error {
 			// landing meanwhile ticks its line here
 			moving, err := taken(seat, line, followupMoving)
 			if err != nil {
-				return err
+				return false, err
 			}
 			if moving {
 				continue
@@ -284,31 +307,34 @@ func verify(ctx context.Context, name, check string) error {
 		if !seen {
 			if repo, root := place(line.Project, env); repo != "" {
 				if on, err = defaultBranch(ctx, repo, root, "", env); err != nil {
-					return err
+					return false, err
 				}
 			}
 			branches[line.Project] = on
 		}
 		if on == nil {
+			whole = false
 			continue // its checkout is not on this host
 		}
-		passed := false
+		passed, judged := false, false
 		on.checkout(ctx, func(tree string) (err error) {
 			// the repository the line recorded, in the very tree it runs in
 			if holds(on.clean, tree, on.root, "HEAD") {
 				passed, err = on.passes(ctx, tree, line.Check)
+				judged = err == nil
 			}
 			return err
 		})
+		whole = whole && judged
 		results[line.bare] = line.ticked("")
 		if passed {
 			results[line.bare] = line.ticked(on.commit)
 		}
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return false, ctx.Err()
 		}
 	}
-	return notify.Held(ctx, name, func(current string) error {
+	return whole, notify.Held(ctx, name, func(current string) error {
 		present, err := read(current)
 		changed := false
 		for i, text := range present {
@@ -316,10 +342,13 @@ func verify(ctx context.Context, name, check string) error {
 				present[i], changed = results[line.bare], true
 			}
 		}
-		if err != nil || !changed { // a plan that lost those lines is never written over
-			return err
+		if err == nil && changed { // a plan that lost those lines is never written over
+			err = write(current, present)
 		}
-		return write(current, present)
+		if err == nil && counted > 0 && whole {
+			err = owe(current, -counted)
+		}
+		return err
 	})
 }
 
