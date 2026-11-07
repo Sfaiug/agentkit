@@ -555,7 +555,8 @@ func names(list []any) (found []string) {
 }
 
 // rules is what every pick of this run reads: the lists it was launched with, Python's run_workers
-// and run_reviewers, as the config can change while it lives; the config's own where none was bound.
+// and run_reviewers, as the config can change while it lives; the home's where none was bound
+// (pick.Load), a seat's own inside one.
 func (l *loop) rules() (*pick.Rules, bool) {
 	if l.workers == nil {
 		return pick.Load()

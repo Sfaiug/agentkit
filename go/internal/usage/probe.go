@@ -18,7 +18,6 @@ import (
 	"agentkit/internal/harness"
 	"agentkit/internal/host"
 	"agentkit/internal/run"
-	"agentkit/internal/worker"
 )
 
 const (
@@ -124,15 +123,8 @@ func probe(src source, now float64) *run.Object {
 	}
 	if said && len(meters) == 0 && !refused(text(data.Get("error"))) {
 		// only the harness's own `auth` says whether the login is what failed, never the error
-		env, _ := config.ChildEnv()
-		var told []string
-		for _, pair := range env {
-			if !strings.HasPrefix(pair, host.Marker+"=") {
-				told = append(told, pair)
-			}
-		}
 		var loggedIn any
-		if answered, yes, _ := worker.Login(adapter, append(told, config.AccountEnv(src.account), "AGENTKIT_PROVIDER="+src.Name)); answered {
+		if answered, yes := auth(adapter, src.Name, src.account); answered {
 			loggedIn = yes
 		}
 		out.Set("logged_in", loggedIn)

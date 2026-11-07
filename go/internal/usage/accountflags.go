@@ -26,7 +26,7 @@ func flagAccounts(name string, prov *run.Object, now float64, models map[string]
 	gateFlags(flagged, now, models)
 	best := ""
 	for _, account := range flagged.Keys() {
-		if best == "" || slices.Compare(workerRank(account, flagged.Dict(account)), workerRank(best, flagged.Dict(best))) < 0 {
+		if best == "" || slices.Compare(workerRank(account, flagged.Dict(account), false), workerRank(best, flagged.Dict(best), false)) < 0 {
 			best = account
 		}
 	}
@@ -44,9 +44,10 @@ func flagAccounts(name string, prov *run.Object, now float64, models map[string]
 }
 
 // workerRank is where a flagged account stands for a worker turn, lowest first (usage._worker_rank):
-// spent last, then on credits, then the usual login and any unread one after the others with room,
-// then the most budget.  An unread account ranks with the usual login: its login may be what failed.
-func workerRank(account string, reading *run.Object) []float64 {
+// spent last, then on credits, then one running low, then the usual login and any unread one after
+// the others with room, then the most budget.  An unread account ranks with the usual login: its
+// login may be what failed.
+func workerRank(account string, reading *run.Object, low bool) []float64 {
 	spent, unknown := reading.Truthy("exhausted"), reading.Get("budget_reason") != nil
 	group := 0.0
 	switch {
@@ -57,5 +58,5 @@ func workerRank(account string, reading *run.Object) []float64 {
 	}
 	budget, _ := number(reading.Get("budget"))
 	yes := map[bool]float64{true: 1}
-	return []float64{yes[spent], yes[reading.Truthy("on_credits")], group, yes[unknown], -budget}
+	return []float64{yes[spent], yes[reading.Truthy("on_credits")], yes[low], group, yes[unknown], -budget}
 }

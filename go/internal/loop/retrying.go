@@ -133,7 +133,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 	if err := l.stopCheck(); err != nil {
 		return nil, err
 	}
-	account, err := usage.TurnAccount(c.model.Provider)
+	account, _, err := usage.TurnAccount(c.name, l.dir)
 	if err != nil {
 		return nil, fmt.Errorf("%s %s: %w", c.role, c.name, err)
 	}
@@ -259,9 +259,10 @@ func (c *call) neverRan(t *try) (bool, error) {
 }
 
 // harnessWords reads what the harness itself said: a spent window parks the login the turn ran on,
-// then its provider, as TurnAccount leaves it no other login to go on, and the work goes to another
-// provider; a refusal or an outage is waited out on the same session.  A kill reads as the signal
-// whatever else was said, unless the window is spent.
+// and the turn goes again at once on its session where TurnAccount then gives another login with
+// room, else it parks the provider and the work goes to another provider; a refusal or an outage is
+// waited out on the same session.  A kill reads as the signal whatever else was said, unless the
+// window is spent.
 func (c *call) harnessWords(t *try) (bool, error) {
 	said := c.said(t)
 	ending, mark := harness.Ending(c.model.Harness, said, true)
@@ -284,6 +285,14 @@ func (c *call) harnessWords(t *try) (bool, error) {
 	}
 	if c.account != "" {
 		usage.MarkExhausted(c.model.Provider, c.account, usage.TryAgainAt(said))
+		next, room, err := usage.TurnAccount(c.name, c.l.dir)
+		if err != nil {
+			return false, err
+		}
+		if room && next != c.account {
+			c.l.say(fmt.Sprintf("%s %s ran dry on account %s: %s; going on with account %s%s", c.role, c.name, c.account, message, next, c.resuming()))
+			return true, nil
+		}
 	}
 	until := usage.MarkExhausted(c.model.Provider, "", usage.TryAgainAt(said))
 	c.l.say(fmt.Sprintf("WARN %s %s refused: %s; nothing is picked on %s until %s", c.role, c.name, message, c.model.Provider, time.Unix(int64(until), 0).Format("2006-01-02 15:04")))

@@ -86,7 +86,7 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 
 // reached is whether Go's resume reads that run at all: anything else is Python's before a refusal.
 func reached(dir string, record *run.Object) bool {
-	return record != nil && gateHere(record) && !ungated(filepath.Base(dir)) && !seated() &&
+	return record != nil && gateHere(record) && !ungated(filepath.Base(dir)) &&
 		!(run.Lined(record) && !loop.Woken(record)) && run.Carries(record)
 }
 
@@ -105,8 +105,7 @@ func goesOn(dir string, read, record *run.Object) bool {
 			loop.Raised(dir, read, record))
 }
 
-// driverHere is whether a driver can run on this host: in a box, with meters it can read, its
-// turns on no provider's several accounts.
+// driverHere is whether a driver can run on this host: in a box, with meters it can read.
 func driverHere() bool {
-	return box.Supported && usage.Check() == nil && !accountTurns()
+	return box.Supported && usage.Check() == nil
 }

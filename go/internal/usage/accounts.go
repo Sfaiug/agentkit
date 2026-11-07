@@ -49,25 +49,6 @@ func (r *Readings) Accounts(name, home string) ([]Account, error) {
 	if len(accounts.Keys()) != len(listed) {
 		return nil, ErrPython
 	}
-	sources, err := config.Subscriptions()
-	if err != nil {
-		return nil, err
-	}
-	own := model.Harness
-	for _, src := range sources {
-		if src.Name == model.Provider {
-			own = src.Harness
-			break
-		}
-	}
-	facts, err := config.Usage(own)
-	if err != nil {
-		return nil, err
-	}
-	every := facts.ProbeEvery
-	if every <= 0 {
-		every = 60
-	}
 	var found []Account
 	for _, account := range listed {
 		record := accounts.Dict(account)
@@ -79,19 +60,7 @@ func (r *Readings) Accounts(name, home string) ([]Account, error) {
 		}
 		r := &Readings{providers: fields(model.Provider, record), models: models, now: now}
 		budget, why := r.Budget(name)
-		low := false
-		meters, _ := r.gating(name)
-		for _, meter := range meters {
-			used, known := number(meter.Get("used"))
-			elapsed, _ := number(meter.Get("elapsed"))
-			window, _ := number(meter.Get("window_secs"))
-			floor := 5.0
-			if elapsed > 0 && window > 0 {
-				floor = max(floor, used/(elapsed/100*window)*every)
-			}
-			low = low || known && 100-used < floor
-		}
-		found = append(found, Account{account, r.Spent(name), r.OnCredits(name), low, why != "", budget})
+		found = append(found, Account{account, r.Spent(name), r.OnCredits(name), r.low(name), why != "", budget})
 	}
 	slices.SortStableFunc(found, func(a, b Account) int {
 		for _, pair := range [][2]bool{{a.Spent != "", b.Spent != ""}, {a.Credits, b.Credits}, {a.Low, b.Low}, {a.Unknown, b.Unknown}} {
