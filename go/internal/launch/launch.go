@@ -58,14 +58,24 @@ var (
 // the run's log says and on errOut what becomes of a run its driver left: `ak run`'s exit status,
 // and why the launch is refused, "" for a run that went on.
 func Task(path string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (int, string, error) {
+	l, text, err := typed(path)
+	if err != nil {
+		return 0, "", err
+	}
+	_, code, why, err := l.launch(path, text, values, flags, out, errOut)
+	return code, why, err
+}
+
+// typed is the launcher of `ak run`'s launch of the task file at path, as it reads now, and what
+// the file says; ErrPython for one Go does not read as Python does.
+func typed(path string) (launcher, string, error) {
 	data, err := os.ReadFile(path)
 	bound, unbound := bind()
 	if err != nil || !utf8.Valid(data) || unbound != nil {
-		return 0, "", ErrPython
+		return launcher{}, "", ErrPython
 	}
 	seated, _, _ := Seat()
-	_, code, why, err := launcher{seat: seated, bound: bound}.launch(path, task.Text(data), values, flags, out, errOut)
-	return code, why, err
+	return launcher{seat: seated, bound: bound}, task.Text(data), nil
 }
 
 // A launcher is who makes a launch and what its receipt binds: a seat's or the owner's `ak run`,
@@ -79,66 +89,109 @@ type launcher struct {
 	bound  config.Binding // the lists and efforts its receipt binds
 	origin *run.Object    // why the tick made it, nil for `ak run`
 	files  [][2]string    // the tick's task files, path and text; `ak run`'s task is written already
+	job    *jobRun        // the job whose task it is, nil for none: it asks for a change under way itself
 }
 
 // launch is the launch of the task at path, text being what it says, as Task says, and the run's
 // directory, "" where it made none.
 func (l launcher) launch(path, text string, values map[string]string, flags map[string]bool, out, errOut io.Writer) (string, int, string, error) {
-	meta, cmds, err := task.Parse(path, text)
-	if err != nil || python(path, values, l.bound) {
-		return "", 0, "", ErrPython
+	at, code, why, err := l.judge(path, text, values, flags)
+	if at == nil {
+		return "", code, why, err
 	}
-	// read before the receipt, as Python's capture_launch does: a refusal here leaves no run
-	if _, err := config.MaxRuns(); err != nil {
-		return "", 2, err.Error(), nil
-	}
-	named := titleOf(path, text)
-	dir, err := freeDir(time.Now().Format("20060102-1504-") + task.Slug(named))
+	defer at.place.admitted.release()
+	log, unstopped, err := at.make(out)
 	if err != nil {
 		return "", 0, "", err
 	}
-	copied := filepath.Join(dir, "task.md")
-	reason, warning, place, err := l.preflight(meta, cmds, path, copied, named, values, flags)
-	var outright *refusedOutright
-	if errors.As(err, &outright) {
-		return "", 2, outright.why, nil
-	}
-	defer place.admitted.release()
-	if err != nil {
-		return "", 0, "", err
-	}
-	log, unstopped := logger(dir, out), guarded(dir, out)
-	logged := filepath.Join(dir, "log.txt")
-	title := task.Title(text, "task")
-	for _, step := range []func() error{
-		config.EnsureDirs,
-		l.write,
-		func() error { return os.Mkdir(dir, 0o777) },
-		func() error { return os.WriteFile(copied, []byte(text), 0o666) },
-		func() error { return os.WriteFile(logged, nil, 0o666) },
-		func() error { return receive(dir, l.receipt(dir, path, values, flags), place.admitted) },
-		func() error { recorded(dir); return nil },
-		func() error { seat.Redress(l.seat); return nil }, // the seat's bar says it from the start
-		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
-	} {
-		if err := step(); err != nil {
-			return "", 0, "", err
-		}
-	}
+	reason := at.reason
 	if reason == "" && l.origin != nil {
 		reason = unstaffed(l.bound) // the tick's pick, made first
 	}
 	if reason == "" {
-		code, err := drive(dir, meta, place, warning, flags, l.seat, unstopped, log, out, errOut)
-		return dir, code, "", err
+		code, err := drive(at.dir, at.meta, at.place, at.warning, flags, l.seat, unstopped, log, out, errOut)
+		return at.dir, code, "", err
 	}
-	code, why, err := refuse(dir, reason, warning, log)
-	return dir, code, why, err
+	code, why, err = refuse(at.dir, reason, at.warning, log)
+	return at.dir, code, why, err
 }
 
-// receipt is the launch's first record: what `ak run` records, with why the tick made it.
+// A launching is a launch as judge settled it, nothing written yet: the task file and what it
+// says, its title and options, the run's directory, why preflight refuses it with the warning its
+// log says first, and where a run it passes works.
+type launching struct {
+	launcher
+	path, text, named, dir string
+	meta                   map[string]string
+	cmds                   []string
+	values                 map[string]string
+	flags                  map[string]bool
+	reason, warning        string
+	place                  place
+}
+
+// judge is the launch of the task at path as preflight settles it; nil where it goes no further,
+// with `ak run`'s exit status and why for one refused before any run directory, or ErrPython.
+func (l launcher) judge(path, text string, values map[string]string, flags map[string]bool) (*launching, int, string, error) {
+	meta, cmds, err := task.Parse(path, text)
+	if err != nil || python(path, values, l.bound) {
+		return nil, 0, "", ErrPython
+	}
+	// read before the receipt, as Python's capture_launch does: a refusal here leaves no run
+	if _, err := config.MaxRuns(); err != nil {
+		return nil, 2, err.Error(), nil
+	}
+	at := &launching{launcher: l, path: path, text: text, named: titleOf(path, text), meta: meta, cmds: cmds,
+		values: values, flags: flags}
+	if at.dir, err = freeDir(time.Now().Format("20060102-1504-") + task.Slug(at.named)); err != nil {
+		return nil, 0, "", err
+	}
+	at.reason, at.warning, at.place, err = l.preflight(meta, cmds, path, filepath.Join(at.dir, "task.md"), at.named, values, flags)
+	var outright *refusedOutright
+	if errors.As(err, &outright) {
+		return nil, 2, outright.why, nil
+	}
+	if err != nil {
+		at.place.admitted.release()
+		return nil, 0, "", err
+	}
+	return at, 0, "", nil
+}
+
+// make writes the launch's run: the tick's task files, its directory, the task's copy, its log,
+// its receipt and its title; with what says a line in its log and changes its record unless a stop
+// landed.
+func (at *launching) make(out io.Writer) (func(string) error, func(func(*run.Object)) error, error) {
+	log, unstopped := logger(at.dir, out), guarded(at.dir, out)
+	title := task.Title(at.text, "task")
+	for _, step := range []func() error{
+		config.EnsureDirs,
+		at.write,
+		func() error { return os.Mkdir(at.dir, 0o777) },
+		func() error { return os.WriteFile(filepath.Join(at.dir, "task.md"), []byte(at.text), 0o666) },
+		func() error { return os.WriteFile(filepath.Join(at.dir, "log.txt"), nil, 0o666) },
+		func() error {
+			return receive(at.dir, at.receipt(at.dir, at.path, at.values, at.flags), at.place.admitted)
+		},
+		func() error { recorded(at.dir); return nil },
+		func() error { seat.Redress(at.seat); return nil }, // the seat's bar says it from the start
+		func() error { return unstopped(func(record *run.Object) { record.Set("title", title) }) },
+	} {
+		if err := step(); err != nil {
+			return nil, nil, err
+		}
+	}
+	return log, unstopped, nil
+}
+
+// receipt is the launch's first record: what `ak run` records, with why the tick made it, and the
+// job of a job's task, named in that first write as Python's capture_launch names it, so a stop
+// knows it for one from the start.
 func (l launcher) receipt(dir, path string, values map[string]string, flags map[string]bool) *run.Object {
 	record := run.Capture(dir, path, values, flags, l.bound, l.seat)
+	if l.job != nil {
+		record.Set("job_id", l.job.id())
+	}
 	if l.origin != nil {
 		for _, key := range l.origin.Keys() {
 			record.Set(key, l.origin.Get(key))
@@ -169,13 +222,18 @@ func titleOf(path, text string) string {
 
 // freeDir is the run's directory under that id, `-N` after it where the id is taken.
 func freeDir(id string) (string, error) {
-	dir := filepath.Join(run.Runs(), id)
-	taken, err := exists(dir)
+	return free(filepath.Join(run.Runs(), id))
+}
+
+// free is the path, `-N` after it where the path is taken.
+func free(path string) (string, error) {
+	named := path
+	taken, err := exists(path)
 	for n := 2; taken && err == nil; n++ {
-		dir = filepath.Join(run.Runs(), id+"-"+strconv.Itoa(n))
-		taken, err = exists(dir)
+		path = named + "-" + strconv.Itoa(n)
+		taken, err = exists(path)
 	}
-	return dir, err
+	return path, err
 }
 
 // logger says a line on out and in the run's log.  A reader that stops reading ends the reading,
@@ -411,14 +469,17 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 		return refuse("", "", &refusedOutright{err.Error()})
 	}
 	// a change under way is refused next, as Python's already_under_way is; only an owner's own
-	// `ak run` may start a second run regardless
-	found, err := rivals(repo, path, title, cmds)
-	if err != nil {
-		return refuse("", "", err)
-	} else if len(found) > 0 && !flags["--anyway"] {
-		return refuse("", "", &refusedOutright{underWayRefusal(found, l.seat != "" || l.origin != nil)})
-	} else if len(found) > 0 {
-		at.alongside = found[0].id
+	// `ak run` may start a second run regardless.  A job's task is not asked: its job asked for
+	// every task before its first, which no run of its own then rivals.
+	if l.job == nil {
+		found, err := rivals(repo, path, title, cmds)
+		if err != nil {
+			return refuse("", "", err)
+		} else if len(found) > 0 && !flags["--anyway"] {
+			return refuse("", "", &refusedOutright{underWayRefusal(found, l.seat != "" || l.origin != nil)})
+		} else if len(found) > 0 {
+			at.alongside = found[0].id
+		}
 	}
 	// then the contract, which a task cannot supply, as Python's require_project_contract is
 	if why := gitcall.ContractRefusal(repo); why != "" && l.origin == nil {
