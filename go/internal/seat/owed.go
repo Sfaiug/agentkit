@@ -124,7 +124,7 @@ func continuationQueued(file *run.Object) bool {
 // prompt, its harness's answers counted from the moment it went in (`switched`).
 func TellOwed(name string, log func(string)) (bool, error) {
 	file, _ := run.ReadJSON(seatFile(name))
-	if !owedReadable(file) {
+	if !owedReadable(file) || movesUntyped(name, file) {
 		return false, nil
 	}
 	if file == nil || len(file.List("owed_lines")) == 0 || !Watching(name) {

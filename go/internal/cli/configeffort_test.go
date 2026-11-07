@@ -74,3 +74,54 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 		t.Fatal("effort edit rewrote config.toml")
 	}
 }
+
+// A step on a seat whose model the model list turned off is Python's, which refuses it before
+// anything else: Go writes nothing, the seat's harness running as it does.
+func TestAStepOnAModelTurnedOffIsHandedOff(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the fakes are shell scripts")
+	}
+	home := t.TempDir()
+	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_TMUX_SOCKET": "effort-off",
+		"AGENTKIT_ADAPTER_DIR": filepath.Join(home, "adapters"), "PATH": filepath.Join(home, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")} {
+		t.Setenv(key, value)
+	}
+	put := func(path, text string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(text), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put(filepath.Join(home, ".agentkit", "config.toml"), "companies = ['Acme']\nmodels_off = ['acme-mid-5']\n"+
+		"[models.mid]\nharness = 'claude'\nmodel = 'acme-mid-5'\neffort = 'high'\nprovider = 'fuel'\n[providers.fuel]\nmode = 'subscription'\n")
+	put(filepath.Join(home, ".agentkit", "state", "matrix.json"), `{"matrix": {"lineup": [{"release": "acme-mid-5", "maker": "Acme", "effort": "high", `+
+		`"values": {"aa.intelligenceIndex": 50, "arena.agent": 0.6, "aa.frontierCode20": 0.6, "aa.omniscience": 50}, "yours": [{"harness": "claude", "model": "acme-mid-5"}]}]}}`)
+	put(filepath.Join(home, "adapters", "claude.sh"), "#!/bin/sh\nprintf 'signed in\\n'\n")
+	put(filepath.Join(home, "bin", "claude"), "#!/bin/sh\nexit 0\n")
+	put(filepath.Join(home, "bin", "tmux"), `#!/bin/sh
+case "$*" in
+  *list-sessions*) printf 'acme\t1\n' ;;
+  *list-panes*) printf 'acme\t0\n' ;;
+  *show-options*) printf '%%1\n' ;;
+  *'#{session_name}'*) echo acme ;;
+  *'#{pane_dead}'*) echo 0 ;;
+esac
+`)
+	record := filepath.Join(home, ".agentkit", "state", "session-acme.json")
+	put(record, `{"orchestrator": "mid", "workers": ["mid"], "efforts": {"mid": {"effort": "high"}}}`)
+	c, err := matrix.Configured()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Levels["mid"] = []string{"high", "max"}
+	before, _ := os.ReadFile(record)
+	if note, known := stepConfigEffort(c, "acme", 0, 3, -1); known || note != "" {
+		t.Fatalf("a step on a model turned off was not handed off: %q, %v", note, known)
+	}
+	if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
+		t.Fatalf("a step handed off rewrote the record: %s", after)
+	}
+}

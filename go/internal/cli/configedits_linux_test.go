@@ -15,7 +15,7 @@ func TestConfigRestartHandoffsLeaveRecordAndConfigBytesAlone(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
 	call := exec.Command("python3", "-B", "-c", `
-import os, sys
+import os, sys, time
 from pathlib import Path
 os.environ["AK_BIN"] = sys.argv[1]
 sys.path.insert(0, str(Path("tests").resolve()))
@@ -31,7 +31,14 @@ for edit in ("move", "effort"):
         if edit == "move":
             # Runnable moves now ask in Go; a login refusal still hands over.
             adapters["codex"].answer("auth", "fixture login missing", 1)
-        Seat(home, "acme", model="fable", record={"workers": ["astra"], "repo": None})
+        seat = Seat(home, "acme", model="fable", record={"workers": ["astra"], "repo": None})
+        if edit == "effort":
+            # A step its running harness takes is Go's; one whose harness ended asks to restart.
+            home.tmux("respawn-pane", "-k", "-t", seat.pane, "true")
+            deadline = time.monotonic() + 10
+            while home.tmux("display-message", "-p", "-t", seat.pane, "#{pane_dead}").out.strip() != "1":
+                assert time.monotonic() < deadline, "the seat's harness never ended"
+                time.sleep(0.05)
         record = home.path / ".agentkit/state/session-acme.json"
         # Deliberate whitespace catches even a rewrite of an otherwise equal record.
         record.write_bytes(b"  " + record.read_bytes() + b"\n\n")
