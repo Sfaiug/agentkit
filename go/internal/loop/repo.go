@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -216,32 +215,11 @@ func (r *repoPlace) settle(l *loop) error {
 	return nil
 }
 
-// makeWorktree cuts the run's checkout from that commit, on a branch whose name is free on
-// the remote too: two runs that picked one locally would both push it, and the second is rejected
-// after its work has passed.  An origin that cannot say is the empty set: naming is not worth
-// failing a run over.
+// makeWorktree cuts the run's checkout on a branch of its own made from that commit.
 func (r *repoPlace) makeWorktree(l *loop, slug, start string) error {
-	g := gitcall.Git{Repo: r.repo}
-	taken := map[string]bool{}
-	asked := g
-	asked.Cap = time.Minute
-	if code, out, _, err := asked.Run("ls-remote", "--heads", "origin", "refs/heads/ak/"+slug+"*"); err == nil && code == 0 {
-		for _, line := range config.SplitLines(out) {
-			if _, ref, found := strings.Cut(line, "\t"); found {
-				taken[strings.TrimPrefix(ref, "refs/heads/")] = true
-			}
-		}
-	}
-	r.branch = "ak/" + slug
-	for suffix := 2; ; suffix++ {
-		found, err := g.Try("rev-parse", "--verify", "--quiet", "refs/heads/"+r.branch)
-		if err != nil {
-			return err
-		}
-		if !taken[r.branch] && found == "" {
-			break
-		}
-		r.branch = fmt.Sprintf("ak/%s-%d", slug, suffix)
+	var err error
+	if r.branch, err = makeBranch(r.repo, slug, start); err != nil {
+		return err
 	}
 	r.wt = filepath.Join(config.Home(), "wt", l.id)
 	held, err := gitcall.PrepareCheckout(r.repo)
@@ -249,7 +227,8 @@ func (r *repoPlace) makeWorktree(l *loop, slug, start string) error {
 		return err
 	}
 	defer held.Close()
-	code, out, err := g.Out("worktree", "add", "--lock", "--reason", gitcall.Making, r.wt, "-b", r.branch, start)
+	g := gitcall.Git{Repo: r.repo}
+	code, out, err := g.Out("worktree", "add", "--lock", "--reason", gitcall.Making, r.wt, r.branch)
 	if err == nil && code == 0 {
 		code, out, err = g.Out("worktree", "unlock", r.wt)
 	}
