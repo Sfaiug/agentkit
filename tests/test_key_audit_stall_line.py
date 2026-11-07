@@ -5,7 +5,8 @@ first in line for a slot has waited two hours while the queue is polled, where t
 let in waited a quarter of an hour.  While this week's line is not yet delivered, the stall's
 waits behind it.  Once it is, a tick that finds the stall writes its line to state/stuck.json,
 logs `stuck: <line>`, and the line goes into the audit seat at its quiet prompt, as the week's
-goes; later ticks while the same stall runs tell nothing new.  Black-box: the program `AK_BIN`
+goes; later ticks while the same stall runs tell nothing new, and once the run is let in the
+next tick leaves it out of the file's `told`.  Black-box: the program `AK_BIN`
 names runs from outside through tests/fixtures/akbin.py, each tick in the box `home.tick()`
 builds, before a seat of tests/fixtures/akseat.py, judged by what its pane received, what the
 ticks printed and state/stuck.json.  The queue is ak's own file, polled before each tick as its
@@ -35,6 +36,8 @@ def stuck_lines(done):
 
 @unittest.skipUnless(REAL_TMUX and boxable(), "no tmux, or no bwrap able to box a tick here")
 class AuditStallLine(unittest.TestCase):
+    queue = [FIRST, BEHIND]
+
     @classmethod
     def setUpClass(cls):
         cls.home = home = Home()
@@ -52,12 +55,14 @@ class AuditStallLine(unittest.TestCase):
             cls.ticks.append(cls.tick())
         cls.told = cls.read("stuck.json")
         cls.later = [cls.tick(), cls.tick()]
+        cls.queue, cls.since = [BEHIND], time.time()     # let in, it hands first place on
+        cls.ended = cls.tick()
 
     @classmethod
     def tick(cls):
         """One tick, its queue polled just before as its first polls it: the same wait."""
         cls.home.write(".agentkit/runs/.slots.queue", {
-            "at": time.time(), "running": 1, "queue": [FIRST, BEHIND], "since": cls.since,
+            "at": time.time(), "running": 1, "queue": cls.queue, "since": cls.since,
             "took": PACE, "last_in": cls.since, "turns": []})
         return cls.home.tick()
 
@@ -69,7 +74,7 @@ class AuditStallLine(unittest.TestCase):
             return {}
 
     def test_every_tick_succeeds(self):
-        for done in (self.busy, *self.ticks, *self.later):
+        for done in (self.busy, *self.ticks, *self.later, self.ended):
             self.assertEqual(done.code, 0, done.out + done.err)
 
     def test_while_the_week_s_line_waits_the_stall_s_waits_behind_it(self):
@@ -91,6 +96,9 @@ class AuditStallLine(unittest.TestCase):
             self.assertEqual(stuck_lines(done), [], done.out)
         self.assertEqual(self.read("stuck.json").get("line"), self.told.get("line"))
         self.assertEqual(len(self.seat.lines()), 2, self.seat.lines())
+
+    def test_once_the_stall_ends_a_tick_leaves_it_out_of_told(self):
+        self.assertEqual(self.read("stuck.json").get("told"), [], self.ended.out)
 
 
 if __name__ == "__main__":
