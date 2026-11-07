@@ -50,7 +50,7 @@ func forgetFailedUnits(report func(string)) {
 			return
 		}
 		if record != nil && !run.Ended(record) {
-			held = append(held, scopeUnits(record.Str("scope"))...)
+			held = append(held, host.ScopeUnits(record.Str("scope"))...)
 		}
 	}
 	code, listed, err := host.Systemctl("list-units", "--failed", "--no-legend", "--plain", "--no-pager", "agentkit-*")
@@ -111,17 +111,6 @@ func stopTestUnits(report func(string)) {
 			report("gc: stopped " + id + ", a test suite's unit a day old")
 		}
 	}
-}
-
-// scopeUnits is the unit names a record's scope might be, scope first (turns._scope_units).
-func scopeUnits(scope string) []string {
-	switch {
-	case scope == "":
-		return nil
-	case strings.HasSuffix(scope, ".scope") || strings.HasSuffix(scope, ".service"):
-		return []string{scope}
-	}
-	return []string{scope + ".scope", scope + ".service"}
 }
 
 // word is a line's first word, as Python's split() reads words; empty for a blank line.
