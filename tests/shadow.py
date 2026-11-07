@@ -184,24 +184,44 @@ def touched(upper, home):
 
 
 def _state(path):
-    """What a run can change of a path, None where there is none: its kind and mode, and a link's
-    target or a file's time and bytes.  Never a folder's time: each entry written in it moves it."""
+    """What a run can change of a path, None where there is none: its kind, mode and extended
+    attributes, and a link's target or a file's time and bytes.  Never a folder's time: each entry
+    written in it moves it."""
     try:
         found = path.lstat()
+        if stat.S_ISCHR(found.st_mode) and found.st_rdev == 0:
+            return None     # overlayfs's whiteout
+        state = found.st_mode, _attributes(path)
+        if stat.S_ISLNK(found.st_mode):
+            return *state, os.readlink(path)
+        if not stat.S_ISREG(found.st_mode):
+            return state
+        try:
+            with path.open("rb") as opened:
+                digest = hashlib.file_digest(opened, "sha256").digest()
+        except PermissionError:
+            digest = None   # its mode, changed or not, is all there is to tell
+        return *state, found.st_mtime_ns, digest
     except (FileNotFoundError, NotADirectoryError, PermissionError):
-        return None     # none there, or none in a home folder its user cannot enter
-    if stat.S_ISCHR(found.st_mode) and found.st_rdev == 0:
-        return None     # overlayfs's whiteout
-    if stat.S_ISLNK(found.st_mode):
-        return found.st_mode, os.readlink(path)
-    if not stat.S_ISREG(found.st_mode):
-        return found.st_mode,
-    try:
-        with path.open("rb") as opened:
-            digest = hashlib.file_digest(opened, "sha256").digest()
-    except PermissionError:
-        digest = None   # its mode, changed or not, is all there is to tell
-    return found.st_mode, found.st_mtime_ns, digest
+        # none there, gone while it was read (the home is live), or in a home folder its user
+        # cannot enter
+        return None
+
+
+def _attributes(path):
+    """A path's extended attributes but overlayfs's own, which its upper layer alone holds: each
+    one's value, or None where its user cannot read it."""
+    found = {}
+    for name in os.listxattr(path, follow_symlinks=False):
+        if not name.startswith("user.overlay."):
+            try:
+                found[name] = os.getxattr(path, name, follow_symlinks=False)
+            except PermissionError:
+                found[name] = None
+            except OSError as error:    # ENODATA: removed since it was listed, as the home is live
+                if error.errno != errno.ENODATA:
+                    raise
+    return found
 
 
 def _names(folder):

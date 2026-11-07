@@ -1,4 +1,4 @@
-"""tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of five fake
+"""tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of six fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
 every byte and modification time; and where no box can be built, nothing runs."""
 
@@ -19,13 +19,16 @@ COMMAND = ("usage",)    # one that writes under HOME: ak's folders and its probe
 OUTER = ("bwrap", "--dev-bind", "/", "/", "--tmpfs", "/var/tmp")
 # Each fake Go: Python's ak, then one thing more, exiting as Python did.
 GO = shlex.quote(str(REPO / "bin" / "ak")) + ' "$@"\ncode=$?\n{}\nexit $code'
-MORE = {
-    "line": 'echo "a line only go prints"',
-    "hand-over": 'echo "seat revival" >"$AK_HANDOVER"',
-    "home": 'echo "{}" >"$HOME/.agentkit/state/go-only.json"',
-    "page": 'echo "a page only go sent" >>"$AK_NOTIFY_SINK_LOG"',
-    "call": "tmux send-keys -t acme Enter 2>/dev/null",
-}
+MORE = (
+    ("line", 'echo "a line only go prints"'),
+    ("hand-over", 'echo "seat revival" >"$AK_HANDOVER"'),
+    ("home", 'echo "{}" >"$HOME/.agentkit/state/go-only.json"'),
+    # an extended attribute alone, of a file Python leaves be: its mode, time and bytes stay
+    ("home", shlex.quote(sys.executable) + " -c 'import os, sys; os.setxattr(sys.argv[1], "
+             '"user.acme", b"go")\' "$HOME/.gitconfig"'),
+    ("page", 'echo "a page only go sent" >>"$AK_NOTIFY_SINK_LOG"'),
+    ("call", "tmux send-keys -t acme Enter 2>/dev/null"),
+)
 
 
 def every_byte_and_time(home):
@@ -50,7 +53,7 @@ class Shadowed(unittest.TestCase):
     def shadow(self, *args, box=OUTER, env=None):
         done = self.home.run(*(self.home.box(box) if box else ()), sys.executable, SHADOW, *args,
                              "--home", str(self.home.path), "--", *COMMAND, env=env, timeout=900)
-        return done.code, {kind for kind in (*MORE, "exit") for line in done.out.splitlines()
+        return done.code, {kind for kind in (*dict(MORE), "exit") for line in done.out.splitlines()
                            if line.startswith(f"{kind}: ")}, done.out + done.err
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
@@ -58,9 +61,9 @@ class Shadowed(unittest.TestCase):
         before = every_byte_and_time(self.home.path)
         code, named, said = self.shadow("--go", "python")
         self.assertEqual((code, named), (0, set()), said)
-        for kind, more in MORE.items():
-            with self.subTest(kind):
-                code, named, said = self.shadow("--go", self.fake(kind, GO.format(more)))
+        for number, (kind, more) in enumerate(MORE):
+            with self.subTest(kind, number=number):
+                code, named, said = self.shadow("--go", self.fake(str(number), GO.format(more)))
                 self.assertEqual((code, named), (1, {kind}), said)
         self.assertEqual(every_byte_and_time(self.home.path), before)
 
