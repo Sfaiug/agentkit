@@ -33,7 +33,7 @@ func (seat *Seat) goneAt(state string, place int, now time.Time) error {
 	facts.gone, facts.place = seat, place
 	said, err := facts.climb()
 	if err == nil {
-		seat.Word, seat.reason, seat.since, seat.question, seat.anew = said.word, said.reason, said.since, said.question, said.anew
+		seat.Word, seat.reason, seat.since, seat.question, seat.anew, seat.login = said.word, said.reason, said.since, said.question, said.anew, said.login
 	}
 	return err
 }

@@ -40,7 +40,7 @@ func loginOut(facts climbing) (*answer, error) {
 	}
 	remedy, _ := auth["remedy"].(string) // the harness's own, from its manifest (watch.login_reason)
 	return &answer{word: "needs you", reason: facts.own + " login expired: open it and " + cmp.Or(remedy, "log in again"),
-		since: found.Get("at")}, nil
+		since: found.Get("at"), login: true}, nil
 }
 
 // everySeatsNews: [1b] gh logged out, the one login no harness owns, and [1c] a dead worker token,
@@ -56,7 +56,7 @@ func everySeatsNews(facts climbing) (*answer, error) {
 		if gh == nil {
 			return nil, ErrUnread // Python's `.get` on it raises
 		}
-		return &answer{word: "needs you", reason: "GitHub is logged out: run `gh auth login -p https -w`", since: gh.Get("at")}, nil
+		return &answer{word: "needs you", reason: "GitHub is logged out: run `gh auth login -p https -w`", since: gh.Get("at"), login: true}, nil
 	}
 	tokens := facts.tick.Dict("worker_tokens")
 	if tokens == nil {
@@ -74,7 +74,7 @@ func everySeatsNews(facts climbing) (*answer, error) {
 		if !named || !given {
 			return nil, ErrUnread // Python words whatever value they hold
 		}
-		return &answer{word: "needs you", reason: harness + " worker token expired: " + remedy, since: record.Get("at"), anew: true}, nil
+		return &answer{word: "needs you", reason: harness + " worker token expired: " + remedy, since: record.Get("at"), anew: true, login: true}, nil
 	}
 	return nil, nil
 }

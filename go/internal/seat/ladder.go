@@ -27,8 +27,9 @@ type climbing struct {
 
 // An answer is a rung's: the seat's word, why and since when, whether that why is the question
 // the seat's screen or notice asks, which its bar does not repeat, when one out of usage comes
-// back (`resumes_at`), which its bar says, whether only what the seat waits on gives it, and
-// whether its since begins the word again where it stood since before then.
+// back (`resumes_at`), which its bar says, whether only what the seat waits on gives it, whether
+// its since begins the word again where it stood since before then, and whether it is the tick's
+// news of a login.
 type answer struct {
 	word, reason string
 	since        any
@@ -36,6 +37,7 @@ type answer struct {
 	back         any
 	waits        bool
 	anew         bool
+	login        bool
 }
 
 // A rung decides the seat, nil where it passes the seat on, or says with ErrUnread that Go does not
@@ -105,7 +107,7 @@ func (seat *Seat) decided(state string, found sight, now float64, attached bool)
 	if err != nil {
 		return err
 	}
-	seat.Word, seat.reason, seat.since, seat.question, seat.back, seat.anew = said.word, said.reason, said.since, said.question, said.back, said.anew
+	seat.Word, seat.reason, seat.since, seat.question, seat.back, seat.anew, seat.login = said.word, said.reason, said.since, said.question, said.back, said.anew, said.login
 	seat.seen = found
 	seat.unsent = ""
 	if found.state == "draft" && !attached && found.composerOpen(seat.own) && !found.typedByAk {
@@ -153,7 +155,7 @@ func onItsScreen(facts climbing) (*answer, error) {
 	if facts.found.state != "asking" {
 		return nil, nil
 	}
-	return &answer{"needs you", cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), facts.found.began, true, nil, false, false}, nil
+	return &answer{word: "needs you", reason: cmp.Or(config.Fold(facts.found.evidence), "waiting for you"), since: facts.found.began, question: true}, nil
 }
 
 // ownQuestion: one it asked with `ak notify needs`, nothing having answered it, once the turn it
@@ -168,7 +170,7 @@ func ownQuestion(facts climbing) (*answer, error) {
 			return nil, err
 		}
 	}
-	return &answer{"needs you", config.Fold(facts.notice.Str("text")), facts.notice.Get("time"), true, nil, false, false}, nil
+	return &answer{word: "needs you", reason: config.Fold(facts.notice.Str("text")), since: facts.notice.Get("time"), question: true}, nil
 }
 
 // usage is the seat's wait on its subscription, which its seat file keeps: none for a seat nobody is

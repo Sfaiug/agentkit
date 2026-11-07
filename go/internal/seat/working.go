@@ -24,7 +24,7 @@ func Working(now time.Time) ([]string, bool) {
 	order(seats)
 	var working []string
 	for _, each := range seats {
-		switch word, _, _ := home.cardAnswer(each.Name, now); word {
+		switch word, _, _, _ := home.cardAnswer(each.Name, now); word {
 		case "":
 			return nil, false
 		case "working":

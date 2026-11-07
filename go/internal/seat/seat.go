@@ -40,6 +40,7 @@ type Seat struct {
 	reason, restart                                   string
 	since, repo                                       any
 	anew                                              bool     // its since begins its word again (answer.anew)
+	login                                             bool     // its word is the tick's news of a login (answer.login)
 	infer                                             bool     // the record holds no repo
 	unowned                                           bool     // its harness owns no conversation: only the owner's close can keep its row
 	closed                                            bool     // its seat file holds the owner's stop mark
