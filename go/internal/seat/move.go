@@ -22,12 +22,11 @@ const movedLine = "This seat moved to you in the middle of a turn. Continue that
 
 // A seatMove is what a move writes in the seat's record: from the orchestrator it held (`was`,
 // run by `own`), the fields it takes (`chosen`), and its orchestrator's effort where one is given
-// (`effort` on `model`, its entry among `models`); a restart's first line, and when it began.
+// (`effort` on `model`, its entry among `models`); when a restart began.
 type seatMove struct {
 	was, own, model, effort string
 	models                  map[string]config.Model
 	chosen                  []field
-	line                    string
 	at                      float64
 }
 
@@ -162,7 +161,7 @@ func (plan *plannedMove) carry(asked func() (bool, bool)) (bool, error) {
 	moving.at = seconds(time.Now())
 	going, _ := found.turnInFlight(was.Harness)
 	if going || usageGoesOn(name) {
-		moving.line = movedLine
+		back.line = movedLine
 	}
 	text, known := harness.Handover(was.Harness, record)
 	if !known {
@@ -252,11 +251,11 @@ func (moving *seatMove) launch(state, name string, launch func() error) error {
 	})
 }
 
-func (moving *seatMove) relaunched(name, own string) error {
-	if moving.line == "" {
+func (moving *seatMove) relaunched(name, own, line string) error {
+	if line == "" {
 		return nil
 	}
-	mark := run.Fields("boot", host.BootID(), "at", run.Float(moving.at), "name", name, "line", moving.line)
+	mark := run.Fields("boot", host.BootID(), "at", run.Float(moving.at), "name", name, "line", line)
 	launch, err := config.Section(own, "launch")
 	if err != nil {
 		return err

@@ -173,6 +173,10 @@ func TestMoveUsesReopenAndRestoresARefusedRestart(t *testing.T) {
 				file.Dict("midturn").Get("launched") != true || strings.TrimSpace(string(prompt)) != movedLine {
 				t.Fatal("continuation differs", run.Line(file), string(prompt))
 			}
+			// the first prompt is ak's, never the owner's (receipted)
+			if typed, _ := os.ReadFile(ownFile("input", "acme")); !strings.Contains(string(typed), `"text": `+run.Line(movedLine)+`, "source": "ak"`) {
+				t.Fatal("no typing receipt for the first prompt", string(typed))
+			}
 		})
 	}
 }
