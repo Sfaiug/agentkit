@@ -167,7 +167,13 @@ func Follow(dir string, offset int64, out, errOut io.Writer) int {
 		io.Copy(out, log)
 		record, _ := run.Read(dir)
 		if record == nil || !run.ProcessActive(record) && !parkedInLine(record) {
-			break
+			// the process a record names writes it before it ends, as a driver parking in its line
+			// and a resume starting the next driver do, so it can end between that read and this
+			// check: only a record unchanged since says its process is gone
+			if again, _ := run.Read(dir); again == nil || record != nil && run.Equal(again, record) {
+				break
+			}
+			continue
 		}
 		// its lander is started again now and then, as Python's job_await does: the one its run
 		// started on leaving can die, and a sandbox runs no tick at all
