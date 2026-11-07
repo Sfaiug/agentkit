@@ -1,16 +1,20 @@
 """`c` shows `review_rounds`, `executor_lines` and `orchestrator_lines` on one `Limits` row, at a glance, and
 Enter there opens `config · limits`: a row each under a plain name, its value and `default N`
-where that is not ak's default, the pointed one's meaning and board rows under the rows.  ← and
-→ move the pointed one a step (tests/test_key_limits_arrow_steps.py), saved to config.toml at
-once, every other key kept; both line limits end with `no limit`, and a save that fails changes
-nothing and says why.
+where that is not ak's default, and under the rows the pointed one's meaning, its chart and
+what its runs would have done at its value, in that order, off included.  ← and → move the
+pointed one a step (tests/test_key_limits_arrow_steps.py), saved to config.toml at once, every
+other key kept; both line limits end with `no limit`, and a save that fails changes nothing and
+says why.
 
-The owner's ask of 3 Nov 2026: the keys' names were unclear to users.  Black-box: the program
-`AK_BIN` names, in a person's terminal (tests/fixtures/akterm.py), its harnesses the fakes of
-tests/fixtures/fakeadapter.py, judged by the screen and config.toml.  The terminal has no colour
-(NO_COLOR).  This test fails against `/bin/false`.
+The owner's ask of 3 Nov 2026: the keys' names were unclear to users.  Black-box: history.db's
+`runs` rows written into the Home, then the program `AK_BIN` names, in a person's terminal
+(tests/fixtures/akterm.py), its harnesses the fakes of tests/fixtures/fakeadapter.py, judged by
+the screen and config.toml.  The terminal has no colour (NO_COLOR).  This test fails against
+`/bin/false`.
 """
 
+import calendar
+import sqlite3
 import sys
 from pathlib import Path
 import unittest
@@ -24,12 +28,59 @@ MODELS = {"fable": {"harness": "claude", "effort": "xhigh"},
           "astra": {"harness": "codex", "effort": "high"}}
 NAMES = ("Review rounds", "Max lines per executor task", "Max lines per orchestrator task")
 WIDE = max(map(len, NAMES))
-MEANS = ("The review rounds a change has before it goes back to its orchestrator to split or "
-         "re-scope; it moves first round, unmerged, hours to merge.")
+FIRST, DAY = calendar.timegm((2026, 10, 1, 12, 0, 0)), 86400
+COLUMNS = ("run_id", "repo", "change", "kind", "own_orchestrator", "final_state", "rounds_used",
+           "changed_lines", "first_review_lines", "started_at", "finished_at")
+# (run_id, change, kind, own_orchestrator, final_state, rounds_used, changed_lines,
+# first_review_lines, started): three builds and an orchestrator's own pull request
+RUNS = [("20261001-1200-fix-api-1", None, "task", None, "pass", 1, 40, 40, FIRST),
+        ("20261002-1200-fix-api-2", None, "task", None, "pass", 3, 350, 350, FIRST + DAY),
+        ("20261003-1200-fix-api-3", None, "task", None, "fail", 3, None, 120, FIRST + 2 * DAY),
+        ("20261004-1200-review-pr-api-1", "acme/api#1", "seat PR", "fable", "pass", 1, 60, 60,
+         FIRST + 3 * DAY)]
+# What each limit's lines under the rows say over RUNS, in order: what it means, its chart's
+# heading, and what the runs would have done at ak's default and at 0.
+SAYS = {"review_rounds": (
+            "The review rounds a change has before it goes back to its orchestrator to split or "
+            "re-scope.", "how your 4 runs ended, since 1 Oct",
+            {3: "1 change (25%) went back to their orchestrator after 3 rounds.",
+             0: "Off: no reviewer, so a change lands when its checks pass. None of your runs went "
+                "that way, so they can't say how it would go."}),
+        "executor_lines": (
+            "The most added lines a first review reads.",
+            "how often a build passed its first review, by size · 3 builds since 1 Oct",
+            {300: "1 of your 3 builds (33%) was 300 lines or more and would have been split. "
+                  "Their first review passed 0% of the time, and 50% below 300 lines.",
+             0: "Off: executors build nothing, so your runs can't say how that would go."}),
+        "orchestrator_lines": (
+            "The most added lines an orchestrator builds.",
+            "how often an orchestrator's own pull request merged in its first round, by size · "
+            "1 since 4 Oct",
+            {50: "1 of your orchestrators' 1 own pull requests was 50 lines or more and would have "
+                 "been a task. Round 1 merged 100% of them.",
+             0: "Off: orchestrators build nothing themselves, so every one of their 1 own pull "
+                "request would have been a task."})}
 
 
 def lines(screen):
     return [line.rstrip() for line in screen.split("\n")]
+
+
+def flat(screen):
+    """The screen's words, each run of spaces and line ends one space: wrapped words read on."""
+    return " ".join(screen.split())
+
+
+def write_runs(home):
+    connection = sqlite3.connect(home.path / ".agentkit/history.db")
+    try:
+        connection.execute(f"CREATE TABLE runs ({', '.join(map(repr, COLUMNS))})")
+        connection.executemany(f"INSERT INTO runs VALUES ({', '.join('?' * len(COLUMNS))})",
+                               [(run_id, "acme", *rest, start, start + 3600)
+                                for run_id, *rest, start in RUNS])
+        connection.commit()
+    finally:
+        connection.close()
 
 
 def row(name, value, on=False):
@@ -37,7 +88,8 @@ def row(name, value, on=False):
 
 
 # Settings on the settings screen are each shown with ak's default and the board
-# numbers it moves. [30 Oct 2026]
+# numbers it moves [30 Oct 2026]; since 5 Nov 2026, the numbers a limit moves show as its
+# chart under it.
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class LimitsPage(unittest.TestCase):
     @classmethod
@@ -45,6 +97,7 @@ class LimitsPage(unittest.TestCase):
         cls.home = Home()
         cls.addClassCleanup(cls.home.close)
         fakeadapter.install(cls.home, claude="pass", codex="pass")
+        write_runs(cls.home)
 
     def c(self, settings=None, size=(100, 40)):
         """`c` in a window of its own, over a config.toml setting `settings`."""
@@ -78,6 +131,25 @@ class LimitsPage(unittest.TestCase):
             line.startswith(f"› {name:<{WIDE}}  ") and f" {value} " in f"{line} "
             for line in lines(screen))))
 
+    def reads(self, term, key, held):
+        """`key`'s row pointed at `held`: what it means, its chart's heading and what its runs
+        would have done there show in that order, and no clause naming the board rows it moves."""
+        meaning, heading, said = SAYS[key]
+        parts = (meaning, heading, said[held])
+        shown = flat(term.wait(lambda screen: all(part in flat(screen) for part in parts)))
+        self.assertEqual(sorted(parts, key=shown.index), list(parts), shown)
+        self.assertNotIn("it moves", shown)
+
+    def test_each_limit_says_what_it_means_then_shows_how_your_runs_did(self):
+        for key, name in zip(SAYS, NAMES):
+            for held in SAYS[key][2]:
+                with self.subTest(key=key, held=held):
+                    term = self.c({key: held})
+                    self.limits(term)
+                    term.keys(*["j"] * NAMES.index(name))
+                    term.wait(f"› {name}")
+                    self.reads(term, key, held)
+
     def test_c_shows_one_limits_row_with_the_three_values(self):
         shown = lines(self.c().wait("Limits"))
         self.assertIn("  Limits        review 3 rounds · executor 300 lines · orchestrator 50 "
@@ -91,15 +163,15 @@ class LimitsPage(unittest.TestCase):
         self.assertEqual([line for line in shown if any(name in line for name in NAMES)],
                          [row(NAMES[0], "◂ 3 ▸", on=True), row(NAMES[1], "300"),
                           row(NAMES[2], "off default 50")])
-        self.assertIn(MEANS, " ".join(line.strip() for line in shown))
+        self.assertIn(SAYS["review_rounds"][0], flat("\n".join(shown)))
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
 
-    def test_the_pointer_off_every_row_takes_the_note_away(self):
+    def test_the_pointer_off_every_row_takes_its_lines_away(self):
         term = self.c()
         self.limits(term)
-        term.wait(lambda screen: MEANS in " ".join(screen.split()))
-        term.type("\x1b[<35;8;1M")      # onto the header: the highlight goes out, and the note
-        term.wait(lambda screen: MEANS not in " ".join(screen.split()))
+        term.wait(lambda screen: SAYS["review_rounds"][0] in flat(screen))
+        term.type("\x1b[<35;8;1M")      # onto the header: the highlight goes out, and its lines
+        term.wait(lambda screen: SAYS["review_rounds"][0] not in flat(screen))
 
     def test_on_a_narrow_terminal_each_value_folds_under_its_name_never_cut(self):
         shown = lines(self.limits(self.c(
@@ -126,8 +198,7 @@ class LimitsPage(unittest.TestCase):
         shown = self.moved(term, NAMES[2], ("Left",) * 2, "off")
         self.assertIn(row(NAMES[2], "off ▸ default 50", on=True), shown)
         self.assertEqual(akconfig.read(self.home)["orchestrator_lines"], 0)
-        term.wait(lambda screen: "The orchestrator builds nothing; executors build every change."
-                  in " ".join(screen.split()))
+        self.reads(term, "orchestrator_lines", 0)
 
     def test_moving_executors_off_saves_zero_and_explains_who_builds(self):
         term = self.c()
@@ -135,8 +206,7 @@ class LimitsPage(unittest.TestCase):
         shown = self.moved(term, NAMES[1], ("Left",) * 3, "off")
         self.assertIn(row(NAMES[1], "off ▸ default 300", on=True), shown)
         self.assertEqual(akconfig.read(self.home)["executor_lines"], 0)
-        term.wait(lambda screen: "Executors are off; the orchestrator builds every change itself."
-                  in " ".join(screen.split()))
+        self.reads(term, "executor_lines", 0)
         term.keys("Escape")
         term.wait("executor off")
 
@@ -158,7 +228,7 @@ class LimitsPage(unittest.TestCase):
         shown = self.moved(term, NAMES[0], ("Left",) * 3, "off")
         self.assertIn(row(NAMES[0], "off ▸ default 3", on=True), shown)
         self.assertEqual(akconfig.read(self.home)["review_rounds"], 0)
-        term.wait(lambda screen: "A change lands on its checks; no reviewer." in " ".join(screen.split()))
+        self.reads(term, "review_rounds", 0)
         term.keys("Escape")
         term.wait("review off")
 
