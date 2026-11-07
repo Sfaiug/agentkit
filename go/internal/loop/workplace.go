@@ -24,7 +24,7 @@ type workplace interface {
 	landing() (bool, string)
 	// role is the rules a turn of that word takes.
 	role(word string) string
-	// doneChecks is what a builder's done holds a turn of that word to, nil for nothing.
+	// doneChecks is what a builder's done holds a turn of that word to.
 	doneChecks(l *loop, word string) *run.Object
 	// beforeTurn readies the place for a worker, worked follows the executor's turn.
 	beforeTurn(l *loop)
@@ -69,8 +69,9 @@ func placeOf(record *run.Object) workplace {
 	return repoFrom(record)
 }
 
-// scratch is a directory of a run's own: whatever it leaves there is the delivery.
-type scratch struct{}
+// scratch is a directory of a run's own: whatever it leaves there is the delivery.  files is the
+// task's `files:`, which its turns' checks name as Python's do.
+type scratch struct{ files []string }
 
 func (scratch) open(l *loop, _ map[string]string, _ string, common []any) error {
 	l.workspace = filepath.Join(config.Home(), "work", l.id)
