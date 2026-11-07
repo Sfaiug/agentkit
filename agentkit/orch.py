@@ -719,7 +719,7 @@ def next_scope_unit(unit):
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
                    properties=(), nice=False, placement=None, ends=True, stdin=subprocess.DEVNULL):
     """Start detached work inside the slice, appending its output to `output`; its pid.  The work
-    reads `stdin` in a scope or a plain start; a service, which the manager starts, reads none."""
+    reads `stdin`; a service, which the manager starts, reads that file opened anew."""
     return _start_in_slice(argv, unit, env, output, log, target_slice,
                            properties, nice, placement, ends, stdin=stdin)[0]
 
@@ -809,7 +809,9 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
                str(marker),
                *( (["nice", "-n", "10"] if nice and scoped else []) ), *argv]
     service_properties = (*properties, *( ("-p", "Nice=10") if nice else () ),
-                          *( ("-p", f"WorkingDirectory={cwd}") if cwd is not None else () ))
+                          *( ("-p", f"WorkingDirectory={cwd}") if cwd is not None else () ),
+                          *( ("-p", f"StandardInput=file:{os.readlink(f'/proc/self/fd/{stdin}')}")
+                             if stdin != subprocess.DEVNULL else () ))
     placed, placed_env = (in_slice(witness, unit, env=env, target_slice=target_slice,
                                    properties=properties) if scoped
                           else detached_in_slice(witness, unit, env, None if wait else output,

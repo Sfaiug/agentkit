@@ -28,8 +28,6 @@ class Clock:
     def time(self):
         return self.now
 
-    monotonic = time
-
     def sleep(self, seconds):
         me, stuck = threading.get_ident(), time.monotonic() + 60
         with self.moved:

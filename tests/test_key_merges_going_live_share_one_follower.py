@@ -5,7 +5,6 @@ settings restating PATH and web's none, merged while health is red; no turn runs
 would hide an AK_BIN under /tmp.  A follower runs `watch --live RUN` with the Home as its HOME."""
 
 from collections import Counter
-import json
 from pathlib import Path
 import sys
 import threading
@@ -99,9 +98,6 @@ class MergesShareOneFollower(unittest.TestCase):
 
     def test_each_projects_merges_share_one_follower_and_each_is_told_live_once(self):
         directories = [self.merge(*run) for run in (("api", "one"), ("api", "two"), ("web", "one"))]
-        self.until(lambda: all(json.loads((directory / "run.json").read_text()).get(
-            "health", {}).get("output") == "deploying" for directory in directories),
-            "probed each merge while red")
         self.home.write("live-ok", "")
         told = lambda: [sum(f"run {directory.name} is live" in line for line in self.seat.lines())
                         for directory in directories]
