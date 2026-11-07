@@ -247,16 +247,14 @@ func Place(cmd *exec.Cmd, log, unit string, properties []string, detached bool) 
 			os.Remove(claim)
 			return pid, unit, "", nil
 		}
-		left := true // whether anything of it may yet come up
+		// whether anything of it may yet come up: a scope's client gone without a mark took the
+		// scope with it, and a service the manager may have, refused or not, is the manager's
+		// to say about (stopPlaced)
+		left := true
 		select {
 		case <-gone:
-			left = !scoped // a scope's client gone without a mark took the scope with it
+			left = !scoped
 		default:
-		}
-		if refused {
-			// a refused service the manager does not have never ran, nor one it cannot be asked
-			// about: where the manager refuses, the work starts plainly
-			left, _ = unitLoaded(unit + ".service")
 		}
 		if left && !stopPlaced(unit, scoped, client) {
 			// never said it ran, and not ended either: the manager may yet bring it up, so the
