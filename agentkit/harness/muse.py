@@ -419,7 +419,9 @@ def path_for(record):
 def conversation(record, cwd=None):
     """The session this seat's launch reported, or None where it reported none yet; the one
     Muse's registry has since moved that launch's process to, once the registry says so, kept
-    in the receipt for the seat to reopen on after that process is gone."""
+    in the receipt for the seat to reopen on after that process is gone.  The session it moves
+    the receipt on from first is kept as `reported`: the one the line the launch opened on went
+    into (Go's harness.WentInto)."""
     from . import unread
     path = path_for(record)
     try:
@@ -431,8 +433,9 @@ def conversation(record, cwd=None):
         return None
     now = followed(path)
     if now and now != sid:
-        with contextlib.suppress(OSError):
-            _write(path, "session", now, os.replace)
+        for name, text, place in (("reported", sid, os.link), ("session", now, os.replace)):
+            with contextlib.suppress(OSError):
+                _write(path, name, text, place)
         return now
     return sid
 
