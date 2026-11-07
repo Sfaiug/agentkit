@@ -3,7 +3,9 @@
 package loop
 
 import (
+	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,37 +14,43 @@ import (
 	"time"
 
 	"agentkit/internal/config"
+	"agentkit/internal/lock"
 )
 
-// A suite's pass in pieces during which its cgroup ran out of memory, its first piece red, prices
-// the suite at twice the memory per piece it was planned at, its other fields kept, and its next pass
-// is cut into at most half as many pieces; that pass, which did not run out, leaves the cost as it was.
-func TestAnOverflowedPassCostsTwiceItsPlan(t *testing.T) {
+// overflowing is a loop whose process cgroup is a fake one that ran out of memory 0 times yet, on a
+// host whose free memory fits 4 pieces of 500 MB, and the path of suite's cost, which holds cost.
+func overflowing(t *testing.T, suite, cost string) (*loop, string) {
+	t.Helper()
 	l := rig(t, time.Minute)
-	t.Setenv("AK_HOST_READINGS", `{"cpus":64,"free_mb":2000,"mem_total_mb":65536}`) // 4 pieces of 500 MB
+	t.Setenv("AK_HOST_READINGS", `{"cpus":64,"free_mb":2000,"mem_total_mb":65536}`)
 	cgroup := filepath.Join(l.workspace, "cgroup")
 	membership := filepath.Join(t.TempDir(), "membership")
-	if err := os.MkdirAll(filepath.Join(cgroup, "acme"), 0o777); err != nil {
-		t.Fatal(err)
-	}
-	// the kernel reclaimed, killing nothing: only `oom` counts the overflow
-	suite := `echo "$AK_SHARD" >>shards
-case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; exit 1 ;; esac # AK_SHARD`
-	cost := filepath.Join(config.Home(), "state", fmt.Sprintf("suite-%x.json", sha256.Sum256([]byte(config.Resolve(l.workspace)+"\n"+suite))))
-	for path, text := range map[string]string{
+	path := filepath.Join(config.Home(), "state", fmt.Sprintf("suite-%x.json", sha256.Sum256([]byte(config.Resolve(l.workspace)+"\n"+suite))))
+	for file, text := range map[string]string{
 		filepath.Join(cgroup, "acme", "memory.events"): "oom 0\noom_kill 0\n",
 		membership: "0::/acme\n",
-		cost:       `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 500, "quiet": [12]}`,
+		path:       cost,
 	} {
-		if err := os.MkdirAll(filepath.Dir(path), 0o777); err != nil {
+		if err := os.MkdirAll(filepath.Dir(file), 0o777); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(path, []byte(text), 0o666); err != nil {
+		if err := os.WriteFile(file, []byte(text), 0o666); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Setenv("AK_CGROUP_ROOT", cgroup)
 	t.Setenv("AK_CGROUP_FILE", membership)
+	return l, path
+}
+
+// A suite's pass in pieces during which its cgroup ran out of memory, its first piece red, prices
+// the suite at twice the memory per piece it was planned at, its other fields kept, and its next pass
+// is cut into at most half as many pieces; that pass, which did not run out, leaves the cost as it was.
+func TestAnOverflowedPassCostsTwiceItsPlan(t *testing.T) {
+	// the kernel reclaimed, killing nothing: only `oom` counts the overflow
+	suite := `echo "$AK_SHARD" >>shards
+case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; exit 1 ;; esac # AK_SHARD`
+	l, cost := overflowing(t, suite, `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 500, "quiet": [12]}`)
 	pass := func() (pieces string, kept string) {
 		t.Helper()
 		os.Remove(filepath.Join(l.workspace, "shards"))
@@ -59,5 +67,41 @@ case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; 
 	}
 	if pieces, kept := pass(); pieces != "2" || kept != `{"wall_seconds": 300.5, "run_id": "acme", "mem_mb": 1000, "quiet": [12]}` {
 		t.Fatalf("the next pass ran in %s pieces and left the cost %s", pieces, kept)
+	}
+}
+
+// A driver stopped once its suite ran out of memory prices the overflow where the state lock is
+// free, and waits for none another process holds: its error is the stop's.
+func TestAStoppedDriverPricesItsOverflowButWaitsForNoLock(t *testing.T) {
+	suite := `case $AK_SHARD in 1/*) printf "oom 1\noom_kill 0\n" >cgroup/acme/memory.events; touch overflowed ;; esac
+sleep 30 # AK_SHARD`
+	l, cost := overflowing(t, suite, `{"mem_mb": 500}`)
+	ctx, cancel := context.WithCancelCause(context.Background())
+	l.ctx = ctx
+	stopped := errors.New("the driver got SIGTERM")
+	go func() {
+		for ctx.Err() == nil {
+			if _, err := os.Stat(filepath.Join(l.workspace, "overflowed")); err == nil {
+				cancel(stopped)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	if _, _, err := l.checks([]string{suite}, filepath.Join(l.roundDir(), "donewhen.log")); !errors.Is(err, stopped) {
+		t.Fatalf("the suite ended with %v", err)
+	}
+	if kept, _ := os.ReadFile(cost); string(kept) != `{"mem_mb": 1000}` {
+		t.Fatalf("the stopped pass left the cost %s", kept)
+	}
+	held, err := lock.Try(filepath.Join(config.Home(), "state", "watch.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if err := overflowed(ctx, cost, 0, 1000); !errors.Is(err, stopped) {
+		t.Fatalf("a stopped driver's pricing ended with %v", err)
+	}
+	if kept, _ := os.ReadFile(cost); string(kept) != `{"mem_mb": 1000}` {
+		t.Fatalf("pricing without the state lock left the cost %s", kept)
 	}
 }

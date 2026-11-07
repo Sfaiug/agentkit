@@ -52,7 +52,8 @@ type piece struct {
 // first beside the others or any go after, it goes again alone once its turn was given back for a
 // poll (again).  Each go leaves its row in history under rows where it ran, those on the helper
 // dropped where it hands the suite on.  The suite ends as its first red piece did, and hands on
-// what handedOn says, its cost raised where it ran out of memory (overflowed).
+// what handedOn says, its cost raised where it ran out of memory, however it ended, but where it is
+// handed on (overflowed).
 //
 // What Python does beyond that is not Go's yet and differs here: the suite's pace and the cost it
 // held measured for its next run.
@@ -152,6 +153,12 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 				reds, flaky = append(reds, at.ended.confirmed...), append(flaky, at.ended.flaky...)
 			}
 			history.TestReds(rows, reds, flaky, l.say)
+		}
+	}()
+	defer func() {
+		// before the reds above are kept, as a cost Go cannot write back ends the suite in error
+		if !errors.Is(err, helper.ErrPython) {
+			err = cmp.Or(err, overflowed(l.ctx, suitePath(l.dir, cwd, cmd), ooms, memory))
 		}
 	}()
 	close(waiting)
@@ -267,11 +274,7 @@ func (l *loop) pieces(cwd, cmd string, deadline *time.Time, progress *os.File, p
 		}
 		at.failed = failed
 	}
-	ended, text, err := l.handedOn(cmd, all, path)
-	if err == nil {
-		err = overflowed(suitePath(l.dir, cwd, cmd), ooms, memory)
-	}
-	return ended, text, err
+	return l.handedOn(cmd, all, path)
 }
 
 // handedOn is how the pieces ended as one command, and what they hand on: the green pieces, then

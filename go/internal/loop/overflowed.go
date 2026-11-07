@@ -20,14 +20,15 @@ import (
 // pieces ended.  Held memory stops at the cap, so no peak shows the overflow, and its next pass is
 // cut smaller.  Go measures no peak yet, so the cost is twice the plan.  The cost's other fields are
 // kept, merged under the state lock; a cost Go cannot write back is Python's before anything is
-// written, and one that cannot be saved keeps what it held, as to Python.
-func overflowed(path string, ooms int, planned float64) error {
+// written, and one that cannot be saved keeps what it held, as to Python.  A driver stopped, ctx's
+// end, waits for no lock: its error is the stop's.
+func overflowed(ctx context.Context, path string, ooms int, planned float64) error {
 	if host.MemoryEvent("oom") <= ooms || config.EnsureDirs() != nil {
 		return nil
 	}
-	held, err := lock.Wait(context.Background(), filepath.Join(config.Home(), "state", "watch.lock"))
+	held, err := lock.Wait(ctx, filepath.Join(config.Home(), "state", "watch.lock"))
 	if err != nil {
-		return nil
+		return context.Cause(ctx)
 	}
 	defer held.Close()
 	cost, err := run.ReadJSON(path)
