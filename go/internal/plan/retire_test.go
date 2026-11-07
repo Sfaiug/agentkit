@@ -24,35 +24,7 @@ import (
 // queued and the plan as it was.
 func TestATickDecidesEveryStopBeforeWritingOne(t *testing.T) {
 	for _, before := range []bool{false, true} {
-		home := t.TempDir()
-		t.Setenv("HOME", home)
-		t.Setenv("USERPROFILE", home)
-		t.Setenv("XDG_RUNTIME_DIR", home) // no user manager, whose units Python stops
-		t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
-		for _, key := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
-			t.Setenv(key, "acme")
-		}
-		shell(t, home, "git init -q --bare -b main origin.git && git init -q -b main acme && cd acme && "+
-			"git commit -q --allow-empty -m init && git remote add origin ../origin.git && git push -q origin main")
-		repo, _ := filepath.EvalSymlinks(filepath.Join(home, "acme"))
-		state := filepath.Join(home, ".agentkit", "state")
-		if os.MkdirAll(state, 0o700) != nil || os.WriteFile(filepath.Join(state, "session-fix-api.json"), []byte(`{}`), 0o600) != nil {
-			t.Fatal("no seat")
-		}
-		ctx := context.Background()
-		if _, err := plan.Add(ctx, "fix-api", repo, "Fix the mode", "test -f feature.txt"); err != nil {
-			t.Fatal(err)
-		}
-		repeats := []string{filepath.Join(run.Runs(), "one"), filepath.Join(run.Runs(), "two")}
-		for _, dir := range repeats {
-			record := `{"run_id": "` + filepath.Base(dir) + `", "launched_session": "fix-api", "repo": "` + repo + `", ` +
-				`"state": "queued", "slot_waiting": true, "pid": null, "followup": {"check": "test -f feature.txt"}}`
-			if os.MkdirAll(dir, 0o700) != nil || os.WriteFile(filepath.Join(dir, "run.json"), []byte(record), 0o600) != nil {
-				t.Fatal("no run")
-			}
-		}
-		shell(t, repo, "echo fixed > feature.txt && git add -A && git commit -q -m 'land the feature' && git push -q origin main")
-		planned := filepath.Join(state, "plan-fix-api.md")
+		repeats, planned := repeatsRig(t)
 		was, _ := os.ReadFile(planned)
 		appear := func() {
 			if os.WriteFile(history.Path(), []byte("no database\n"), 0o600) != nil {
@@ -63,19 +35,19 @@ func TestATickDecidesEveryStopBeforeWritingOne(t *testing.T) {
 			appear()
 		}
 		decide := plan.Ending
-		plan.Ending = func(dir string, record *run.Object) func(string) {
+		plan.Ending = func(dir string, record *run.Object) func(string) error {
 			stop := decide(dir, record)
 			if stop == nil {
 				return nil
 			}
-			return func(why string) {
+			return func(why string) error {
 				if _, err := os.Stat(history.Path()); err != nil {
 					appear()
 				}
-				stop(why)
+				return stop(why)
 			}
 		}
-		_, err := plan.List(ctx, "fix-api")
+		_, err := plan.List(context.Background(), "fix-api")
 		plan.Ending = decide
 		now, _ := os.ReadFile(planned)
 		for _, dir := range repeats {
@@ -83,12 +55,74 @@ func TestATickDecidesEveryStopBeforeWritingOne(t *testing.T) {
 			if before && (!errors.Is(err, plan.ErrUnread) || record.Str("state") != "queued" || string(now) != string(was)) {
 				t.Fatalf("held before: %v, %s, plan %q", err, run.Line(record), now)
 			}
-			if !before && (err != nil || record.Str("state") != "stopped" || !strings.Contains(record.Str("error"), `plan line "Fix the mode" ticked on `) ||
-				!strings.HasPrefix(string(now), "- [x] Fix the mode")) {
+			if !before && (err != nil || !ended(record) || !strings.HasPrefix(string(now), "- [x] Fix the mode")) {
 				t.Fatalf("appeared once decided: %v, %s, plan %q", err, run.Line(record), now)
 			}
 		}
 	}
+}
+
+// A stop whose record cannot be written is the command's error, and its line stays open, so the
+// next tick ends what is left.
+func TestAStopThatCannotBeWrittenLeavesItsLineOpen(t *testing.T) {
+	repeats, planned := repeatsRig(t)
+	blocked := filepath.Join(repeats[1], "run.tmp")
+	if os.Mkdir(blocked, 0o700) != nil {
+		t.Fatal("not blocked")
+	}
+	_, err := plan.List(context.Background(), "fix-api")
+	now, _ := os.ReadFile(planned)
+	if err == nil || errors.Is(err, plan.ErrUnread) || !strings.HasPrefix(string(now), "- [ ] Fix the mode") {
+		t.Fatalf("%v, plan %q", err, now)
+	}
+	if os.Remove(blocked) != nil {
+		t.Fatal("still blocked")
+	}
+	_, err = plan.List(context.Background(), "fix-api")
+	now, _ = os.ReadFile(planned)
+	for _, dir := range repeats {
+		if record, _ := run.Read(dir); err != nil || !ended(record) || !strings.HasPrefix(string(now), "- [x] Fix the mode") {
+			t.Fatalf("again: %v, %s, plan %q", err, run.Line(record), now)
+		}
+	}
+}
+
+// repeatsRig is a fresh HOME whose seat fix-api plans `test -f feature.txt` in acme, beside two
+// queued runs that only repeat it, and the commit that makes it pass, landed: the runs and the plan.
+func repeatsRig(t *testing.T) ([]string, string) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("XDG_RUNTIME_DIR", home) // no user manager, whose units Python stops
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, key := range []string{"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(key, "acme")
+	}
+	shell(t, home, "git init -q --bare -b main origin.git && git init -q -b main acme && cd acme && "+
+		"git commit -q --allow-empty -m init && git remote add origin ../origin.git && git push -q origin main")
+	repo, _ := filepath.EvalSymlinks(filepath.Join(home, "acme"))
+	state := filepath.Join(home, ".agentkit", "state")
+	if os.MkdirAll(state, 0o700) != nil || os.WriteFile(filepath.Join(state, "session-fix-api.json"), []byte(`{}`), 0o600) != nil {
+		t.Fatal("no seat")
+	}
+	if _, err := plan.Add(context.Background(), "fix-api", repo, "Fix the mode", "test -f feature.txt"); err != nil {
+		t.Fatal(err)
+	}
+	repeats := []string{filepath.Join(run.Runs(), "one"), filepath.Join(run.Runs(), "two")}
+	for _, dir := range repeats {
+		record := `{"run_id": "` + filepath.Base(dir) + `", "launched_session": "fix-api", "repo": "` + repo + `", ` +
+			`"state": "queued", "slot_waiting": true, "pid": null, "followup": {"check": "test -f feature.txt"}}`
+		if os.MkdirAll(dir, 0o700) != nil || os.WriteFile(filepath.Join(dir, "run.json"), []byte(record), 0o600) != nil {
+			t.Fatal("no run")
+		}
+	}
+	shell(t, repo, "echo fixed > feature.txt && git add -A && git commit -q -m 'land the feature' && git push -q origin main")
+	return repeats, filepath.Join(state, "plan-fix-api.md")
+}
+
+// ended is a repeat stopped for its line.
+func ended(record *run.Object) bool {
+	return record.Str("state") == "stopped" && strings.Contains(record.Str("error"), `plan line "Fix the mode" ticked on `)
 }
 
 func shell(t *testing.T, dir, script string) {

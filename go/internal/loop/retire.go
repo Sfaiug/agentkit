@@ -9,10 +9,13 @@ import (
 // import, since loop reads plans: decided as the record reads under its lock, and once decided
 // carried out whatever the home reads by then.
 func init() {
-	plan.Ending = func(dir string, record *run.Object) func(string) {
+	plan.Ending = func(dir string, record *run.Object) func(string) error {
 		if !goStops(dir, record) {
 			return nil
 		}
-		return func(why string) { end(dir, false, why, nil) }
+		return func(why string) error {
+			_, err := end(dir, false, why, nil)
+			return err
+		}
 	}
 }
