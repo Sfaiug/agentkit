@@ -43,9 +43,9 @@ func (seat reopening) relaunch(dry bool, out io.Writer) (string, bool, error) {
 	if err != nil {
 		return "", true, Refusal(fmt.Sprintf("no rulebook for %s: %v", name, err))
 	}
-	cmd, conversation, ok := seat.command(append(told, "AGENTKIT_RULEBOOK="+rulebook))
-	if !ok {
-		return "", false, nil
+	cmd, conversation, err := seat.command(append(told, "AGENTKIT_RULEBOOK="+rulebook))
+	if err != nil {
+		return "", false, nil // Python's resume says why
 	}
 	fmt.Fprintln(out, seat.said())
 	if dry {
