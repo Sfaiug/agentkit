@@ -46,7 +46,7 @@ func table(t *ticking) []pass {
 		{"switched turns", false, configured, continueTurns(true)},
 		{"dead loops", true, all(configured, t.dryly(noDeadLoops)), t.wet(t.deadLoops)},
 		{"dead jobs", true, noDeadJobs, nil},
-		{"stall recovery", true, all(configured, noStallRecovery, t.dryly(noneParked)), t.wet(t.tellParked)},
+		{"stall recovery", true, configured, t.stallRecovery},
 		{"seat headroom", false, nil, t.giveWay},
 		{"state save", false, nil, t.save},
 		// a dry tick's reading is the snapshot as it stands, which no row Go carries reads

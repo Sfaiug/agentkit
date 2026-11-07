@@ -3,10 +3,13 @@
 package tick
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"agentkit/internal/host"
 	"agentkit/internal/run"
@@ -42,8 +45,9 @@ func TestFrozenLoopsLeaveTheirStallClocksToPython(t *testing.T) {
 					if !run.ProcessActive(record) {
 						t.Fatal("test loop not active")
 					}
-					if got, want := noStallRecovery(), !frozen && !saved; got != want {
-						t.Fatalf("stall row idle=%v, want %v", got, want)
+					tick := &ticking{log: newLog(io.Discard, io.Discard), clock: time.Now}
+					if left, want := errors.Is(tick.stallRecovery(), errLeft), frozen || saved; left != want {
+						t.Fatalf("stall row left=%v, want %v", left, want)
 					}
 					if read(t, path) != run.Line(record) {
 						t.Fatal("Go changed the freeze bookkeeping left to Python")
