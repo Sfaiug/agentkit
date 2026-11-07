@@ -48,14 +48,13 @@ func (src source) key() string {
 	return src.Name + "." + src.account
 }
 
-// gone is whether config.toml, as it stands now, no longer lists the source's login: an account
-// it dropped, or the one login of a provider that lists accounts now.
+// gone is whether config.toml, as it stands now, no longer lists the source's login: a provider
+// or an account it dropped, or the one login of a provider that lists accounts now.
 func (src source) gone() bool {
-	accounts, err := config.Accounts(src.Name)
-	if len(accounts) == 0 {
-		accounts = []string{""} // the provider's one login
-	}
-	return err == nil && !slices.Contains(accounts, src.account)
+	logins, err := layout()
+	return err == nil && !slices.ContainsFunc(logins, func(each source) bool {
+		return each.Name == src.Name && each.account == src.account
+	})
 }
 
 // Read is the reading of every provider config.toml lists: the one state/usage.json holds while
@@ -90,35 +89,48 @@ func Check() error {
 // lists, as Python does, or why that is not Go's; a refresh asks, where no $AGENTKIT_ADAPTER_DIR
 // is named, the checkout's own adapters.
 func listed(refresh bool) ([]source, error) {
+	sources, err := layout()
+	if err != nil {
+		return nil, err
+	}
+	for at, src := range sources {
+		facts, err := config.Usage(src.Harness)
+		if err != nil {
+			return nil, err
+		}
+		adapter, err := config.Adapter(src.Harness)
+		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
+			adapter, err = config.ShippedAdapter(src.Harness)
+		}
+		if errors.Is(err, config.ErrNoAdapterDir) {
+			return nil, ErrPython
+		}
+		sources[at].facts, sources[at].adapter, sources[at].broken = facts, adapter, err
+	}
+	return sources, nil
+}
+
+// layout is every login config.toml lists as it stands now, a provider's one or each account it
+// lists, as sources with nothing more of how to ask them.
+func layout() ([]source, error) {
 	subs, err := config.Subscriptions()
 	if err != nil {
 		return nil, err
 	}
-	var sources []source
+	var logins []source
 	for _, sub := range subs {
-		facts, err := config.Usage(sub.Harness)
-		if err != nil {
-			return nil, err
-		}
 		accounts, err := config.Accounts(sub.Name)
 		if err != nil {
 			return nil, err
-		}
-		adapter, err := config.Adapter(sub.Harness)
-		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
-			adapter, err = config.ShippedAdapter(sub.Harness)
-		}
-		if errors.Is(err, config.ErrNoAdapterDir) {
-			return nil, ErrPython
 		}
 		if len(accounts) == 0 {
 			accounts = []string{""} // the provider's one login
 		}
 		for _, account := range accounts {
-			sources = append(sources, source{sub, facts, adapter, err, account})
+			logins = append(logins, source{Subscription: sub, account: account})
 		}
 	}
-	return sources, nil
+	return logins, nil
 }
 
 // Spent is why nothing is picked on that model, Python's usage.model_exhausted: its provider
