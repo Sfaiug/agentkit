@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"agentkit/internal/config"
-	"agentkit/internal/harness"
 	"agentkit/internal/host"
 	"agentkit/internal/notify"
 	"agentkit/internal/run"
@@ -16,7 +15,7 @@ import (
 // Ended is `ak orch ended NAME WHEN` (orch.cmd_ended), tmux's pane-died hook (tmux.Hooks): a seat
 // whose harness ended without ak ending it, at WHEN by tmux's clock, comes back in its pane as its
 // number opens it, on the conversation its record holds or fresh, told what the end cut off
-// (orch.reopen): as the line its conversation opens on, or owed with the fresh note where it comes
+// (orch.reopen, goesOn): as the line its conversation opens on, or owed with the fresh note where it comes
 // back with no past, as the tick's revival owes it.  One the owner stopped ended on purpose and is
 // told nothing.
 //
@@ -53,25 +52,24 @@ func Ended(name string, died float64, out io.Writer) (bool, error) {
 			return nil
 		}
 		back, ready := comingBack(state, name, fields, true, true)
-		cut := owed{}
-		if known && ready && !file.Truthy("stopped_at") {
-			own := back.model.Harness
-			cut, known = Seat{Name: name, own: own, reader: harness.For(own)}.owing()
+		line := ""
+		if known && ready {
+			line, known = back.goesOn(How{Owner: true})
 		}
 		if !known || !ready || !back.launchable(fields) || !owedReadable(file) {
 			carried = false
 			return nil
 		}
 		var err error
-		comeback := Comeback{Name: name, Cwd: back.cwd, Line: cut.line, back: back}
+		comeback := Comeback{Name: name, Cwd: back.cwd, Line: line, back: back}
 		if carried, err = comeback.Resume(host.BootID(), func() error { return nil }); !carried || err != nil {
 			return err
 		}
 		fmt.Fprintln(out, back.said())
-		if cut.line == "" || back.conversation != "" && back.opened {
+		if line == "" || back.line != "" {
 			return nil
 		}
-		return OweLine(name, cut.line+freshContinue)
+		return OweLine(name, line+freshContinue)
 	})
 	return carried, err
 }

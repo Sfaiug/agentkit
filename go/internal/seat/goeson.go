@@ -12,7 +12,7 @@ import (
 )
 
 // goesOn is what the seat's relaunch tells it its end cut off, and whether Go carries that
-// relaunch.  The owner's reopen tells it (orch.reopen): owing's line, read before the relaunch
+// relaunch.  orch.reopen, the owner's and a harness's end's, tells it: owing's line, read before the relaunch
 // moves the hook facts aside, the line its harness opens on where its own conversation comes back;
 // nothing where the owner stopped or closed it, which ended on purpose.  Any other relaunch tells
 // nothing and leaves Python a seat cut off (cutOff), whose revival tells it so; a dry run tells

@@ -46,8 +46,8 @@ var (
 // to hand over, without which the seat's way in is said instead.  Detached is a waking with nobody
 // at it (orch.resume's): a seat tmux still holds is left as it is, and one whose recorded directory
 // is gone refused.  Its dry run says nothing to anyone, only whether Go carries the waking, so it
-// leaves Python what the launch would.  Owner is the owner's own reopen, which goes on with what
-// the seat's end cut off (goesOn).
+// leaves Python what the launch would.  Owner is orch.reopen's, the owner's own reopen and a
+// harness's end (Ended), which goes on with what the seat's end cut off (goesOn).
 type How struct{ DryRun, Terminal, Detached, Owner bool }
 
 // A reopening is what a seat comes back as, read from its record.
