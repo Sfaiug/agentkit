@@ -2,6 +2,7 @@ package seat
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 
@@ -11,15 +12,21 @@ import (
 )
 
 // Votes is whether every run that seat launched holds the project it votes for, settled by the
-// launch that made it: one written before its launch's preflight, or before the field, is read
-// from its task by Python's run_project, which Go does not.
+// launch that made it, or votes for none: one written before its launch's preflight, or before the
+// field, is read from its task by Python's run_project, which Go does not, and one with no task,
+// repository or task file to read belongs to none.
 func Votes(name string) bool {
 	for _, dir := range run.Dirs() {
-		if record, _ := run.Read(dir); record != nil && run.Seat(record) == name && !record.Has("project") {
+		if record, _ := run.Read(dir); record != nil && run.Seat(record) == name && !record.Has("project") && !voteless(record) {
 			return false
 		}
 	}
 	return true
+}
+
+func voteless(record *run.Object) bool {
+	_, err := os.Stat(filepath.Join(run.Runs(), record.Str("run_id"), "task.md"))
+	return err != nil && !record.Truthy("repo") && record.Str("task_file") == ""
 }
 
 // JoinProject files that seat under the project most of its runs belong to, again at each launch,

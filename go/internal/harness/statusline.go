@@ -80,11 +80,14 @@ func Report(payload []byte) bool {
 }
 
 // Reported is the model, effort and moment the seat's status line last reported for the
-// conversation its record names, the model as its harness's answers name it; "" where that
-// harness's status line reports nothing or no render of that conversation has.  Its moment is the
-// file's, read from the file read, which another render may since have replaced.
+// conversation it owns, the model as its harness's answers name it; "" where that harness's status
+// line reports nothing or no render of that conversation has.  Its moment is the file's, read from
+// the file read, which another render may since have replaced.
 func (reader Reader) Reported(record *run.Object) (model string, effort any, at float64, err error) {
 	conversation := record.Str("conversation")
+	if hook := reader.own.owning; hook != nil {
+		conversation = hook(record)
+	}
 	if reader.own.report == nil || !reportable.MatchString(conversation) {
 		return "", nil, 0, nil
 	}

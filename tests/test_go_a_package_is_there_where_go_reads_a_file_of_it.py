@@ -1,7 +1,7 @@
 """tests/test_go.py asks Go whether a tree has a part's package, as `go test ./...` decides it: one
 Go reads no file of -- none there, or each it leaves out (`_x.go`, `.x.go`, a build tag's) -- is
-not there, named as no failing part; one holding a file Go cannot read (a malformed `//go:build`)
-or that does not compile is named failing.
+not there, named so and as no failing part; one holding a file Go cannot read (a malformed
+`//go:build`) or that does not compile is named failing.
 
 The real test_go.py and go judge a temporary module of made-up packages.
 """
@@ -34,7 +34,8 @@ class GoAPackageIsThereWhereGoReadsAFileOfIt(unittest.TestCase):
         for name in ("test_go.py", "suite_shares.py"):
             shutil.copy(REPO / "tests" / name, tree / "tests")
         # The caller's GOFLAGS could select a tagged file: these judge Go's plain selection.
-        env = {**os.environ, "GOFLAGS": "", "FAILED_PARTS": str(tree / "failed")}
+        env = {**os.environ, "GOFLAGS": "", "FAILED_PARTS": str(tree / "failed"),
+               "NOT_THERE": str(tree / "absent")}
         release = subprocess.run(["go", "env", "GOVERSION"], env=env, capture_output=True,
                                  text=True, check=True).stdout.strip()
         (tree / "go").mkdir()
@@ -47,10 +48,11 @@ class GoAPackageIsThereWhereGoReadsAFileOfIt(unittest.TestCase):
                               stdin=subprocess.DEVNULL, capture_output=True, text=True,
                               timeout=600)
         self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
-        self.assertEqual((tree / "failed").read_text().splitlines(),
-                         [f"agentkit/internal/{package}"
-                          for package, (*_, failing) in PACKAGES.items() if failing],
-                         done.stderr)
+        failed = [f"agentkit/internal/{package}"
+                  for package, (*_, failing) in PACKAGES.items() if failing]
+        # each part fails or is not there
+        self.assertEqual([(tree / name).read_text().splitlines() for name in ("failed", "absent")],
+                         [failed, [part for part in parts if part not in failed]], done.stderr)
 
 
 if __name__ == "__main__":

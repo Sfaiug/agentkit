@@ -51,6 +51,9 @@ type plugin struct {
 	// reported is the conversation its launch's evidence first named, which a line the launch
 	// opened on went into, where owned may since have moved on (WentInto); nil where owned is it.
 	reported func(record map[string]any) string
+	// owning is that conversation as the listing's record hook learned it, the record perhaps naming
+	// none: nil where the record's `conversation` is it.
+	owning func(record *run.Object) string
 	// record freezes the evidence of a record Go leaves to Python to reconcile; false hands it
 	// back before writing. The returned hooks use that evidence throughout this listing.
 	// keys and kept are the record keys and state/ files this harness keeps beyond everyone's.
@@ -81,6 +84,8 @@ type plugin struct {
 	typed func(conversation string) []Prompt
 	// answered is Answered's: nil where Go reads neither that conversation nor its cards' answers.
 	answered func(record map[string]any) ([]Turn, []Card, error)
+	// anew is whether Go opens only new seats of this harness, leaving reopening them to Python.
+	anew bool
 	// opens is whether Go opens this harness's seats, and titled whether its TUI takes a title
 	// line (`title_command`).
 	opens, titled bool
@@ -119,8 +124,9 @@ type plugin struct {
 	rulebook string
 	// holds is Holds': nil where its last Stop's list is all that says what it runs.
 	holds func(record *run.Object) ([]string, bool)
-	// switchable is AsksSwitchable's.
-	switchable bool
+	// switchable is Switchable's: nil where its running seat takes every model at every effort
+	// from its `[switch]` lines.
+	switchable func(model, effort string) bool
 }
 
 var plugins = map[string]plugin{}

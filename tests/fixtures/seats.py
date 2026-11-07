@@ -78,9 +78,9 @@ class Seats(unittest.TestCase):
         if args[0] == "list-buffers":
             return 0, ""        # no text ak's editor keeps
         target = args[args.index("-t") + 1]
-        if args[0] == "display-message" and args[-1] == "#{pane_id}":
+        if args[0] == "display-message" and args[-1] == "#{pane_id}\t#{pane_pid}":
             self.assertEqual(target, f"={self.seat['name']}:")
-            return 0, PANE
+            return 0, PANE      # naming no process: a mark is the line and the seat's birth
         self.assertIn(target, (f"={self.seat['name']}:", PANE))
         if (args[0] == "display-message"
                 and args[-1] == "#{session_attached}\t#{session_last_attached}"):

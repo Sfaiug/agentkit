@@ -36,7 +36,8 @@ const (
 // somebody's work holds the upgrade unstarted, saying so, and a login its gates would not outlast
 // holds it with no ask until the first tick that one lasts.  ErrPython, before anything is
 // written, while a red's hand-back is owed to a seat, and before the ask of an installed harness
-// Go could not start: one movable says Go moves none of, or any with no live gate.
+// movable says Go cannot move.  A checkout with no live gate asks and starts all the same, as
+// Python's does: the background refuses the upgrade and says why.
 func KeepCurrent(repo string, say func(string)) error {
 	if !LiveHere(repo) {
 		return nil
@@ -97,9 +98,9 @@ func KeepCurrent(repo string, say func(string)) error {
 		if err != nil {
 			return err
 		}
-		// one installed that Go could not start is Python's to ask: an ask handed over unrecorded
+		// one installed that Go could not move is Python's to ask: an ask handed over unrecorded
 		// is asked twice
-		if _, gone := liveGate(repo); installed != "" && (gone != nil || !movable([]plan{each})) {
+		if installed != "" && !movable([]plan{each}) {
 			return ErrPython
 		}
 		newest := entry.Str("waits")

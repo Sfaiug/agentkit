@@ -112,6 +112,15 @@ class Seat:
             return []
         return [json.loads(line) for line in entered.splitlines()]
 
+    def mark(self, line):
+        """The mark ak keeps of `line` typed into this seat now: the line, when tmux made the
+        seat and the process of its pane, so a seat made again since, or a harness started in
+        its pane since, its composer empty, matches none."""
+        said = self.home.tmux("display-message", "-p", "-t", f"={self.name}:",
+                              "#{session_created}\t#{pane_pid}")
+        made, pid = said.out.split("\t")
+        return {"line": line, "seat": int(made), "pid": int(pid)}
+
     def wait_lines(self, count, bound=30):
         """The lines entered once there are `count` of them: keys reach the pane a moment after
         tmux takes them."""

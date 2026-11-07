@@ -35,12 +35,7 @@ func Summary(count bool) string {
 	}
 	said := fmt.Sprintf("on · €%.2f of €%.6g this month", spent, cap)
 	if count {
-		up := 0
-		for _, key := range ledger.Dict("machines").Keys() {
-			if !ledger.Dict("machines").Dict(key).Has("from") {
-				up++
-			}
-		}
+		up := running(ledger)
 		said += fmt.Sprintf(" · %d %s up", up, machineWord(up))
 	}
 	return said

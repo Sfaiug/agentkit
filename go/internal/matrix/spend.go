@@ -175,9 +175,10 @@ func shares(held *run.Object) (*run.Object, error) {
 // plans is each login's Plan, Python's usage.plan_weeks over spend.weeks: per provider, a plan's
 // points and dollars are summed over every login's probe readings of its shared week over the over
 // seconds up to now, a reading kept with no plan its login's plan now.  A login's readings of one
-// plan and one week, by drift, rose from the earliest to the highest; what the login spent
-// (listed) from the earliest to the first at the highest bought that rise, and one whose spend
-// cannot be priced counts for nothing.
+// plan and one week, by drift, are cut at each turn of unknown tokens (stretches); each stretch
+// rose from its earliest reading to its highest, what the login spent (listed) from the earliest
+// to the first at the highest bought that rise, and one whose spend cannot be priced counts for
+// nothing.
 func (s *spend) plans(accounts []usage.Week, now, over float64) map[usage.Week]usage.Plan {
 	type key struct{ provider, account, plan string }
 	type group struct {
@@ -214,22 +215,21 @@ func (s *spend) plans(accounts []usage.Week, now, over float64) map[usage.Week]u
 			groups[each] = append(groups[each], [2]float64{at, used})
 		}
 	}
+	unknown := s.db.Unknowns(now - over)
 	fits := map[[2]string]usage.Plan{} // by provider and plan
 	for _, each := range order {
-		readings := groups[each]
-		began := slices.MinFunc(readings, func(a, b [2]float64) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) })
-		top, until := readings[0][1], readings[0][0]
-		for _, reading := range readings[1:] {
-			if reading[1] > top {
-				top, until = reading[1], reading[0]
-			} else if reading[1] == top {
-				until = min(until, reading[0])
+		for _, stretch := range s.stretches(each.provider, each.account, groups[each], unknown) {
+			began, top, until := stretch[0], stretch[0][1], stretch[0][0]
+			for _, reading := range stretch[1:] {
+				if reading[1] > top {
+					top, until = reading[1], reading[0]
+				}
 			}
-		}
-		if dollars, priced := s.listed(each.provider, each.account, began[0], until); priced {
-			fit := fits[[2]string{each.provider, each.plan}]
-			fit.Points, fit.Dollars = fit.Points+top-began[1], fit.Dollars+dollars
-			fits[[2]string{each.provider, each.plan}] = fit
+			if dollars, priced := s.listed(each.provider, each.account, began[0], until); priced {
+				fit := fits[[2]string{each.provider, each.plan}]
+				fit.Points, fit.Dollars = fit.Points+top-began[1], fit.Dollars+dollars
+				fits[[2]string{each.provider, each.plan}] = fit
+			}
 		}
 	}
 	found := map[usage.Week]usage.Plan{}

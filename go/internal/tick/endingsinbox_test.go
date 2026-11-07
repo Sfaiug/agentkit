@@ -32,8 +32,8 @@ func TestEndingsTellARunFromNoSeatNothingAndLeaveAQuestionGoCannotReadToPython(t
 func TestEndingsLeaveToPythonWithNothingWrittenAMergeQuestionGoCannotTypeOrPing(t *testing.T) {
 	ak, _ := idleHome(t, answers)
 	t.Setenv("AGENTKIT_INBOX_SESSION", "acme")
-	// an inbox on a harness whose composer keeps a cursor of its own, which Go does not type into
-	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.vela]\nharness = 'opencode'\nmodel = 'vela'\n"+
+	// an inbox on a harness Go knows nothing of, which it does not type into
+	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.vela]\nharness = 'acme'\nmodel = 'vela'\n"+
 		"effort = 'high'\nprovider = 'test'\n[providers.test]\nmode = 'subscription'\n")
 	put(t, filepath.Join(ak, "state", "session-acme.json"), `{"orchestrator": "vela", "workers": ["vela"], "conversation": "ses_A012z"}`)
 	bin := t.TempDir()

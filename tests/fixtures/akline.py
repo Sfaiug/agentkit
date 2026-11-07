@@ -3,8 +3,9 @@
 `Line` makes a project in a throwaway Home (tests/fixtures/akbin.py) with a bare origin
 (tests/fixtures/gitrig.py) whose `tests:` line is a fake sharded suite, `suite.sh`: each test
 `t/<name>` in the share `AK_SHARD` names, or those `AK_ONLY` lists, named as run (`AK_RAN`) and,
-failing, as failed (`AK_FAILED`), with the words after `suite.sh` given to every test, each
-run logged where a boxed check may write, in the project's Git storage (`Line.runs`).  Each
+failing, as failed (`AK_FAILED`), one listed that the tree does not hold as not there
+(`AK_NOT_THERE`), with the words after `suite.sh` given to every test, each run logged where a
+boxed check may write, in the project's Git storage (`Line.runs`).  Each
 member is a reviewed branch off main and a run directory (`run.json`, `task.md`) parked in the
 line, in join order, numbered with the members of every line in its Home.  Host readings are
 injected (`AK_HOST_READINGS`), and a woken member's resume refuses at once (a worker's worker's
@@ -31,7 +32,7 @@ else echo "piece $share $*" >>"$log"; tests=; i=0
   for t in $(ls t); do [ $((i % n + 1)) = "$k" ] && tests="$tests $t"; i=$((i + 1)); done; fi
 code=0
 for t in $tests; do
-  [ -f "t/$t" ] || continue
+  [ -f "t/$t" ] || { echo "$t" >>"${AK_NOT_THERE:-/dev/null}"; continue; }
   echo "$t" >>"${AK_RAN:-/dev/null}"
   sh "t/$t" "$@" || { echo "FAIL $t"; echo "$t" >>"${AK_FAILED:-/dev/null}"; code=1; }
 done

@@ -16,7 +16,7 @@ func Refusal(path string, meta map[string]string, cmds []string) (string, error)
 	if why := task.Refusal(meta, cmds); why != "" || Queued() {
 		return why, nil
 	}
-	budget, err := Budget(path)
+	budget, err := roundsFor(path, meta)
 	if errors.Is(err, ErrPython) {
 		return "", nil
 	}

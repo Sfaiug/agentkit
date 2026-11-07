@@ -27,7 +27,7 @@ class PromptTurn(unittest.TestCase):
             scripts.mkdir()
             python = scripts / "python3"
             python.write_text('''#!/bin/bash
-if [[ $1 = -c && $2 = *"from agentkit import orch"* ]]; then
+if [[ $1 = -c && $2 = *"orch.prompt_news"* ]]; then
   "$TEST_PYTHON" - <<'PY'
 import json, os
 from pathlib import Path

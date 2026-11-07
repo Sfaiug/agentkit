@@ -69,15 +69,14 @@ func TestAnAntigravitySeatClaimsTheOneStoreItsAgyHoldsOpen(t *testing.T) {
 			t.Fatalf("the seat owns %q, want %q", got, want)
 		}
 	}
-	// whoever asks, a listing among them, learns what the seat owns and writes nothing; a listing
-	// reads only a seat learning none
-	asked := func(name string, want string, ready bool) {
+	// whoever asks, a listing among them, learns what the seat owns and writes nothing
+	asked := func(name string, want string) {
 		t.Helper()
 		before, _ := os.ReadFile(path(name))
 		data, _ := run.Decode(before)
 		owns(record(name), want)
-		if _, known := For("antigravity").Reconciled(name, data.(*run.Object)); known != ready {
-			t.Fatalf("%s: the listing reads it: %v, want %v", name, known, ready)
+		if _, known := For("antigravity").Reconciled(name, data.(*run.Object)); !known {
+			t.Fatalf("%s: the listing does not read it", name)
 		}
 		if after, _ := os.ReadFile(path(name)); string(after) != string(before) {
 			t.Fatalf("asking wrote %s", after)
@@ -85,9 +84,9 @@ func TestAnAntigravitySeatClaimsTheOneStoreItsAgyHoldsOpen(t *testing.T) {
 	}
 
 	acme := seat("acme")
-	asked("acme", "", true)
+	asked("acme", "")
 	running := agy(acme, "c-acme")
-	asked("acme", "c-acme", false)
+	asked("acme", "c-acme")
 	before := record("acme") // a caller's copy from before the claim
 	owns(before, "c-acme")
 	Claim(true) // the command ends, carried through
@@ -97,12 +96,12 @@ func TestAnAntigravitySeatClaimsTheOneStoreItsAgyHoldsOpen(t *testing.T) {
 	running.Process.Kill()
 	running.Wait()
 	owns(before, "c-acme") // the claim outlives the process
-	asked("acme", "c-acme", false)
+	asked("acme", "c-acme")
 
 	agy(seat("beta"), "c-acme") // another seat's
 	owns(record("beta"), "")
 	agy(seat("gamma"), "c-one", "c-two") // a guess between two
-	asked("gamma", "", true)
+	asked("gamma", "")
 	seat("acme") // relaunched: the stale launch's agy runs on
 	agy(acme, "c-later")
 	owns(record("acme"), "")

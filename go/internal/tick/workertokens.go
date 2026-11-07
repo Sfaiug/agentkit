@@ -84,15 +84,16 @@ func (t *ticking) pollTokens() error {
 }
 
 // authOK is what the harness's adapter says of a turn's login, as worker.auth_ok asks about the
-// harness as a whole: unmarked, as nobody's run, and for every provider the config runs on it.
-func authOK(harness string) (answered, yes bool, why string) {
+// harness as a whole: unmarked, as nobody's run, and for every provider the config runs on it;
+// "seat" in args asks about the seat's interactive login instead.
+func authOK(harness string, args ...string) (answered, yes bool, why string) {
 	adapter, err := config.LoginAdapter(harness)
 	env, unread := config.ChildEnv()
 	if err != nil || unread != nil {
 		return false, false, ""
 	}
 	env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, host.Marker+"=") })
-	return worker.Login(adapter, append(env, "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(harness), " ")))
+	return worker.Login(adapter, append(env, "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(harness), " ")), args...)
 }
 
 // remindTokens is the token reminder row (watch.remind_worker_tokens): the owner paged once a local

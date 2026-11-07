@@ -428,11 +428,12 @@ def stale_conversations(now):
         return
     for store in conversation_stores():
         for path in sorted(Path(store["root"]).glob(store["pattern"])):
-            why = conversation_stale(path, now, paths)
+            why = conversation_stale(path, now, paths, store["names"])
             named = why and store["id"].fullmatch(path.name)
             if named and conversation_free(store["harness"], named[1], seats):
                 yield {"action": "remove", "kind": "conversation", "path": str(path),
-                       "harness": store["harness"], "conversation": named[1], "why": why}
+                       "harness": store["harness"], "conversation": named[1],
+                       "names": store["names"], "why": why}
 
 
 def conversation_free(harness, conversation, seats=None):
@@ -471,8 +472,8 @@ def held_conversations():
     return held, unknown
 
 
-def conversation_stale(path, now, paths):
-    if not retention.safe(path) or retention.busy(path, paths):
+def conversation_stale(path, now, paths, names):
+    if not retention.safe(path, names) or retention.busy(path, paths):
         return None
     at = last_write(path)
     if at is None or not retention.expired(at, now, RUN_DIR_AGE):
@@ -485,7 +486,7 @@ def conversation_ends(item, *parts):
     its harness keeps elsewhere (Muse's cached views) ours, reached through no link and held by
     nobody."""
     paths = tmp_processes()[0]
-    return (conversation_stale(Path(item["path"]), time.time(), paths) is not None
+    return (conversation_stale(Path(item["path"]), time.time(), paths, item["names"]) is not None
             and conversation_free(item["harness"], item["conversation"])
             and all(retention.safe(part) and not retention.busy(part, paths) for part in parts))
 

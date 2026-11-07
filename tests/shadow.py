@@ -9,7 +9,8 @@ relative name read from the checkout, else go/bin/ak built as tests/test_go_keys
 
 What the two Python runs disagree on belongs to the moment and is never compared.  A difference
 is confirmed only if repeating the three runs straight away shows it again, else it is a flake.
-Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs), else 0.
+Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs) or a file a
+run touched cannot be read, else 0.
 Besides go/bin/ak and Go's own cache, when it builds Go, it writes nothing outside its scratch
 folder.
 """
@@ -67,11 +68,13 @@ ruleset = call(444, struct.pack("Q", 2), 8, 0)     # it rules writing to a file,
 for path in sys.argv[1:cut]:
     call(445, ruleset, 1, struct.pack("=Qi", 2, os.open(path, os.O_PATH)), 0)
 libc.prctl(38, 1, 0, 0, 0)     # no new privileges, which Landlock asks of what it binds
+libc.prctl(36, 1, 0, 0, 0)     # subreaper: what the command's children detach is its to reap
 call(446, ruleset, 0)
 os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
 """
 # A run in its box: the program, then all it detached, which bwrap's init would kill as the
-# program ends, waited out till only that init and this shell are left.  The shell then becomes a
+# program ends, waited out till only that init and this shell are left.  The seal made this shell
+# their reaper, not that init, so their peaks are its children's too.  The shell then becomes a
 # Python that writes down its children's peak memory, which exec keeps: a child's peak starts
 # from its parent's, some 20 MB for this script.  The shell's own words, as its `Killed` for what
 # is killed at the cap, go nowhere: only the program's are compared.  dash says it on the killed
@@ -159,7 +162,7 @@ def run(label, program, argv, home, scratch):
 def _halt(bwrap):
     """Kill all that `bwrap`'s box runs but its init and the shell waiting in it, boxed pids 1 and
     2, from here, out of the box's reach, and wake that shell, which what it ran may have stopped.
-    What it detached is still below that init, by the parents /proc names."""
+    What it detached is below that shell, by the parents /proc names."""
     parent, boxed = {}, {}
     for status in Path("/proc").glob("[0-9]*/status"):
         try:
@@ -231,12 +234,30 @@ def _state(path):
             with path.open("rb") as opened:
                 digest = hashlib.file_digest(opened, "sha256").digest()
         except PermissionError:
-            digest = None   # its mode, changed or not, is all there is to tell
+            digest = _read_as_root(path)
         return *state, found.st_mtime_ns, digest
     except (FileNotFoundError, NotADirectoryError, PermissionError):
         # none there, gone while it was read (the home is live), or in a home folder its user
         # cannot enter
         return None
+
+
+def _read_as_root(path):
+    """The sha256 of a file its user cannot read, whose bytes a run may change before putting back
+    its mode and time.  Root of a user namespace of the script's own reads past the mode of a file
+    whose owner and group are its user's; where it cannot, the runs cannot be judged."""
+    try:
+        with subprocess.Popen(["unshare", "--map-root-user", "cat", "--", path],
+                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL) as cat:
+            digest = hashlib.file_digest(cat.stdout, "sha256").digest()
+        if cat.returncode == 0:
+            return digest
+    except OSError:
+        pass    # no unshare to run
+    path.lstat()    # gone since, as the home is live: none there
+    print(f"shadow: cannot read {path}, even through unshare, so whether a run changed it is "
+          "unknown", file=sys.stderr)
+    raise SystemExit(2)
 
 
 def _attributes(path):

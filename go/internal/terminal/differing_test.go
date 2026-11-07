@@ -15,7 +15,7 @@ func TestOnlyTheRowsThatDifferGoOutAndEveryRowOnceATick(t *testing.T) {
 		lines []string
 		want  string
 	}{
-		{[]string{"agentkit", "› acme", "  fix-api"}, "\x1b[Hagentkit\x1b[K\n› acme\x1b[K\n  fix-api\x1b[K\n\x1b[J"},
+		{[]string{"agentkit", "› acme", "  fix-api"}, "\x1b[1;1Hagentkit\x1b[K\x1b[2;1H› acme\x1b[K\x1b[3;1H  fix-api\x1b[K\x1b[4;1H\x1b[J"},
 		{moved, "\x1b[2;1H  acme\x1b[K\x1b[3;1H› fix-api\x1b[K\x1b[4;1H\x1b[J"},
 		{moved, ""},
 		{[]string{"agentkit"}, "\x1b[2;1H\x1b[J"},
@@ -27,7 +27,7 @@ func TestOnlyTheRowsThatDifferGoOutAndEveryRowOnceATick(t *testing.T) {
 	}
 	out.Reset()
 	painter.whole = painter.whole.Add(-Tick)
-	if painter.Write([]string{"agentkit"}, screen); out.String() != hold("\x1b[Hagentkit\x1b[K\n\x1b[J") {
+	if painter.Write([]string{"agentkit"}, screen); out.String() != hold("\x1b[1;1Hagentkit\x1b[K\x1b[2;1H\x1b[J") {
 		t.Fatalf("a Tick on wrote %q", out.String())
 	}
 }

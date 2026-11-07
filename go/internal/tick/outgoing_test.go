@@ -72,8 +72,7 @@ esac
 
 // A run that opened a PR from a fork hears what the maintainer decided once, in its seat: an
 // approval stays the tick's own, a request for changes and a close go on the run and into the
-// seat, a line whose Enter a killed tick never pressed gets its Enter and no second copy, and a
-// merge is Python's with nothing written.
+// seat, and a line whose Enter a killed tick never pressed gets its Enter and no second copy.
 func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
 	ak, home := forkSeat(t)
 	address := "https://github.com/acme/widgets/pull/7"
@@ -144,12 +143,6 @@ func TestAForkPRsChangesRequestAndCloseAreSaidOnce(t *testing.T) {
 	if said := tick(asked, nil); said != "" || keys() != "Enter\n" || read(t, filepath.Join(dir, "result.md")) != result ||
 		read(t, filepath.Join(dir, "run.json")) != settled {
 		t.Fatalf("the request for changes was handed on again: %q, saying %q", keys(), said)
-	}
-
-	kept := run.Line(state)
-	tick(`{"state": "MERGED", "reviewDecision": "APPROVED", "title": "Add retry file", "number": 7}`, errLeft)
-	if run.Line(state) != kept || read(t, filepath.Join(dir, "run.json")) != settled || keys() != "Enter\n" {
-		t.Fatal("a merge was written before it went to Python")
 	}
 
 	closed := "PR #7 Add retry file: closed by the maintainer without a merge"

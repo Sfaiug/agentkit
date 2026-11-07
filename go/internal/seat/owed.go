@@ -70,23 +70,6 @@ func changeOwed(name string, change func([]any) []any) error {
 	})
 }
 
-// A respawn keeps the tmux session's birth but replaces its composer. Invalidate
-// receipts before starting that harness; each line and its id remain owed.
-// The caller holds the send lock, so an earlier teller's stale check sees the reset.
-func retypeOwed(name string) error {
-	return changeOwed(name, func(lines []any) []any {
-		next := append([]any(nil), lines...)
-		for i, value := range next {
-			if line, ok := value.(*run.Object); ok && line.Has("typed") {
-				clean := line.Copy()
-				clean.Delete("typed")
-				next[i] = clean
-			}
-		}
-		return next
-	})
-}
-
 // owedReadable leaves editor receipts, and any key it does not know, to Python; a move's line
 // (`switch`) names the pane it goes to.
 func owedReadable(file *run.Object) bool {
@@ -102,7 +85,7 @@ func owedReadable(file *run.Object) bool {
 		if !ok || line.Str("line") == "" || !only(line, []string{"id", "line", "typed", "switch", "pane"}) {
 			return false
 		}
-		if line.Truthy("typed") && (line.Dict("typed") == nil || !only(line.Dict("typed"), []string{"line", "seat"})) {
+		if line.Truthy("typed") && (line.Dict("typed") == nil || !only(line.Dict("typed"), []string{"line", "seat", "pid"})) {
 			return false
 		}
 	}
