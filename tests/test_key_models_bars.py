@@ -1,7 +1,8 @@
 """Under the role lines, `r recommended` on `c` draws the role `▸` is on as bars: its choices,
 then as many of its `others`, best first, as fill five places, shaded, side by side, cheapest on
 the left and the dearer taller; on each its cost, under it its quality, its name wrapped at words
-in its column, on 40 cells and on 100, and its effort, and under a shaded one its why led by `░`;
+in its column, on 40 cells and on 100, and its effort, and under a shaded one, standing in whole
+shaded cells, its why led by `░`;
 `━` under the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints
 every role's in turn under its role lines, and on 40 cells, its costs $100 and more, all five
 with every line on the screen.
@@ -45,7 +46,8 @@ STANDS = {"█": 8, "░": 8, **{glyph: n for n, glyph in enumerate("▁▂▃�
 
 def bars(text, word):
     """The bars under the heading `word` begins, left to right, each {name, lines it takes,
-    quality, cost, eighths it stands, shaded, why from its `░` on, effort, marked}, read down to
+    quality, cost, eighths it stands, glyphs it stands in, shaded, why from its `░` on, effort,
+    marked}, read down to
     the blank line under them; a column reaches from its bar's left edge to the next bar's."""
     shown = [line.rstrip() for line in text.split("\n")]
     head = next(n for n, line in enumerate(shown) if line.strip().startswith(word + " · "))
@@ -69,6 +71,7 @@ def bars(text, word):
         names = rest[:-1] if marked else rest
         found.append({"name": " ".join(names), "lines": names, "quality": quality,
                       "cost": chart[top - 1], "eighths": sum(stands), "shaded": shaded,
+                      "glyphs": {cell[0] for cell, eighths in zip(chart, stands) if eighths},
                       "why": why, "effort": effort, "marked": marked})
     return found
 
@@ -135,6 +138,14 @@ class ModelsBars(unittest.TestCase):
             with self.subTest(width=width):
                 shown = self.models(width)[1]
                 self.assertGreater(len(bars(shown, "orchestrator")[1]["lines"]), 1, shown)
+
+    def test_a_shaded_bar_stands_in_whole_shaded_cells(self):
+        # 7 cells for $8: Long Name's $3 and Dear's $6 end in a part of a cell
+        done = self.home.ak("models", env={**ENV, "COLUMNS": "100"})
+        self.assertEqual(done.code, 0, done.err)
+        for word in USES:
+            self.assertEqual([bar["glyphs"] for bar in bars(done.out, word) if bar["shaded"]],
+                             [{"░"}, {"░"}], done.out)
 
     def test_up_and_down_draw_another_roles_bars(self):
         term, _ = self.models()
