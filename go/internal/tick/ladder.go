@@ -10,12 +10,14 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/launch"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 // stallCleanup is the seconds past a run's silence limit the loop's own watchdog gets to end a
@@ -70,83 +72,65 @@ func (t *ticking) climb(dir string, record *run.Object) error {
 	case t.dry:
 		t.log.line(fmt.Sprintf("would %s %s, silent for %s: %s", r.name(), id, run.Span(r.silent), r.line))
 		return nil
+	case r.name() == "resume":
+		return t.resumeRung(dir, record, r, now)
 	}
 	release, err := run.Hold(dir)
 	if err != nil {
 		return err
 	}
+	defer release()
 	climbed, err := t.climbUnder(dir, &r, now)
-	if climbed != nil {
-		switch r.name() {
-		case "park":
-			loop.WriteResult(dir, climbed)
-			run.Note(dir, r.line+"; parked as stalled", t.clock())
-			err = t.tellParked(dir)
-			t.log.line(fmt.Sprintf("%s: %s; parked as stalled", id, r.line))
-		case "resume":
-			run.Note(dir, r.line+"; resumed", t.clock())
-			t.log.line(fmt.Sprintf("%s: %s; resumed", id, r.line))
-		default:
-			run.Note(dir, r.line, t.clock())
-			t.log.line(fmt.Sprintf("%s: %s", id, r.line))
-		}
-	}
-	release()
-	if climbed == nil || r.name() != "resume" {
-		return err
-	}
-	code, why, err := launch.ResumeExpected(id, climbed, nil, nil)
 	switch {
-	case errors.Is(err, launch.ErrPython):
-		return errLeft
-	case err != nil || code != 0:
-		t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(why, fmt.Sprint(err))))
+	case climbed == nil:
+		return err
+	case r.name() != "park":
+		run.Note(dir, r.line, t.clock())
+		t.log.line(fmt.Sprintf("%s: %s", id, r.line))
+		return nil
 	}
-	return nil
+	loop.WriteResult(dir, climbed)
+	run.Note(dir, r.line+"; parked as stalled", t.clock())
+	err = t.tellParked(dir)
+	t.log.line(fmt.Sprintf("%s: %s; parked as stalled", id, r.line))
+	if errors.Is(err, errLeft) {
+		return nil // a seat that stopped taking lines since it was read is told on a later tick, as a refused notice is
+	}
+	return err
 }
 
-// climbUnder takes the run one rung down under its lock, read again there into r: the record as it
-// was written, nil where the run moved on or the rung is Python's.  Each rung ends only what the
-// record names, matched by identity: the loop's child as it was read, the loop itself as recorded.
+// climbUnder takes the run down the rung r names, park or kill the step, under its lock, read again
+// there into r: the record as it was written, nil where the run moved on or the rung is Python's.
+// Each rung ends only what the record names, matched by identity: the loop's child as it was read,
+// the loop itself as recorded.
 func (t *ticking) climbUnder(dir string, r *rung, now float64) (*run.Object, error) {
-	id := filepath.Base(dir)
+	id, decided := filepath.Base(dir), r.name()
 	var climbed *run.Object
 	err := run.Change(dir, func(current *run.Object) error {
 		due := false
-		if *r, due = rungOf(dir, current, now); current.Str("state") != "running" || !due {
+		if *r, due = rungOf(dir, current, now); current.Str("state") != "running" || !due || r.name() != decided {
 			return nil
 		}
 		stalls := slices.Clone(r.stalls)
-		entry := func(action string) *run.Object {
-			return run.Fields("time", epoch(t.clock()), "round", r.round, "step", r.step, "action", action)
-		}
-		switch r.name() {
-		case "park":
-			if r.alive && scoped(current) || !typable(run.Seat(current), parkedLine(id, r.step)) {
-				return errLeft // Python stops a unit by its name, and cards or pages a seat it cannot type into
+		if decided == "park" {
+			name := run.Seat(current)
+			if r.alive && scoped(current) || !typable(name, parkedLine(id, r.step)) || !seat.TakesLine(name) {
+				return errLeft // Python stops a unit by its name, and cards or pages a seat it cannot type into now
 			}
 			r.endLoop(current)
-			run.SetAll(current, "state", "stalled", "stalls", append(stalls, entry("parked")), "finished_at", nil,
+			run.SetAll(current, "state", "stalled", "stalls", append(stalls, r.entry(t.clock(), "parked")), "finished_at", nil,
 				"stalled_notified", false, "error", fmt.Sprintf("stalled three times at %s; parked: ak run resume %s", r.step, id))
-		case "resume":
-			// reap leaves the ended loop alone, and the resume adopts it
-			order := func(record *run.Object) { record.Set("stall_resume_at", now) }
-			if r.kind == "worker" || !launch.Takes(id, current, order) {
-				return errLeft // a stalled worker turn goes to another executor, which Python picks
-			}
-			r.endLoop(current)
-			order(current)
-			current.Set("stalls", append(stalls, entry("resumed")))
-		default:
-			action := "step already gone"
-			for _, child := range host.Children(r.pid) {
-				if child.Pid == r.child.Pid && child.Start == r.child.Start && slices.Equal(child.Args, r.child.Args) && child.Pid != os.Getpid() {
-					host.EndTree(child.Pid)
-					action = "killed step"
-				}
-			}
-			current.Set("stalls", append(stalls, entry(action)))
+			climbed = current
+			return nil
 		}
+		action := "step already gone"
+		for _, child := range host.Children(r.pid) {
+			if child.Pid == r.child.Pid && child.Start == r.child.Start && slices.Equal(child.Args, r.child.Args) && child.Pid != os.Getpid() {
+				host.EndTree(child.Pid)
+				action = "killed step"
+			}
+		}
+		current.Set("stalls", append(stalls, r.entry(t.clock(), action)))
 		climbed = current
 		return nil
 	})
@@ -154,6 +138,38 @@ func (t *ticking) climbUnder(dir string, r *rung, now float64) (*run.Object, err
 		return nil, err
 	}
 	return climbed, nil
+}
+
+// resumeRung ends the loop and resumes the run through Go's own resume, which decides first and
+// writes the rung with its own write, so a resume left to Python leaves the loop running and
+// nothing written.
+func (t *ticking) resumeRung(dir string, record *run.Object, r rung, now float64) error {
+	id := filepath.Base(dir)
+	if r.kind == "worker" {
+		return errLeft // a stalled worker turn goes to another executor, which Python picks
+	}
+	// reap leaves the ended loop alone, and the resume adopts it
+	order := func(current *run.Object) {
+		run.SetAll(current, "stalls", append(slices.Clone(r.stalls), r.entry(t.clock(), "resumed")), "stall_resume_at", now)
+	}
+	noted := func() {
+		run.Note(dir, r.line+"; resumed", t.clock())
+		t.log.line(fmt.Sprintf("%s: %s; resumed", id, r.line))
+	}
+	end := func() {
+		if r.alive {
+			r.endLoop(record)
+			loop.Unfollow() // the ended loop's own `ak run` ends with it, as Python's
+		}
+	}
+	code, why, err := launch.ResumeEnding(id, record, end, order, noted)
+	switch {
+	case errors.Is(err, launch.ErrPython):
+		return errLeft
+	case err != nil || code != 0:
+		t.log.line(fmt.Sprintf("WARN could not resume %s: %s", id, cmp.Or(why, fmt.Sprint(err))))
+	}
+	return nil
 }
 
 // A rung is where a silent run stands on the ladder, read off its record and its loop's children.
@@ -192,6 +208,11 @@ func (r rung) name() string {
 		return "resume"
 	}
 	return "kill the step"
+}
+
+// entry is the rung's line in the record's `stalls`, at when it landed.
+func (r rung) entry(at time.Time, action string) *run.Object {
+	return run.Fields("time", epoch(at), "round", r.round, "step", r.step, "action", action)
 }
 
 // endLoop ends what the record names of a live loop, where no unit holds it: every process

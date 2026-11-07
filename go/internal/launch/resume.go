@@ -17,7 +17,9 @@ import (
 	"agentkit/internal/usage"
 )
 
-func resume(id string, bg bool, expected *run.Object, order func(*run.Object), noted func(), out, errOut io.Writer) (int, string, error) {
+// resume is Go's resume of the run id: end, where given, ends the run's live loop once the resume is
+// decided, so one left to Python leaves that loop running.
+func resume(id string, bg bool, expected *run.Object, end func(), order func(*run.Object), noted func(), out, errOut io.Writer) (int, string, error) {
 	dir := filepath.Join(run.Runs(), id)
 	record, _ := run.Read(dir)
 	if expected != nil && !run.Equal(record, expected) {
@@ -33,7 +35,7 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 		order(record)
 	}
 	switch state := record.Str("state"); {
-	case run.Active(record) && run.ProcessActive(record):
+	case end == nil && run.Active(record) && run.ProcessActive(record):
 		return 2, fmt.Sprintf("%s is still running as pid %s", id, run.Field(record, "pid", "None")), nil
 	case state == "blocked":
 		return 2, "blocked runs are not resumed; the orchestrator writes a new task", nil
@@ -42,6 +44,9 @@ func resume(id string, bg bool, expected *run.Object, order func(*run.Object), n
 	}
 	if !goesOn(dir, read, record) {
 		return 0, "", ErrPython
+	}
+	if end != nil {
+		end()
 	}
 	if dry := loop.Dry(record); dry != "" {
 		return parkDry(dir, read, order, dry, out)

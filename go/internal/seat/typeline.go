@@ -57,12 +57,8 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if !typable(own) {
 		return false
 	}
-	if pane == "" {
-		pane = "=" + name + ":"
-	}
-	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}")
-	pane, born, _ := strings.Cut(said, "\t")
-	if err != nil || !paneID.MatchString(pane) {
+	pane, born, found := linePane(name, pane)
+	if !found {
 		return false
 	}
 	text := keyed(line)
@@ -70,13 +66,13 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 	if typed != nil && run.Equal(typed, run.Fields("line", text, "seat", created(born))) {
 		return at.finishTyped(text, stale, log)
 	}
-	if held, drawn := at.composer(); !drawn || held != "" || !at.takesLine() {
+	if !at.open() {
 		return false
 	}
 	ready := func() bool { return at.holds(text) == "line" }
-	err = notify.Held(context.Background(), name, func(current string) error {
+	err := notify.Held(context.Background(), name, func(current string) error {
 		at.name = current
-		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
+		if stale(current) || !at.settled() {
 			return errUntyped
 		}
 		entry := typingReceipt(own, record, text)
@@ -127,6 +123,29 @@ func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *r
 		}
 	}
 	return at.holds(text) == "empty" && !at.unread()
+}
+
+// linePane is the pane a line goes into, "" naming the seat's window's own, and when its session was
+// made; false where tmux names none.
+func linePane(name, pane string) (string, string, bool) {
+	if pane == "" {
+		pane = "=" + name + ":"
+	}
+	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}")
+	pane, born, _ := strings.Cut(said, "\t")
+	return pane, born, err == nil && paneID.MatchString(pane)
+}
+
+// open is whether the seat's composer reads empty at a prompt that takes a line.
+func (at seatAt) open() bool {
+	held, drawn := at.composer()
+	return drawn && held == "" && at.takesLine()
+}
+
+// settled is whether a line typed now goes in whole: the seat quiet, no question kept back for it,
+// no text of it in ak's editor and no input its reader has not read.
+func (at seatAt) settled() bool {
+	return at.quiet() && !at.unasked() && !at.editorKept() && !at.unread()
 }
 
 // typable is a harness Go types into: one whose screen it reads as Python does, whose composer
