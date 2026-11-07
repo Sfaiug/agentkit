@@ -112,11 +112,7 @@ func (r Readings) sliceOrUnitMemory() (memory, bool) {
 
 // inUse is ` · <name> 1.2 of 4 G in use`, and what of it is in swap.
 func (m memory) inUse(name string) string {
-	text := fmt.Sprintf(" · %s %s of %s G in use", name, G(m.used, true), G(m.high, true))
-	if m.swap != 0 {
-		text += " · " + G(m.swap, true) + " G in swap"
-	}
-	return text
+	return fmt.Sprintf(" · %s %s of %s G in use", name, G(m.used, true), G(m.high, true)) + m.inSwap()
 }
 
 // heavyLimit is the suites running plus how many more the live headroom fits, at least one:

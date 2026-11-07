@@ -33,7 +33,7 @@ func seatLaunchFixture(t *testing.T) {
 }
 
 func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *testing.T) {
-	l := rig(t, 0)
+	rig(t, 0)
 	seatLaunchFixture(t)
 	t.Setenv("AK_RUN_DEPTH", "3")
 	t.Setenv("AK_PARENT_RUN", "parent")
@@ -73,15 +73,6 @@ func TestAFixWaitsFromItsFirstReceiptWithTheSeatsCurrentListsAndNoParent(t *test
 	record, _ = run.Read(child)
 	if record.Str("state") != "queued" || !record.Truthy("slot_waiting") || record.Get("pid") != nil {
 		t.Fatalf("a failed launch lost its queue place: %s", run.Line(record))
-	}
-	run.Change(child, func(record *run.Object) error { record.Set("pid", os.Getpid()); return nil })
-	l.dir = child
-	if err := l.admitQueued(); err != nil {
-		t.Fatal(err)
-	}
-	record, _ = run.Read(child)
-	if record.Str("state") != "running" || record.Truthy("slot_waiting") || !record.Truthy("slot_started_at") {
-		t.Fatalf("never claimed its own slot: %s", run.Line(record))
 	}
 }
 

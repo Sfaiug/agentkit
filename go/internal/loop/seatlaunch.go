@@ -18,8 +18,17 @@ import (
 	"agentkit/internal/task"
 )
 
-// HoldSlots is supplied by launch, which owns admission and uses the loop to drive runs.
-var HoldSlots func(context.Context) (*os.File, error)
+// HoldSlots and WaitSlot are supplied by launch, which owns admission and uses the loop to drive
+// runs: the slots lock, and the run's wait for its slot in its driver, done once it holds one or
+// waits in no other process's stead.
+var (
+	HoldSlots func(context.Context) (*os.File, error)
+	WaitSlot  func(ctx context.Context, dir string) error
+)
+
+// ErrLeft is a slot wait Go leaves to Python: nothing of it written, its waiter's going leaves it for
+// Python's tick, which takes up a waiter whose process is gone.
+var ErrLeft = errors.New("a slot wait left to Python")
 
 // launchForSeat prepares a sibling run with the seat's lists now, not the ending's slot,
 // marker or ancestry, ahead of the queue where origin says `first`. Its first record is queued,
@@ -110,20 +119,4 @@ func failedStart(dir, reason string) {
 	if !queued {
 		End(dir, reason)
 	}
-}
-
-// admitQueued transfers an ungated seat launch from waiting to holding under Python's
-// admission lock. Start leaves it waiting until its own driver reaches this point.
-func (l *loop) admitQueued() error {
-	held, err := HoldSlots(l.ctx)
-	if err != nil {
-		return err
-	}
-	defer held.Close()
-	return write(l.dir, func(record *run.Object) {
-		pid, _ := record.Int("pid")
-		if record.Str("state") == "queued" && record.Truthy("slot_waiting") && pid == os.Getpid() {
-			run.SetAll(record, "state", "running", "slot_waiting", false, "slot_started_at", clock())
-		}
-	})
 }
