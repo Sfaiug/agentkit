@@ -66,4 +66,3 @@ func TestRawConsumerArtifactsLeaveReadableRecord(t *testing.T) {
 		t.Fatalf("a check artifact made its run.json unreadable: %v", err)
 	}
 }
-
