@@ -75,17 +75,17 @@ func (t *ticking) health() error {
 		return errLeft
 	}
 	for _, name := range names {
-		var kept *run.Object
+		var kept, answer *run.Object
 		var out *seat.Live
-		owner, line, why := "", "", ""
+		owner, line := "", ""
 		look := func(live seat.Live) bool {
 			held, _ := stalls.Get(live.Name).(*run.Object)
 			if held != nil && held.Str("kind") == "auth" { // keepLogin's, this tick: quiet hands over any other
 				return ownerWaits(live)
 			}
-			if answered, yes, said := t.loginAsked(live); answered {
-				if !yes {
-					out, why = &live, said
+			if login, decided := t.loginOut(live); decided {
+				if login != nil {
+					out, answer = &live, login
 				}
 				return false
 			}
@@ -103,7 +103,7 @@ func (t *ticking) health() error {
 		carried, err := seat.Health(name, look, t.log.line, t.dry)
 		// a login out is kept before the seat's word reads it, which a look again publishes
 		if out != nil && err == nil {
-			if carried, err = t.keepLogin(*out, why); carried && err == nil {
+			if carried, err = t.keepLogin(*out, answer); carried && err == nil {
 				carried, err = seat.Health(name, look, t.log.line, t.dry)
 			}
 		}
