@@ -100,7 +100,7 @@ EFFORTS = ("low", "medium", "high", "xhigh", "max", "ultra")   # the effort word
 CATALOG_TTL = 60               # seconds a harness's model list is reused before it is asked again
 CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before the answer it has
 # What a change may spend, each a top-level key of config.toml (`policy`): ak's default, the
-# floor, what the number means and the board rows it moves.
+# floor and what the number means.
 # Owner, 21 Oct 2026: larger first reviews merged less often and broke landing more often,
 # with no saving in tokens per merged line (14-21 Oct); seats failed all rounds about twice
 # as often as workers from the handoff size up, with mostly unrelated context (14 days).
@@ -108,10 +108,9 @@ CATALOG_NOW = 0.05             # seconds catalog_now waits on catalog() before t
 # `transitions.carried_lines`): past either limit, write a smaller task.
 POLICY = {
     "review_rounds": (3, 0, "the review rounds a change has before it goes back to its orchestrator "
-                     "to split or re-scope", ("first round", "unmerged", "hours to merge")),
-    "executor_lines": (300, 0, "the most added lines a first review reads",
-                     ("first round", "merged")),
-    "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds", ("built",)),
+                     "to split or re-scope"),
+    "executor_lines": (300, 0, "the most added lines a first review reads"),
+    "orchestrator_lines": (50, 0, "the most added lines an orchestrator builds"),
 }
 POLICY_RENAMES = {"rounds": "review_rounds", "review_lines": "executor_lines",
                   "seat_lines": "orchestrator_lines"}
@@ -494,7 +493,7 @@ def _policy_in(path, data):
         if old in data:
             raise Error(f"{path}: use {new} instead of {old}")
     numbers = {}
-    for key, (default, floor, meaning, _) in POLICY.items():
+    for key, (default, floor, meaning) in POLICY.items():
         value = numbers[key] = data.get(key, default)
         unlimited = ' or "no limit"' if key.endswith("_lines") and isinstance(value, str) else ""
         if unlimited and value == "no limit":
