@@ -426,20 +426,23 @@ func isText(value any) bool {
 	return ok
 }
 
-// conversations is each conversation a harness keeps and never ends itself that nobody wrote to
-// for a run directory's age and nobody holds open (gc.stale_conversations).  A harness keeping
-// its own as rows of a SQLite file, which Go's standard library does not read, makes the plan
-// Python's.
+// conversations is each conversation a harness keeps as rows of its own database that it names
+// idle for a run directory's age, by its id, then each one a harness keeps in files and never
+// ends itself that nobody wrote to for as long and nobody holds open (gc.stale_conversations).
 func (r *reads) conversations() []Item {
-	if slices.ContainsFunc(harness.ConversationDatabases(), isFile) {
+	idle, known := harness.IdleConversations(r.now - runAge)
+	if !known {
 		r.python = true
-		return nil
+	}
+	var found []Item
+	for _, each := range idle {
+		why := fmt.Sprintf("untouched for %d days", int(runAge/day))
+		found = append(found, Item{"remove", "conversation", each.ID, why, takeIdle(each)})
 	}
 	paths := r.every()
 	if paths == nil {
-		return nil
+		return found
 	}
-	var found []Item
 	for _, store := range harness.ConversationStores(func(folder string) []string {
 		names, _ := listdir(folder)
 		return names

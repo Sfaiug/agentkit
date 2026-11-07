@@ -104,11 +104,28 @@ func takeConversation(name, path string) func(*collection) (bool, error) {
 	if _, ours, err := harness.ConversationParts(name, path); !ours || err != nil {
 		return nil
 	}
+	return balking(name, func() (bool, error) { return endConversation(name, path) })
+}
+
+// takeIdle ends a conversation kept as rows of its harness's database its harness's own way, only
+// while that database is ours, reached through no link, and names it idle still (gc.cmd_gc).
+func takeIdle(idle harness.Idle) func(*collection) (bool, error) {
+	return balking(idle.Harness, func() (bool, error) {
+		return harness.EndIdle(idle, func(database string) bool {
+			now, known := harness.IdleConversations(epoch() - runAge)
+			return safe(database) && known && slices.Contains(now, idle)
+		})
+	})
+}
+
+// balking is that end of a conversation of that harness, skipped once its harness's own way
+// failed this pass.
+func balking(name string, end func() (bool, error)) func(*collection) (bool, error) {
 	return func(c *collection) (bool, error) {
 		if c.balked[name] {
 			return false, nil
 		}
-		done, err := endConversation(name, path)
+		done, err := end()
 		if err != nil {
 			c.balked[name] = true // one failure a pass, not one a conversation
 		}

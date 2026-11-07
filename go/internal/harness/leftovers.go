@@ -58,9 +58,27 @@ func ConversationStores(list func(folder string) []string) []Store {
 	return append(stores, Store{"muse", filepath.Join(share(), "muse", "sessions"), "[0-9]*/[0-9]*/[0-9]*/*/"})
 }
 
-// ConversationDatabases is each SQLite file a harness keeps its conversations in as rows, which
-// Python reads for its idle ones: OpenCode's opencode.db, as OpenCode resolves it.
-func ConversationDatabases() []string { return []string{opencodeDatabase()} }
+// An Idle is a conversation a harness keeps as rows of its own database and never ends itself:
+// the harness, and the conversation's id.
+type Idle struct{ Harness, ID string }
+
+// IdleConversations is each such conversation that is top-level and nobody updated since
+// `before`, in Unix seconds, which takes its children along when it ends: OpenCode's, the one
+// harness keeping any.  False where Go reads one otherwise than Python does.
+func IdleConversations(before float64) ([]Idle, bool) {
+	sessions, known := opencodeIdle(before)
+	idle := make([]Idle, len(sessions))
+	for i, session := range sessions {
+		idle[i] = Idle{"opencode", session}
+	}
+	return idle, known
+}
+
+// EndIdle ends that conversation, children and all, its harness's own way, only where
+// ends(its database) holds right before it starts: whether it went.
+func EndIdle(idle Idle, ends func(database string) bool) (bool, error) {
+	return opencodeEnd(idle.ID, ends)
+}
 
 // OwnsTmp is whether a harness's plugin judges that top-level temporary entry its own way:
 // Claude's scratch, `claude-<uid>`, wherever its adapter is installed.
