@@ -45,8 +45,8 @@ type plannedMove struct {
 // seat's own), as orch.switch_orchestrator does: in place, asking nothing, where its running
 // harness takes the move (switchPane), else by a fresh-conversation restart once `asked` says so.
 // Given an effort, its own model moves as another would.  Refusals of _switch_plan, a move in
-// place its harness's plugin judges or after which a turn its usage cut off goes on, kept
-// conversations, drafts and dialogs return before asked.  The launch, including its rollback,
+// place its harness's plugin judges, into a harness Go types nothing into or after which a turn
+// its usage cut off goes on, kept conversations, drafts and dialogs return before asked.  The launch, including its rollback,
 // remains the one reopening uses.
 func Move(name, model, effort string, asked func() (bool, bool)) (bool, error) {
 	plan, known := planMove(name, model, effort)
@@ -120,7 +120,7 @@ func planMove(name, model, effort string) (*plannedMove, bool) {
 		entry.Efforts = at
 	}
 	pane, err := switchPane(name, was, entry)
-	if err != nil || !efforts || pane != "" && (harness.AsksSwitchable(entry.Harness) || usageGoesOn(name)) {
+	if err != nil || !efforts || pane != "" && (harness.AsksSwitchable(entry.Harness) || !typable(entry.Harness) || usageGoesOn(name)) {
 		return nil, false
 	}
 	plan := &plannedMove{name: name, pane: pane, was: was, record: record, selected: selected,
