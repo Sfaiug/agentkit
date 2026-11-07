@@ -44,5 +44,8 @@ func launchStands(dir string, record *run.Object) bool {
 	}
 	seated, _, _ := Seat()
 	reason, _, at, err := launcher{seat: seated, bound: bound}.preflight(meta, cmds, path, path, task.Title(task.Text(data), "task"), values, flags)
+	// preflight polls the gate for a launch, holding the slots lock for its receipt: a resume polls
+	// for the run its receipt is (pollsHere)
+	at.admitted.release()
 	return err == nil && reason == "" && config.Resolve(at.repo) == config.Resolve(record.Str("repo"))
 }

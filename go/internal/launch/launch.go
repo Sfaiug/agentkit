@@ -273,12 +273,18 @@ func elsewhere(id string) bool {
 }
 
 // surroundings is whether this process's surroundings leave a launch, or the run id names going
-// on, to Python: those unread, one Python's gate decides, or a config Python refuses before its run.
+// on, to Python: one Python's gate decides, or surroundings that do whatever the gate decides.
 func surroundings(id string) bool {
+	depth, _ := runDepth()
+	return gated(depth) || ungated(id)
+}
+
+// ungated is whether surroundings leave a launch, or the run id names going on, to Python
+// whatever the gate decides: those unread, or a config Python refuses before its run.
+func ungated(id string) bool {
 	_, capped := config.MaxRuns()
 	_, _, memory := config.RunMemoryMaxMB()
-	depth, _ := runDepth()
-	return capped != nil || memory != nil || gated(depth) || unread(id)
+	return capped != nil || memory != nil || unread(id)
 }
 
 // unread is whether Go reads this process's surroundings otherwise than Python for a launch, or
