@@ -157,22 +157,23 @@ func TestGoogleListsWhatAkRentsAndGivesOneBack(t *testing.T) {
 		}
 	}
 
-	// A refusal's codes are its body's, and one of 500 or more has none.
+	// A refusal's codes are its body's, whole, and one of 500 or more has none.
 	refusing := `{"error": {"code": 403, "errors": [{"reason": "quotaExceeded"}, {"code": "QUOTA_EXCEEDED", "reason": "x"},
 		{"reason": "quotaExceeded"}, {"message": "acme"}]}}`
 	for _, each := range []struct {
-		status int
-		said   string
-		codes  []string
+		status, short int
+		said          string
+		codes         []string
 	}{
-		{403, "Google refused: Forbidden", []string{"QUOTA_EXCEEDED", "quotaExceeded"}},
-		{503, "Google refused: Service Unavailable", nil},
+		{403, 0, "Google refused: Forbidden", []string{"QUOTA_EXCEEDED", "quotaExceeded"}},
+		{403, 1, "Google refused: Forbidden", nil},
+		{503, 0, "Google refused: Service Unavailable", nil},
 	} {
-		answer("GET "+path, reply{each.status, refusing, 0})
+		answer("GET "+path, reply{each.status, refusing, each.short})
 		err := GiveBack(machine)
 		var refused *refusal
 		if !errors.As(err, &refused) || err.Error() != each.said || !slices.Equal(refused.codes, each.codes) {
-			t.Errorf("%d: %v, %+v", each.status, err, refused)
+			t.Errorf("%d, %d short: %v, %+v", each.status, each.short, err, refused)
 		}
 	}
 	answer("GET /aggregated/instances?", reply{})
@@ -268,12 +269,27 @@ func TestGoogleListsWhatAkRentsAndGivesOneBack(t *testing.T) {
 		t.Errorf("four fields kept at %v: %+v", at, kept)
 	}
 
-	// A reply cut short fails that call alone; once Google does not answer, with no connection or a
-	// reply stalled past a call's time, every later call fails in its words, asking nothing.
+	// A reply cut short, in its body or its header, fails that call alone; once Google does not
+	// answer, with no connection, one closed before any reply or a reply stalled past a call's
+	// time, every later call fails in its words, asking nothing.
 	answer("GET "+path, reply{200, ours, 1})
 	if err := GiveBack(machine); fmt.Sprint(err) != "asking Google failed: unexpected EOF" {
 		t.Errorf("cut short: %v", err)
 	}
+	hanging := func(said string) string { // a Google saying said and hanging up
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			io.WriteString(conn, said)
+			conn.Close()
+		}))
+		t.Cleanup(server.Close)
+		return server.URL
+	}
+	t.Setenv("AK_GOOGLE_URL", hanging("HTTP/1.1 200 OK\r\nContent-Len"))
+	if _, err := Rented(); !strings.HasPrefix(fmt.Sprint(err), "asking Google failed: ") {
+		t.Errorf("header cut short: %v", err)
+	}
+	t.Setenv("AK_GOOGLE_URL", google.URL)
 	answer("GET "+path, reply{200, ours, 0})
 	start = len(since(0))
 	if err := GiveBack(machine); err != nil || !slices.Equal(since(start), []string{"POST /token 1715805600", "GET " + path, "DELETE " + path}) {
@@ -291,7 +307,7 @@ func TestGoogleListsWhatAkRentsAndGivesOneBack(t *testing.T) {
 		<-r.Context().Done()
 	}))
 	defer stalled.Close()
-	for _, silent := range []string{closed.URL, stalled.URL} {
+	for _, silent := range []string{closed.URL, hanging(""), stalled.URL} {
 		unanswered = nil
 		t.Setenv("AK_GOOGLE_URL", silent)
 		_, err := Rented()

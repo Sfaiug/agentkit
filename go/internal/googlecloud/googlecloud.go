@@ -20,7 +20,6 @@ import (
 	"io"
 	"io/fs"
 	"maps"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -318,12 +317,12 @@ func call(method, address, token string, sent, answer any) error {
 		request, err = http.NewRequest(method, address, bytes.NewReader(body))
 	}
 	if err != nil {
-		return fmt.Errorf("asking Google failed: %w", err)
+		return failure(err)
 	}
 	request.Header = header
 	response, err := client.Do(request)
 	if err != nil {
-		return unanswering(err)
+		return failure(err)
 	}
 	defer response.Body.Close()
 	// all of it: a reply cut short of its length, or more after its JSON, is no answer
@@ -331,19 +330,16 @@ func call(method, address, token string, sent, answer any) error {
 	if response.StatusCode/100 != 2 { // Google's answer: 403 Forbidden, 404 Not Found ...
 		_, reason, _ := strings.Cut(response.Status, " ")
 		refused := &refusal{response.StatusCode, reason, nil}
-		if refused.status < 500 { // it did nothing of the request, and says why in its own codes
+		if refused.status < 500 && err == nil { // it did nothing of the request, and says why in its own codes
 			refused.codes = codes(data)
 		}
 		return refused
-	}
-	if late := net.Error(nil); errors.As(err, &late) && late.Timeout() {
-		return unanswering(err)
 	}
 	if err == nil {
 		err = json.Unmarshal(data, answer)
 	}
 	if err != nil {
-		return fmt.Errorf("asking Google failed: %w", err)
+		return failure(err)
 	}
 	return nil
 }

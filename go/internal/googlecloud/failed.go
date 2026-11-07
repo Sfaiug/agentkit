@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -14,14 +16,21 @@ import (
 // fails in the same words, asking nothing, so a process waits out one timeout, no more.
 var unanswered error
 
-// unanswering is a call's failure where Google did not answer, with no connection or a timeout.
-func unanswering(err error) error {
-	var failed *url.Error
-	if errors.As(err, &failed) {
-		err = failed.Err
+// failure is a call failing, in plain words: where Google did not answer at all, with no
+// connection, a timeout, or a connection closed before any reply, every later call's too; a reply
+// it gave, cut short or malformed, fails this call alone.
+func failure(err error) error {
+	var asked *url.Error
+	if errors.As(err, &asked) {
+		err = asked.Err
 	}
-	unanswered = fmt.Errorf("asking Google failed: %w", err)
-	return unanswered
+	said := fmt.Errorf("asking Google failed: %w", err)
+	var dropped *net.OpError
+	var late net.Error
+	if errors.As(err, &dropped) || errors.As(err, &late) && late.Timeout() || errors.Is(err, io.EOF) {
+		unanswered = said
+	}
+	return said
 }
 
 // A refusal is Google refusing a request: its HTTP status, the reason it gives, and under 500,
