@@ -25,12 +25,13 @@ type Spend struct {
 }
 
 // TokenSources is the files that harness keeps what the record's seat and its children spend in,
-// Python's plugin `seat_token_sources`; false where no reader counts its seats.
-func TokenSources(name string, record *run.Object) ([]string, bool) {
+// Python's plugin `seat_token_sources`: none where no reader counts its seats, as Python's tick
+// counts none from them, with no reader there either.
+func TokenSources(name string, record *run.Object) []string {
 	if hook := plugins[name].tokenSources; hook != nil {
-		return hook(record), true
+		return hook(record)
 	}
-	return nil, false
+	return nil
 }
 
 // Spends is what the whole lines that harness's file at path holds past cursor count, as Python's

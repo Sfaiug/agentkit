@@ -53,7 +53,7 @@ func SeatTokens() bool {
 		}
 		seated = true
 		model, _ := config.ModelNamed(record.Str("orchestrator"))
-		paths, _ := harness.TokenSources(model.Harness, record)
+		paths := harness.TokenSources(model.Harness, record)
 		repo, account := any(""), record.Get("account")
 		if record.Truthy("repo") {
 			repo = name(record.Get("repo"))
