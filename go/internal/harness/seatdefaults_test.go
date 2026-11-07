@@ -22,5 +22,8 @@ func TestAdapterOnlySeatsUseDefaultHooksWhileUnreadPluginsStayUnread(t *testing.
 		if path, known := Conversation(name, map[string]any{"conversation": "c"}); path != "" || known != want {
 			t.Fatalf("%q: conversation=%q, known=%v", name, path, known)
 		}
+		if said, cards, known, err := Answered(name, map[string]any{"conversation": "c"}); said != nil || cards != nil || known != want || err != nil {
+			t.Fatalf("%q: answered %v %v, known=%v, %v", name, said, cards, known, err)
+		}
 	}
 }

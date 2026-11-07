@@ -23,11 +23,13 @@ type Choice struct{ Label, Description string }
 
 // Answered is the conversation that seat's record owns as its harness shows it, oldest first
 // (Said), and each answer its owner gave on its question cards: an error where the conversation
-// is there and cannot be read; false where Go reads neither for that harness yet.
+// is there and cannot be read; none for a harness that brings no Python, whose default hooks read
+// none; false where Go reads neither for that harness yet.
 func Answered(name string, record map[string]any) ([]Turn, []Card, bool, error) {
-	hook := plugins[name].answered
+	own, plugged := plugins[name]
+	hook := own.answered
 	if hook == nil {
-		return nil, nil, false, nil
+		return nil, nil, !plugged && seatDefaults(name).seats, nil
 	}
 	said, cards, err := hook(record)
 	return said, cards, true, err
