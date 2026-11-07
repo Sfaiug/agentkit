@@ -3329,10 +3329,10 @@ EIGHTHS = " ▁▂▃▄▅▆▇"     # a bar's top, the eighths of a cell it f
 
 def columned(text, room, most=NAMED):
     """`text` wrapped at its words onto `most` lines of `room` cells, a word longer than a line
-    cut with `…`, and so is the last line where more would follow."""
+    cut with `…`; where more would follow, the last line's whole words that leave it a cell."""
     lines = terminal.wrap(" ".join(terminal.cut(word, room) for word in text.split()), room)
-    return lines if len(lines) <= most else [*lines[:most - 1],
-                                             terminal.cut(" ".join(lines[most - 1:]), room)]
+    return lines if len(lines) <= most else [
+        *lines[:most - 1], terminal.wrap(lines[most - 1], room - 1)[0] + "…"]
 
 
 def models_bars(found, role, used):
@@ -3343,45 +3343,49 @@ def models_bars(found, role, used):
     its quality, its name (columned) and its effort.  A choice is solid, one of `others` shaded
     `░` with its `why` under it; `used`, the row the role uses, is in the accent colour, `━`
     under its name.  No axis line: heights and costs say which is dearer, as a shaded bar on the
-    right is dearer, not better."""
-    utf8, choices = terminal.utf8(), found["choices"]
+    right is dearer, not better.  On a narrow screen the two-cell gutters, then the indent, give
+    way to the labels, then a place: the last of `others`, then the cheapest choice."""
+    utf8, width = terminal.utf8(), terminal.layout_width()
     solid, shade, mark = "█░━" if utf8 else "#:="
-    shaded = found["others"][:matrix.PLACES - len(choices)]
-    rows = sorted([(row, solid) for row in choices] + [(row, shade) for row in shaded],
-                  key=lambda one: one[0]["cost"])
-    room = terminal.layout_width() - 2
+    for places in range(matrix.PLACES, 0, -1):
+        choices = found["choices"][-places:]
+        shaded = found["others"][:places - len(choices)]
+        rows = sorted([(row, solid) for row in choices] + [(row, shade) for row in shaded],
+                      key=lambda one: one[0]["cost"])
+        size = max(1, min(WIDE, (width - 2 * len(rows)) // max(1, len(rows))))
+        labels = [(cost_said(found, row), f"{row['quality']:.1f}", row["effort"] or "")
+                  for row, _ in rows]
+        widths = [max(size, *map(terminal.cells, three)) for three in labels]
+        gap = 2 if sum(widths) + 2 * len(rows) <= width else 1
+        lead = min(2, width - sum(widths) - gap * (len(rows) - 1))
+        if lead >= 0:
+            break
     lines = ["", *("  " + line for line in packed([
         matrix.CONFIG_ROLES[role], f"{COUNTS[len(choices)]} choice{'s' * (len(choices) != 1)}",
-        *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else [])], " · ", room))]
-    if not rows:
-        return lines
-    size = max(1, min(WIDE, (room - 2 * (len(rows) - 1)) // len(rows)))
+        *([f"{COUNTS[len(shaded)]} more shaded"] if shaded else [])], " · ", width - 2))]
     step = 1 if utf8 else 8           # an eighth of a cell, or without UTF-8 a whole one
-    dearest = max(row["cost"] for row, _ in rows) or 1
-    widths, kinds, columns = [], [], []
-    for row, fill in rows:
-        cost, quality, effort = cost_said(found, row), f"{row['quality']:.1f}", row["effort"] or ""
-        widths.append(max(size, *map(terminal.cells, (cost, quality, effort))))
+    dearest = max((row["cost"] for row, _ in rows), default=0) or 1
+    kinds, columns = [], []
+    for (row, fill), (cost, quality, effort), wide in zip(rows, labels, widths):
         kinds.append("accent" if row is used else None)
-        eighths = max(step, step * round(8 * TALL * row["cost"] / dearest / step))
+        # a cell at least, so a bar shows its fill and a dearer one never stands lower
+        eighths = max(8, step * round(8 * TALL * row["cost"] / dearest / step))
         top = -(-eighths // 8)
         chart = [cost if level == top + 1 else "" if level > top else
                  (fill if eighths >= 8 * level else EIGHTHS[eighths % 8]) * size
                  for level in range(TALL + 1, 0, -1)]
-        columns.append([chart, [quality], columned(row["name"], widths[-1])
+        columns.append([chart, [quality], columned(row["name"], wide)
                         + [mark * size] * (row is used), [effort],
-                        columned(row["why"], widths[-1]) if fill == shade else []])
-    # two-cell gutters, then the indent, give way to the labels on a narrow screen
-    gap = "  " if sum(widths) + 2 * (len(rows) - 1) <= room else " "
-    lead = " " * max(0, min(2, room + 2 - sum(widths) - len(gap) * (len(rows) - 1)))
+                        columned(row["why"], wide) if fill == shade else []])
 
-    def cell(text, width, kind):      # spaced after its colour, so no line keeps trailing space
-        spaces = " " * (width - terminal.cells(text))
+    def cell(text, wide, kind):       # spaced after its colour, so no line keeps trailing space
+        spaces = " " * (wide - terminal.cells(text))
         return (terminal.styled(text, kind) if kind else text) + spaces
     for parts in zip(*columns):       # chart, quality, name, effort, why: each on the same lines
         tall = max(map(len, parts))
         for texts in zip(*(part + [""] * (tall - len(part)) for part in parts)):
-            lines.append((lead + gap.join(map(cell, texts, widths, kinds))).rstrip())
+            lines.append((" " * max(0, lead) + (" " * gap).join(
+                map(cell, texts, widths, kinds))).rstrip())
     return lines
 
 

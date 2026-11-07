@@ -3,7 +3,8 @@ then as many of its `others`, best first, as fill five places, shaded, side by s
 the left and the dearer taller; on each its cost, under it its quality, its name wrapped at words
 in its column, on 40 cells and on 100, and its effort, and under a shaded one its why; `━` under
 the name of the row the role uses.  ↑↓ draw another role's bars; `ak models` prints every role's
-in turn under its role lines.
+in turn under its role lines, and on 40 cells, where five places leave its labels too little
+room, the last of `others` gives its place up and every line stays on the screen.
 
 Black-box: `AK_BIN` in a terminal of 40 rows (tests/fixtures/akterm.py) and as `ak models`, a
 fake harness running three of the releases, each for a role of [defaults], the boards held as
@@ -90,20 +91,26 @@ def want(word):
     return [(*bar, "high") for bar in BARS], True, [USES[word]]
 
 
+def held(home, rows):
+    """`home` holding the boards of `rows` (ROWS's kind) and the harness and [defaults] USES
+    names."""
+    names = {release: name for release, name, *_ in rows}
+    fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
+        f"{release}\t{names[release]}\thigh\n" for release in CONFIGURED.values()))
+    akconfig.write(home, {name: {"harness": "claude", "model": release}
+                          for name, release in CONFIGURED.items()},
+                   orchestrator="step", workers=["top"], reviewers=["base"])
+    hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
+                for release, name, quality, cost in rows])
+
+
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
 class ModelsBars(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.home = home = Home()
-        cls.addClassCleanup(home.close)
-        names = {release: name for release, name, *_ in ROWS}
-        fakeadapter.install(home, claude="pass")["claude"].answer("models", "".join(
-            f"{release}\t{names[release]}\thigh\n" for release in CONFIGURED.values()))
-        akconfig.write(home, {name: {"harness": "claude", "model": release}
-                              for name, release in CONFIGURED.items()},
-                       orchestrator="step", workers=["top"], reviewers=["base"])
-        hold(home, [(release, name, "high", quality / 100 - 0.1, cost)
-                    for release, name, quality, cost in ROWS])
+        cls.home = Home()
+        cls.addClassCleanup(cls.home.close)
+        held(cls.home, ROWS)
 
     def models(self, width=100):
         """`r` on `c` in a window of its own, 40 rows high, and the screen once the
@@ -143,6 +150,16 @@ class ModelsBars(unittest.TestCase):
                              if line.strip().startswith("quality ")), shown.index(heads[0]))
         for word in USES:
             self.assertEqual(drawn(done.out, word), want(word), done.out)
+
+    def test_on_40_cells_labels_too_wide_for_five_places_take_one_and_stay_on_the_screen(self):
+        with Home() as home:      # each cost fiftyfold, $100 to $400: eight cells on its top
+            held(home, [(*row, 50 * cost) for *row, cost in ROWS])
+            done = home.ak("models", env={**ENV, "COLUMNS": "40"})
+        self.assertEqual(done.code, 0, done.err)
+        self.assertEqual([line for line in done.out.split("\n") if len(line) > 40], [], done.out)
+        for word in USES:
+            self.assertEqual([bar["name"] for bar in bars(done.out, word)],
+                             ["Acme Base 1", "Acme Step 1", "Acme Dear 1", "Acme Top 1"], done.out)
 
 
 if __name__ == "__main__":
