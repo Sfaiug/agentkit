@@ -7374,12 +7374,10 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
     the tick, leaving its row in history as `gate.run_done_when` does with `checked`: no exit
     where it timed out."""
     try:
-        # Its project's settings (`config.repo_env`), as its checks had them: one follower
-        # probes every project's runs, and its own environment is whichever merge started it.
-        env = {**os.environ, **config.repo_env(repo), "AK_MERGE_SHA": sha}
         with tempfile.TemporaryFile() as output, \
                 history.check(checked, command, time.time()) as ended:
-            proc = subprocess.Popen(["bash", "-c", command], cwd=repo, env=env,
+            proc = subprocess.Popen(["bash", "-c", command], cwd=repo,
+                                    env={**os.environ, "AK_MERGE_SHA": sha},
                                     stdin=subprocess.DEVNULL, stdout=output,
                                     stderr=subprocess.STDOUT, start_new_session=True)
             timed_out = False
@@ -7417,7 +7415,7 @@ def health_command(repo, sha, command, checked=None, timeout=HEALTH_TIMEOUT):
             if timed_out:
                 tail += f"\ntimed out after {timeout}s"
             return not timed_out and proc.returncode == 0, tail.strip()
-    except (OSError, config.Error) as exc:
+    except OSError as exc:
         return False, str(exc)
 
 
@@ -7436,88 +7434,97 @@ def awaiting_live(state, now=None):
     return bool((state.get("health") or {}).get("command"))
 
 
-def live_lock():
-    """The home's live follower lock, held till closed or its process ends, and the follower it
-    names (`live_handed`)."""
-    lock = os.open(config.RUNS / ".live.lock", os.O_RDWR | os.O_CREAT, 0o600)
-    fcntl.flock(lock, fcntl.LOCK_EX)
-    return lock, live_handed()
+def live_path(repo, kind):
+    """The "lock" a run of `repo`'s project is handed over and its live follower ends under, the
+    "follower" lock it holds for life, and the "runs" handed to it: one follower a project, as
+    each has its merges' settings (`config.repo_env`), which no other's may have."""
+    return config.RUNS / f".live-{Path(repo).name}.{kind}"
 
 
-def live_handed(held=None):
-    """What the home's live follower record says, written as `held` first where given and only
-    under `live_lock`: the one follower (`record.process_owner`) and the runs handed to it that
-    it has yet to take ("runs"); {} where it names no process alive.  Written whole
-    (`orch.replace_file`): a writer stopped anywhere leaves it naming the follower it named."""
-    path = config.RUNS / ".live.json"
-    if held is not None:
-        orch.replace_file(path, json.dumps(held).encode())
+def live_lock(repo, kind, wait=True):
+    """That lock, held till closed or its process ends; None where it is held and `wait` false."""
+    lock = os.open(live_path(repo, kind), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        named = json.loads(path.read_bytes())
-    except (OSError, ValueError):
-        return {}
-    return named if isinstance(named, dict) and run_record.process_active(named) else {}
+        fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        return lock
+    except BlockingIOError:
+        os.close(lock)
+
+
+def live_runs(repo, handed=None):
+    """Under the live lock, the runs handed to the follower that it has yet to take, `handed`
+    added, else all taken; written whole, so a writer stopped anywhere leaves the list it found."""
+    path = live_path(repo, "runs")
+    runs = path.read_text().splitlines() if path.exists() else []
+    if handed:
+        orch.replace_file(path, "\n".join([*runs, handed]).encode())
+    else:
+        path.unlink(missing_ok=True)
+    return runs
 
 
 def start_live_probe(run_dir):
-    """Hand this merge to the home's one live follower (`live_follower`), started where none
-    runs; a missed start leaves the tick as backstop."""
+    """Hand this merge to its project's live follower (`live_follower`), started where none holds
+    the follower lock; a missed start leaves the tick as backstop."""
+    if not (repo := (run_record.read_state(run_dir) or {}).get("repo")):
+        return  # no project, so nothing proves it live (`awaiting_live`)
     env = config.child_env()
     for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
                 config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
         env.pop(key, None)
     env["AK_RUN_DEPTH"] = "0"
     try:
-        lock, held = live_lock()
-        try:
-            if held:
-                live_handed({**held, "runs": [*held.get("runs", []), run_dir.name]})
+        with os.fdopen(live_lock(repo, "lock")):
+            if (follower := live_lock(repo, "follower", wait=False)) is None:
+                live_runs(repo, run_dir.name)     # the live follower takes it at its next look
                 return
-            # named before another merge looks: a follower still starting is the follower
-            live_handed(run_record.process_owner(orch.start_in_slice(
-                [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
-                f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
-                target_slice=orch.run_slice_name())))
-        finally:
-            os.close(lock)
+            with os.fdopen(follower):   # on its stdin, held from its start (`held_follower`)
+                orch.start_in_slice(
+                    [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
+                    f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
+                    target_slice=orch.run_slice_name(), stdin=follower)
     except (OSError, config.Error):
         pass  # the tick still follows it
 
 
+def held_follower(repo):
+    """The follower lock this process was started holding on its stdin (`start_live_probe`),
+    moved off it so no command it runs keeps it; else None."""
+    try:
+        if os.path.samestat(os.fstat(0), os.stat(live_path(repo, "follower"))):
+            held = os.dup(0)
+            with open(os.devnull) as null:
+                os.dup2(null.fileno(), 0)
+            return held
+    except OSError:
+        return None
+
+
 def live_follower(run):
-    """`ak watch --live RUN`: hand that run to the home's one live follower, which this process
-    is where no other runs: a process per merge held 6.4 GB of a 15 GB host (6 Nov 2026).  Each
-    run is followed on a thread of its own (`follow_live`), so a slow probe moves no other run's
-    times; the follower ends once none is followed and none is handed to it."""
-    # One process probes every project's runs, each probe with its own project's settings
-    # (`health_command`), so none of those the merge that started it had stay in its environment.
-    if repo := (run_record.read_state(config.RUNS / run) or {}).get("repo"):
-        for key in config.repo_env(repo):
-            os.environ.pop(key, None)
-    following, handed = [], [run]
+    """`ak watch --live RUN`: hand that run to its project's one live follower, this process where
+    no other holds the follower lock, freed with it: a process per merge held 6.4 GB of a 15 GB
+    host (6 Nov 2026).  Each run on a thread of its own, so a slow probe moves no other's times."""
+    if not (repo := (run_record.read_state(config.RUNS / run) or {}).get("repo")):
+        return 0    # no project, so nothing proves it live (`awaiting_live`)
+    follower, following, runs = held_follower(repo), [], [run]
     while True:
-        lock, held = live_lock()
-        if held and held["pid"] != os.getpid():
-            # another follower runs: an older run process started this one for its merge
-            live_handed({**held, "runs": [*held.get("runs", []), *handed]})
-            os.close(lock)
+        live = live_lock(repo, "lock")
+        follower = live_lock(repo, "follower", wait=False) if follower is None else follower
+        if follower is None:
+            live_runs(repo, run)    # an older run process started this one for its merge
+            os.close(live)
             return 0
-        if handed := handed + held.get("runs", []):
-            live_handed(run_record.process_owner())     # named, with each run taken
-        following = [thread for thread in following if thread.is_alive()]
-        if not (handed or following):
-            # Unnamed, so a merge waiting on the lock starts the next follower even while this
-            # process still reads as alive, and the lock held until it is gone, so not before.
-            live_handed({})
+        # daemons, so a loop that fails ends the process and frees its lock for the next follower
+        started = [threading.Thread(target=follow_live, args=(config.RUNS / name,), daemon=True)
+                   for name in [*runs, *live_runs(repo)]]
+        following, runs = [thread for thread in following if thread.is_alive()] + started, []
+        if not following:
+            # the live lock held till this process is gone, so the next follower starts after it
+            os.close(follower)
             return 0
-        os.close(lock)
-        for name in handed:
-            # A daemon: should this loop fail, the process ends with it, and the next merge
-            # starts a follower, where its threads would keep it named with nothing taking runs.
-            following.append(threading.Thread(target=follow_live, args=(config.RUNS / name,),
-                                              daemon=True))
-            following[-1].start()
-        handed = []
+        os.close(live)
+        for thread in started:
+            thread.start()
         time.sleep(1)   # what a run handed over waits at most for its follow to start
 
 

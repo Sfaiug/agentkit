@@ -1,12 +1,7 @@
-"""The home's one live follower follows each run on a thread and a clock of its own.  Offline: a
-Sandbox HOME, fake probes and seat, and one injected clock that every thread of the follower reads
-and sleeps on."""
+"""A project's one live follower follows each run on a thread and a clock of its own.  Offline: a
+Sandbox HOME, fake probes and seat, and one clock all the follower's threads read and sleep on."""
 
-from contextlib import redirect_stdout
-import io
 import os
-import resource
-import signal
 import threading
 import time
 import unittest
@@ -16,7 +11,8 @@ from fixtures.sandbox import Sandbox
 from agentkit import config, orch, record, watch
 
 T0, SEAT, WINDOW = 2000000, "fix-api", watch.AFTER_MERGE_WINDOW
-PROBE = watch.health_command     # before any test fakes it
+TAKES = {("slow", "health"): 30, ("live", "deployed"): 5}     # what a run's probe takes
+UP = {("live", "health"): T0 + 40, ("live", "deployed"): T0}  # and when it passes from
 
 
 class Clock:
@@ -51,45 +47,38 @@ class Clock:
 class LiveFollower(Sandbox):
     def setUp(self):
         super().setUp()
-        self.clock, self.began, self.takes, self.up = Clock(), {}, {}, {}
-        seat = {"name": SEAT, "created": 100, "exited": False}
+        self.clock, self.began = Clock(), {}
         for module, name, fake in (
-                (orch, "start_in_slice", lambda *_a, **_kw: os.getpid()),   # this process follows
-                (orch, "find", lambda _name: seat),
+                # the follower started is this process, with the lock it is handed on its stdin
+                (orch, "start_in_slice", lambda *_a, stdin, **_kw: os.dup2(stdin, 0)),
+                (orch, "find", lambda _name: {"name": SEAT, "created": 100, "exited": False}),
                 (watch, "type_at_prompt", lambda *_a, **_kw: False),        # never at its prompt
                 (watch, "health_command", self.probe),
                 (watch, "time", self.clock)):
             self.stack.enter_context(patch.object(module, name, fake))
-        self.stack.enter_context(redirect_stdout(io.StringIO()))
 
     def probe(self, _repo, _sha, _command, checked, **_kw):
-        """A run's `health:` or `deployed:` probe, taking `takes` and passing from `up`."""
+        """A run's `health:` or `deployed:` probe, taking `TAKES` and passing from `UP`."""
         name, kind = checked[0].name, checked[2]
         self.began.setdefault(name, []).append((kind, self.clock.now))
-        self.clock.sleep(self.takes.get((name, kind), 0))
-        return self.clock.now >= self.up.get((name, kind), float("inf")), "deploying"
+        self.clock.sleep(TAKES.get((name, kind), 0))
+        return self.clock.now >= UP.get((name, kind), float("inf")), "deploying"
 
-    def follow(self, runs):
-        """Each of `runs` ({name: what its record holds}) merged and handed to the home's
-        follower, which this process then is, until it ends."""
-        for name, fields in runs.items():
+    def test_a_slow_probe_moves_no_other_runs_times(self):
+        """`live` and `red` keep the times each has followed alone: probed 15 s after its own
+        last probe ends, `live` up at T0 + 40 and `red` until its window ends."""
+        for name, fields in (("slow", {"finished_at": T0 - WINDOW + 100}),
+                             ("live", {"deployed": "probe"}),
+                             ("red", {"finished_at": T0 - WINDOW + 50})):
             (config.RUNS / name).mkdir()
             record.save_state(config.RUNS / name, {
                 "run_id": name, "state": "pass", "merged": True, "merge_sha": "a" * 40,
                 "pr": "https://github.com/acme/widget/pull/7", "launched_session": SEAT,
                 "repo": str(self.root), "finished_at": T0, "handed_back": T0, "reported": True,
                 "health": {"command": "probe"}, "deployed": None, **fields})
-            watch.start_live_probe(config.RUNS / name)
-        self.assertEqual(watch.live_follower(next(iter(runs))), 0)
+            watch.start_live_probe(config.RUNS / name)     # handed to its project's follower,
+        self.assertEqual(watch.live_follower("slow"), 0)    # which this process is, until it ends
         self.assertEqual(threading.active_count(), 1)
-
-    def test_a_slow_probe_moves_no_other_runs_times(self):
-        """`live` and `red` keep the times each has followed alone: probed 15 s after its own
-        last probe ends, `live` up at T0 + 40 and `red` until its window ends."""
-        self.takes = {("slow", "health"): 30, ("live", "deployed"): 5}
-        self.up = {("live", "health"): T0 + 40, ("live", "deployed"): T0}
-        self.follow({"slow": {"finished_at": T0 - WINDOW + 100}, "live": {"deployed": "probe"},
-                     "red": {"finished_at": T0 - WINDOW + 50}})
         self.assertEqual(self.began["slow"], [("health", T0 + at) for at in (0, 45, 90)])
         self.assertEqual(self.began["live"], [(kind, T0 + at) for at in (0, 20, 40)
                                               for kind in ("health", "deployed")])
@@ -97,35 +86,6 @@ class LiveFollower(Sandbox):
         live = record.read_state(config.RUNS / "live")
         self.assertEqual((live["live_at"], live["deployed_at"]), (T0 + 40, T0 + 5))
 
-    def test_each_probe_has_its_own_projects_settings_and_no_other_projects(self):
-        config.ENV.mkdir(parents=True, exist_ok=True)
-        (config.ENV / "api.env").write_text("ONLY_API=api\nCREDENTIAL=api\n")
-        (config.ENV / "web.env").write_text("CREDENTIAL=web\n")
-        seen = 'printf %s "${ONLY_API-unset},$CREDENTIAL" > seen'
-        for name in ("api", "web"):
-            (self.root / name).mkdir()
-        # as api's merge, which starts the follower, has its project's settings
-        with patch.dict(os.environ, ONLY_API="api", CREDENTIAL="api"), \
-                patch.object(watch, "health_command", PROBE):
-            self.follow({name: {"repo": str(self.root / name), "health": {"command": seen}}
-                         for name in ("api", "web")})
-        self.assertEqual([(self.root / name / "seen").read_text() for name in ("api", "web")],
-                         ["api,api", "unset,web"])
-
-    def test_a_merge_whose_write_is_cut_short_leaves_the_follower_named(self):
-        watch.start_live_probe(config.RUNS / "api")     # names this process the follower
-        limit, hard = resource.getrlimit(resource.RLIMIT_FSIZE)
-        ignored = signal.signal(signal.SIGXFSZ, signal.SIG_IGN)     # a short write, not death
-        resource.setrlimit(resource.RLIMIT_FSIZE,
-                           ((config.RUNS / ".live.json").stat().st_size + 1, hard))
-        try:
-            watch.start_live_probe(config.RUNS / "web")
-        finally:
-            resource.setrlimit(resource.RLIMIT_FSIZE, (limit, hard))
-            signal.signal(signal.SIGXFSZ, ignored)
-        lock, held = watch.live_lock()
-        os.close(lock)
-        self.assertEqual(held["pid"], os.getpid())
 
 if __name__ == "__main__":
     unittest.main()

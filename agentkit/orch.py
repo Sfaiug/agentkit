@@ -717,14 +717,16 @@ def next_scope_unit(unit):
 
 
 def start_in_slice(argv, unit, env, output, log=lambda _: None, target_slice=None,
-                   properties=(), nice=False, placement=None, ends=True):
-    """Start detached work inside the slice, appending its output to `output`; its pid."""
+                   properties=(), nice=False, placement=None, ends=True, stdin=subprocess.DEVNULL):
+    """Start detached work inside the slice, appending its output to `output`; its pid.  The work
+    reads `stdin` in a scope or a plain start; a service, which the manager starts, reads none."""
     return _start_in_slice(argv, unit, env, output, log, target_slice,
-                           properties, nice, placement, ends)[0]
+                           properties, nice, placement, ends, stdin=stdin)[0]
 
 
 def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), nice=False,
-                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None):
+                    placement=None, ends=True, *, stdout=None, wait=False, cwd=None,
+                    stdin=subprocess.DEVNULL):
     """The placement shared by detached and foreground work; (pid, client, placed unit).
 
     A scope where this process may be moved with its child; a service, which the manager
@@ -767,11 +769,11 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
             if reason:
                 placement["scope_reason"] = reason
 
-    def spawn(command, environment, lower_nice=False):
+    def spawn(command, environment, lower_nice=False, reads=stdin):
         with ExitStack() as stack:
             out = stdout if stdout is not None else stack.enter_context(open(output, "a"))
             kwargs = {"stdout": out, "stderr": subprocess.STDOUT,
-                      "stdin": subprocess.DEVNULL, "start_new_session": True,
+                      "stdin": reads, "start_new_session": True,
                       "env": environment}
             if cwd is not None:
                 kwargs["cwd"] = cwd
@@ -818,7 +820,7 @@ def _start_in_slice(argv, unit, env, output, log, target_slice, properties=(), n
     claim.write_text(f"{unit}.{'scope' if scoped else 'service'}")
     note = "nothing started in it"
     try:
-        proc = spawn(placed, placed_env)
+        proc = spawn(placed, placed_env, reads=stdin if scoped else subprocess.DEVNULL)
     except OSError as exc:
         proc, note = None, str(exc)
     if proc is not None:
