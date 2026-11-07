@@ -16,8 +16,8 @@ import (
 // Python does, or a check it cannot weigh, could owe.
 func Owes(name string) (bool, error) { return owes(name, true) }
 
-// OwesLine is Owes but for the done check (stop.owed_line's `check`): only the seat's own `ak
-// plan` makes one, so a seat nobody is in owes nothing for it alone.
+// OwesLine is Owes without the done check (stop.owed_line with `check` false): only the seat's own
+// `ak plan` makes one, so a seat nobody is in owes nothing for it alone.
 func OwesLine(name string) (bool, error) { return owes(name, false) }
 
 func owes(name string, check bool) (bool, error) {
