@@ -226,12 +226,13 @@ RULES = [
      "max": 8},
     # Every unit ak starts is started by orch.py, which decides what ends it: a seat's scope
     # and detached work's end with what they started, and a run's is stopped by its reaper.
+    # Go's runs and landers go in theirs through host/place.go, as orch.start_in_slice places them.
     # Looking the program up starts nothing: Go's manager probe does, as orch.user_manager does.
     {"name": "unit starts",
      "flags": (),
      "pattern": r"\"systemd-run\"|StartTransientUnit",
      "names": r'LookPath\("systemd-run"\)',
-     "home": ("agentkit/orch.py",),
+     "home": ("agentkit/orch.py", "go/internal/host/place.go"),
      "max": 0},
     # Foreground and detached callers share the receipt and plain fallback in orch.py.
     {"name": "slice placement protocol",

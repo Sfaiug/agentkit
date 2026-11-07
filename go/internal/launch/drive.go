@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"agentkit/internal/box"
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/loop"
@@ -26,13 +27,13 @@ var namesShard = regexp.MustCompile(`\bAK_SHARD\b`)
 // drivable is nil where Go can drive this task's run to its end, else ErrPython, decided
 // before anything is written: a reviewer named outright, an executor no worker of its groups, a
 // pick Go cannot read as Python does, a meter it cannot read or a home with no adapter directory unless nobody could run there anyway, a host
-// with no box, one with a user manager to place the run under, or a turn on one of a provider's
-// several accounts unless the run parks at its pick before any.
+// with no box, or a turn on one of a provider's several accounts unless the run parks at its pick
+// before any.
 func drivable(values map[string]string, bound config.Binding) error {
 	executors, reviewers := names(bound.Workers), names(bound.Reviewers)
 	rules, ok := pick.Within(executors, reviewers)
 	named := values["--exec"]
-	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !placed() ||
+	if named != "" && !slices.Contains(executors, named) || values["--review"] != "" || !ok || !box.Supported ||
 		usage.Check() != nil && !loop.Unstaffed(rules) || accountTurns() && !loop.Parks(rules, named) {
 		return ErrPython
 	}
