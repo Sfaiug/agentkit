@@ -436,9 +436,8 @@ def capture(launched, payload, pid):
         if session and orch.owns_hook(session, pid, is_process):
             # the conversation left stays the seat's, for its done check to read the owner's
             # words in (`notify.conversations_of`), under the harness that keeps it
-            config.update_session(name, conversation=conversation, id_source=SOURCE, left=[
-                *record.get("left", []), {"harness": "claude",
-                                          "conversation": record["conversation"]}])
+            config.update_session(name, conversation=conversation, id_source=SOURCE,
+                                  left=notify.left(record, "claude", record["conversation"]))
 
 
 def is_process(words):
