@@ -66,13 +66,15 @@ class ATickReadsEachRunOnce(unittest.TestCase):
             run(home, f"merged-{n}", state="pass", verdict="PASS", merged=True,
                 pr=f"https://github.com/acme/widget/pull/{n + 7}", merge_sha=f"{n + 1:x}" * 40,
                 finished_at=now - 600, **each)
-        for _ in range(ticks - 1):
-            self.tick(home)
         # A build trusts what it parsed of a file whose stat is unchanged only once that stat is a
-        # second old: a filesystem's clock can give two writes in one tick the same times.  Older,
-        # as a run's long over is, the bystander's count races no such second.
+        # second old: a filesystem's clock can give two writes in one tick the same times.  A tick
+        # hands what it trusts to the next (Python's census, `menu.run_records`), so whether the
+        # last tick opens the bystander would hang on how soon the first read it.  Older before
+        # any tick, as a run's long over is, its count races no such second.
         while time.time_ns() - bystander.stat().st_ctime_ns <= 1e9:
             time.sleep(0.05)
+        for _ in range(ticks - 1):
+            self.tick(home)
         libc = ctypes.CDLL(None, use_errno=True)
         queue = libc.inotify_init1(os.O_CLOEXEC | os.O_NONBLOCK)
         self.assertGreaterEqual(queue, 0, os.strerror(ctypes.get_errno()))
