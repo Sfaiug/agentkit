@@ -8,7 +8,6 @@ package seat
 
 import (
 	"cmp"
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -24,7 +23,6 @@ import (
 	"agentkit/internal/browser"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
-	"agentkit/internal/lock"
 	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
@@ -509,17 +507,15 @@ func reconcile(state string, records []Seat, infer bool) error {
 	return nil
 }
 
-// announcing is one decision and publication of that seat at a time (watch.announcing).
+// announcing is one decision and publication of that seat at a time (watch.announcing), its lock
+// in the folders config.ensure_dirs makes, which a dry look, taking none, leaves as they are.
 func announcing(state, name string, tell func() error) error {
-	if err := config.EnsureDirs(); err != nil {
-		return err
+	if drying == nil {
+		if err := config.EnsureDirs(); err != nil {
+			return err
+		}
 	}
-	held, err := lock.Wait(context.Background(), filepath.Join(state, "seat-"+name+".announce"))
-	if err != nil {
-		return err
-	}
-	defer held.Close()
-	return tell()
+	return under(filepath.Join(state, "seat-"+name+".announce"), tell)
 }
 
 // announce publishes what that reading of the home found under the seat's announce lock. One tmux
@@ -543,8 +539,7 @@ func (seat *Seat) announced(state string, now time.Time, models map[string]confi
 
 // published is announced's word and bar, what its last answer moved left as it is.
 func (seat *Seat) published(state string, now time.Time, models map[string]config.Model) error {
-	path := filepath.Join(state, "seat-"+seat.Name+".json")
-	previous, _ := run.ReadJSON(path)
+	previous := seat.file(state)
 	if previous == nil {
 		previous = run.NewObject()
 	}
@@ -584,9 +579,9 @@ func put(path, held string, encode func(any) string, start bool, change func(dat
 	return under(held, func() error { return rewrite(path, encode, start, change) })
 }
 
-// rewrite is put's change, under a lock its caller holds.
+// rewrite is put's change, under a lock its caller holds, kept by a dry look (dryLook).
 func rewrite(path string, encode func(any) string, start bool, change func(data *run.Object) bool) error {
-	data, err := run.ReadJSON(path)
+	data, err := asLeft(path)
 	if errors.Is(err, run.ErrLoneSurrogate) {
 		return err
 	}
@@ -596,7 +591,12 @@ func rewrite(path string, encode func(any) string, start bool, change func(data 
 	if data == nil || !change(data) {
 		return nil
 	}
-	return replace(path, []byte(encode(data)+"\n"))
+	text := []byte(encode(data) + "\n")
+	if drying != nil {
+		drying[path] = text
+		return nil
+	}
+	return replace(path, text)
 }
 
 // replace lands a whole file over path, through a temporary file beside it.

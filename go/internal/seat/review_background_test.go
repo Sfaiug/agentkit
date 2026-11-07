@@ -19,7 +19,7 @@ func TestReviewAccountRelaunchClearsTheKilledProcessesScreenHolds(t *testing.T) 
 	if err := os.Rename(filepath.Join(home, "adapters", "claude.sh"), filepath.Join(home, "adapters", "antigravity.sh")); err != nil {
 		t.Fatal(err)
 	}
-	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}, false); !carried || err != nil {
 		t.Fatalf("account relaunch not carried: %v, %v", carried, err)
 	}
 	record, _ := run.ReadJSON(stateFile(home, "session-acme.json"))

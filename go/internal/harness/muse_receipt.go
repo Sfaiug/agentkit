@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"sync/atomic"
 
 	"agentkit/internal/config"
 	"agentkit/internal/host"
@@ -85,9 +86,20 @@ func museBirth(pid int) (*run.Object, bool) {
 	return run.Fields("boot", birth.Boot, "ticks", int(birth.Ticks), "started_at", birth.StartedAt), ok
 }
 
+// unkept is whether this process's reads keep nothing they follow, as a dry tick reads
+// (KeepNothing), where Python's every read keeps what it follows.
+var unkept atomic.Bool
+
+// KeepNothing has every read keep nothing it follows until keep puts that back.
+func KeepNothing() (keep func()) {
+	unkept.Store(true)
+	return func() { unkept.Store(false) }
+}
+
 // museConversation is the session that launch reported, "" where it reported none yet; the one
 // Muse's registry has since moved that launch's process to, once the registry says so, kept in
-// the receipt for the seat to reopen on after that process is gone.  Muse's `/new` fires no hook.
+// the receipt for the seat to reopen on after that process is gone, by any read that keeps what
+// it follows.  Muse's `/new` fires no hook.
 func museConversation(record map[string]any) string {
 	token, _ := record["muse_launch"].(string)
 	path := museReceipt(token)
@@ -99,7 +111,9 @@ func museConversation(record map[string]any) string {
 		return ""
 	}
 	if now := museFollowed(path); now != "" && now != string(session) {
-		museWrite(path, "session", now, os.Rename)
+		if !unkept.Load() {
+			museWrite(path, "session", now, os.Rename)
+		}
 		return now
 	}
 	return string(session)

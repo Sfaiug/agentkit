@@ -372,7 +372,10 @@ esac
 	}
 }
 
-func TestADeathAfterListingLeavesLiveRowsForTheRevivalRow(t *testing.T) {
+// diedDuringCapture is a home whose seat, its run going, tmux lists live and whose pane is dead
+// by its capture.
+func diedDuringCapture(t *testing.T) string {
+	t.Helper()
 	home := sandbox(t)
 	record(t, home, "acme", nil)
 	runRecord(t, home, "r-build", map[string]any{"state": "running"})
@@ -393,13 +396,18 @@ esac
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return home
+}
+
+func TestADeathAfterListingLeavesLiveRowsForTheRevivalRow(t *testing.T) {
+	diedDuringCapture(t)
 	if live, known := Lives(time.Now()); !known || len(live) != 0 {
 		t.Fatalf("a known death prevented the live rows: known=%v, lives=%v", known, live)
 	}
 	carried, err := Health("acme", func(Live) bool {
 		t.Fatal("a dead harness reached the live-screen health predicate")
 		return false
-	}, func(string) {})
+	}, func(string) {}, false)
 	if !carried || err != nil {
 		t.Fatal(carried, err)
 	}

@@ -153,7 +153,7 @@ func TestAnAccountMoveDoesNotNudgeTheNewHarnessFromTheOldStop(t *testing.T) {
 	write(t, chat, `{"type":"user","message":{"role":"user","content":"hello"}}`+"\n")
 	line := commandhelp.ShellJoin([]string{"sh", "-c", "cat " + commandhelp.ShellJoin([]string{filepath.Join(home, "screen-acme")}) + "; sleep 600"})
 	accountAdapter(t, home, "case \"$1\" in auth) exit 0 ;; interactive) "+commandhelp.ShellJoin([]string{"printf", "%s\n", line})+" ;; esac\n")
-	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}); !carried || err != nil {
+	if carried, err := Health("acme", func(Live) bool { return true }, func(string) {}, false); !carried || err != nil {
 		t.Fatal(carried, err)
 	}
 	after, _ := run.ReadJSON(stateFile(home, "session-acme.json"))
