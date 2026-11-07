@@ -68,11 +68,13 @@ ruleset = call(444, struct.pack("Q", 2), 8, 0)     # it rules writing to a file,
 for path in sys.argv[1:cut]:
     call(445, ruleset, 1, struct.pack("=Qi", 2, os.open(path, os.O_PATH)), 0)
 libc.prctl(38, 1, 0, 0, 0)     # no new privileges, which Landlock asks of what it binds
+libc.prctl(36, 1, 0, 0, 0)     # subreaper: what the command's children detach is its to reap
 call(446, ruleset, 0)
 os.execvp(sys.argv[cut + 1], sys.argv[cut + 1:])
 """
 # A run in its box: the program, then all it detached, which bwrap's init would kill as the
-# program ends, waited out till only that init and this shell are left.  The shell then becomes a
+# program ends, waited out till only that init and this shell are left.  The seal made this shell
+# their reaper, not that init, so their peaks are its children's too.  The shell then becomes a
 # Python that writes down its children's peak memory, which exec keeps: a child's peak starts
 # from its parent's, some 20 MB for this script.  The shell's own words, as its `Killed` for what
 # is killed at the cap, go nowhere: only the program's are compared.  dash says it on the killed
@@ -160,7 +162,7 @@ def run(label, program, argv, home, scratch):
 def _halt(bwrap):
     """Kill all that `bwrap`'s box runs but its init and the shell waiting in it, boxed pids 1 and
     2, from here, out of the box's reach, and wake that shell, which what it ran may have stopped.
-    What it detached is still below that init, by the parents /proc names."""
+    What it detached is below that shell, by the parents /proc names."""
     parent, boxed = {}, {}
     for status in Path("/proc").glob("[0-9]*/status"):
         try:
