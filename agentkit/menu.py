@@ -3371,17 +3371,18 @@ def models_why(found, role, row):
     room = terminal.layout_width() - 2
     width = terminal.cells("not shown")     # the design's label column: its widest label
     values = room - width - 2
-    top = found["choices"][-1] if found["choices"] else None
+    # the best choice, else, with nothing priced to choose among, the best rated row
+    top = max(found["choices"] or found["rated"], key=lambda one: one["quality"])
     measures = {column: one for column, *_ in quality.ROLES[role]
                 for one in [row["measures"].get(column)] if one}
     counted = sum(one["how"] != "missing" for one in measures.values())
-    behind = top and top["quality"] - row["quality"]
+    behind = top["quality"] - row["quality"]
     said = {"quality": [[f"{row['quality']:.1f}", f"give or take {1.96 * row['se']:.1f}, from "
                                                   f"{number(counted)} benchmarks"],
                         [", ".join(scored(column, one) for column, one in measures.items())],
-                        *([] if top is None else [["the best of these choices"]] if row is top
-                          else [[f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the "
-                                 f"best, {named(top, values)}"]])],
+                        ["the best of these choices"] if row is top else
+                        [f"{abs(behind):.1f} {'below' if behind >= 0 else 'above'} the best, "
+                         f"{named(top, values)}"]],
             "cost": [[f"{guessed(found, row, ' ')} a {RUN[role]}", SOURCES[row["cost_rule"]].format(
                 runs=row["runs"], run=RUN[role])] if row["cost"] is not None else ["no cost"]]}
     lines = [f"why {named(row, room - len(f'why  {DOES[role]}'))} {DOES[role]}"]

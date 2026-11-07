@@ -87,9 +87,9 @@ CRUX_BUILDS_40 = [
     "             yours priced a model"]
 
 
-def boards():
-    """The boards holding `ROWS`, and the rows keeping them from being asked, just answered:
-    newer than the answer an earlier case drew."""
+def boards(priced):
+    """The boards holding `ROWS`, their costs where `priced`, and the rows keeping them from
+    being asked, just answered."""
     rows = {board: [{"model": "Old 1", "effort": "high", "values": dict.fromkeys(names.split(), 0)}]
             for board, names in OLD.items()}
     rows["artificialanalysis.ai"] = [aa("old-1", "Old 1", "high", rows["artificialanalysis.ai"][0]
@@ -100,7 +100,8 @@ def boards():
             **({"aa.automationBenchPartialScore": 0.9} if effort == "max" else {}),
             "aa.intelligenceIndex": index, "aa.frontierCode20": share, "aa.terminalBench40": share,
             "aa.price1mInputTokens": 1, "aa.price1mOutputTokens": 1,
-            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost for slug in EVALUATIONS}}))
+            **{f"aa.intelligenceIndexEvaluations.{slug}.costPerTask": cost
+               for slug in EVALUATIONS if priced}}))
         if agent:
             rows["arena.ai"].append({"model": name, "effort": effort,
                                      "values": {"arena.agent": agent}})
@@ -126,12 +127,14 @@ class ModelsWhy(unittest.TestCase):
     def setUp(self):
         History(self.home).save()        # no runs, until a case writes some
 
-    def write(self, workers, reviewers=None, runs=False):
-        """The boards holding `ROWS`; Crux 2 at low orchestrates new seats, `workers` build
+    def write(self, workers, reviewers=None, runs=False, priced=True):
+        """The boards holding `ROWS` (boards); Crux 2 at low orchestrates new seats, `workers` build
         them and `reviewers` review, every plan a dollar; with `runs`, two finished builds of
         Acme Mid 5 high and a review by it, costing what its board does, a point of a week a
         dollar."""
-        self.home.write(".agentkit/state/boards.json", boards())
+        self.home.write(".agentkit/state/boards.json", boards(priced))
+        # no answer an earlier case drew, so the screen counts its models once these are read
+        (self.home.path / ".agentkit/state/matrix.json").unlink(missing_ok=True)
         akconfig.write(self.home, MODELS, orchestrator="crux", workers=workers,
                        reviewers=reviewers, providers={
                            provider: {"mode": "subscription", "price": 1}
@@ -175,6 +178,11 @@ class ModelsWhy(unittest.TestCase):
         self.assertIn("\n  ▸ executor      Acme Max 5 high ", term.wait("comparing all"))
         self.assertEqual(self.why(term, "Down")[:len(MAX_MAX_REVIEWS)], MAX_MAX_REVIEWS)
 
+    def test_with_nothing_priced_its_cost_is_none_and_its_quality_still_below_the_best(self):
+        self.write(["max"], priced=False)
+        term = self.models()
+        self.assertEqual(self.why(term, "Down"), [*MAX_HIGH_BUILDS[:6], "  cost       no cost"])
+
     def test_a_cost_from_your_runs_says_how_many(self):
         self.write(["mid"], ["crux"], runs=True)
         term = self.models()
@@ -188,19 +196,20 @@ class ModelsWhy(unittest.TestCase):
         term = self.models(40)
         self.assertEqual(self.why(term, "Down"), CRUX_BUILDS_40)
 
-    def test_a_why_taller_than_the_screen_turns_a_page_at_a_time_to_its_last_line_and_back(self):
+    def test_a_why_taller_than_the_screen_turns_its_pages_to_its_last_line_and_back(self):
+        # judged against the same why on a screen it fits: the page as it is drawn, whatever
+        # it says
         self.write(["crux"])
+        whole = self.why(self.models(40), "Down")
         term = self.models(40, 14)
         first = self.why(term, "Down")
-        self.assertEqual(first, CRUX_BUILDS_40[:len(first)])
-        self.assertLess(len(first), len(CRUX_BUILDS_40))
-        term.keys(*["Down"] * len(CRUX_BUILDS_40))      # a page at a time, never past the last
+        self.assertEqual(first, whole[:len(first)])
+        self.assertLess(len(first), len(whole))
+        term.keys(*["Down"] * len(whole))      # a page at a time, never past the last
         # its last line, under its fold, then over its key line
-        term.wait(lambda screen: lines(screen.rstrip())[-3:] == [CRUX_BUILDS_40[-1], "",
-                                                                 "  esc back"])
-        term.keys(*["Up"] * len(CRUX_BUILDS_40))        # and back to its heading
-        term.wait(lambda screen: CRUX_BUILDS_40[0] in lines(screen))
-
+        term.wait(lambda screen: lines(screen.rstrip())[-3:] == [whole[-1], "", "  esc back"])
+        term.keys(*["Up"] * len(whole))        # and back to its heading
+        term.wait(lambda screen: whole[0] in lines(screen))
 
 if __name__ == "__main__":
     unittest.main()
