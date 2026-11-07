@@ -20,7 +20,12 @@ import (
 // (Placed).
 func placing(t *testing.T, systemdRun string, inManager bool) (log, ran, called string) {
 	t.Setenv("HOME", t.TempDir())
-	runtime, bin, dir := t.TempDir(), t.TempDir(), t.TempDir()
+	runtime, err := os.MkdirTemp("", "ak") // short: a socket's path has a limit
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(runtime) })
+	bin, dir := t.TempDir(), t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", runtime)
 	os.MkdirAll(filepath.Join(runtime, "systemd"), 0o700)
 	listener, err := net.Listen("unix", filepath.Join(runtime, "systemd", "private"))
