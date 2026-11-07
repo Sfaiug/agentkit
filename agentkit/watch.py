@@ -7530,7 +7530,12 @@ class Census:
     read when an ask first iterates it, so a run not yet live reads none, and taken by every ask
     within a LIVE_INTERVAL of that read; past it, one thread reads again while the others wait
     for it.  One read took a follower from 37 to 198 MB and 3 s of CPU, and a read for each ask
-    grew with the square of the runs followed: 27 waited to go live on one seat on 6 Nov 2026."""
+    grew with the square of the runs followed: 27 waited to go live on one seat on 6 Nov 2026.
+
+    A run going at that read is read again at each ask, from its file only once it changed: an
+    ask decides from its seat's other runs going (`handback.ends_wait`), and one taken for going
+    after it ended would settle a notice as routine that its seat was owed.  One started since
+    only tells its seat sooner."""
 
     def __init__(self):
         self.lock, self.at, self.records = threading.Lock(), -math.inf, []
@@ -7540,7 +7545,12 @@ class Census:
             now = time.time()
             if not 0 <= now - self.at < LIVE_INTERVAL:      # a clock set back reads again too
                 self.at, self.records = now, run_record.runs()
-            return iter(self.records)
+            records = self.records
+        for directory, state in records:
+            if transitions.going(state):
+                state = run_record.read_state(directory, shared=True)
+            if state is not None:
+                yield directory, state
 
 
 def follow_live(run_dir, records=None):

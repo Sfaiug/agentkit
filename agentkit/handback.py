@@ -1621,7 +1621,7 @@ def handback_line(state, run_dir, cfg=None, save=True, live=False):
     return seat_notice(line, state, run_dir, f"run {run_dir.name} {ending}.", action, save)
 
 
-def hand_back(state, run_dir, log, cfg=None, busy=None):
+def hand_back(state, run_dir, log, cfg=None, busy=None, records=None):
     """Give the ending back to the live seat that launched it.  True when it was told.
 
     Typed into the seat's composer through the confirmed send, and only while its harness sits
@@ -1665,7 +1665,7 @@ def hand_back(state, run_dir, log, cfg=None, busy=None):
             # The seat is not going to read the tree: the ending is history.
             worktrees._drop_told(run_record.read_state(run_dir) or state, log, run_dir)
             return True
-        live = carries_live(said)
+        live = carries_live(said, records)
         line = handback_line(state, run_dir, cfg, live=live)
         busy = {} if busy is None else busy
         read = session not in busy or said.get("handback_typed")
@@ -1842,7 +1842,7 @@ def announce(state, run_dir, log, cfg=None, busy=None, records=None):
         return
     with launcher_world(session) as live:
         if live:
-            hand_back(state, run_dir, log, cfg, busy)
+            hand_back(state, run_dir, log, cfg, busy, records)
             return
     if state.get("state") == "not_needed":
         mark_delivery(run_dir, state, reported=True, handback_pending=None,
