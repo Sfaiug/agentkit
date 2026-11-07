@@ -1602,9 +1602,11 @@ def conversation_of(name):
 def left(record, harness, conversation):
     """That seat record's `left` with `conversation`, of `harness`, added last, beside the account
     and directory it was written under: its harness reads it by those, and the record's own go
-    on to name the seat's next ones."""
-    return [*record.get("left", []), {"harness": harness, "conversation": conversation,
-                                      "account": record.get("account"), "cwd": record.get("cwd")}]
+    on to name the seat's next ones.  An entry kept without them, as /clear once kept its, takes
+    the record's, the ones it was read under until now."""
+    then = {"account": record.get("account"), "cwd": record.get("cwd")}
+    return [*({**then, **was} for was in record.get("left", [])),
+            {"harness": harness, "conversation": conversation, **then}]
 
 
 def conversations_of(name):
