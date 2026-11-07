@@ -9,11 +9,11 @@ import (
 	"agentkit/internal/run"
 )
 
-// A seat's own PR whose suite goes red at its landing goes back to its writer as a finding does,
-// Python's fail_pr_landing: the failure joins the run's findings, the writer's model gets a fixer
-// turn under a name of its own for each red (fixOwn), its fix a re-review that spends no round
-// (ownRound), and a PASS lands the fixed head.  A landing gets conflictRounds reds; past them the
-// run fails.
+// A seat's own PR whose suite or required check goes red at its landing goes back to its writer as
+// a finding does, Python's fail_pr_landing: the failure joins the run's findings, the writer's
+// model gets a fixer turn under a name of its own for each red (fixOwn), its fix a re-review that
+// spends no round (ownRound), and a PASS lands the fixed head.  A landing gets conflictRounds reds;
+// past them the run fails, its PR left open.
 
 // failLanding is the red handed to the writer, Python's fail_pr_landing for a landing red: the
 // record leaves the line on it and waits for the fix, or fails past the bound.
