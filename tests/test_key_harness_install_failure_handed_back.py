@@ -21,7 +21,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, rerun_boxed
 from fixtures.akgates import Gates
 from fixtures.akinstall import Install
 
@@ -103,4 +103,5 @@ class InstallFailureHandedBack(unittest.TestCase):
 
 
 if __name__ == "__main__":
+    rerun_boxed()
     unittest.main()
