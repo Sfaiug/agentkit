@@ -139,7 +139,7 @@ class RoundsChart(unittest.TestCase):
         term.wait(lambda screen: "◂ 4 ▸ default 3" in screen and HEADING in screen)
 
     def test_on_a_short_terminal_the_chart_shows_beside_the_pointed_row(self):
-        term = opened(self, (40, 24))       # the other rows paged off
+        term = opened(self, (40, 27))       # the other rows paged off, the sentence under it too
         self.assertIn("› Review rounds", term.wait(HEADING))
 
     def test_on_a_shorter_terminal_a_moved_value_keeps_its_row_on_screen(self):
