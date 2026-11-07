@@ -84,9 +84,10 @@ class APartTheTipLacksProvesNothing(Sandbox):
         """The tests of `red` the tip's probe confirms as its own red, by share."""
         confirmed, activity = {}, self.root / "probe.log"
         with activity.open("w+b") as output:
+            # Flakes kept, as `land._check` keeps them: the box names its own file for them.
             gate.run_suite(f"{sys.executable} {REPO / 'tests/every_file.py'} .", 600,
                            cwd=self.tip, activity=activity, output=output, shard="1/1",
-                           only=red, confirmed=confirmed, stderr=subprocess.STDOUT,
+                           only=red, confirmed=confirmed, flaky=[], stderr=subprocess.STDOUT,
                            stdin=subprocess.DEVNULL)
         return confirmed
 
