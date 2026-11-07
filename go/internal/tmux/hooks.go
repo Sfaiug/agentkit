@@ -2,6 +2,8 @@ package tmux
 
 import (
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,23 +23,43 @@ const wayBack = "The harness ended. To open it again: Ctrl-b m, then this seat's
 // holds the hook per window, not per seat.  ak is named by its path: the server's PATH may hold
 // none.  run-shell draws a job's output, and its failure, over the pane, so the tick's log takes
 // all of it and the job always succeeds.  A pane left dead says how to open it again; a tmux before
-// 3.3 has no option for that, and setting these with -q keeps it quiet.  A test's own binary is
-// no ak: named in a hook, it would run its whole test again at each pane's end, whose panes end in
+// 3.3 has no option for that, and setting these with -q keeps it quiet.  An end this program
+// hands over, exit 3, is Python's ak's to take up where there is one.  A test's own binary is no
+// ak: named in a hook, it would run its whole test again at each pane's end, whose panes end in
 // turn, so a test's server gets none.
 func Hooks() ([][2]string, error) {
 	program, err := os.Executable()
 	if err != nil || testing.Testing() {
 		return nil, err
 	}
-	ak := unformatted(commandhelp.ShellJoin([]string{program, "orch"}))
 	log := unformatted(commandhelp.ShellJoin([]string{config.TickLog()}))
-	job := func(verb string) string {
-		return "run-shell -b " + Word(ak+" "+verb+" >>"+log+" 2>&1; true")
+	run := func(ak []string, verb string) string {
+		return unformatted(commandhelp.ShellJoin(append(ak, "orch"))) + " " + verb + " >>" + log + " 2>&1"
 	}
-	front := job("front")
-	return [][2]string{{"pane-died", job("ended #{q:session_name} #{pane_dead_time}")},
-		{"remain-on-exit-format", wayBack},
+	job := func(line string) string { return "run-shell -b " + Word(line+"; true") }
+	ended := run([]string{program}, "ended #{q:session_name} #{pane_dead_time}")
+	if python := python(program); python != nil {
+		ended += "; [ $? != 3 ] || " + run(python, "ended #{q:session_name} #{pane_dead_time}")
+	}
+	front := job(run([]string{program}, "front"))
+	return [][2]string{{"pane-died", job(ended)}, {"remain-on-exit-format", wayBack},
 		{"client-attached", front}, {"client-detached", front}, {"client-session-changed", front}}, nil
+}
+
+// python is Python's ak: its bin/ak under the python3 the PATH finds, as its `#!/usr/bin/env
+// python3` runs it.  None where the program is that bin/ak, or finds no bin/ak or no python3.
+func python(program string) []string {
+	python3, err := exec.LookPath("python3")
+	if err == nil {
+		python3, err = filepath.Abs(python3)
+	}
+	bin := filepath.Join(config.Repo(), "bin", "ak")
+	ours, unseen := os.Stat(program)
+	theirs, missing := os.Stat(bin)
+	if err != nil || unseen != nil || missing != nil || os.SameFile(ours, theirs) {
+		return nil
+	}
+	return []string{python3, bin}
 }
 
 // unformatted is literal text for a tmux option, its `#`, which starts a format, doubled.

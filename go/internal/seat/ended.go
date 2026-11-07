@@ -64,12 +64,12 @@ func Ended(name string, died float64, out io.Writer) (bool, error) {
 		}
 		var err error
 		comeback := Comeback{Name: name, Cwd: back.cwd, Line: cut.line, back: back}
-		if carried, err = comeback.Resume(host.BootID(), func() error { return nil }); !carried {
+		if carried, err = comeback.Resume(host.BootID(), func() error { return nil }); !carried || err != nil {
 			return err
 		}
 		fmt.Fprintln(out, back.said())
-		if err != nil || cut.line == "" || back.conversation != "" && back.opened {
-			return err
+		if cut.line == "" || back.conversation != "" && back.opened {
+			return nil
 		}
 		return OweLine(name, cut.line+freshContinue)
 	})

@@ -69,13 +69,17 @@ func (seat Seat) owesWork() (bool, error) {
 }
 
 // Resume opens the seat again where it ran, on the conversation its record names, as orch.resume
-// does for the tick, claim run just before its launch: where that conversation has a past it opens
-// on the comeback's line, which the rebooted turns row is marked to see through (watch.relaunched).
-// False, with nothing claimed, where Go has no command for it.
+// does for the tick, claim run first, as resume_after_boot claims a seat before its launch: where
+// that conversation has a past it opens on the comeback's line, which the rebooted turns row is
+// marked to see through (watch.relaunched).  False, with nothing claimed or written, where Go has
+// no rulebook for it; a launch its adapter refuses is that refusal, as Python's resume raises it.
 func (comeback Comeback) Resume(boot string, claim func() error) (bool, error) {
 	text, err := Rulebook(comeback.Name)
 	if err != nil {
 		return false, nil
+	}
+	if err := claim(); err != nil {
+		return true, err
 	}
 	state := filepath.Join(config.Home(), "state")
 	rulebook := filepath.Join(state, "rulebook-"+comeback.Name+".md")
@@ -86,11 +90,8 @@ func (comeback Comeback) Resume(boot string, claim func() error) (bool, error) {
 	if back.conversation != "" && back.opened {
 		back.line = comeback.Line
 	}
-	cmd, conversation, known := back.command([]string{"AGENTKIT_RULEBOOK=" + rulebook})
-	if !known {
-		return false, nil
-	}
-	if err := claim(); err != nil {
+	cmd, conversation, err := back.command([]string{"AGENTKIT_RULEBOOK=" + rulebook})
+	if err != nil {
 		return true, err
 	}
 	at := seconds(time.Now())
