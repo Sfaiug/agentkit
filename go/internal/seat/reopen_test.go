@@ -137,7 +137,7 @@ func TestReopensLeftToPython(t *testing.T) {
 		}
 	}
 	for name, file := range map[string]string{
-		"an account's line":           `{"owed_lines": [{"line": "go on", "switch": true}]}`,
+		"an editor's receipt":         `{"owed_lines": [{"line": "go on", "typed": {"line": "go on", "seat": 1, "pane": "%1"}}]}`,
 		"a seat cut off asking":       `{"state": "asking"}`,
 		"background work":             `{"holds": ["a watch"]}`,
 		"an unknown screen":           `{"rule": "none"}`,
