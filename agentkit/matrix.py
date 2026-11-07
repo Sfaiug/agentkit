@@ -486,20 +486,27 @@ def _answered(text, cfg, shares):
                   cfg=json.loads(cfg), task_usage=json.loads(shares))
 
 
+def row_of(rows, entry, effort):
+    """The row of `rows` the model entry `entry` runs at `effort`, as `lineup` holds it: at that
+    effort, else at none, the model however it is run, else, run at `none`, its one row."""
+    held = [row for row in rows
+            if {"harness": entry["harness"], "model": entry["model"]} in row["yours"]]
+    return next((row for want in (effort, None) for row in held if row["effort"] == want),
+                held[0] if effort == "none" and len(held) == 1 else None)
+
+
 def rank(cfg, role, names):
     """Each of the configured models `names` sorted on this for `role`, off the lineup as last
-    stored and `answer` rated it: the row whose `yours` holds its harness and model at the
-    effort the config runs it at there. The role's pick among these rows first, then the
+    stored and `answer` rated it: the row it runs at the effort the config runs it at there
+    (`row_of`). The role's pick among these rows first, then the
     rest by quality; None for a model no row is, or a lineup nobody stored.  A pick reads this and never the boards."""
     try:
         rated = _answered(cache_path().read_text(), json.dumps(_pricing(cfg)),
                           json.dumps(_task_usage(cfg)))[role]["rated"]
     except (OSError, ValueError):
         rated = []
-    rows = {(one["harness"], one["model"], row["effort"]): row
-            for row in rated for one in row["yours"]}
-    found = {name: rows.get((cfg["models"][name]["harness"], cfg["models"][name]["model"],
-                             config.role_effort(cfg["models"][name], CONFIG_ROLES[role])))
+    found = {name: row_of(rated, cfg["models"][name],
+                          config.role_effort(cfg["models"][name], CONFIG_ROLES[role]))
              for name in names}
     pick = quality.pick([row for row in found.values() if row], role)
     return {name: None if row is None else
@@ -507,8 +514,26 @@ def rank(cfg, role, names):
             for name, row in found.items()}
 
 
+def uses(cfg, record, found):
+    """{role: (model, effort, row)} seat `record`, or [defaults], uses off `found` (`answer`): its
+    orchestrator, named even once the config drops it, else its first mark as `rank` orders them,
+    None for none; the effort the seat runs it at; and its row (`row_of`)."""
+    cfg, workers = config.at_efforts(cfg, record), record["workers"]
+    used = {}
+    for role, names in (("orchestrate", [record["orchestrator"]]), ("execute", workers),
+                        ("review", record.get("reviewers", workers))):
+        known = [one for one in names if one in cfg["models"]]
+        places = rank(cfg, role, known)
+        name = min(known, key=lambda one: (places[one] is None, places[one] or ()),
+                   default=next(iter(names), None))
+        entry = cfg["models"].get(name)
+        effort = entry and config.role_effort(entry, CONFIG_ROLES[role])
+        used[role] = name, effort, entry and row_of(found[role]["rated"], entry, effort)
+    return used
+
+
 def notes(row, said):
-    """What the models screen notes beside a front row of `said`, `answer`'s for a role."""
+    """What `ak models --json` notes beside a row of `said`, `answer`'s for a role."""
     missing = sum(one["how"] == "missing" for one in row["measures"].values())
     return [word for word, true in (
         ("pick", row is said["pick"]),
@@ -541,7 +566,9 @@ def main(argv):
             sys.stdout, indent=2)
         print()
         return 0
-    body, _ = menu.models_body(menu.models_said(found, rows), marked,
-                               len(ours(cfg)), stored().get("fetched_at"))
-    print("\n".join([*body, *(["", *live_lines(own)] if own else [])]))
+    seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
+    body, _ = menu.models_body(menu.models_said(cfg, found, uses(cfg, seat, found)))
+    print("\n".join([*body, "", *menu.models_read(marked, len(ours(cfg)),
+                                                   stored().get("fetched_at")),
+                      *(["", *live_lines(own)] if own else [])]))
     return 0
