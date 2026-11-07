@@ -20,6 +20,10 @@ from . import boards, catalog, config, history, matrix
 
 # a reading is of the week of the one before it, by `resets_at`, at most this many seconds later
 DRIFT = 600
+# a week read from fewer points of its meter names nothing: the meters read whole points and trail
+# what bought them, which a few points cannot outweigh.  On 7 Nov 2026 one read from 2 points
+# foretold a day's rise eleven times what it was.  More readings only make it matter less.
+FEWEST_POINTS = 10
 # each count a row keeps, and the column of a release's values listing its price a million tokens
 PRICES = {"input": "aa.price1mInputTokens", "cache_write": "aa.cacheWritePrice",
           "cache_read": "aa.cacheHitPrice", "output": "aa.price1mOutputTokens"}
@@ -69,7 +73,7 @@ def weeks(cfg, provider, meters, since, until):
     reading to its highest, as a probe may read lower than one before it; what the login spent
     (`listed`) from the earliest to the first at the highest bought that rise, and one whose
     spend cannot be priced counts for nothing.  A week holds nothing anyone can name while its
-    plan's points or dollars are 0.
+    plan's points are under FEWEST_POINTS or its dollars 0.
     """
     from . import logins    # here, not at the top: logins names subscriptions through the menu
     plans = {account: logins.whose(provider, account)[1] for account in meters}
@@ -98,7 +102,8 @@ def weeks(cfg, provider, meters, since, until):
             if dollars is not None:
                 points, spent = fits.get(plan, (0, 0))
                 fits[plan] = points + top - base, spent + dollars
-    held = {plan: (100 * dollars / points if points and dollars else None, points, dollars)
+    held = {plan: (100 * dollars / points if points >= FEWEST_POINTS and dollars else None,
+                   points, dollars)
             for plan, (points, dollars) in fits.items()}
     return {account: (plan, *held.get(plan, (None, 0, 0))) for account, plan in plans.items()}
 
