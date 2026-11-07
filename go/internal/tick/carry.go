@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/url"
 	"os"
 	"runtime"
-	"strings"
 	"time"
 
 	"agentkit/internal/config"
@@ -18,8 +16,6 @@ import (
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 )
-
-const authoredSearch = "search/issues?q=is:pr+is:open+author:@me&per_page=100"
 
 // ticking is one real tick under way.
 type ticking struct {
@@ -211,66 +207,4 @@ func unanswered(why string) (string, bool) {
 		return "gh is not logged in; PR checks skipped (" + reason + ")", true
 	}
 	return "WARN GitHub is unavailable; PR checks skipped (" + reason + ")", false
-}
-
-// outgoing is what Python's outgoing asks of a home following no pull request: this account's
-// open ones anywhere. False where one is on another's repository, to follow.
-func (t *ticking) outgoing(me string) bool {
-	if !noSavedForeignPRs() {
-		return false
-	}
-	value, why, err := gh.JSON(run.Runs(), "api", "--paginate", authoredSearch)
-	if err != nil {
-		return false
-	}
-	pages, readable := value.([]any)
-	var found []any
-	for _, page := range pages {
-		var items any
-		if object, ok := page.(*run.Object); ok {
-			items = object.Get("items")
-		}
-		list, ok := items.([]any)
-		readable = readable && ok
-		found = append(found, list...)
-	}
-	if !readable {
-		t.log.line("WARN authored PR discovery failed: " + cmp.Or(why, "gh did not return arrays of pages"))
-		return true
-	}
-	for _, item := range found {
-		if !ownOrNone(item, me) {
-			return false
-		}
-	}
-	return true
-}
-
-// ownOrNone is whether the search's item leaves nothing to follow: no pull request's address, or
-// one on this account's own repository. An item Go cannot read is not that.
-func ownOrNone(item any, me string) bool {
-	found, ok := item.(*run.Object)
-	if !ok {
-		return false
-	}
-	if !found.Truthy("pull_request") {
-		return true
-	}
-	pull, ok := found.Get("pull_request").(*run.Object)
-	if !ok {
-		return false
-	}
-	if !pull.Truthy("html_url") {
-		return true
-	}
-	address, ok := pull.Get("html_url").(string)
-	if !ok {
-		return false
-	}
-	parsed, err := url.Parse(address)
-	if err != nil {
-		return false
-	}
-	owner, _, _ := strings.Cut(strings.Trim(parsed.Path, "/"), "/")
-	return owner == "" || strings.EqualFold(owner, me)
 }

@@ -13,8 +13,8 @@ import (
 	"agentkit/internal/run"
 )
 
-// A home holding nothing is answered, its GitHub passes run dry where gh is logged in; anything a
-// pass would act on leaves the dry run to Python with nothing printed.
+// A home holding nothing but the PRs it follows is answered, its GitHub passes run dry where gh is
+// logged in; anything a pass would act on leaves the dry run to Python with nothing printed.
 func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 	home := t.TempDir()
 	bin := t.TempDir()
@@ -38,11 +38,15 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 		return out.String()
 	}
 	gh("echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
+	put(t, filepath.Join(home, ".agentkit", "state", "watch.json"), `{"own": {"https://github.com/acme/api/pull/1": {}}}`)
 	if got := dry(true); got != "lock free · no tick has ended yet · watch.log 0.0 MB of 5 MB\ngh is not logged in; PR checks skipped (To get started, please run: gh auth login)\n" {
 		t.Fatalf("printed %q", got)
 	}
+	if err := os.RemoveAll(filepath.Join(home, ".agentkit")); err != nil {
+		t.Fatal(err)
+	}
 	// each a folder holding the file named
-	for found, content := range map[string]string{"runs/fix-api/run.json": `{"state":"waiting_login"}`, "jobs/fix-api/job.json": `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`, "state/watch.json": `{"own": {"https://github.com/acme/api/pull/1": {}}}`, "state/notification-outbox/acme.json": ""} {
+	for found, content := range map[string]string{"runs/fix-api/run.json": `{"state":"waiting_login"}`, "jobs/fix-api/job.json": `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`, "state/notification-outbox/acme.json": ""} {
 		path := filepath.Join(home, ".agentkit", found)
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
@@ -66,7 +70,7 @@ func TestDryLeavesToPythonWhatItWouldActOn(t *testing.T) {
 
 // The retry row runs its own step dry: it says what it would retry and sends nothing. What the
 // rows say waits until every row and GitHub pass are Go's, so a later event Go cannot read, or a
-// pull request of this account's on another's repository, prints none of it.
+// pull request of this account's on another's repository that merged, prints none of it.
 func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 	ak, gh := idleHome(t, "echo 'To get started, please run:\n\n  gh auth login' >&2; exit 4")
 	put(t, filepath.Join(ak, "state", "notification-outbox", "card.json"), run.Line(run.Fields("id", "card", "source", "card:done-1",
@@ -89,8 +93,9 @@ func TestDryTickReportsRetriesButBuffersTheWholePreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh(`[ "$*" = "api user" ] && exec echo '{"login": "acme"}'
+case "$*" in *"pr view"*) exec echo '{"state": "MERGED"}' ;; esac
 echo '{"items": [{"pull_request": {"html_url": "https://github.com/other/app/pull/1"}}]}'`)
 	if Dry(&out) || out.Len() > 0 {
-		t.Fatalf("a pull request to follow printed %q", &out)
+		t.Fatalf("a merged pull request printed %q", &out)
 	}
 }

@@ -176,7 +176,6 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"state/session-acme.json":          "{}",
 		"state/google-cloud-need":          "4096\n",
 		"state/notification-outbox/a.json": "{}",
-		"state/watch.json":                 `{"own": {"https://github.com/acme/api/pull/1": {}}}`,
 		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "nudged_at": 2}}}`,
 		"runs/fix-api/run.json#deployment": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": "true"}`,
 			time.Now().Unix()),
@@ -348,12 +347,14 @@ func TestThroughEndsAtTheRowThatFindsWork(t *testing.T) {
 	}
 }
 
-// A pull request on another's repository is Python's to follow, past what the tick has written;
-// the account's own, or an empty search, or a search that fails, leaves nothing to follow.
+// A pull request on another's repository is followed, and one merged is Python's, past what the
+// tick has written; the account's own, or an empty search, or a search that fails, leaves nothing
+// to follow.
 func TestWhatTheSearchFinds(t *testing.T) {
-	search := func(printed string) string {
-		return `case "$*" in "api user") ` + user + ` ;; *) ` + printed + ` ;; esac`
+	viewed := func(state, printed string) string {
+		return `case "$*" in "api user") ` + user + ` ;; *"pr view"*) echo '{"state": "` + state + `"}' ;; *) ` + printed + ` ;; esac`
 	}
+	search := func(printed string) string { return viewed("OPEN", printed) }
 	page := func(address string) string {
 		return `echo '{"items": [{"pull_request": {"html_url": "` + address + `"}}]}'`
 	}
@@ -365,8 +366,9 @@ func TestWhatTheSearchFinds(t *testing.T) {
 		"none":     {search(`echo '{"items": []}'; echo '{"items": []}'`), true, ""},
 		"own":      {search(page("https://github.com/ACME/api/pull/1")), true, ""},
 		"issue":    {search(`echo '{"items": [{"pull_request": null}]}'`), true, ""},
-		"theirs":   {search(page("https://github.com/other/api/pull/1")), false, ""},
-		"second":   {search(`echo '{"items": []}'; ` + page("https://github.com/other/api/pull/1")), false, ""},
+		"theirs":   {search(page("https://github.com/other/api/pull/1")), true, ""},
+		"second":   {search(`echo '{"items": []}'; ` + page("https://github.com/other/api/pull/1")), true, ""},
+		"merged":   {viewed("MERGED", page("https://github.com/other/api/pull/1")), false, ""},
 		"unread":   {search(`echo '{"items": [1]}'`), false, ""},
 		"fails":    {search(`echo down >&2; exit 1`), true, "WARN authored PR discovery failed: down\n"},
 		"no pages": {search(`echo '{}'`), true, "WARN authored PR discovery failed: gh did not return arrays of pages\n"},
