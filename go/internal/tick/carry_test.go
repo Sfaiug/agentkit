@@ -181,7 +181,7 @@ func TestAnythingToActOnEndsTheTickThere(t *testing.T) {
 		"jobs/fix-api/job.json":            `{"tasks": [{"name": "fix-api.md", "state": "queued"}]}`,
 		"state/session-acme.json":          "{}",
 		"state/notification-outbox/a.json": "{}",
-		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "nudged_at": 2}}}`,
+		"state/watch.json#stalls":          `{"stalls": {"acme": {"since": 1, "resets_at": 2}}}`,
 		"runs/fix-api/run.json#deployment": fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", "health": {}, "deployed": "true"}`,
 			time.Now().Unix()),
 		"state/watch.json#auth":      `{"auth_out": {"claude": {"ok": false}}}`,
