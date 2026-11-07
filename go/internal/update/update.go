@@ -5,8 +5,9 @@
 // red kept for the tick to hand back; and how it then moves ~/agentkit (agentkit.go): forward on
 // main to a commit whose live check let it through, swapped in whole as Python's
 // agentkit/versions.py swaps it (versions.go), then its install.sh, owed until it passes, all
-// under Python's locks.  Moving a harness while a seat is on record, or where a user systemd
-// manager would place the gates, is Python's (movable).
+// under Python's locks.  While a seat works no harness moves (seat.Working); an update with a seat
+// Go does not word, or a move where a user systemd manager would place the gates, is Python's
+// (movable).
 package update
 
 import (
@@ -28,10 +29,12 @@ import (
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
 	"agentkit/internal/harness"
+	"agentkit/internal/seat"
 )
 
-// ErrPython leaves an update to Python ak: a harness where movable says not, ~/agentkit where
-// Go swaps no version in, live checks, or output Go cannot read as Python does.
+// ErrPython leaves an update to Python ak: a seat Go does not word, a harness where movable says
+// not, ~/agentkit where Go swaps no version in, live checks, or output Go cannot read as Python
+// does.
 var ErrPython = errors.New("left to Python")
 
 // pins keep each harness from upgrading itself while it is asked its release.
@@ -87,7 +90,11 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	_, err = os.Stat(filepath.Join(checkout, ".git"))
 	held := err == nil
 	moves := !dryRun && len(present) > 0
-	if !dryRun && held && exchange == nil || moves && !movable(present) {
+	working, worded := []string(nil), true
+	if moves {
+		working, worded = seat.Working(time.Now())
+	}
+	if !dryRun && held && exchange == nil || !worded || moves && len(working) == 0 && !movable(present) {
 		return 0, ErrPython
 	}
 	agentkit := "update: agentkit: skipped: no checkout at " + checkout
@@ -104,6 +111,18 @@ func Main(repo string, dryRun bool, out, errOut io.Writer) (int, error) {
 	}
 	for _, name := range absent {
 		fmt.Fprintf(out, "update: %s: skipped: not installed here\n", name)
+	}
+	if moves && len(working) > 0 {
+		// a harness upgraded under a working turn changes what that turn runs on with nobody
+		// watching: while one works none moves, which is no failure, and agentkit still does
+		fmt.Fprintf(out, "update: harnesses: skipped: %d sessions are working (%s); try when they are done\n",
+			len(working), strings.Join(working, ", "))
+		if held {
+			updateSelf(env, checkout, out)
+		} else {
+			fmt.Fprintln(out, agentkit)
+		}
+		return 0, nil
 	}
 	if moves {
 		if code := upgradeAll(env, repo, present, before, out, errOut); code != 0 {

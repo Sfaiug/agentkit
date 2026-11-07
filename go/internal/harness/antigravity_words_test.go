@@ -28,10 +28,10 @@ func TestAntigravityScreenLeavesConversationEvidenceToPython(t *testing.T) {
 		{"launcher store Go cannot read", `{"conversation":"conv-acme","id_source":"launcher"}`, false},
 		{"no launcher store", `{"conversation":"conv-other","id_source":"launcher"}`, true},
 		{"invalid store id", `{"conversation":"../conv-acme","id_source":"launcher"}`, true},
-		{"pending launch", `{"antigravity_launch":"token"}`, false},
+		{"launch learning none", `{"antigravity_launch":"token"}`, true},
 		{"learned store", `{"antigravity_launch":"token","antigravity_open":{"launch":"token","conversation":"conv-acme"}}`, false},
 		{"learned id without a store", `{"antigravity_launch":"token","antigravity_open":{"launch":"token","conversation":"conv-other"}}`, false},
-		{"stale launch", `{"antigravity_launch":"new","antigravity_open":{"launch":"old","conversation":"conv-acme"}}`, false},
+		{"stale launch learning none", `{"antigravity_launch":"new","antigravity_open":{"launch":"old","conversation":"conv-acme"}}`, true},
 	} {
 		t.Run(each.name, func(t *testing.T) {
 			value, err := run.Decode([]byte(each.json))

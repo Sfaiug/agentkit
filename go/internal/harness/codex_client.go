@@ -26,18 +26,22 @@ type codexClient struct {
 	conn   net.Conn
 	read   *bufio.Reader
 	serial int
+	by     time.Time // when the whole conversation is over, however long each step may take: zero for no end
 }
 
-func codexDial(socket string) (*codexClient, error) {
-	conn, err := net.DialTimeout("unix", socket, 15*time.Second)
+// codexDial is a client on the server at that socket, which must have answered all it is asked by
+// then, zero for no such bound.
+func codexDial(socket string, by time.Time) (*codexClient, error) {
+	client := &codexClient{by: by}
+	conn, err := net.DialTimeout("unix", socket, time.Until(client.deadline()))
 	if err != nil {
 		return nil, err
 	}
-	client := &codexClient{conn: conn, read: bufio.NewReader(conn)}
+	client.conn, client.read = conn, bufio.NewReader(conn)
 	var nonce [16]byte
 	rand.Read(nonce[:])
 	key := base64.StdEncoding.EncodeToString(nonce[:])
-	conn.SetDeadline(time.Now().Add(15 * time.Second))
+	conn.SetDeadline(client.deadline())
 	_, err = fmt.Fprintf(conn, "GET / HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"+
 		"Sec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n\r\n", key)
 	var head []byte
@@ -139,13 +143,22 @@ func (client *codexClient) receive() (map[string]json.RawMessage, error) {
 	}
 }
 
+// deadline is when the step under way must be done: 15 seconds on, or the conversation's end.
+func (client *codexClient) deadline() time.Time {
+	at := time.Now().Add(15 * time.Second)
+	if !client.by.IsZero() && client.by.Before(at) {
+		return client.by
+	}
+	return at
+}
+
 // call is the result of one request, within 15 seconds; what the server sends between is passed by.
 func (client *codexClient) call(method string, params any) (json.RawMessage, error) {
 	client.serial++
 	if err := client.send(map[string]any{"id": client.serial, "method": method, "params": params}); err != nil {
 		return nil, err
 	}
-	client.conn.SetDeadline(time.Now().Add(15 * time.Second))
+	client.conn.SetDeadline(client.deadline())
 	for {
 		message, err := client.receive()
 		if err != nil {
@@ -167,15 +180,16 @@ func (client *codexClient) call(method string, params any) (json.RawMessage, err
 // its Stop hook, as codex.py `in_flight` reads it from the seat's own app server, the one place
 // 0.163 lists it: its background terminals and the sub-agents it spawned, at any depth, still
 // working.  0.163 wakes the seat for neither once it ends, so each is a `terminal` or an `agent`,
-// held and never waited on.  False where the server cannot say: unread work is no evidence of none.
-func codexInFlight(thread string) ([]any, bool) {
-	home, set := os.LookupEnv("CODEX_HOME") // the seat's, as its server runs this hook
+// held and never waited on.  Asked through the connection the seat's launch wrote in its Codex
+// home, answered by then (zero for each call's own 15 seconds); false where the server cannot
+// say: unread work is no evidence of none.
+func codexInFlight(home, thread string, by time.Time) ([]any, bool) {
 	data, err := os.ReadFile(filepath.Join(home, "connection.json"))
 	var connection struct{ Socket string }
-	if !set || err != nil || json.Unmarshal(data, &connection) != nil || thread == "" {
+	if home == "" || err != nil || json.Unmarshal(data, &connection) != nil || thread == "" {
 		return nil, false
 	}
-	client, err := codexDial(connection.Socket)
+	client, err := codexDial(connection.Socket, by)
 	if err != nil {
 		return nil, false
 	}

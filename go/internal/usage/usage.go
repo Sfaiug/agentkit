@@ -179,9 +179,10 @@ func (r *Readings) OnCredits(name string) bool {
 
 // Shown is every reading as `ak usage --json` prints it: each login's with what its shared week
 // holds in tokens and how many pairs measure it (holds), its price a month, what a million tokens
-// cost at it and what it spent over the last seven days at listed prices, as listed says: prices
-// are the boards' releases, which matrix finds and which reads this package.
-func (r *Readings) Shown(listed func(provider, account string) any) *run.Object {
+// cost at it and what it spent over the last seven days at listed prices, as listed says, and its
+// plan as plans holds it: prices are the boards' releases, which matrix finds and which reads this
+// package.
+func (r *Readings) Shown(listed func(provider, account string) any, plans map[Week]Plan) *run.Object {
 	for _, each := range r.logins() {
 		price := r.source(each.provider).Price
 		shared := r.sharedWeek(each.provider, each.prov)
@@ -194,6 +195,7 @@ func (r *Readings) Shown(listed func(provider, account string) any) *run.Object 
 		}
 		each.prov.Set("price_per_1m", perMillion(price, tokens, shared))
 		each.prov.Set("listed_usd", listed(each.provider, each.account))
+		plans[r.week(each)].show(each.prov)
 	}
 	return r.providers
 }

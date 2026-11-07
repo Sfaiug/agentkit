@@ -1,8 +1,8 @@
-"""While the pointer is on `Review rounds` on `config · limits`, how your runs ended shows under its
+"""While the pointer is on `Review rounds` on `config · limits`, how your runs ended shows over its
 note: `how your N runs ended, since D`, then a bar each ending -- `merged with no review` where
 one did, each round from 1 up to the last a run merged in, then `failed` -- its share of N, its
 count, that share as a whole percent and its median hours from start to finish.  On a short
-terminal it shows beside the highlighted row, the other rows paged, and never pushes that row off.
+terminal it shows under the rows, ↓ turning its pages, and never pushes the highlighted row off.
 
 Counted are the finished runs that are not stopped, from the first that carries changed_lines on:
 merged in the round rounds_used names (0, review off) when changed_lines is set, failed when

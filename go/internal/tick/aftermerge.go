@@ -11,6 +11,7 @@ import (
 
 	"agentkit/internal/config"
 	"agentkit/internal/handback"
+	"agentkit/internal/history"
 	"agentkit/internal/lock"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
@@ -154,9 +155,9 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 			return nil
 		}
 	}
-	// the history row is told a break as it is told, and Go keeps no history
-	if !run.Historyless() {
-		return errLeft
+	keeps, err := keepsHistory()
+	if err != nil {
+		return err
 	}
 	name := pending.Str("run")
 	told, err := t.tellBreak(name, pending.Str("session"), key, pending.Str("line"), pending.Dict("typed"), func(mark *run.Object) error {
@@ -172,6 +173,9 @@ func (t *ticking) breaks(key string, merges []*merge, now float64) error {
 		episodes.Set(key, run.Fields("notified", pending.Get("sha"), "at", run.Float(now), "run", name, "check", check,
 			"finished", pending.Get("finished")))
 		t.keep()
+		if keeps { // broke_after_merge: what got past review and landing, written once, as it is told
+			history.Update(name, t.log.line, "broke_after_merge", "health")
+		}
 		t.log.line(fmt.Sprintf("handed run %s back for %s on %s after its merge", name, run.Text(check), target))
 	case pending.Truthy("typed"):
 		t.log.line(fmt.Sprintf("run %s's after-merge notice sits in a composer; the next tick presses Enter", name))

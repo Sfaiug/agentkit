@@ -31,8 +31,14 @@ const (
 func idleHome(t *testing.T, script string) (ak string, gh func(string)) {
 	t.Helper()
 	home, bin := t.TempDir(), t.TempDir()
+	// tmux's socket path has a short limit, which t.TempDir, naming the test, soon passes
+	sockets, err := os.MkdirTemp("", "ak")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sockets) })
 	for key, value := range map[string]string{
-		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": t.TempDir(), "AGENTKIT_TMUX_SOCKET": "tick-test",
+		"HOME": home, "USERPROFILE": home, "TMUX_TMPDIR": sockets, "AGENTKIT_TMUX_SOCKET": "tick-test",
 		"AGENTKIT_SESSION": "", "AGENTKIT_ADAPTER_DIR": "", "XDG_RUNTIME_DIR": t.TempDir(), "XDG_CONFIG_HOME": "",
 		"AK_RUN_ROLE":    "",
 		"AK_NOTIFY_SINK": "dry-run",

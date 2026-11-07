@@ -19,7 +19,7 @@ import (
 	"agentkit/internal/update"
 )
 
-func Main(args []string, out, errOut io.Writer) int {
+func carry(args []string, out, errOut io.Writer) int {
 	config.MigratePolicy()
 	command, rest, help := "attach", args, ""
 	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {

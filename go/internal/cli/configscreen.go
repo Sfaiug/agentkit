@@ -130,6 +130,12 @@ func menuConfig(session string, cells []menu.Cell, main func() *reading, keyboar
 			}
 			continue
 		}
+		if key.Name == "enter" && view.Row == len(c.Names)+4 {
+			if !menuDoneCheck(keyboard, painter) {
+				return false
+			}
+			continue
+		}
 		if key.Name == "enter" && view.Row == len(c.Names)+5 {
 			if !menuMachines(keyboard, painter) {
 				return false
@@ -229,10 +235,8 @@ func configOptions(c *matrix.Configuration) ([]menu.ConfigOption, bool) {
 	check := ""
 	if err != nil {
 		check = err.Error()
-	} else if checker == "" {
-		check = onOff(on) + " · the seat's reviewer"
 	} else {
-		check = onOff(on) + " · " + config.ModelName(checker, c.Models)
+		check = onOff(on) + " · " + checkerName(checker, c.Models)
 	}
 	numbers, err := config.HostNumbers()
 	if err != nil {

@@ -88,13 +88,16 @@ func openTurn(round, name string) (kind, session string) {
 	return "fresh", ""
 }
 
-// newest is the base among names whose latest attempt was last written, a tie to the later name.
+// newest is the base among names whose latest turn was last written, Python's max by mtime and
+// name: a tie goes to the later turn's directory name (`executor-attempt2` over `executor-astra`),
+// not its base's.
 func newest(round string, names []string) string {
-	found, at := "", time.Time{}
+	found, latest, at := "", "", time.Time{}
 	for _, name := range names {
-		info, err := os.Stat(latestTurn(round, name))
-		if err == nil && (found == "" || !info.ModTime().Before(at)) {
-			found, at = name, info.ModTime()
+		turn := latestTurn(round, name)
+		info, err := os.Stat(turn)
+		if err == nil && (found == "" || info.ModTime().After(at) || info.ModTime().Equal(at) && turn > latest) {
+			found, latest, at = name, turn, info.ModTime()
 		}
 	}
 	return found

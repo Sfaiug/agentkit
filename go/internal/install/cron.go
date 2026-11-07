@@ -39,7 +39,7 @@ func cron(sandboxed bool, out, errOut io.Writer) error {
 	path := filepath.Join(home, ".local", "bin") + ":" + filepath.Join(home, ".npm-global", "bin") +
 		":/usr/local/bin:/usr/bin:/bin"
 	line := fmt.Sprintf("*/3 * * * * PATH=%s %s watch >>%s 2>&1 %s", cronWord(path),
-		cronWord(config.Resolve(executable)), cronWord(filepath.Join(config.Home(), "tmp", "watch.log")),
+		cronWord(config.Resolve(executable)), cronWord(config.TickLog()),
 		cronTag)
 	listed, err := exec.Command("crontab", "-l").Output()
 	if errors.Is(err, exec.ErrNotFound) {

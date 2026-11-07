@@ -12,9 +12,9 @@ import (
 	"agentkit/internal/run"
 )
 
-// The owner's answer on a card is Python's, with nothing written, while a notice stands, while a
-// question it leaves waits to be asked of a turn since ended, or while the seat's file cannot take
-// its questions' leaving; otherwise each question it answers is the owner's time, once, and leaves
+// The owner's answer on a card is Python's, with nothing written, while a question it leaves waits
+// to be asked of a turn since ended, or while the seat's file cannot take its questions' leaving;
+// otherwise each question it answers is the owner's time, once, and leaves
 // what the seat keeps back, which keeps the rest.
 func TestACardsAnswerIsTheOwnersTimeOrPythons(t *testing.T) {
 	home := sandbox(t)
@@ -39,16 +39,13 @@ func TestACardsAnswerIsTheOwnersTimeOrPythons(t *testing.T) {
 	}
 	pythons := func(why string) {
 		t.Helper()
-		if err := answerCard("acme", at, replies); !errors.Is(err, errPython) {
+		if _, err := answerCard("acme", at, replies); !errors.Is(err, errPython) {
 			t.Fatalf("%s: %v", why, err)
 		}
 		if contents(t, seatFile("acme")) != kept || len(owned()) > 0 {
 			t.Fatalf("%s: written", why)
 		}
 	}
-	write(t, stateFile(home, "notify-acme.json"), `{"session": "acme", "kind": "needs", "text": "Older?", "time": 1}`)
-	pythons("a notice")
-	os.Remove(stateFile(home, "notify-acme.json"))
 	if err := TurnEnded("acme"); err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +60,7 @@ func TestACardsAnswerIsTheOwnersTimeOrPythons(t *testing.T) {
 	pythons("a seat file")
 	os.Chmod(state, 0o700)
 
-	if err := answerCard("acme", at, replies); err != nil {
+	if _, err := answerCard("acme", at, replies); err != nil {
 		t.Fatal(err)
 	}
 	file, _ := run.ReadJSON(seatFile("acme"))
@@ -92,7 +89,7 @@ func TestACardAnswerDropsItsQuestionFirstAndLogsARowItCannotWrite(t *testing.T) 
 	write(t, history.Path(), "not a database")
 	at := seconds(time.Now()) + 1
 	replies := [][]string{{"Which port?", "8080", "9090"}}
-	if err := answerCard("acme", at, replies); err != nil {
+	if _, err := answerCard("acme", at, replies); err != nil {
 		t.Fatal(err)
 	}
 	file, _ := run.ReadJSON(seatFile("acme"))
@@ -109,7 +106,7 @@ func TestACardAnswerDropsItsQuestionFirstAndLogsARowItCannotWrite(t *testing.T) 
 		t.Fatal("a row went in")
 	}
 	kept := contents(t, seatFile("acme"))
-	if err := answerCard("acme", at, replies); err != nil {
+	if _, err := answerCard("acme", at, replies); err != nil {
 		t.Fatal(err)
 	}
 	if contents(t, seatFile("acme")) != kept || contents(t, logged) != said || contents(t, history.Path()) != "not a database" {

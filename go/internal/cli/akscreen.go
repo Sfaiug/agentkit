@@ -28,6 +28,18 @@ type reading struct {
 	past     []menu.PastSeat
 	handoff  bool
 	switches map[string]int // hiddenFeatures
+	began    time.Time      // when its read began (show)
+}
+
+// show makes found the frame's reading unless the one there began later: a read that began before
+// the menu's own change, a past seat it removed, would draw what the change undid, or hand the
+// frame to Python for a seat it met half removed.
+func show(latest *atomic.Pointer[reading], found *reading) {
+	for shown := latest.Load(); !found.began.Before(shown.began); shown = latest.Load() {
+		if latest.CompareAndSwap(shown, found) {
+			return
+		}
+	}
 }
 
 // readFrame is the records as they stand and a live seat its look, the grid as usage.json holds it,
@@ -43,12 +55,12 @@ func readFrame(now time.Time, announce bool) (reading, bool) {
 	if !known || !home.Settled() {
 		return reading{}, false
 	}
-	var found reading
+	found := reading{began: now}
 	for _, each := range home.Seats {
 		if each.Past() {
 			row, known := pastRow(each, now)
 			if !known {
-				return reading{handoff: true}, true
+				return reading{handoff: true, began: now}, true
 			}
 			found.past = append(found.past, row)
 		}
@@ -125,7 +137,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 	reread := func() {
 		<-swept
 		if found, known := readFrame(time.Now(), true); known {
-			latest.Store(&found)
+			show(&latest, &found)
 		}
 		keyboard.Wake()
 	}
@@ -227,10 +239,11 @@ func akScreen(args []string, out, errOut io.Writer) int {
 		switch {
 		case heading:
 			frame.Stop()
-			if dry || !menuFeatures(choice, keyboard, painter) { // Python's dry run draws them once
+			if dry { // Python's dry run draws them once
 				keyboard.Give()
 				return notImplemented(errOut, "attach")
 			}
+			menuFeatures(choice, keyboard, painter)
 			model.Highlight = menu.Highlight{Cursor: choice}
 		case choice != "":
 			settle()
@@ -263,6 +276,7 @@ func akScreen(args []string, out, errOut io.Writer) int {
 			if leave, code := menuPast(&returned.past, settle, dry, overlay, keyboard, painter, errOut); leave {
 				return code
 			}
+			returned.began = time.Now() // past any read that met a seat it removed
 			latest.Store(&returned)
 			go reread()
 		case key.Name == "char" && (key.Char == "c" || key.Char == "C"):
