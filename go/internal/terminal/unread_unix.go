@@ -7,3 +7,6 @@ package terminal
 func (k *Keyboard) Unread(keys ...Key) {
 	k.unread = append(append([]Key(nil), keys...), k.unread...)
 }
+
+// Drop lets go every key Unread kept: the screen after the wait takes none of them.
+func (k *Keyboard) Drop() { k.unread = nil }
