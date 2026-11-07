@@ -16,7 +16,9 @@ func TestAFailAtItsBudgetResumedWithNoRoundsIsRefusedWithTheMostItMayAsk(t *test
 		t.Skip(err) // Python's refusal, before the budget's
 	}
 	home := t.TempDir()
-	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": ""} {
+	// a run of no seat or run, outside Python's gate, as the keys' homes are
+	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_SESSION": "", "AGENTKIT_RUN_DIR": "",
+		"AK_RUN_DEPTH": "", "AK_PARENT_RUN": "", "AK_MAX_RUNS": "0", "AK_NOTIFY_SINK": "dry-run"} {
 		t.Setenv(key, value)
 	}
 	dir := filepath.Join(run.Runs(), "fix-api")
