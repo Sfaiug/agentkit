@@ -53,7 +53,7 @@ func (t *ticking) pollTokens() error {
 			kept.Set(harness, record)
 			continue
 		}
-		answered, why := tokenAuth(harness)
+		answered, _, why := authOK(harness)
 		if !answered {
 			if len(record.Keys()) > 0 {
 				kept.Set(harness, record)
@@ -79,17 +79,16 @@ func (t *ticking) pollTokens() error {
 	return nil
 }
 
-// tokenAuth is what the harness's adapter says of a turn's login, as worker.auth_ok asks about the
+// authOK is what the harness's adapter says of a turn's login, as worker.auth_ok asks about the
 // harness as a whole: unmarked, as nobody's run, and for every provider the config runs on it.
-func tokenAuth(harness string) (answered bool, why string) {
+func authOK(harness string) (answered, yes bool, why string) {
 	adapter, err := config.LoginAdapter(harness)
 	env, unread := config.ChildEnv()
 	if err != nil || unread != nil {
-		return false, ""
+		return false, false, ""
 	}
 	env = slices.DeleteFunc(env, func(pair string) bool { return strings.HasPrefix(pair, host.Marker+"=") })
-	answered, _, why = worker.Login(adapter, append(env, "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(harness), " ")))
-	return answered, why
+	return worker.Login(adapter, append(env, "AGENTKIT_PROVIDER="+strings.Join(config.HarnessProviders(harness), " ")))
 }
 
 // remindTokens is the token reminder row (watch.remind_worker_tokens): the owner paged once a local

@@ -17,7 +17,7 @@ import (
 
 // pythonRoads are what a record holds on a road Go does not drive: Python's to resume.
 var pythonRoads = []string{"job_id", "review_pr", "from_pass", "waiting_on", "pickup",
-	"resume_after", "lease_wait", "waiting_for"}
+	"resume_after", "lease_wait"}
 
 // Pickup is whether Go carries that dead run on from where it was cut off: at the review, at the
 // executor or the fixer, at the checks after their answer, or at the next round's start.  Decided
@@ -28,7 +28,7 @@ func Pickup(dir string, record *run.Object) bool {
 		return waitingPickup(dir, record)
 	case "exhausted":
 		return exhaustedPickup(dir, record)
-	case "running", "interrupted", "error":
+	case "running", "interrupted", "error", "waiting_login":
 		return carriedOn(dir, record)
 	}
 	return false
@@ -196,7 +196,8 @@ func Reopen(dir string, read *run.Object, order func(*run.Object)) error {
 			}
 			run.SetAll(record, "merge_failed", false, "merge_note", nil)
 		}
-		for _, key := range []string{"waiting_resume_at", "stall_resume_at"} {
+		// the resume answers the login a run was parked on, and a later stop inherits none of it
+		for _, key := range append([]string{"waiting_resume_at", "stall_resume_at"}, LoginKeys...) {
 			record.Delete(key)
 		}
 		run.SetAll(record, "resume_from", from, "state", "queued", "slot_waiting", true, "queued_at", queuedAt,
