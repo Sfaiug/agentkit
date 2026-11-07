@@ -143,56 +143,56 @@ func theirs(item any, me string) (string, bool) {
 }
 
 // follow is Python's outgoing of one pull request: read, and what the maintainer decided handed on
-// once.  A merge goes to Python before its record is touched (milestone 186c).
+// once.  Its entry in `own` changes only where Go carries it: a merge (milestone 186c), and any
+// case Go does not type or wake, go to Python with it as it stood.
 func (t *ticking) follow(address, session string) bool {
 	own := t.state.Dict("own")
-	entry, _ := own.Get(address).(*run.Object) // none, or an object ownPRs read
-	if entry != nil && entry.Truthy("done") {
-		return true
+	entry := run.Fields("decision", nil, "done", false)
+	if kept, ok := own.Get(address).(*run.Object); ok { // ownPRs read each kept one as an object
+		if kept.Truthy("done") {
+			return true
+		}
+		entry = kept.Copy()
 	}
 	value, why, err := gh.JSON(run.Runs(), "pr", "view", address, "--json", "state,reviewDecision,title,number")
 	view, _ := value.(*run.Object)
 	if err != nil || view != nil && view.Get("state") == "MERGED" {
 		return false
 	}
-	if entry == nil {
-		entry = run.Fields("decision", nil, "done", false)
-		own.Set(address, entry)
-	}
 	if session != "" {
 		entry.Set("session", session)
 	}
+	carried := true
 	if view == nil {
 		t.log.line(fmt.Sprintf("WARN %s: gh pr view failed: %s", address, why))
-		return true
-	}
-	label := "PR #" + run.Text(view.Get("number")) + " " + run.Text(view.Get("title"))
-	decision := view.Get("reviewDecision")
-	switch {
-	case view.Get("state") == "CLOSED":
-		said, carried := t.say(label+": closed by the maintainer without a merge", address, session)
-		if said {
-			entry.Set("done", true)
-		}
-		return carried
-	case decision == "CHANGES_REQUESTED" && entry.Get("decision") != "CHANGES_REQUESTED":
-		said, carried := t.say(label+": the maintainer requested changes", address, session)
-		if said {
-			entry.Set("decision", decision)
-		}
-		return carried
-	case view.Truthy("reviewDecision") && !run.Equal(entry.Get("decision"), decision):
-		// the line an earlier decision left unsent in the seat's composer gets its Enter first,
-		// or the next tick comes back here
-		if !t.dry {
-			if sent, carried := t.sentPending(runFor(address)); !sent {
-				return carried
+	} else {
+		label := "PR #" + run.Text(view.Get("number")) + " " + run.Text(view.Get("title"))
+		decision, said := view.Get("reviewDecision"), false
+		switch {
+		case view.Get("state") == "CLOSED":
+			if said, carried = t.say(label+": closed by the maintainer without a merge", address, session); said {
+				entry.Set("done", true)
+			}
+		case decision == "CHANGES_REQUESTED" && entry.Get("decision") != "CHANGES_REQUESTED":
+			if said, carried = t.say(label+": the maintainer requested changes", address, session); said {
+				entry.Set("decision", decision)
+			}
+		case view.Truthy("reviewDecision") && !run.Equal(entry.Get("decision"), decision):
+			// the line an earlier decision left unsent in the seat's composer gets its Enter
+			// first, or the next tick comes back here
+			if said = t.dry; !said {
+				said, carried = t.sentPending(runFor(address))
+			}
+			if said {
+				entry.Set("decision", decision)
+				entry.Set("decision_at", run.Float(epoch(t.clock())))
 			}
 		}
-		entry.Set("decision", decision)
-		entry.Set("decision_at", run.Float(epoch(t.clock())))
 	}
-	return true
+	if carried {
+		own.Set(address, entry)
+	}
+	return carried
 }
 
 // say is Python's say of a close or a request for changes: on the run that opened the pull request
@@ -240,18 +240,21 @@ func (t *ticking) say(text, address, session string) (said, carried bool) {
 			return false, carried
 		}
 	}
-	kept := func(mark any) {
-		if dir != "" {
-			handback.MarkDelivery(dir, record, "decision_typed", mark)
-		}
+	kept := func(mark any) bool {
+		return dir == "" || handback.MarkDelivery(dir, record, "decision_typed", mark)
 	}
+	unmarked := false
 	if !seat.TypeAtPrompt(name, line, held, func(mark *run.Object) error {
-		kept(mark)
+		unmarked = !kept(mark) // its Enter goes all the same: a line that leaves needs no mark
 		return nil
 	}, t.log.line) {
-		return false, true
+		// a line left in the composer with no mark reads as the owner's draft to Go, which only
+		// Python's editor types past
+		return false, !unmarked
 	}
-	kept(nil)
+	if !kept(nil) {
+		return false, true // the next tick reads it sent, and takes the mark off then
+	}
 	t.log.line("told the " + name + " seat: " + text)
 	return true, true
 }
@@ -281,10 +284,7 @@ func (t *ticking) sentPending(dir string, record *run.Object) (sent, carried boo
 			}
 		}
 	}
-	if dir != "" {
-		handback.MarkDelivery(dir, record, "decision_typed", nil)
-	}
-	return true, true
+	return dir == "" || handback.MarkDelivery(dir, record, "decision_typed", nil), true
 }
 
 // runFor is the run that opened that pull request, Python's run_for_pr: "" and an empty record

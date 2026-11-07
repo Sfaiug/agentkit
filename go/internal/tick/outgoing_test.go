@@ -15,11 +15,11 @@ import (
 )
 
 func TestSavedForeignPRIsFollowedAfterSearchDropsIt(t *testing.T) {
-	ak, _ := idleHome(t, answers)
+	ak, _ := goneHome(t) // a resting seat, whose readings take watch.json too
 	path := filepath.Join(ak, "runs", "fix-api", "run.json")
 	text := `{"state":"pass","foreign":true,"pr":"https://github.com/other/api/pull/1","handed_back":true,"reported":true,"tree_stopped":[null,null]}`
 	put(t, path, text)
-	for range 2 { // the second tick reads watch.json following it
+	for range 2 { // the second tick, and its seat readings, read watch.json following it
 		if !carries(io.Discard, io.Discard) {
 			t.Fatal("a saved foreign PR the open search no longer finds was handed over")
 		}
@@ -60,7 +60,7 @@ esac
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non = false\n[models.opus]\nharness = 'claude'\nmodel = 'claude-opus'\neffort = 'xhigh'\nprovider = 'test'\n"+
 		"[providers.test]\nmode = 'subscription'\n")
-	put(t, filepath.Join(ak, "state", "session-lead.json"), `{"orchestrator": "opus", "workers": ["opus"], "conversation": "conv-lead", "cwd": "`+home+`"}`)
+	seated := `{"orchestrator": "opus", "workers": ["opus"], "conversation": "conv-lead", "cwd": "` + home + `"}`
 	put(t, filepath.Join(home, "shown"), "────────\n❯\n────────\n  ⏵⏵ bypass permissions on (shift+tab to cycle)\n")
 	address := "https://github.com/acme/widgets/pull/7"
 	dir := filepath.Join(ak, "runs", "20261107-0900-add-retry-file")
@@ -93,6 +93,16 @@ esac
 	}
 
 	before := read(t, filepath.Join(dir, "run.json"))
+	changes := "PR #7 Add retry file: the maintainer requested changes"
+	asked := `{"state": "OPEN", "reviewDecision": "CHANGES_REQUESTED", "title": "Add retry file", "number": 7}`
+	// a seat on a harness Go does not type into is Python's, with nothing written
+	put(t, filepath.Join(ak, "state", "session-lead.json"), strings.Replace(seated, `"opus"`, `"vela"`, 1))
+	tick(asked, false)
+	if state.Dict("own").Has(address) || read(t, filepath.Join(dir, "run.json")) != before || keys() != "" {
+		t.Fatalf("handed to Python after writing: %s, %q", run.Line(state), keys())
+	}
+	put(t, filepath.Join(ak, "state", "session-lead.json"), seated)
+
 	if said := tick(`{"state": "OPEN", "reviewDecision": "APPROVED", "title": "Add retry file", "number": 7}`, true); said != "" ||
 		followed().Get("decision") != "APPROVED" || !followed().Truthy("decision_at") || followed().Str("session") != "lead" {
 		t.Fatalf("the approval was followed as %s, saying %q", run.Line(followed()), said)
@@ -103,8 +113,6 @@ esac
 
 	// a tick killed between the line and its Enter left the decision on the run, the line in the
 	// composer and its mark on the run, and watch.json as it was
-	changes := "PR #7 Add retry file: the maintainer requested changes"
-	asked := `{"state": "OPEN", "reviewDecision": "CHANGES_REQUESTED", "title": "Add retry file", "number": 7}`
 	result := opening + "\n## The maintainer decided\n\n" + changes + "\n"
 	put(t, filepath.Join(dir, "result.md"), result)
 	put(t, filepath.Join(dir, "run.json"), run.Line(run.Fields("state", "pass", "title", "Add retry file", "foreign", true, "pr", address,
