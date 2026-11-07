@@ -69,8 +69,31 @@ func TestMuseAnswersAreTheOwnersPicksOnCardsThatSettledAnswered(t *testing.T) {
 			t.Errorf("%s: %v %v %+v %+v, want %+v", each.why, known, err, said, cards, each.want)
 		}
 	}
-	// what cannot be read is the done check's error, never a log that holds nothing
-	log := filepath.Join(home, "share", "muse", "sessions", "2026", "10", "26", "acme", "session.jsonl")
+	// a file among the folders hides no log; a log, or a folder that may hold it, that cannot be
+	// read is the done check's error, never an owner who said nothing
+	sessions := filepath.Join(home, "share", "muse", "sessions")
+	log := filepath.Join(sessions, "2026", "10", "26", "acme", "session.jsonl")
+	for _, stray := range []string{filepath.Join(sessions, ".DS_Store"), filepath.Join(sessions, "2026", "10", "26", "notes")} {
+		if err := os.WriteFile(stray, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if said, _, _, err := Answered("muse", record); err != nil || len(said) != 1 {
+		t.Errorf("a stray file: %+v %v", said, err)
+	}
+	for _, hidden := range []string{log, filepath.Dir(log), filepath.Dir(filepath.Dir(log)), sessions} {
+		if err := os.Chmod(hidden, 0); err != nil {
+			t.Fatal(err)
+		}
+		_, readable := os.ReadFile(log)
+		_, _, _, err := Answered("muse", record)
+		if err := os.Chmod(hidden, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if readable != nil && err == nil { // where permissions hide nothing, there is nothing to test
+			t.Errorf("%s unreadable: no error", hidden)
+		}
+	}
 	if err := os.Remove(log); err != nil {
 		t.Fatal(err)
 	}

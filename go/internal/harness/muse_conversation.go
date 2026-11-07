@@ -2,10 +2,13 @@ package harness
 
 import (
 	"bufio"
+	"errors"
+	"io/fs"
 	"iter"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 
 	"agentkit/internal/hookfact"
 	"agentkit/internal/run"
@@ -20,15 +23,29 @@ import (
 // museLog is the log Muse keeps that session in, its first under YYYY/MM/DD/<session>/, "" for none
 // (muse.py `session_log`).
 func museLog(session string) string {
+	log, _ := museLogFound(session)
+	return log
+}
+
+// museLogFound is museLog, and where it finds none, the error of a folder or log it could not look
+// at, which may hold it: one that says nothing is there, or no folder, hides none.
+func museLogFound(session string) (string, error) {
 	if !museSession.MatchString(session) {
-		return ""
+		return "", nil
+	}
+	var unread error
+	hidden := func(err error) {
+		if unread == nil && err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTDIR) {
+			unread = err
+		}
 	}
 	// read, not globbed: the data home is a path, whatever pattern characters it holds
 	folders := []string{filepath.Join(share(), "muse", "sessions")}
 	for range 3 {
 		var deeper []string
 		for _, folder := range folders {
-			entries, _ := os.ReadDir(folder)
+			entries, err := os.ReadDir(folder)
+			hidden(err)
 			for _, entry := range entries {
 				deeper = append(deeper, filepath.Join(folder, entry.Name()))
 			}
@@ -36,11 +53,14 @@ func museLog(session string) string {
 		folders = deeper
 	}
 	for _, folder := range folders {
-		if log := filepath.Join(folder, session, "session.jsonl"); exists(log) {
-			return log
+		log := filepath.Join(folder, session, "session.jsonl")
+		_, err := os.Stat(log)
+		if err == nil {
+			return log, nil
 		}
+		hidden(err)
 	}
-	return ""
+	return "", unread
 }
 
 // exists is whether a file is at that path, through links, as a glob finds one.
