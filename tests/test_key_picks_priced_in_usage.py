@@ -1,7 +1,9 @@
-"""AK_BIN prices role picks in measured subscription usage, scaling every unmeasured row.
+"""AK_BIN prices every role's picks in one unit off measured subscription usage: dollars a task
+where a provider the runs measured has a price, else points of a week; every unmeasured row,
+and every row of a role no run measured, scaled off the runs' cost per board dollar.
 
 Invented boards, logins' weeks and finished runs in a temporary HOME; models and usage output
-is observed. Shares retain task_usage's units; prices multiply them only for a full lineup.
+is observed.
 """
 
 import json
@@ -23,6 +25,12 @@ ROWS = [("anvil", "low", "acme", .60, 1), ("anvil", "high", "acme", .80, 2),
 RELEASES = list(dict.fromkeys(f"{row[0]}-1" for row in ROWS))
 # each provider's harness, running its models alone, so its seats' spend fits its week
 HARNESSES = {"acme": "claude", "bolt": "codex", "crux": "opencode"}
+PRICES = {"acme": 200, "bolt": 100, "crux": 30}     # each plan's price a month
+
+
+def dollars(points, price):
+    """What `points` of a week of a plan of `price` a month cost: a week is 12/52 of a month."""
+    return points / 100 * price * 12 / 52
 
 
 class PicksPricedInUsage(unittest.TestCase):
@@ -140,14 +148,12 @@ class PicksPricedInUsage(unittest.TestCase):
         self.assertEqual(self.row("anvil")["cost"], 2)
 
     def test_no_measurements_keep_board_dollars_and_say_so(self):
-        answer = self.answer()
-        self.assertEqual(answer["orchestrate"]["cost_unit"], "board_dollars")
-        for row in answer["orchestrate"]["front"]:
-            self.assertEqual((row["cost"], row["cost_rule"]), (row["board_cost"], "board"))
         History(self.home).save()
-        self.assertTrue(all(role["cost_unit"] == "board_dollars"
-                            for name, role in self.answer().items()
-                            if name in ("orchestrate", "execute", "review")))
+        answer = self.answer(prices=PRICES)
+        for role in ("orchestrate", "execute", "review"):
+            self.assertEqual(answer[role]["cost_unit"], "board_dollars")
+            for row in answer[role]["front"]:
+                self.assertEqual((row["cost"], row["cost_rule"]), (row["board_cost"], "board"))
 
     def test_a_low_measured_share_per_dollar_changes_the_pick(self):
         pick = lambda answer: next(row["release"] for row in answer["execute"]["front"]
@@ -156,23 +162,56 @@ class PicksPricedInUsage(unittest.TestCase):
         History(self.home).save()
         self.assertEqual(pick(self.answer()), "anvil-1")
 
-    def test_prices_apply_only_when_every_lineup_provider_has_one(self):
-        self.assertAlmostEqual(self.row("anvil", prices={"acme": 10})["cost"], .2)
-        prices = {"acme": 10, "bolt": 20, "crux": 30}
-        self.assertEqual(self.answer(prices=prices)["execute"]["cost_unit"], "money")
-        self.assertAlmostEqual(self.row("anvil", prices=prices)["cost"], .2 * 10)
-        self.assertAlmostEqual(self.row("crown", prices=prices)["cost"], 100 * .5 / 52 * 10)
-        self.assertAlmostEqual(self.row("echo", prices=prices)["cost"], 20 * 2.5 / 62 * 30)
+    def test_a_measured_row_costs_its_points_of_its_providers_week_in_dollars(self):
+        anvil = self.row("anvil", prices=PRICES)
+        self.assertAlmostEqual(anvil["cost"], dollars(.2, 200))
+        self.assertEqual((anvil["board_cost"], anvil["cost_rule"]), (2, "measured"))
+        self.assertAlmostEqual(self.row("dune", prices=PRICES)["cost"], dollars(2, 100))
+        self.assertAlmostEqual(self.row("bloom", "review", prices=PRICES)["cost"], dollars(6, 200))
 
-    def test_the_models_column_names_each_roles_unit(self):
-        shown = self.command()
-        self.assertRegex(shown, "quality +a task")
-        self.assertRegex(shown, "quality +week %")
-        self.assertRegex(shown, r"\n +executor +Anvil high +90\.0 +0\.20%\n")   # its week share
+    def test_an_unmeasured_row_costs_its_board_price_at_its_runs_dollars_per_board_dollar(self):
+        # on its provider's measured rows of its role, else on all of them, its own price unused
+        crown = self.row("crown", prices=PRICES)
+        self.assertAlmostEqual(crown["cost"], 100 * dollars(.5, 200) / 52)
+        self.assertEqual(crown["cost_rule"], "provider")
+        echo = self.row("echo", prices=PRICES)
+        self.assertAlmostEqual(echo["cost"], 20 * (dollars(.5, 200) + dollars(2, 100)) / 62)
+        self.assertEqual(echo["cost_rule"], "global")
+        self.assertAlmostEqual(self.row("dune", "review", prices=PRICES)["cost"],
+                               10 * dollars(10, 200) / 52)
 
-    def test_a_role_after_an_empty_one_heads_its_own_unit(self):
+    def test_a_role_no_run_measured_is_priced_off_the_other_roles_runs(self):
+        answer = self.answer(prices=PRICES)
+        self.assertEqual({answer[role]["cost_unit"] for role in ("orchestrate", "execute",
+                                                                 "review")}, {"money"})
+        # builds and reviews alike: half a point and ten of $200's week over $52 each
+        acme = dollars(10.5, 200) / 104
+        for model, cost, rule in (("crown", 100 * acme, "provider"),
+                                  ("dune", 10 * dollars(2, 100) / 10, "provider"),
+                                  ("echo", 20 * (104 * acme + dollars(2, 100)) / 114, "global")):
+            row = self.row(model, "orchestrate", prices=PRICES)
+            self.assertAlmostEqual(row["cost"], cost)
+            self.assertEqual(row["cost_rule"], rule)
+        self.assertAlmostEqual(self.row("crown", "orchestrate")["cost"], 100 * 10.5 / 104)
+
+    def test_money_once_one_measured_provider_has_a_price(self):
+        self.assertEqual(self.answer(prices={"crux": 30})["execute"]["cost_unit"], "share")
+        answer = self.answer(prices={"acme": 200})
+        self.assertEqual(answer["execute"]["cost_unit"], "money")
+        # bolt, with no price, at the dollars a point of those that have one
+        self.assertAlmostEqual(self.row("dune", prices={"acme": 200})["cost"], dollars(2, 200))
+        self.assertAlmostEqual(self.row("echo", prices={"acme": 200})["cost"],
+                               20 * dollars(2.5, 200) / 62)
+
+    def test_the_models_column_names_the_unit_every_role_is_in(self):
+        self.assertRegex(self.command(), r"quality +week %\n +orchestrator +Anvil high +90\.0 +"
+                                         r"≈0\.20%\n +executor +Anvil high +90\.0 +0\.20%\n")
+        self.assertRegex(self.command(prices=PRICES), r"quality +\$ a task\n +orchestrator .*\n"
+                                                      r" +executor +Anvil high +90\.0 +\$0\.09\n")
+
+    def test_a_role_after_an_empty_one_stays_under_the_one_unit(self):
         # Echo, compared alone, lacks two of execute's three measures: no builds between
-        # orchestrate's board dollars and review's week shares
+        # orchestrate's week shares and review's
         held = json.loads((self.home.path / ".agentkit/state/boards.json").read_text())
         held["arena.ai"]["rows"] = [row for row in held["arena.ai"]["rows"]
                                     if row["model"] != "Echo"]
@@ -180,7 +219,8 @@ class PicksPricedInUsage(unittest.TestCase):
              if row["model"] == "Echo")["values"].pop("aa.terminalBench40")
         self.home.write(".agentkit/state/boards.json", held)
         shown = self.command(["echo-1"], workers=["echo"], reviewers=["bloom"])
-        self.assertRegex(shown, r"executor .* not on the boards\n +quality +week %\n +reviewer ")
+        self.assertRegex(shown, r"quality +week %\n +orchestrator .*\n +executor .* not on the "
+                                r"boards\n +reviewer ")
 
 
 if __name__ == "__main__":

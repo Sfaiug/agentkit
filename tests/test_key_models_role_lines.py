@@ -1,7 +1,7 @@
 """`r recommended` on `c` says what each role uses: the row its seat, or [defaults], runs at its
 effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
-runs measured, under `quality` and the role's cost unit.  ↑↓ move `▸`, ⏎ opens that row's why; on
+runs measured, under `quality` and the cost unit.  ↑↓ move `▸`, ⏎ opens that row's why; on
 40 cells each line still shows its quality and cost; `ak models` prints a seat's without `▸`.
 
 Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
@@ -29,17 +29,17 @@ ROWS = [("fast", "low", .70, 2), ("fast", "high", .80, 6), ("top", "low", .75, 3
 DEFAULTS = {"plain": None, "bare": "medium"}
 MODELS = {"fast": {"effort": "low"}, "top": {"effort": "low", "exec_effort": "high"},
           "plain": {"effort": "high"}, "bare": {"effort": "none"}}
-# New seats: Bare orchestrates, Top ranks over Plain to build, Plain reviews; only Top's is measured
-NEW_SEATS = {"orchestrate": ("orchestrator", "Acme Bare 1 medium", "70.0", "≈$1.00"),
+# New seats: Bare orchestrates, Top ranks over Plain to build, Plain reviews; only Top's is
+# measured, its 0.2 points over $8, so every other row is 0.025 points a board dollar
+NEW_SEATS = {"orchestrate": ("orchestrator", "Acme Bare 1 medium", "70.0", "≈0.03%"),
              "execute": ("executor", "Acme Top 1 high", "100.0", "0.20%"),
-             "review": ("reviewer", "Acme Plain 1", "95.0", "≈$10.00")}
+             "review": ("reviewer", "Acme Plain 1", "95.0", "≈0.25%")}
 # A seat running Fast at high, and Top at low to build and at high to review
 SEAT = {"orchestrator": "fast", "workers": ["top"], "reviewers": ["top"], "efforts": {
     "fast": {"effort": "high"}, "top": {"effort": "low", "review_effort": "high"}}}
-AT_SEAT = {"orchestrate": ("orchestrator", "Acme Fast 1 high", "90.0", "≈$6.00"),
+AT_SEAT = {"orchestrate": ("orchestrator", "Acme Fast 1 high", "90.0", "≈0.15%"),
            "execute": ("executor", "Acme Top 1 low", "85.0", "≈0.08%"),
-           "review": ("reviewer", "Acme Top 1 high", "100.0", "≈$8.00")}
-UNITS = {"orchestrate": "a task", "execute": "week %", "review": "a task"}
+           "review": ("reviewer", "Acme Top 1 high", "100.0", "≈0.20%")}
 DOES = {"orchestrate": "orchestrates", "execute": "builds", "review": "reviews"}
 
 
@@ -52,14 +52,9 @@ def said(screen):
 
 
 def role_lines(answer, at=None):
-    """Each role's line, `▸` before `at`'s, under the column heads where its unit changes."""
-    out, unit = [], None
-    for role, line in answer.items():
-        if UNITS[role] != unit:
-            unit = UNITS[role]
-            out.append(f"quality {unit}")
-        out.append(" ".join(["▸"] * (role == at) + list(line)))
-    return out
+    """Each role's line, `▸` before `at`'s, under the column heads: every role's in week shares."""
+    return ["quality week %", *(" ".join(["▸"] * (role == at) + list(line))
+                                for role, line in answer.items())]
 
 
 @unittest.skipUnless(REAL_TMUX, "no tmux installed")
