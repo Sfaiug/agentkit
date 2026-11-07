@@ -35,9 +35,9 @@ func Pickup(dir string, record *run.Object) bool {
 }
 
 // carriedOn is whether Go goes on from where the run's record says its rounds stopped, whatever
-// stopped them.
+// stopped them: a run that merges only from its landing's review, which takes the target in again.
 func carriedOn(dir string, record *run.Object) bool {
-	return record.Truthy("no_merge") && cutOff(dir, record) && pairReady(dir, record)
+	return (record.Truthy("no_merge") || landingReview(record)) && cutOff(dir, record) && pairReady(dir, record)
 }
 
 // cutOff is whether the record holds what the loop takes the run up from, at a point it goes on from.
