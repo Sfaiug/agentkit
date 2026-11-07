@@ -39,7 +39,8 @@ var codexEffort = regexp.MustCompile(`^[A-Za-z0-9_.-]*$`)
 // does, with Go's wrapper where tools/codex-seat.py is: the rulebook it is handed, then `codex`,
 // resumed on the thread its record owns, at the model (none for `default`) and effort, with the
 // repository's AGENTS.md kept out (the rulebook holds it), its first prompt last after a `--`.
-// On an account, in that account's Codex home, which it makes, with the usual login's keys unset.
+// In the login's Codex home: on an account, that account's, which it makes, with the usual
+// login's keys unset.
 func codexInteractive(root string, args []string, out, errOut io.Writer) int {
 	account := os.Getenv("AGENTKIT_ACCOUNT") != ""
 	homed := func() bool {
@@ -70,10 +71,12 @@ func codexInteractive(root string, args []string, out, errOut io.Writer) int {
 		return 2
 	}
 	line := []string{"env"}
-	if account { // the printed line runs later, outside this environment: it carries the login
-		line = append(line, "-u", "OPENAI_API_KEY", "-u", "CODEX_API_KEY", "CODEX_HOME="+codexLogin())
+	if account {
+		line = append(line, "-u", "OPENAI_API_KEY", "-u", "CODEX_API_KEY")
 	}
-	line = append(line, "AGENTKIT_RULEBOOK="+rulebook, filepath.Join(root, "bin", "ak"), "adapter", root, "codex", "seat", "--", "codex")
+	// the printed line runs later, outside this environment, perhaps under an account's home a
+	// seat handed down: it carries the login, the one codexAuth reads, on the usual login too
+	line = append(line, "CODEX_HOME="+codexLogin(), "AGENTKIT_RULEBOOK="+rulebook, filepath.Join(root, "bin", "ak"), "adapter", root, "codex", "seat", "--", "codex")
 	if len(args) > 2 && args[2] != "" {
 		line = append(line, "resume", args[2])
 	}
