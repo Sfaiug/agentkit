@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -123,9 +124,11 @@ func LinePlaces() func(record *Object, name string) (string, bool) {
 // install, whose next run then goes first in line as its fix (Python's update.first_place, read
 // from the install's git, which Go leaves to Python); a hand-back Go cannot read may have told one.
 func FirstPlaceTold() bool {
-	told, _ := filepath.Glob(filepath.Join(config.Home(), "state", "live-checks", "*-*", "handed"))
-	return slices.ContainsFunc(told, func(path string) bool {
-		record, err := ReadJSON(path)
-		return record != nil && record.Has("seat") || errors.Is(err, ErrLoneSurrogate)
+	// listed, not globbed: a HOME may hold a pattern's characters
+	checks := filepath.Join(config.Home(), "state", "live-checks")
+	entries, _ := os.ReadDir(checks)
+	return slices.ContainsFunc(entries, func(check os.DirEntry) bool {
+		record, err := ReadJSON(filepath.Join(checks, check.Name(), "handed"))
+		return strings.Contains(check.Name(), "-") && (record != nil && record.Has("seat") || errors.Is(err, ErrLoneSurrogate))
 	})
 }
