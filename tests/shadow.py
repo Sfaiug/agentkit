@@ -7,16 +7,12 @@ write, and name every way Go differs.
 relative name read from the checkout, else go/bin/ak built as tests/test_go_keys.py builds it.
 `--go python` puts Python in Go's place: the noise floor, where nothing may differ.
 
-Each run has a bubblewrap box of its own, and nothing ever runs outside one.  Its HOME is an
-overlay over the home, and everything it writes lands in a fresh folder under /var/tmp.  What
-the two Python runs disagree on belongs to the moment and is never compared.  A difference is
-confirmed only if repeating the three runs straight away shows it again; one that does not is a
-flake.  Each is printed with its kind, and the script exits 1 if any is confirmed, 2 if no box
-can be built or Go cannot be built (then nothing runs), else 0.
+What the two Python runs disagree on belongs to the moment and is never compared.  A difference
+is confirmed only if repeating the three runs straight away shows it again, else it is a flake.
+Exit 1 if any is confirmed, 2 if no box or no Go can be built (then nothing runs), else 0.
 """
 
 import argparse
-from collections import namedtuple
 import hashlib
 import json
 import os
@@ -35,17 +31,12 @@ from test_go import ENV
 
 REPO = Path(__file__).resolve().parents[1]
 CAP = 600   # seconds a run may take, what it detached included
-# akbin's refusing fakes; tmux, which drives the seats; and the copiers that would carry a file
-# to another machine
+# akbin's refusing fakes, tmux, and the copiers that would carry a file to another machine
 FAKES = (*akbin.REFUSED, "tmux", "scp", "rsync")
-# The caller's own seat, run and tmux: a run that inherits them acts as somebody's.
-CALLERS = ("AK_", "AGENTKIT_", "TMUX")
-KINDS = ("line", "home", "page", "call")    # what a run did, compared fact by fact
 # A run in its box: the program, then all it detached, which bwrap's init would kill as the
-# program ends, waited out till only that init and this shell are left.  Then the shell becomes a
-# Python that writes down its children's peak memory, which exec keeps, and exits as the program
-# did.  A shell starts the program because a child's peak starts from its parent's, which for
-# this script would be some 20 MB.
+# program ends, waited out till only that init and this shell are left.  The shell then becomes a
+# Python that writes down its children's peak memory, which exec keeps: a child's peak starts
+# from its parent's, some 20 MB for this script.
 WAIT = """python=$1 peak=$2; shift 2
 "$@"; code=$?
 while set -- /proc/[0-9]*; [ $# -gt 2 ]; do sleep 0.1; done
@@ -54,13 +45,10 @@ print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)
 sys.exit(int(sys.argv[1]))' "$code" >"$peak"
 """
 
-Run = namedtuple("Run", ("code", "handover", *KINDS))
-
 
 def box(home, scratch):
-    """bwrap's words sealing a command over `home`, its environment, and its folder in `scratch`:
-    the overlay's upper and work folders, and `box`, the one folder it may write besides its
-    HOME, /tmp and /dev, holding the fakes' logs and its notifications."""
+    """bwrap's words sealing a command over `home`, its environment, and its folder in `scratch`,
+    whose `box` is all it may write besides HOME, /tmp and /dev: the fakes' logs, its pages."""
     folder = Path(tempfile.mkdtemp(dir=scratch))
     inside = folder / "box"
     for part in ("upper", "work", "box/bin", "box/logs", "box/runtime"):
@@ -70,7 +58,9 @@ def box(home, scratch):
         fake.write_text(akbin.REFUSE.format(python=shlex.quote(sys.executable), name=name,
                                             log=shlex.quote(str(inside / "logs" / f"{name}.log"))))
         fake.chmod(0o755)
-    env = {key: value for key, value in os.environ.items() if not key.startswith(CALLERS)}
+    # Not the caller's own seat, run or tmux: a run that inherits them acts as somebody's.
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("AK_", "AGENTKIT_", "TMUX"))}
     env.update(HOME=str(home),
                PATH=os.pathsep.join([str(inside / "bin"), env.get("PATH", os.defpath)]),
                # The box's own: a caller's TMPDIR is read-only here, which Python's tempfile
@@ -87,35 +77,6 @@ def box(home, scratch):
             "--bind", inside, inside,
             "--overlay-src", home, "--overlay", folder / "upper", folder / "work", home,
             "--"], env, folder
-
-
-def boxable(home, scratch):
-    """Whether a box over `home` can be built here, saying why not."""
-    command, env, _ = box(home, scratch)
-    try:
-        done = subprocess.run([*command, sys.executable, "-c", ""], env=env,
-                              stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
-        why = done.returncode and (done.stderr.strip() or f"bwrap exited {done.returncode}")
-    except (OSError, subprocess.TimeoutExpired) as error:
-        why = str(error)
-    if why:
-        print(f"shadow: no box can be built here, so nothing ran: {why}", file=sys.stderr)
-    return not why
-
-
-def built():
-    """go/bin/ak, built from this checkout, where Go finds its checkout; None if it fails."""
-    program = REPO / "go" / "bin" / "ak"
-    try:
-        done = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"], env=ENV,
-                              cwd=REPO / "go", capture_output=True, text=True)
-        why = done.returncode and done.stderr.strip()
-    except OSError as error:
-        why = str(error)
-    if why:
-        print(f"shadow: Go cannot be built, so nothing ran: {why}", file=sys.stderr)
-        return None
-    return str(program)
 
 
 def run(label, program, argv, home, scratch):
@@ -137,13 +98,13 @@ def run(label, program, argv, home, scratch):
     seconds, peak = time.monotonic() - began, _lines(inside / "peak")
     peak = f"{int(peak[0]) / 1024:.0f} MB at its peak" if peak else "its peak unread"
     print(f"{label}: exit {code}, {seconds:.1f} s, {peak}", flush=True)
-    handover = inside / "handover"
-    return Run(code, handover.read_text(errors="replace") if handover.exists() else None,
-               line={f"{stream}: {text}" for stream in ("stdout", "stderr")
-                     for text in _lines(folder / stream)},
-               home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
-               call={f"{name} {shlex.join(json.loads(text))}" for name in FAKES
-                     for text in _lines(inside / "logs" / f"{name}.log")})
+    record = inside / "handover"
+    return dict(code=code, handover=record.read_text(errors="replace") if record.exists() else None,
+                line={f"{stream}: {text}" for stream in ("stdout", "stderr")
+                      for text in _lines(folder / stream)},
+                home=touched(folder / "upper", home), page=set(_lines(inside / "pages")),
+                call={f"{name} {shlex.join(json.loads(text))}" for name in FAKES
+                      for text in _lines(inside / "logs" / f"{name}.log")})
 
 
 def _lines(path):
@@ -151,9 +112,8 @@ def _lines(path):
 
 
 def touched(upper, home):
-    """Each path under `home` a run wrote, changed or removed, read off its overlay's upper
-    layer.  That layer holds every path the run wrote, and marks a removed one with a whiteout.
-    A folder the run removed and made again is marked opaque, and hides all the home held in it."""
+    """Each path under `home` a run wrote, changed or removed, read off its overlay's upper layer:
+    a written path is in it, a removed one is a whiteout, and a folder made again is opaque."""
     facts = set()
 
     def look(path, hidden):
@@ -167,7 +127,7 @@ def touched(upper, home):
         folder = now is not None and stat.S_ISDIR(now[0])
         # The home's entries show only through a folder of the upper layer that is not opaque.
         # Where they do not show, each one is gone unless the run wrote it again.
-        shows = folder and not hidden and not _opaque(above)
+        shows = folder and not hidden and "user.overlay.opaque" not in os.listxattr(above)
         names = set(os.listdir(above)) if folder else set()
         if not shows and was is not None and stat.S_ISDIR(was[0]):
             names |= set(os.listdir(below))
@@ -181,8 +141,7 @@ def touched(upper, home):
 
 def _state(path):
     """What a run can change of a path, None where there is none: its kind and mode, and a link's
-    target or a file's time and bytes.  Never a folder's time, which each entry written in it
-    moves."""
+    target or a file's time and bytes.  Never a folder's time: each entry written in it moves it."""
     try:
         found = path.lstat()
     except (FileNotFoundError, NotADirectoryError):
@@ -197,47 +156,27 @@ def _state(path):
     return found.st_mode,
 
 
-def _opaque(folder):
-    try:
-        return os.getxattr(folder, "user.overlay.opaque", follow_symlinks=False) == b"y"
-    except OSError:
-        return False
-
-
 def differences(first, go, again):
     """Each way `go` differs from the Python runs either side of it, as (kind, what)."""
     found = set()
-    if go.code != first.code == again.code:
-        found.add(("exit", f"go {go.code}, python {first.code}"))
-    if go.handover is not None:
-        found.add(("hand-over", " ".join(go.handover.split()) or "an empty record"))
-    for kind in KINDS:
-        before, ours, after = (getattr(each, kind) for each in (first, go, again))
+    if go["code"] != first["code"] == again["code"]:
+        found.add(("exit", f"go {go['code']}, python {first['code']}"))
+    if go["handover"] is not None:
+        found.add(("hand-over", " ".join(go["handover"].split()) or "an empty record"))
+    for kind in ("line", "home", "page", "call"):     # what a run did, compared fact by fact
+        before, ours, after = (each[kind] for each in (first, go, again))
         found |= {(kind, f"only python: {fact}") for fact in (before & after) - ours}
         found |= {(kind, f"only go: {fact}") for fact in ours - before - after}
     return found
 
 
-def remove(folder):
-    """Remove the scratch folder.  Overlayfs leaves the `work` in a work folder unreadable, and an
-    upper layer copies the modes of the home's folders, so each folder is opened up first."""
-    for parent, names, _ in os.walk(folder):
-        for name in names:
-            path = os.path.join(parent, name)
-            if not os.path.islink(path):
-                os.chmod(path, 0o700)
-    shutil.rmtree(folder)
-
-
 def main():
-    parser = argparse.ArgumentParser(usage=__doc__.split("\n\n")[1].strip())
+    parser = argparse.ArgumentParser()
     parser.add_argument("--python", default=str(REPO / "bin" / "ak"))
-    parser.add_argument("--go")
+    parser.add_argument("--go", default=os.environ.get("AK_BIN") and akbin.AK)
     parser.add_argument("--home", default=os.environ.get("HOME"))
-    own = sys.argv[1:]
-    if "--" not in own:
-        parser.error("the ak command comes after --")
-    args, argv = parser.parse_args(own[:own.index("--")]), own[own.index("--") + 1:]
+    parser.add_argument("argv", nargs="*", metavar="-- <ak argv>")
+    args = parser.parse_args()
     python, home = os.path.abspath(args.python), Path(args.home).resolve()
     # A shadow gives the host's real work way: the build and every run at nice 19.
     os.nice(19)
@@ -245,16 +184,22 @@ def main():
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     scratch = Path(tempfile.mkdtemp(prefix="shadow-", dir="/var/tmp"))
     try:
-        if not boxable(home, scratch):
+        command, env, _ = box(home, scratch)
+        # Where bwrap is, it says why it cannot build the box.
+        if not shutil.which("bwrap") or subprocess.run(
+                [*command, sys.executable, "-c", ""], env=env, stdin=subprocess.DEVNULL).returncode:
+            print("shadow: bwrap cannot build a box here, so nothing ran", file=sys.stderr)
             return 2
-        go = (python if args.go == "python" else os.path.abspath(args.go) if args.go else
-              akbin.AK if os.environ.get("AK_BIN") else built())
-        if go is None:
-            return 2
+        go = python if args.go == "python" else args.go and os.path.abspath(args.go)
+        if not go:
+            go = str(REPO / "go" / "bin" / "ak")    # in the checkout, where Go finds it
+            if subprocess.run(["go", "build", "-o", go, "-trimpath", "./cmd/ak"], env=ENV,
+                              cwd=REPO / "go").returncode:
+                return 2    # Go has said why, and nothing ran
 
         def three():
-            return differences(*(run(label, program, argv, home, scratch) for label, program in
-                                 (("python", python), ("go", go), ("python again", python))))
+            return differences(*(run(label, program, args.argv, home, scratch) for label, program
+                                 in (("python", python), ("go", go), ("python again", python))))
 
         first, again = three(), set()
         if first:
@@ -266,7 +211,10 @@ def main():
             print(f"{kind}: {what}")
         return 1 if first & again else 0
     finally:
-        remove(scratch)
+        # Overlayfs leaves the `work` in a work folder unreadable, and an upper layer keeps the
+        # modes of the home's folders it copied.  The system's chmod: the caller's PATH may lack it.
+        subprocess.run(["chmod", "-R", "u+rwx", scratch], env={"PATH": os.defpath})
+        shutil.rmtree(scratch)
 
 
 if __name__ == "__main__":

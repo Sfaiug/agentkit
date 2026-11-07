@@ -1,9 +1,6 @@
 """tests/shadow.py on an akbin Home: Python in Go's place finds nothing, and each of five fake
 Gos, Python's ak with one thing more, is named by the kind of that one thing; the Home keeps
-every byte and modification time; and where no box can be built, nothing runs.
-
-    python3 tests/test_shadow.py
-"""
+every byte and modification time; and where no box can be built, nothing runs."""
 
 from pathlib import Path
 import shlex
@@ -20,8 +17,8 @@ COMMAND = ("usage",)    # one that writes under HOME: ak's folders and its probe
 # A /var/tmp of the test's own, on a tmpfs: where the host's is itself an overlay, as a
 # container's is, no overlay can keep its upper layer there.
 OUTER = ("bwrap", "--dev-bind", "/", "/", "--tmpfs", "/var/tmp")
-KINDS = ("exit", "hand-over", "line", "home", "page", "call")
-# What each fake Go does after running Python's ak, before exiting as Python did, by its kind.
+# Each fake Go: Python's ak, then one thing more, exiting as Python did.
+GO = shlex.quote(str(REPO / "bin" / "ak")) + ' "$@"\ncode=$?\n{}\nexit $code'
 MORE = {
     "line": 'echo "a line only go prints"',
     "hand-over": 'echo "seat revival" >"$AK_HANDOVER"',
@@ -31,8 +28,7 @@ MORE = {
 }
 
 
-def kept(home):
-    """Every byte and modification time in the Home."""
+def every_byte_and_time(home):
     return {str(path): (path.read_bytes() if path.is_file() else None, path.lstat().st_mtime_ns)
             for path in (home, *sorted(home.rglob("*")))}
 
@@ -52,24 +48,21 @@ class Shadowed(unittest.TestCase):
         return str(path)
 
     def shadow(self, *args, box=OUTER, env=None):
-        """The script's exit, its output, and the kinds of difference it confirmed."""
         done = self.home.run(*(self.home.box(box) if box else ()), sys.executable, SHADOW, *args,
                              "--home", str(self.home.path), "--", *COMMAND, env=env, timeout=900)
-        return done.code, {kind for kind in KINDS for line in done.out.splitlines()
+        return done.code, {kind for kind in (*MORE, "exit") for line in done.out.splitlines()
                            if line.startswith(f"{kind}: ")}, done.out + done.err
 
     @unittest.skipUnless(boxable(), "no bwrap able to build a box here")
     def test_each_way_go_differs_is_named_and_the_home_is_kept(self):
-        before = kept(self.home.path)
+        before = every_byte_and_time(self.home.path)
         code, named, said = self.shadow("--go", "python")
         self.assertEqual((code, named), (0, set()), said)
-        python = shlex.quote(str(REPO / "bin" / "ak"))
         for kind, more in MORE.items():
             with self.subTest(kind):
-                code, named, said = self.shadow(
-                    "--go", self.fake(kind, f'{python} "$@"\ncode=$?\n{more}\nexit $code'))
+                code, named, said = self.shadow("--go", self.fake(kind, GO.format(more)))
                 self.assertEqual((code, named), (1, {kind}), said)
-        self.assertEqual(kept(self.home.path), before)
+        self.assertEqual(every_byte_and_time(self.home.path), before)
 
     def test_where_no_box_can_be_built_nothing_runs(self):
         ran = self.fakes / "ran"
