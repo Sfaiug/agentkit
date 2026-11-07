@@ -22,8 +22,10 @@ and its plan holds now.
 import base64
 import hashlib
 import json
+import os
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -94,24 +96,79 @@ def owed(name, text):
     """Whether the seat, its plan `text` holding lines and every one done, owes a done check:
     one is on, the owner wrote a message or answered a question card in one of its
     conversations, and no check that found no gap read what they have said and what the plan
-    holds now (`fingerprint`).  A record ak cannot read holds the seat.  Their words are read only
-    for such a plan; nothing here makes a check."""
+    holds now (`fingerprint`).  A record ak cannot read holds the seat.  Their words are read, and
+    the seat's conversation proven its, only for such a plan, and only where what an answer was
+    kept from changed since (`asked`): ak asks for every seat it draws.  Nothing here makes a
+    check."""
     if not any(plan.BOX.match(line) for line in text) or any(plan.is_open(line) for line in text):
         return False
     try:
         if not on(config.load()):
             return False
         with harness.strictly():
-            owner = owner_words(name, notify.conversations_of(name))
-        if not owner:       # none with no conversation
-            return False
-        try:
-            kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
-        except FileNotFoundError:
-            kept = None
-        return fingerprint(owner, text) != kept
+            proof = []      # the files proving the conversation claimed, read on a miss alone
+            claimed = notify.conversations_of(name, proof=proof)
+            try:
+                kept = config.seat_file("checked", name).read_text(encoding="utf-8").strip()
+            except FileNotFoundError:
+                kept = None
+            read, path = asked(name, claimed, proof, text, kept), config.seat_file("owed", name)
+            if (was := answered(path, read)) is not None:
+                return was
+            seats = notify.conversations_of(name)
+            owner = owner_words(name, seats)
     except (OSError, ValueError, config.Error):
         return True
+    answer = bool(owner) and fingerprint(owner, text) != kept      # none with no conversation
+    # kept only for the seats `read` claimed: a record, or a conversation not proven its, that
+    # differs from those read now is no input the key holds, and its answer no kept one
+    if read and seats == claimed:
+        # whole, by a name of this ask's own: of two asks at once, either may stand
+        fresh = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}")
+        try:
+            fresh.write_text(json.dumps({"read": read, "owed": answer}) + "\n", encoding="utf-8")
+            fresh.replace(path)
+        except OSError:
+            pass        # a state ak cannot write here: the next ask reads again
+    return answer
+
+
+def asked(name, seats, proof, text, kept):
+    """What `owed` answers from, short of the owner's words, as a digest: the plan's `text`, what
+    a check `kept`, the seat's conversations `seats` as their harnesses claim them and the file
+    each is read from, by each of its names, with its identity, size and modification time, and
+    so each file a proof of those claims reads (`proof`), the seat's typing receipts, which tell
+    ak's lines in it from the owner's, and the directories of the code that reads them, which an
+    update of ak replaces.  Taken before their words are read, so a file written meanwhile reads
+    changed next time.  None where a conversation's harness keeps it in no file of its own
+    (`Harness.read_by`): that one is read every time."""
+    files = [config.seat_file("input", config.resolve_session(name)), Path(__file__).parent,
+             Path(harness.__file__).parent, *proof]
+    conversations = []
+    for plugin, *seat in seats:
+        names = plugin.read_by(*seat)
+        if names is None:
+            return None
+        conversations.append([plugin.name, seat[-1]])
+        files += names
+    stamps = []
+    for path in files:
+        try:
+            info = os.stat(path)
+            stamps.append([str(path), info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns])
+        except FileNotFoundError:
+            stamps.append([str(path), None])
+    return hashlib.sha256(json.dumps([text, kept, conversations, stamps]).encode()).hexdigest()
+
+
+def answered(path, read):
+    """The answer an ask of `owed` that `read` the same (`asked`) kept there, None for none."""
+    try:
+        was = json.loads(path.read_text(encoding="utf-8")) if read else None
+    except (OSError, ValueError):
+        return None
+    return (was["owed"] if isinstance(was, dict) and was.get("read") == read
+            and isinstance(was.get("owed"), bool) else None)
 
 
 def owner_words(name, seats):

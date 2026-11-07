@@ -1,7 +1,7 @@
 """Each harness reads the owner's own prompts from a seat's record, which the scoreboard and the
 done notice time from; every transcript and seat here lives in a temporary HOME."""
 
-from contextlib import ExitStack, closing, redirect_stdout
+from contextlib import ExitStack, closing, contextmanager, redirect_stdout
 from datetime import datetime, timezone
 import io
 import json
@@ -15,7 +15,7 @@ from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
-from agentkit import config, harness, notify, orch, watch
+from agentkit import config, done_check, harness, notify, orch, watch
 from agentkit.harness import claude, codex, grokbuild, opencode
 
 
@@ -84,6 +84,40 @@ class OwnerWords(unittest.TestCase):
         with (path or self.path).open("a", encoding="utf-8") as fh:
             for item in items:
                 fh.write(json.dumps(item, ensure_ascii=False) + "\n")
+
+    def codex_seat(self):
+        """The seat on Codex's thread, its launch receipt naming the rollout, which is returned."""
+        path = self.root / ".codex" / "rollout.jsonl"
+        path.parent.mkdir()
+        path.write_text(json.dumps({"type": "session_meta", "payload": {
+            "id": "thread", "cwd": str(self.root / "acme"),
+            "cli_version": "0.153.4", "originator": "codex-tui"}}) + "\n")
+        token = "a" * 32
+        config.update_session("lagoon", orchestrator="astra", codex_launch=token,
+                              id_source=codex.SOURCE)
+        codex.path_for(self.record()).write_text(json.dumps({"launch": token,
+            "cwd": str(self.root / "acme"), "expected": "thread", "event": {
+                "hook_event_name": "SessionStart", "source": "startup", "session_id": "thread",
+                "cwd": str(self.root / "acme"), "transcript_path": str(path)}}))
+        return path
+
+    @contextmanager
+    def opening(self, path, refuse=False):
+        """Each open of `path` meanwhile, by a reader's `open` or a Path's, listed; refused where
+        `refuse`."""
+        opened = []
+
+        def watching(real):
+            def opener(name, *args, **kwargs):
+                if Path(name) == path:
+                    opened.append(name)
+                    if refuse:
+                        raise PermissionError(name)
+                return real(name, *args, **kwargs)
+            return opener
+        with patch.object(harness, "open", watching(open), create=True), \
+                patch.object(Path, "open", watching(Path.open)):
+            yield opened
 
     def messages(self):
         record = self.record()
@@ -233,18 +267,7 @@ class OwnerWords(unittest.TestCase):
             {"at": 101, "text": "Use the old schema."}, {"at": 102, "text": "continue"}])
 
     def test_codex_uses_submission_events_once_without_user_role_injections(self):
-        path = self.root / ".codex" / "rollout.jsonl"
-        path.parent.mkdir()
-        path.write_text(json.dumps({"type": "session_meta", "payload": {
-            "id": "thread", "cwd": str(self.root / "acme"),
-            "cli_version": "0.153.4", "originator": "codex-tui"}}) + "\n")
-        token = "a" * 32
-        config.update_session("lagoon", orchestrator="astra", codex_launch=token,
-                              id_source=codex.SOURCE)
-        codex.path_for(self.record()).write_text(json.dumps({"launch": token,
-            "cwd": str(self.root / "acme"), "expected": "thread", "event": {
-                "hook_event_name": "SessionStart", "source": "startup", "session_id": "thread",
-                "cwd": str(self.root / "acme"), "transcript_path": str(path)}}))
+        path = self.codex_seat()
         self.append({"type": "response_item", "timestamp": stamp(20), "payload": {
             "type": "message", "role": "user", "content": [{"type": "input_text", "text": "rules"}]}},
             codex_prompt(30, "Use the API.\nExact words."),
@@ -263,6 +286,38 @@ class OwnerWords(unittest.TestCase):
         self.append(codex_prompt(100, "continue"), codex_prompt(101, "continue"), path=path)
         expected = [{"at": 30, "text": "Use the API.\nExact words."}, {"at": 101, "text": "continue"}]
         self.assertEqual(self.messages(), expected)
+
+    def test_a_done_check_asked_again_opens_no_unchanged_codex_rollout(self):
+        path, text = self.codex_seat(), ["- [x] shipped"]
+        self.assertFalse(done_check.owed("lagoon", text))      # the owner said nothing yet
+        with self.opening(path, refuse=True) as opened:
+            self.assertFalse(done_check.owed("lagoon", text))
+        self.assertEqual(opened, [])
+        self.append(codex_prompt(30, "Use the API."), path=path)
+        self.assertTrue(done_check.owed("lagoon", text))
+
+    def test_a_done_check_keeps_no_answer_read_from_a_seat_other_than_it_claimed(self):
+        path, text = self.codex_seat(), ["- [x] shipped"]
+        self.append(codex_prompt(30, "Add a retry button."), path=path)
+        old, real = self.record(), notify.conversations_of
+
+        def switching(name, **kwargs):
+            if "proof" not in kwargs:
+                # proven after its claim, while a switch to Claude publishes its record
+                config.update_session(name, orchestrator="opus",
+                                      left=notify.left(old, "codex", "thread"))
+            return real(name, **kwargs)
+        with patch.object(notify, "conversations_of", switching):
+            done_check.owed("lagoon", text)
+        # the switch failed: the seat is put back as it was
+        config.update_session("lagoon", orchestrator=old["orchestrator"], left=old.get("left"))
+        self.assertTrue(done_check.owed("lagoon", text))
+
+    def test_a_done_check_parses_a_fresh_claude_transcript_once_for_both_its_readers(self):
+        self.append(prompt(20, "Add a retry button."))
+        with self.opening(self.path) as opened:
+            self.assertTrue(done_check.owed("lagoon", ["- [x] shipped"]))
+        self.assertEqual(len(opened), 1)
 
     def test_grok_durable_chunks_keep_prompts_and_owner_interjections(self):
         config.update_session("lagoon", orchestrator="grok")

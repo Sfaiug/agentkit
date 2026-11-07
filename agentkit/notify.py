@@ -1584,16 +1584,22 @@ def _said(name, kind, text, event_id=None, at=None, said_at=None, question_times
     return previous
 
 
-def conversation_of(name):
+def conversation_of(name, proof=None):
     """That seat's (harness plugin, record, checkout, conversation), or None where it has no
-    record or its harness cannot say which conversation is its."""
+    record or its harness cannot say which conversation is its.  Given a list `proof`, the
+    conversation its harness claims, the proof that it is the seat's not made, and each file
+    that proof reads added to `proof` (`Harness.claim`)."""
     from . import orch
     record = config.session_records().get(name)
     if not record:
         return None
     plugin, cwd = orch.seat_plugin(record), record.get("cwd")
     try:
-        return plugin, record, cwd, plugin.conversation(record, cwd)
+        if proof is None:
+            return plugin, record, cwd, plugin.conversation(record, cwd)
+        conversation, files = plugin.claim(record, cwd)
+        proof.extend(files)
+        return plugin, record, cwd, conversation
     except (OSError, ValueError) as exc:
         harness.unread(exc)
         return None
@@ -1609,13 +1615,13 @@ def left(record, harness, conversation):
             {"harness": harness, "conversation": conversation, **then}]
 
 
-def conversations_of(name):
+def conversations_of(name, proof=None):
     """Each conversation that seat had, oldest first, as `conversation_of` gives its current
-    one, which comes last once its harness names it (one may name none before its first
-    prompt): before it, each one the seat left, as its record keeps them (`left`).  No
+    one with `proof`, which comes last once its harness names it (one may name none before its
+    first prompt): before it, each one the seat left, as its record keeps them (`left`).  No
     conversation where `conversation_of` gives no seat."""
     from . import orch
-    seat = conversation_of(name)
+    seat = conversation_of(name, proof=proof)
     if seat is None:
         return []
     record = seat[1]
