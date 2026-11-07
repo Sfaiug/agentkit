@@ -33,6 +33,22 @@ func Bare() bool {
 	return err == nil
 }
 
+// Owed is whether history.db stands with its tokens waiting for Python's one-time repair, before
+// which Go writes no row, so a fresh reading Go took would never be kept; true where SQLite cannot
+// say.
+func Owed() bool {
+	if run.Historyless() {
+		return false
+	}
+	db, err := connect(Path(), sqlite3.OPEN_READONLY)
+	if err != nil {
+		return true
+	}
+	defer db.Close()
+	_, err = db.recounted()
+	return err != nil
+}
+
 // KeepReadings is Python's history.keep_readings: meter_readings rows added, each its values in
 // the columns' order (provider, account, meter, used, resets_at, window_secs, at, source, plan),
 // one kept already adding nothing, and the rows past five weeks dropped once one went in.  What
