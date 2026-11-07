@@ -7,13 +7,13 @@ import (
 	"agentkit/internal/handback"
 	"agentkit/internal/loop"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 // A maintainer's merge of a pull request ak opened from a fork is routine, as in Python's say: it
 // is recorded on the run that opened it (recordDecision), and typed into no seat where the run's
-// ending is never typed (handback.Untyped).  The run then keeps the merge's notice as its
-// hand-back, offered as any ending is.  Where its seat owes work for it, it is typed as a decision
-// is.
+// ending is never typed (untyped): the run then keeps the merge's notice as its hand-back, offered
+// as any ending is.  Where its seat owes work for it, it is typed as a decision is.
 
 // mergeRecord puts on fields what a merge records on its run, Python's `merged` and merge_record
 // for the run's worktree and delivered commit, naming no pull request: the `health:` and
@@ -32,6 +32,13 @@ func mergeRecord(record, fields *run.Object) error {
 		fields.Set(name, found.Get(name))
 	}
 	return nil
+}
+
+// untyped is whether the merge just recorded on the run, its plan checks run, is typed into no
+// seat: its ending is recorded, or rides the seat's next prompt, as its hand-back then decides.
+func untyped(record *run.Object) bool {
+	recorded, rides := seat.EndingDelivery(record, nil, run.Seat(record))
+	return recorded || rides
 }
 
 // endRoutine ends the following of a routine merge: a line an earlier decision left unsent in

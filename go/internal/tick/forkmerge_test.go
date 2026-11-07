@@ -19,9 +19,10 @@ import (
 // A maintainer's merge of a PR from a fork goes on the run that opened it, with what its delivered
 // commit declares, and is typed into its seat only where the seat owes work for it that no other
 // going run serves, a merge still inside its health window included.  Otherwise the run keeps the
-// merge's notice as its hand-back, recorded where the seat owes nothing and riding its next prompt
-// where another run serves what it owes; one that cannot be written fails the tick, and the next
-// writes it.  A hand-back's line left unsent, or a follow-up with no command, is Python's, with
+// merge's notice as its hand-back, recorded where the seat owes nothing or the run is a task of an
+// ordered job, and riding its next prompt where another run serves what it owes, an earlier run
+// parked or not; one that cannot be written fails the tick, and the next writes it.  A hand-back's
+// line left unsent, a follow-up with no command, or a plan line Go cannot weigh is Python's, with
 // nothing written.
 func TestAForkPRsMergeIsTypedOnlyWhereItsSeatOwesWork(t *testing.T) {
 	address := "https://github.com/acme/widgets/pull/7"
@@ -29,8 +30,10 @@ func TestAForkPRsMergeIsTypedOnlyWhereItsSeatOwesWork(t *testing.T) {
 	notice := merged + " -- " + address + ". Nothing was posted to Discord; this is the maintainer's decision on a PR of ours, for you to act on or not."
 	owed := "- [ ] The work is done · check: `false` · lead · written 2026-10-23 09:00\n"
 	for _, each := range []struct {
-		name, plan string
+		name, plan string // the plan's WORKTREE and SHA are the run's checkout and delivered commit
 		other      string // the plan line another going run of the seat serves
+		parked     bool   // an earlier run of the seat is parked
+		ordered    bool   // the run is a task of an ordered job
 		more       []any  // on the run's record
 		jam        bool   // its delivery marks cannot be written at first
 		left       error
@@ -42,6 +45,9 @@ func TestAForkPRsMergeIsTypedOnlyWhereItsSeatOwesWork(t *testing.T) {
 		{name: "a seat owing work", plan: owed, typed: notice + "\nEnter\n"},
 		{name: "a seat owing work another run does not serve", plan: owed, other: "Other work · written 2026-10-23 09:00", typed: notice + "\nEnter\n"},
 		{name: "a seat owing work another run serves", plan: owed, other: "The work is done · written 2026-10-23 09:00", rides: true},
+		{name: "a seat owing work another run serves, an earlier run parked", plan: owed, other: "The work is done · written 2026-10-23 09:00", parked: true, rides: true},
+		{name: "a task of an ordered job, its seat owing work", plan: owed, ordered: true},
+		{name: "a plan line Go cannot weigh", plan: "- [ ] Finish API · check: `false` · WORKTREE/../widgets#SHA · deferred · written 2026-10-23 09:00\n", left: errLeft},
 		{name: "a hand-back's line left unsent", more: []any{"handback_typed", run.Fields("line", "run 20261107-0900-add-retry-file finished", "seat", 1000)}, left: errLeft},
 		{name: "a follow-up with no command", more: []any{"followups", []any{"retry.go:1 - flaky retry needs a regression test"}}, left: errLeft},
 	} {
@@ -70,7 +76,17 @@ func TestAForkPRsMergeIsTypedOnlyWhereItsSeatOwesWork(t *testing.T) {
 			put(t, filepath.Join(dir, "result.md"), "# NOT MERGED (1 of 3) — Add retry file\n")
 			put(t, filepath.Join(dir, "task.md"), "# Add retry file\n\n## Done when\n\n```bash\ntest -f retry.txt\n```\n")
 			if each.plan != "" {
-				put(t, filepath.Join(ak, "state", "plan-lead.md"), each.plan)
+				put(t, filepath.Join(ak, "state", "plan-lead.md"), strings.NewReplacer("WORKTREE", worktree, "SHA", strings.TrimSpace(string(sha))).Replace(each.plan))
+			}
+			if each.parked {
+				put(t, filepath.Join(ak, "runs", "earlier-failure", "run.json"), run.Line(run.Fields("run_id", "earlier-failure", "state", "interrupted",
+					"title", "Earlier task", "launched_session", "lead", "handed_back", true, "reported", true, "interrupted_at", run.Float(epoch(time.Now())))))
+			}
+			if each.ordered {
+				record.Set("job_id", "batch")
+				put(t, filepath.Join(dir, "run.json"), run.Line(record))
+				put(t, filepath.Join(ak, "jobs", "batch", "job.json"), run.Line(run.Fields("opts", run.Fields("--in-order", true),
+					"finished_at", run.Float(epoch(time.Now())), "tasks", []any{run.Fields("name", "retry.md", "state", "pass")})))
 			}
 			if each.other != "" {
 				put(t, filepath.Join(ak, "runs", "other-work", "run.json"), run.Line(run.Fields("run_id", "other-work", "state", "running",
