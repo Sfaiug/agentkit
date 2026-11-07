@@ -9,6 +9,7 @@ import (
 
 	"agentkit/internal/matrix"
 	"agentkit/internal/run"
+	"agentkit/internal/seat"
 )
 
 func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testing.T) {
@@ -75,33 +76,44 @@ func TestConfigStepsOnlyAdapterEffortsOncePerScreenAndHandsOffRestarts(t *testin
 	}
 }
 
-// A step on a seat whose model the model list turned off is Python's, which refuses it before
-// anything else: Go writes nothing, the seat's harness running as it does.
-func TestAStepOnAModelTurnedOffIsHandedOff(t *testing.T) {
+// A step Go does not carry is Python's: onto a model the model list turned off, which Python's
+// switch plan refuses before anything else, or into a running harness Go types nothing into.  Go
+// writes nothing and owes nothing, the seat's harness running as it does.
+func TestAStepGoDoesNotCarryIsHandedOff(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("the fakes are shell scripts")
 	}
-	home := t.TempDir()
-	for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_TMUX_SOCKET": "effort-off",
-		"AGENTKIT_ADAPTER_DIR": filepath.Join(home, "adapters"), "PATH": filepath.Join(home, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")} {
-		t.Setenv(key, value)
-	}
-	put := func(path, text string) {
-		t.Helper()
-		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(path, []byte(text), 0o700); err != nil {
-			t.Fatal(err)
-		}
-	}
-	put(filepath.Join(home, ".agentkit", "config.toml"), "companies = ['Acme']\nmodels_off = ['acme-mid-5']\n"+
-		"[models.mid]\nharness = 'claude'\nmodel = 'acme-mid-5'\neffort = 'high'\nprovider = 'fuel'\n[providers.fuel]\nmode = 'subscription'\n")
-	put(filepath.Join(home, ".agentkit", "state", "matrix.json"), `{"matrix": {"lineup": [{"release": "acme-mid-5", "maker": "Acme", "effort": "high", `+
-		`"values": {"aa.intelligenceIndex": 50, "arena.agent": 0.6, "aa.frontierCode20": 0.6, "aa.omniscience": 50}, "yours": [{"harness": "claude", "model": "acme-mid-5"}]}]}}`)
-	put(filepath.Join(home, "adapters", "claude.sh"), "#!/bin/sh\nprintf 'signed in\\n'\n")
-	put(filepath.Join(home, "bin", "claude"), "#!/bin/sh\nexit 0\n")
-	put(filepath.Join(home, "bin", "tmux"), `#!/bin/sh
+	for name, config := range map[string]string{
+		"a model turned off":              "companies = ['Acme']\nmodels_off = ['acme-mid-5']\n[models.mid]\nharness = 'claude'\n",
+		"a harness Go types nothing into": "[models.mid]\nharness = 'grokbuild'\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			for key, value := range map[string]string{"HOME": home, "USERPROFILE": home, "AGENTKIT_TMUX_SOCKET": "effort-handoff",
+				"AGENTKIT_SESSION": "acme", "AGENTKIT_ACCOUNT": "", "AGENTKIT_ADAPTER_DIR": filepath.Join(home, "adapters"),
+				"PATH": filepath.Join(home, "bin") + string(os.PathListSeparator) + os.Getenv("PATH")} {
+				t.Setenv(key, value)
+			}
+			put := func(path, text string) {
+				t.Helper()
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte(text), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			put(filepath.Join(home, ".agentkit", "config.toml"), config+
+				"model = 'acme-mid-5'\neffort = 'high'\nprovider = 'fuel'\n[providers.fuel]\nmode = 'subscription'\n")
+			put(filepath.Join(home, ".agentkit", "state", "matrix.json"), `{"matrix": {"lineup": [{"release": "acme-mid-5", "maker": "Acme", "effort": "high", `+
+				`"values": {"aa.intelligenceIndex": 50, "arena.agent": 0.6, "aa.frontierCode20": 0.6, "aa.omniscience": 50}, "yours": [{"harness": "claude", "model": "acme-mid-5"}]}]}}`)
+			for _, harness := range []string{"claude", "grokbuild"} {
+				put(filepath.Join(home, "adapters", harness+".sh"), "#!/bin/sh\nprintf 'signed in\\n'\n")
+			}
+			for _, program := range []string{"claude", "grok"} {
+				put(filepath.Join(home, "bin", program), "#!/bin/sh\nexit 0\n")
+			}
+			put(filepath.Join(home, "bin", "tmux"), `#!/bin/sh
 case "$*" in
   *list-sessions*) printf 'acme\t1\n' ;;
   *list-panes*) printf 'acme\t0\n' ;;
@@ -110,18 +122,26 @@ case "$*" in
   *'#{pane_dead}'*) echo 0 ;;
 esac
 `)
-	record := filepath.Join(home, ".agentkit", "state", "session-acme.json")
-	put(record, `{"orchestrator": "mid", "workers": ["mid"], "efforts": {"mid": {"effort": "high"}}}`)
-	c, err := matrix.Configured()
-	if err != nil {
-		t.Fatal(err)
-	}
-	c.Levels["mid"] = []string{"high", "max"}
-	before, _ := os.ReadFile(record)
-	if note, known := stepConfigEffort(c, "acme", 0, 3, -1); known || note != "" {
-		t.Fatalf("a step on a model turned off was not handed off: %q, %v", note, known)
-	}
-	if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
-		t.Fatalf("a step handed off rewrote the record: %s", after)
+			record := filepath.Join(home, ".agentkit", "state", "session-acme.json")
+			put(record, `{"orchestrator": "mid", "workers": ["mid"], "efforts": {"mid": {"effort": "high"}}}`)
+			c, err := matrix.Configured()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.Selected, err = seat.ConfigSelection("acme"); err != nil || c.Selected == nil {
+				t.Fatal("the seat's selection cannot be read", err)
+			}
+			c.Levels["mid"] = []string{"high", "max"}
+			before, _ := os.ReadFile(record)
+			if note, known := stepConfigEffort(c, "acme", 0, 3, -1); known || note != "" {
+				t.Fatalf("the step was not handed off: %q, %v", note, known)
+			}
+			if after, _ := os.ReadFile(record); !bytes.Equal(after, before) {
+				t.Fatalf("a step handed off rewrote the record: %s", after)
+			}
+			if _, err := os.Stat(filepath.Join(home, ".agentkit", "state", "seat-acme.json")); !os.IsNotExist(err) {
+				t.Fatal("a step handed off owes the seat a line", err)
+			}
+		})
 	}
 }
