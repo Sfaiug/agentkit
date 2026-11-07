@@ -1,6 +1,7 @@
 package harness
 
 import (
+	"encoding/json"
 	"os"
 
 	"agentkit/internal/config"
@@ -35,6 +36,21 @@ func Owned(name string, record map[string]any) (string, bool) {
 		return "", false
 	}
 	return conversation, true
+}
+
+// WentInto is the conversation a typing receipt's line went into (Python's Harness.went_into): the
+// one it names, else the one its launch's own evidence names, as Owned reads a record, "" while
+// that names none.  A receipt keeps that evidence where the harness had not named the conversation
+// yet, as on a fresh Muse launch.
+func WentInto(name string, sent *run.Object) string {
+	launch := sent.Dict("launch")
+	if conversation := sent.Str("conversation"); conversation != "" || launch == nil {
+		return conversation
+	}
+	var evidence map[string]any // as config.ResolveSession reads a record
+	json.Unmarshal([]byte(run.Line(launch)), &evidence)
+	conversation, _ := Owned(name, evidence)
+	return conversation
 }
 
 // Opened is whether that harness has written the conversation a seat's record names down yet, as
