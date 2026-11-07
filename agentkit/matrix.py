@@ -510,16 +510,18 @@ def row_of(rows, entry, effort):
                 held[0] if effort == "none" and len(held) == 1 else None)
 
 
-def rank(cfg, role, names):
-    """Each of the configured models `names` sorted on this for `role`, off the lineup as last
-    stored and `answer` rated it: the row it runs at the effort the config runs it at there
-    (`row_of`). The role's pick among these rows first, then the
-    rest by quality; None for a model no row is, or a lineup nobody stored.  A pick reads this and never the boards."""
-    try:
-        rated = _answered(cache_path().read_text(), json.dumps(_pricing(cfg)),
-                          json.dumps(_task_usage(cfg)))[role]["rated"]
-    except (OSError, ValueError):
-        rated = []
+def rank(cfg, role, names, rated=None):
+    """Each of the configured models `names` sorted on this for `role`, off `rated`, the role's
+    rows as an `answer` in hand rated them, else the lineup as last stored and `answer` rated it:
+    the row it runs at the effort the config runs it at there (`row_of`). The role's pick among
+    these rows first, then the rest by quality; None for a model no row is, or a lineup nobody
+    stored.  A pick reads this and never the boards."""
+    if rated is None:
+        try:    # pricing a task (_task_usage) reads every login's week: seconds on a busy host
+            rated = _answered(cache_path().read_text(), json.dumps(_pricing(cfg)),
+                              json.dumps(_task_usage(cfg)))[role]["rated"]
+        except (OSError, ValueError):
+            rated = []
     found = {name: row_of(rated, cfg["models"][name],
                           config.role_effort(cfg["models"][name], CONFIG_ROLES[role]))
              for name in names}
@@ -538,7 +540,7 @@ def uses(cfg, record, found):
     for role, names in (("orchestrate", [record["orchestrator"]]), ("execute", workers),
                         ("review", record.get("reviewers", workers))):
         known = [one for one in names if one in cfg["models"]]
-        places = rank(cfg, role, known)
+        places = rank(cfg, role, known, found[role]["rated"])
         name = min(known, key=lambda one: (places[one] is None, places[one] or ()),
                    default=next(iter(names), None))
         entry = cfg["models"].get(name)
