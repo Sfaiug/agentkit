@@ -566,7 +566,8 @@ def main(argv):
             sys.stdout, indent=2)
         print()
         return 0
-    body, _ = menu.models_body(menu.models_said(cfg, found, uses(cfg, cfg["defaults"], found)))
+    seat = config.active_session(cfg) or cfg["defaults"]     # the seat it runs in, else new seats
+    body, _ = menu.models_body(menu.models_said(cfg, found, uses(cfg, seat, found)))
     print("\n".join([*body, "", *menu.models_read(marked, len(ours(cfg)),
                                                    stored().get("fetched_at")),
                       *(["", *live_lines(own)] if own else [])]))

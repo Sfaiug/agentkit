@@ -2,7 +2,7 @@
 effort -- the orchestrator's model, else the first mark as the pick ranks them; a board row
 naming no effort, or a harness taking none, that row -- its quality and cost, `≈` before one no
 runs measured, under `quality` and the role's cost unit.  ↑↓ move `▸`, ⏎ opens that row's why; on
-40 cells each line still shows its quality and cost; `ak models` prints the lines without `▸`.
+40 cells each line still shows its quality and cost; `ak models` prints a seat's without `▸`.
 
 Black-box: `AK_BIN` in a terminal and as `ak models`, a fake harness, the boards as
 tests/test_key_role_choices.py writes them and one measured build (test_key_role_cost_from_runs's
@@ -145,6 +145,8 @@ class ModelsRoleLines(unittest.TestCase):
         self.assertEqual(done.code, 0, done.err)
         self.assertEqual(said(done.out), [line.replace("▸ ", "") for line in screen])
         self.assertEqual(said(done.out), role_lines(NEW_SEATS))
+        done = self.home.ak("models", env={**ENV, "COLUMNS": "100", "AGENTKIT_SESSION": "acme-fix"})
+        self.assertEqual((done.code, said(done.out)), (0, role_lines(AT_SEAT)), done.err)
 
 
 if __name__ == "__main__":
