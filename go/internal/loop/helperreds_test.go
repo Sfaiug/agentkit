@@ -13,7 +13,8 @@ import (
 
 // Of five pieces red on the helper, the first passes alone, the second is killed for memory alone,
 // the third fails again alone and settles the suite, the fourth keeps what it printed there, and
-// the fifth named no test: the first two then run whole, and passing, their tests failed, then passed.
+// the fifth named no test: the first two then run whole, and passing, their tests failed, then passed;
+// the fifth keeps what it printed there for the suite to run it whole.
 func TestOneHelperRedConfirmedSettlesTheSuiteAndTheRestKeepWhatTheyPrintedThere(t *testing.T) {
 	dir := t.TempDir()
 	l := &loop{dir: dir, voice: io.Discard}
@@ -50,11 +51,11 @@ func TestOneHelperRedConfirmedSettlesTheSuiteAndTheRestKeepWhatTheyPrintedThere(
 	if want := []string{"1/5 alone", "2/5 alone", "3/5 alone", "1/5 whole", "2/5 whole"}; !reflect.DeepEqual(runs, want) {
 		t.Fatalf("runs %v, want %v", runs, want)
 	}
-	if all[3].there == nil || all[3].ended.code != 1 || string(all[3].failed) != "FAIL there\n" {
+	if all[3].there != nil || all[3].ended.code != 1 || string(all[3].failed) != "FAIL there\n" {
 		t.Fatalf("a settled piece lost what it printed there: %+v", all[3])
 	}
-	if all[4].failed != nil || all[4].there == nil {
-		t.Fatalf("a piece that named no tests is the suite's to run whole: %+v", all[4])
+	if all[4].how != "failed on the suite helper acme-mac" || string(all[4].failed) != "FAIL there\n" || all[4].there == nil {
+		t.Fatalf("a piece that named no tests is the suite's to run whole, a pass a flake of the helper: %+v", all[4])
 	}
 	if all[0].how != "failed on the suite helper acme-mac" || string(all[0].failed) != "FAIL there\n" || all[0].ended.code != 0 {
 		t.Fatalf("a piece passing whole here is a flake of the helper: %+v", all[0])
