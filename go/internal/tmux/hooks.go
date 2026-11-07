@@ -3,6 +3,7 @@ package tmux
 import (
 	"os"
 	"strings"
+	"testing"
 
 	"agentkit/internal/commandhelp"
 	"agentkit/internal/config"
@@ -20,10 +21,12 @@ const wayBack = "The harness ended. To open it again: Ctrl-b m, then this seat's
 // holds the hook per window, not per seat.  ak is named by its path: the server's PATH may hold
 // none.  run-shell draws a job's output, and its failure, over the pane, so the tick's log takes
 // all of it and the job always succeeds.  A pane left dead says how to open it again; a tmux before
-// 3.3 has no option for that, and setting these with -q keeps it quiet.
+// 3.3 has no option for that, and setting these with -q keeps it quiet.  A test's own binary is
+// no ak: named in a hook, it would run its whole test again at each pane's end, whose panes end in
+// turn, so a test's server gets none.
 func Hooks() ([][2]string, error) {
 	program, err := os.Executable()
-	if err != nil {
+	if err != nil || testing.Testing() {
 		return nil, err
 	}
 	ak := unformatted(commandhelp.ShellJoin([]string{program, "orch"}))
