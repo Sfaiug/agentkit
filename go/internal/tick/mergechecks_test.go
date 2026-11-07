@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ncruces/go-sqlite3"
+
 	"agentkit/internal/history"
 	"agentkit/internal/run"
 )
@@ -47,38 +49,67 @@ func TestMergeChecksKeepTheCommitOnce(t *testing.T) {
 }
 
 // A deployment, on the run or declared at its merge's commit, and a pass its seat may be owed,
-// known before or probed now, are Python's, left before anything is written: a probe's row is
-// taken back, as Python probes again.
+// known before or probed now, and a history whose tokens wait for Python's repair, are Python's,
+// left before anything is written, an older history's tables and its probe's row included.
 func TestMergeChecksLeaveWhatGoDoesNotRead(t *testing.T) {
 	deployed := base64.StdEncoding.EncodeToString([]byte("---\nhealth: true\ndeployed: true\n---\n"))
 	for name, each := range map[string]struct {
 		fields  string
-		history bool
+		history string // what made history.db older than Go's writes leave it
 	}{
 		"deployment":          {fields: `"merge_sha": "abc", "health": {}, "deployed": "true"`},
 		"declared deployment": {fields: `"repo": "/srv/acme"`},
 		"owed pass":           {fields: `"live_at": 1, "health": {}, "deployed": null, "launched_session": "acme"`},
-		"owed probe pass":     {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`, history: true},
+		"owed probe pass":     {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "launched_session": "acme"`, history: "ALTER TABLE runs DROP COLUMN no_review"},
+		"repair owed":         {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null`, history: "PRAGMA user_version=1"},
 		"typed probe pass":    {fields: `"merge_sha": "abc", "repo": "/", "health": {"command": "true"}, "deployed": null, "live_typed": {"line": "run fix-api is live."}`},
 	} {
 		t.Run(name, func(t *testing.T) {
 			ak, _ := idleHome(t, `case "$*" in *mergeCommit*) echo '{"mergeCommit": {"oid": "abc"}}';;
 				*contents/AGENTS.md?ref=abc*) echo '{"encoding": "base64", "content": "`+deployed+`"}';; esac`)
 			put(t, filepath.Join(ak, "state", "plan-acme.md"), "- [ ] The work is done · check: `false` · acme · written 2026-10-23 09:00\n")
-			if each.history {
-				history.Start(run.Fields("run_id", "fix-api"), nil)
+			if each.history != "" {
+				older(t, each.history)
+				put(t, filepath.Join(ak, "runs", "fix-api", "round-1", "executor", "events.jsonl"), "{}\n")
 			}
+			schema := tables(t)
 			path := filepath.Join(ak, "runs", "fix-api", "run.json")
 			before := fmt.Sprintf(`{"merged": true, "finished_at": %d, "pr": "https://github.com/acme/api/pull/1", %s}`, time.Now().Unix(), each.fields)
 			put(t, path, before)
 			if err := checking(t, io.Discard).mergeChecks(); !errors.Is(err, errLeft) || read(t, path) != before {
 				t.Fatalf("%v: %s", err, read(t, path))
 			}
-			if rows := history.Look().Select("SELECT command FROM checks"); len(rows) > 0 {
-				t.Fatalf("a probe's row stayed: %v", rows)
+			if tables(t) != schema {
+				t.Fatal("history.db was written")
 			}
 		})
 	}
+}
+
+// older is history.db with run fix-api's row, then changed by statement as an older ak left it.
+func older(t *testing.T, statement string) {
+	t.Helper()
+	history.Start(run.Fields("run_id", "fix-api"), nil)
+	db, err := sqlite3.Open(history.Path())
+	if err == nil {
+		err = db.Exec(statement)
+		db.Close()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// tables is history.db's tables, their rows counted, and its version: "" where none stands.
+func tables(t *testing.T) string {
+	t.Helper()
+	db := history.Look()
+	defer db.Close()
+	said := fmt.Sprint(db.Select("PRAGMA user_version"))
+	for _, table := range db.Select("SELECT name, sql FROM sqlite_master ORDER BY name") {
+		said += fmt.Sprint(table, db.Select("SELECT COUNT(*) FROM "+table.Text("name")))
+	}
+	return said
 }
 
 // What a merge's commit declares is read on GitHub where its checkout lacks the commit, and kept;

@@ -13,7 +13,8 @@ import (
 )
 
 // A Claude seat's conversation not written yet is kept to be read from its start; once a source
-// holds lines, counting them is Python's, and nothing is written, a new seat's source included.
+// holds lines, counting them is Python's, and nothing is written, a new seat's source and an older
+// history's tables included.
 func TestSeatTokensKeepSourcesUntilOneHoldsLines(t *testing.T) {
 	ak, _ := idleHome(t, "")
 	put(t, filepath.Join(ak, "config.toml"), "[audit]\non=false\n[models.opus]\nharness='claude'\nmodel='claude-opus'\neffort='xhigh'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
@@ -38,10 +39,12 @@ func TestSeatTokensKeepSourcesUntilOneHoldsLines(t *testing.T) {
 	}
 	put(t, kept[0].Text("path"), "{}\n")
 	seat("beta")
+	older(t, "ALTER TABLE runs DROP COLUMN no_review")
+	schema := tables(t)
 	if err := seatTokens(); !errors.Is(err, errLeft) {
 		t.Fatal(err)
 	}
-	if after := sources(); len(after) != 1 {
-		t.Fatalf("written %v", after)
+	if tables(t) != schema {
+		t.Fatal("history.db was written")
 	}
 }

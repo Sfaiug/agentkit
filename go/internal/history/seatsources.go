@@ -19,14 +19,26 @@ var seatTables = [][]string{
 		"input INTEGER", "cache_write INTEGER", "cache_read INTEGER", "output INTEGER"},
 }
 
-// errToRead takes back a write that found a source holding lines to count.
-var errToRead = errors.New("a seat's source holds lines to read")
-
 // Sources is Python's seat_tokens.read where no source has anything to read yet: the seats' tables
 // made or brought up to today's columns, and each source kept, to be read from its start.  False,
 // having written nothing, where a source kept or given holds a file, whose lines Python counts, or
-// the write fails, which Python says.
+// the write fails, which Python says.  A file that appears once this has looked is read from its
+// start all the same.
 func Sources(sources []Source) bool {
+	var paths []string
+	for _, source := range sources {
+		paths = append(paths, source.Path)
+	}
+	db := Look()
+	for _, row := range db.Select("SELECT path FROM seat_sources") {
+		paths = append(paths, row.Text("path"))
+	}
+	db.Close()
+	for _, path := range paths {
+		if _, err := os.Stat(path); !errors.Is(err, fs.ErrNotExist) {
+			return false // Python's reader opens whatever stands there
+		}
+	}
 	return commit(func(db *DB) error {
 		for _, table := range seatTables {
 			if err := db.exec("CREATE TABLE IF NOT EXISTS " + table[0] + " (" + strings.Join(table[1:], ", ") + ")"); err != nil {
@@ -52,12 +64,6 @@ func Sources(sources []Source) bool {
 				return err
 			}
 		}
-		kept, err := db.rows("SELECT path FROM seat_sources")
-		for _, row := range kept {
-			if _, missing := os.Stat(row.Text("path")); !errors.Is(missing, fs.ErrNotExist) {
-				return errToRead // Python's reader opens whatever stands there
-			}
-		}
-		return err
+		return nil
 	}) == nil
 }

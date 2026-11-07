@@ -12,12 +12,16 @@ import (
 // mergeRows is where history.db keeps a followed merge, as Python's after_merge_health does: its
 // probe's checks row on the merge commit, under its run's directory.  None on a home without a
 // history, which only a suite's lacks: Go's tick makes none, as Python's first write would, since
-// one made would leave the rest of the tick to Python.
-func mergeRows(each *merge) *history.Checked {
-	if run.Historyless() {
-		return nil
+// one made would leave the rest of the tick to Python.  errLeft where Go cannot write the history
+// as it stands, which Python's first write repairs.
+func mergeRows(each *merge) (*history.Checked, error) {
+	switch {
+	case run.Historyless():
+		return nil, nil
+	case !history.Writable():
+		return nil, errLeft
 	}
-	return &history.Checked{Run: each.name, Kind: "health", Tree: each.sha}
+	return &history.Checked{Run: each.name, Kind: "health", Tree: each.sha}, nil
 }
 
 // keepMerge is the history.update_run of after_merge_health and live_passed where the merge's
