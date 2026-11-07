@@ -211,17 +211,21 @@ func (j *jobRun) carry() (int, error) {
 }
 
 // begin starts the task as Python's job_start_task does, its file read again and judged as it
-// reads now: a run of its own, its receipt naming the job, filed on the job's before its driver
-// starts apart, and followed until it ends.  False, saying why, where Go does not start it.
+// reads now, refusals and round budget too: a run of its own, its receipt naming the job, filed
+// on the job's before its driver starts apart, and followed until it ends.  False, saying why,
+// where Go does not start it.
 func (j *jobRun) begin(task *run.Object, ended chan<- ending) (bool, error) {
 	name := task.Str("name")
 	l, _, why, err := j.task(task.Str("task_file"))
+	if l != nil {
+		why, err = Refusal(l.path, l.meta, l.cmds)
+	}
 	switch {
 	case errors.Is(err, ErrPython):
 		why = "not started"
 	case err != nil:
 		return false, err
-	case l == nil:
+	case why != "":
 	case l.reason != "":
 		why = l.reason
 	case parks(l):
