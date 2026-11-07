@@ -46,10 +46,10 @@ func StartFollowups(dir string, prepare func(string, *run.Object, *run.Object) (
 	fixers := fixers(lists)
 	runs, entries, complete := []any{}, []any{}, true
 	var starts []func() error
-	checks, commits := cmp.Or(state.Dict("followup_checks"), run.NewObject()), cmp.Or(state.Dict("followup_commits"), run.NewObject())
+	commits := cmp.Or(state.Dict("followup_commits"), run.NewObject())
 	for _, value := range state.List("followups") {
 		item := run.Text(value)
-		check := strings.TrimFunc(checks.Str(item), config.Space)
+		check := followupCheck(state, item)
 		if check == "" {
 			complete = false
 			continue

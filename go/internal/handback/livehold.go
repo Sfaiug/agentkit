@@ -57,20 +57,7 @@ func carries(record *run.Object) (bool, error) {
 	if harness.TakesContext(config.SeatHarness(session)) {
 		return true, nil // where it ends no wait, it rides on the seat's next prompt
 	}
-	return endsWait(record)
-}
-
-// endsWait is Python's ends_wait: the seat's `ak wait` names this run or its pull request, no other
-// run of the seat is going, or the seat owes a line none of them serves.
-func endsWait(record *run.Object) (bool, error) {
-	if named, err := seat.WaitNames(run.Seat(record), record); named || err != nil {
-		return named, err
-	}
-	served, err := othersGoing(record)
-	if err != nil || served == nil {
-		return err == nil, err
-	}
-	return plan.Unserved(run.Seat(record), served)
+	return seat.EndsWait(session, nil, record)
 }
 
 // othersGoing is the plan line each other going run of the record's seat serves, "" for none; nil
