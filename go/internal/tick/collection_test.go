@@ -48,10 +48,16 @@ func TestACollectionPythonPlansHandsTheTickOverUnderAUserManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if err := os.Mkdir(filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "systemd"), 0o700); err != nil {
+	runtime, err := os.MkdirTemp("", "ak") // short: a socket's path has a limit
+	if err != nil {
 		t.Fatal(err)
 	}
-	manager, err := net.Listen("unix", filepath.Join(os.Getenv("XDG_RUNTIME_DIR"), "systemd", "private"))
+	t.Cleanup(func() { os.RemoveAll(runtime) })
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	if err := os.Mkdir(filepath.Join(runtime, "systemd"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := net.Listen("unix", filepath.Join(runtime, "systemd", "private"))
 	if err != nil {
 		t.Fatal(err)
 	}
