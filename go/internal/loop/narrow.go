@@ -4,8 +4,10 @@ package loop
 // Whole checks, evidence, publication and delivery remain the line's own steps. Named tests
 // passing alone are search evidence only: below each culprit a whole check must cover the
 // surviving prefix before the rebuilt suffix runs. Each check keeps what it saw of flaky tests
-// (flakes.go). Reds with suite helpers, reviews of PRs other than a seat's own, changed-file suites
-// and target repairs stay with Python, as do integration or rules refusals on a stack.
+// (flakes.go). Named tests that failed probe the stacks between on the suite helpers, many at
+// once (probes.go), and only the step that decides the blame runs here. Probes on a machine ak may
+// rent, reviews of PRs other than a seat's own, changed-file suites and target repairs stay with
+// Python, as do integration or rules refusals on a stack.
 
 import (
 	"context"
@@ -206,8 +208,7 @@ func (s *narrowingStack) check(checks []string, suite, kind string, selection *c
 		}
 	}()
 	ok, line, failing, err := s.l.checkTree(s.checkout.path, checks, name, kind, suite, selection)
-	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) || err == nil && !ok && !selection.pinned() && helper.May() {
-		// a whole check's red with suite helpers is Python's, as stack.go says
+	if errors.Is(err, helper.ErrPython) || errors.Is(err, errTurnPython) {
 		selection.handoff, err = true, nil
 	}
 	if err != nil || selection.handoff {
@@ -339,7 +340,9 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 		}
 		return answer, nil
 	}
-	passed := map[string]int{}
+	// what failed, by the stacks it passed on alone, here or probed on a helper, and those a probe
+	// found it red on
+	passed, probed := map[string][]int{}, map[string][]int{}
 	for accepted < len(stacks) {
 		if !valid(func() bool { return true }) {
 			return -1, accepted, nil
@@ -359,9 +362,17 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 			fix := answer.Dict("fix")
 			command, tests := fix.Str("command"), names(fix.List("tests"))
 			key := command + "\x00" + strings.Join(tests, "\x00")
-			low := accepted - 1
-			if previous, ok := passed[key]; ok && previous < index {
-				low = max(low, previous)
+			low, high := accepted-1, index
+			// a probe's red bounds it sooner, though it blames nobody, until a pass here outweighs it
+			for _, at := range probed[key] {
+				if at > low && at < high && !slices.Contains(passed[key], at) {
+					high = at
+				}
+			}
+			for _, at := range passed[key] {
+				if at < high {
+					low = max(low, at)
+				}
 			}
 			if low+1 == index {
 				if index == 0 && len(prefix) == 0 && command == suite {
@@ -376,7 +387,37 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 				return index, accepted, nil
 			}
 			owner := slices.IndexFunc(stacks, func(stack *narrowingStack) bool { return slices.Contains(stack.checks, command) })
-			middle := (max(low, owner-1) + index) / 2
+			floor := max(low, owner-1)
+			if len(tests) > 0 && floor+1 < high {
+				// The stacks between go to the suite helpers, many at once, a round at a time; a round
+				// that proves nothing leaves the step to this host.
+				if config.MayRent() {
+					return -1, accepted, nil // Python rents a machine for the probes
+				}
+				if !valid(func() bool { return true }) {
+					return -1, accepted, nil
+				}
+				probes, err := round(stacks, floor, high, command, tests)
+				if err != nil {
+					return -1, accepted, err
+				}
+				for at, ok := range probes {
+					if ok {
+						passed[key] = append(passed[key], at)
+					} else {
+						probed[key] = append(probed[key], at)
+					}
+				}
+				if len(probes) > 0 {
+					continue
+				}
+			}
+			// A probe's red right after a pass runs here: it decides the blame, with the flaky
+			// handling a probe has none of, and passing here it moves the narrowing on above it.
+			middle := (floor + high) / 2
+			if low+1 == high {
+				middle = high
+			}
 			runs := command
 			if middle < owner {
 				runs = ""
@@ -399,7 +440,7 @@ func narrowStacks(turn, code, tip string, prefix []member, stacks []*narrowingSt
 				return -1, accepted, err
 			}
 			if answer.Has("land") {
-				passed[key] = middle
+				passed[key] = append(passed[key], middle)
 				answer = run.Fields("fix", fix)
 			} else {
 				index = middle

@@ -262,7 +262,10 @@ func drive(dir string, job func(*loop) error) (code int) {
 		}
 	}()
 	host.Lower()
-	oneThreadAtATime()
+	if err := holdThreads(); err != nil {
+		endNoRoom(dir, err)
+		return End(dir, err.Error())
+	}
 	for _, name := range []string{"AK_HAND_IN", "AK_HAND_IN_CONTINUE", "AK_HAND_IN_FINDINGS"} {
 		os.Unsetenv(name)
 	}

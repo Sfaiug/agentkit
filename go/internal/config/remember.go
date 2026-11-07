@@ -2,8 +2,6 @@ package config
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -29,12 +27,7 @@ var saveOrder = map[string][]string{
 // text is built and before it is written: every seat's record holding the efforts it runs at
 // (config.keep_efforts, the records' own package's).  An error leaves the file as it was.
 func RememberDefaults(orchestrator string, workers, reviewers []string, keep func() error, steps ...EffortStep) error {
-	path := filepath.Join(Home(), "config.toml")
-	data, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	file, err := parseDocument(string(data))
+	file, err := fileTable()
 	if err != nil {
 		return err
 	}
@@ -44,10 +37,11 @@ func RememberDefaults(orchestrator string, workers, reviewers []string, keep fun
 	if reviewers != nil {
 		defaults.put("reviewers", listed(reviewers))
 	}
+	// read outside the save's lock: skipping what the file already holds comes before any later save
 	if len(steps) == 0 && reflect.DeepEqual(meant(file.get("defaults")), meant(defaults)) {
 		return nil
 	}
-	return saveConfig(file, func(root *table) error {
+	return saveConfig(fileTable, func(root *table) error {
 		root.put("defaults", defaults)
 		return recommendedEfforts(root, steps)
 	}, keep)

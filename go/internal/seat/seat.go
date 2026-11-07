@@ -70,6 +70,7 @@ type Home struct {
 	models  map[string]config.Model
 	readers recordReaders
 	runs    readsRuns // what it read its seats' runs by, which a look at one of them reads them by again
+	drawn   bool      // the ak screen draws it (MenuRead), where a seat out of usage is Python's to draw
 }
 
 type recordReaders map[string]harness.Reader
@@ -144,15 +145,15 @@ func reading(now time.Time, looking bool, readRuns readsRuns, readers recordRead
 	}
 	for _, entry := range entries {
 		// Python's cache of runs/, which Go reads itself, the cards on their way, the template every
-		// home is given, the usage the screen's grid shows and what reading it keeps, the tick's
-		// lock, its log's, its page that ticks stopped ending and the hourly stamps of its reads, the
-		// seat weights' lock, the outages of the seats' products, what the collection keeps, what
-		// each machine is and ak's tmux config say nothing a word hangs on: a seat's own wait on its
-		// usage is in its seat file
+		// home is given, the audit's week and stall lines, the usage the screen's grid shows and what
+		// reading it keeps, the tick's lock, its log's, its page that ticks stopped ending and the
+		// hourly stamps of its reads, the seat weights' lock, the outages of the seats' products, what
+		// the collection keeps, what each machine is and ak's tmux config say nothing a word hangs on:
+		// a seat's own wait on its usage is in its seat file
 		if harness.KeptInState(entry.Name()) || menuNewsState(entry.Name()) || entry.Name() == "watch.lock" || entry.Name() == "statusbar.lock" || entry.Name() == "front.lock" || strings.HasPrefix(entry.Name(), "run-records.db") ||
 			slices.Contains([]string{"watch.tick.lock", "watch.log.lock", "watch.tick.page.json", "watch.tick.page.lock", "retire.json", "alive.json", "nightly.json", "runs-moved", "setup", "logins.json", "logins.tmp", ".logins.lock", "tmux.conf"}, entry.Name()) ||
 			strings.HasPrefix(entry.Name(), "gc.") || strings.HasPrefix(entry.Name(), "gc-") ||
-			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || recommendationState(entry.Name()) ||
+			entry.Name() == "notification-outbox" || entry.Name() == "installed-at" || entry.Name() == "task-template.md" || entry.Name() == "audit" || entry.Name() == "audit.json" || entry.Name() == "stuck.json" || usages.Owns(entry.Name()) || machines.Owns(entry.Name()) || recommendationState(entry.Name()) ||
 			entry.Name() == "watch.json" && quiet(filepath.Join(state, "watch.json")) {
 			continue
 		}
@@ -293,10 +294,8 @@ func read(state, name string, models map[string]config.Model, offered []string, 
 	if !known || !only(record, slices.Concat(recordFields, launchKeys, harness.RecordKeys(models[record.Str("orchestrator")].Harness))) {
 		return Seat{}, false
 	}
-	previous, err := run.ReadJSON(filepath.Join(state, "seat-"+name+".json"))
-	fields := slices.Concat(seatFields, lookFields)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) || err == nil && (previous == nil || !only(previous, fields)) ||
-		!live && previous != nil && previous.Get("unasked") != nil {
+	previous, known := seatRead(state, name)
+	if !known || !live && previous != nil && previous.Get("unasked") != nil {
 		return Seat{}, false
 	}
 	if seat.Warning == "" && !seat.unowned { // only an owned conversation can move its record
@@ -451,14 +450,8 @@ func readRuns(names []string, now time.Time) (map[string][]ran, bool) {
 // Announce publishes the listing using the evidence frozen by reading, under Python's locks.
 func (home Home) Announce(now time.Time) error {
 	state := filepath.Join(config.Home(), "state")
-	for at, seat := range home.Seats {
-		if seat.live { // its look decides its word, which every reader of this home reads
-			looked, err := lookedLive(state, seat.Name, home.runs, home.readers)
-			if err != nil {
-				return err
-			}
-			home.Seats[at] = looked
-		}
+	if err := home.announceLive(state); err != nil { // their looks decide their words, which every reader of this home reads
+		return err
 	}
 	if err := reconcile(state, home.records, true); err != nil {
 		return err

@@ -35,7 +35,7 @@ func Dry(out io.Writer) bool {
 	}
 	value, why, err := gh.JSON(run.Runs(), "api", "user")
 	// a dry tick says no pass's time
-	if err != nil || !t.github(value, why, 0) {
+	if err != nil || t.github(value, why, 0) != nil {
 		return false
 	}
 	fmt.Fprintln(out, health)

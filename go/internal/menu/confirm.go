@@ -61,7 +61,7 @@ func (f Frame) Confirm(s terminal.Screen, name, question, meaning, action string
 	// The card's trailing blank can share the blank above the keys on a short screen.
 	body = body[:min(len(body), max(0, f.height-len(footer)-3))]
 	choices := []string{"Keep", action}
-	shown := Frame{cursor: h.Cursor, order: choices, turns: choices, page: slices.Index(choices, h.Cursor), width: f.width, height: f.height}
+	shown := Frame{cursor: h.Cursor, hidden: h.Hidden, order: choices, turns: choices, page: slices.Index(choices, h.Cursor), width: f.width, height: f.height}
 	for _, each := range body {
 		line := each.line
 		if each.seat == h.Cursor && !h.Hidden {

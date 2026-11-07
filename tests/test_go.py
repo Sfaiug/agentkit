@@ -30,8 +30,9 @@ GO = Path(__file__).resolve().parents[1] / "go"
 # The landing suite reaches nothing beyond loopback: never fetch a toolchain or a module,
 # so a go.mod asking for either fails here instead of hanging; one static binary, no C.
 ENV = {**os.environ, "GOTOOLCHAIN": "local", "GOPROXY": "off", "CGO_ENABLED": "0"}
-# Where Go's ak ships, each platform as `go tool dist list` names it.
-PLATFORMS = ("linux/amd64", "darwin/arm64", "windows/amd64")
+# Where Go's ak ships, each platform as `go tool dist list` names it: linux/arm64 is the suite
+# helper's image on a Mac's Apple silicon.
+PLATFORMS = ("linux/amd64", "linux/arm64", "darwin/arm64", "windows/amd64")
 
 
 def run(*command, **env):

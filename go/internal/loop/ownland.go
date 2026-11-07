@@ -20,17 +20,25 @@ import (
 // checked on the PR branch and merges the PR at it.
 
 // ownLands is whether Go carries a seat's own PR's landing as its record stands, the one place
-// Go's resume (Woken), its wake (LineToPython) and its landing fix (landingFixHandoff) ask.  A red,
-// the line's check, a required check or a head moved past its review, goes back to its writer,
-// Python's fail_pr_landing, which Go does not carry yet.
+// Go's resume (Woken), its wake (LineToPython) and its landing fix (landingFixHandoff) ask.  A red
+// goes back to its writer, Python's fail_pr_landing, which Go carries for the line's suite
+// (failLanding); a required check's red and a head moved past its review are Python's.
 func ownLands(record *run.Object) bool {
-	wait := record.Dict("waiting_on")
-	return record.Truthy("own_pr") && (wait == nil || !wait.Has("fix"))
+	wait := cmp.Or(record.Dict("waiting_on"), run.NewObject())
+	return record.Truthy("own_pr") && (!wait.Has("fix") || cmp.Or(wait.Dict("fix"), run.NewObject()).Has("piece"))
 }
 
 // land joins the line or lands from it, Python's merge_own_pr as settle_pr_round and review_pr
-// leave it: a run no longer waiting is out of the line and owes no round.
+// leave it: a run no longer waiting is out of the line and owes no round.  A red it was woken on
+// is its writer's.
 func (p *ownPull) land(l *loop) error {
+	record, err := read(l)
+	if err != nil {
+		return err
+	}
+	if wait := record.Dict("waiting_on"); wait != nil && wait.Has("fix") {
+		return p.failLanding(l, record, wait.Dict("fix"))
+	}
 	upstream := p.upstream()
 	if err := p.joinLine(l, upstream, func() error { return p.deliverPull(l, upstream) }); err != nil {
 		return err

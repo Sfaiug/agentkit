@@ -9,6 +9,7 @@ package usage
 import (
 	"errors"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"agentkit/internal/config"
@@ -47,6 +48,15 @@ func (src source) key() string {
 	return src.Name + "." + src.account
 }
 
+// gone is whether config.toml, as it stands now, no longer lists the source's login: a provider
+// or an account it dropped, or the one login of a provider that lists accounts now.
+func (src source) gone() bool {
+	logins, err := layout()
+	return err == nil && !slices.ContainsFunc(logins, func(each source) bool {
+		return each.Name == src.Name && each.account == src.account
+	})
+}
+
 // Read is the reading of every provider config.toml lists: the one state/usage.json holds while
 // it is under five minutes old, else each provider's adapter asked again, as Python's
 // usage.collect reads it.  ErrPython before anything is locked or asked.
@@ -79,35 +89,48 @@ func Check() error {
 // lists, as Python does, or why that is not Go's; a refresh asks, where no $AGENTKIT_ADAPTER_DIR
 // is named, the checkout's own adapters.
 func listed(refresh bool) ([]source, error) {
+	sources, err := layout()
+	if err != nil {
+		return nil, err
+	}
+	for at, src := range sources {
+		facts, err := config.Usage(src.Harness)
+		if err != nil {
+			return nil, err
+		}
+		adapter, err := config.Adapter(src.Harness)
+		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
+			adapter, err = config.ShippedAdapter(src.Harness)
+		}
+		if errors.Is(err, config.ErrNoAdapterDir) {
+			return nil, ErrPython
+		}
+		sources[at].facts, sources[at].adapter, sources[at].broken = facts, adapter, err
+	}
+	return sources, nil
+}
+
+// layout is every login config.toml lists as it stands now, a provider's one or each account it
+// lists, as sources with nothing more of how to ask them.
+func layout() ([]source, error) {
 	subs, err := config.Subscriptions()
 	if err != nil {
 		return nil, err
 	}
-	var sources []source
+	var logins []source
 	for _, sub := range subs {
-		facts, err := config.Usage(sub.Harness)
-		if err != nil {
-			return nil, err
-		}
 		accounts, err := config.Accounts(sub.Name)
 		if err != nil {
 			return nil, err
-		}
-		adapter, err := config.Adapter(sub.Harness)
-		if errors.Is(err, config.ErrNoAdapterDir) && refresh {
-			adapter, err = config.ShippedAdapter(sub.Harness)
-		}
-		if errors.Is(err, config.ErrNoAdapterDir) {
-			return nil, ErrPython
 		}
 		if len(accounts) == 0 {
 			accounts = []string{""} // the provider's one login
 		}
 		for _, account := range accounts {
-			sources = append(sources, source{sub, facts, adapter, err, account})
+			logins = append(logins, source{Subscription: sub, account: account})
 		}
 	}
-	return sources, nil
+	return logins, nil
 }
 
 // Spent is why nothing is picked on that model, Python's usage.model_exhausted: its provider
@@ -155,9 +178,10 @@ func (r *Readings) OnCredits(name string) bool {
 }
 
 // Shown is every reading as `ak usage --json` prints it: each login's with what its shared week
-// holds in tokens and how many pairs measure it (holds), its price a month and what a million
-// tokens cost at it.
-func (r *Readings) Shown() *run.Object {
+// holds in tokens and how many pairs measure it (holds), its price a month, what a million tokens
+// cost at it and what it spent over the last seven days at listed prices, as listed says: prices
+// are the boards' releases, which matrix finds and which reads this package.
+func (r *Readings) Shown(listed func(provider, account string) any) *run.Object {
 	for _, each := range r.logins() {
 		price := r.source(each.provider).Price
 		shared := r.sharedWeek(each.provider, each.prov)
@@ -169,6 +193,7 @@ func (r *Readings) Shown() *run.Object {
 			each.prov.Set("price", *price)
 		}
 		each.prov.Set("price_per_1m", perMillion(price, tokens, shared))
+		each.prov.Set("listed_usd", listed(each.provider, each.account))
 	}
 	return r.providers
 }

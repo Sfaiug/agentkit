@@ -62,7 +62,7 @@ func selfReviewYields(dir string, record *run.Object, rules *pick.Rules, room re
 	}
 	round := filepath.Join(dir, fmt.Sprintf("round-%d", len(record.List("round_summaries"))+1))
 	finished := func(name string) bool {
-		latest := latestTurn(round, name)
+		latest := lastAttempt(round, name)
 		return latest != "" && exists(filepath.Join(latest, "final.md"))
 	}
 	next, other, found := rules.Pair(room)

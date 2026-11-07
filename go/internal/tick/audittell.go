@@ -26,7 +26,7 @@ func leftTyped(name string, state *run.Object) bool {
 // tellAudit is watch.tell_audit for an audit seat with a record: one whose harness is gone comes
 // back on its own conversation, as its number opens it (orch.ensure with `saved`), and a later tick
 // types the line once it sits at its prompt.  The line goes in at its quiet prompt, its receipt
-// kept in the week's state, and is delivered once its composer reads empty; a harness Go does
+// kept in the line's state, and is delivered once its composer reads empty; a harness Go does
 // not type into is Python's.
 func (t *ticking) tellAudit(name string, state *run.Object, write func() error) error {
 	if !auditUp(name) {
@@ -56,6 +56,6 @@ func (t *ticking) tellAudit(name string, state *run.Object, write func() error) 
 	if err := write(); err != nil {
 		return err
 	}
-	t.log.line("audit: told the " + name + " seat about week " + state.Str("week"))
+	t.log.line("audit: told the " + name + " seat about " + about(state))
 	return nil
 }

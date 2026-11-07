@@ -23,6 +23,8 @@ func (e *LoginExpired) Error() string {
 // and the environment's; and the silence its event stream is stopped after, none for zero.
 type Given struct {
 	Context context.Context
+	// Account is the login of its provider the turn runs on, usage.TurnAccount's: "" for a provider's one.
+	Account string
 	Efforts map[string]string
 	Env     []string
 	Silence time.Duration

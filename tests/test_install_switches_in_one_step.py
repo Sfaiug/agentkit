@@ -10,7 +10,9 @@ test_go_live_retries_install's offline clone, its origin one commit ahead.
 """
 
 import errno
+import os
 from pathlib import Path
+import signal
 import sys
 import time
 import unittest
@@ -21,6 +23,22 @@ import test_go_live_retries_install as base
 from agentkit import config, gc, gitcall, retention, update, versions
 
 git = base.git
+
+
+def still_in(path):
+    """The processes working in `path`, once those killed have had the time a loaded host takes."""
+    until = time.monotonic() + 30
+    while True:
+        found = []
+        for proc in Path("/proc").glob("[0-9]*"):
+            try:
+                if os.readlink(proc / "cwd") == str(path):
+                    found.append(proc.name)
+            except OSError:
+                continue        # gone, a zombie, or another user's
+        if not found or time.monotonic() > until:
+            return found
+        time.sleep(0.01)
 
 
 class InstallSwitchesInOneStep(unittest.TestCase):
@@ -99,6 +117,20 @@ class InstallSwitchesInOneStep(unittest.TestCase):
                 self.assertEqual((self.installs(), self.swapped_out()), (0, []))
         self.assertEqual(self.go_live(), [f"agentkit is live at {self.new[:12]}"])
         self.live(self.new)
+
+    def test_a_prepare_past_its_cap_or_cut_off_is_stopped_with_all_it_started(self):
+        version, build = self.root / "building", ["sh", "-c", "sleep 600 & wait"]
+        version.mkdir()
+        with patch.object(versions, "CAP", 1):
+            self.assertEqual(versions.run(build, version)[0], 1)
+        self.assertEqual(still_in(version), [])
+        # the tick, stopped by ^C a second into it
+        self.addCleanup(signal.signal, signal.SIGALRM,
+                        signal.signal(signal.SIGALRM, signal.default_int_handler))
+        signal.alarm(1)
+        with self.assertRaises(KeyboardInterrupt):
+            versions.run(build, version)
+        self.assertEqual(still_in(version), [])
 
     def test_a_move_cut_off_after_the_swap_is_live_whole_and_installs_next(self):
         self.go_live()

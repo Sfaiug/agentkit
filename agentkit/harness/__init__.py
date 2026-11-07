@@ -201,12 +201,31 @@ def unread(exc):
         raise exc
 
 
+def _names(path):
+    """The names a record is read by, in order: its path, or a list of them, as for one that
+    has a second name ak gave it (`claude.kept`)."""
+    return path if isinstance(path, list) else [path]
+
+
+def _opened(path):
+    """That record open to read, by the first of its names there as it is opened, so one going
+    between finding it and opening it is read by the next; FileNotFoundError where none is."""
+    *first, last = _names(path)
+    for name in first:
+        try:
+            return open(name, "rb")
+        except FileNotFoundError:
+            continue
+    return open(last, "rb")
+
+
 def entries(path):
-    """Complete JSON objects in a growing record; an unfinished last line can wait."""
+    """Complete JSON objects in a growing record, by its first name there (`_opened`); an
+    unfinished last line can wait."""
     if not path:
         return
     try:
-        with open(path, "rb") as fh:
+        with _opened(path) as fh:
             for line in fh:
                 try:
                     entry = json.loads(line)
@@ -220,8 +239,9 @@ def entries(path):
 
 def turns(path, prompt, answer):
     """That JSON-lines record's messages as `said` gives them, oldest first: a line `prompt`
-    reads is the user side's, one `answer` reads the model's.  None where no record is there."""
-    if not path or not Path(path).is_file():
+    reads is the user side's, one `answer` reads the model's, by its first name there
+    (`_opened`).  None where no record is there."""
+    if not path or not any(Path(name).is_file() for name in _names(path)):
         return None
     said = []
     for entry in entries(path):
@@ -621,6 +641,14 @@ class Harness:
         """
         hook = self._hook("transcript")
         return hook(record, cwd, conversation) if hook else None
+
+    def keep(self, record, cwd, conversation):
+        """Give that conversation's own file, where its harness deletes it in time, a second
+        name of ak's that outlives it.  The tick's alone (`watch.keep_conversations`), so no
+        two readers race to give one."""
+        hook = self._hook("keep")
+        if hook and conversation:
+            hook(record, cwd, conversation)
 
     def said(self, record, cwd, conversation):
         """That conversation as {who: "user" or "model", text}, oldest first, read from the

@@ -105,7 +105,7 @@ func goesOn(dir string, read, record *run.Object) bool {
 }
 
 // driverHere is whether a driver can run on this host: in a box, with meters it can read, its
-// turns on no provider's accounts.
+// turns on no provider's several accounts.
 func driverHere() bool {
 	return box.Supported && usage.Check() == nil && !accountTurns()
 }

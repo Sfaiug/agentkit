@@ -60,8 +60,9 @@ class Rule(unittest.TestCase):
         self.stack.enter_context(patch.object(config, "CODE", self.root / "code"))
         config.ensure_dirs()
         self.diversions = self.root / "notify-diversions.log"
+        # CLAUDE_CONFIG_DIR emptied: the host's own Claude login would answer the seat's `auth`
         self.stack.enter_context(patch.dict(os.environ, {
-            "HOME": str(self.root), "AGENTKIT_DISCORD_WEBHOOK": WEBHOOK,
+            "HOME": str(self.root), "CLAUDE_CONFIG_DIR": "", "AGENTKIT_DISCORD_WEBHOOK": WEBHOOK,
             "AGENTKIT_DISCORD_USER_ID": "42", "AK_RUN_ROLE": "", "AK_RUN_LOG": "",
             notify.SINK_ENV: "", config.RUN_DIR_ENV: "", config.SESSION_ENV: "seat",
             notify.SINK_LOG_ENV: str(self.diversions),

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"cmp"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -12,10 +11,10 @@ import (
 	"strings"
 	"time"
 
-	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/history"
 	"agentkit/internal/menu"
+	"agentkit/internal/suitetimes"
 	"agentkit/internal/terminal"
 )
 
@@ -41,7 +40,7 @@ func testAudit(out, errOut io.Writer) int {
 		return 2
 	}
 	name := filepath.Base(top)
-	times := suiteTimes(top)
+	times := suitetimes.Read(top)
 	audit, err := history.TestAudit(name)
 	if err != nil {
 		return notImplemented(errOut, "run status")
@@ -138,21 +137,4 @@ func quiet(row audited) int {
 		return 1
 	}
 	return 0
-}
-
-// suiteTimes are the seconds each test file of the checkout took when it last passed, Python's
-// suite_times.read of the record its suites keep in ak's state: none from anything but an object,
-// and only its numbers of none or more.
-func suiteTimes(checkout string) map[string]float64 {
-	var kept map[string]any
-	data, _ := os.ReadFile(filepath.Join(config.Home(), "state", "test-times-"+gitcall.RepositoryID(checkout)+".json"))
-	times := map[string]float64{}
-	if json.Unmarshal(data, &kept) == nil {
-		for test, value := range kept {
-			if seconds, ok := value.(float64); ok && seconds >= 0 {
-				times[test] = seconds
-			}
-		}
-	}
-	return times
 }

@@ -38,6 +38,7 @@ func accounts(sources []source, name string) (listed []string) {
 // laidOut gives a provider's record an entry for each account config.toml lists, the snapshot's
 // where it holds one, else this read's own, each past its reset dropped, Python's usage._store;
 // and is the record the read's counted resets go on: the account it asked about, else the provider.
+// An account neither holds, one listed since this read asked, gets none, so the next read asks it.
 func laidOut(prov, mine *run.Object, listed []string, now float64) *run.Object {
 	if len(listed) == 0 {
 		return prov
@@ -49,7 +50,9 @@ func laidOut(prov, mine *run.Object, listed []string, now float64) *run.Object {
 		if len(record.Keys()) == 0 {
 			record = object(ours.Get(account))
 		}
-		accounts.Set(account, current(record, now))
+		if len(record.Keys()) > 0 {
+			accounts.Set(account, current(record, now))
+		}
 	}
 	prov.Set("accounts", accounts)
 	if asked, ok := accounts.Get(mine.Str("account")).(*run.Object); ok {

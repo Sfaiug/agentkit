@@ -78,6 +78,7 @@ type call struct {
 	model              config.Model
 	body, fresh        string // what it is told, and what instead where its conversation will not open
 	out, session       string
+	account            string // the login the last attempt ran on, usage.TurnAccount's
 	findings, previous string // previous: the record file the turn goes on from
 	copied             bool   // a reviewer's: each attempt runs where its edits reach nothing
 	notice             *run.Object
@@ -132,6 +133,11 @@ func (c *call) attempt(body, target string) (*try, error) {
 	if err := l.stopCheck(); err != nil {
 		return nil, err
 	}
+	account, err := usage.TurnAccount(c.model.Provider)
+	if err != nil {
+		return nil, fmt.Errorf("%s %s: %w", c.role, c.name, err)
+	}
+	c.account = account
 	if err := os.MkdirAll(target, 0o777); err != nil {
 		return nil, err
 	}
@@ -143,7 +149,7 @@ func (c *call) attempt(body, target string) (*try, error) {
 	if c.session != "" && c.session == c.lastSession {
 		previous = c.previous
 	}
-	before := usage.Reading(c.model.Provider)
+	before := usage.Reading(c.model.Provider, account)
 	t := &try{out: target, resumed: c.session, asked: c.calls == 0}
 	turn := func(cwd string) (failed error) {
 		told, at := body, l.workspace
@@ -151,15 +157,14 @@ func (c *call) attempt(body, target string) (*try, error) {
 			told, at = strings.ReplaceAll(told, config.Resolve(l.workspace), cwd), cwd
 		}
 		t.code, t.session, failed = worker.Turn(c.name, c.role, told, at, target, c.session, worker.Given{
-			Context: l.ctx, Efforts: c.model.Efforts, Silence: l.silence, UsersAt: l.usersAt, Checks: c.checks, Findings: c.findings, Previous: previous,
+			Context: l.ctx, Account: account, Efforts: c.model.Efforts, Silence: l.silence, UsersAt: l.usersAt, Checks: c.checks, Findings: c.findings, Previous: previous,
 			Env: []string{"AK_RUN_ROLE=worker", "AK_RUN_LOG=" + filepath.Join(l.dir, "log.txt")},
 		}, stampedLog{l.dir})
 		if failed == nil || errors.Is(failed, worker.ErrSilent) { // a turn that ran
-			usage.Turned(c.name, c.model, c.role, target, before)
+			usage.Turned(c.name, c.model, account, c.role, target, before)
 		}
 		return failed
 	}
-	var err error
 	if c.copied {
 		err = l.place.inCopy(l, target, turn)
 	} else {
@@ -250,9 +255,10 @@ func (c *call) neverRan(t *try) (bool, error) {
 	return false, &cannotRun{c.name, line}
 }
 
-// harnessWords reads what the harness itself said: a spent window goes to another provider, and a
-// refusal or an outage is waited out on the same session.  A kill reads as the signal whatever else
-// was said, unless the window is spent.
+// harnessWords reads what the harness itself said: a spent window parks the login the turn ran on,
+// then its provider, as TurnAccount leaves it no other login to go on, and the work goes to another
+// provider; a refusal or an outage is waited out on the same session.  A kill reads as the signal
+// whatever else was said, unless the window is spent.
 func (c *call) harnessWords(t *try) (bool, error) {
 	said := c.said(t)
 	ending, mark := harness.Ending(c.model.Harness, said, true)
@@ -273,7 +279,10 @@ func (c *call) harnessWords(t *try) (bool, error) {
 	if ending != harness.Spent {
 		return c.waitOut(fmt.Sprintf("transient %s: %s", quoted(mark), message))
 	}
-	until := usage.MarkExhausted(c.model.Provider, usage.TryAgainAt(said))
+	if c.account != "" {
+		usage.MarkExhausted(c.model.Provider, c.account, usage.TryAgainAt(said))
+	}
+	until := usage.MarkExhausted(c.model.Provider, "", usage.TryAgainAt(said))
 	c.l.say(fmt.Sprintf("WARN %s %s refused: %s; nothing is picked on %s until %s", c.role, c.name, message, c.model.Provider, time.Unix(int64(until), 0).Format("2006-01-02 15:04")))
 	return false, &ranDry{mark, t.out, message, t.code}
 }

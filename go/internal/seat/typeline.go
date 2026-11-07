@@ -48,11 +48,19 @@ var (
 // by ak's editor.  Anywhere else, a composer holding text among them, which Python's own editor
 // types past, it puts nothing in and the line is the tick's.
 func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
+	return typeAtPane(name, "", line, typed, receipt, log, stale)
+}
+
+// typeAtPane is typeAtPrompt into that pane, "" for the seat's window's own.
+func typeAtPane(name, pane, line string, typed *run.Object, receipt func(mark *run.Object) error, log func(string), stale func(string) bool) bool {
 	own, record := seatHarness(name)
 	if !typable(own) {
 		return false
 	}
-	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", "="+name+":", "#{pane_id}\t#{session_created}")
+	if pane == "" {
+		pane = "=" + name + ":"
+	}
+	said, err := tmux.Ask(tmux.Own(), "display-message", "-p", "-t", pane, "#{pane_id}\t#{session_created}")
 	pane, born, _ := strings.Cut(said, "\t")
 	if err != nil || !paneID.MatchString(pane) {
 		return false
@@ -71,9 +79,7 @@ func typeAtPrompt(name, line string, typed *run.Object, receipt func(mark *run.O
 		if stale(current) || !at.quiet() || at.unasked() || at.editorKept() || at.unread() {
 			return errUntyped
 		}
-		conversation, prompts, _ := script.Typed(own, record)
-		entry := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
-			"conversation", conversation, "after", len(prompts))
+		entry := typingReceipt(own, record, text)
 		file, err := os.OpenFile(ownFile("input", current), os.O_RDWR|os.O_APPEND|os.O_CREATE, 0o666)
 		if err != nil {
 			return err

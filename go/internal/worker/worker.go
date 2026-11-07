@@ -33,8 +33,8 @@ import (
 )
 
 // ErrPython leaves a turn to Python ak: where ak's adapter scripts live, on a home naming no
-// $AGENTKIT_ADAPTER_DIR, a box on any system but Linux, and a turn on a provider listing accounts,
-// whose login Python's turn picks (usage.account), are not yet Go's.
+// $AGENTKIT_ADAPTER_DIR, a box on any system but Linux, and a turn on a provider listing accounts
+// on none of them, whose login Python's turn picks (usage.account), are not yet Go's.
 var ErrPython = errors.New("left to Python")
 
 // ErrInterrupted is a turn ^C or its Given's context ended, once the box it ran in has.
@@ -57,7 +57,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	if given.Efforts != nil {
 		model.Efforts = given.Efforts
 	}
-	adapter, err := Adapter(model)
+	adapter, err := Adapter(model, given.Account)
 	if errors.Is(err, ErrPython) || config.EnsureDirs() != nil {
 		return 0, "", ErrPython
 	} else if err != nil {
@@ -80,7 +80,11 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 	var id [16]byte
 	rand.Read(id[:])
 	marker := fmt.Sprintf("%s=%s/turn-%x", host.Marker, cmp.Or(os.Getenv(host.Marker), filepath.Join(config.Home(), "runs", "worker")), id)
-	probe := append(seated, marker, "AGENTKIT_PROVIDER="+model.Provider)
+	named := []string{marker}
+	if given.Account != "" {
+		named = append(named, config.AccountEnv(given.Account))
+	}
+	probe := slices.Concat(seated, named, []string{"AGENTKIT_PROVIDER=" + model.Provider})
 	if why := refused(adapter, probe); why != "" {
 		return 0, "", &LoginExpired{model.Harness, why}
 	}
@@ -100,7 +104,7 @@ func Turn(name, role, body, workspace, out, session string, given Given, errOut 
 		argv = append(argv, session)
 	}
 	env := map[string]string{}
-	for _, pair := range slices.Concat(seatless, []string{marker, handIn}, given.Env) {
+	for _, pair := range slices.Concat(seatless, named, []string{handIn}, given.Env) {
 		key, value, _ := strings.Cut(pair, "=")
 		env[key] = value
 	}

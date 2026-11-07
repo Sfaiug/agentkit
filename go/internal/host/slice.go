@@ -1,16 +1,11 @@
 package host
 
 import (
-	"context"
-	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"agentkit/internal/config"
 )
@@ -18,52 +13,15 @@ import (
 // What a slice's drop-ins set, as Python's orch reads them, and the one way a tick changes the runs
 // slice; what the kernel says of them is readings.go's.
 
-// ErrNoAnswer is a systemctl that did not answer within 5 seconds.
-var ErrNoAnswer = errors.New("systemctl did not answer")
-
 // SetOnRuns sets one property of the runs slice for this boot only, and is systemctl's exit code.
 func SetOnRuns(property string) (int, error) {
 	return setProperty(filepath.Base(RunsCgroup()), property)
 }
 
-// setProperty sets one property of a unit for this boot only, as Python's gc.systemctl runs
-// `systemctl --user`, and is systemctl's exit code.
+// setProperty sets one property of a unit for this boot only, and is systemctl's exit code.
 func setProperty(unit, property string) (int, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	command := exec.CommandContext(ctx, "systemctl", "--user", "set-property", "--runtime", unit, property)
-	command.Env = busEnv(os.Environ())
-	err := command.Run()
-	var exited *exec.ExitError
-	switch {
-	case ctx.Err() != nil:
-		return 0, ErrNoAnswer
-	case errors.As(err, &exited):
-		return exited.ExitCode(), nil
-	}
-	return 0, err
-}
-
-// busEnv is env with the user manager's bus in it, Python's orch.bus_env: a tick from cron has no
-// session, and a caller's own says where its manager is.
-func busEnv(env []string) []string {
-	lookup := func(key string) (found string, set bool) {
-		for _, pair := range env { // the last of a name, the one exec hands on
-			if name, value, _ := strings.Cut(pair, "="); name == key {
-				found, set = value, true
-			}
-		}
-		return found, set
-	}
-	runtime, set := lookup("XDG_RUNTIME_DIR")
-	if !set {
-		runtime = fmt.Sprintf("/run/user/%d", os.Getuid())
-		env = append(env, "XDG_RUNTIME_DIR="+runtime)
-	}
-	if _, set := lookup("DBUS_SESSION_BUS_ADDRESS"); !set {
-		env = append(env, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
-	}
-	return env
+	code, _, err := Systemctl("set-property", "--runtime", unit, property)
+	return code, err
 }
 
 // dropInTasksMax is the TasksMax a slice's drop-ins set, false where none does. The last file to

@@ -38,7 +38,7 @@ const (
 // written, while a red's hand-back is owed to a seat, and before the ask of an installed harness
 // Go could not start: one movable says Go moves none of, or any with no live gate.
 func KeepCurrent(repo string, say func(string)) error {
-	if !liveHere(repo) {
+	if !LiveHere(repo) {
 		return nil
 	}
 	if owed() {

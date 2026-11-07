@@ -114,10 +114,11 @@ RULES = [
     # Every provider word counts, in code or comment, but none of ak's own names: the
     # `quota_dry` mark and its `QuotaDry` stop, the tests' `.run-quota-` dirs, the cgroup CPU
     # quota (`cpu_quota`, systemd's `CPUQuota`, the user unit's `unit_quota`), the
-    # usage-limit reset and its credits as the name of a feature, what a subscription's
-    # week holds in tokens (`capacity.json`, `ak usage --json`'s `capacity_tokens` and
-    # `capacity_pairs`), and GitHub's hourly API allowance (gh's `api rate_limit` endpoint and
-    # the `github_rate_limit` key that waits on it).  Google Compute's refusal codes are
+    # usage-limit reset and its credits as the name of a feature, Go's copy of what a
+    # subscription's week holds in tokens (`capacity.json`, `ak usage --json`'s
+    # `capacity_tokens` and `capacity_pairs`) until it holds it in listed dollars, and
+    # GitHub's hourly API allowance (gh's `api rate_limit` endpoint and the
+    # `github_rate_limit` key that waits on it).  Google Compute's refusal codes are
     # agentkit/google_cloud.py's, the one module that knows Google.
     {"name": "provider failure words",
      "flags": ("-i",),

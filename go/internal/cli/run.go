@@ -116,8 +116,13 @@ func validateRun(args []string) string {
 			if flag != "--rounds" || launch.Queued() {
 				break
 			}
-			budget, err := launch.Budget(config.Absolute(word))
-			if problem := launch.RoundsRefusal(parsed.values["--rounds"], budget, err); problem != "" {
+			path := config.Absolute(word)
+			budget, err := launch.Budget(path)
+			problem := launch.RoundsRefusal(parsed.values["--rounds"], budget, err)
+			if problem == "" {
+				problem = launch.UsersRefusal(path)
+			}
+			if problem != "" {
 				return problem
 			}
 		}

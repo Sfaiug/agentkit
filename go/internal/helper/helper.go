@@ -88,6 +88,12 @@ type Away struct {
 // the machine with the least room that takes turns, holding its cpus there until it starts, not
 // half the machine.  Work a machine ak may rent could take is ErrPython's, before anything is sent.
 func Start(cwd string, cpus, memoryMB float64, command string, turn map[string]file, say func(string)) (*Away, string, error) {
+	return start(cwd, cpus, memoryMB, pinned(command), turn, false, say)
+}
+
+// start is Start of the line command each piece runs there, as pinned; with one, a probe's, it
+// holds only the CPUs its one piece gets (Probe).
+func start(cwd string, cpus, memoryMB float64, command string, turn map[string]file, one bool, say func(string)) (*Away, string, error) {
 	work, first, holds := "tests", -1, []string(nil)
 	if turn != nil {
 		work, first, holds = "turns", 1, []string{strconv.FormatFloat(cpus, 'f', -1, 64)}
@@ -96,7 +102,7 @@ func Start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 	if len(aliases) == 0 && !config.MayRent() {
 		return nil, "no suite helper set up", nil
 	}
-	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: pinned(command), programs: programs()}
+	away := &Away{key: token(), repo: gitcall.RepositoryID(cwd), command: command, programs: programs()}
 	image, files, err := recipeOf(cwd, away.repo)
 	if err != nil {
 		say(fmt.Sprintf("WARN the suite helper cannot build suite_image: %v; the suite runs here", err))
@@ -135,6 +141,9 @@ func Start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 	for _, i := range order {
 		there := *away
 		there.Alias, there.Count, there.CPUs, there.MemoryMB, there.Most = aliases[i], fits[i].count, fits[i].cpus, fits[i].mb, fits[i].most
+		if one {
+			holds = []string{strconv.Itoa(there.CPUs)}
+		}
 		sent := there.send(cwd, files, holds)
 		if sent == 0 {
 			say(fmt.Sprintf("suite on %s: %d pieces, %d CPUs and %d MiB each", there.Alias, there.Count, there.CPUs, there.MemoryMB))

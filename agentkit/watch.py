@@ -42,6 +42,7 @@ import subprocess
 import sys
 import tempfile
 import termios
+import threading
 import time
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -7433,20 +7434,94 @@ def awaiting_live(state, now=None):
     return bool((state.get("health") or {}).get("command"))
 
 
+def live_path(repo, kind):
+    """The "lock" a run of `repo`'s project is handed over and its live follower ends under, the
+    "follower" lock it holds for life, and the "runs" handed to it: one follower a project, as
+    each has its merges' settings (`config.repo_env`), which no other's may have."""
+    return config.RUNS / f".live-{Path(repo).name}.{kind}"
+
+
+def live_lock(repo, kind, wait=True):
+    """That lock, held till closed or its process ends; None where it is held and `wait` false."""
+    lock = os.open(live_path(repo, kind), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | (0 if wait else fcntl.LOCK_NB))
+        return lock
+    except BlockingIOError:
+        os.close(lock)
+
+
+def live_runs(repo, handed=None):
+    """Under the live lock, the runs handed to the follower that it has yet to take, `handed`
+    added, else all taken; written whole, so a writer stopped anywhere leaves the list it found."""
+    path = live_path(repo, "runs")
+    runs = path.read_text().splitlines() if path.exists() else []
+    if handed:
+        orch.replace_file(path, "\n".join([*runs, handed]).encode())
+    else:
+        path.unlink(missing_ok=True)
+    return runs
+
+
 def start_live_probe(run_dir):
-    """Follow this merge independently of its run; a missed start leaves the tick as backstop."""
+    """Hand this merge to its project's live follower (`live_follower`), started where none holds
+    the follower lock; a missed start leaves the tick as backstop."""
+    if not (repo := (run_record.read_state(run_dir) or {}).get("repo")):
+        return  # no project, so nothing proves it live (`awaiting_live`)
     env = config.child_env()
     for key in (worker.RUN_MARKER, "AK_PARENT_RUN", "AK_RUN_LOG", "AK_RUN_ROLE",
                 config.JOB_DIR_ENV, config.SESSION_ENV, config.UNATTENDED_ENV):
         env.pop(key, None)
     env["AK_RUN_DEPTH"] = "0"
     try:
-        orch.start_in_slice(
-            [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
-            f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
-            target_slice=orch.run_slice_name())
+        with os.fdopen(live_lock(repo, "lock")):
+            if (follower := live_lock(repo, "follower", wait=False)) is None:
+                live_runs(repo, run_dir.name)     # the live follower takes it at its next look
+                return
+            with os.fdopen(follower):   # on its stdin, held from its fork (`live_follower`)
+                orch.start_in_slice(
+                    [sys.executable, str(config.REPO / "bin/ak"), "watch", "--live", run_dir.name],
+                    f"agentkit-live-{run_dir.name}-{time.time_ns()}", env, run_dir / "live.log",
+                    target_slice=orch.run_slice_name(), stdin=follower)
     except (OSError, config.Error):
         pass  # the tick still follows it
+
+
+def live_follower(run):
+    """`ak watch --live RUN`: hand that run to its project's one live follower, this process where
+    no other holds the follower lock, freed with it: a process per merge held 6.4 GB of a 15 GB
+    host (6 Nov 2026).  Each run on a thread of its own, so a slow probe moves no other's times."""
+    if not (repo := (run_record.read_state(config.RUNS / run) or {}).get("repo")):
+        return 0    # no project, so nothing proves it live (`awaiting_live`)
+    follower, following, runs = None, [], [run]
+    try:
+        # The follower lock on stdin from the merge that started it (`start_live_probe`), held
+        # since its fork; moved off stdin, so no command it runs keeps it.
+        if os.path.samestat(os.fstat(0), os.stat(live_path(repo, "follower"))):
+            follower = os.dup(0)
+            with open(os.devnull) as null:
+                os.dup2(null.fileno(), 0)
+    except OSError:
+        pass
+    while True:
+        live = live_lock(repo, "lock")
+        follower = live_lock(repo, "follower", wait=False) if follower is None else follower
+        if follower is None:
+            live_runs(repo, run)    # an older run process started this one for its merge
+            os.close(live)
+            return 0
+        # daemons, so a loop that fails ends the process and frees its lock for the next follower
+        started = [threading.Thread(target=follow_live, args=(config.RUNS / name,), daemon=True)
+                   for name in [*runs, *live_runs(repo)]]
+        following, runs = [thread for thread in following if thread.is_alive()] + started, []
+        if not following:
+            # the live lock held till this process is gone, so the next follower starts after it
+            os.close(follower)
+            return 0
+        os.close(live)
+        for thread in started:
+            thread.start()
+        time.sleep(1)   # what a run handed over waits at most for its follow to start
 
 
 def follow_live(run_dir):
@@ -8270,6 +8345,16 @@ def offer_endings(log):
             log(f"WARN cannot check run {run_dir.name}: {exc}")
 
 
+def keep_conversations():
+    """Give each conversation of every seat, those it left included (`notify.conversations_of`),
+    ak's own name for its file where its harness keeps one (`Harness.keep`).  A harness deletes
+    such a file weeks after its last write, and with it the owner's words the done check reads;
+    a tick every few minutes names it many times over before then."""
+    for name in config.session_records():
+        for plugin, record, cwd, conversation in notify.conversations_of(name):
+            plugin.keep(record, cwd, conversation)
+
+
 def local_passes(state, dry_run, log):
     """The tick's passes that owe GitHub nothing, in the order they run.
 
@@ -8350,6 +8435,7 @@ def local_passes(state, dry_run, log):
         # on its project, to take out of the code.
         ("switch retirement", lambda: retire.hand(log), False),
         ("seat tokens", lambda: seat_tokens.read(0, 0), False),
+        ("conversation names", keep_conversations, False),
         ("history sync", lambda: transitions.history_agree(log), False),
         # The tick alone moves history's WAL into the database, holding no lock of ak's but its
         # own, so no writer holds the others through those syncs (`waiter.connect`).
@@ -8413,7 +8499,7 @@ def main(argv):
     if argv[:1] == ["--live"]:
         if len(argv) != 2 or Path(argv[1]).name != argv[1] or argv[1] in (".", ".."):
             raise config.Error("usage: ak watch --live RUN")
-        return follow_live(config.RUNS / argv[1])
+        return live_follower(argv[1])
     if command_help.show("watch", argv):
         return 0
     dry_run = argv == ["--dry-run"]
