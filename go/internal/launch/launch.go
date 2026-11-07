@@ -233,8 +233,8 @@ func surroundings(id string) bool {
 // the run id names going on: a queued run's start; one a history Python kept would record (no
 // suite's sink marks it) past the rows Go writes, any launch where it holds a run's step and a run
 // Python carried, while one Go carried from its launch goes on as it began, a launch the gate
-// decides left to its admission, which never opens history.db; a home HOME does not name, or text
-// Python would write with a lone surrogate.
+// decides left to its admission, which opens history.db only once Go goes on with the launch; a home
+// HOME does not name, or text Python would write with a lone surrogate.
 func unread(id string) bool {
 	_, known := runDepth()
 	return os.Getenv("AGENTKIT_RUN_DIR") != "" || sink() == "" && !gated() && history.Carried(id) ||
@@ -431,7 +431,8 @@ func preflight(meta map[string]string, cmds []string, path, copied, title string
 	if later != "" && (at.repo == "" || gated()) {
 		return refuse(later, "", nil)
 	}
-	if at.admitted, err = admit(flags["--first"]); err != nil || at.repo == "" {
+	// copied is the run's own task.md: its folder names the run
+	if at.admitted, err = admit(filepath.Base(filepath.Dir(copied)), flags["--first"], owner); err != nil || at.repo == "" {
 		return refuse("", "", err)
 	}
 	warning := ""
