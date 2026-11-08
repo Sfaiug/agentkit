@@ -138,14 +138,15 @@ func (seat Seat) lived(state, pane string, exited bool, found sight, now time.Ti
 // the seat through its shared launch path; a refusal its record ends on, or its one subscription
 // spent, is instead waited on, and a wait the owner's own turn ends is ended, either written before
 // the publish (waitOnUsage). False where either decision leaves work to Python. A dry look decides
-// as the real one and acts on nothing (dryLook), and says through log the `continue` it would type;
+// as the real one and acts on nothing (dryLook), and says through log the line it would type;
 // a seat it would do anything else at, or cannot decide, is not carried.
 func Health(name string, ok func(Live) bool, log func(string), dry bool) (bool, error) {
 	if !dry {
 		return health(name, ok, log)
 	}
-	drying = dryLook{}
-	defer func() { drying = nil }()
+	if drying == nil { // a look of its own, outside a dry tick
+		defer DryTick()()
+	}
 	carried, err := health(name, ok, log)
 	return carried && err == nil, nil
 }
@@ -283,8 +284,8 @@ func health(name string, ok func(Live) bool, log func(string)) (bool, error) {
 // reads it in the file's place. Every save of a seat's record or seat file (put, so writeSeat,
 // update and Write) goes through both, and the announce lock and watch.lock through hold, so
 // nothing a dry look calls saves one or takes those locks. Where it would act otherwise it checks
-// drying: it says the `continue` it would type, keeps no title and tells no bar, and leaves
-// anything else it would do to Python.
+// drying: it says the `continue` or reminder it would type, asks and answers no question, keeps no
+// title and tells no bar, and leaves anything else it would do to Python.
 type dryLook map[string][]byte
 
 // drying is the look under way, where it is a dry one.
@@ -316,9 +317,9 @@ func (seat Seat) file(state string) *run.Object {
 	return file
 }
 
-// Published is the word the seat's file holds and since when, as its last announce wrote them.
+// Published is the word the seat's file holds and since when, as its last announce left them.
 func Published(name string) (word string, since any) {
-	file, _ := run.ReadJSON(filepath.Join(config.Home(), "state", "seat-"+name+".json"))
+	file, _ := asLeft(filepath.Join(config.Home(), "state", "seat-"+name+".json"))
 	if file == nil {
 		return "", nil
 	}
