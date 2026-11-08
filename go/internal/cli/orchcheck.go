@@ -67,7 +67,7 @@ var checkAsk = strings.Join([]string{
 // exit 1 with one, 0 with none, and 2 where nothing could be checked.  A seat, a pick or a turn
 // Go does not carry is left to Python before anything is written.
 func orchCheck(args []string, out, errOut io.Writer) int {
-	name, found, err := ownerGaps(args[0], errOut)
+	name, found, err := ownerGaps(context.Background(), args[0], errOut)
 	switch {
 	case errors.Is(err, errLeft):
 		return notImplemented(errOut, "orch check")
@@ -77,9 +77,18 @@ func orchCheck(args []string, out, errOut io.Writer) int {
 	case err != nil:
 		fmt.Fprintf(errOut, "ak orch: %s\n", err)
 		return 2
-	case len(found) == 0:
+	case told(out, name, found):
+		return 1
+	}
+	return 0
+}
+
+// told prints what a done check of seat name found, each gap with the owner's words it rests on,
+// and is whether it found one.
+func told(out io.Writer, name string, found []*run.Object) bool {
+	if len(found) == 0 {
 		fmt.Fprintf(out, "%s: its work holds everything its owner asked\n", name)
-		return 0
+		return false
 	}
 	plural := ""
 	if len(found) > 1 {
@@ -90,13 +99,14 @@ func orchCheck(args []string, out, errOut io.Writer) int {
 		quote := strings.ReplaceAll(row.Dict("evidence").Str("quote"), "\n", "\n  ")
 		fmt.Fprintf(out, "- %s\n  the owner: \"%s\"\n", run.Text(row.Get("what")), quote)
 	}
-	return 1
+	return true
 }
 
 // ownerGaps is the seat's name and the findings of one model's turn over what the seat was asked
 // and did that quote a message or answer of its owner's word for word (done_check.gaps): whether
-// a quote is the owner's is decided here, never by the model.  errLeft is a case Python carries.
-func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
+// a quote is the owner's is decided here, never by the model; ctx ending ends the turn.  errLeft is
+// a case Python carries.
+func ownerGaps(ctx context.Context, seat string, errOut io.Writer) (string, []*run.Object, error) {
 	if err := config.Check(); err != nil {
 		return "", nil, err
 	}
@@ -104,7 +114,7 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	found, read, err := gaps(name, record, errOut)
+	found, read, err := gaps(ctx, name, record, errOut)
 	// what the check read is kept where it found no gap, and forgotten however else it ended, as
 	// Python's `finally` does; a case Python carries writes nothing
 	if !errors.Is(err, errLeft) {
@@ -117,7 +127,7 @@ func ownerGaps(seat string, errOut io.Writer) (string, []*run.Object, error) {
 
 // gaps is ownerGaps of a seat resolved, with the fingerprint of what a check that found no gap
 // read ("" for any other end).
-func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
+func gaps(ctx context.Context, name string, record map[string]any, errOut io.Writer) ([]*run.Object, string, error) {
 	// a record a harness's reader reads loosely is read, as before: only the reader deciding whether
 	// a check is owed, which ends a seat it reads as done, waits for one as strict as Python's
 	had, err := notify.Conversations(name, false)
@@ -187,7 +197,7 @@ func gaps(name string, record map[string]any, errOut io.Writer) ([]*run.Object, 
 	ask := strings.NewReplacer("{name}", name, "{workspace}", workspace,
 		"{pictures}", cmp.Or(strings.Join(shown, "\n"), "  none kept")).Replace(checkAsk)
 	var expired *worker.LoginExpired
-	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{}, errOut); {
+	switch _, _, err := worker.Turn(model, "reviewer-scratch", ask, workspace, into, "", worker.Given{Context: ctx}, errOut); {
 	case errors.Is(err, worker.ErrInterrupted), errors.As(err, &expired):
 		return nil, "", err
 	case err != nil && !errors.Is(err, worker.ErrSilent):
@@ -352,15 +362,56 @@ func runTask(path string) (string, error) {
 
 // checker is the model that checks the seat's work: `[done_check] model`, else the reviewer a
 // run of that seat's would draw now.  errLeft where Python draws it or runs its turn, settled
-// before the draw writes the meters it reads.
+// before the draw writes the meters it reads (checking).
 func checker(name string, record map[string]any) (string, error) {
+	model, rules, err := checking(record)
+	if err != nil || model != "" {
+		return model, err
+	}
+	order, err := loop.ReadyOrder(rules, true)
+	if err != nil {
+		return "", fmt.Errorf("could not check %s: %w", name, err)
+	}
+	if len(order) == 0 {
+		return "", fmt.Errorf("none of %s's reviewers can run now", name)
+	}
+	return order[0], nil
+}
+
+// checking is `[done_check] model`, else the rules the pick of a reviewer of the seat's, else of a
+// worker, draws by, nothing drawn or asked: errLeft where Python draws the model or runs its turn.
+func checking(record map[string]any) (string, *pick.Rules, error) {
 	model, _, err := config.DoneCheck()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	} else if model != "" {
-		return model, goTurn(model)
+		return model, nil, goTurn(model)
 	}
-	return readyReviewer(name, record)
+	bound, err := config.BindSeat(record)
+	if err != nil {
+		return "", nil, errLeft
+	}
+	reviewers := bound.Reviewers
+	if reviewers == nil {
+		reviewers = bound.Workers
+	}
+	var listed []string
+	for _, each := range reviewers {
+		listed = append(listed, each.(string))
+	}
+	rules, ok := pick.Within(listed, nil)
+	if !ok {
+		return "", nil, errLeft
+	}
+	for _, each := range listed {
+		if err := goTurn(each); err != nil {
+			return "", nil, err
+		}
+	}
+	if errors.Is(usage.Check(), usage.ErrPython) {
+		return "", nil, errLeft
+	}
+	return "", rules, nil
 }
 
 // goTurn is nil where Go runs that model's turn, errLeft where Python does.
@@ -373,39 +424,4 @@ func goTurn(model string) error {
 		return errLeft
 	}
 	return nil
-}
-
-// readyReviewer is the first of the seat's reviewers, else its workers, that a pick draws now.
-func readyReviewer(name string, record map[string]any) (string, error) {
-	bound, err := config.BindSeat(record)
-	if err != nil {
-		return "", errLeft
-	}
-	reviewers := bound.Reviewers
-	if reviewers == nil {
-		reviewers = bound.Workers
-	}
-	var listed []string
-	for _, each := range reviewers {
-		listed = append(listed, each.(string))
-	}
-	rules, ok := pick.Within(listed, nil)
-	if !ok {
-		return "", errLeft
-	}
-	for _, each := range listed {
-		if err := goTurn(each); err != nil {
-			return "", err
-		}
-	}
-	order, err := loop.ReadyOrder(rules, true)
-	if errors.Is(err, usage.ErrPython) {
-		return "", errLeft
-	} else if err != nil {
-		return "", fmt.Errorf("could not check %s: %w", name, err)
-	}
-	if len(order) == 0 {
-		return "", fmt.Errorf("none of %s's reviewers can run now", name)
-	}
-	return order[0], nil
 }

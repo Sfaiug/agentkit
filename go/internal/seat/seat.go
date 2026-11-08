@@ -93,9 +93,11 @@ func (home Home) Seatless() bool { return len(home.records) == 0 }
 // kinds are the files state/ may hold for a seat, by kind: its record and its lock, its seat
 // file's, its typing lock, the plan of a seat the owner stopped, whose word no plan decides, the
 // count of deliveries its plan owes a verification, mid-replace too, which only a verification
-// reads, and the latch its stop hook keeps a turn's start in, which no word reads.
+// reads, what its last done check that found no gap read, mid-replace too, which plan reads to
+// weigh whether a finished plan owes another, and the latch its stop hook keeps a turn's start in,
+// which no word reads.
 var kinds = map[string][]string{"session": {"json"}, ".session": {"lock"}, "seat": {"json", "lock", "announce"}, "notify": {"lock"},
-	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "unverified": {"txt", "txt.new"}, "stop": {"json"}}
+	"plan": {"md"}, "handover": {"md"}, "verify": {"lock"}, "unverified": {"txt", "txt.new"}, "checked": {"txt", "txt.new"}, "stop": {"json"}}
 
 var (
 	// a record's keys: those a word or a row reads, what its looks read beside them (`account`, whose
