@@ -56,8 +56,11 @@ def checkout(build):
         built = subprocess.run(["go", "build", "-o", program, "-trimpath", "./cmd/ak"], env=ENV,
                                cwd=Path(tree, "go"), capture_output=True,
                                text=True) if build and not named else None
-        # a checkout, as Go finds the one it runs from (config.Repo), without the history
+        # a checkout, as Go finds the one it runs from (config.Repo), without the history; its
+        # files staged, so what reads the checkout's tracked files (akinstall.py) finds them as
+        # it does in the checkout Python runs from
         subprocess.run(["git", "init", "-q", tree], check=True)
+        subprocess.run(["git", "-C", tree, "add", "-A"], check=True)
         yield tree, program, built
 
 
