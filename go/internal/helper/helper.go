@@ -120,7 +120,7 @@ func start(cwd string, cpus, memoryMB float64, command string, turn map[string]f
 	if code, base, err := g.Out("rev-parse", "--abbrev-ref", "origin/HEAD"); err == nil && code == 0 {
 		away.base = strings.TrimPrefix(base, "origin/")
 	}
-	if size := len(line("run", away.args(wide+"/"+wide, wide, wide)...)); size >= maxArg {
+	if size := len(Line("run", away.args(wide+"/"+wide, wide, wide)...)); size >= maxArg {
 		return nil, fmt.Sprintf("a piece's line to the suite helper would take %d bytes, more than one argument holds (%d, Linux's MAX_ARG_STRLEN)", size, maxArg), nil
 	}
 	if config.MayRent() {
@@ -322,10 +322,12 @@ func ask(alias string, limit time.Duration, stdin *os.File, verb string, args ..
 
 // remote is ssh running one verb there, never asking for a password, ended with ctx.
 func remote(ctx context.Context, alias, verb string, args ...string) *exec.Cmd {
-	return exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", alias, line(verb, args...))
+	return exec.CommandContext(ctx, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=15", alias, Line(verb, args...))
 }
 
-func line(verb string, args ...string) string {
+// Line is the shell line running one verb on a machine: the remote script, every kind's functions,
+// handed to bash as mac.sh, which picks its own by `uname`.
+func Line(verb string, args ...string) string {
 	linux, _ := carried.ReadFile("linux.sh")
 	mac, _ := carried.ReadFile("mac.sh")
 	return commandhelp.ShellJoin(append([]string{"bash", "-c", string(linux) + string(mac), "mac.sh", verb}, args...))
