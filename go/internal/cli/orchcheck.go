@@ -378,6 +378,18 @@ func checker(name string, record map[string]any) (string, error) {
 	return order[0], nil
 }
 
+// goTurn is nil where Go runs that model's turn, errLeft where Python does.
+func goTurn(model string) error {
+	entry, err := config.ModelNamed(model)
+	if err != nil {
+		return err
+	}
+	if _, err := worker.Adapter(entry, ""); errors.Is(err, worker.ErrPython) {
+		return errLeft
+	}
+	return nil
+}
+
 // checking is `[done_check] model`, else the rules the pick of a reviewer of the seat's, else of a
 // worker, draws by, nothing drawn or asked: errLeft where Python draws the model or runs its turn.
 func checking(record map[string]any) (string, *pick.Rules, error) {
@@ -412,16 +424,4 @@ func checking(record map[string]any) (string, *pick.Rules, error) {
 		return "", nil, errLeft
 	}
 	return "", rules, nil
-}
-
-// goTurn is nil where Go runs that model's turn, errLeft where Python does.
-func goTurn(model string) error {
-	entry, err := config.ModelNamed(model)
-	if err != nil {
-		return err
-	}
-	if _, err := worker.Adapter(entry, ""); errors.Is(err, worker.ErrPython) {
-		return errLeft
-	}
-	return nil
 }
