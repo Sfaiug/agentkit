@@ -58,6 +58,9 @@ func waitSlot(ctx context.Context, dir string) error {
 			if decided, err = decide(waiting); err != nil {
 				return err
 			}
+			if decided.leftToPython(waiting) {
+				return ErrPython
+			}
 			decided.settle(waiting)
 			record = waiting
 			return decided.save()
