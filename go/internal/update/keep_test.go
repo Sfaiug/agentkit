@@ -80,7 +80,7 @@ func TestATickHandsOverAHarnessItCouldNotMoveBeforeAskingItsRelease(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	err := KeepCurrent(config.Resolve(checkout), func(line string) { t.Errorf("said %q", line) })
+	err := KeepCurrent(config.Resolve(checkout), func(line string) { t.Errorf("said %q", line) }, nil)
 	_, recorded := os.Stat(filepath.Join(home, ".agentkit", "state", "harness-latest.json"))
 	if got := calls(t, home); !errors.Is(err, ErrPython) || strings.Join(got, " ") != "--version" || recorded == nil {
 		t.Fatalf("gave %v, calls %q, recorded %v", err, got, recorded == nil)

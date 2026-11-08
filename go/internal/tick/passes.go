@@ -8,6 +8,7 @@ import (
 	"agentkit/internal/gc"
 	"agentkit/internal/googlecloud"
 	"agentkit/internal/handback"
+	"agentkit/internal/helper"
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/leftover"
@@ -35,7 +36,7 @@ var errLeft = errors.New("left to Python")
 func table(t *ticking) []pass {
 	seated := every(func(seat.Live) bool { return true })
 	return []pass{
-		{"merge checks", true, t.dryly(noMergeWork), t.wet(t.mergeChecks)},
+		{"merge checks", true, nil, t.mergeChecks},
 		{"boot resume", true, configured, t.bootResume},
 		{"held lines", false, all(configured, every(holdsNoLine)), nil},
 		{"draft return", false, all(configured, seated, noneSetAside), nil},
@@ -106,7 +107,7 @@ func table(t *ticking) []pass {
 			return nil
 		}},
 		{"rented machines", false, configured, func() error {
-			carried, err := googlecloud.Watch()
+			carried, err := googlecloud.Watch(helper.Line("idle"))
 			if !carried {
 				return errLeft
 			}

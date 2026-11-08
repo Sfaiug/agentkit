@@ -168,7 +168,7 @@ func typable(own string) bool {
 	if own == "" || !harness.Looks(own) || eyeOf(own).bad != nil {
 		return false
 	}
-	_, _, known := script.Typed(own, nil, "")
+	_, _, known, _ := script.Typed(own, nil, "")
 	return known
 }
 

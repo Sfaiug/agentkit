@@ -30,20 +30,18 @@ const (
 // KeepCurrent is the tick's harness upgrade pass from the checkout at repo, Python's
 // update.keep_current.  Only ~/agentkit's own tick does it, so a tick from a worktree, a test's
 // above all, never upgrades this host's harnesses: it says what the last background upgrade said,
-// then, while no upgrade runs, asks each harness this host has its `[update] latest` at most once
-// an hour and starts the first one behind it in the background (Background).  A red release starts
+// then, while no upgrade runs, tells each red's line still owed through deliver, under the
+// upgrade lock (handBack), asks each harness this host has its `[update] latest` at most once an
+// hour and starts the first one behind it in the background (Background).  A red release starts
 // again once retryAfter has passed since its last start, a newer one at once.  A checkout that is
 // somebody's work holds the upgrade unstarted, saying so, and a login its gates would not outlast
-// holds it with no ask until the first tick that one lasts.  ErrPython, before anything is
-// written, while a red's hand-back is owed to a seat, and before the ask of an installed harness
-// movable says Go cannot move.  A checkout with no live gate asks and starts all the same, as
-// Python's does: the background refuses the upgrade and says why.
-func KeepCurrent(repo string, say func(string)) error {
+// holds it with no ask until the first tick that one lasts.  ErrPython before the ask of an
+// installed harness movable says Go cannot move, and deliver's error at the line it gave.  A
+// checkout with no live gate asks and starts all the same, as Python's does: the background
+// refuses the upgrade and says why.
+func KeepCurrent(repo string, say func(string), deliver Deliver) error {
 	if !LiveHere(repo) {
 		return nil
-	}
-	if owed() {
-		return ErrPython // Go types no line into a seat yet
 	}
 	base, err := config.ChildEnv()
 	if err != nil {
@@ -77,7 +75,11 @@ func KeepCurrent(repo string, say func(string)) error {
 	if err != nil {
 		return err
 	}
+	err = handBack(deliver, say)
 	held.Close()
+	if err != nil {
+		return err
+	}
 	record := filepath.Join(config.Home(), "state", "harness-latest.json")
 	asked := run.NewObject()
 	if data, err := os.ReadFile(record); err == nil {
@@ -141,21 +143,6 @@ func KeepCurrent(repo string, say func(string)) error {
 		}
 	}
 	return nil
-}
-
-// owed is whether a red's hand-back waits to be told, as Python's keep_current tells it: a
-// harness's second red in a row, or the fresh-install gate's standing faults.
-func owed() bool {
-	state := filepath.Join(config.Home(), "state")
-	checks, _ := filepath.Glob(filepath.Join(state, "harness-gates", "*", "handed"))
-	for _, check := range checks {
-		record := handed(check)
-		if reds, _ := record["reds"].(float64); reds >= 2 && record["told"] != true {
-			return true
-		}
-	}
-	record := handed(filepath.Join(state, "fresh-gate-faults", "handed"))
-	return len(record) > 0 && record["told"] != true
 }
 
 // latest is the release a harness's `[update] latest` names, as Python's update.latest: "" where
