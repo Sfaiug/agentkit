@@ -25,7 +25,7 @@ func pipeMenu(dry, overlay bool, out, errOut io.Writer) int {
 		}
 		said = nil
 		view := menu.View{Screen: screen, Seats: found.seats, Cells: found.cells, Standing: found.standing,
-			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, &found, own)}
+			Clock: time.Now().Format("15:04"), Keys: menuKeys(screen, &found, own), Pipe: true}
 		for _, line := range menu.Lines(view, screen.Width(), 0) {
 			fmt.Fprintln(out, line)
 		}

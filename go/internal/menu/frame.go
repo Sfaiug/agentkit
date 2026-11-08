@@ -64,6 +64,7 @@ type View struct {
 	New         *Draft
 	Motion      *motion.Clock  // where what moves is this frame; nil, all still
 	Switches    map[string]int // each project naming its feature switches, by checkout: how many are hidden
+	Pipe        bool           // drawn for a pipe: no row is lit, and each opens what it says (piped)
 }
 
 // Keys is the main screen's key line, `p past` on it while a seat the owner stopped is offered.
@@ -115,8 +116,6 @@ func Draw(view View, width, height int) Frame {
 	single := len(keyLine(s, view.Keys, width, ""))
 	paging := len(keyLine(s, view.Keys, width, pageMark(s, 98, 99, false, false)))
 
-	cursor := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0)
-	frame := Frame{cursor: cursor, hidden: view.Highlight.Hidden, width: width, height: height, order: seatOrder(view.Seats, view.Switches)}
 	saidRoom := max(1, sized.room-(2+sized.num+2))
 	said := map[string]int{}
 	opens := 0
@@ -125,6 +124,11 @@ func Draw(view View, width, height int) Frame {
 		opens = max(opens, said[seat.Name])
 	}
 	opens = min(opens, max(1, height/2))
+	cursor, opened := Step(view.Seats, view.Switches, view.Highlight.Cursor, 0), map[string][]string(nil)
+	if view.Pipe {
+		cursor, opens, opened = "", 0, piped(s, view.Seats, saidRoom)
+	}
+	frame := Frame{cursor: cursor, hidden: view.Highlight.Hidden, width: width, height: height, order: seatOrder(view.Seats, view.Switches)}
 
 	standing := ""
 	if view.Standing != "" {
@@ -171,7 +175,7 @@ func Draw(view View, width, height int) Frame {
 	blocks := func(most int) [][][]row {
 		var all [][][]row
 		for _, project := range projects {
-			all = append(all, seatBlocks(s, project.seats, sized, most))
+			all = append(all, seatBlocks(s, project.seats, sized, most, opened))
 		}
 		return all
 	}
@@ -505,8 +509,10 @@ func cell(s terminal.Screen, text string, room int, kind string) string {
 }
 
 // seatBlocks is one block of lines per seat, no line keeping trailing space: its row, what stands
-// under it, and a block of more than most lines (none where negative) cut to them, ending in `…`.
-func seatBlocks(s terminal.Screen, seats []Seat, w widths, most int) [][]row {
+// under it, the lines opened names it opening under the name, and a block of more than most lines
+// (none where negative) cut to them, ending in `…`.
+func seatBlocks(s terminal.Screen, seats []Seat, w widths, most int, opened map[string][]string) [][]row {
+	indent := strings.Repeat(" ", 2+w.num+2)
 	var blocks [][]row
 	for _, seat := range seats {
 		if seat.draft != nil {
@@ -538,9 +544,11 @@ func seatBlocks(s terminal.Screen, seats []Seat, w widths, most int) [][]row {
 			}
 			lines = slices.Insert(lines, 1, under...)
 		}
+		for _, each := range opened[seat.Name] {
+			lines = append(lines, indent+each)
+		}
 		if most >= 0 && len(lines) > max(1, most) {
 			keep := max(1, most)
-			indent := strings.Repeat(" ", 2+w.num+2)
 			if keep == 1 {
 				lines = lines[:1]
 			} else {

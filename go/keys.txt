@@ -266,7 +266,7 @@ test_key_menu_order
 test_key_menu_past
 test_key_menu_palette
 test_key_menu_resize
-test_key_menu_row_content PlanBars DoneSeat
+test_key_menu_row_content
 test_key_menu_stop_card
 test_key_menu_terminal
 test_key_merge_body_query
