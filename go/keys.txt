@@ -170,6 +170,7 @@ test_key_forgotten_seat_side_sessions_close
 test_key_fork_delivery
 test_key_fresh_gate_menu_scripts
 test_key_gc_collects
+test_key_gc_ends_idle_opencode_sessions
 test_key_gc_plan_leftovers
 test_key_gc_plan_runs
 test_key_gc_scheduled

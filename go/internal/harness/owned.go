@@ -38,6 +38,17 @@ func Owned(name string, record map[string]any) (string, bool) {
 	return conversation, true
 }
 
+// Current is the conversation a seat's record is on, as its plugin's `conversation` reads it
+// (notify.conversation_of): the one its harness reported where it reports its own, else the one
+// the record names, vouched for or not; "" for none.
+func Current(name string, record map[string]any) string {
+	if owned := plugins[name].owned; owned != nil {
+		return owned(record)
+	}
+	conversation, _ := record["conversation"].(string)
+	return conversation
+}
+
 // WentInto is the conversation a typing receipt's line went into: the one it names, else the one
 // its launch's own evidence reported, "" while that names none.  A receipt keeps that evidence
 // where the harness had not named the conversation yet, as on a fresh Muse launch.  Python's
