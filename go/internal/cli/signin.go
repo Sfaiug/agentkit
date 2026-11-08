@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"slices"
 	"strings"
 
+	"agentkit/internal/adapters"
 	"agentkit/internal/config"
 	"agentkit/internal/host"
 	"agentkit/internal/logins"
@@ -83,22 +85,24 @@ func ranVerb(harness, verb, account, provider string) bool {
 	if !login {
 		return true
 	}
-	if answered, yes, _ := worker.Login(run.Path, run.Env, "seat"); answered && !yes {
+	// its `auth` is its script's, whoever signed it in
+	script, _ := config.LoginAdapter(harness)
+	if answered, yes, _ := worker.Login(script, run.Env, "seat"); answered && !yes {
 		return false
 	}
 	signedIn[harness] = true // c reads its models again
 	return true
 }
 
-// adapterCall is that verb of the harness's adapter for account's login and provider's, in the
-// environment ak's children get with adapterTold added.
+// adapterCall is that verb of the harness's adapter (adapters.SignIn) for account's login and
+// provider's, in the environment ak's children get with adapterTold added.
 func adapterCall(harness, account, provider string, verb ...string) (*exec.Cmd, error) {
-	adapter, err := config.LoginAdapter(harness)
+	adapter, err := adapters.SignIn(harness, verb[0])
 	env, envErr := config.ChildEnv()
 	if err = cmp.Or(err, envErr); err != nil {
 		return nil, err
 	}
-	call := exec.Command(adapter, verb...)
+	call := exec.Command(adapter[0], slices.Concat(adapter[1:], verb)...)
 	call.Env = append(env, adapterTold(account, provider)...)
 	return call, nil
 }
@@ -111,12 +115,12 @@ func adapterTold(account, provider string) []string {
 
 // forget is what that harness made for account, a login that did not finish, taken away.
 func forget(harness, account string) {
-	adapter, err := config.LoginAdapter(harness)
+	adapter, err := adapters.SignIn(harness, "forget")
 	env, envErr := config.ChildEnv()
 	if cmp.Or(err, envErr) != nil {
 		return // no adapter to run: nothing ran to make anything either
 	}
-	run := exec.Command(adapter, "forget")
+	run := exec.Command(adapter[0], slices.Concat(adapter[1:], []string{"forget"})...)
 	run.Env = append(env, config.AccountEnv(account))
 	run.Run()
 }

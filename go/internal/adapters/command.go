@@ -59,9 +59,7 @@ func answering(name string) ([]string, error) {
 	if launch["seat"] == nil && harness.Interactive(name) == nil {
 		return []string{filepath.Join(config.Repo(), "adapters", name+".sh")}, nil
 	}
-	self, _ := os.Executable()
-	self, err = filepath.EvalSymlinks(self)
-	return []string{self, "adapter", filepath.Dir(filepath.Dir(self)), name}, err
+	return self(name)
 }
 
 // command is the seat's line from the adapter's answer to `interactive` with first, asked in the
