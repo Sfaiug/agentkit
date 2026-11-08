@@ -31,22 +31,26 @@ type Prompt struct {
 // that conversation, as Python's plugin `conversation` and `user_messages` read them: nothing for
 // a seat owning none (notify.owner_messages); false where that harness has no reader of its own,
 // or Owned does not know the conversation.  A named one is that conversation, one the seat left,
-// which no evidence of the record's names any more (notify.conversations_of).
-func Typed(name string, record map[string]any, named string) (conversation string, typed []Prompt, known bool) {
+// which no evidence of the record's names any more (notify.conversations_of).  The error where
+// either is there and cannot be read, as Python's raise where they read strictly (harness.unread),
+// beside what was read.
+func Typed(name string, record map[string]any, named string) (conversation string, typed []Prompt, known bool, err error) {
 	own := plugins[name]
 	if own.owned == nil && own.typed == nil {
-		return "", nil, false
+		return "", nil, false, nil
 	}
 	conversation, known = named, true
-	if named == "" {
+	if named == "" && own.found != nil {
+		conversation, err = own.found(record)
+	} else if named == "" {
 		conversation, known = Owned(name, record)
 	}
 	if !known || conversation == "" || own.typed == nil {
-		return "", nil, known && conversation == ""
+		return "", nil, known && conversation == "", err
 	}
-	typed = own.typed(conversation)
+	typed, err = own.typed(conversation)
 	sort.SliceStable(typed, func(i, j int) bool { return typed[i].At < typed[j].At })
-	return conversation, typed, true
+	return conversation, typed, true, err
 }
 
 // seatFact is watch.seat_fact: the seat's hook fact, or the question card its harness recorded
