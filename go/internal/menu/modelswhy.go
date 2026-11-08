@@ -13,13 +13,6 @@ import (
 func ModelsWhy(s terminal.Screen, found *quality.Said, role string, row *quality.Rating) []string {
 	why := quality.Explain(found, role, row)
 	room := s.LayoutWidth() - 2
-	named := func(row *quality.Rating, room int) string {
-		effort := ""
-		if row.Effort != "" {
-			effort = " " + row.Effort
-		}
-		return terminal.Cut(row.Name, room-terminal.Cells(effort)) + effort
-	}
 	pack := func(parts []string, gap string) []string {
 		var lines []string
 		for _, part := range parts {
@@ -31,11 +24,11 @@ func ModelsWhy(s terminal.Screen, found *quality.Said, role string, row *quality
 		}
 		return lines
 	}
-	lines := []string{"why " + named(row, room-terminal.Cells("why  "+why.Does)) + " " + why.Does}
+	lines := []string{"why " + withEffort(row.Name, row.Effort, room-terminal.Cells("why  "+why.Does)) + " " + why.Does}
 	lines = append(lines, pack([]string{why.Quality, why.Cost}, "   ")...)
 	behind := []string{why.Behind}
 	if why.Best != nil {
-		behind = append(behind, named(why.Best, room))
+		behind = append(behind, withEffort(why.Best.Name, why.Best.Effort, room))
 	}
 	lines = append(lines, pack(behind, " ")...)
 	width, howWidth := 0, 0

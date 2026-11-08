@@ -48,98 +48,58 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 		read <- reading{found, err}
 		keyboard.Wake()
 	}()
-	var rows []*quality.Rating
-	var roles []string
-	var colours map[string]string
-	pointing := false
-	at, top, note := -1, 0, ""
-	// The boards landing leaves the pointer on the row it was on, as Python's does; where that row is
-	// gone, on its role's pick, the first role's before any.
-	lineup := func() {
-		colours = modelColours(found.Rows)
-		role, was := quality.Roles[0], quality.Row{}
-		if at >= 0 && at < len(rows) {
-			role, was = roles[at], rows[at].Row
-		}
-		rows, roles, at = nil, nil, -1
-		pick, first := -1, -1
-		for _, each := range quality.Roles {
-			for _, row := range answer[each].Front {
-				if each == role {
-					if at < 0 && row.Release == was.Release && row.Effort == was.Effort {
-						at = len(rows)
-					}
-					if pick < 0 && row == answer[each].Pick {
-						pick = len(rows)
-					}
-					if first < 0 {
-						first = len(rows)
-					}
-				}
-				rows, roles = append(rows, row), append(roles, each)
-			}
-		}
-		if at < 0 {
-			at = pick
-		}
-		if at < 0 {
-			at = first
-		}
-		if at < 0 && len(rows) > 0 {
-			at = 0
-		}
-	}
-	lineup()
+	view := menu.ModelsView{Title: title} // `▸` on the orchestrator, where the boards landing leaves it
 	defer painter.Forget()
 	for {
 		select {
 		case fresh := <-read:
 			read = nil
 			if fresh.err != nil {
-				note = "the boards were not read: " + fresh.err.Error()
+				view.Note = "the boards were not read: " + fresh.err.Error()
 			} else {
 				found = fresh.found
 				if answered() != nil {
 					return false
 				}
-				lineup()
 			}
 		default:
 		}
 		s := keyboard.Screen()
-		light := menu.ModelLight{}
-		if pointing && at >= 0 && at < len(rows) {
-			light = menu.ModelLight{Maker: rows[at].Maker, Colour: colours[rows[at].Maker]}
-		}
-		frame := menu.ModelsFrame(s, title, menu.ModelsSaid(s, answer, found.Rows),
-			compared, total, found.Fetched, at, top, note, light)
-		top = frame.Top
+		used := c.Uses(answer) // the marks, as `r` leaves them
+		view.Answer, view.Uses, view.Models = answer, used, c.Models
+		view.Compared, view.Total, view.Fetched = compared, total, found.Fetched
+		frame := menu.ModelsFrame(s, view)
+		view.Top = frame.Top
 		painter.Write(frame.Lines, s)
 		key := keyboard.ReadKey()
+		switch {
+		case key.Name == "wake": // the boards landed: drawn again
+			continue
+		case view.Away && key.Name == "enter":
+			view.Away = false // pressed with no `▸` drawn: it only comes back where the keys left it
+			continue
+		}
+		view.Away = false
 		switch {
 		case key.Name == "esc" || key.Name == "eof":
 			return true
 		case key.Name == "again":
 			painter.Forget()
 		case key.Name == "up" || key.Name == "char" && strings.EqualFold(key.Char, "k"):
-			pointing = true
-			at = max(0, at-1)
+			view.At = menu.RoleStep(view.At, -1)
 		case key.Name == "down" || key.Name == "char" && strings.EqualFold(key.Char, "j"):
-			pointing = true
-			at = min(len(rows)-1, at+1)
+			view.At = menu.RoleStep(view.At, 1)
 		case key.Name == "pointer":
 			mouse := key.Mouse
 			if mouse.Button&64 != 0 {
-				pointing = true
-				at = max(0, min(len(rows)-1, at+mouse.Notches))
+				view.At = menu.RoleStep(view.At, mouse.Notches)
 			} else if row, _, hit := frame.Hit(mouse); hit {
-				pointing = true
-				at = row
+				view.At = row
 				if mouse.Released && mouse.Button&3 == 0 {
 					key.Name = "enter"
 				}
 			} else {
-				pointing = false
+				view.Away = true
 			}
 		case key.Name == "char" && key.Char == "p":
 			said, carried := menuCompanyList(title, keyboard, painter)
@@ -149,22 +109,26 @@ func menuModels(session, title string, c *matrix.Configuration, keyboard *termin
 			if answered() != nil { // left, answered again over what is on
 				return false
 			}
-			lineup()
-			note = said
+			view.Note = said
 		case key.Name == "char" && key.Char == "r":
 			changed, err := seat.SaveAdvice(session, c.Selected, c.Takes(answer))
 			if err != nil {
-				note = config.PyError(err)
+				view.Note = config.PyError(err)
 			} else {
 				c.Selected = changed
 				if session == "" {
 					c.Models, _ = config.Models()
 				}
-				note = ""
+				view.Note = ""
 			}
 		}
-		if key.Name == "enter" && at >= 0 && at < len(rows) {
-			modelWhy(title, answer[roles[at]], rows[at], roles[at], keyboard, painter)
+		// the why of the row the role uses, else of its first choice
+		if role := quality.Roles[view.At]; key.Name == "enter" {
+			if row := used[role].Row; row != nil {
+				modelWhy(title, answer[role], row, role, keyboard, painter)
+			} else if choices := answer[role].Choices; len(choices) > 0 {
+				modelWhy(title, answer[role], choices[0], role, keyboard, painter)
+			}
 		}
 	}
 }
