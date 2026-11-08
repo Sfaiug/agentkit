@@ -95,7 +95,9 @@ class RunKeepsItsVersion(unittest.TestCase):
             state = json.loads((directory / "run.json").read_text())
             self.assertTrue(state.get("merged"), (directory / "log.txt").read_text()
                             + str([call["hand_ins"] for fake in fakes.values() for call in fake.runs()]))
-            notes = [json.loads(line) for line in noted.read_text().splitlines()]
+            self.assertNotIn("pickup", state)
+            self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
+            notes =[json.loads(line) for line in noted.read_text().splitlines()]
             self.assertEqual(steps(notes), ({first}, {second}), notes)
             self.assertEqual(handed.read_text().split(), [first, first])
             rig = Rig(home, "gears")
