@@ -3066,6 +3066,14 @@ def cmd_rules(argv):
     return 0
 
 
+def cmd_pair(argv):
+    if len(argv) != 1:
+        raise config.Error("usage: ak orch pair SEAT")
+    # the seat's tool answers: its words and exit status are the verb's own
+    return subprocess.run([sys.executable, str(config.REPO / "tools/codex-seat.py"),
+                           "--pair", argv[0]]).returncode
+
+
 def owns(record, conversation):
     """That conversation is the seat's own: the one its harness says it holds, on evidence the
     harness vouches for -- a launcher-issued id, or its own -- never a guess or a client that
@@ -4900,6 +4908,8 @@ def main(argv):
         return cmd_project(argv[1:])
     if argv[:1] == ["rules"]:
         return cmd_rules(argv[1:])
+    if argv[:1] == ["pair"]:
+        return cmd_pair(argv[1:])
     if argv[:1] == ["check"]:
         from . import done_check   # here, not at the top: it reaches this module through notify
         return done_check.main(argv[1:])

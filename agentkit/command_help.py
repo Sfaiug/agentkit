@@ -118,7 +118,7 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
     "orch": ("""usage: ak orch [NAME] [--model MODEL] [--workers A,B] [--dry-run]
        ak orch list [--why] | ak orch why NAME | ak orch check SEAT | ak orch look FILE
        ak orch stop NAME | ak orch rename [--auto] [OLD] NEW
-       ak orch project [SEAT] CHECKOUT | ak orch rules CODE""",
+       ak orch project [SEAT] CHECKOUT | ak orch rules CODE | ak orch pair SEAT""",
              "Start or attach to a named orchestrator session; a new one opens only from a terminal.\n"
              "--dry-run prints the launch plan.",
              "ak orch parser-fix"),
@@ -126,6 +126,10 @@ Task fields: repo, base, target, from, merge (squash|merge|rebase), rounds.""",
                    "Say this seat's conversation read the rulebook file its prompt named,\n"
                    "with the code on that file's last line: its prompts stop naming it until it changes.",
                    "ak orch rules 3f2a9c81d0e4"),
+    "orch pair": ("usage: ak orch pair SEAT",
+                  "Print a code that pairs the provider's app with a Codex seat; it pages nobody.\n"
+                  "SEAT is the seat's name, a name it had, or the path of its Codex home.",
+                  "ak orch pair parser-fix"),
     "orch list": ("usage: ak orch list [--why]",
                   "List orchestrator sessions and their selections;\n"
                   "--why adds what decided each seat's state, on what evidence, and since when.",
