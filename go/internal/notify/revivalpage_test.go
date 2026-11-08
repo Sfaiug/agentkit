@@ -27,7 +27,7 @@ func TestAFailedRevivalPagesAtOnceInItsExistingEpisode(t *testing.T) {
 			write(seatFile("card", "acme", "json"), run.Line(card))
 			published := func(string) (string, any) { return "needs you", nil }
 			for range 2 {
-				if carried, err := Needs("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", true, published, io.Discard); !carried || err != nil {
+				if carried, err := Needs("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", true, false, published, io.Discard); !carried || err != nil {
 					t.Fatal(carried, err)
 				}
 			}
@@ -40,6 +40,10 @@ func TestAFailedRevivalPagesAtOnceInItsExistingEpisode(t *testing.T) {
 				t.Fatal("the failed revival did not queue its page", event, err)
 			}
 			if event != nil {
+				// a failure is no question: its page says what failed, not what the seat published
+				if notice, _ := readObject(seatFile("notify", "acme", "json")); event.Str("text") != notice.Str("text") {
+					t.Fatal("the failed revival paged another text", run.Line(event))
+				}
 				attempts, _ := event.Int("attempts")
 				if attempts != 1 {
 					t.Fatal("a repeated failure attempted its page again", run.Line(event))
