@@ -21,7 +21,7 @@ func turnedNeed(name string, answer func(string) (string, string, any), clock fu
 		word, reason, since = answer(current)
 		return word, since
 	}
-	return questionTransition(name, said, clock, cardWait, errOut, false, func(current string, file *run.Object) *run.Object {
+	return questionTransition(name, said, clock, cardWait, errOut, nil, func(current string, file *run.Object) *run.Object {
 		return quietNeed(current, file, reason, since, clock)
 	}, func(string) error { return nil })
 }
