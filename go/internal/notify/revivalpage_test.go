@@ -27,7 +27,7 @@ func TestAFailedRevivalPagesAtOnceInItsExistingEpisode(t *testing.T) {
 			write(seatFile("card", "acme", "json"), run.Line(card))
 			published := func(string) (string, any) { return "needs you", nil }
 			for range 2 {
-				if carried, err := Needs("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", true, Looked(published), io.Discard); !carried || err != nil {
+				if carried, err := Needs("acme", "The seat could not reopen; say continue.", "revive:acme:turn:1", true, published, io.Discard); !carried || err != nil {
 					t.Fatal(carried, err)
 				}
 			}

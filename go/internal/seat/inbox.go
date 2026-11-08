@@ -52,7 +52,7 @@ func AskInbox(question, url, sha string, asked bool, typed func(), log func(stri
 	}
 	// a card Go cannot evaluate now leaves the ping owed: the question just typed kept on record for
 	// the word to turn, an earlier try's Python's, nothing written for it
-	pinged, err := notify.Needs(name, question, "inbox:"+url+":"+sha, !asked, notify.Looked(Published), errOut)
+	pinged, err := notify.Needs(name, question, "inbox:"+url+":"+sha, !asked, Published, errOut)
 	return pinged && err == nil, pinged || err != nil || !asked
 }
 

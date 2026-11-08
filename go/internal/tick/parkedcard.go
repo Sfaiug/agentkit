@@ -14,7 +14,7 @@ func (t *ticking) cardParked(name, id, step, line string) bool {
 		return false
 	}
 	cut := []rune("stalled:" + id + ":" + step)
-	carded, err := notify.Needs(name, line, string(cut[:min(len(cut), 200)]), false, seat.AskedWord, t.log.errOut)
+	carded, err := notify.NeedsAsked(name, line, string(cut[:min(len(cut), 200)]), seat.AskedWord, t.log.errOut)
 	if carded && err == nil {
 		// the question turned the seat's word, which Go's card transitions read as published
 		seat.Publish(name)

@@ -66,7 +66,7 @@ func TestARefusedParkedCardHandsOverWritingNothing(t *testing.T) {
 				put(t, filepath.Join(ak, "state", "card-acme.json"), `{"word":"needs you","since":null}`)
 			}
 			put(t, filepath.Join(ak, "state", "seat-acme.json"), run.Line(file))
-			if carried, err := notify.Needs("acme", line, "stalled:fix-api:review", false, notify.Looked(seat.Published), io.Discard); carried || err != nil {
+			if carried, err := notify.Needs("acme", line, "stalled:fix-api:review", false, seat.Published, io.Discard); carried || err != nil {
 				t.Fatalf("the card is not refused: %v, %v", carried, err)
 			}
 			beforeSeat := read(t, filepath.Join(ak, "state", "seat-acme.json"))
