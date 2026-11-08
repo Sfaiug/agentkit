@@ -1,17 +1,14 @@
 package tick
 
 import (
-	"io/fs"
-	"path/filepath"
-	"strings"
 	"time"
 
 	"agentkit/internal/host"
 	"agentkit/internal/run"
 )
 
-// A going loop with recent output needs no stall recovery. Locks and temporaries are
-// the tick's writes, so they never count as the loop's life (watch.stall_clock).
+// A going loop with recent output needs no stall recovery, its output being its run folder's
+// last write (watch.stall_clock).
 func notSilent(dir string, record *run.Object) bool {
 	// a dead loop's silence is measured too: only a live one is asked whether the host froze it
 	pid, _ := record.Int("pid")
@@ -33,15 +30,6 @@ func notSilent(dir string, record *run.Object) bool {
 	if alive && record.Truthy("delivery_wait") && run.Equal(record.Get("delivery_wait"), record.Get("pid")) {
 		return true
 	}
-	err := filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || strings.HasSuffix(entry.Name(), ".lock") || strings.HasSuffix(entry.Name(), ".tmp") {
-			return err
-		}
-		info, err := entry.Info()
-		if err == nil {
-			latest = max(latest, epoch(info.ModTime()))
-		}
-		return err
-	})
-	return err == nil && epoch(time.Now())-latest < minutes*60
+	// what a live loop removes as it is walked, a box it takes down, is no sign it went silent
+	return epoch(time.Now())-max(latest, run.LastWrite(dir)) < minutes*60
 }

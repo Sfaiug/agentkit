@@ -53,3 +53,24 @@ func TestFrozenLoopsLeaveTheirStallClocksToPython(t *testing.T) {
 		}
 	}
 }
+
+func TestALoopsFolderTheWalkCannotReadLeavesItsClockGoing(t *testing.T) {
+	ak, _ := idleHome(t, answers)
+	t.Setenv("AK_CGROUP_ROOT", t.TempDir())
+	identity, known := host.ReadIdentity(os.Getpid())
+	if !known {
+		t.Fatal("test process identity unreadable")
+	}
+	dir := filepath.Join(ak, "runs", "r-build")
+	put(t, filepath.Join(dir, "run.json"), run.Line(run.Fields("state", "running", "pid", os.Getpid(),
+		"process_identity", run.Fields("boot", identity.Boot, "ticks", int(identity.Ticks)))))
+	// as a box the loop is taking down is, part way, while the tick walks its folder
+	box := filepath.Join(dir, ".box-1")
+	if err := os.Mkdir(box, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(box, 0o700) })
+	if !noStallRecovery() {
+		t.Fatal("a loop that just wrote was counted silent")
+	}
+}
