@@ -18,10 +18,10 @@ func Delivered(ctx context.Context, name, check string) error {
 		if err := notify.Held(ctx, name, func(current string) error { return owe(current, 1) }); err != nil {
 			return err
 		}
-		return settle(ctx, name)
+		return settle(ctx, name, nil)
 	}
 	err := verifying(ctx, name, true, func() error {
-		_, err := verify(ctx, name, check)
+		_, err := verify(ctx, name, check, nil)
 		return err
 	})
 	err = notify.Held(ctx, name, func(current string) error {
@@ -46,5 +46,5 @@ func Delivered(ctx context.Context, name, check string) error {
 		}
 		return err
 	})
-	return errors.Join(err, settle(ctx, name))
+	return errors.Join(err, settle(ctx, name, nil))
 }
