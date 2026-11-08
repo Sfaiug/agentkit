@@ -485,8 +485,9 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	if why := gitcall.ContractRefusal(repo); why != "" && l.origin == nil {
 		return refuse("", "", &refusedOutright{why})
 	}
-	// a seat's launch is judged up to its queue, asked last before anything is created
-	if l.seat != "" {
+	// a seat's launch is judged up to its queue, asked last before anything is created; a job's
+	// task is not asked, its job's launch having asked for every task (check_seat_queue)
+	if l.seat != "" && l.job == nil {
 		if err := seatQueue(l.seat); err != nil {
 			return refuse("", "", err)
 		}

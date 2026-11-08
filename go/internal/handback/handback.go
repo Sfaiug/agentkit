@@ -7,8 +7,9 @@
 // Go hands back as Python's hand_back does, to a seat up on ak's own server, a sleeping one woken
 // for an ending typed into it; an ending it does not type is marked pending, which the tick offers
 // at the next quiet prompt: a seat that takes no line now, or a line whose compact form cannot fit.
-// A seat nothing is left of has its ending reported to the owner (Orphaned); any other seat not
-// up there is still Python's to wake, reopen or wait for.
+// A seat nothing is left of has its ending reported to the owner (Orphaned), and a job's task's,
+// gone, its job's one line (muted); any other seat not up there is still Python's to wake, reopen
+// or wait for.
 package handback
 
 import (
@@ -42,7 +43,7 @@ func Give(dir string, say func(string)) bool {
 		return false
 	}
 	gone := !seat.Watching(session)
-	if gone && !Orphaned(record) {
+	if gone && !Orphaned(record) && !muted(record) {
 		awake, carried := seat.Wake(session, say)
 		if carried && !awake {
 			mark(dir, record, "handback_pending", true) // owed: what next wakes it hands it back
@@ -75,6 +76,8 @@ func Give(dir string, say func(string)) bool {
 	if gone {
 		if Orphaned(said) {
 			orphan(dir, said, session, id, say)
+		} else if muted(said) {
+			mark(dir, record, "reported", true, "handback_pending", nil) // its job's line says it
 		}
 		return false // the seat was told nothing
 	}

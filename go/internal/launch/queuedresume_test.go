@@ -7,6 +7,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -24,11 +25,23 @@ import (
 	"agentkit/internal/run"
 )
 
-// TestMain is the box's first process, or a run's driver, where a test starts this program as one:
-// a driver leaves in its run's `waits-as` the run AGENTKIT_RUN_DIR names as it waits for its slot.
+// TestMain is the box's first process, a run's driver or a `--bg` job's launcher, where a test
+// starts this program as one: a driver leaves in its run's `waits-as` the run AGENTKIT_RUN_DIR
+// names as it waits for its slot, or finds its task done where AK_TEST_DONE says so (done).
 func TestMain(m *testing.M) {
 	if code, first := box.First(); first {
 		os.Exit(code)
+	}
+	if len(os.Args) == 4 && os.Args[1] == "run" && os.Args[2] == "resume" {
+		code, err := ResumeJob(os.Args[3], os.Stdout)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			code = 2
+		}
+		os.Exit(code)
+	}
+	if len(os.Args) == 4 && os.Args[1] == "run" && os.Args[2] == loop.DriveFlag && os.Getenv("AK_TEST_DONE") != "" {
+		os.Exit(done(os.Args[3]))
 	}
 	if len(os.Args) == 4 && os.Args[1] == "run" && os.Args[2] == loop.DriveFlag {
 		wait := loop.WaitSlot

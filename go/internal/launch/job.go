@@ -24,25 +24,29 @@ import (
 const jobTick = 2 * time.Second
 
 // Job launches the task files at the absolute paths as one job, Python's job_create and
-// run_job_loop, for a job launched from no seat in the foreground: its receipt with every task
-// queued, then each task an ordinary run of its own, started up to --parallel, which a positive
-// max_runs caps, its driver apart, and followed until it ends.  A task whose run merges or passes
-// settles, and the job is done once every task delivered.  Any other ending, or a step Python's
-// ladder takes before one, it leaves as a launcher that died leaves it, any run kept, for `ak run
-// resume <job>`.  A seat's job, one told --bg, one a gate decides and one with a task Go's own
-// launch would hand over, whose preflight refuses it or whose pick waits for budget, it leaves to
-// Python whole (ErrPython), before anything is written.  `ak run`'s exit status, and why the job
-// is refused, "" for one that went on.
+// run_job_loop: its receipt with every task queued, naming the seat it was launched from, whose
+// queue Fresh asked for every task, then each task an ordinary run of its own under that seat,
+// started up to --parallel, which a positive max_runs caps, its driver apart, and followed until it
+// ends; told --bg, all that after the launch in a launcher apart (detach).  A task whose run merges
+// or passes settles, and the job is done once every task delivered.  Any other ending, or a step
+// Python's ladder takes before one, it leaves as a launcher that died leaves it, any run kept, for
+// `ak run resume <job>`.  A job of a session Go knows no seat by, one a gate decides and one with a
+// task Go's own launch would hand over, whose preflight refuses it or whose pick waits for budget,
+// it leaves to Python whole (ErrPython), before anything is written.  `ak run`'s exit status, and
+// why the job is refused, "" for one that went on.
 func Job(paths []string, values map[string]string, flags map[string]bool, out io.Writer) (int, string, error) {
-	limit, capped := config.MaxRuns()
+	_, capped := config.MaxRuns()
 	depth, _ := runDepth()
-	if os.Getenv("AGENTKIT_SESSION") != "" || flags["--bg"] || gated(depth) || capped != nil {
+	seated, _, unnamed := Seat()
+	if unnamed != nil || seated == "" && os.Getenv("AGENTKIT_SESSION") != "" || gated(depth) || capped != nil {
 		return 0, "", ErrPython
 	}
-	// a run of the job takes the job's options for one run: no --parallel (job_start_task)
-	one := maps.Clone(values)
+	// a run of the job takes the job's options for one run: no --parallel, and driven apart
+	// whatever the job's launcher does (job_start_task)
+	one, single := maps.Clone(values), maps.Clone(flags)
 	delete(one, "--parallel")
-	j := &jobRun{values: one, flags: flags, out: out}
+	delete(single, "--bg")
+	j := &jobRun{values: one, flags: single, out: out}
 	var tasks []*launching
 	for _, path := range paths {
 		l, code, why, err := j.task(path)
@@ -68,14 +72,13 @@ func Job(paths []string, values map[string]string, flags map[string]bool, out io
 	}
 	var asked any // the receipt keeps --parallel as given, None for none
 	if value, given := values["--parallel"]; given {
-		j.parallel, _ = strconv.Atoi(value)
-		asked = j.parallel
-	}
-	if limit > 0 && (j.parallel == 0 || limit < j.parallel) {
-		j.parallel = limit
+		asked, _ = strconv.Atoi(value)
 	}
 	if err := j.create(tasks, asked); err != nil {
 		return 0, "", err
+	}
+	if flags["--bg"] {
+		return detach(j.dir, out)
 	}
 	j.say(fmt.Sprintf("job %s: %d tasks", j.id(), len(tasks)))
 	code, err := j.carry()
@@ -93,17 +96,22 @@ func parks(l *launching) bool {
 	return loop.Parks(rules, l.values["--exec"])
 }
 
-// A jobRun is a job this process launches: its directory and receipt, the options each of its
-// runs takes, how many run at once (0 for no cap), and what says a line on its log.
+// A jobRun is a job this process carries: its directory and receipt, the options each of its
+// runs takes, and what says a line on its log.
 type jobRun struct {
-	dir      string
-	receipt  *run.Object
-	values   map[string]string
-	flags    map[string]bool
-	parallel int
-	out      io.Writer
-	say      func(string)
+	dir     string
+	receipt *run.Object
+	values  map[string]string
+	flags   map[string]bool
+	out     io.Writer
+	say     func(string)
 }
+
+// jobValues and jobSwitches are the options a job's receipt keeps for its runs (job_create).
+var (
+	jobValues   = []string{"--rounds", "--exec", "--review"}
+	jobSwitches = []string{"--no-merge", "--no-worktree", "--anyway", "--first", "--in-order"}
+)
 
 func (j *jobRun) id() string { return filepath.Base(j.dir) }
 
@@ -139,14 +147,14 @@ func (j *jobRun) create(tasks []*launching, parallel any) error {
 	}
 	j.say = jobLogger(j.dir, j.out)
 	opts := run.NewObject()
-	for _, flag := range []string{"--rounds", "--exec", "--review"} {
+	for _, flag := range jobValues {
 		var value any
 		if given, ok := j.values[flag]; ok {
 			value = given
 		}
 		opts.Set(flag, value)
 	}
-	for _, flag := range []string{"--no-merge", "--no-worktree", "--anyway", "--first", "--in-order"} {
+	for _, flag := range jobSwitches {
 		opts.Set(flag, j.flags[flag])
 	}
 	var listed []any
@@ -154,8 +162,12 @@ func (j *jobRun) create(tasks []*launching, parallel any) error {
 		listed = append(listed, run.Fields("name", filepath.Base(l.path), "title", l.named, "state", "queued",
 			"run_id", nil, "executor", nil, "reviewer", nil, "started_at", nil, "finished_at", nil, "task_file", l.path))
 	}
+	var seat any
+	if tasks[0].seat != "" {
+		seat = tasks[0].seat
+	}
 	// this process owns the receipt from its first write, so a kill reads as unfinished, not running
-	j.receipt = run.Fields("job_id", j.id(), "seat", nil, "started_at", run.Float(seconds()), "finished_at", nil,
+	j.receipt = run.Fields("job_id", j.id(), "seat", seat, "started_at", run.Float(seconds()), "finished_at", nil,
 		"parallel", parallel, "executor_history", []any{}, "pid", os.Getpid(), "process_identity", loop.Identity(os.Getpid()),
 		"cwd", cwd, "opts", opts, "tasks", listed)
 	return job.Save(j.dir, j.receipt)
@@ -168,10 +180,15 @@ type ending struct {
 	record *run.Object
 }
 
-// carry is the job's scheduler, Python's run_job_loop: queued tasks start up to its cap, each
-// run's ending settles its task, and the job ends once every task settled; `ak run`'s exit status.
-// It touches the receipt on every pass, its heartbeat.
+// carry is the job's scheduler, Python's run_job_loop: queued tasks start up to its cap, the
+// receipt's --parallel within a positive max_runs, each run's ending settles its task, and the job
+// ends once every task settled; `ak run`'s exit status.  It touches the receipt on every pass, its
+// heartbeat.
 func (j *jobRun) carry() (int, error) {
+	parallel, _ := j.receipt.Int("parallel")
+	if limit, _ := config.MaxRuns(); limit > 0 && (parallel == 0 || limit < parallel) {
+		parallel = limit
+	}
 	ended := make(chan ending)
 	running := 0
 	for {
@@ -180,7 +197,7 @@ func (j *jobRun) carry() (int, error) {
 			if task.Str("state") != "queued" {
 				continue
 			}
-			if j.parallel > 0 && running >= j.parallel {
+			if parallel > 0 && running >= parallel {
 				break
 			}
 			if begun, err := j.begin(task, ended); !begun || err != nil {
@@ -202,10 +219,6 @@ func (j *jobRun) carry() (int, error) {
 			}
 		case <-time.After(jobTick):
 		}
-	}
-	j.receipt.Set("finished_at", run.Float(seconds()))
-	if err := job.Save(j.dir, j.receipt); err != nil {
-		return 0, err
 	}
 	return jobEnded(j.dir, j.receipt, j.say)
 }

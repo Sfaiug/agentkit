@@ -17,15 +17,15 @@ func Awaiting(record *run.Object, now time.Time) bool {
 		!record.Truthy("reported") && !record.Truthy("recovery_notified") && !record.Truthy("recovery_acknowledged_at")
 }
 
-// Reaches is whether Give reaches the seat that launched the run, or the owner in its stead: up
-// on ak's own server, nothing left of it (Orphaned), or asleep where Go wakes it, for an ending
-// typed into it (handback.announce): one that merged or was not needed may be recorded or ride on
-// its next prompt, which wakes nothing.  Never where Go cannot read how its change going live
-// meets it.
+// Reaches is whether Give reaches the seat that launched the run, the owner in its stead, or the
+// job whose one line says it: up on ak's own server, nothing left of it (Orphaned), gone from under
+// a job's task (muted), or asleep where Go wakes it, for an ending typed into it
+// (handback.announce): one that merged or was not needed may be recorded or ride on its next
+// prompt, which wakes nothing.  Never where Go cannot read how its change going live meets it.
 func Reaches(record *run.Object) bool {
 	session := run.Seat(record)
 	_, _, unread := liveEnding(record)
-	return (seat.Watching(session) || Orphaned(record) ||
+	return (seat.Watching(session) || Orphaned(record) || muted(record) ||
 		run.Ended(record) && !record.Truthy("merged") && record.Str("state") != "not_needed" && seat.Wakes(session)) &&
 		unread == nil
 }
