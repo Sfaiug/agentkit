@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"agentkit/internal/history"
 	"agentkit/internal/host"
 	"agentkit/internal/job"
+	"agentkit/internal/launch"
 	"agentkit/internal/run"
 	"agentkit/internal/terminal"
 )
@@ -25,13 +27,15 @@ func init() { commands["run status"] = runStatus }
 
 var statusHeaders = []string{"id", "title", "state", "worker", "round", "age"}
 
-// A listed run is its directory and its record, or the unreadable row in its place.
+// A listed run is its directory and its record, or the unreadable row in its place, and its place
+// in its landing line, "" out of any.
 type listed struct {
 	dir          string
 	record       *run.Object
 	unreadable   bool
 	ending       string
 	recordEnding func()
+	place        string
 }
 
 func (l listed) name() string { return filepath.Base(l.dir) }
@@ -190,12 +194,22 @@ func runStatus(args []string, out, errOut io.Writer) int {
 	return 0
 }
 
-// listing is every readable record and the runs a listing shows, or none, and true, where Go
-// leaves the listing to Python (`refused`).
+// listing is every readable record and the runs a listing shows, each line's places read once
+// where the listing prints them, or none, and true, where Go leaves the listing to Python
+// (`refused`, or a place not landing.line's).
 func listing(seat, wanted string, showHistory, machine bool, now time.Time) ([]*run.Object, []listed, bool) {
 	every, entries := records(seat, wanted)
 	if every == nil || refused(entries, seat, wanted, showHistory, machine, now) {
 		return nil, nil, true
+	}
+	if !machine {
+		place := run.LinePlaces()
+		for i := range entries {
+			var read bool
+			if entries[i].place, read = place(entries[i].record, entries[i].name()); !read {
+				return nil, nil, true
+			}
+		}
 	}
 	return every, entries, false
 }
@@ -269,13 +283,11 @@ func look(record *run.Object) (bool, error) {
 
 // actedOn is whether Python's reap would act on the run as Go does not: end processes it left
 // behind, reap an active run whose loop is gone, offer a wait's recovery, or reap one neither
-// active, waiting, stalled, ended nor untold, past what handback.Reap does; or whether it holds a
-// place in a landing line, which Go leaves to Python.
+// active, waiting, stalled, ended nor untold, past what handback.Reap does.
 func actedOn(record *run.Object) bool {
 	_, owed := run.Reap(record)
-	wait := record.Dict("waiting_on")
 	switch state := record.Str("state"); {
-	case owed || run.InLine(record) || state == "waiting" && wait != nil && wait.Truthy("line"):
+	case owed:
 		return true
 	case run.Active(record):
 		// a launch waiting for its slot is the tick's to adopt
@@ -306,7 +318,7 @@ func refused(entries []listed, seat, wanted string, showHistory, machine bool, n
 			return true
 		}
 		if entry.record.Str("state") == "queued" {
-			if _, read := run.SlotNote(entry.record); !read {
+			if _, read := launch.SlotNote(entry.record); !read {
 				return true
 			}
 		}
@@ -550,7 +562,7 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 	record := entry.record
 	var lines []string
 	dim := func(text string) string { return "  " + screen.Styled(text, "dim") }
-	switch wait, note := waitNote(record), run.ParkedLine(record, entry.name(), now); {
+	switch wait, note := waitNote(record), entry.parked(now); {
 	case entry.ending != "":
 		lines = append(lines, "  "+entry.ending)
 	case wait != "":
@@ -565,11 +577,17 @@ func brief(screen terminal.Screen, entry listed, index run.Index, now time.Time)
 	return append(lines, tail(screen, record)...)
 }
 
+// parked is Python's status.parked_line: the run's place in its landing line, else its retry or
+// who it waits for.
+func (l listed) parked(now time.Time) string {
+	return cmp.Or(l.place, run.ParkedLine(l.record, l.name(), now))
+}
+
 // waitNote is what a run waits for before it works on: a queued one its slot, a running one a
 // heavy suite turn.
 func waitNote(record *run.Object) string {
 	if record.Str("state") == "queued" {
-		note, _ := run.SlotNote(record)
+		note, _ := launch.SlotNote(record)
 		return note
 	}
 	return run.GateTurnNote(record)
@@ -661,7 +679,7 @@ func details(screen terminal.Screen, entry listed, index run.Index, now time.Tim
 		lines = append(lines, "  "+run.RecoveryReason(record)+"; ak run resume "+entry.name()+" offers recovery")
 	}
 	for _, note := range []string{run.BlockedNote(record, screen.Glyph(run.Word(record, index, now))),
-		run.ParkedLine(record, entry.name(), now), run.HandbackWaiting(record), run.Alive(record), run.StopNote(record)} {
+		entry.parked(now), run.HandbackWaiting(record), run.Alive(record), run.StopNote(record)} {
 		if note != "" {
 			lines = append(lines, dim(note))
 		}
@@ -727,7 +745,7 @@ func printPlain(out io.Writer, screen terminal.Screen, entry listed, why bool, m
 	if entry.ending != "" {
 		lines = append(lines, "  "+entry.ending)
 	}
-	if note := waitNote(record); note != "" {
+	if note := cmp.Or(entry.place, waitNote(record)); note != "" {
 		lines = append(lines, "  "+note)
 	}
 	lines = append(lines, tail(screen, record)...)
