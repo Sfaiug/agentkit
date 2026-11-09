@@ -120,7 +120,13 @@ const beforePasses = "before its passes"
 
 func epoch(at time.Time) float64 { return float64(at.UnixNano()) / 1e9 }
 
-func (t *ticking) save() error { return saveState(t.state) }
+// save writes watch.json down; a dry tick keeps it as it was.
+func (t *ticking) save() error {
+	if t.dry {
+		return nil
+	}
+	return saveState(t.state)
+}
 
 // through runs the passes in order, each asked whether it has nothing to act on just before Go
 // carries out its step, the one place that says of a pass that it raised; false at the first that
