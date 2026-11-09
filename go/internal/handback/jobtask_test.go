@@ -29,12 +29,12 @@ func TestAJobsTaskWhoseSeatIsGoneIsLeftToItsJobsLine(t *testing.T) {
 	before, _ := os.ReadFile(filepath.Join(dir, "run.json"))
 	for _, started := range []string{"", filepath.Join(jobs, "20261108-090000-fix-db")} {
 		t.Setenv("AGENTKIT_JOB_DIR", started)
-		if after, _ := os.ReadFile(filepath.Join(dir, "run.json")); Give(dir, func(string) {}) || string(after) != string(before) {
+		if after, _ := os.ReadFile(filepath.Join(dir, "run.json")); Give(dir, nil, func(string) {}) || string(after) != string(before) {
 			t.Fatalf("under %q: %s", started, after)
 		}
 	}
 	t.Setenv("AGENTKIT_JOB_DIR", filepath.Join(jobs, "20261108-090000-fix-api"))
-	if Give(dir, func(string) {}) {
+	if Give(dir, nil, func(string) {}) {
 		t.Fatal("told a seat that is gone")
 	}
 	if after, _ := run.Read(dir); !after.Truthy("reported") || after.Has("handback_pending") || after.Truthy("handed_back") {
