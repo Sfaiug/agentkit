@@ -28,7 +28,7 @@ func TestReviewerClaimRechecksOtherOwnersAfterWaitingForSeatLock(t *testing.T) {
 	home := sandbox(t)
 	t.Setenv("AGENTKIT_SESSION", "acme")
 	state := filepath.Join(home, ".agentkit", "state")
-	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.gemini]\nharness='antigravity'\nmodel='gemini-3'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
+	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.gemini]\nharness='antigravity'\nmodel='gemini-3'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n[done_check]\non = false\n")
 	fields, env := harness.LaunchExtras("antigravity")
 	path := filepath.Join(state, "session-acme.json")
 	write(t, path, run.Encode(run.SetAll(fields, "orchestrator", "gemini", "cwd", home))+"\n")
@@ -126,7 +126,7 @@ func TestReviewerAnAntigravityHistoryEntryKeepsItsOwnConversation(t *testing.T) 
 	state := filepath.Join(home, ".agentkit", "state")
 	write(t, filepath.Join(home, ".agentkit", "config.toml"), "[models.gemini]\nharness='antigravity'\nmodel='gemini-3'\neffort='high'\nprovider='test'\n[providers.test]\nmode='subscription'\n")
 	write(t, filepath.Join(state, "session-acme.json"), `{"orchestrator":"gemini","antigravity_launch":"token-now","antigravity_open":{"launch":"token-now","conversation":"c-now"},"left":[{"harness":"antigravity","conversation":"c-before"}]}`+"\n")
-	had, err := notify.Conversations("acme")
+	had, err := notify.Conversations("acme", false)
 	if err != nil {
 		t.Fatal(err)
 	}
