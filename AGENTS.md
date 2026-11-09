@@ -47,8 +47,7 @@ Mistakes no check catches and no one area of the code holds; one that becomes a 
 
 ## Owner rules
 
-- Each run draws its executor and its reviewer at random from that role's marks that can run now, each on its own, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's own numbers never pick or recommend, and ak spends no turn testing models. The owner, 3 Nov 2026: "Data collection yes, no recommendation." [18 Sep–3 Nov 2026]
-- Models are plugins: `quality.pick` holds the 3 Nov 2026 recommendation rule.
+- Models are plugins. Each run takes its executor and its reviewer from that role's marks that can run now, each on its own, the mark `quality.pick` names first, so a model may review its own build. Every run records who built and who reviewed at which effort, for the owner to compare; ak's runs give "Costs only" (5 Nov), and ak spends no turn testing models. The owner: "Data collection yes, no recommendation." (3 Nov); `quality.pick` first, not random (9 Nov). [18 Sep–9 Nov 2026]
 - Every screen follows `docs/cli-design.md`, the one home of how a screen reads. [15, 16 Sep, 18 Oct]
 - A notes intake, if built, is an optional add-on on the ak screen, using ak's providers. [1 Oct]
 - ak ends a wait when that merges, closes or ends; a merge on a project with `health:`, once it is live or its window has passed. [4, 9 Oct 2026]
