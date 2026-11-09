@@ -19,7 +19,7 @@ func TestATickWithNoLiveGateAsksItsHarnessesTheirLatestRelease(t *testing.T) {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
 	var said []string
-	err := KeepCurrent(config.Resolve(checkout), func(line string) { said = append(said, line) })
+	err := KeepCurrent(config.Resolve(checkout), func(line string) { said = append(said, line) }, nil)
 	record, _ := os.ReadFile(filepath.Join(home, ".agentkit", "state", "harness-latest.json"))
 	want := []string{"gamma 1.0.0 is behind 2.0.0: upgraded once " + checkout +
 		" is main as origin left it, not on fix-api, not main: its gates test it"}

@@ -33,6 +33,8 @@ func launchStands(dir string, record *run.Object) bool {
 	for _, flag := range run.LaunchSwitches {
 		flags[flag] = opts.Truthy(flag)
 	}
+	// judged as followed: the resume, not the launch it saved, decides whether anything follows it
+	flags["--bg"] = false
 	bound := config.Binding{Workers: record.List("workers"), Reviewers: record.List("reviewers")}
 	if bound.Workers == nil {
 		if bound, err = config.Bind(); err != nil {
