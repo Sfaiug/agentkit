@@ -312,9 +312,10 @@ class Pages(Sandbox):
                 patch.object(terminal, "height", return_value=12), \
                 redirect_stdout(io.StringIO()) as out:
             self.assertEqual(menu.loop(self.cfg), 0)
-        marks = re.findall(r"(?m)^  (\d+) / 6\b", out.getvalue())
-        # six pages of two seats each: the usage's one line keeps its row on every page
-        self.assertEqual(marks, ["1", "2", "1", "2", "3", "4", "4", "4"])
+        marks = re.findall(r"(?m)^  (\d+) / 3\b", out.getvalue())
+        # three pages of five seats each, the last turning to the first: the usage's one line
+        # keeps its row on every page
+        self.assertEqual(marks, ["1", "2", "1", "2", "3", "1", "1", "1"])
         self.assertEqual(opened, [LONG_NAME, "seat-03"])   # 12 answered from the first page
 
     def test_the_menu_has_no_runs_list(self):
