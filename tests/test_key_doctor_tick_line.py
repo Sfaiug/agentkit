@@ -5,8 +5,8 @@ and its slowest pass with that pass's seconds; last, that git housekeeping has n
 home (tests/test_key_housekeeping_hourly.py names when it has).  A tick silent for 30 minutes
 is the same hang the overlap line of `ak watch` calls hung, so doctor says that on the line and
 exits 1 once everything else has been said; so does a home where no tick has ended.  Black-box:
-the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, whose `ticked` writes the
-record: 12.5 s long, its slowest pass `incoming prs` at 9.1 s.
+the program `AK_BIN` names runs from outside through tests/fixtures/akbin.py, whose `ticked`
+writes the record: 12.5 s long, its slowest pass `incoming prs` at 9.1 s.
 """
 
 import sys
