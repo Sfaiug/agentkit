@@ -6339,6 +6339,8 @@ def resume_dead_jobs(dry_run=False, log=print, now=None):
             log(f"WARN cannot relaunch job {job_dir.name}: {exc}")
 
 
+# Kept, the owner, 9 Nov 2026: this ladder frees a hung turn (58 stalls from 19 to 30 Oct), so no
+# heartbeat or 60 s reconciler replaces it and the tick stays every 3 minutes (write-up rows 43, 44).
 def recover_runs(cfg=None, dry_run=False, log=print, now=None):
     """One bounded pass over silent runs: detect from outside the loop, climb the ladder.
 
