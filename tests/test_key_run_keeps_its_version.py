@@ -1,13 +1,18 @@
 """A run keeps the ak it was admitted on for its rounds and hand-ins; its landing runs the install.
 
 Each version of the install holds this test's `bin/ak` (`AK`), which notes its commit and its
-arguments, then runs that version's program, kept beside it: a hand-in's version and a landing's
-are what their `ak` noted.  A round's is the commit of the `ak` its worker is handed, which each
-executor turn writes down (`HANDED`): the Home's PATH holds none, so it can only be ak's."""
+arguments, then runs that version's program, kept beside it.  A round's version is the commit of
+the `ak` its worker is handed, which each executor turn writes down (`HANDED`): the Home's PATH
+holds none, so it can only be ak's.  A hand-in's is what the `ak` it ran noted, one note for each
+hand-in a turn made.  A lander may start its program by any path, so its version is read from its
+process while a landing check holds it (`HELD`): the checkout holding its executable, or else its
+script."""
 
 import json
+import os
 from pathlib import Path
 import shlex
+import signal
 import sys
 import time
 import unittest
@@ -38,6 +43,9 @@ else:
     os.execv(program, sys.argv)
 '''
 HANDED = 'git -C "$(dirname "$(command -v ak)")" rev-parse HEAD >>{}'
+# Only a landing runs a `# once` check.  A box may hide the Home's files from it, never its
+# processes from the test, which ends this sleep once it has read the lander's process.
+HELD = "(exec -a landing-held sleep 120); true # once"
 
 
 def wait_for(read):
@@ -48,10 +56,58 @@ def wait_for(read):
     return value
 
 
-def steps(notes):
-    """The commits the hand-ins' ak noted, and the landings'."""
-    return ({commit for commit, *argv in notes if argv[:1] == ["hand-in"]},
-            {commit for commit, *argv in notes if argv[:2] == ["run", "--lander"]})
+def ended(directory):
+    """The run's record, once the run has ended."""
+    state = json.loads((directory / "run.json").read_text())
+    if state.get("state") in ("pass", "fail", "error", "blocked", "exhausted"):
+        return state
+
+
+def notes(noted):
+    """What each version's `ak` noted, oldest first."""
+    return [json.loads(line) for line in noted.read_text().splitlines()]
+
+
+def handed_in(notes):
+    """The hand-ins among `notes`."""
+    return sorted(note for note in notes if note[1:2] == ["hand-in"])
+
+
+def hand_ins(fakes, commit):
+    """Each hand-in the fakes' turns made, as the `ak` of `commit` notes it."""
+    return sorted([commit, "hand-in", *hand["argv"]] for fake in fakes.values()
+                  for call in fake.runs() for hand in call["hand_ins"])
+
+
+def processes():
+    """Each process's id, arguments and executable, as /proc shows them."""
+    for proc in Path("/proc").glob("[0-9]*"):
+        try:
+            argv = (proc / "cmdline").read_bytes().decode(errors="replace").split("\0")[:-1]
+        except OSError:
+            continue    # gone
+        try:
+            exe = os.readlink(proc / "exe")
+        except OSError:
+            exe = ""    # a kernel thread's, or gone
+        yield int(proc.name), argv, exe
+
+
+def landing(home):
+    """The commits the Home's landers run while `HELD` holds a landing, which then goes on."""
+    held = wait_for(lambda: [pid for pid, argv, _ in processes() if argv[:1] == ["landing-held"]])
+    commits = set()
+    for _, argv, exe in processes():
+        if any(argv[at:at + 2] == ["run", "--lander"] for at in range(len(argv))):
+            program = next((path.resolve() for path in map(Path, (exe, *argv))
+                            if path.is_absolute() and path.resolve().is_relative_to(home.root)),
+                           None)
+            if program:
+                commits.add(home.run("git", "-C", str(program.parent), "rev-parse", "HEAD")
+                            .out.strip())
+    for pid in held:
+        os.kill(pid, signal.SIGTERM)
+    return commits
 
 
 class RunKeepsItsVersion(unittest.TestCase):
@@ -80,7 +136,8 @@ class RunKeepsItsVersion(unittest.TestCase):
                        "blocks delivery", "--run", "test ! -f fault.txt"], ["done"]]}
             fixed = {**fakeadapter.WORK, "sh": f"rm fault.txt; {hand}"}
             fakes = fakeadapter.install(home, claude=[held, fixed], codex=[failure, "pass"])
-            task = taskfile.write(home, rig.path)
+            done_when = ("test -f retry.txt", HELD)
+            task = taskfile.write(home, rig.path, done_when=done_when)
             done = home.run(install.ak, "run", str(task), "--bg", timeout=300)
             self.assertEqual(done.code, 0, done.out + done.err)
             directory = taskfile.only_run(home)
@@ -90,25 +147,27 @@ class RunKeepsItsVersion(unittest.TestCase):
             self.assertEqual(tick.code, 0, tick.out + tick.err)
             self.assertEqual(install.head(), second)
             release.touch()
-            wait_for(lambda: json.loads((directory / "run.json").read_text()).get("state")
-                     in ("pass", "fail", "error", "blocked", "exhausted"))
-            state = json.loads((directory / "run.json").read_text())
+            self.assertEqual(landing(home), {second})
+            state = wait_for(lambda: ended(directory))
             self.assertTrue(state.get("merged"), (directory / "log.txt").read_text()
                             + str([call["hand_ins"] for fake in fakes.values() for call in fake.runs()]))
             self.assertNotIn("pickup", state)
             self.assertEqual([s["verdict"] for s in state["round_summaries"]], ["FAIL", "PASS"])
-            notes = [json.loads(line) for line in noted.read_text().splitlines()]
-            self.assertEqual(steps(notes), ({first}, {second}), notes)
+            older = notes(noted)
+            self.assertEqual(handed_in(older), hand_ins(fakes, first), older)
             self.assertEqual(handed.read_text().split(), [first, first])
             rig = Rig(home, "gears")
             gh.grant(rig.slug, "WRITE")
-            fakes["claude"].behave({**fakeadapter.WORK, "sh": hand})
-            fakes["codex"].behave("pass")
-            task = taskfile.write(home, rig.path, "Another retry file")
-            done = home.run(install.ak, "run", str(task), timeout=300)
+            fakes = fakeadapter.install(home, claude={**fakeadapter.WORK, "sh": hand}, codex="pass")
+            task = taskfile.write(home, rig.path, "Another retry file", done_when=done_when)
+            done = home.run(install.ak, "run", str(task), "--bg", timeout=300)
             self.assertEqual(done.code, 0, done.out + done.err)
-            newer = [json.loads(line) for line in noted.read_text().splitlines()][len(notes):]
-            self.assertEqual(steps(newer), ({second}, {second}), newer)
+            newer = next(path for path in taskfile.runs(home) if path != directory)
+            self.assertEqual(landing(home), {second})
+            self.assertTrue(wait_for(lambda: ended(newer)).get("merged"),
+                            (newer / "log.txt").read_text())
+            self.assertEqual(handed_in(notes(noted)[len(older):]), hand_ins(fakes, second),
+                             notes(noted))
             self.assertEqual(handed.read_text().split(), [first, first, second])
 
 
