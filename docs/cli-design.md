@@ -51,10 +51,8 @@ Words are plain and explain themselves.
 - **Progress:** a seat's progress is its line and its count (`terminal.plan_bar`):
   `━━━━╸──── 3 of 8`.
 
-Nothing explains itself on hover. Under the highlighted row opens any text the owner left
-unsent, then one line, whatever the seat's word: who builds and who reviews its work, and each
-task in flight as its squares, never what the seat said, which opening the seat shows. The
-owner, 9 Nov 2026: "I think only models and the current runs should be shown."
+Nothing explains itself on hover. A highlighted row opens its models and squares, never what
+its seat said (owner, 9 Nov 2026).
 
 ## States
 

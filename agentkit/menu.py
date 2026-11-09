@@ -32,8 +32,8 @@ A row is one line: number, name, orchestrator, state, and one last column, its p
 in the room the row has (`terminal.plan_bar`, from `~/.agentkit/state/plan-<session>.md`, under
 any name a rename led from, else from its unfinished jobs) while it is not at rest, its work
 waiting to land too, else empty -- and `✎ unsent` after it where the owner left text unsent.
-What the owner left unsent in a seat, then who builds and reviews and each task's squares
-(`crew`, `squares`), open under the row (`detail`), never what the seat said.  Never two state words on one row,
+What the owner left unsent, then who builds and reviews and each task's squares (`crew`,
+`squares`), open under the row (`detail`), never what a seat said.  Never two state words on a row,
 never `N running`, and never a time estimate.
 
 `ak orch list` carries, after the word, a tally of the runs that seat launched, read from
@@ -1197,7 +1197,8 @@ def v5o_seat_info(cfg, number, session, records, silent_map, jobs_cache, now, in
             "model": config.model_name(cfg, orchestrator),
             "runs_on": ((cfg["models"].get(orchestrator) or {}).get("provider"),
                         selection.get("account") or config.DEFAULT_ACCOUNT) if selection else None,
-            "unsent": found.get("unsent"), "bar": bar, "word": word, "since": found["since"], "repo": session.get("repo")}
+            "unsent": found.get("unsent"), "bar": bar,
+            "word": word, "since": found["since"], "repo": session.get("repo")}
 
 
 class Folds:

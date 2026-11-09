@@ -1,13 +1,10 @@
 """A seat's line shows who builds, who reviews and each task in flight, never what it said.
 
-The owner, 9 Nov 2026: "when the user wants to see what the session said, he can just press on
-it, I think only models and the current runs should be shown."  So the line under a seat that
-needs the owner is the line under any seat: each model building ⚒ and reviewing ◎ its work, then
-each task in flight as three squares, build, review and land, filled as far as it has come --
-never its question, which opening the seat shows.  From a pipe nothing is highlighted, so every
-row opens its line.  Black-box: the program `AK_BIN` names runs from a pipe beside
-tests/fixtures/akseat.py's seats, a question the seat sent and run records like those `ak run`
-writes, and this test fails against `/bin/false`.
+The owner, 9 Nov 2026: "I think only models and the current runs should be shown."  So the line
+under a seat that needs the owner is each model building ⚒ and reviewing ◎ its work, then each
+task in flight as its squares -- never its question.  From a pipe every row opens its line.
+Black-box: `AK_BIN` runs from a pipe beside tests/fixtures/akseat.py's seats, a question the seat
+sent and run records like those `ak run` writes, and this test fails against `/bin/false`.
 """
 
 import re
@@ -19,21 +16,11 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import akconfig
-from fixtures.akbin import REAL_TMUX, Home
+from fixtures.akbin import REAL_TMUX, Home, owner
 from fixtures.akseat import Seat
 
-QUESTION = "Which branch should the parser land on, main or the release one?"
-LIVE = Path("/proc/sys/kernel/random/boot_id")
 
-
-def alive(pid):
-    """A run record's say that its loop is process `pid`, as `ak run` fingerprints it."""
-    ticks = int(Path(f"/proc/{pid}/stat").read_text().rpartition(")")[2].split()[19])
-    return {"pid": pid, "started_at": time.time(),
-            "process_identity": {"boot": LIVE.read_text().strip(), "ticks": ticks}}
-
-
-@unittest.skipUnless(REAL_TMUX and LIVE.exists(), "no tmux, or no /proc to fingerprint a run")
+@unittest.skipUnless(REAL_TMUX and Path("/proc/stat").exists(), "no tmux, or no /proc")
 class ASeatThatNeedsYou(unittest.TestCase):
     def test_its_line_names_its_builder_its_reviewer_and_its_two_tasks_never_its_question(self):
         with Home() as home:
@@ -43,12 +30,12 @@ class ASeatThatNeedsYou(unittest.TestCase):
             self.addCleanup(loop.kill)
             Seat(home, "fix-api", record={"workers": ["spark"], "reviewers": ["opus"]})
             home.write(".agentkit/state/notify-fix-api.json",
-                       {"session": "fix-api", "kind": "needs", "text": QUESTION,
-                        "time": time.time()})
+                       {"session": "fix-api", "kind": "needs", "time": time.time(),
+                        "text": "Which branch should the parser land on, main or the release one?"})
             for run, step in (("0900-aaaa", "executor"), ("0901-bbbb", "reviewer")):
                 home.write(f".agentkit/runs/20261109-{run}/run.json",
                            {"state": "running", "step": step, "launched_session": "fix-api",
-                            **alive(loop.pid)})
+                            "started_at": time.time(), **owner(loop.pid)})
             done = home.ak(input="\n", env={"COLUMNS": "100"})
         self.assertEqual(done.code, 0, done.err)
         lines = [line.rstrip() for line in done.out.splitlines()] + [""]
