@@ -21,8 +21,8 @@ import (
 
 // Each pass meters what Google lists, from the last answer or a machine's creation, at the dearer
 // of the price held and the price offered, and gives back each machine past its end, with no price
-// kept, past the cap or, with no work marked, unused, saying each, in Python's records; a pass with
-// a machine to reach, or a need to rent for, is left to Python with nothing written.
+// kept, past the cap or, with no work marked, unused, saying each, in Python's records; a need to
+// rent for is left to Python with nothing written, unless the cap leaves nothing to rent with.
 func TestTheTickMetersRentalsAndGivesBackThoseItMayNotKeep(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -139,7 +139,7 @@ func TestTheTickMetersRentalsAndGivesBackThoseItMayNotKeep(t *testing.T) {
 		held.Lock()
 		start := len(asked)
 		held.Unlock()
-		carried, err := Watch()
+		carried, err := Watch("")
 		held.Lock()
 		defer held.Unlock()
 		return carried, err, slices.Clone(asked[start:])
@@ -237,30 +237,26 @@ func TestTheTickMetersRentalsAndGivesBackThoseItMayNotKeep(t *testing.T) {
 		t.Error("no ssh key made")
 	}
 
-	// A need noted while ak may rent with work marked, or a machine listed with an address, is
-	// Python's, decided before anything is written, the need included.
+	// A need noted while ak may rent with work marked and the cap leaves money is Python's,
+	// decided before anything is written, the need included.
 	write("state/google-cloud-need", "4096 tests\n")
-	if carried, err, got := pass(november+6*hour, renting); carried || err != nil || len(got) != 0 {
+	if carried, err, got := pass(november+6*hour, renting); carried || err != nil || !slices.Equal(got, []string{listed}) {
 		t.Errorf("a need to rent for: carried %v, %v, asking %q", carried, err, got)
-	}
-	set(func() {
-		listing = []map[string]any{thirteen,
-			rental("16", "acme-16", "europe-west4-a", "c4a-standard-8", "2026-11-01T05:00:00Z", 6, "203.0.113.7")}
-	})
-	if carried, err, got := pass(november+6*hour, off); carried || err != nil || !slices.Equal(got, []string{listed}) {
-		t.Errorf("a machine to reach: carried %v, %v, asking %q", carried, err, got)
 	}
 	if read("state/google-cloud-need") != "4096 tests\n" || read("state/google-cloud-ledger.json") != metered {
 		t.Error("a pass left to Python wrote")
 	}
-	os.Remove(filepath.Join(ak, "state/google-cloud-need"))
 
 	// At 06:00 acme-11 and ak-aaa, gone, are paid to their ends, ak-bbb past its end is paid whole,
-	// and acme-13 goes back past the cap.
+	// and acme-13 goes back past the cap, which leaves nothing to rent for the need with: it is
+	// taken, and Google asked nothing for it.
 	set(func() { listing = []map[string]any{thirteen} })
 	carried, err, got = pass(november+6*hour, strings.Replace(renting, "50", "20", 1))
 	if !carried || err != nil || !slices.Equal(got, []string{listed, "GET acme-13", "DELETE acme-13"}) {
 		t.Errorf("past the cap: carried %v, %v, asking %q", carried, err, got)
+	}
+	if !gone("state/google-cloud-need") || read("state/google-cloud-need.taken") != "4096 tests\n" {
+		t.Error("the need past the cap was not taken")
 	}
 	if got := read("state/google-cloud-ledger.json"); got != `{
   "answered": 1793512800.0,
@@ -275,7 +271,11 @@ func TestTheTickMetersRentalsAndGivesBackThoseItMayNotKeep(t *testing.T) {
 ` {
 		t.Errorf("metered %s", got)
 	}
-	if got := read("state/google-cloud-late.json"); got != "[\n  \"acme-13 listed past the cap, given back\"\n]\n" {
+	if got := read("state/google-cloud-late.json"); got != `[
+  "acme-13 listed past the cap, given back",
+  "rents nothing: \u20ac27.50 of \u20ac20.00 spent this month or held to the machines' ends leaves less than 10 minutes of c4a-standard-8"
+]
+` {
 		t.Errorf("said %s", got)
 	}
 
