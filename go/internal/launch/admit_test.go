@@ -45,14 +45,15 @@ func held(t *testing.T, id string) {
 	}
 }
 
-// A launch the count holds is handed over where its wait would count in history.db, which Go
-// writes none of, leaving runs/ as it found it but for the slots lock; under a suite's sink the same
-// launch waits queued on the count, and one told --first goes in past it, the waiter still in line.
+// A launch its process follows that the count holds is handed over where its wait would count in
+// history.db, which Go writes none of, leaving runs/ as it found it but for the slots lock; under a
+// suite's sink the same launch waits queued on the count, and one told --first goes in past it, the
+// waiter still in line.
 func TestALaunchWaitsInLineOnlyWhereHistoryCountsNoWait(t *testing.T) {
 	home := gatedHome(t, "")
 	held(t, "held")
 	before := files(t, home)
-	if admitted, err := admit("waits", false, "", 0); !errors.Is(err, ErrPython) {
+	if admitted, err := admit("waits", false, "", 0, true); !errors.Is(err, ErrPython) {
 		admitted.release()
 		t.Fatalf("waits beside a history that counts waits: %v", err)
 	}
@@ -60,7 +61,7 @@ func TestALaunchWaitsInLineOnlyWhereHistoryCountsNoWait(t *testing.T) {
 
 	t.Setenv("AK_NOTIFY_SINK", "dry-run")
 	waits := filepath.Join(run.Runs(), "waits")
-	admitted, err := admit("waits", false, "", 0)
+	admitted, err := admit("waits", false, "", 0, true)
 	if err != nil || admitted.in || admitted.kind != "count" {
 		t.Fatalf("not held on the count: %+v %v", admitted, err)
 	}
@@ -73,7 +74,7 @@ func TestALaunchWaitsInLineOnlyWhereHistoryCountsNoWait(t *testing.T) {
 		record.Str("slot_wait_reason") != "waiting for a slot · limit full (1 running) · 0 ahead" {
 		t.Fatal(run.Line(record))
 	}
-	admitted, err = admit("first", true, "", 0)
+	admitted, err = admit("first", true, "", 0, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,8 +92,8 @@ func TestALaunchWaitsInLineOnlyWhereHistoryCountsNoWait(t *testing.T) {
 	}
 }
 
-// A launch outside a suite's home is handed over wherever history.db stands, one in WAL mode
-// among them, before anything reads it: SQLite's -wal and -shm files and its compile cache never
+// A launch its process follows outside a suite's home is handed over wherever history.db stands,
+// one in WAL mode among them, before anything reads it: SQLite's -wal and -shm files and its compile cache never
 // appear.  Under a suite's sink the same launch goes on, its room read there; without history.db it
 // is let in outside one too.
 func TestAHandedOverLaunchLeavesItsHistoryUnopened(t *testing.T) {
@@ -111,14 +112,14 @@ func TestAHandedOverLaunchLeavesItsHistoryUnopened(t *testing.T) {
 	if unread("") {
 		t.Fatal("the launch is left to Python before its admission")
 	}
-	if admitted, err := admit("acme", false, "", 0); !errors.Is(err, ErrPython) {
+	if admitted, err := admit("acme", false, "", 0, true); !errors.Is(err, ErrPython) {
 		admitted.release()
 		t.Fatalf("let in beside history.db: %v", err)
 	}
 	untouched(t, home, before)
 
 	t.Setenv("AK_NOTIFY_SINK", "dry-run")
-	admitted, err := admit("acme", false, "", 0)
+	admitted, err := admit("acme", false, "", 0, true)
 	if err == nil {
 		admitted.ask()
 	}
@@ -131,7 +132,7 @@ func TestAHandedOverLaunchLeavesItsHistoryUnopened(t *testing.T) {
 	os.Remove(history.Path())
 	os.Remove(history.Path() + "-wal")
 	os.Remove(history.Path() + "-shm")
-	admitted, err = admit("acme", false, "", 0)
+	admitted, err = admit("acme", false, "", 0, true)
 	admitted.release()
 	if err != nil || !admitted.in {
 		t.Fatalf("not let in without history.db: %+v %v", admitted, err)
@@ -145,7 +146,7 @@ func TestALineCheckHoldsNoRunAHelperCouldTake(t *testing.T) {
 	os.MkdirAll(run.Runs(), 0o777)
 	waiting := host.LineCheckWaiting()
 	defer waiting.Close()
-	admitted, err := admit("acme", false, "", 0)
+	admitted, err := admit("acme", false, "", 0, true)
 	if err == nil {
 		admitted.ask()
 	}
@@ -154,7 +155,7 @@ func TestALineCheckHoldsNoRunAHelperCouldTake(t *testing.T) {
 		t.Fatalf("not held for the line's check: %+v %v", admitted, err)
 	}
 	os.WriteFile(filepath.Join(config.Home(), "config.toml"), []byte("suite_helper = \"acme\"\n"), 0o666)
-	admitted, err = admit("acme", false, "", 0)
+	admitted, err = admit("acme", false, "", 0, true)
 	if err == nil {
 		admitted.ask()
 	}
