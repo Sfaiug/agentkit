@@ -94,7 +94,7 @@ func answerWritten(state, name string, at float64, wait time.Duration) (done, kn
 	if err != nil || record == nil {
 		return false, false, nil
 	}
-	if conversation, _, read := script.Typed(config.SeatHarness(name), record, ""); !read || conversation == nil || conversation == "" {
+	if conversation, _, read, _ := script.Typed(config.SeatHarness(name), record, ""); !read || conversation == nil || conversation == "" {
 		return false, false, nil
 	}
 	for deadline := time.Now().Add(wait); asked && !Kept(name); since, asked = notify.AskedAt(name) {

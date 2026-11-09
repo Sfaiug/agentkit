@@ -1,6 +1,7 @@
 // Package googlecloud is the machines ak rents from Google Cloud, as Python's google_cloud: what
 // is offered (Offers, Keep, Kept) and the best of it (Best), what ak rents (Rented) and giving one
-// back (GiveBack), and the tick's pass metering this month's spend on them (Watch), in words
+// back (GiveBack), the tick's pass metering this month's spend on them, giving back those it may
+// not keep and routing ssh to the rest (Watch), and what that pass last said (Bill), in words
 // another provider can be one more package of. It alone knows Google:
 // the service-account key, the token its JWT buys, Compute Engine's Spot price list, machine
 // types and machines, how a call to Google fails, and the time it reads.

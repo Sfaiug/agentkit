@@ -32,10 +32,8 @@ import (
 	"agentkit/internal/config"
 	"agentkit/internal/gitcall"
 	"agentkit/internal/handback"
-	"agentkit/internal/helper"
 	"agentkit/internal/history"
 	"agentkit/internal/lock"
-	"agentkit/internal/machines"
 	"agentkit/internal/run"
 	"agentkit/internal/seat"
 	"agentkit/internal/task"
@@ -128,6 +126,7 @@ type launching struct {
 	flags                  map[string]bool
 	reason, warning        string
 	place                  place
+	line                   any // the plan line its task serves (servedLine), which its receipt names
 }
 
 // judge is the launch of the task at path as preflight settles it; nil where it goes no further,
@@ -144,6 +143,9 @@ func (l launcher) judge(path, text string, values map[string]string, flags map[s
 	at := &launching{launcher: l, path: path, text: text, named: titleOf(path, text), meta: meta, cmds: cmds,
 		values: values, flags: flags}
 	if at.dir, err = freeDir(time.Now().Format("20060102-1504-") + task.Slug(at.named)); err != nil {
+		return nil, 0, "", err
+	}
+	if at.line, err = servedLine(l.seat, cmds); err != nil {
 		return nil, 0, "", err
 	}
 	at.reason, at.warning, at.place, err = l.preflight(meta, cmds, path, filepath.Join(at.dir, "task.md"), at.named, values, flags)
@@ -171,7 +173,7 @@ func (at *launching) make(out io.Writer) (func(string) error, func(func(*run.Obj
 		func() error { return os.WriteFile(filepath.Join(at.dir, "task.md"), []byte(at.text), 0o666) },
 		func() error { return os.WriteFile(filepath.Join(at.dir, "log.txt"), nil, 0o666) },
 		func() error {
-			return receive(at.dir, at.receipt(at.dir, at.path, at.values, at.flags), at.place.admitted)
+			return receive(at.dir, at.receipt(at.dir, at.path, at.values, at.flags, at.line), at.place.admitted)
 		},
 		func() error { recorded(at.dir); return nil },
 		func() error { seat.Redress(at.seat); return nil }, // the seat's bar says it from the start
@@ -184,11 +186,11 @@ func (at *launching) make(out io.Writer) (func(string) error, func(func(*run.Obj
 	return log, unstopped, nil
 }
 
-// receipt is the launch's first record: what `ak run` records, with why the tick made it, and the
-// job of a job's task, named in that first write as Python's capture_launch names it, so a stop
-// knows it for one from the start.
-func (l launcher) receipt(dir, path string, values map[string]string, flags map[string]bool) *run.Object {
-	record := run.Capture(dir, path, values, flags, l.bound, l.seat)
+// receipt is the launch's first record: what `ak run` records, the plan line it serves among it,
+// with why the tick made it, and the job of a job's task, named in that first write as Python's
+// capture_launch names it, so a stop knows it for one from the start.
+func (l launcher) receipt(dir, path string, values map[string]string, flags map[string]bool, line any) *run.Object {
+	record := run.SetAll(run.Capture(dir, path, values, flags, l.bound, l.seat), "plan_line", line)
 	if l.job != nil {
 		record.Set("job_id", l.job.id())
 	}
@@ -521,9 +523,6 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 	}
 	// what Python refuses after the base, settled first: finding the base may write origin/HEAD
 	at.every, at.once = task.Group(task.RoundCommands(cmds, suite, landing))
-	if slices.ContainsFunc(at.once, namesShard.MatchString) {
-		return refuse("", "", ErrPython) // a landing check in pieces is Python's lander's
-	}
 	later := task.ChecksRefusal(at.every)
 	switch from := meta["from"]; {
 	case later != "" || from == "":
@@ -545,17 +544,15 @@ func (l launcher) preflight(meta map[string]string, cmds []string, path, copied,
 		if err := drivable(values, l.bound); err != nil {
 			return refuse("", "", err)
 		}
-		// a repository run is Python's where its landing, a rented machine or a model turn may go to
-		// a machine: Go sends only a round's checks there
-		if at.repo != "" && (landing && helper.May() || config.MayRent() || machines.TakesTurns()) {
+		if at.repo != "" && machined() {
 			return refuse("", "", ErrPython)
 		}
 	}
 	if later != "" && (at.repo == "" || gated(l.depth())) {
 		return refuse(later, "", nil)
 	}
-	// copied is the run's own task.md: its folder names the run
-	if at.admitted, err = admit(filepath.Base(filepath.Dir(copied)), flags["--first"], l.seat, l.depth()); err != nil || at.repo == "" {
+	// copied is the run's own task.md: its folder names the run; told --bg, nothing here follows it
+	if at.admitted, err = admit(filepath.Base(filepath.Dir(copied)), flags["--first"], l.seat, l.depth(), !flags["--bg"]); err != nil || at.repo == "" {
 		return refuse("", "", err)
 	}
 	warning := ""

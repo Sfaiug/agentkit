@@ -31,8 +31,10 @@ const (
 )
 
 // Give hands the ending of the run at dir back to the seat that launched it, saying in the run's
-// log what came of it; true where the seat has been told, now or before.
-func Give(dir string, say func(string)) bool {
+// log what came of it; true where the seat has been told, now or before.  Its seat's other runs
+// are read from census, the pass's one read of every run, else as they stand; its own is read
+// again under the delivery lock.
+func Give(dir string, census []*run.Object, say func(string)) bool {
 	record, _ := run.Read(dir)
 	if record == nil {
 		return false
@@ -81,7 +83,7 @@ func Give(dir string, say func(string)) bool {
 		}
 		return false // the seat was told nothing
 	}
-	recordOnly, pending := seat.EndingDelivery(said, nil, session)
+	recordOnly, pending := seat.EndingDelivery(said, census, session)
 	if recordOnly {
 		if !mark(dir, record, "handed_back", now(), "reported", true, "handback_note", routine,
 			"handback_pending", nil, "handback_typed", nil, "handback_wait_reason", nil, "notification_pending", nil) {
