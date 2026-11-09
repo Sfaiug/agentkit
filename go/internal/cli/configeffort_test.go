@@ -85,7 +85,7 @@ func TestAStepGoDoesNotCarryIsHandedOff(t *testing.T) {
 	}
 	for name, config := range map[string]string{
 		"a model turned off":              "companies = ['Acme']\nmodels_off = ['acme-mid-5']\n[models.mid]\nharness = 'claude'\n",
-		"a harness Go types nothing into": "[models.mid]\nharness = 'grokbuild'\n",
+		"a harness Go types nothing into": "[models.mid]\nharness = 'acme'\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			home := t.TempDir()
@@ -107,10 +107,12 @@ func TestAStepGoDoesNotCarryIsHandedOff(t *testing.T) {
 				"model = 'acme-mid-5'\neffort = 'high'\nprovider = 'fuel'\n[providers.fuel]\nmode = 'subscription'\n")
 			put(filepath.Join(home, ".agentkit", "state", "matrix.json"), `{"matrix": {"lineup": [{"release": "acme-mid-5", "maker": "Acme", "effort": "high", `+
 				`"values": {"aa.intelligenceIndex": 50, "arena.agent": 0.6, "aa.frontierCode20": 0.6, "aa.omniscience": 50}, "yours": [{"harness": "claude", "model": "acme-mid-5"}]}]}}`)
-			for _, harness := range []string{"claude", "grokbuild"} {
+			for _, harness := range []string{"claude", "acme"} {
 				put(filepath.Join(home, "adapters", harness+".sh"), "#!/bin/sh\nprintf 'signed in\\n'\n")
 			}
-			for _, program := range []string{"claude", "grok"} {
+			// a harness switched in place whose screen nobody reads
+			put(filepath.Join(home, "adapters", "acme.toml"), "version = 1\nname = 'Acme'\n[switch]\nmodel = '/model {model}'\n[screen]\ncomposer = '('\n")
+			for _, program := range []string{"claude", "acme"} {
 				put(filepath.Join(home, "bin", program), "#!/bin/sh\nexit 0\n")
 			}
 			put(filepath.Join(home, "bin", "tmux"), `#!/bin/sh
