@@ -545,8 +545,14 @@ def render(board=None):
             return "no merged change"
         text = ("no merged change" if stats["share"] is None
                 else f"{stats['share']:.0%} of merged changes met a conflict")
-        return text + "".join(f"; {repo}/{path}: {count} conflicts"
-                              + (" (added lines only)" if added else "")
+
+        def added_only(repo, path):
+            # .gitattributes reads these as a glob, quote, escape, comment or the path's end
+            if re.search(r'[\s*?\[\]!#"\\]', path):
+                return " (added lines only)"
+            return f" (added lines only: `{path} merge=union` in {repo}'s .gitattributes takes both sides)"
+
+        return text + "".join(f"; {repo}/{path}: {count} conflicts" + (added_only(repo, path) if added else "")
                               for repo, path, count, added in stats["files"])
 
     def intent(stats):
