@@ -354,7 +354,7 @@ def seat_line(job_dir, line):
     whole = job_dir / "ending.txt"
     whole.write_text(line + "\n")
     tail = f"… Result: {config.tilde(whole)}. Decide the next step."
-    said = line.rpartition(". Result: ")[0][:watch.longest()]
+    said = line.rpartition(". Result: ")[0][:watch.longest()]    # no word past it can fit
     while said and watch.too_long(said + tail):
         said = said.rpartition(" ")[0]
     return said + tail
