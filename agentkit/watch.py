@@ -5774,7 +5774,9 @@ def note_freeze(run_dir, frozen, now):
 
 def run_last_write(run_dir, skip=(".lock", ".tmp")):
     """The newest write under the run directory: the run's last sign of life.  Locks and temp
-    files are the tick's own bookkeeping, not the run's life; `skip` names what is not counted."""
+    files are the tick's own bookkeeping, not the run's life; `skip` names what is not counted.
+    A link counts as written when it was made: a box's copy of /run links to the host's own
+    files, whose writes were never the run's."""
     latest = 0.0
     try:
         for root, _, files in os.walk(run_dir):
@@ -5782,7 +5784,7 @@ def run_last_write(run_dir, skip=(".lock", ".tmp")):
                 if name.endswith(skip):
                     continue
                 try:
-                    stamp = Path(root, name).stat().st_mtime
+                    stamp = Path(root, name).lstat().st_mtime
                 except OSError:
                     continue
                 if stamp > latest:
