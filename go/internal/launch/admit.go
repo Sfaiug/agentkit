@@ -91,8 +91,8 @@ func admit(id string, first bool, seat string, depth int, followed bool) (*admis
 // for those ahead of it in line and, unless it goes first, for the count, then for the host's room
 // (ask), on the host's readings, read only where it is asked, as Python's gate._host_admits reads
 // them.  ErrPython wherever Go would judge it otherwise, before anything is read that writes: a
-// seat's run in line once a check of the install was handed back to a seat (handedBack); a queue,
-// a poll, a config or a run Go reads otherwise than Python.
+// seat's run in line once a seat was told to go first (run.FirstPlaceTold); a queue, a poll, a
+// config or a run Go reads otherwise than Python.
 func decide(record *run.Object) (*admission, error) {
 	if os.Getenv("AK_MAX_RUNS") == "0" || record.Truthy("run_depth") {
 		return &admission{in: true, outright: true}, nil
@@ -106,7 +106,7 @@ func decide(record *run.Object) (*admission, error) {
 		return nil, ErrPython
 	}
 	waiting, turns := inTurns(append([]*run.Object{record}, others...), saved.turns)
-	if slices.ContainsFunc(waiting, func(other *run.Object) bool { return other.Truthy("launched_session") }) && handedBack() {
+	if slices.ContainsFunc(waiting, func(other *run.Object) bool { return other.Truthy("launched_session") }) && run.FirstPlaceTold() {
 		return nil, ErrPython
 	}
 	a := &admission{id: record.Str("run_id"), running: len(holders), waiting: waiting, turns: turns}
@@ -229,9 +229,10 @@ func places(record *run.Object) (holders, waiting []*run.Object, read bool) {
 	return holders, waiting, read
 }
 
-// order is the head of Python's gate.slot_order for a run Go carries: whether it waits behind the
-// runs going first (`--first`, a member's landing or fix), behind green deliveries, and
-// behind finished work (a later round, or an orchestrator's own pull request).
+// order is the head of Python's gate.slot_order for a run Go carries, update.first_place aside,
+// which only a seat's run holds (run.FirstPlaceTold): whether it waits behind the runs going first
+// (`--first`, a member's landing or fix), behind green deliveries, and behind finished work (a
+// later round, or an orchestrator's own pull request).
 func order(record *run.Object) [3]bool {
 	return [3]bool{!(record.Truthy("first") || waitsOn(record, "land") || waitsOn(record, "fix")),
 		!greenDelivery(record), !(record.Truthy("round_summaries") || record.Truthy("own_pr"))}
@@ -345,10 +346,11 @@ func (a *admission) release() {
 }
 
 // A line is runs/.slots.queue as Python's gate.slot_queue reads it: when the last poll saved it,
-// the waiters first in line first, since when that first has waited there, the waits there of the
-// last firsts let in, each seat's turns, and when the last run went in.
+// the runs then holding a slot, the waiters first in line first, since when that first has waited
+// there, the waits there of the last firsts let in, each seat's turns, and when the last run went in.
 type line struct {
 	at, since, lastIn float64
+	running           int
 	queue             []string
 	took              []float64
 	turns             map[seatKey]turn
@@ -374,7 +376,8 @@ func queued() (line, bool) {
 		slices.ContainsFunc(turns, malformedTurn) {
 		return line{}, false
 	}
-	read := line{at: at, since: since, lastIn: lastIn, turns: map[seatKey]turn{}}
+	running, _ := saved.Int("running")
+	read := line{at: at, since: since, lastIn: lastIn, running: running, turns: map[seatKey]turn{}}
 	for _, listed := range turns {
 		parts := listed.([]any)
 		if len(parts) != 7 {
@@ -397,6 +400,13 @@ func queued() (line, bool) {
 		read.took = append(read.took, took)
 	}
 	return read, true
+}
+
+// SlotQueue is the runs waiting for a slot, first in line first, as the last poll left them
+// (queued); false where Go reads the queue otherwise than Python.
+func SlotQueue() ([]string, bool) {
+	saved, read := queued()
+	return saved.queue, read
 }
 
 // firstInLine is the run first in line and since when it has waited there, Python's
