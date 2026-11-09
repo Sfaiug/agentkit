@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
@@ -78,7 +79,13 @@ func turnFiles(model config.Model, adapter, cwd, out string, env map[string]stri
 	// what this host's Python compiled stays here, unread, as Python's parcel leaves it
 	compiled := func(name string) bool { return strings.Contains(name, "__pycache__") }
 	for _, name := range ak {
-		if err := add(files, filepath.Join(checkout(), name), "ak/"+name, true, compiled); err != nil {
+		// a checkout without Python's ak, as Go's keys run from, carries the rest: the machine
+		// makes each part's folder, held or not
+		from := filepath.Join(checkout(), name)
+		if _, err := os.Lstat(from); errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err := add(files, from, "ak/"+name, true, compiled); err != nil {
 			return nil, err
 		}
 	}
