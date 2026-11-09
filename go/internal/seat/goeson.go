@@ -88,7 +88,7 @@ func (seat reopening) receipted(name string) error {
 // goes into the seat's conversation: the messages already there are `after` it, and where its
 // harness names that conversation only later, its launch (harness.Launch) says which it is.
 func typingReceipt(own string, record map[string]any, text string) *run.Object {
-	conversation, prompts, _ := script.Typed(own, record, "")
+	conversation, prompts, _, _ := script.Typed(own, record, "")
 	sent := run.Fields("at", run.Float(seconds(time.Now())), "text", text, "source", "ak", "harness", own,
 		"conversation", conversation, "after", len(prompts))
 	if conversation == nil {
